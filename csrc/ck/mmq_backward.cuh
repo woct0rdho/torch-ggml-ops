@@ -1007,24 +1007,28 @@ static inline void launch_dense_mmq_grad_input(
             if constexpr (type == GGML_TYPE_Q3_K) {
                 if (out_features >= 2048) {
                     launch_dense_mmq_grad_input_tiled<
-                        type, 8, 32, 1, 2, 16, true, true, true, 8, true>(
+                        type, 8, 32, 1, 2, 16, true, true, true,
+                        0, true, true>(
                         grad_output, packed_weight, grad_input,
                         rows, out_features, in_features, stream);
                 } else {
                     launch_dense_mmq_grad_input_tiled<
-                        type, 8, 32, 1, 2, 16, true, true, false, 8, true>(
+                        type, 8, 32, 1, 2, 16, true, true, false,
+                        8, true>(
                         grad_output, packed_weight, grad_input,
                         rows, out_features, in_features, stream);
                 }
             } else if constexpr (type == GGML_TYPE_Q4_K) {
                 if (in_features >= 4096) {
                     launch_dense_mmq_grad_input_tiled<
-                        type, 8, 32, 1, 2, 16, true, true, true, 8, true>(
+                        type, 8, 32, 1, 2, 16, true, true, true,
+                        8, true>(
                         grad_output, packed_weight, grad_input,
                         rows, out_features, in_features, stream);
                 } else if (in_features >= 2048) {
                     launch_dense_mmq_grad_input_tiled<
-                        type, 8, 32, 1, 2, 16, true, true, true, 8>(
+                        type, 8, 32, 1, 2, 16, true, true, true,
+                        0, true, true>(
                         grad_output, packed_weight, grad_input,
                         rows, out_features, in_features, stream);
                 } else {
@@ -1034,10 +1038,18 @@ static inline void launch_dense_mmq_grad_input(
                         rows, out_features, in_features, stream);
                 }
             } else {
-                launch_dense_mmq_grad_input_tiled<
-                    type, 8, 32, 1, 2, 16, true, true, true>(
-                    grad_output, packed_weight, grad_input,
-                    rows, out_features, in_features, stream);
+                if (in_features >= 2048) {
+                    launch_dense_mmq_grad_input_tiled<
+                        type, 8, 32, 1, 2, 16, true, true, true,
+                        0, true, true>(
+                        grad_output, packed_weight, grad_input,
+                        rows, out_features, in_features, stream);
+                } else {
+                    launch_dense_mmq_grad_input_tiled<
+                        type, 8, 32, 1, 2, 16, true, true, true>(
+                        grad_output, packed_weight, grad_input,
+                        rows, out_features, in_features, stream);
+                }
             }
             return;
         }

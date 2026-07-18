@@ -177,11 +177,13 @@ Format-specific choices:
 
 | Type/shape | Packed-byte prefetch | LDS padding |
 | --- | --- | ---: |
-| Wide Q3_K query | yes | 8 BF16 values per row |
+| Wide Q3_K query | yes | XOR swizzle, no padding |
 | Narrow Q3_K | no | 8 BF16 values per row |
-| Q4_K, `in_features >= 2048` | yes | 8 BF16 values per row |
-| Small shared-down Q4_K | yes | 0 |
-| Q5_K | yes | 0 |
+| Q4_K query/narrow | yes | XOR swizzle, no padding |
+| Attention-output Q4_K | yes | 8 BF16 values per row |
+| Shared-down Q4_K | yes | unpadded, unswizzled |
+| Narrow Q5_K | yes | XOR swizzle, no padding |
+| Shared-down Q5_K | yes | unpadded, unswizzled |
 
 Non-divisible and smaller-row shapes retain bounds-safe measured kernels.
 
@@ -334,7 +336,13 @@ Q3_K also improved:
 | Query | 53.879 ms | 49.803 ms | 1.08x |
 | Narrow | approximately 3.316 ms | 3.138 ms | 1.06x |
 
-Q5_K did not benefit. Narrow Q5_K regressed from 3.378 to 3.622 ms, so Q5_K remains unpadded.
+Q5_K did not benefit from padding. Narrow Q5_K regressed from 3.378 to 3.622 ms, so padded Q5_K remains rejected.
+
+A later no-padding XOR swizzle sweep showed that the result is shape-specific. Query Q3_K/Q4_K measured 49.040/47.454 ms, narrow Q4_K/Q5_K measured 2.969/3.114 ms, and those cases improved relative to the immediately preceding selected dispatch.
+
+The same swizzle regressed narrow Q3_K to 3.093 ms, attention-output Q4_K to 22.812 ms, and both shared-down formats to 5.401/5.651 ms. The selected dispatch therefore uses swizzle only for wide Q3_K query, Q4_K query/narrow, and narrow Q5_K; padded vector loads remain selected for narrow Q3_K and attention-output Q4_K.
+
+The final selected run measured 48.694/47.083 ms for Q3_K/Q4_K query, 2.691/2.915/3.065 ms for narrow Q3_K/Q4_K/Q5_K, and 22.402 ms for attention-output Q4_K. The ordinary batch-16 serial estimate fell to approximately 1.216 seconds.
 
 ### LDS vectorization inspection
 
@@ -424,16 +432,16 @@ The latest accepted measurements combine the 128x128 retile, packed-byte prefetc
 
 | Case | Packed ms | BF16 ms | Throughput ratio | Source |
 | --- | ---: | ---: | ---: | --- |
-| Query Q3_K | 49.324 | 59.462 | 1.21x | padded plus explicit vector local loads |
-| Query Q4_K | 48.716 | 59.511 | 1.22x | padded compiler-managed local loads |
-| Narrow Q3_K | 2.691 | 2.804 | 1.04x | padded plus explicit vector local loads |
-| Narrow Q4_K | 3.071 | 2.849 | 0.93x | padded compiler-managed local loads |
-| Narrow Q5_K | 3.422 | 2.826 | 0.83x | unpadded compiler-managed local loads |
-| Attention output Q4_K | 22.437 | 22.716 | 1.01x | padded plus explicit vector local loads |
-| Shared down Q4_K | 5.327 | 4.141 | 0.78x | unpadded compiler-managed local loads |
-| Shared down Q5_K | 5.452 | 4.126 | 0.76x | unpadded compiler-managed local loads |
+| Query Q3_K | 48.694 | 59.502 | 1.22x | XOR-swizzled vector local loads |
+| Query Q4_K | 47.083 | 59.468 | 1.26x | XOR-swizzled vector local loads |
+| Narrow Q3_K | 2.691 | 2.802 | 1.04x | padded vector local loads |
+| Narrow Q4_K | 2.915 | 2.894 | 0.99x | XOR-swizzled vector local loads |
+| Narrow Q5_K | 3.065 | 2.885 | 0.94x | XOR-swizzled vector local loads |
+| Attention output Q4_K | 22.402 | 22.832 | 1.02x | padded vector local loads |
+| Shared down Q4_K | 5.316 | 4.128 | 0.78x | unpadded compiler-managed local loads |
+| Shared down Q5_K | 5.502 | 4.125 | 0.75x | unpadded compiler-managed local loads |
 
-The ordinary batch-16 serial estimate is now approximately 1.24 seconds across the 160 projections. The corresponding BF16 estimate is approximately 1.28 seconds using the benchmark's per-shape references.
+The ordinary batch-16 serial estimate is approximately 1.216 seconds across the 160 projections. The corresponding BF16 estimate is approximately 1.277 seconds using the same run's per-shape references.
 
 This is an aggregate scheduling estimate, not an end-to-end training measurement. It does not model overlap with other model work.
 
