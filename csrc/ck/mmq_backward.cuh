@@ -1076,12 +1076,12 @@ static inline void launch_dense_mmq_grad_input(
                 in_features % 32 == 0;
             if (full_tiles) {
                 launch_dense_mmq_grad_input_tiled<
-                    type, 2, 64, 0, 1, 0, true, true, false, 0, true, 8>(
+                    type, 2, 64, 0, 1, 0, true, true, false, 0, true, 16>(
                     grad_output, packed_weight, grad_input,
                     rows, out_features, in_features, stream);
             } else {
                 launch_dense_mmq_grad_input_tiled<
-                    type, 2, 64, 0, 1, 0, true, false, false, 0, true, 8>(
+                    type, 2, 64, 0, 1, 0, true, false, false, 0, true, 16>(
                     grad_output, packed_weight, grad_input,
                     rows, out_features, in_features, stream);
             }

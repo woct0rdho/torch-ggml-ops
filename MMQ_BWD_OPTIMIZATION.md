@@ -199,7 +199,7 @@ Non-divisible and smaller-row shapes retain bounds-safe measured kernels.
 
 The small-row kernels use sixteen-value Q6_K decoding and paired local-fragment prefetch. M=64, M=128, and M=256 use exact full-tile paths on production dimensions. Non-production shapes use the same geometries with bounds checks.
 
-M=64 and M=128 use an eight-BF16-chunk XOR LDS swizzle. Row-dependent chunk permutation distributes 128-bit fragment loads across bank phases without increasing LDS footprint.
+M=64 uses a 16-BF16-chunk XOR LDS swizzle, while M=128 uses an eight-BF16-chunk swizzle. Row-dependent chunk permutation distributes 128-bit fragment loads across bank phases without increasing LDS footprint.
 
 M=256 now reuses the same 128x64 swizzled workgroup tile as M=128. Two M workgroups cover the 256 rows, producing 64 workgroups instead of the previous 32-workgroup 128x128 launch.
 
@@ -420,15 +420,21 @@ The final clean Q6_K benchmark is:
 
 | M | Selected geometry | Packed ms | BF16 ms | Throughput ratio |
 | ---: | --- | ---: | ---: | ---: |
-| 64 | M=1/N=2/K=64 with XOR LDS swizzle | 5.829 | 9.856 | 1.69x |
+| 64 | M=1/N=2/K=64 with 16-BF16-chunk XOR LDS swizzle | 5.380 | 9.845 | 1.83x |
 | 128 | M=2/N=4/K=32 with XOR LDS swizzle | 9.187 | 14.433 | 1.57x |
 | 256 | two M blocks of M=2/N=4/K=32 with XOR LDS swizzle | 12.156 | 19.080 | 1.57x |
 
-The XOR LDS swizzle changed M=64 from the largest Q6_K deficit into the fastest production-relative kernel at 1.69x BF16 throughput. The latency fell from 10.938 to 5.829 ms with unchanged 4 KiB LDS capacity and exact benchmark correctness.
+The XOR LDS swizzle changed M=64 from the largest Q6_K deficit into the fastest production-relative kernel at 1.83x BF16 throughput. The final 16-BF16-chunk layout measured 5.365 ms initially and 5.380 ms in the selected repeat, with unchanged 4 KiB LDS capacity and exact benchmark correctness.
 
 M=128 improved from 13.402 to 9.187 ms and reached 1.57x BF16. Applying the swizzle to the eight-N-tile M=256 geometry regressed, but reusing the four-N-tile swizzled geometry with two M workgroups reduced 20.894 to 12.156 ms and also reached 1.57x BF16.
 
 The smaller N tile doubles workgroup count and reduces accumulator pressure. Its repeated packed decode across two M blocks costs less than the parallelism and LDS-bank gains it enables.
+
+A post-swizzle M=64 N=3/K=64 candidate regressed from 5.829 to 12.690 ms. Its 48-column tile does not divide 2048, so bounds checks on every workgroup and the irregular final tile overwhelm its extra N reuse.
+
+The exact N=4/K=64 candidate also regressed to 10.258 ms because its 32 workgroups do not cover the 40 CUs and accumulator pressure rises. A finer four-BF16-chunk swizzle regressed the selected N=2 geometry to 7.880 ms because four 64-bit fragment loads cost more than the additional bank distribution saves.
+
+A coarser 16-BF16-chunk swizzle then improved the exact N=2 geometry from 5.829 to 5.365 ms. It remains selected.
 
 ## Latest results
 
@@ -470,7 +476,7 @@ At batch 16:
 
 | Chunk M | Calls | Packed serial estimate | BF16 serial estimate |
 | ---: | ---: | ---: | ---: |
-| 64 | 512 | 2,984 ms | 5,046 ms |
+| 64 | 512 | 2,755 ms | 5,041 ms |
 | 128 | 256 | 2,352 ms | 3,695 ms |
 | 256 | 128 | 1,556 ms | 2,442 ms |
 
@@ -597,7 +603,7 @@ Local geometry and K-depth tuning have plateaued for shared down. A larger gain 
 
 ### Q6_K small rows
 
-M=64 was limited by its K=64 decoded-weight row stride of 128 bytes, which mapped every row start to the same bank phase. An eight-BF16-chunk XOR swizzle reduced 10.938 ms to 5.829 ms without increasing LDS footprint and while preserving two 128-bit loads per fragment.
+M=64 was limited by its K=64 decoded-weight row stride of 128 bytes, which mapped every row start to the same bank phase. A 16-BF16-chunk XOR swizzle reduced 10.938 ms to about 5.38 ms without increasing LDS footprint and while preserving two 128-bit loads per fragment.
 
 This confirms that the earlier 85.3% conflict percentage represented a first-order bottleneck. The same swizzle is accepted for M=128 at about 9.18 ms. It regressed the original eight-N-tile M=256 geometry, but pairing it with the four-N-tile geometry improved M=256 to 12.156 ms.
 
@@ -661,63 +667,35 @@ Not directly transferable:
 
 ## Next plan
 
-### Rebuild and validate the current source
+### Finalize the selected M=64 swizzle
 
-Before another optimization experiment:
+Rebuild the selected 16-BF16-chunk M=64 source, repeat its benchmark, and run the complete test suite, benchmark compilation, and diff checks before committing.
 
-- rebuild after the Q5_K padding revert;
-- run the complete test suite;
-- run `python -m compileall -q bench`;
-- run `git diff --check`;
-- repeat the full ordinary and LM-head benchmarks sequentially;
-- inspect final code-object resources and private segments.
-
-The current source should not be committed until this validation is clean.
-
-### Restore fully vectorized padded fragment loads
-
-Add an explicit aligned fragment-load helper that reads one 16-BF16 fragment as two 128-bit LDS vectors.
-
-The helper must preserve the accepted eight-BF16 row padding. Generated ISA should recover two `ds_load_b128` instructions per fragment without introducing scratch or a large VGPR increase.
-
-Benchmark overall time on:
-
-- query Q3_K/Q4_K;
-- narrow Q3_K/Q4_K;
-- attention-output Q4_K;
-- shared-down Q4_K as a no-padding control.
-
-Keep the change only if end-to-end latency improves. Instruction count alone is not the objective.
-
-### Test a bank-distributed Q6_K M=64 layout
-
-M=64 is the only production Q6_K kernel below BF16.
-
-After explicit vector fragment loads exist, compare:
-
-- row padding that keeps 16-byte alignment;
-- a small XOR row/bank swizzle;
-- the current unpadded layout.
-
-Preserve the selected M=1/N=2/K=64 geometry. Do not combine this first layout test with another geometry sweep.
+Inspect the final code object if the larger swizzle changes VGPR, LDS, or private-segment metadata.
 
 ### Aggregate LM-head cotangent chunks
 
 At model scheduling level, evaluate M=128 and M=256 aggregation under the 61 MiB and 121 MiB cotangent-buffer budgets.
 
-The M=128 kernel is faster than BF16 and is the current aggregation target. M=256 is close to BF16 but has a larger memory budget and a slower batch-16 serial estimate.
+M=256 now has the lowest serial estimate at about 1.56 seconds for batch 16 and runs at 1.57x BF16 throughput. M=128 remains the lower-memory aggregation option.
 
 ### Address shared-down through representation or cross-call reuse
 
-Do not repeat ordinary geometry sweeps that already plateaued.
+Do not repeat ordinary geometry or K-depth sweeps that have plateaued.
 
 The next high-ceiling options are:
 
-- transient packed-to-BF16 decode followed by a dense GEMM when M is large;
+- transient packed-to-BF16 decode followed by a project-owned dense stage;
 - a persistent lossless int8-plus-scale cache;
 - a decoded-weight cache shared across repeated backward calls.
 
-The project fused kernels should remain independent of hipBLASLt for now. hipBLASLt may remain a reference or a separately dispatched dense stage if that policy changes later.
+Project fused kernels should remain independent of hipBLASLt. hipBLASLt remains an architectural reference unless the linkage policy changes.
+
+### Reduce Q5_K representation cost
+
+Q5_K still trails BF16 on narrow and shared-down shapes despite its selected LDS swizzles.
+
+A useful next kernel experiment must reduce metadata or high-bit decode work. Repeating Q4_K layout changes without changing decode cost is unlikely to help.
 
 ### Consider a lossless int8-plus-scale cache before approximate Q8
 
@@ -725,15 +703,13 @@ Expand each original quant integer losslessly to int8 and cache the original FP3
 
 Approximate cost is 1.25 bytes per value. The 160 ordinary weights would require roughly 475 MiB, versus approximately 760 MiB in BF16.
 
-This removes packed bit extraction and metadata unpacking while preserving the current decoded BF16 result. The first kernel should still expand records cooperatively into BF16 LDS once per workgroup.
+This removes packed bit extraction and metadata unpacking while preserving the current decoded BF16 result. Approximate int8 WMMA remains later because gfx1151 has no raw int8 WMMA throughput advantage.
 
-Approximate int8 WMMA should remain later. gfx1151 has no raw int8 WMMA throughput advantage, and requantization introduces extra error.
+### Consider a second LDS buffer only with profile evidence
 
-### Add a second LDS buffer only after vector loads
+Explicit vector loads and swizzles are already selected. A second buffer is justified only if fresh profiling shows exposed barrier or global-wait latency after the current layout changes.
 
-The current one-buffer kernel already matches or beats BF16 on the dominant ordinary shapes.
-
-A second buffer is justified only if explicit vector loads leave exposed barrier/global-wait latency. Measure one and two buffers separately because shipped gfx1151 dense kernels select both schedules on different shapes.
+Measure one and two buffers separately because shipped gfx1151 dense kernels select both schedules on different shapes.
 
 ## Ideas investigated and retained as deferred options
 
