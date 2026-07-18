@@ -4,4 +4,4 @@ dist/
 *.egg-info/
 *.hip
 *_hip.cuh
-*.so
+*.so*

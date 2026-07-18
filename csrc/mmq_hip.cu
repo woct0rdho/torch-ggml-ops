@@ -89,6 +89,31 @@ int sram_stride_host(int64_t quant_type) {
     }
 }
 
+template <ggml_type type, int J>
+void launch_dense_mmq_multiply(
+        const char * packed,
+        __hip_bfloat16 * output,
+        const block_q8_1_mmq * workspace,
+        int rows,
+        int rows_padded,
+        int in_features,
+        int out_features,
+        hipStream_t stream) {
+    const dim3 mmq_grid((out_features + MMQ_I - 1) / MMQ_I, rows_padded / J, 1);
+    const dim3 mmq_block(WARP_SIZE, MMQ_NWARPS, 1);
+    const int shared_ints = J + GGML_PAD(J * MMQ_TILE_Y_K, MMQ_NTHREADS)
+        + MMQ_I * sram_stride_host(type);
+    dense_mmq_bf16_kernel<type, J>
+        <<<mmq_grid, mmq_block, shared_ints * sizeof(int), stream>>>(
+            packed,
+            reinterpret_cast<const int *>(workspace),
+            output,
+            out_features,
+            rows,
+            rows_padded,
+            in_features / QK_K);
+}
+
 template <ggml_type type>
 void launch_dense_mmq(
         const __hip_bfloat16 * input,
@@ -100,24 +125,24 @@ void launch_dense_mmq(
         int in_features,
         int out_features,
         hipStream_t stream) {
-    const dim3 quant_grid(rows_padded, in_features / 256, 1);
-    const dim3 quant_block(64, 1, 1);
+    const dim3 quant_grid(rows, 1, 1);
+    const dim3 quant_block(512, 1, 1);
     quantize_bf16_mmq_q8_1<type><<<quant_grid, quant_block, 0, stream>>>(
         input, workspace, rows, rows_padded, in_features);
     check_hip(hipGetLastError(), "quantize_bf16_mmq_q8_1 launch");
 
-    const dim3 mmq_grid((out_features + MMQ_I - 1) / MMQ_I, rows_padded / MMQ_J, 1);
-    const dim3 mmq_block(WARP_SIZE, MMQ_NWARPS, 1);
-    const int shared_ints = MMQ_J + GGML_PAD(MMQ_J * MMQ_TILE_Y_K, MMQ_NTHREADS)
-        + MMQ_I * sram_stride_host(type);
-    dense_mmq_bf16_kernel<type><<<mmq_grid, mmq_block, shared_ints * sizeof(int), stream>>>(
-        packed,
-        reinterpret_cast<const int *>(workspace),
-        output,
-        out_features,
-        rows,
-        rows_padded,
-        in_features / QK_K);
+    if constexpr (type == GGML_TYPE_Q6_K) {
+        if (rows_padded == MMQ_J_SMALL) {
+            launch_dense_mmq_multiply<type, MMQ_J_SMALL>(
+                packed, output, workspace, rows, rows_padded, in_features, out_features, stream);
+        } else {
+            launch_dense_mmq_multiply<type, MMQ_J>(
+                packed, output, workspace, rows, rows_padded, in_features, out_features, stream);
+        }
+    } else {
+        launch_dense_mmq_multiply<type, MMQ_J>(
+            packed, output, workspace, rows, rows_padded, in_features, out_features, stream);
+    }
     check_hip(hipGetLastError(), "dense_mmq_bf16_kernel launch");
 }
 
@@ -128,8 +153,8 @@ void launch_grouped_quantize(
         int rows,
         int in_features,
         hipStream_t stream) {
-    const dim3 quant_grid(rows, in_features / 256, 1);
-    const dim3 quant_block(64, 1, 1);
+    const dim3 quant_grid(rows, 1, 1);
+    const dim3 quant_block(512, 1, 1);
     quantize_bf16_mmq_q8_1<type><<<quant_grid, quant_block, 0, stream>>>(
         input, workspace, rows, rows, in_features);
     check_hip(hipGetLastError(), "grouped quantize_bf16_mmq_q8_1 launch");
@@ -446,8 +471,11 @@ Tensor mmq_cuda(
         torch::headeronly::IntHeaderOnlyArrayRef(output_sizes.data(), output_sizes.size()),
         ScalarType::BFloat16);
 
-    const int64_t rows_padded = ((rows + MMQ_J - 1) / MMQ_J) * MMQ_J;
-    const int64_t workspace_bytes = rows_padded * (in_features / (4 * QK8_1)) * sizeof(block_q8_1_mmq);
+    const int64_t row_tile =
+        quant_type == GGML_TYPE_Q6_K && rows <= MMQ_J_SMALL ? MMQ_J_SMALL : MMQ_J;
+    const int64_t rows_padded = ((rows + row_tile - 1) / row_tile) * row_tile;
+    const int64_t workspace_bytes =
+        rows_padded * (in_features / (4 * QK8_1)) * sizeof(block_q8_1_mmq);
     std::array<int64_t, 1> workspace_size{workspace_bytes};
     Tensor workspace_tensor = torch::stable::new_empty(
         input,
