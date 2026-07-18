@@ -227,7 +227,7 @@ The accepted dense kernel in `csrc/ck/mmq_backward.cuh` now:
 
 - uses four wave32 waves per 128-thread workgroup;
 - computes one 16-row WMMA tile per wave, or 64 output rows per workgroup;
-- is templated as `<quant_type, N_TILES, K_ITERATION>`;
+- is templated as `<quant_type, N_TILES, K_ITERATION, GROUP_M>`;
 - retains multiple 16-column input-gradient tiles in WMMA accumulators;
 - stages decoded packed-weight tiles in LDS;
 - uses pair decoders for Q3_K, Q4_K, and Q5_K where profitable;
@@ -254,6 +254,29 @@ Current non-Q6 dispatch:
 - larger rows: sixteen N tiles.
 
 For Q3_K at 2,048 rows, wide query shapes use the quad decoder with four N tiles. The narrow 512-output shape uses eight N tiles and pair decoding; this reduced its 2,048-row latency from about 1.19 ms to about 0.58 ms.
+
+### Grouped M traversal for ordinary backward
+
+The FeatherOps-inspired workgroup traversal experiment produced a large further improvement without changing kernel arithmetic. The old two-dimensional grid ran all M blocks for one N block before advancing N. For rows above 256, the accepted grid groups two M blocks at a time:
+
+```text
+grid = [2, n_blocks, ceil(m_blocks / 2)]
+m_block = blockIdx.z * 2 + blockIdx.x
+n_block = blockIdx.y
+```
+
+This keeps one `grad_output` tile hot while more input-gradient N blocks consume it, at the cost of a smaller packed-weight reuse window. `GROUP_M=1,2,4,8,16` and the old all-M ordering were benchmarked sequentially. Two was the best overall production compromise; one was nearly tied on narrow and Q3_K shapes, while four was slightly better only on attention output. Rows up to 256 retain the original launch order so the LM-head dispatch is unchanged.
+
+Focused M=32,768 results before and after the accepted mapping:
+
+| Case | Previous ms | `GROUP_M=2` ms | Improvement |
+| --- | ---: | ---: | ---: |
+| Query Q3_K | 162.884 | 112.026 | 1.45x |
+| Narrow Q4_K | 11.130 | 7.051 | 1.58x |
+| Attention output Q4_K | 80.633 | 55.768 | 1.45x |
+| Shared down Q4_K | 14.095 | 10.458 | 1.35x |
+
+The same mapping also improved the primary M=2,048 and M=8,192 cases. The next bounded ordinary-backward experiment remains the four-wave M=2 geometry family with one LDS buffer, followed by sixteen-value decoders and `K_ITERATION=64` only if geometry wins independently.
 
 ## Backward results
 

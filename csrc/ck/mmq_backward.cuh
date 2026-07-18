@@ -239,7 +239,7 @@ static __device__ __forceinline__ void decode_backward_tile_sixteen_q6(
     }
 }
 
-template <ggml_type type, int N_TILES, int K_ITERATION>
+template <ggml_type type, int N_TILES, int K_ITERATION, int GROUP_M>
 __launch_bounds__(BACKWARD_THREADS, 2)
 static __global__ void dense_mmq_grad_input_kernel(
         const __hip_bfloat16 * __restrict__ grad_output,
@@ -252,7 +252,10 @@ static __global__ void dense_mmq_grad_input_kernel(
     constexpr int N_PER_BLOCK = N_TILES * BACKWARD_N_PER_TILE;
     const int wave = threadIdx.x / BACKWARD_WAVE_SIZE;
     const int lane = threadIdx.x % BACKWARD_WAVE_SIZE;
-    const int block_row_start = blockIdx.x * BACKWARD_M_PER_BLOCK;
+    const int m_block = GROUP_M > 0
+        ? blockIdx.z * GROUP_M + blockIdx.x
+        : blockIdx.x;
+    const int block_row_start = m_block * BACKWARD_M_PER_BLOCK;
     const int wave_row_start = block_row_start + wave * BACKWARD_M_PER_WAVE;
     const int input_column_start = blockIdx.y * N_PER_BLOCK;
     const int64_t packed_row_bytes =
@@ -454,7 +457,7 @@ static __global__ void dense_mmq_grad_input_kernel(
     }
 }
 
-template <ggml_type type, int N_TILES, int K_ITERATION>
+template <ggml_type type, int N_TILES, int K_ITERATION, int GROUP_M = 2>
 static inline void launch_dense_mmq_grad_input_tiled(
         const __hip_bfloat16 * grad_output,
         const char * packed_weight,
@@ -464,12 +467,17 @@ static inline void launch_dense_mmq_grad_input_tiled(
         int in_features,
         hipStream_t stream) {
     constexpr int n_per_block = N_TILES * BACKWARD_N_PER_TILE;
+    const int m_blocks =
+        (rows + BACKWARD_M_PER_BLOCK - 1) / BACKWARD_M_PER_BLOCK;
+    const int group_m = GROUP_M > 0 && GROUP_M < m_blocks
+        ? GROUP_M
+        : m_blocks;
     const dim3 grid(
-        (rows + BACKWARD_M_PER_BLOCK - 1) / BACKWARD_M_PER_BLOCK,
+        group_m,
         (in_features + n_per_block - 1) / n_per_block,
-        1);
+        GROUP_M > 0 ? (m_blocks + GROUP_M - 1) / GROUP_M : 1);
     const dim3 block(BACKWARD_THREADS, 1, 1);
-    dense_mmq_grad_input_kernel<type, N_TILES, K_ITERATION>
+    dense_mmq_grad_input_kernel<type, N_TILES, K_ITERATION, GROUP_M>
         <<<grid, block, 0, stream>>>(
         grad_output,
         packed_weight,
@@ -491,15 +499,15 @@ static inline void launch_dense_mmq_grad_input(
         hipStream_t stream) {
     if constexpr (type == GGML_TYPE_Q6_K) {
         if (rows <= 64) {
-            launch_dense_mmq_grad_input_tiled<type, 1, 64>(
+            launch_dense_mmq_grad_input_tiled<type, 1, 64, 0>(
                 grad_output, packed_weight, grad_input,
                 rows, out_features, in_features, stream);
         } else if (rows <= 128) {
-            launch_dense_mmq_grad_input_tiled<type, 2, 64>(
+            launch_dense_mmq_grad_input_tiled<type, 2, 64, 0>(
                 grad_output, packed_weight, grad_input,
                 rows, out_features, in_features, stream);
         } else if (rows <= 256) {
-            launch_dense_mmq_grad_input_tiled<type, 4, 32>(
+            launch_dense_mmq_grad_input_tiled<type, 4, 32, 0>(
                 grad_output, packed_weight, grad_input,
                 rows, out_features, in_features, stream);
         } else if (rows <= 2048) {
@@ -512,11 +520,11 @@ static inline void launch_dense_mmq_grad_input(
                 rows, out_features, in_features, stream);
         }
     } else if (rows <= 128) {
-        launch_dense_mmq_grad_input_tiled<type, 1, 16>(
+        launch_dense_mmq_grad_input_tiled<type, 1, 16, 0>(
             grad_output, packed_weight, grad_input,
             rows, out_features, in_features, stream);
     } else if (rows <= 256) {
-        launch_dense_mmq_grad_input_tiled<type, 4, 16>(
+        launch_dense_mmq_grad_input_tiled<type, 4, 16, 0>(
             grad_output, packed_weight, grad_input,
             rows, out_features, in_features, stream);
     } else if (rows <= 2048) {
