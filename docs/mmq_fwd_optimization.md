@@ -22,7 +22,27 @@ Excluded:
 - public operator-schema changes;
 - changes to `csrc/vendor/llama_cpp/*`.
 
-The grouped path uses the rewritten shared activation quantizer because its old launch shape is incompatible with the new quantizer. Its multiplication kernel remains outside this optimization pass.
+The grouped path shares the rewritten activation quantizer but now has its own independently optimized multiplication and scheduling implementation, documented in `docs/grouped_mmq_fwd_optimization.md`.
+
+## Current status
+
+Dense forward optimization is complete for the current fused packed representation and all retained source is committed.
+
+Done:
+
+- replaced the excessive small-workgroup Q8_1 launch with one 512-thread workgroup per real activation row;
+- added compile-time row-tile selection and retained `J=64` only for the 64-row Q6_K fallback;
+- kept the measured ordinary `I=64, J=128`, 128-thread geometry;
+- validated zero private segment for the retained quantizer and dense forward specializations;
+- selected 256 rows as the production LM-head loss chunk at the scheduling layer.
+
+The source-of-record benchmark remains `/tmp/mmq_fwd_final_full.json`. The production LM-head decision must be evaluated with the complete loss loop: its M=256 forward call is slower than BF16 in isolation, but the 2,048-row packed loss is faster because M=256 sharply reduces call count and uses the optimized backward kernel.
+
+Remaining work is architectural rather than another broad fused-kernel sweep:
+
+- reuse Q8_1 activation workspaces across same-input projections;
+- change the Q6_K M=256 representation or accumulator organization if a new dense-forward project is authorized;
+- consider cross-call decoded-weight reuse or a transient project-owned decoded dense stage.
 
 ## Hardware and measurement rules
 
@@ -150,7 +170,7 @@ Dense forward was generalized from fixed `J=128` to compile-time `J` in project-
 
 The 64-row Q6_K fallback specialization removes 64 padded rows and halves the accumulator and activation-tile footprint. The production 256-row chunk uses `J=128` because a global `J=64` policy regressed ordinary and larger-row workloads.
 
-## Latest results
+## Final retained results
 
 The following compares the valid sequential baseline with `/tmp/mmq_fwd_final_full.json`. Ratio means packed-MMQ throughput divided by BF16 throughput.
 
@@ -267,63 +287,61 @@ FeatherOps reinforces several measurement rules:
 - keep explicit prefetch state in fixed scalar/vector VGPR values rather than compiler-managed arrays;
 - optimize whole-call time, including quantization and workspace allocation.
 
-## Remaining bottlenecks
+## Completed work and stopping point
 
-Forward has no large margin on the current production path.
+The retained dense-forward implementation has bounded the useful local neighborhoods for quantizer launch shape, `I`, `J`, thread count, and the current fused packed WMMA organization.
 
 The remaining single-call deficits are:
 
 - Q6_K at M=256: 16.127 ms versus about 13.05 ms BF16, or approximately 0.81x throughput;
 - narrow Q3_K and Q5_K at M=32,768: about 5-9% behind BF16;
-- repeated Q8 quantization and workspace allocation when several projections consume the same BF16 activation.
+- repeated Q8_1 quantization and workspace allocation when several projections consume the same BF16 activation.
 
-M=256 is now the production LM-head chunk. Its complete 2,048-row packed-loss loop measured 229.958 ms versus 312.690 ms for M=64 because the faster backward schedule and reduced call count outweigh the forward single-call deficit.
+These deficits do not change the production LM-head selection. M=256 is the production chunk because the complete 2,048-row packed-loss loop measured 229.958 ms versus 312.690 ms for M=64. The faster backward schedule and lower call count outweigh the forward single-call deficit. M=128 and M=64 remain lower-memory fallbacks.
 
-A new forward kernel would still need to reduce the `J=128` Q6_K kernel's approximately 225 architectural VGPRs without repeating the failed global `J=64` or `I=128` experiments.
+No further global `J=64`, `I=128`, or broad tile sweep should be repeated. Those neighborhoods already regressed the production mix.
 
-## Next plan
+## Remaining work
 
-### Reuse Q8 activation workspaces across same-input projections
+### Reuse Q8_1 activations across same-input projections
 
-Every dense `mmq` call currently allocates and fills a Q8 workspace, even when several projections consume the same BF16 tensor.
+This is the highest-confidence dense-forward opportunity. Every dense `mmq` call currently allocates and fills a Q8_1 workspace even when several projections consume the same BF16 tensor.
 
-Add either:
+A future implementation should use either:
 
 - an explicit prepared-activation internal operator; or
-- a dense pair/multi-projection operator analogous to the existing grouped pair path.
+- a dense pair/multi-projection operator analogous to `grouped_mmq_pair`.
 
-Q4_K/Q5_K use the scale-plus-sum Q8 layout. Q3_K/Q6_K/IQ2_S use the scale-only layout. A layer requiring both classes needs at most two quantizations.
+Q4_K/Q5_K use the scale-plus-sum Q8 layout, while Q3_K/Q6_K/IQ2_S use the scale-only layout. A layer requiring both classes needs at most two quantizations. Avoid an implicit pointer cache unless it tracks storage identity, tensor version, device, stream ordering, shape, row padding, and metadata layout.
 
-For three same-layout projections, reuse can remove two quantizer launches and two workspace allocations without changing multiplication or accuracy. Measure this at model scheduling level because the single-projection harness cannot expose the benefit.
+### Revisit Q6_K M=256 only with a new representation argument
 
-Avoid an implicit pointer cache unless it tracks storage identity, tensor version, device, stream ordering, shape, row padding, and metadata layout.
+A future Q6_K project must materially reduce the `J=128` kernel's approximately 225 architectural VGPRs or avoid reconstructing the same packed data in the same way. Acceptance requires a complete M=256 gain without regressing M=64, M=128, or ordinary projections.
 
-### Revisit the production Q6_K `J=128` path
+Promising higher-ceiling directions are:
 
-A bounded future sweep could investigate lower-VGPR accumulator organization or a different `J=128` schedule. Acceptance requires a large end-to-end gain on M=256 without regressing the M=64 fallback or ordinary shapes.
+- cross-call decoded-weight reuse;
+- a compact lossless int8-plus-scale cache;
+- transient packed-to-BF16 decode followed by a project-owned dense stage.
 
-Do not repeat global `J=64`, `I=128`, or broad tile sweeps that already failed.
+On gfx1151, approximate int8 WMMA is not justified by raw arithmetic throughput alone.
 
-### Consider wider activation staging only after workspace reuse
+### Lower-priority ISA-guided work
 
-The activation LDS staging loop is logically 32-bit and the compiler already combines many stores into dual-address instructions. A remap to per-thread 64- or 128-bit loads/stores may reduce instruction count, but it can also increase VGPR usage or weaken coalescing.
+Wider activation staging or a changed LDS producer mapping is justified only if fresh profiling identifies exposed instruction or wait overhead. The compiler already combines many stores, and the accepted production gains came from quantizer scheduling rather than a multiplication rewrite.
 
-Treat this as a controlled ISA-guided experiment, not an assumed improvement. It is lower priority than eliminating duplicate quantization across projections.
-
-### Keep project kernels independent of hipBLASLt
-
-hipBLASLt remains a geometry and scheduling reference. Do not link the packed project kernel directly against it in the current work.
-
-A transient dequantize-plus-dense-GEMM design is a separate representation strategy and is not part of the fused forward plan.
+hipBLASLt remains a geometry and scheduling reference. The packed project kernels must remain independent of direct hipBLASLt linkage under the current policy.
 
 ## Correctness and compatibility
 
-The complete suite passed after the committed forward implementation:
+The current complete project suite passes:
 
 ```text
 pytest -q tests/
-38 passed
+39 passed
 ```
+
+The `~/test_no_unsloth` integration suite also passes 9 tests, including the production 256-row packed-loss schedule.
 
 Forward normalized RMSE remains within the existing Q8_1 envelope:
 

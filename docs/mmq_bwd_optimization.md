@@ -22,6 +22,20 @@ Excluded:
 - changes to `csrc/vendor/llama_cpp/*`;
 - direct linkage of the fused packed kernel against hipBLASLt.
 
+## Current status
+
+Dense backward optimization is complete for the current fused packed representation. The final source-of-record benchmark is `/tmp/mmq_bwd_final_autonomous.json`.
+
+Done:
+
+- ordinary batch-16 packed backward is 1.193 seconds versus 1.267 seconds for the BF16 reference, approximately 5.8% faster overall;
+- Q6_K LM-head backward measures 5.357 ms at M=64, 9.084 ms at M=128, and 11.726 ms at M=256, all faster than BF16;
+- the production packed loss now uses 256-row chunks and is 26.5% faster than the former 64-row complete-loss schedule;
+- every retained production specialization has zero private segment and zero VGPR or SGPR spills;
+- exact full-tile guards and bounds-safe fallbacks pass the current correctness suite.
+
+Remaining work is limited to higher-level representation or cross-call reuse for shared-down Q4_K/Q5_K. Local geometry, K-depth, prefetch, padding, swizzle, and extraction neighborhoods are closed.
+
 ## Hardware and measurement rules
 
 Measurements were taken on:
@@ -109,23 +123,24 @@ Benchmarks retain `M = 64, 128, 256`; M=64 and M=128 are lower-memory fallbacks.
 
 ## Current source status
 
-The dense kernel is in `csrc/ck/mmq_backward.cuh`.
+Dense backward optimization is complete for the current fused packed representation. The selected implementation is committed in `csrc/ck/mmq_backward.cuh` and the final source-of-record benchmark is:
 
-The current source contains uncommitted work after the committed 128x128 ordinary retile:
+```text
+/tmp/mmq_bwd_final_autonomous.json
+```
 
-- final Q6_K small-row geometries for M=64, 128, and 256;
-- configurable decoded-weight LDS row padding;
-- accepted padding for full-tile Q3_K;
-- accepted padding for Q4_K when `in_features >= 2048`;
-- unpadded Q5_K and small shared-down Q4_K dispatches.
+The current source includes:
 
-The source was rebuilt after reverting the slower Q5_K padded path.
+- the final 128x128 ordinary full-tile geometry;
+- final Q6_K M=64, M=128, and M=256 production geometries;
+- exact full-tile guards that require valid row and feature divisibility;
+- shape-specific LDS padding or XOR swizzles;
+- selected packed quant extraction for wide Q3_K, narrow Q5_K, and Q6_K M=256;
+- bounds-safe fallbacks for arbitrary test and non-production shapes.
 
-That rebuild exposed a correctness bug in the new Q6_K small-row dispatch. The production-only full-tile flag was selected for arbitrary bounds-safe test shapes, causing the exact Jacobian test with 10 rows and 37 output features to fail.
+The earlier Q6_K N=7 full-tile result was invalid because 112 columns per workgroup do not divide 2,048. It is retained only in the experiment log as a warning. The selected M=256 path uses two 128x64 workgroup tiles with N=4, exact bounds, an eight-BF16 XOR swizzle, and packed quant extraction.
 
-The dispatch now guards every full-tile specialization by exact row and feature divisibility. The focused exact-Jacobian suite passes for all five packed types.
-
-This also revealed that the earlier M=256 N=7 timing was invalid: 112 input columns per workgroup do not divide 2048, so the full-tile kernel accessed the final N tile out of bounds. The corrected bounds-safe N=7 kernel measures 29.628 ms rather than 18.823 ms. M=256 geometry must be reselected before final validation.
+All selected production specializations have zero private segment and zero spills. Local geometry, K-depth, traversal, decoder-width, prefetch, padding, vector-load, and swizzle neighborhoods have reached a measured stopping point.
 
 ## Current kernel design
 
@@ -718,51 +733,47 @@ Not directly transferable:
 - Use lossless int8-plus-scale representation before approximate int8 WMMA if a persistent cache becomes acceptable.
 - Verify code-object VGPR, LDS, and private-segment metadata after every layout change.
 
-## Next plan
+## Completed work and remaining opportunities
 
 ### Fused-kernel stopping point
 
 The final selected production run is complete. Ordinary batch-16 serial time is 1.193 seconds versus 1.267 seconds for BF16, and all three Q6_K production kernels exceed BF16 throughput.
 
-Local geometry, K depth, decoder width, traversal, vector-load form, padding, swizzle granularity, and packed extraction have bounded neighborhoods. No further fused-kernel sweep has a high-confidence meaningful margin.
+Done:
+
+- replaced the original scalar, low-reuse decoder with four-wave cooperative multi-value decode;
+- selected the 128x128 ordinary geometry with `K_ITERATION=32` and `GROUP_M=1`;
+- added exact full-tile paths, bounded fallbacks, packed-byte prefetch, and type-specific extraction;
+- selected shape-specific LDS padding and XOR swizzles;
+- retiled Q6_K M=64, M=128, and M=256;
+- selected M=256 as the production LM-head chunk at the loss scheduler;
+- verified zero private segment and zero spills for every retained production specialization.
+
+No further ordinary geometry, K-depth, swizzle-only, or prefetch-toggle sweep has a high-confidence meaningful margin.
 
 ### Monitor the production M=256 LM-head schedule
 
-The packed Liger loss now uses M=256. Its full MMQ-forward, in-place cross-entropy, and MMQ-backward loop is 26.5% faster than the previous M=64 schedule.
+The packed Liger loss uses M=256. Its complete MMQ-forward, in-place cross-entropy, and MMQ-backward loop is 26.5% faster than the previous M=64 schedule. Peak allocation above resident inputs increases from 69.03 to 253.57 MiB; that approximately 184.5 MiB increase is accepted. M=128 remains the first lower-memory fallback.
 
-Monitor peak memory and complete trainer-step latency. M=128 remains the first fallback if another training configuration needs lower memory.
+### Remaining high-ceiling work: shared-down representation reuse
 
-### Address shared-down through representation or cross-call reuse
+Shared-down Q4_K/Q5_K remain the only material dense-backward deficits, at approximately 0.78x and 0.74x BF16 for M=32,768. Local geometry and K-depth experiments have plateaued.
 
-Do not repeat ordinary geometry or K-depth sweeps that have plateaued.
-
-The next high-ceiling options are:
+Future work should change representation or reuse decoded data across calls. Candidate projects are:
 
 - transient packed-to-BF16 decode followed by a project-owned dense stage;
 - a persistent lossless int8-plus-scale cache;
 - a decoded-weight cache shared across repeated backward calls.
 
-Project fused kernels should remain independent of hipBLASLt. hipBLASLt remains an architectural reference unless the linkage policy changes.
+A lossless int8-plus-scale cache is preferable to approximate Q8/int8 WMMA because gfx1151 has no decisive raw int8 WMMA throughput advantage. Approximate storage for the 160 ordinary weights is roughly 475 MiB, versus about 760 MiB in BF16.
 
-### Reduce shared-down Q5_K representation cost
+Shared-down Q5_K is already at 253 VGPRs. A useful new experiment must shorten decode or representation live ranges rather than add prefetch state, another LDS stage, or more control state.
 
-Narrow Q5_K is near BF16 parity after packed quant-byte extraction and beat BF16 in several focused repeats. Shared-down Q5_K still trails BF16 because that schedule interacts poorly with its low-reuse shape.
+### Lower-priority work
 
-A useful next experiment must reduce decode cost without increasing its register or LDS-fragment burden. Repeating Q4_K layout changes is unlikely to help.
+A second LDS buffer is justified only if fresh profiling shows exposed barrier or global-wait latency after the selected layouts. Wider LDS stores require a producer remap or register transpose and are lower priority than representation reuse.
 
-### Consider a lossless int8-plus-scale cache before approximate Q8
-
-Expand each original quant integer losslessly to int8 and cache the original FP32 scale metadata in backward traversal order.
-
-Approximate cost is 1.25 bytes per value. The 160 ordinary weights would require roughly 475 MiB, versus approximately 760 MiB in BF16.
-
-This removes packed bit extraction and metadata unpacking while preserving the current decoded BF16 result. Approximate int8 WMMA remains later because gfx1151 has no raw int8 WMMA throughput advantage.
-
-### Consider a second LDS buffer only with profile evidence
-
-Explicit vector loads and swizzles are already selected. A second buffer is justified only if fresh profiling shows exposed barrier or global-wait latency after the current layout changes.
-
-Measure one and two buffers separately because shipped gfx1151 dense kernels select both schedules on different shapes.
+Project fused kernels remain independent of direct hipBLASLt linkage. hipBLASLt and TensileLite remain architecture and scheduling references.
 
 ## Ideas investigated and retained as deferred options
 
@@ -840,12 +851,14 @@ The dispatch is a measured shape heuristic, not an autotuning system.
 
 ## Correctness and compatibility
 
-The complete suite passes on the current Q6_K exact-tile guard, valid M=256 N=4 geometry, selected LDS layouts, and packed extraction source:
+The current complete project suite passes on the exact-tile guards, valid M=256 N=4 geometry, selected LDS layouts, and packed extraction source:
 
 ```text
 pytest -q tests/
-38 passed
+39 passed
 ```
+
+The `~/test_no_unsloth` integration suite passes 9 tests with the production M=256 packed-loss schedule.
 
 Focused Q6_K and padding experiments preserved the benchmark correctness envelope. Final LM-head NRMSE was approximately:
 
