@@ -160,6 +160,42 @@ void launch_grouped_quantize(
     check_hip(hipGetLastError(), "grouped quantize_bf16_mmq_q8_1 launch");
 }
 
+template <ggml_type type, int J, int fixed_nrows_weight = 0, int fixed_blocks_per_weight_row = 0>
+void launch_grouped_projection_kernel(
+        const char * packed,
+        const int * activations,
+        __hip_bfloat16 * output,
+        const int64_t * expert_indices,
+        const int32_t * expert_offsets,
+        int num_experts,
+        int num_groups,
+        int rows,
+        int in_features,
+        int out_features,
+        int64_t bytes_per_expert,
+        hipStream_t stream) {
+    constexpr bool fixed_shape = fixed_nrows_weight > 0 && fixed_blocks_per_weight_row > 0;
+    const int kernel_out_features = fixed_shape ? fixed_nrows_weight : out_features;
+    const int kernel_blocks_per_weight_row =
+        fixed_shape ? fixed_blocks_per_weight_row : in_features / QK_K;
+    const dim3 mmq_grid((kernel_out_features + MMQ_I - 1) / MMQ_I, num_groups, 1);
+    const dim3 mmq_block(WARP_SIZE, MMQ_NWARPS, 1);
+    const int shared_ints = J + GGML_PAD(J * MMQ_TILE_Y_K, MMQ_NTHREADS)
+        + MMQ_I * sram_stride_host(type);
+    grouped_mmq_bf16_kernel<type, J, fixed_nrows_weight, fixed_blocks_per_weight_row>
+        <<<mmq_grid, mmq_block, shared_ints * sizeof(int), stream>>>(
+            packed,
+            activations,
+            output,
+            expert_indices,
+            expert_offsets,
+            num_experts,
+            kernel_out_features,
+            rows,
+            kernel_blocks_per_weight_row,
+            bytes_per_expert);
+}
+
 template <ggml_type type>
 void launch_grouped_projection(
         const char * packed,
@@ -174,21 +210,49 @@ void launch_grouped_projection(
         int out_features,
         int64_t bytes_per_expert,
         hipStream_t stream) {
-    const dim3 mmq_grid((out_features + MMQ_I - 1) / MMQ_I, num_groups, 1);
-    const dim3 mmq_block(WARP_SIZE, MMQ_NWARPS, 1);
-    const int shared_ints = MMQ_J + GGML_PAD(MMQ_J * MMQ_TILE_Y_K, MMQ_NTHREADS)
-        + MMQ_I * sram_stride_host(type);
-    grouped_mmq_bf16_kernel<type><<<mmq_grid, mmq_block, shared_ints * sizeof(int), stream>>>(
-        packed,
-        activations,
-        output,
-        expert_indices,
-        expert_offsets,
-        num_experts,
-        out_features,
-        rows,
-        in_features / QK_K,
-        bytes_per_expert);
+    if (out_features == 512 && in_features == 2048) {
+        launch_grouped_projection_kernel<type, MMQ_J_SMALL, 512, 8>(
+            packed,
+            activations,
+            output,
+            expert_indices,
+            expert_offsets,
+            num_experts,
+            num_groups,
+            rows,
+            in_features,
+            out_features,
+            bytes_per_expert,
+            stream);
+    } else if (out_features == 2048 && in_features == 512) {
+        launch_grouped_projection_kernel<type, MMQ_J_SMALL, 2048, 2>(
+            packed,
+            activations,
+            output,
+            expert_indices,
+            expert_offsets,
+            num_experts,
+            num_groups,
+            rows,
+            in_features,
+            out_features,
+            bytes_per_expert,
+            stream);
+    } else {
+        launch_grouped_projection_kernel<type, MMQ_J>(
+            packed,
+            activations,
+            output,
+            expert_indices,
+            expert_offsets,
+            num_experts,
+            num_groups,
+            rows,
+            in_features,
+            out_features,
+            bytes_per_expert,
+            stream);
+    }
     check_hip(hipGetLastError(), "grouped_mmq_bf16_kernel launch");
 }
 

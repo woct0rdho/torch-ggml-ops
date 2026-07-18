@@ -373,6 +373,219 @@ The similar L2 hit rates also argue against treating cache hit rate as the first
 
 `MemUnitBusy` was unavailable through dispatch-windowed counter collection on this gfx1151 profiler configuration and is not treated as a result.
 
+## TensileLite grouped-GEMM generator assessment
+
+The TensileLite investigation focused on generator capability rather than the quality or measured results of its shipped grouped-GEMM configurations. The grouped YAML files are evidence that the path is wired up, not evidence that their tile sizes or parameter choices are well tuned for gfx1151.
+
+The principal sources were:
+
+```text
+~/rocm-libraries/projects/hipblaslt/tensilelite/Tensile/Tests/common/groupedgemm/grouped_gemm.yaml
+~/rocm-libraries/projects/hipblaslt/tensilelite/Tensile/Tests/common/groupedgemm/gfx11/grouped_gemm_gfx11.yaml
+~/rocm-libraries/projects/hipblaslt/tensilelite/Tensile/Tests/common/groupedgemm/gfx11/grouped_gemm_userargs_gfx11.yaml
+~/rocm-libraries/projects/hipblaslt/tensilelite/Tensile/SolutionStructs/Solution.py
+~/rocm-libraries/projects/hipblaslt/tensilelite/Tensile/KernelWriterAssembly.py
+~/rocm-libraries/projects/hipblaslt/tensilelite/Tensile/Components/SIA.py
+~/rocm-libraries/projects/hipblaslt/tensilelite/client/src/ClientProblemFactory.cpp
+~/rocm-libraries/projects/hipblaslt/tensilelite/client/src/SolutionIterator.cpp
+~/rocm-libraries/projects/hipblaslt/tensilelite/src/ContractionSolution.cpp
+```
+
+### TensileLite supports real grouped-workload tuning, but one shared solution
+
+When grouped GEMM is enabled, the client combines the configured exact GEMMs into one `ContractionProblemGroupedGemm`. A candidate solution is checked against every member and the group is launched as one kernel call. The generator can therefore sweep ordinary solution parameters against the latency of a complete grouped workload rather than tuning each listed size independently.
+
+The important limitation is that every GEMM in the group uses one shared static solution. Macro tiles, matrix-instruction geometry, `DepthU`, vector widths, LDS layout, and pipeline policy do not vary by expert inside one launch. This matches the fixed-shape production families if gate/up and down receive separate kernels:
+
+| Family | Shared fixed shape | Dynamic dimension |
+|---|---|---|
+| Gate/up | output 512, K 2,048 | routed rows per expert |
+| Down | output 2,048, K 512 | routed rows per expert |
+
+TensileLite could explore a much broader standard BF16 grouped-GEMM search space than the shipped test YAMLs demonstrate. It still cannot directly generate this packed operator. Q8_1 activation handling, Q3_K/Q4_K/Q5_K/IQ2_S block decode, expert routing, scale application, and direct BF16 output are embedded in the project operation and are not expressible as an ordinary Tensile contraction problem without substantial new problem-type and code-writer work.
+
+The grouped client also reports absolute throughput incorrectly for a multi-GEMM group: the complete grouped enqueue is timed, but `BenchmarkTimer.cpp` uses only `problem->gemms[0].flopCount()` for the displayed GFLOP/s. Candidate ordering for one fixed workload remains equivalent to elapsed-time ordering because the numerator is constant, but the reported grouped GFLOP/s is not a valid aggregate throughput. Historical grouped client results must not be used as a generator-quality bound.
+
+### Grouped dispatch and device user arguments reinforce compact device descriptors
+
+TensileLite computes cumulative workgroup ranges for the grouped problems and passes a workgroup table referenced through `wiTablePtr`. After a workgroup resolves its GEMM, it loads that GEMM's pointers, dimensions, strides, alpha/beta values, and epilogue arguments from a compact record. Device user arguments are supported by the generated kernel interface.
+
+The inspected assembly writer contains a linear grouped-GEMM search path, while conversion code elsewhere contains a binary-search path. Repeating either search in every packed arithmetic workgroup is weaker than directly indexing a project-owned task descriptor, especially with up to 256 experts and an arithmetic body already spilling heavily.
+
+TensileLite's runtime helper normally builds grouped user-argument records on the host and copies them to the device. That setup procedure is incompatible with the device-resident routing ABI, even though the generated device-argument interface itself is useful evidence. The project should borrow the compact record and cumulative-range ideas but construct its prefix metadata or row-tile descriptors on the GPU.
+
+Kernel-argument preloading is not a substitute for this setup. Dispatch-time common arguments may be preloaded, but expert-specific pointers and row bounds are not known until the workgroup resolves a device record.
+
+### Code-generation mechanisms and project applicability
+
+| TensileLite mechanism | Generator capability | Project-owned interpretation |
+|---|---|---|
+| Matrix instruction and macro-tile selection | Static WMMA shape, wave tile, wave group, and thread-count variants | Sweep `I`, `J`, and 128/256-thread bodies only after spill removal |
+| `DepthU` and fixed assertions | Compile-time K-loop depth and exact-divisibility paths | Specialize eight-block gate/up and two-block down loops |
+| `UseSgprForGRO` | One VGPR global-read base plus multiple SGPR offsets for affine buffer loads | First-order candidate for reducing grouped address VGPR state |
+| `UseInstOffsetForGRO` | Uses small buffer instruction offsets, especially with direct-to-LDS addressing | Express fixed packed-field displacements as compile-time offsets and verify ISA folding |
+| `ScheduleIterAlg=3` | Distributes global reads and local writes across matrix instructions and models LDS-read latency | Stage packed read, decode, LDS commit, LDS read, and WMMA before adding explicit pacing |
+| `GlobalReadPerMfma` and `LocalWritePerMfma` | Controls the density of VMEM and LDS-write issue relative to matrix instructions | Bounded source-level experiments such as one next-fragment load every fixed number of WMMAs |
+| Wave-separated global reads | Assigns distinct global-read regions to waves when divisibility constraints hold | Let each wave own a disjoint packed-weight row slice while retaining shared activation LDS |
+| `DirectToVgpr` | Skips local reads for one matrix operand under strict datatype, layout, and scheduler constraints | At most one immediately consumed wave-owned decoded-weight fragment |
+| One/two LDS buffers and prefetch depth | Supports low-resource and deeper software pipelines | Retain one activation stage and one decoded-weight stage; do not copy a two-LDS pipeline |
+| Store remapping | Uses LDS to turn scattered accumulator ownership into coalesced stores | Lower-priority C-shuffle using dead activation LDS after the final K step |
+| Workgroup mapping and source swapping | Changes spatial tile order and operand ownership | Encode locality in descriptor order and measure wider project-owned output tiles |
+| GSU and Stream-K families | Split-K mechanisms exist for ordinary GEMM; grouped Stream-K is explicitly unsupported | Do not use split-K; defer any project persistence until the row-tile body is spill-free |
+
+### SGPR-based global-read addressing is the strongest direct code-generation lesson
+
+`UseSgprForGRO` replaces a set of per-load VGPR offsets with one per-lane VGPR base and scalar offsets. The assembly writer allocates `ScalarGlobalReadOffsetA/B` only for the additional load locations and feeds them to buffer-load `soffset` operands. The automatic policy avoids this mode when the projected scalar-offset count becomes too large, and the implementation requires affine input layouts and precise buffer bounds.
+
+Shift-pointer edge handling cannot generally use this representation because it needs to modify per-lane pointers. TensileLite disables SGPR offsets for such paths unless alignment and partial-load assertions guarantee that shifting is unnecessary. This maps cleanly to separate project full and tail bodies:
+
+- exact production output tiles and fixed K blocks use one per-lane packed-load base plus wave-uniform scalar or compile-time offsets;
+- the partial row tile retains bounded per-lane handling;
+- expert pointer, row start, row count, output tile, K-block index, and fixed strides should be scalarized after descriptor resolution;
+- explicit `readfirstlane` should be added only where disassembly proves that an actually uniform value remained in VGPRs.
+
+The shipped gfx1151 standard-GEMM logic frequently resolves `_UseSgprForGRO=1`, confirming that this code-generation path is active on the target architecture. This is capability evidence, not evidence that the surrounding shipped solutions are optimal.
+
+### Algorithm-3 scheduling is useful only after loader lifetimes are split
+
+TensileLite's algorithm-3 scheduler computes how widely global reads and local writes can be spread across matrix instructions, attempts to avoid VMEM FIFO pressure, accounts for local-read instruction width and latency, and places waits and barriers relative to the compute sequence. It also has special wait accounting for direct-to-VGPR prefetch.
+
+The project cannot reproduce this by adding barriers to the current monolithic decoder. The corresponding controlled sequence is:
+
+- read a bounded packed byte fragment;
+- decode that fragment with temporary metadata and bit-extraction state;
+- commit decoded BF16 values to LDS or form one direct-register WMMA operand;
+- let decode temporaries die;
+- issue LDS reads and WMMA from the current fragment while only the next bounded read is live.
+
+Only after this sequence is spill-free should source ordering or `__builtin_amdgcn_sched_group_barrier` be used to tune the number of VMEM and LDS-write operations between WMMAs. `GlobalReadPerMfma` and `LocalWritePerMfma` are design guidance for measured instruction-density ablations, not runtime configuration to reproduce.
+
+### Wave-separated reads and direct-to-VGPR are alternatives, not one combined plan
+
+TensileLite permits wave-separated reads only when the operand geometry divides cleanly across the workgroup's waves. For a TLU operand, `DepthU` must be divisible by the number of waves; for a non-TLU operand, the relevant macro-tile dimension must be divisible by the number of waves. The current four-wave packed geometry and fixed production dimensions provide natural candidates for disjoint 16-row weight ownership.
+
+`DirectToVgpr` is much more constrained. It requires matrix instructions, buffer loads, `ScheduleIterAlg >= 3`, `PrefetchGlobalRead >= 1`, `InnerUnroll == 1`, compatible vector widths and matrix-instruction block replication, and it rejects wave-separated global reads. Enabling both A and B direct-to-VGPR is normally rejected because its wait handling performs poorly. Datatype conversion and sub-dword packing can also multiply the required register buffers across loop iterations.
+
+More importantly, TensileLite direct-to-VGPR assumes that a global representation can become a matrix operand through ordinary layout and limited packing conversion. Packed GGUF decode requires scales, metadata, arbitrary bit extraction, and BF16 formation. A wholesale direct-to-VGPR conversion is therefore not applicable. The only justified first experiment is one wave-owned packed-weight fragment decoded into the exact register operand and consumed immediately. Activations remain in LDS because all four waves reuse them.
+
+### TensileLite mechanisms that should not be copied directly
+
+A direct global-to-LDS transfer cannot perform GGUF bit decode and scale application, even where the generator and architecture can emit the underlying load form. Packed bytes must pass through a decode lifetime before becoming the BF16 LDS representation.
+
+Two live direct-to-VGPR operands, two LDS K stages, and deep prefetch are especially poor starting points while Q4_K/Q5_K already spill 127-129 VGPRs per thread.
+
+GSU or split-K duplicates packed decode and requires a reduction or atomics for K dimensions that are already fixed at 512 or 2,048. TensileLite's grouped path does not support Stream-K, and that absence is consistent with deferring project-owned persistence.
+
+Stagger-U and broad workgroup remapping are lower priority than direct descriptor ordering. Gate/up has only eight packed K blocks and down has two, while group-major and row-tile-major descriptors can express the important activation and weight locality without adding K-loop state.
+
+## Composable Kernel and prior grouped-GEMM lessons
+
+The relevant CK mechanisms were traced through:
+
+```text
+~/rocm-libraries/projects/composablekernel/example/15_grouped_gemm/grouped_gemm_wmma_fixed_nk_fp16.cpp
+~/rocm-libraries/projects/composablekernel/example/15_grouped_gemm/grouped_gemm_wmma_splitk_bf16.cpp
+~/rocm-libraries/projects/composablekernel/example/ck_tile/17_grouped_gemm/grouped_gemm.cpp
+~/rocm-libraries/projects/composablekernel/include/ck/tensor_operation/gpu/device/impl/device_grouped_gemm_fixed_nk_common.hpp
+~/rocm-libraries/projects/composablekernel/include/ck/tensor_operation/gpu/device/impl/device_grouped_gemm_wmma_fixed_nk.hpp
+~/rocm-libraries/projects/composablekernel/include/ck/tensor_operation/gpu/device/impl/device_grouped_gemm_multiple_d_wmma_cshuffle_tile_loop_v3.hpp
+~/rocm-libraries/projects/composablekernel/include/ck/tensor_operation/gpu/block/blockwise_gemm_pipeline_wmmaops_v1.hpp
+~/rocm-libraries/projects/composablekernel/include/ck/tensor_operation/gpu/block/blockwise_gemm_pipeline_wmmaops_v3.hpp
+~/rocm-libraries/projects/composablekernel/include/ck_tile/ops/gemm/kernel/grouped_gemm_kernel.hpp
+```
+
+The earlier BF16 grouped-GEMM investigation in `~/transformers-qwen3-moe-fused/doc/CK_REFERENCE.md` and `HIP_OPTIMIZATION_PLAN.md` is also relevant. It established that merely increasing LDS, adding a second LDS stage, inserting scheduler barriers into an unchanged loop, or under-launching a persistent grid did not reproduce CK performance. The useful CK lessons are structural: fixed-shape specialization, explicit load/compute ownership, bounded live ranges, local tile ordering, and instruction pacing after the dataflow is correct.
+
+### Fixed-NK specialization matches the production problem
+
+CK's fixed-NK grouped path keeps the shared N and K dimensions out of per-group scheduling state and uses offset block-to-tile maps for the dynamic M dimension.
+
+The packed production scope is even narrower:
+
+| Projection | Output rows per expert | Input features | GGUF blocks per weight row |
+|---|---:|---:|---:|
+| Gate/up | 512 | 2,048 | 8 |
+| Down | 2,048 | 512 | 2 |
+
+Project-owned kernels should therefore specialize `NRowsWeight` and `BlocksPerWeightRow` at compile time in addition to `I`, `J`, thread count, and quant type. Both output sizes are exact multiples of 64 and 128, so the production variants can remove output-tile edge predicates. The fixed K loop can be fully unrolled for down and statically scheduled for gate/up.
+
+This is more than a small integer-arithmetic cleanup. A static two-block down kernel can use a different lifetime and LDS strategy than an eight-block gate/up kernel.
+
+### The down projection can predecode its complete K tile before accumulators become live
+
+For down, each weight row has exactly two packed GGUF blocks. Both decoded 256-value blocks for one 64-row output tile fit in LDS at the same time as one activation row tile.
+
+Estimated complete dynamic LDS, including the existing shared prefix and activation tile, is:
+
+| Type family | `J=64` | `J=128` |
+|---|---:|---:|
+| Q4_K/Q5_K layout | 48,384 bytes | 57,856 bytes |
+| Q3_K/IQ2_S layout | 52,480 bytes | 61,952 bytes |
+
+The production down types are IQ2_S, Q4_K, and Q5_K. All of these configurations remain below the 64 KiB workgroup limit. The current 38-40 KiB kernels already consume enough LDS that this is unlikely to reduce active workgroups further, but final occupancy must still be measured.
+
+A down-specific kernel can load and decode both weight blocks into two immutable LDS regions before declaring or clearing the FP32 accumulator array. Decode temporaries then die before the accumulator lifetime begins. The existing `(expert, output tile)` workgroup can reuse those decoded weights across every row chunk in that expert.
+
+This directly attacks both dominant down problems:
+
+- Q4_K/Q5_K decode no longer overlaps the accumulator and dynamic row-loop state that currently pushes the kernel into 127-129 VGPR spills;
+- packed weight loads and decode are amortized across two batch-4 uniform row chunks and up to eight batch-16 `J=128` row chunks.
+
+This is not a CK-style double-LDS pipeline. The extra LDS holds immutable decoded weights for the fixed `K=512` problem; it does not create a second activation stage or ping-pong buffer. It should be tested before replacing the down scheduler with one-workgroup-per-row-tile descriptors, because the latter would discard this cross-row decoded-weight reuse.
+
+### A CK-like pipeline requires split load, decode, and commit phases
+
+The current grouped MMQ loop calls a monolithic packed-weight loader, fills the complete activation LDS tile, synchronizes, executes the dot-product helper, and synchronizes again. The compiler has little freedom to overlap packed VMEM, decode VALU, LDS writes, LDS reads, and WMMA.
+
+CK's low-resource WMMA v1 pipeline uses one global prefetch stage and one LDS buffer. Its compute-optimized variants add register prefetch and explicit issue pacing without requiring a second LDS buffer. The transferable experiment is therefore:
+
+- split each project-owned packed loader into `read packed bytes`, `decode`, and `commit decoded LDS` phases;
+- prefetch only the next packed-weight fragment into a bounded register buffer while the current fragment is consumed;
+- use one decoded-weight LDS stage and one activation LDS stage;
+- add `__builtin_amdgcn_sched_group_barrier` pacing only after the staged structure is spill-free and generated instruction counts are known.
+
+The two fixed-K families should not share one pipeline policy. Gate/up has eight packed blocks per row and is the candidate for a CK-v3-like staged hot loop. Down has only two blocks and should first use a low-resource fully unrolled schedule or the complete decoded-weight cache above; a deep prologue is unlikely to amortize.
+
+The CK `BSkipLDS` mechanism also suggests a narrower project-owned ablation. Every current wave owns a disjoint 16-row slice of the 64-row weight tile, while all four waves reuse the activation tile. A direct-register decoded-weight fragment is therefore a plausible LDS-bypass path. Bypassing activation LDS would duplicate activation traffic across four waves and is not the corresponding opportunity. This experiment requires a new wave-owned decoder and should hold only one WMMA fragment at a time; directly reusing the monolithic loader would simply move the spill problem.
+
+CK's direct global-to-LDS transfer path is not a gfx1151 mechanism. CK enables it for gfx90a, gfx942, gfx950, and gfx125-class targets, not gfx11. It should not be treated as an available optimization here.
+
+### Device scheduling should use compact prefix metadata and locality-preserving tile order
+
+CK's tile-loop kernels and CK Tile persistent grouped GEMM keep scheduling on device, advance logical tile IDs by the physical grid size, and preserve per-group block ranges. They also use adaptive tile maps so nearby workgroups cover a small spatial tile neighborhood instead of traversing one matrix dimension in a purely linear order.
+
+For this project, `G <= 256` makes an atomics-free row-tile setup practical. One workgroup can compute a prefix sum of `ceil(group_size / J)` and write compact 64-bit descriptors containing `(expert, row_start, row_count)`. Each group's descriptor range is known from the prefix; no per-expert atomic reservation is required. The existing upper bound remains:
+
+```text
+ceil(R / J) + G
+```
+
+The descriptor order should be group-major and row-tile-major, with output tile as the fastest-changing launch dimension. That causes the 8 gate/up or 32 down output tiles for one activation row tile to run near each other, preserving activation L2 locality while exposing row tiles independently for load balancing.
+
+A prefix-only alternative can binary-search the device tile offsets in the compute kernel, similar to CK's non-persistent group lookup. It avoids materializing descriptors but reintroduces dynamic scheduler state into the arithmetic kernel. Because register spilling is the current blocker, the compact descriptor load is the preferred first implementation.
+
+Persistent grid-stride traversal is a later ablation, not the initial descriptor design. The prior BF16 HIP kernel regressed when persistence increased control-state VGPRs or under-launched the grid. If tested here, the one-row-tile body must already be spill-free, the physical grid must be large enough to saturate gfx1151, and the grid size should be a multiple of both 8 and 32 so gate/up and down output-tile clusters remain aligned. Candidate physical grids are 160, 256, and 320 workgroups, subject to measured occupancy.
+
+CK repeatedly uses `readfirstlane` for tile coordinates and K-loop counts. Generated ISA should be checked to verify that expert ID, row bounds, fixed-shape strides, tile coordinates, and base pointers are held as wave-uniform scalar state rather than duplicated VGPR state. Explicit `__builtin_amdgcn_readfirstlane` should be introduced only where the compiler failed to scalarize an actually uniform value.
+
+### Full tiles and the epilogue deserve separate paths inside one launch
+
+Most batch-4 and batch-16 uniform row tiles are full. A full-row-tile body should have no activation bounds checks. The one tail tile per active expert can use a bounded partial path.
+
+The AITER edge strategy also suggests a branchless tail-load ablation: clamp or wrap invalid local rows to any valid row from the same expert and mask only the final store. Values computed for padded rows are unobservable. This trades some tail traffic for simpler activation staging and must be judged carefully on batch-1 sparse routing, where padding can be a large fraction of work.
+
+The prior BF16 HIP experiments showed that a second full-tile launch loses to launch overhead. Full and partial bodies should therefore remain in one public compute launch unless a later measurement establishes a different precondition.
+
+CK's gfx1151 path uses C-shuffle rather than its gfx12 direct-store path. The current MMQ writeback follows the WMMA accumulator layout and should be inspected for scattered BF16 stores. A project-owned C-shuffle can reuse the activation LDS region after the final K step: a complete `64 x 128` BF16 output tile is 16 KiB and fits inside the 18 KiB `J=128` activation region. This is lower priority than spill removal, and the earlier BF16 C-shuffle experiments show that ownership and barriers must be explicit to avoid overwrite hazards.
+
+### CK mechanisms that are not current priorities
+
+Split-K is not attractive for fixed `K=512/2048`: it duplicates packed decode and requires atomics or a reduction while the production K dimensions are already modest.
+
+A second LDS K stage should not be retried without a new resource argument. It regressed the earlier BF16 grouped kernel and is unnecessary for the decoded-weight-cache design.
+
+Scheduler barriers should not be sprinkled into the current monolithic loop. The earlier BF16 ablation was inconclusive, and the barriers become meaningful only after load, decode, LDS commit, LDS read, and WMMA phases are structurally separable.
+
 ## Lessons from dense MMQ forward and backward
 
 The dense work provides several directly applicable rules.
@@ -409,11 +622,13 @@ For down, this means 32 packed output tiles per expert instead of 16 AITER outpu
 
 A future project-owned `I=128` tile is therefore a meaningful higher-ceiling direction. It must be paired with 256 threads or another accumulator layout that does not increase per-thread register pressure.
 
-### Serial expert-chunk loops limit balancing
+### Serial expert-chunk loops limit balancing, but down can exploit their reuse
 
 One packed workgroup owns one expert and output tile, then serially processes all 128-row chunks for that expert.
 
-This is simple and avoids descriptor construction, but it couples workgroup lifetime to group size. A row-tile scheduler can expose more parallel work and compile a dense-like single-tile body.
+This couples workgroup lifetime to group size and is especially problematic for skewed gate/up groups. A row-tile scheduler can expose more parallel work and compile a dense-like single-tile body.
+
+The ownership is not uniformly bad, however. For fixed `K=512` down projections, it allows one workgroup to predecode both complete weight blocks before the row loop and reuse them across every row tile. Scheduler policy should therefore be shape-specific: descriptor-based row tiles are the stronger default direction for gate/up, while down should first test the decoded-weight-cache family and retain serial row ownership if its reuse outweighs load-balance costs.
 
 ### Quantization is not the dominant deficit
 
@@ -427,15 +642,86 @@ A fused two-weight compute kernel could load each Q8 activation tile once, but i
 
 Two live accumulator sets would worsen the current register problem. Pair compute fusion should be reconsidered only after a spill-free single-projection kernel exists.
 
+## Optimization experiment log
+
+### G1: compile-time `J=64` and fixed production shapes
+
+Status: retained.
+
+The first implementation combined the two highest-priority spill-removal changes:
+
+- compile-time `J=64` for both production shape families;
+- fixed gate/up `NRowsWeight=512, BlocksPerWeightRow=8` and down `NRowsWeight=2048, BlocksPerWeightRow=2` variants;
+- no output-row fallback in the fixed variants because every production output tile is complete;
+- a fixed-trip K loop while retaining the general `J=128` fallback for tests and non-production shapes.
+
+The focused timing artifact is:
+
+```text
+/tmp/grouped_step1_j64_fixed.json
+```
+
+| Point | Baseline ms | G1 ms | Speedup |
+|---|---:|---:|---:|
+| Gate/up Q3_K batch 1 uniform | 11.185 | 6.170 | 1.81x |
+| Gate/up Q3_K batch 1 sparse | 9.678 | 7.166 | 1.35x |
+| Gate/up Q3_K batch 4 boundary | 35.929 | 24.609 | 1.46x |
+| Gate/up Q3_K batch 16 uniform | 130.408 | 94.200 | 1.38x |
+| Gate/up IQ2_S batch 1 sparse | 9.953 | 7.566 | 1.32x |
+| Down Q4_K batch 1 uniform | 6.874 | 2.842 | 2.42x |
+| Down Q4_K batch 4 uniform | 21.977 | 10.599 | 2.07x |
+| Down Q4_K batch 4 boundary | 22.934 | 11.418 | 2.01x |
+| Down Q4_K batch 16 uniform | 83.663 | 42.110 | 1.99x |
+| Down Q5_K batch 4 uniform | 21.990 | 10.688 | 2.06x |
+| Down IQ2_S batch 16 uniform | 69.996 | 45.963 | 1.52x |
+
+The fixed production kernels are spill-free:
+
+| Production kernel | VGPRs | SGPRs | Private bytes/thread | Dynamic LDS |
+|---|---:|---:|---:|---:|
+| Gate/up Q3_K | 164 | 46 | 0 | 30,976 bytes |
+| Gate/up IQ2_S | 190 | 47 | 0 | 30,976 bytes |
+| Down IQ2_S | 190 | 49 | 0 | 30,976 bytes |
+| Down Q4_K | 168 | 49 | 0 | 28,928 bytes |
+| Down Q5_K | 181 | 48 | 0 | 28,928 bytes |
+
+This removes the original 124-520 byte private segments and 30-129 VGPR spills without introducing dynamic stack use. The retained kernels also reduce dynamic LDS by 9,472 bytes relative to the original `J=128` grouped path.
+
+Production-shape correctness was checked against dense MMQ:
+
+- gate/up Q3_K batch 1 sparse: both outputs had zero differing BF16 elements;
+- down Q4_K batch 4 uniform: zero differing BF16 elements.
+
+The complete public gate/up point measured 7.155 ms versus 14.155 ms AITER, or 1.98x faster. The complete public down Q4_K batch-4 point measured 10.617 ms versus 7.805 ms AITER, or 0.74x. Spill removal therefore explains and resolves most of the original deficit, but batch-4 down and batch-16 gate/up remain the primary performance gaps.
+
+### G1 decision
+
+Keep the combined specialization. Separating fixed shape from `J=64` is not necessary for acceptance because the combined variant is spill-free and materially faster at every focused production point. Future variants must compare against G1 rather than the original baseline.
+
 ## Optimization plan
 
-### Phase 1: low-risk register and row-tile ablations
+### Phase 1: compile-time row, fixed-shape, and scalar-address specialization
+
+Status: complete in G1. The retained implementation uses `J=64`, fixed production output/K shapes, and full output tiles. Further scalar-address changes remain valid only as focused ISA-guided ablations against the spill-free G1 body.
 
 Generalize the grouped kernel over compile-time `J`, as dense forward already is.
 
 Measure `J=64` and `J=128` for every production type and shape. `J=64` halves the accumulator footprint and activation LDS footprint.
 
-Batch-1 gate/up is the strongest initial candidate because its uniform groups are exactly 64 rows and its observed-style groups are mostly below 128 rows.
+At the same time, introduce shape-typed launch variants for:
+
+- gate/up: `NRowsWeight=512`, `BlocksPerWeightRow=8`;
+- down: `NRowsWeight=2048`, `BlocksPerWeightRow=2`.
+
+The fixed production output sizes permit full output-tile loaders and stores with no `i_max` path. Keep a general fallback only for tests and non-production shapes.
+
+Within the exact full-tile variants, test a TensileLite-style affine buffer-load addressing structure: one per-lane VGPR base for each packed input plus wave-uniform scalar or compile-time offsets for fixed packed blocks, metadata fields, and fragment positions. Keep shift-pointer or per-lane edge handling out of this path and inspect generated ISA for actual `soffset`, immediate-offset, and scalar pointer use rather than relying on source-level uniformity.
+
+Resolve expert ID, row bounds, output tile, fixed strides, and K-loop bounds once. Add explicit `readfirstlane` only where the final ISA shows failed scalarization. Reject any variant that merely exchanges VGPR pressure for excessive SGPR allocation or dynamic stack use.
+
+Batch-1 gate/up is the strongest initial `J=64` candidate because its uniform groups are exactly 64 rows and its observed-style groups are mostly below 128 rows.
+
+Structure the row loop as full tiles followed by at most one partial tile. Test a clamped or wrapped activation tail load against the existing zero-fill path, but retain the batch-1 sparse winner.
 
 Inspect the code object after each build. Reject variants that retain large private segments even if one short timing appears favorable.
 
@@ -451,11 +737,27 @@ Required focused points are:
 - down Q5_K batch 4 uniform;
 - down IQ2_S batch 16 uniform.
 
-### Phase 2: device-resident row-tile descriptors
+### Phase 2: fixed-K decoded-weight cache for down
 
-If the dynamic loop still causes spills, move row-chunk scheduling out of the multiplication kernel.
+Before changing down to one workgroup per row tile, implement a project-owned `BlocksPerWeightRow=2` kernel that predecodes both complete weight blocks into two LDS regions before the accumulator array becomes live.
 
-A small GPU descriptor kernel can reserve `ceil(group_size / J)` entries per active expert with one device atomic, then write `(expert, row_start, row_count)` descriptors.
+Measure both `J=64` and `J=128`. The expected complete dynamic LDS is 48,384/57,856 bytes for Q4_K/Q5_K and 52,480/61,952 bytes for IQ2_S.
+
+The retained kernel must verify:
+
+- no launch-resource failure at the 64 KiB workgroup limit;
+- materially smaller private segment and scratch instruction count;
+- no loss of occupancy relative to the current one-workgroup-per-CU practical limit;
+- complete public-operator gains at batch 1, 4, and 16;
+- exact output equality with dense MMQ.
+
+If this removes spills, keep serial row ownership for down unless a descriptor scheduler wins the model-weighted comparison. If it remains scratch-heavy, proceed to the one-row-tile scheduler.
+
+### Phase 3: atomics-free device-resident row-tile descriptors
+
+For gate/up, or for down if the decoded-weight cache does not resolve the deficit, move row-chunk scheduling out of the multiplication kernel.
+
+A one-workgroup GPU setup pass should compute a prefix sum of `ceil(group_size / J)` for `G <= 256` and write compact `(expert, row_start, row_count)` descriptors into prefix-assigned slots. Avoid one atomic reservation per expert.
 
 The descriptor storage upper bound is known without a device read:
 
@@ -465,17 +767,19 @@ ceil(R / J) + G
 
 A compute grid can launch to that upper bound and have excess workgroups return after reading a device-resident task count.
 
-This preserves device metadata and avoids host synchronization. Descriptor storage is only tens of kilobytes for the production shapes.
+Order descriptors by group and row tile, and make output tile the fastest-changing launch dimension. This preserves activation locality across the 8 gate/up or 32 down output tiles for one row tile.
 
-The multiplication kernel then processes exactly one row tile. Its structure can closely reuse the already benchmarked dense-MMQ tile body and should recover the dense kernel's spill-free lowering.
+The multiplication kernel then processes exactly one row tile. Its structure can closely reuse the already benchmarked dense-MMQ tile body and should recover the dense kernel's spill-free lowering. Direct descriptor indexing is also preferable to reproducing TensileLite's per-workgroup linear or binary grouped-GEMM search inside the arithmetic kernel.
 
-`grouped_mmq_pair` should build descriptors once and reuse them for both packed projections.
+`grouped_mmq_pair` should build the prefix and descriptors once and reuse them for both packed projections.
 
-The descriptor launch and empty upper-bound workgroups must be included in the public-operator timing.
+The setup launch, descriptor storage, and empty upper-bound workgroups must be included in public-operator timing.
 
-### Phase 3: larger project-owned output tiles
+Only after the non-persistent descriptor body is spill-free, test persistent grid-stride traversal with 160, 256, and 320 workgroups. Reject configurations that increase control-state spills, under-launch the GPU, or disrupt output-tile locality.
 
-After obtaining a spill-free row-tile body, measure larger output tiles.
+### Phase 4: larger project-owned output tiles
+
+After obtaining a spill-free arithmetic body, measure larger output tiles.
 
 The primary neighborhood is:
 
@@ -488,26 +792,39 @@ The primary neighborhood is:
 
 `I=128, J=128, 256 threads` keeps the current 64 accumulators per thread while halving output-tile count and Q8 activation reloads. Its estimated dynamic LDS is near the 64 KiB workgroup limit, so exact code-object and launch-resource checks are mandatory.
 
+For the 256-thread variants, the per-thread share of a prefetched packed-weight tile is similar to or smaller than the 128-thread `I=64` path. This is the first sensible point to test a bounded CK-like register-prefetch stage.
+
 Keep this logic in project-owned files. Do not modify `csrc/vendor/llama_cpp/*`.
 
 Use measured dispatch based on quant type, logical shape, total rows, and group count. `R / G` is available from tensor dimensions and does not require reading device metadata.
 
-### Phase 4: type-specific decode and LDS tuning
+### Phase 5: staged packed decode, LDS bypass, and type-specific tuning
 
-Once the tile and scheduler are stable, apply the successful dense techniques:
+Once the tile and scheduler are stable, split project-owned packed loaders into read, decode, and LDS-commit phases.
+
+For gate/up `BlocksPerWeightRow=8`, test a single-LDS staged pipeline that prefetches only the next packed-weight fragment in registers and interleaves packed VMEM, decode, LDS writes, LDS reads, and WMMA. Use TensileLite algorithm-3 scheduling as design guidance: measure a small neighborhood of global-read and LDS-commit issue densities relative to WMMA rather than adding an unconstrained prefetch window. Do not add a second activation or decoded-weight LDS stage.
+
+For down `BlocksPerWeightRow=2`, prefer the fully unrolled decoded-weight-cache schedule over a deep pipeline unless measurement shows otherwise.
+
+Test wave-separated packed-weight reads and a wave-owned direct-register decoded-weight fragment as separate alternatives. The first gives each wave a disjoint weight slice when the fixed tile divides naturally; the second holds one decoded WMMA fragment and consumes it immediately. Do not combine them initially, because TensileLite's own direct-to-VGPR path rejects wave-separated global reads. Keep activations in LDS because all four waves reuse them.
+
+After the dataflow is spill-free, apply the successful dense techniques:
 
 - cooperative multi-value packed decode;
 - vector global loads where alignment permits;
 - vector LDS fragment loads;
 - type-specific packed extraction;
 - padding or XOR swizzles selected by measurement;
+- explicit `sched_group_barrier` pacing derived from generated instruction counts;
 - exact full-tile specializations with bounded partial-tile paths.
 
-Q4_K/Q5_K down is the priority. Q3_K/IQ2_S gate/up should preserve the existing batch-1 advantage while improving large batches.
+Q4_K/Q5_K down is the first resource gate. Q3_K/IQ2_S gate/up should preserve the existing batch-1 advantage while improving large batches.
 
-Do not assume one decode layout will win across all four production types.
+Do not assume one decode or scheduling layout will win across all four production types.
 
-### Phase 5: pair-specific reuse
+### Phase 6: epilogue and pair-specific reuse
+
+After spill removal, inspect the generated BF16 store pattern. If direct writeback is scattered, test a C-shuffle that converts to BF16 and reuses the dead activation LDS region. Do not allocate a separate epilogue LDS buffer.
 
 Only after the single-projection kernel is spill-free, test pair-specific changes.
 
@@ -518,9 +835,9 @@ Possible controlled experiments are:
 - interleaving the two projection launches for cache behavior;
 - a fused activation-load path if register accounting proves it viable.
 
-Do not retain a fused pair kernel that increases scratch traffic or loses the batch-1 sparse advantage.
+Do not retain a C-shuffle with ownership hazards or a fused pair kernel that increases scratch traffic or loses the batch-1 sparse advantage.
 
-### Phase 6: end-to-end validation
+### Phase 7: end-to-end validation
 
 Re-run the full 60-point matrix after every retained dispatch change.
 
@@ -567,8 +884,16 @@ Do not assume raw int8 WMMA throughput will overcome decode, LDS, scratch, or sc
 
 Do not treat PC sampling on these short kernels as quantitative latency data.
 
+Do not use shipped TensileLite grouped YAML choices or their displayed grouped GFLOP/s as a performance bound. Use them only as generator and interface evidence.
+
+Do not copy TensileLite's host-built grouped user-argument setup or per-workgroup GEMM search into the production routing path. Build compact metadata on the device and index it directly.
+
+Do not attempt a wholesale direct-to-VGPR conversion, both-operands direct-to-VGPR, a two-LDS pipeline, GSU, split-K, or grouped Stream-K for the initial packed implementation.
+
 ## Immediate next step
 
-Implement the compile-time `J=64` grouped variant and inspect its Q3_K, Q4_K, Q5_K, and IQ2_S code-object resources before broad benchmarking.
+G1 completed the compile-time `J=64` and fixed-production-shape work and removed all production grouped-forward spills.
 
-If Q4_K/Q5_K remain scratch-heavy, proceed directly to the device-resident row-tile descriptor scheduler and a dense-like single-tile multiplication kernel.
+For down, test the fixed-`K=512` two-decoded-weight LDS cache before discarding serial row ownership. Spills are already gone, so its remaining purpose is to amortize packed weight loads and decode across row chunks. It must beat the G1 down timings without exceeding the 64 KiB workgroup limit.
+
+For gate/up, or for down if the fixed-K cache remains scratch-heavy, proceed to the atomics-free device-resident row-tile descriptor scheduler and a dense-like single-tile multiplication kernel.
