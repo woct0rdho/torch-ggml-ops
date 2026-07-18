@@ -409,12 +409,12 @@ The final clean Q6_K benchmark is:
 | M | Selected geometry | Packed ms | BF16 ms | Throughput ratio |
 | ---: | --- | ---: | ---: | ---: |
 | 64 | M=1/N=2/K=64 with XOR LDS swizzle | 5.829 | 9.856 | 1.69x |
-| 128 | M=2/N=4/K=32 | 13.402 | 14.410 | 1.08x |
-| 256 | M=2/N=8/K=32 | 20.834 | 19.000 | 0.91x |
+| 128 | M=2/N=4/K=32 with XOR LDS swizzle | 9.187 | 14.433 | 1.57x |
+| 256 | M=2/N=8/K=32 | 20.894 | 18.990 | 0.91x |
 
 The XOR LDS swizzle changed M=64 from the largest Q6_K deficit into the fastest production-relative kernel at 1.69x BF16 throughput. The latency fell from 10.938 to 5.829 ms with unchanged 4 KiB LDS capacity and exact benchmark correctness.
 
-M=128 remains faster than BF16, while M=256 is about 9% below it. Both K=32 geometries are candidates for the same no-padding swizzle.
+M=128 also improved from 13.402 to 9.187 ms and reached 1.57x BF16. M=256 regressed from 20.834 to 23.866 ms with the same swizzle, so the eight-N-tile geometry retains its original unswizzled layout and measures 20.894 ms in the final combined dispatch.
 
 ## Latest results
 
@@ -457,10 +457,10 @@ At batch 16:
 | Chunk M | Calls | Packed serial estimate | BF16 serial estimate |
 | ---: | ---: | ---: | ---: |
 | 64 | 512 | 2,984 ms | 5,046 ms |
-| 128 | 256 | 3,431 ms | 3,689 ms |
-| 256 | 128 | 2,667 ms | 2,432 ms |
+| 128 | 256 | 2,352 ms | 3,695 ms |
+| 256 | 128 | 2,674 ms | 2,431 ms |
 
-The optimized production M=64 schedule now needs no aggregation buffer and is faster than M=128 in the batch-16 serial estimate. M=256 remains the lowest kernel-call-count option but requires about 121 MiB of cotangent storage.
+M=128 now has the lowest batch-16 serial estimate, but it requires about 61 MiB of cotangent storage. The production M=64 schedule needs no aggregation buffer and is only about 637 ms slower across all 512 calls.
 
 Approximate BF16 cotangent storage is:
 
@@ -579,7 +579,7 @@ Geometry-only sweeps have already plateaued. A larger gain likely requires decod
 
 M=64 was limited by its K=64 decoded-weight row stride of 128 bytes, which mapped every row start to the same bank phase. An eight-BF16-chunk XOR swizzle reduced 10.938 ms to 5.829 ms without increasing LDS footprint and while preserving two 128-bit loads per fragment.
 
-This confirms that the earlier 85.3% conflict percentage represented a first-order bottleneck. The next bounded experiment is the same no-padding swizzle on the M=128 and M=256 K=32 geometries.
+This confirms that the earlier 85.3% conflict percentage represented a first-order bottleneck. The same swizzle is accepted for M=128 at about 9.18 ms but rejected for M=256 at 23.866 ms. Bank distribution must be selected with the complete geometry and instruction schedule rather than by K depth alone.
 
 ## TensileLite and hipBLASLt lessons that remain relevant
 
