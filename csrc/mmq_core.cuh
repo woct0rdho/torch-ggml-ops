@@ -114,7 +114,7 @@ static __device__ __forceinline__ void mmq_vec_dot_target(
     }
 }
 
-template <ggml_type type, int J, bool full_i = false>
+template <ggml_type type, int J, bool full_i = false, bool full_j = false>
 static __device__ __forceinline__ void mmq_write_back_bf16(
         const float * sum, __hip_bfloat16 * dst, int stride, int i_max, int j_max) {
     using namespace ggml_cuda_mma;
@@ -130,7 +130,7 @@ static __device__ __forceinline__ void mmq_write_back_bf16(
             for (int l = 0; l < tile_C::ne; ++l) {
                 const int j = j0 + (threadIdx.y % ntx) * tile_C::J + tile_C::get_j(l);
                 const int i = i0 + n * tile_C::I + tile_C::get_i(l);
-                if (j <= j_max && (full_i || i <= i_max)) {
+                if ((full_j || j <= j_max) && (full_i || i <= i_max)) {
                     dst[j * stride + i] = __float2bfloat16(sum[(j0 / tile_C::J + n) * tile_C::ne + l]);
                 }
             }
@@ -266,6 +266,103 @@ static __global__ void dense_mmq_bf16_kernel(
         j_max);
 }
 
+template <
+    ggml_type type,
+    int J,
+    int fixed_nrows_weight,
+    int fixed_blocks_per_weight_row,
+    bool full_j>
+static __device__ __forceinline__ void grouped_mmq_row_tile(
+        const char * __restrict__ expert_weights,
+        const int * __restrict__ activations,
+        __hip_bfloat16 * __restrict__ dst,
+        int * __restrict__ tile_x,
+        int * __restrict__ tile_y,
+        int tile_i,
+        int row_start,
+        int row_end,
+        int nrows_weight,
+        int nrows_activation,
+        int blocks_per_weight_row) {
+    constexpr bool fixed_shape = fixed_nrows_weight > 0 && fixed_blocks_per_weight_row > 0;
+    constexpr int q8_block_ints = sizeof(block_q8_1_mmq) / sizeof(int);
+    const int kernel_nrows_weight = fixed_shape ? fixed_nrows_weight : nrows_weight;
+    const int kernel_blocks_per_weight_row =
+        fixed_shape ? fixed_blocks_per_weight_row : blocks_per_weight_row;
+    const int i_max = fixed_shape ? MMQ_I - 1 : kernel_nrows_weight - tile_i * MMQ_I - 1;
+    const int j_max = full_j ? J - 1 : row_end - row_start - 1;
+    float sum[J * MMQ_I / MMQ_NTHREADS] = {0.0f};
+
+#pragma unroll 1
+    for (int kb = 0; kb < kernel_blocks_per_weight_row; ++kb) {
+        const int weight_block_offset =
+            tile_i * MMQ_I * kernel_blocks_per_weight_row + kb;
+        mmq_load_target<type, J, !fixed_shape>(
+            expert_weights,
+            tile_x,
+            weight_block_offset,
+            i_max,
+            kernel_blocks_per_weight_row);
+
+#pragma unroll
+        for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += MMQ_NTHREADS) {
+            const int l = l0 + threadIdx.y * WARP_SIZE + threadIdx.x;
+            if constexpr (full_j) {
+                const int src =
+                    ((2 * kb) * nrows_activation + row_start) * q8_block_ints + l;
+                tile_y[l] = activations[src];
+            } else {
+                const int local_row = l / q8_block_ints;
+                const int q8_int = l % q8_block_ints;
+                if (local_row <= j_max) {
+                    const int src = (
+                        (2 * kb) * nrows_activation + row_start + local_row
+                    ) * q8_block_ints + q8_int;
+                    tile_y[l] = activations[src];
+                } else {
+                    tile_y[l] = 0;
+                }
+            }
+        }
+        __syncthreads();
+        mmq_vec_dot_target<type, J, !fixed_shape>(tile_x, tile_y, sum, 0);
+        __syncthreads();
+
+#pragma unroll
+        for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += MMQ_NTHREADS) {
+            const int l = l0 + threadIdx.y * WARP_SIZE + threadIdx.x;
+            if constexpr (full_j) {
+                const int src =
+                    ((2 * kb + 1) * nrows_activation + row_start) * q8_block_ints + l;
+                tile_y[l] = activations[src];
+            } else {
+                const int local_row = l / q8_block_ints;
+                const int q8_int = l % q8_block_ints;
+                if (local_row <= j_max) {
+                    const int src = (
+                        (2 * kb + 1) * nrows_activation + row_start + local_row
+                    ) * q8_block_ints + q8_int;
+                    tile_y[l] = activations[src];
+                } else {
+                    tile_y[l] = 0;
+                }
+            }
+        }
+        __syncthreads();
+        mmq_vec_dot_target<type, J, !fixed_shape>(
+            tile_x, tile_y, sum, MMQ_TILE_NE_K);
+        __syncthreads();
+    }
+
+    mmq_write_back_bf16<type, J, fixed_shape, full_j>(
+        sum,
+        dst + row_start * kernel_nrows_weight + tile_i * MMQ_I,
+        kernel_nrows_weight,
+        i_max,
+        j_max);
+    __syncthreads();
+}
+
 template <ggml_type type, int J, int fixed_nrows_weight = 0, int fixed_blocks_per_weight_row = 0>
 __launch_bounds__(MMQ_NTHREADS, 2)
 static __global__ void grouped_mmq_bf16_kernel(
@@ -279,7 +376,6 @@ static __global__ void grouped_mmq_bf16_kernel(
         int nrows_activation,
         int blocks_per_weight_row,
         int64_t bytes_per_expert) {
-    constexpr bool fixed_shape = fixed_nrows_weight > 0 && fixed_blocks_per_weight_row > 0;
     constexpr int q8_block_ints = sizeof(block_q8_1_mmq) / sizeof(int);
     static_assert(MMQ_TILE_Y_K == q8_block_ints, "unexpected grouped Q8 tile layout");
 
@@ -295,75 +391,40 @@ static __global__ void grouped_mmq_bf16_kernel(
         return;
     }
 
-    const int kernel_nrows_weight = fixed_shape ? fixed_nrows_weight : nrows_weight;
-    const int kernel_blocks_per_weight_row =
-        fixed_shape ? fixed_blocks_per_weight_row : blocks_per_weight_row;
-    const int i_max = fixed_shape ? MMQ_I - 1 : kernel_nrows_weight - tile_i * MMQ_I - 1;
     const char * expert_weights = weights + expert * bytes_per_expert;
-
     extern __shared__ int shared[];
     int * tile_y = shared + J;
     int * tile_x = tile_y + GGML_PAD(J * MMQ_TILE_Y_K, MMQ_NTHREADS);
 
-    for (int row_start = row_begin; row_start < row_end; row_start += J) {
-        const int j_max = min(J, row_end - row_start) - 1;
-        float sum[J * MMQ_I / MMQ_NTHREADS] = {0.0f};
-
-#pragma unroll 1
-        for (int kb = 0; kb < kernel_blocks_per_weight_row; ++kb) {
-            const int weight_block_offset =
-                tile_i * MMQ_I * kernel_blocks_per_weight_row + kb;
-            mmq_load_target<type, J, !fixed_shape>(
+    int row_start = row_begin;
+    for (; row_start + J <= row_end; row_start += J) {
+        grouped_mmq_row_tile<
+            type, J, fixed_nrows_weight, fixed_blocks_per_weight_row, true>(
                 expert_weights,
+                activations,
+                dst,
                 tile_x,
-                weight_block_offset,
-                i_max,
-                kernel_blocks_per_weight_row);
-
-#pragma unroll
-            for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += MMQ_NTHREADS) {
-                const int l = l0 + threadIdx.y * WARP_SIZE + threadIdx.x;
-                const int local_row = l / q8_block_ints;
-                const int q8_int = l % q8_block_ints;
-                if (local_row <= j_max) {
-                    const int src = (
-                        (2 * kb) * nrows_activation + row_start + local_row
-                    ) * q8_block_ints + q8_int;
-                    tile_y[l] = activations[src];
-                } else {
-                    tile_y[l] = 0;
-                }
-            }
-            __syncthreads();
-            mmq_vec_dot_target<type, J, !fixed_shape>(tile_x, tile_y, sum, 0);
-            __syncthreads();
-
-#pragma unroll
-            for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += MMQ_NTHREADS) {
-                const int l = l0 + threadIdx.y * WARP_SIZE + threadIdx.x;
-                const int local_row = l / q8_block_ints;
-                const int q8_int = l % q8_block_ints;
-                if (local_row <= j_max) {
-                    const int src = (
-                        (2 * kb + 1) * nrows_activation + row_start + local_row
-                    ) * q8_block_ints + q8_int;
-                    tile_y[l] = activations[src];
-                } else {
-                    tile_y[l] = 0;
-                }
-            }
-            __syncthreads();
-            mmq_vec_dot_target<type, J, !fixed_shape>(
-                tile_x, tile_y, sum, MMQ_TILE_NE_K);
-            __syncthreads();
-        }
-
-        mmq_write_back_bf16<type, J, fixed_shape>(
-            sum,
-            dst + row_start * kernel_nrows_weight + tile_i * MMQ_I,
-            kernel_nrows_weight,
-            i_max,
-            j_max);
-        __syncthreads();
+                tile_y,
+                tile_i,
+                row_start,
+                row_end,
+                nrows_weight,
+                nrows_activation,
+                blocks_per_weight_row);
+    }
+    if (row_start < row_end) {
+        grouped_mmq_row_tile<
+            type, J, fixed_nrows_weight, fixed_blocks_per_weight_row, false>(
+                expert_weights,
+                activations,
+                dst,
+                tile_x,
+                tile_y,
+                tile_i,
+                row_start,
+                row_end,
+                nrows_weight,
+                nrows_activation,
+                blocks_per_weight_row);
     }
 }

@@ -570,6 +570,8 @@ CK repeatedly uses `readfirstlane` for tile coordinates and K-loop counts. Gener
 
 ### Full tiles and the epilogue deserve separate paths inside one launch
 
+Status: complete in G4 for `J=64`. Full row tiles use contiguous Q8_1 loads and unmasked BF16 row stores; only the final partial tile retains bounds handling.
+
 Most batch-4 and batch-16 uniform row tiles are full. A full-row-tile body should have no activation bounds checks. The one tail tile per active expert can use a bounded partial path.
 
 The AITER edge strategy also suggests a branchless tail-load ablation: clamp or wrap invalid local rows to any valid row from the same expert and mask only the final store. Values computed for padded rows are unobservable. This trades some tail traffic for simpler activation staging and must be judged carefully on batch-1 sparse routing, where padding can be a large fraction of work.
@@ -698,11 +700,103 @@ The complete public gate/up point measured 7.155 ms versus 14.155 ms AITER, or 1
 
 Keep the combined specialization. Separating fixed shape from `J=64` is not necessary for acceptance because the combined variant is spill-free and materially faster at every focused production point. Future variants must compare against G1 rather than the original baseline.
 
+### G2: complete decoded-weight LDS cache for down
+
+Status: rejected and reverted.
+
+G2 decoded both fixed `K=512` weight blocks into immutable LDS before the serial row loop and reused them across all `J=64` row chunks. The cache was dispatched only when the host-visible average was at least two row tiles, preserving the G1 batch-1 path.
+
+The artifact is:
+
+```text
+/tmp/grouped_step2_down_cache.json
+```
+
+| Point | G1 ms | G2 ms | Relative |
+|---|---:|---:|---:|
+| Down Q4_K batch 4 uniform | 10.599 | 15.427 | 0.69x |
+| Down Q4_K batch 4 boundary | 11.418 | 15.705 | 0.73x |
+| Down Q4_K batch 16 uniform | 42.110 | 70.334 | 0.60x |
+| Down Q5_K batch 4 uniform | 10.688 | 15.503 | 0.69x |
+| Down IQ2_S batch 16 uniform | 45.963 | 72.384 | 0.64x |
+
+The additional immutable weight tile increased dynamic LDS from 28,928 to 48,384 bytes for Q4_K/Q5_K and from 30,976 to 52,480 bytes for IQ2_S. The saved packed loads and decode did not compensate for the resulting resource and residency loss. This also shows that the original down deficit is no longer caused primarily by repeated decode once G1 has removed scratch traffic.
+
+Do not retry the complete cache with the same 64-row output tile. Any future cross-row weight reuse must either use a more compact decoded representation or change the output/workgroup geometry enough to recover residency.
+
+### G3: fixed-shape `J=128`
+
+Status: rejected and reverted.
+
+G3 kept fixed production N/K specialization but restored `J=128` to determine whether halving the serial row-loop count could beat G1 after dynamic shape state was removed.
+
+The artifact is:
+
+```text
+/tmp/grouped_step3_j128_fixed.json
+```
+
+Every focused point regressed by 25-50% relative to G1. Representative results were:
+
+| Point | G1 `J=64` ms | G3 `J=128` ms | Relative |
+|---|---:|---:|---:|
+| Gate/up Q3_K batch 1 uniform | 6.170 | 11.167 | 0.55x |
+| Gate/up Q3_K batch 16 uniform | 94.200 | 129.555 | 0.73x |
+| Down Q4_K batch 4 uniform | 10.599 | 16.764 | 0.63x |
+| Down Q4_K batch 16 uniform | 42.110 | 65.776 | 0.64x |
+| Down Q5_K batch 4 uniform | 10.688 | 17.727 | 0.60x |
+| Down IQ2_S batch 16 uniform | 45.963 | 66.939 | 0.69x |
+
+Fixed specialization reduced but did not eliminate `J=128` pressure for the main down types: Q4_K used 256 VGPRs and 184 private bytes/thread, while Q5_K used 256 VGPRs and 232 private bytes/thread. Q3_K retained 12 private bytes/thread. IQ2_S was spill-free at 241 VGPRs but still lost heavily, showing that the larger accumulator and LDS footprint is itself unfavorable even without scratch traffic.
+
+Keep `J=64` for all production grouped-forward types. The fixed `I=64, J=128` neighborhood is closed.
+
+### G4: separate exact full-row and bounded tail bodies
+
+Status: retained.
+
+G4 split the serial expert loop into compile-time full-row and tail helpers. A full `J=64` row tile now:
+
+- loads the Q8_1 activation region as one contiguous integer span with no row division, remainder, or predicate;
+- writes a complete BF16 row tile with no row predicate;
+- retains the bounded zero-fill and masked-store path only for the final partial tile.
+
+The focused artifact is:
+
+```text
+/tmp/grouped_step4_full_rows.json
+```
+
+| Point | G1 ms | G4 ms | Speedup |
+|---|---:|---:|---:|
+| Gate/up Q3_K batch 1 uniform | 6.170 | 3.735 | 1.65x |
+| Gate/up Q3_K batch 1 sparse | 7.166 | 5.427 | 1.32x |
+| Gate/up Q3_K batch 4 boundary | 24.609 | 16.755 | 1.47x |
+| Gate/up Q3_K batch 16 uniform | 94.200 | 57.956 | 1.63x |
+| Gate/up IQ2_S batch 1 sparse | 7.566 | 6.065 | 1.25x |
+| Down Q4_K batch 1 uniform | 2.842 | 1.599 | 1.78x |
+| Down Q4_K batch 4 uniform | 10.599 | 6.063 | 1.75x |
+| Down Q4_K batch 4 boundary | 11.418 | 6.889 | 1.66x |
+| Down Q4_K batch 16 uniform | 42.110 | 24.292 | 1.73x |
+| Down Q5_K batch 4 uniform | 10.688 | 6.067 | 1.76x |
+| Down IQ2_S batch 16 uniform | 45.963 | 32.846 | 1.40x |
+
+The production kernels remain spill-free. Q3_K uses 168 VGPRs, Q4_K uses 168, Q5_K uses 175 for down, and IQ2_S uses 225. The extra compile-time full/tail code raises some register counts but does not create a private segment.
+
+Production correctness remained exact against dense MMQ for both paths:
+
+- gate/up Q3_K batch 1 sparse: zero differing BF16 elements for both outputs;
+- down Q4_K batch 4 boundary: zero differing BF16 elements.
+
+The complete gate/up Q3_K batch-1 sparse point measured 5.368 ms versus 14.131 ms AITER, or 2.63x. The complete down Q4_K batch-4 boundary point measured 6.962 ms versus 9.286 ms AITER, or 1.33x. G4 moves every focused production class ahead of its baseline AITER reference.
+
+The magnitude of this gain shows that integer row decomposition and per-load tail control, not only register spilling, were first-order costs in the inherited grouped loop.
+
 ## Optimization plan
 
 ### Phase 1: compile-time row, fixed-shape, and scalar-address specialization
 
-Status: complete in G1. The retained implementation uses `J=64`, fixed production output/K shapes, and full output tiles. Further scalar-address changes remain valid only as focused ISA-guided ablations against the spill-free G1 body.
+Status: complete in G1 and bounded by G3. The retained implementation uses `J=64`, fixed production output/K shapes, and full output tiles. Fixed-shape `J=128` regressed every focused point and restored private segments for Q3_K/Q4_K/Q5_K. Further scalar-address changes remain valid only as focused ISA-guided ablations against the spill-free G1 body.
 
 Generalize the grouped kernel over compile-time `J`, as dense forward already is.
 
@@ -739,19 +833,9 @@ Required focused points are:
 
 ### Phase 2: fixed-K decoded-weight cache for down
 
-Before changing down to one workgroup per row tile, implement a project-owned `BlocksPerWeightRow=2` kernel that predecodes both complete weight blocks into two LDS regions before the accumulator array becomes live.
+Status: rejected in G2. The complete two-block BF16 LDS cache reduced performance by 27-40% relative to G1 because the additional 19-22 KiB LDS cost outweighed decode reuse.
 
-Measure both `J=64` and `J=128`. The expected complete dynamic LDS is 48,384/57,856 bytes for Q4_K/Q5_K and 52,480/61,952 bytes for IQ2_S.
-
-The retained kernel must verify:
-
-- no launch-resource failure at the 64 KiB workgroup limit;
-- materially smaller private segment and scratch instruction count;
-- no loss of occupancy relative to the current one-workgroup-per-CU practical limit;
-- complete public-operator gains at batch 1, 4, and 16;
-- exact output equality with dense MMQ.
-
-If this removes spills, keep serial row ownership for down unless a descriptor scheduler wins the model-weighted comparison. If it remains scratch-heavy, proceed to the one-row-tile scheduler.
+The phase is closed for the current `I=64` geometry. Do not retry the same cache at `J=128`, whose estimated 57,856-61,952 byte allocation would further reduce resource headroom. Revisit cross-row weight reuse only if a later output geometry provides a substantially more compact cached representation or recovers workgroup residency.
 
 ### Phase 3: atomics-free device-resident row-tile descriptors
 
@@ -894,6 +978,8 @@ Do not attempt a wholesale direct-to-VGPR conversion, both-operands direct-to-VG
 
 G1 completed the compile-time `J=64` and fixed-production-shape work and removed all production grouped-forward spills.
 
-For down, test the fixed-`K=512` two-decoded-weight LDS cache before discarding serial row ownership. Spills are already gone, so its remaining purpose is to amortize packed weight loads and decode across row chunks. It must beat the G1 down timings without exceeding the 64 KiB workgroup limit.
+The complete fixed-`K=512` decoded-weight LDS cache was rejected in G2 because its LDS residency cost overwhelmed decode reuse.
 
-For gate/up, or for down if the fixed-K cache remains scratch-heavy, proceed to the atomics-free device-resident row-tile descriptor scheduler and a dense-like single-tile multiplication kernel.
+G3 rejected fixed-shape `J=128`; `J=64` remains the production row tile. G4 then removed full-row address decomposition and moved every focused production class ahead of AITER.
+
+Continue with low-risk synchronization and fixed-K loop cleanup on the spill-free G4 body. Remove only barriers that are unnecessary by shared-memory lifetime analysis, then test a two-block down unroll and pointer-increment gate/up loop. If those neighborhoods plateau, evaluate whether descriptor setup can beat the already saturated serial grid rather than assuming it will help.
