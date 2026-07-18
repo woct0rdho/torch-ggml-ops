@@ -858,6 +858,49 @@ The batch-1 IQ2_S sparse point was neutral, but separate large-group A/B measure
 
 Production gate/up kernels remain spill-free. The pointer state raises VGPR allocation to 177 for Q3_K/Q4_K, 188 for Q5_K, 190 for Q6_K, and 240 for IQ2_S while reducing Q3_K SGPR allocation from 49 to 44. The complete gains are small but consistent at the important Q3_K and large IQ2_S points, so the affine pointer form is retained.
 
+### G8: atomics-free row-task descriptors for large gate/up groups
+
+Status: retained for gate/up when the host-visible average is at least two `J=64` row tiles; rejected for down.
+
+G8 adds a one-workgroup GPU setup pass. Each of at most 256 threads computes one group's task count, participates in a shared-memory prefix sum, and writes compact `(expert, row_start, row_end)` records without atomics. The capacity remains bounded by:
+
+```text
+ceil(R / 64) + G
+```
+
+The task count and three descriptor arrays remain device-resident. The compute grid indexes descriptors directly with output tile as the fastest-changing launch dimension. `grouped_mmq_pair` builds descriptors once and reuses them for gate and up. Batch-1 keeps G7's sparse serial dispatch because the descriptor threshold is not met.
+
+The focused artifacts are:
+
+```text
+/tmp/grouped_step8_gate_descriptors.json
+/tmp/grouped_step8_gate_descriptors_15.json
+/tmp/grouped_step7_gate_serial_15.json
+/tmp/grouped_step8_iq2_descriptors.json
+```
+
+The fair 15-repeat sequential A/B comparison, including setup, descriptor allocation, excess bounded workgroups, quantization, and both gate/up projections, measured:
+
+| Point | G7 serial ms | G8 descriptors ms | Speedup |
+|---|---:|---:|---:|
+| Gate/up Q3_K batch 4 boundary | 16.576 | 16.348 | 1.01x |
+| Gate/up Q3_K batch 16 uniform | 57.660 | 56.329 | 1.02x |
+| Gate/up IQ2_S batch 16 uniform | 66.966 | 66.314 | 1.01x |
+
+The descriptor arithmetic kernel remains spill-free and uses fewer VGPRs than the serial G7 body: 173 for Q3_K and 213 for IQ2_S, with 54/50 SGPRs. The setup kernel uses 13 VGPRs, 23 SGPRs, 1 KiB LDS, and no private segment. Production gate/up Q3_K batch-4 boundary remained exactly equal to dense MMQ for both outputs.
+
+A down-only descriptor dispatch was also tested and reverted. The artifact is:
+
+```text
+/tmp/grouped_step8b_down_descriptors.json
+```
+
+Down already launches 32 output tiles per active expert and saturates the GPU without row descriptors. Extra task parallelism regressed batch-4 Q4_K by 2.8%, boundary Q4_K by 4.4%, batch-16 Q4_K by 1.8%, batch-4 Q5_K by 1.9%, and batch-16 IQ2_S by 13.9%. Keep G6's serial row ownership for down.
+
+### G8 correctness coverage
+
+`tests/test_grouped_mmq.py::test_grouped_pair_production_row_tasks_match_dense` exercises the production `512 x 2048` paired descriptor path with both full and tail row tasks and requires bit-exact BF16 equality against concatenated dense MMQ calls.
+
 ## Optimization plan
 
 ### Phase 1: compile-time row, fixed-shape, and scalar-address specialization
@@ -905,27 +948,19 @@ The phase is closed for the current `I=64` geometry. Do not retry the same cache
 
 ### Phase 3: atomics-free device-resident row-tile descriptors
 
-For gate/up, or for down if the decoded-weight cache does not resolve the deficit, move row-chunk scheduling out of the multiplication kernel.
+Status: retained for large gate/up groups in G8 and rejected for down.
 
-A one-workgroup GPU setup pass should compute a prefix sum of `ceil(group_size / J)` for `G <= 256` and write compact `(expert, row_start, row_count)` descriptors into prefix-assigned slots. Avoid one atomic reservation per expert.
-
-The descriptor storage upper bound is known without a device read:
+The retained gate/up setup uses one 256-thread workgroup, an atomics-free shared-memory prefix sum, compact `(expert, row_start, row_end)` records, and the storage bound:
 
 ```text
 ceil(R / J) + G
 ```
 
-A compute grid can launch to that upper bound and have excess workgroups return after reading a device-resident task count.
+The compute grid launches to that upper bound, returns excess workgroups after reading a device task count, indexes descriptors directly, and processes one row tile. Output tile remains the fastest-changing launch dimension. `grouped_mmq_pair` builds the records once and reuses them for both projections. Setup, allocation, and excess workgroups are included in all reported public-operator timings.
 
-Order descriptors by group and row tile, and make output tile the fastest-changing launch dimension. This preserves activation locality across the 8 gate/up or 32 down output tiles for one row tile.
+The threshold retains serial scheduling below two host-average row tiles, preserving batch-1 sparse behavior. Down remains serial because its existing 32 output tiles per expert already provide enough parallel work and every measured descriptor point regressed.
 
-The multiplication kernel then processes exactly one row tile. Its structure can closely reuse the already benchmarked dense-MMQ tile body and should recover the dense kernel's spill-free lowering. Direct descriptor indexing is also preferable to reproducing TensileLite's per-workgroup linear or binary grouped-GEMM search inside the arithmetic kernel.
-
-`grouped_mmq_pair` should build the prefix and descriptors once and reuse them for both packed projections.
-
-The setup launch, descriptor storage, and empty upper-bound workgroups must be included in public-operator timing.
-
-Only after the non-persistent descriptor body is spill-free, test persistent grid-stride traversal with 160, 256, and 320 workgroups. Reject configurations that increase control-state spills, under-launch the GPU, or disrupt output-tile locality.
+Do not add persistent grid-stride traversal. After G8 the non-persistent descriptor gain is only 1-2%, while a persistent scheduler would add control state and risk losing sparse launch behavior for little remaining scheduling headroom.
 
 ### Phase 4: larger project-owned output tiles
 
@@ -1050,4 +1085,6 @@ G3 rejected fixed-shape `J=128`; `J=64` remains the production row tile. G4 then
 
 G5 showed that removing the post-write barrier is neutral. G6 retained a compile-time two-block down schedule, and G7 retained pointer-increment traversal for gate/up.
 
-The remaining scheduling question is whether atomics-free row-tile descriptors can beat an already spill-free and well-saturated serial grid after including setup cost. Treat this as a controlled higher-complexity ablation, not an assumed improvement. Preserve the current sparse batch-1 launch advantage and revert the descriptor path unless it improves model-weighted complete latency.
+G8 retained device row-task descriptors for large gate/up groups and rejected them for down. Batch-1 sparse routing keeps the serial G7 path.
+
+The final high-value geometry ablation is a 128-row output tile with 256 threads. It must preserve zero private segment and beat the retained G8 gate/up and G6/G7 down dispatches after accounting for its 50-55 KiB dynamic LDS footprint. If it fails, larger tiles and additional scheduling state are no longer worthwhile on the current representation.

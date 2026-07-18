@@ -196,6 +196,63 @@ void launch_grouped_projection_kernel(
             bytes_per_expert);
 }
 
+void launch_grouped_row_task_setup(
+        const int64_t * expert_indices,
+        const int32_t * expert_offsets,
+        int32_t * task_count,
+        int32_t * task_experts,
+        int32_t * task_row_starts,
+        int32_t * task_row_ends,
+        int num_experts,
+        int num_groups,
+        int rows,
+        hipStream_t stream) {
+    grouped_mmq_build_row_tasks<<<1, 256, 0, stream>>>(
+        expert_indices,
+        expert_offsets,
+        task_count,
+        task_experts,
+        task_row_starts,
+        task_row_ends,
+        num_experts,
+        num_groups,
+        rows,
+        MMQ_J_SMALL);
+    check_hip(hipGetLastError(), "grouped_mmq_build_row_tasks launch");
+}
+
+template <ggml_type type>
+void launch_grouped_row_task_projection(
+        const char * packed,
+        const int * activations,
+        __hip_bfloat16 * output,
+        const int32_t * task_count,
+        const int32_t * task_experts,
+        const int32_t * task_row_starts,
+        const int32_t * task_row_ends,
+        int max_tasks,
+        int rows,
+        int64_t bytes_per_expert,
+        hipStream_t stream) {
+    const dim3 mmq_grid(512 / MMQ_I, max_tasks, 1);
+    const dim3 mmq_block(WARP_SIZE, MMQ_NWARPS, 1);
+    const int shared_ints = MMQ_J_SMALL
+        + GGML_PAD(MMQ_J_SMALL * MMQ_TILE_Y_K, MMQ_NTHREADS)
+        + MMQ_I * sram_stride_host(type);
+    grouped_mmq_row_task_kernel<type, MMQ_J_SMALL, 512, 8>
+        <<<mmq_grid, mmq_block, shared_ints * sizeof(int), stream>>>(
+            packed,
+            activations,
+            output,
+            task_count,
+            task_experts,
+            task_row_starts,
+            task_row_ends,
+            rows,
+            bytes_per_expert);
+    check_hip(hipGetLastError(), "grouped_mmq_row_task_kernel launch");
+}
+
 template <ggml_type type>
 void launch_grouped_projection(
         const char * packed,
@@ -472,6 +529,27 @@ Tensor new_grouped_output(const Tensor & input, const GroupedMMQShape & shape) {
 Tensor new_grouped_workspace(const Tensor & input, const GroupedMMQShape & shape) {
     const int64_t workspace_bytes =
         static_cast<int64_t>(shape.rows) * (shape.in_features / (4 * QK8_1)) * sizeof(block_q8_1_mmq);
+    std::array<int64_t, 1> workspace_size{workspace_bytes};
+    return torch::stable::new_empty(
+        input,
+        torch::headeronly::IntHeaderOnlyArrayRef(workspace_size.data(), workspace_size.size()),
+        ScalarType::Byte);
+}
+
+bool use_grouped_row_tasks(const GroupedMMQShape & shape) {
+    return shape.out_features == 512 && shape.in_features == 2048 &&
+        shape.rows >= shape.num_groups * (2 * MMQ_J_SMALL);
+}
+
+int grouped_row_task_capacity(const GroupedMMQShape & shape) {
+    return (shape.rows + MMQ_J_SMALL - 1) / MMQ_J_SMALL + shape.num_groups;
+}
+
+Tensor new_grouped_row_task_workspace(
+        const Tensor & input, const GroupedMMQShape & shape) {
+    const int64_t workspace_ints =
+        1 + 3 * static_cast<int64_t>(grouped_row_task_capacity(shape));
+    const int64_t workspace_bytes = workspace_ints * sizeof(int32_t);
     std::array<int64_t, 1> workspace_size{workspace_bytes};
     return torch::stable::new_empty(
         input,
@@ -839,6 +917,50 @@ Tensor grouped_mmq_cuda(
     auto * output_pointer = static_cast<__hip_bfloat16 *>(output.mutable_data_ptr());
     auto * workspace_pointer = static_cast<block_q8_1_mmq *>(workspace.mutable_data_ptr());
 
+    if (use_grouped_row_tasks(shape)) {
+        Tensor task_workspace = new_grouped_row_task_workspace(input, shape);
+        auto * task_pointer = static_cast<int32_t *>(task_workspace.mutable_data_ptr());
+        const int max_tasks = grouped_row_task_capacity(shape);
+        int32_t * task_count = task_pointer;
+        int32_t * task_experts = task_count + 1;
+        int32_t * task_row_starts = task_experts + max_tasks;
+        int32_t * task_row_ends = task_row_starts + max_tasks;
+
+        dispatch_quant_type(quant_type, [&](auto type_tag) {
+            constexpr ggml_type type = decltype(type_tag)::value;
+            launch_grouped_quantize<type>(
+                input_pointer,
+                workspace_pointer,
+                shape.rows,
+                shape.in_features,
+                stream);
+            launch_grouped_row_task_setup(
+                expert_pointer,
+                offsets_pointer,
+                task_count,
+                task_experts,
+                task_row_starts,
+                task_row_ends,
+                shape.num_experts,
+                shape.num_groups,
+                shape.rows,
+                stream);
+            launch_grouped_row_task_projection<type>(
+                packed_pointer,
+                reinterpret_cast<const int *>(workspace_pointer),
+                output_pointer,
+                task_count,
+                task_experts,
+                task_row_starts,
+                task_row_ends,
+                max_tasks,
+                shape.rows,
+                shape.bytes_per_expert,
+                stream);
+        });
+        return output;
+    }
+
     dispatch_quant_type(quant_type, [&](auto type_tag) {
         constexpr ggml_type type = decltype(type_tag)::value;
         launch_grouped_quantize<type>(
@@ -910,6 +1032,62 @@ std::tuple<Tensor, Tensor> grouped_mmq_pair_cuda(
     auto * first_output_pointer = static_cast<__hip_bfloat16 *>(first_output.mutable_data_ptr());
     auto * second_output_pointer = static_cast<__hip_bfloat16 *>(second_output.mutable_data_ptr());
     auto * workspace_pointer = static_cast<block_q8_1_mmq *>(workspace.mutable_data_ptr());
+
+    if (use_grouped_row_tasks(shape)) {
+        Tensor task_workspace = new_grouped_row_task_workspace(input, shape);
+        auto * task_pointer = static_cast<int32_t *>(task_workspace.mutable_data_ptr());
+        const int max_tasks = grouped_row_task_capacity(shape);
+        int32_t * task_count = task_pointer;
+        int32_t * task_experts = task_count + 1;
+        int32_t * task_row_starts = task_experts + max_tasks;
+        int32_t * task_row_ends = task_row_starts + max_tasks;
+
+        dispatch_quant_type(quant_type, [&](auto type_tag) {
+            constexpr ggml_type type = decltype(type_tag)::value;
+            launch_grouped_quantize<type>(
+                input_pointer,
+                workspace_pointer,
+                shape.rows,
+                shape.in_features,
+                stream);
+            launch_grouped_row_task_setup(
+                expert_pointer,
+                offsets_pointer,
+                task_count,
+                task_experts,
+                task_row_starts,
+                task_row_ends,
+                shape.num_experts,
+                shape.num_groups,
+                shape.rows,
+                stream);
+            launch_grouped_row_task_projection<type>(
+                first_packed_pointer,
+                reinterpret_cast<const int *>(workspace_pointer),
+                first_output_pointer,
+                task_count,
+                task_experts,
+                task_row_starts,
+                task_row_ends,
+                max_tasks,
+                shape.rows,
+                shape.bytes_per_expert,
+                stream);
+            launch_grouped_row_task_projection<type>(
+                second_packed_pointer,
+                reinterpret_cast<const int *>(workspace_pointer),
+                second_output_pointer,
+                task_count,
+                task_experts,
+                task_row_starts,
+                task_row_ends,
+                max_tasks,
+                shape.rows,
+                shape.bytes_per_expert,
+                stream);
+        });
+        return std::make_tuple(std::move(first_output), std::move(second_output));
+    }
 
     dispatch_quant_type(quant_type, [&](auto type_tag) {
         constexpr ggml_type type = decltype(type_tag)::value;

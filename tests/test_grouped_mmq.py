@@ -197,6 +197,62 @@ def test_grouped_pair_matches_two_single_projections(
     torch.testing.assert_close(actual_up, expected_up, rtol=0, atol=0)
 
 
+def test_grouped_pair_production_row_tasks_match_dense(
+    reader: gguf.GGUFReader,
+) -> None:
+    gate, quant_type, in_features = _packed_experts(
+        reader,
+        "blk.0.ffn_gate_exps.weight",
+        out_features=512,
+    )
+    up, up_quant_type, up_in_features = _packed_experts(
+        reader,
+        "blk.0.ffn_up_exps.weight",
+        out_features=512,
+    )
+    assert up_quant_type == quant_type
+    assert up_in_features == in_features == 2048
+
+    experts = torch.tensor([0, 2, 5, 7], device="cuda", dtype=torch.int64)
+    offsets = torch.tensor([65, 194, 323, 512], device="cuda", dtype=torch.int32)
+    generator = torch.Generator(device="cuda").manual_seed(2468)
+    input = torch.randn(
+        512,
+        in_features,
+        generator=generator,
+        device="cuda",
+        dtype=torch.bfloat16,
+    )
+
+    actual_gate, actual_up = torch_ggml_ops.grouped_mmq_pair(
+        input, gate, up, experts, offsets, int(quant_type), 512
+    )
+
+    expected_gate_parts = []
+    expected_up_parts = []
+    row_begin = 0
+    for expert, row_end in zip(experts.cpu().tolist(), offsets.cpu().tolist()):
+        group_input = input[row_begin:row_end].clone()
+        expected_gate_parts.append(
+            torch_ggml_ops.mmq(
+                group_input, gate[expert].clone(), int(quant_type), 512
+            )
+        )
+        expected_up_parts.append(
+            torch_ggml_ops.mmq(
+                group_input, up[expert].clone(), int(quant_type), 512
+            )
+        )
+        row_begin = row_end
+
+    torch.testing.assert_close(
+        actual_gate, torch.cat(expected_gate_parts), rtol=0, atol=0
+    )
+    torch.testing.assert_close(
+        actual_up, torch.cat(expected_up_parts), rtol=0, atol=0
+    )
+
+
 @pytest.mark.parametrize("qname", tuple(_PROJECTIONS))
 def test_grouped_backward_is_logical_weight_jacobian(
     reader: gguf.GGUFReader, qname: str

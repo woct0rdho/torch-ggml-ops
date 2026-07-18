@@ -526,3 +526,124 @@ static __global__ void grouped_mmq_bf16_kernel(
                 blocks_per_weight_row);
     }
 }
+
+__launch_bounds__(256, 1)
+static __global__ void grouped_mmq_build_row_tasks(
+        const int64_t * __restrict__ expert_indices,
+        const int32_t * __restrict__ expert_offsets,
+        int32_t * __restrict__ task_count,
+        int32_t * __restrict__ task_experts,
+        int32_t * __restrict__ task_row_starts,
+        int32_t * __restrict__ task_row_ends,
+        int num_experts,
+        int num_groups,
+        int nrows_activation,
+        int row_tile) {
+    __shared__ int cumulative_tasks[256];
+    const int group = threadIdx.x;
+
+    int row_begin = 0;
+    int row_end = 0;
+    int expert = -1;
+    int group_tasks = 0;
+    if (group < num_groups) {
+        row_begin = group == 0 ? 0 : expert_offsets[group - 1];
+        row_end = expert_offsets[group];
+        const int64_t expert64 = expert_indices[group];
+        if (
+            expert64 >= 0 && expert64 < num_experts && row_begin >= 0 &&
+            row_end > row_begin && row_end <= nrows_activation
+        ) {
+            expert = static_cast<int>(expert64);
+            group_tasks = (row_end - row_begin + row_tile - 1) / row_tile;
+        }
+    }
+    cumulative_tasks[group] = group_tasks;
+    __syncthreads();
+
+#pragma unroll
+    for (int offset = 1; offset < 256; offset <<= 1) {
+        const int add = group >= offset ? cumulative_tasks[group - offset] : 0;
+        __syncthreads();
+        cumulative_tasks[group] += add;
+        __syncthreads();
+    }
+
+    if (group < num_groups) {
+        const int task_begin = group == 0 ? 0 : cumulative_tasks[group - 1];
+        for (int task = 0; task < group_tasks; ++task) {
+            const int task_index = task_begin + task;
+            const int task_row_start = row_begin + task * row_tile;
+            task_experts[task_index] = expert;
+            task_row_starts[task_index] = task_row_start;
+            task_row_ends[task_index] = min(task_row_start + row_tile, row_end);
+        }
+        if (group == num_groups - 1) {
+            task_count[0] = cumulative_tasks[group];
+        }
+    }
+}
+
+template <ggml_type type, int J, int fixed_nrows_weight, int fixed_blocks_per_weight_row>
+__launch_bounds__(MMQ_NTHREADS, 2)
+static __global__ void grouped_mmq_row_task_kernel(
+        const char * __restrict__ weights,
+        const int * __restrict__ activations,
+        __hip_bfloat16 * __restrict__ dst,
+        const int32_t * __restrict__ task_count,
+        const int32_t * __restrict__ task_experts,
+        const int32_t * __restrict__ task_row_starts,
+        const int32_t * __restrict__ task_row_ends,
+        int nrows_activation,
+        int64_t bytes_per_expert) {
+    constexpr int q8_block_ints = sizeof(block_q8_1_mmq) / sizeof(int);
+    static_assert(MMQ_TILE_Y_K == q8_block_ints, "unexpected grouped Q8 tile layout");
+    static_assert(
+        fixed_nrows_weight > 0 && fixed_blocks_per_weight_row > 0,
+        "row-task grouped MMQ requires a fixed production shape");
+
+    const int task = blockIdx.y;
+    if (task >= task_count[0]) {
+        return;
+    }
+
+    const int tile_i = blockIdx.x;
+    const int expert = task_experts[task];
+    const int row_start = task_row_starts[task];
+    const int row_end = task_row_ends[task];
+    const char * expert_weights = weights + static_cast<int64_t>(expert) * bytes_per_expert;
+
+    extern __shared__ int shared[];
+    int * tile_y = shared + J;
+    int * tile_x = tile_y + GGML_PAD(J * MMQ_TILE_Y_K, MMQ_NTHREADS);
+
+    if (row_end - row_start == J) {
+        grouped_mmq_row_tile<
+            type, J, fixed_nrows_weight, fixed_blocks_per_weight_row, true>(
+                expert_weights,
+                activations,
+                dst,
+                tile_x,
+                tile_y,
+                tile_i,
+                row_start,
+                row_end,
+                fixed_nrows_weight,
+                nrows_activation,
+                fixed_blocks_per_weight_row);
+    } else {
+        grouped_mmq_row_tile<
+            type, J, fixed_nrows_weight, fixed_blocks_per_weight_row, false>(
+                expert_weights,
+                activations,
+                dst,
+                tile_x,
+                tile_y,
+                tile_i,
+                row_start,
+                row_end,
+                fixed_nrows_weight,
+                nrows_activation,
+                fixed_blocks_per_weight_row);
+    }
+}
