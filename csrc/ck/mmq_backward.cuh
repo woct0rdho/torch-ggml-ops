@@ -335,6 +335,7 @@ static __device__ __forceinline__ void decode_backward_tile_q4_preloaded(
     }
 }
 
+template <bool PACK_QUANT_BYTES>
 static __device__ __forceinline__ void decode_backward_tile_q5_preloaded(
         const block_q5_K & block,
         int value_index,
@@ -347,14 +348,35 @@ static __device__ __forceinline__ void decode_backward_tile_q5_preloaded(
     const float minimum = fp16_to_fp32(block.dmin) *
         static_cast<float>(k_min(block.scales, group));
     const int shift = 4 * (group & 1);
-    const auto * low_bytes = reinterpret_cast<const uint8_t *>(&packed_low);
-    const auto * high_bytes = reinterpret_cast<const uint8_t *>(&packed_high);
+    if constexpr (PACK_QUANT_BYTES) {
+        const auto * low_words =
+            reinterpret_cast<const uint32_t *>(&packed_low);
+        const auto * high_words =
+            reinterpret_cast<const uint32_t *>(&packed_high);
 #pragma unroll
-    for (int index = 0; index < 16; ++index) {
-        const int low = (low_bytes[index] >> shift) & 0x0f;
-        const int high = (high_bytes[index] >> group) & 0x01;
-        values[index] = __float2bfloat16(
-            d * static_cast<float>(low | (high << 4)) - minimum);
+        for (int word = 0; word < 4; ++word) {
+            const uint32_t quant_bytes =
+                ((low_words[word] >> shift) & 0x0f0f0f0fU) |
+                (((high_words[word] >> group) & 0x01010101U) << 4);
+#pragma unroll
+            for (int byte = 0; byte < 4; ++byte) {
+                const int quant = (quant_bytes >> (8 * byte)) & 0x1f;
+                values[4 * word + byte] = __float2bfloat16(
+                    d * static_cast<float>(quant) - minimum);
+            }
+        }
+    } else {
+        const auto * low_bytes =
+            reinterpret_cast<const uint8_t *>(&packed_low);
+        const auto * high_bytes =
+            reinterpret_cast<const uint8_t *>(&packed_high);
+#pragma unroll
+        for (int index = 0; index < 16; ++index) {
+            const int low = (low_bytes[index] >> shift) & 0x0f;
+            const int high = (high_bytes[index] >> group) & 0x01;
+            values[index] = __float2bfloat16(
+                d * static_cast<float>(low | (high << 4)) - minimum);
+        }
     }
 }
 
@@ -450,7 +472,8 @@ template <
     bool PREFETCH_PACKED,
     int LDS_PADDING,
     bool VECTOR_LOCAL_LOAD,
-    int LDS_SWIZZLE_CHUNK>
+    int LDS_SWIZZLE_CHUNK,
+    bool PACK_Q5_QUANT_BYTES>
 __launch_bounds__(BACKWARD_THREADS, 2)
 static __global__ void dense_mmq_grad_input_kernel(
         const __hip_bfloat16 * __restrict__ grad_output,
@@ -630,14 +653,14 @@ static __global__ void dense_mmq_grad_input_kernel(
             const uint4 second_high =
                 *reinterpret_cast<const uint4 *>(second_block.qh + high_byte);
             __hip_bfloat16 values[16];
-            decode_backward_tile_q5_preloaded(
+            decode_backward_tile_q5_preloaded<PACK_Q5_QUANT_BYTES>(
                 first_block, value_index, first_low, first_high, values);
 #pragma unroll
             for (int index = 0; index < 16; ++index) {
                 shared_b[(local_input_column + index) * K_ITERATION + first_k] =
                     values[index];
             }
-            decode_backward_tile_q5_preloaded(
+            decode_backward_tile_q5_preloaded<PACK_Q5_QUANT_BYTES>(
                 second_block, value_index, second_low, second_high, values);
 #pragma unroll
             for (int index = 0; index < 16; ++index) {
@@ -958,7 +981,8 @@ template <
     bool PREFETCH_PACKED = false,
     int LDS_PADDING = 0,
     bool VECTOR_LOCAL_LOAD = false,
-    int LDS_SWIZZLE_CHUNK = 0>
+    int LDS_SWIZZLE_CHUNK = 0,
+    bool PACK_Q5_QUANT_BYTES = false>
 static inline void launch_dense_mmq_grad_input_tiled(
         const __hip_bfloat16 * grad_output,
         const char * packed_weight,
@@ -991,7 +1015,8 @@ static inline void launch_dense_mmq_grad_input_tiled(
         PREFETCH_PACKED,
         LDS_PADDING,
         VECTOR_LOCAL_LOAD,
-        LDS_SWIZZLE_CHUNK>
+        LDS_SWIZZLE_CHUNK,
+        PACK_Q5_QUANT_BYTES>
         <<<grid, block, 0, stream>>>(
         grad_output,
         packed_weight,
@@ -1056,7 +1081,7 @@ static inline void launch_dense_mmq_grad_input(
                 if (in_features >= 2048) {
                     launch_dense_mmq_grad_input_tiled<
                         type, 8, 32, 1, 2, 16, true, true, true,
-                        0, true, 8>(
+                        0, true, 8, true>(
                         grad_output, packed_weight, grad_input,
                         rows, out_features, in_features, stream);
                 } else {

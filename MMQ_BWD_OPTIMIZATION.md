@@ -182,7 +182,7 @@ Format-specific choices:
 | Q4_K query/narrow | yes | XOR swizzle, no padding |
 | Attention-output Q4_K | yes | 8 BF16 values per row |
 | Shared-down Q4_K | yes | 16-BF16-chunk XOR swizzle, no padding |
-| Narrow Q5_K | yes | XOR swizzle, no padding |
+| Narrow Q5_K | yes | 8-BF16-chunk XOR swizzle plus packed quant-byte extraction |
 | Shared-down Q5_K | yes | 4-BF16-chunk XOR swizzle, no padding |
 
 Non-divisible and smaller-row shapes retain bounds-safe measured kernels.
@@ -344,7 +344,13 @@ A later no-padding XOR swizzle sweep showed that the result is shape-specific. Q
 
 The eight-BF16-chunk swizzle regressed narrow Q3_K to 3.093 ms, attention-output Q4_K to 22.812 ms, and both shared-down formats to 5.401/5.651 ms. The selected dispatch uses that granularity only for wide Q3_K query, Q4_K query/narrow, and narrow Q5_K; padded vector loads remain selected for narrow Q3_K and attention-output Q4_K.
 
-A follow-up 16-BF16-chunk swizzle improved shared-down Q4_K from 5.316 to 5.166 ms in the initial run and 5.252 ms in the final selected dispatch. Shared-down Q5_K and Q6_K M=256 were neutral. The coarser swizzle is accepted only for shared-down Q4_K.
+A coarser 16-BF16-chunk swizzle regressed the high-frequency Q3_K query from 48.694 to 57.001 ms. A finer four-BF16 swizzle with four 64-bit fragment loads also regressed to 50.873 ms. Its selected eight-BF16 granularity is retained.
+
+The 16-BF16 swizzle also regressed Q4_K query/narrow from 47.083/2.915 ms to 53.638/3.420 ms. A four-BF16 swizzle was closer at 48.051/2.989 ms but still slower. Their selected eight-BF16 granularity is retained.
+
+A follow-up 16-BF16-chunk swizzle improved shared-down Q4_K from 5.316 to 5.166 ms in the initial run and 5.252 ms in the final selected dispatch. It regressed attention-output Q4_K to 26.526 ms, while a four-BF16 swizzle also trailed its padded layout at 22.952 ms.
+
+Shared-down Q5_K and the original Q6_K M=256 geometry were neutral with the coarser swizzle. The 16-BF16 variant is accepted only for shared-down Q4_K and Q6_K M=64.
 
 The selected ordinary run measured 48.694/47.083 ms for Q3_K/Q4_K query, 2.691/2.915/3.065 ms for narrow Q3_K/Q4_K/Q5_K, and 22.402 ms for attention-output Q4_K. With the coarser shared-down Q4_K swizzle, the ordinary batch-16 serial estimate is approximately 1.212 seconds.
 
@@ -448,12 +454,12 @@ The latest accepted measurements combine the 128x128 retile, packed-byte prefetc
 | Query Q4_K | 47.083 | 59.468 | 1.26x | XOR-swizzled vector local loads |
 | Narrow Q3_K | 2.691 | 2.802 | 1.04x | padded vector local loads |
 | Narrow Q4_K | 2.915 | 2.894 | 0.99x | XOR-swizzled vector local loads |
-| Narrow Q5_K | 3.065 | 2.885 | 0.94x | XOR-swizzled vector local loads |
+| Narrow Q5_K | 2.868 | 2.959 | 1.03x | packed quant-byte extraction and 8-BF16-chunk XOR swizzle |
 | Attention output Q4_K | 22.402 | 22.832 | 1.02x | padded vector local loads |
 | Shared down Q4_K | 5.252 | 4.261 | 0.81x | 16-BF16-chunk XOR-swizzled vector loads |
-| Shared down Q5_K | 5.353 | 4.239 | 0.79x | 4-BF16-chunk XOR swizzle with 64-bit loads |
+| Shared down Q5_K | 5.618 | 4.138 | 0.74x | scalar quant extraction and 4-BF16-chunk XOR swizzle |
 
-The ordinary batch-16 serial estimate is approximately 1.210 seconds across the 160 projections. The corresponding BF16 estimate is approximately 1.28 seconds across the recent runs.
+The ordinary batch-16 serial estimate remains approximately 1.21 seconds across the 160 projections. The corresponding BF16 estimate is approximately 1.28 seconds across the recent runs.
 
 This is an aggregate scheduling estimate, not an end-to-end training measurement. It does not model overlap with other model work.
 
@@ -578,9 +584,9 @@ The remaining Q3_K/Q4_K issue is no longer packed-global bandwidth alone. High L
 
 ### Q5_K
 
-Q5_K remains below BF16 because its higher decode and register cost prevents the same padded-layout gain seen by Q3_K and Q4_K.
+Packing four Q5_K low/high byte pairs into one 32-bit quant word reduced repeated per-byte high-bit extraction. Narrow Q5_K improved from about 3.04 to 2.845-2.868 ms and now reaches 1.03-1.05x BF16 throughput.
 
-A new Q5_K optimization must reduce decode issue pressure or representation cost. Repeating Q4_K padding is not justified.
+The same extraction schedule regressed shared down to 5.759 ms, so it is selected only for the narrow shape. Shared-down Q5_K still needs lower decode issue pressure or cross-call representation reuse.
 
 ### Shared down
 
@@ -595,9 +601,15 @@ They combine:
 
 A shared-down-specific 4x4 per-wave geometry kept 16 accumulator tiles while doubling M reuse of decoded weights. It regressed Q4_K/Q5_K from about 5.25/5.57 ms to 7.338/7.388 ms because doubled cotangent traffic and four live A fragments outweighed reduced decode repetition.
 
+The complementary 1x16 geometry halved cotangent reloads but doubled packed decode across M blocks and lost the N=8 packed-prefetch specialization. It regressed Q4_K/Q5_K further to 9.208/7.322 ms.
+
 Increasing shared-down reduction depth from 32 to 64 measured 5.215 ms for Q4_K, below the meaningful margin over the selected K=32 result, and regressed Q5_K to 6.565 ms. Halving barrier frequency does not offset the longer decode phase and loss of the K=32 packed-prefetch specialization.
 
-A finer four-BF16-chunk XOR swizzle with four 64-bit loads per fragment regressed Q4_K to 5.486 ms but improved Q5_K from about 5.57 to 5.353 ms. Q4_K retains the 16-BF16-chunk/two-128-bit-load swizzle, while Q5_K selects the finer swizzle.
+A finer four-BF16-chunk XOR swizzle with four 64-bit loads per fragment regressed Q4_K to 5.486 ms. For Q5_K, the initial shared-down result was 5.353 ms, while an immediate repeat measured 5.560 versus 5.642 ms for the eight-BF16 control. Narrow Q5_K measured 3.025 versus 3.043 ms in the same comparison.
+
+The shared-down Q5_K gain is modest but repeatable. The narrow difference is below the meaningful selection margin.
+
+Q4_K retains the 16-BF16-chunk/two-128-bit-load swizzle for shared down. Shared-down Q5_K selects the finer swizzle, while narrow Q5_K retains two 128-bit loads.
 
 Local geometry and K-depth tuning have plateaued for shared down. A larger gain likely requires decoded-weight reuse across calls or a changed representation.
 
@@ -691,11 +703,11 @@ The next high-ceiling options are:
 
 Project fused kernels should remain independent of hipBLASLt. hipBLASLt remains an architectural reference unless the linkage policy changes.
 
-### Reduce Q5_K representation cost
+### Reduce shared-down Q5_K representation cost
 
-Q5_K still trails BF16 on narrow and shared-down shapes despite its selected LDS swizzles.
+Narrow Q5_K now beats BF16 after packed quant-byte extraction. Shared-down Q5_K still trails BF16 because that schedule interacts poorly with its low-reuse shape.
 
-A useful next kernel experiment must reduce metadata or high-bit decode work. Repeating Q4_K layout changes without changing decode cost is unlikely to help.
+A useful next experiment must reduce decode cost without increasing its register or LDS-fragment burden. Repeating Q4_K layout changes is unlikely to help.
 
 ### Consider a lossless int8-plus-scale cache before approximate Q8
 
