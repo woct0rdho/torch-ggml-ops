@@ -70,6 +70,7 @@ Grouped-M traversal result:      /tmp/mmq_bwd_ordinary_group_2.json
 Q4_K LDS-padding experiment:     /tmp/mmq_bwd_q4_lds_pad8.json
 Q3_K/Q5_K padding experiment:    /tmp/mmq_bwd_q3_q5_lds_pad8.json
 Final Q6_K small-row geometry:   /tmp/mmq_bwd_lm_final_geometry.json
+Final selected production run:   /tmp/mmq_bwd_final_autonomous.json
 ```
 
 The `/tmp` paths record measurement provenance and are not repository inputs.
@@ -101,10 +102,10 @@ The LM head uses:
 N = 248320
 K = 2048
 weight = Q6_K
-production backward chunk M = 64
+production backward chunk M = 256
 ```
 
-Comparison and aggregation candidates use `M = 64, 128, 256`.
+Benchmarks retain `M = 64, 128, 256`; M=64 and M=128 are lower-memory fallbacks.
 
 ## Current source status
 
@@ -306,6 +307,8 @@ Q4_K and Q5_K preload packed data for two output rows before decoding the first.
 
 Wide Q3_K now combines four low/high byte pairs into one unsigned three-bit quant word before scalar BF16 conversion. This reduced query latency from 48.694 to 46.980 ms without changing correctness.
 
+Holding the next iteration's four `uint4` packed fragments live across WMMA regressed query to 48.606 ms. The longer VGPR live range costs more than cross-iteration global-load overlap saves, so prefetch remains limited to the current decode phase.
+
 Narrow Q3_K does not use packed prefetch. Its misaligned 110-byte block layout made the prefetch slightly slower than the regular sixteen-value decoder.
 
 Fixed scalar/vector prefetch state was retained. Compiler-managed arrays were avoided because FeatherOps experiments showed that intended VGPR arrays can become unexpected LDS allocations.
@@ -430,9 +433,9 @@ The final clean Q6_K benchmark is:
 
 | M | Selected geometry | Packed ms | BF16 ms | Throughput ratio |
 | ---: | --- | ---: | ---: | ---: |
-| 64 | M=1/N=2/K=64 with 16-BF16-chunk XOR LDS swizzle | 5.356 | 9.850 | 1.84x |
-| 128 | M=2/N=4/K=32 with XOR LDS swizzle | 9.172 | 14.444 | 1.57x |
-| 256 | two M blocks of M=2/N=4/K=32, packed quant extraction, XOR swizzle | 11.758 | 19.023 | 1.62x |
+| 64 | M=1/N=2/K=64 with 16-BF16-chunk XOR LDS swizzle | 5.357 | 9.863 | 1.84x |
+| 128 | M=2/N=4/K=32 with XOR LDS swizzle | 9.084 | 14.480 | 1.59x |
+| 256 | two M blocks of M=2/N=4/K=32, packed quant extraction, XOR swizzle | 11.726 | 19.010 | 1.62x |
 
 The XOR LDS swizzle changed M=64 from the largest Q6_K deficit into the fastest production-relative kernel at 1.84x BF16 throughput. The final 16-BF16-chunk layout measures about 5.36 ms, with unchanged 4 KiB LDS capacity and exact benchmark correctness.
 
@@ -441,6 +444,12 @@ M=128 improved from 13.402 to 9.187 ms and reached 1.57x BF16. Applying the swiz
 The smaller N tile doubles workgroup count and reduces accumulator pressure. Its repeated packed decode across two M blocks costs less than the parallelism and LDS-bank gains it enables.
 
 Packed Q6_K quant-byte extraction measured 5.361/9.370/11.754 ms at M=64/128/256 when enabled globally. Shape-specific selection restored the scalar M=64/M=128 times and retained the M=256 gain, with a final 11.758 ms result.
+
+Changing the packed M=256 path from an eight- to 16-BF16 swizzle regressed it to 15.540 ms. A four-BF16 swizzle with four 64-bit fragment loads also regressed to 13.934 ms.
+
+Neither alternative provides the M=64 benefit on the 128x64 geometry. On scalar-extraction M=128, 16- and four-BF16 swizzles regressed from about 9.17 to 13.486 and 12.363 ms.
+
+The eight-BF16 swizzle remains selected for both 128x64 paths.
 
 A post-swizzle M=64 N=3/K=64 candidate regressed from 5.829 to 12.690 ms. Its 48-column tile does not divide 2048, so bounds checks on every workgroup and the irregular final tile overwhelm its extra N reuse.
 
@@ -456,16 +465,16 @@ The latest accepted measurements combine the 128x128 retile, packed-byte prefetc
 
 | Case | Packed ms | BF16 ms | Throughput ratio | Source |
 | --- | ---: | ---: | ---: | --- |
-| Query Q3_K | 46.980 | 59.411 | 1.26x | packed quant-byte extraction and XOR-swizzled vector loads |
-| Query Q4_K | 47.083 | 59.468 | 1.26x | XOR-swizzled vector local loads |
-| Narrow Q3_K | 2.691 | 2.802 | 1.04x | padded vector local loads |
-| Narrow Q4_K | 2.915 | 2.894 | 0.99x | XOR-swizzled vector local loads |
-| Narrow Q5_K | 2.868 | 2.959 | 1.03x | packed quant-byte extraction and 8-BF16-chunk XOR swizzle |
-| Attention output Q4_K | 22.402 | 22.832 | 1.02x | padded vector local loads |
-| Shared down Q4_K | 5.252 | 4.261 | 0.81x | 16-BF16-chunk XOR-swizzled vector loads |
-| Shared down Q5_K | 5.618 | 4.138 | 0.74x | scalar quant extraction and 4-BF16-chunk XOR swizzle |
+| Query Q3_K | 46.992 | 59.372 | 1.26x | packed quant-byte extraction and XOR-swizzled vector loads |
+| Query Q4_K | 46.999 | 59.476 | 1.27x | XOR-swizzled vector local loads |
+| Narrow Q3_K | 2.713 | 2.849 | 1.05x | padded vector local loads |
+| Narrow Q4_K | 2.843 | 2.805 | 0.99x | XOR-swizzled vector local loads |
+| Narrow Q5_K | 2.914 | 2.839 | 0.97x | packed quant-byte extraction and 8-BF16-chunk XOR swizzle |
+| Attention output Q4_K | 22.462 | 22.692 | 1.01x | padded vector local loads |
+| Shared down Q4_K | 5.278 | 4.123 | 0.78x | 16-BF16-chunk XOR-swizzled vector loads |
+| Shared down Q5_K | 5.569 | 4.123 | 0.74x | scalar quant extraction and 4-BF16-chunk XOR swizzle |
 
-The ordinary batch-16 serial estimate is now approximately 1.19-1.20 seconds across the 160 projections. The corresponding BF16 estimate is approximately 1.28 seconds across the recent runs.
+The ordinary batch-16 serial estimate is 1.193 seconds across the 160 projections. The corresponding same-run BF16 estimate is 1.267 seconds.
 
 This is an aggregate scheduling estimate, not an end-to-end training measurement. It does not model overlap with other model work.
 
@@ -480,7 +489,7 @@ This is an aggregate scheduling estimate, not an end-to-end training measurement
 | Narrow Q4_K | 0.300 ms | 0.907 ms | 3.273 ms | 0.86x |
 | Narrow Q5_K | 0.253 ms | 0.914 ms | 3.378 ms | 0.83x |
 
-A new full matrix is required after rebuilding the current padded source.
+The final production M=32,768 row is reported above. A new multi-M matrix would be needed only if smaller-row ordinary dispatch becomes a production target.
 
 ### LM-head aggregation implications
 
@@ -488,11 +497,13 @@ At batch 16:
 
 | Chunk M | Calls | Packed serial estimate | BF16 serial estimate |
 | ---: | ---: | ---: | ---: |
-| 64 | 512 | 2,742 ms | 5,043 ms |
-| 128 | 256 | 2,348 ms | 3,697 ms |
-| 256 | 128 | 1,505 ms | 2,435 ms |
+| 64 | 512 | 2,743 ms | 5,050 ms |
+| 128 | 256 | 2,326 ms | 3,707 ms |
+| 256 | 128 | 1,501 ms | 2,433 ms |
 
-M=256 now has the lowest batch-16 serial estimate at about 1.50 seconds, but it requires about 121 MiB of cotangent storage. M=128 remains a lower-memory 61 MiB aggregation point, while the production M=64 schedule needs no additional aggregation buffer.
+M=256 is now the production schedule. It has the lowest batch-16 serial estimate at about 1.50 seconds and requires about 121 MiB of cotangent storage. M=128 and M=64 remain lower-memory fallbacks.
+
+The complete 2,048-row packed-loss loop measured 229.958 ms at M=256 versus 312.690 ms at M=64. Peak allocation above resident inputs increased from 69.03 to 253.57 MiB; the approximately 184.5 MiB increase is accepted.
 
 Approximate BF16 cotangent storage is:
 
@@ -505,6 +516,24 @@ Approximate BF16 cotangent storage is:
 Aggregation belongs at the loss/LM-head scheduling layer rather than inside the packed kernel.
 
 ## Profiling and resource findings
+
+### Final code-object resources
+
+The final selected production specializations have no private segment or register spills:
+
+| Specialization | VGPRs | SGPRs | LDS |
+| --- | ---: | ---: | ---: |
+| Q3_K query | 237 | 27 | 8 KiB |
+| Q4_K query/narrow | 226 | 17 | 8 KiB |
+| Q4_K attention output | 222 | 20 | 10 KiB |
+| Q4_K shared down | 222 | 16 | 8 KiB |
+| Q5_K narrow | 231 | 16 | 8 KiB |
+| Q5_K shared down | 253 | 16 | 8 KiB |
+| Q6_K M=64 | 87 | 15 | 4 KiB |
+| Q6_K M=128 | 138 | 16 | 4 KiB |
+| Q6_K M=256 | 137 | 15 | 4 KiB |
+
+The 253-VGPR shared-down Q5_K path is the largest remaining allocation. Removing paired fragment prefetch did not reduce that allocation or improve time, so a future gain must shorten decoder or swizzle live ranges rather than toggling the consumer schedule.
 
 ### Ordinary Q4_K before padding
 
@@ -615,7 +644,11 @@ Increasing shared-down reduction depth from 32 to 64 measured 5.215 ms for Q4_K,
 
 A finer four-BF16-chunk XOR swizzle with four 64-bit loads per fragment regressed Q4_K to 5.486 ms. For Q5_K, the initial shared-down result was 5.353 ms, while an immediate repeat measured 5.560 versus 5.642 ms for the eight-BF16 control. Narrow Q5_K measured 3.025 versus 3.043 ms in the same comparison.
 
-The shared-down Q5_K gain is modest but repeatable. The narrow difference is below the meaningful selection margin.
+The shared-down Q5_K gain is modest but repeatable. Disabling paired local-fragment prefetch measured 5.626 ms versus 5.569 ms selected and left code-object allocation unchanged at 253 VGPRs, so it was rejected.
+
+Disabling two-row packed-byte prefetch lowered allocation to 234 VGPRs but regressed latency to 6.186 ms. The selected prefetch is therefore throughput-positive despite its longer live range.
+
+The narrow four-BF16 difference is below the meaningful selection margin.
 
 Q4_K retains the 16-BF16-chunk/two-128-bit-load swizzle for shared down. Shared-down Q5_K selects the finer swizzle, while narrow Q5_K retains two 128-bit loads.
 
@@ -687,17 +720,17 @@ Not directly transferable:
 
 ## Next plan
 
-### Finalize the selected M=64 swizzle
+### Fused-kernel stopping point
 
-Rebuild the selected 16-BF16-chunk M=64 source, repeat its benchmark, and run the complete test suite, benchmark compilation, and diff checks before committing.
+The final selected production run is complete. Ordinary batch-16 serial time is 1.193 seconds versus 1.267 seconds for BF16, and all three Q6_K production kernels exceed BF16 throughput.
 
-Inspect the final code object if the larger swizzle changes VGPR, LDS, or private-segment metadata.
+Local geometry, K depth, decoder width, traversal, vector-load form, padding, swizzle granularity, and packed extraction have bounded neighborhoods. No further fused-kernel sweep has a high-confidence meaningful margin.
 
-### Aggregate LM-head cotangent chunks
+### Monitor the production M=256 LM-head schedule
 
-At model scheduling level, evaluate M=128 and M=256 aggregation under the 61 MiB and 121 MiB cotangent-buffer budgets.
+The packed Liger loss now uses M=256. Its full MMQ-forward, in-place cross-entropy, and MMQ-backward loop is 26.5% faster than the previous M=64 schedule.
 
-M=256 now has the lowest serial estimate at about 1.50 seconds for batch 16 and runs at 1.62x BF16 throughput. M=128 remains the lower-memory aggregation option.
+Monitor peak memory and complete trainer-step latency. M=128 remains the first fallback if another training configuration needs lower memory.
 
 ### Address shared-down through representation or cross-call reuse
 
@@ -713,7 +746,7 @@ Project fused kernels should remain independent of hipBLASLt. hipBLASLt remains 
 
 ### Reduce shared-down Q5_K representation cost
 
-Narrow Q5_K now beats BF16 after packed quant-byte extraction. Shared-down Q5_K still trails BF16 because that schedule interacts poorly with its low-reuse shape.
+Narrow Q5_K is near BF16 parity after packed quant-byte extraction and beat BF16 in several focused repeats. Shared-down Q5_K still trails BF16 because that schedule interacts poorly with its low-reuse shape.
 
 A useful next experiment must reduce decode cost without increasing its register or LDS-fragment burden. Repeating Q4_K layout changes is unlikely to help.
 
@@ -748,11 +781,11 @@ A two-stage path can materialize the ordinary weight once into temporary BF16 an
 
 This has a high ceiling but is no longer an all-in-one packed kernel. It remains deferred under the current no-direct-hipBLASLt-linkage preference.
 
-### True LDS swizzles
+### Further LDS swizzles
 
-Padding is the simplest bank-layout change and has already produced large Q3_K/Q4_K gains.
+XOR swizzles are already selected for Q3_K query, Q4_K query/narrow/shared-down, both Q5_K shapes, and all production Q6_K shapes.
 
-A true XOR swizzle may distribute rows without increasing LDS footprint. It complicates address generation and can prevent compiler vectorization, so it should be attempted only with explicit vector loads and a controlled unpadded/padded/swizzled comparison.
+Four-, eight-, and 16-BF16 granularities have been compared on the important layouts. Another swizzle is justified only together with a changed fragment representation or decoder mapping, not as another address-only sweep.
 
 ### Wider LDS stores
 
@@ -768,30 +801,46 @@ These options may lose metadata sharing or add shuffle/barrier overhead. They ar
 
 ## Rejected experiments
 
-The following were measured and reverted or superseded:
+The following were measured and reverted or superseded.
+
+Geometry and traversal:
 
 - larger backward wave counts;
-- shuffle-based replacement of LDS sharing;
 - oversized N tiles that reduced workgroup count too far;
 - 2x2, 3x6, 4x4, and 1x16 ordinary geometries;
+- `GROUP_M=2` or `GROUP_M=4` on the final 128-row geometry;
+- shared-down 4x4 and 1x16 geometries.
+
+Decode and scheduling:
+
+- shuffle-based replacement of LDS sharing;
 - eight-value ordinary decoders;
 - ordinary `K_ITERATION=64` after the sixteen-value decoder;
-- `GROUP_M=2` or `GROUP_M=4` on the final 128-row geometry;
 - vector loading the complete Q4_K metadata header;
+- cross-iteration Q3_K packed-fragment prefetch;
+- shared-down K=64;
+- disabling shared-down Q5_K local or packed-byte prefetch.
+
+LDS and configuration:
+
 - custom LDS-only inline-assembly barriers;
 - environment-driven production configuration;
 - Q5_K eight-BF16 LDS row padding;
-- Q4_K padding on small shared-down input width;
-- Q6_K M=256 N=5 and the invalid N=7 full-tile dispatch;
-- Q6_K M=256 K=16 and K=64;
-- Q6_K M=128 N=3 at K=32 and K=64;
-- Q6_K M=64 N=4/K=32.
+- Q4_K padding on small shared-down input width.
+
+Q6_K neighborhoods:
+
+- M=256 N=5 and the invalid N=7 full-tile dispatch;
+- M=256 K=16 and K=64;
+- M=128 N=3 at K=32 and K=64;
+- M=64 N=3/N=4 at K=64 and N=4/K=32;
+- four- and 16-BF16 swizzles on the selected 128x64 geometry.
 
 The dispatch is a measured shape heuristic, not an autotuning system.
 
 ## Correctness and compatibility
 
-The complete suite passes on the current Q6_K exact-tile guard, valid M=256 N=8 geometry, and selected LDS-padding source:
+The complete suite passes on the current Q6_K exact-tile guard, valid M=256 N=4 geometry, selected LDS layouts, and packed extraction source:
 
 ```text
 pytest -q tests/
@@ -802,13 +851,15 @@ Focused Q6_K and padding experiments preserved the benchmark correctness envelop
 
 | M | NRMSE |
 | ---: | ---: |
-| 64 | `5.100e-04` |
-| 128 | `5.179e-04` |
-| 256 | `5.100e-04` in the valid N=8 benchmark |
+| 64 | `4.919e-04` |
+| 128 | `4.741e-04` |
+| 256 | `5.158e-04` |
 
 Backward uses the authoritative packed payload and does not quantize cotangents.
 
-The extension was rebuilt after the Q5_K revert. `python -m compileall -q bench` and `git diff --check` also pass. A complete repeated ordinary benchmark remains required after the final LDS-load work.
+The extension was rebuilt for `/tmp/mmq_bwd_final_autonomous.json`. `python -m compileall -q bench` and `git diff --check` also pass.
+
+One validation run had a single grouped-pair element exceed its absolute tolerance by one BF16 step. The targeted test and an immediate complete rerun passed without source changes, so it was treated as reduction-order test variance rather than a dense MMQ failure.
 
 ## Profiler and tool issues
 

@@ -91,7 +91,7 @@ The LM head uses:
 N = 248320
 K = 2048
 weight = Q6_K
-production chunk M = 64
+production chunk M = 256
 ```
 
 Comparison chunks are `M = 64, 128, 256`.
@@ -148,7 +148,7 @@ The Q8_1 D4 and DS4 layouts, 32-value reductions, rounding, and workspace repres
 
 Dense forward was generalized from fixed `J=128` to compile-time `J` in project-owned code.
 
-The production 64-row Q6_K specialization removes 64 padded rows and halves the accumulator and activation-tile footprint. Larger Q6_K calls continue to use `J=128` because a global `J=64` policy regressed ordinary and larger-row workloads.
+The 64-row Q6_K fallback specialization removes 64 padded rows and halves the accumulator and activation-tile footprint. The production 256-row chunk uses `J=128` because a global `J=64` policy regressed ordinary and larger-row workloads.
 
 ## Latest results
 
@@ -181,7 +181,7 @@ Secondary final ratios:
 | Narrow Q3_K | 1.38x | 0.97x | 0.92x |
 | Shared down Q5_K | 5.28x | 5.15x | 5.13x |
 
-The dominant 70-tensor narrow Q4_K path reaches BF16 parity at large M. The production 64-row LM head reaches about 15.49 logical TFLOP/s and 2.05x BF16 throughput.
+The dominant 70-tensor narrow Q4_K path reaches BF16 parity at large M. The 64-row LM-head fallback reaches about 15.49 logical TFLOP/s and 2.05x BF16 throughput.
 
 ## Profiling and generated ISA
 
@@ -232,7 +232,7 @@ There is no current evidence that forward LDS layout is a large production bottl
 | --- | --- |
 | One 512-thread Q8_1 block per real row | Removed padded-row work and excessive small workgroups; first-order narrow gain |
 | Compile-time forward `J` | Enabled bounded row-tile specialization without vendor changes |
-| Q6_K `J=64` for padded rows `<=64` | 7.413 to 4.202 ms on the production LM-head chunk |
+| Q6_K `J=64` for padded rows `<=64` | 7.413 to 4.202 ms on the low-memory LM-head fallback |
 | Ordinary `I=64`, `J=128`, 128 threads | Best measured general production configuration |
 
 ### Rejected or not generalized
@@ -277,7 +277,9 @@ The remaining single-call deficits are:
 - narrow Q3_K and Q5_K at M=32,768: about 5-9% behind BF16;
 - repeated Q8 quantization and workspace allocation when several projections consume the same BF16 activation.
 
-The M=256 Q6_K case is not the production LM-head chunk. A new kernel would need to reduce the `J=128` Q6_K kernel's approximately 225 architectural VGPRs without repeating the failed global `J=64` or `I=128` experiments.
+M=256 is now the production LM-head chunk. Its complete 2,048-row packed-loss loop measured 229.958 ms versus 312.690 ms for M=64 because the faster backward schedule and reduced call count outweigh the forward single-call deficit.
+
+A new forward kernel would still need to reduce the `J=128` Q6_K kernel's approximately 225 architectural VGPRs without repeating the failed global `J=64` or `I=128` experiments.
 
 ## Next plan
 
@@ -296,9 +298,9 @@ For three same-layout projections, reuse can remove two quantizer launches and t
 
 Avoid an implicit pointer cache unless it tracks storage identity, tensor version, device, stream ordering, shape, row padding, and metadata layout.
 
-### Revisit Q6_K `J=128` only if M=256 becomes production-relevant
+### Revisit the production Q6_K `J=128` path
 
-A bounded future sweep could investigate lower-VGPR accumulator organization or a different `J=128` schedule. Acceptance requires a large end-to-end gain on M=256 without regressing M=64 or ordinary shapes.
+A bounded future sweep could investigate lower-VGPR accumulator organization or a different `J=128` schedule. Acceptance requires a large end-to-end gain on M=256 without regressing the M=64 fallback or ordinary shapes.
 
 Do not repeat global `J=64`, `I=128`, or broad tile sweeps that already failed.
 
