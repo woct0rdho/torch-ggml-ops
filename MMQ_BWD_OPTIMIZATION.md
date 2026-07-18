@@ -193,13 +193,15 @@ Non-divisible and smaller-row shapes retain bounds-safe measured kernels.
 | ---: | ---: | ---: | ---: | --- |
 | `<=64` | 1 | 2 | 64 | 64x32 |
 | `<=128` | 2 | 4 | 32 | 128x64 |
-| `<=256` | 2 | 8 | 32 | 128x128 |
+| `<=256` | 2 | 4 | 32 | 128x64 |
 | `<=2048` | 1 | 8 | 16 | 64x128 |
 | larger | 1 | 16 | 16 | 64x256 |
 
 The small-row kernels use sixteen-value Q6_K decoding and paired local-fragment prefetch. M=64, M=128, and M=256 use exact full-tile paths on production dimensions. Non-production shapes use the same geometries with bounds checks.
 
-M=64 additionally uses an eight-BF16-chunk XOR LDS swizzle. Each logical K=64 row keeps the same 128-byte footprint, but row-dependent chunk permutation distributes the two 128-bit fragment loads over eight bank phases instead of mapping every row to the same phase.
+M=64 and M=128 use an eight-BF16-chunk XOR LDS swizzle. Row-dependent chunk permutation distributes 128-bit fragment loads across bank phases without increasing LDS footprint.
+
+M=256 now reuses the same 128x64 swizzled workgroup tile as M=128. Two M workgroups cover the 256 rows, producing 64 workgroups instead of the previous 32-workgroup 128x128 launch.
 
 ### Other bounds-safe ordinary paths
 
@@ -420,11 +422,13 @@ The final clean Q6_K benchmark is:
 | ---: | --- | ---: | ---: | ---: |
 | 64 | M=1/N=2/K=64 with XOR LDS swizzle | 5.829 | 9.856 | 1.69x |
 | 128 | M=2/N=4/K=32 with XOR LDS swizzle | 9.187 | 14.433 | 1.57x |
-| 256 | M=2/N=8/K=32 | 20.894 | 18.990 | 0.91x |
+| 256 | two M blocks of M=2/N=4/K=32 with XOR LDS swizzle | 12.156 | 19.080 | 1.57x |
 
 The XOR LDS swizzle changed M=64 from the largest Q6_K deficit into the fastest production-relative kernel at 1.69x BF16 throughput. The latency fell from 10.938 to 5.829 ms with unchanged 4 KiB LDS capacity and exact benchmark correctness.
 
-M=128 also improved from 13.402 to 9.187 ms and reached 1.57x BF16. M=256 regressed from 20.834 to 23.866 ms with the same swizzle, so the eight-N-tile geometry retains its original unswizzled layout and measures 20.894 ms in the final combined dispatch.
+M=128 improved from 13.402 to 9.187 ms and reached 1.57x BF16. Applying the swizzle to the eight-N-tile M=256 geometry regressed, but reusing the four-N-tile swizzled geometry with two M workgroups reduced 20.894 to 12.156 ms and also reached 1.57x BF16.
+
+The smaller N tile doubles workgroup count and reduces accumulator pressure. Its repeated packed decode across two M blocks costs less than the parallelism and LDS-bank gains it enables.
 
 ## Latest results
 
@@ -468,9 +472,9 @@ At batch 16:
 | ---: | ---: | ---: | ---: |
 | 64 | 512 | 2,984 ms | 5,046 ms |
 | 128 | 256 | 2,352 ms | 3,695 ms |
-| 256 | 128 | 2,674 ms | 2,431 ms |
+| 256 | 128 | 1,556 ms | 2,442 ms |
 
-M=128 now has the lowest batch-16 serial estimate, but it requires about 61 MiB of cotangent storage. The production M=64 schedule needs no aggregation buffer and is only about 637 ms slower across all 512 calls.
+M=256 now has the lowest batch-16 serial estimate, but it requires about 121 MiB of cotangent storage. M=128 remains a lower-memory 61 MiB aggregation point, while the production M=64 schedule needs no additional aggregation buffer.
 
 Approximate BF16 cotangent storage is:
 
@@ -589,7 +593,9 @@ Geometry-only sweeps have already plateaued. A larger gain likely requires decod
 
 M=64 was limited by its K=64 decoded-weight row stride of 128 bytes, which mapped every row start to the same bank phase. An eight-BF16-chunk XOR swizzle reduced 10.938 ms to 5.829 ms without increasing LDS footprint and while preserving two 128-bit loads per fragment.
 
-This confirms that the earlier 85.3% conflict percentage represented a first-order bottleneck. The same swizzle is accepted for M=128 at about 9.18 ms but rejected for M=256 at 23.866 ms. Bank distribution must be selected with the complete geometry and instruction schedule rather than by K depth alone.
+This confirms that the earlier 85.3% conflict percentage represented a first-order bottleneck. The same swizzle is accepted for M=128 at about 9.18 ms. It regressed the original eight-N-tile M=256 geometry, but pairing it with the four-N-tile geometry improved M=256 to 12.156 ms.
+
+Bank distribution must be selected with workgroup count, accumulator pressure, and decode repetition rather than by K depth alone.
 
 ## TensileLite and hipBLASLt lessons that remain relevant
 

@@ -1089,15 +1089,15 @@ static inline void launch_dense_mmq_grad_input(
             }
         } else if (rows <= 256) {
             const bool full_tiles = rows == 256 && out_features % 32 == 0 &&
-                in_features % 128 == 0;
+                in_features % 64 == 0;
             if (full_tiles) {
                 launch_dense_mmq_grad_input_tiled<
-                    type, 8, 32, 0, 2, 0, true, true>(
+                    type, 4, 32, 0, 2, 0, true, true, false, 0, true, 8>(
                     grad_output, packed_weight, grad_input,
                     rows, out_features, in_features, stream);
             } else {
                 launch_dense_mmq_grad_input_tiled<
-                    type, 8, 32, 0, 2, 0, true>(
+                    type, 4, 32, 0, 2, 0, true, false, false, 0, true, 8>(
                     grad_output, packed_weight, grad_input,
                     rows, out_features, in_features, stream);
             }
