@@ -901,6 +901,73 @@ Down already launches 32 output tiles per active expert and saturates the GPU wi
 
 `tests/test_grouped_mmq.py::test_grouped_pair_production_row_tasks_match_dense` exercises the production `512 x 2048` paired descriptor path with both full and tail row tasks and requires bit-exact BF16 equality against concatenated dense MMQ calls.
 
+### G9: `I=128, J=64`, 256 threads
+
+Status: rejected and reverted.
+
+G9 doubled the output tile and workgroup size globally for the focused production experiment. This kept 32 FP32 accumulators per thread and all selected production kernels remained spill-free, but dynamic LDS rose to approximately 50-55 KiB and workgroup-level scheduling became less favorable.
+
+The artifact is:
+
+```text
+/tmp/grouped_step9_i128.json
+```
+
+Every focused point regressed relative to the retained `I=64` dispatch. Representative comparisons were:
+
+| Point | Retained ms | G9 ms | Relative |
+|---|---:|---:|---:|
+| Gate/up Q3_K batch 1 uniform | 3.52-3.71 | 3.918 | 0.90-0.95x |
+| Gate/up Q3_K batch 4 boundary | 16.348 | 17.068 | 0.96x |
+| Gate/up Q3_K batch 16 uniform | 56.329 | 61.084 | 0.92x |
+| Gate/up IQ2_S batch 16 uniform | 66.314 | 69.075 | 0.96x |
+| Down Q4_K batch 4 uniform | 5.877 | 6.744 | 0.87x |
+| Down Q4_K batch 16 uniform | 23.057 | 26.287 | 0.88x |
+| Down Q5_K batch 4 uniform | 5.849 | 6.853 | 0.85x |
+| Down IQ2_S batch 16 uniform | 27.102 | 29.160 | 0.93x |
+
+The wider task kernel actually reduced Q3_K/IQ2_S VGPR allocation to 150/201, confirming that register pressure was not the cause. The regression comes from the larger LDS footprint, eight-wave workgroups, reduced workgroup residency/flexibility, and less favorable balance between packed-weight work and activation reuse. The `I=128, J=64` neighborhood is closed.
+
+### G10: 256 threads with `I=64, J=64`
+
+Status: invalid and reverted; timings are non-results.
+
+G10 changed only the workgroup from four to eight waves while retaining the 64-row output tile. The inherited MMQ wave mapping assigns output fragments by `threadIdx.y`, so the additional four waves mapped beyond the logical 64-row output tile and overlapped neighboring output work. The focused test appeared implausibly fast for that reason.
+
+`tests/test_grouped_mmq.py::test_grouped_pair_production_row_tasks_match_dense` rejected the variant with 15,624 mismatched elements out of 262,144 and NaNs in the output. The artifact `/tmp/grouped_step10_256_threads.json` must not be used as performance evidence.
+
+A correct eight-wave kernel would require a different decomposition such as split-K or duplicated output ownership and reduction. Those mechanisms add packed decode work or reduction overhead and are already outside the accepted design space. Keep 128 threads.
+
+### G11: contiguous bounded activation-tail loads for down
+
+Status: retained for the fixed two-block down body.
+
+G11 observes that each valid partial Q8_1 row tile is still one contiguous integer span. The down helper now computes `(j_max + 1) * q8_block_ints` once and uses a single `l < valid_activation_ints` predicate, eliminating per-load row division, remainder, source-row reconstruction, and nested row bounds. Gate/up retains its G7/G8 tail code because applying the same source change there produced mixed noise-level results.
+
+The retained 15-repeat artifact is:
+
+```text
+/tmp/grouped_step11b_down_contiguous_tails_15.json
+```
+
+| Point | Previous ms | G11 ms | Speedup |
+|---|---:|---:|---:|
+| Down Q4_K batch 1 sparse | 2.304 | 2.270 | 1.02x |
+| Down Q4_K batch 4 boundary | 6.704 | 6.592 | 1.02x |
+| Down Q4_K batch 16 uniform | 23.153 | 22.742 | 1.02x |
+| Down Q5_K batch 4 boundary | 6.897 | 6.608 | 1.04x |
+| Down IQ2_S batch 1 skewed | 3.836 | 3.659 | 1.05x |
+| Down IQ2_S batch 1 sparse | 3.889 | 3.730 | 1.04x |
+| Down IQ2_S batch 1 boundary | 3.988 | 3.764 | 1.06x |
+| Down IQ2_S batch 4 skewed | 9.816 | 9.580 | 1.02x |
+| Down IQ2_S batch 4 sparse | 9.525 | 9.336 | 1.02x |
+| Down IQ2_S batch 4 boundary | 10.068 | 9.683 | 1.04x |
+| Down IQ2_S batch 16 uniform | 26.832 | 26.478 | 1.01x |
+
+The source cleanup increases down VGPR allocation to 229 for Q3_K, 244 for Q4_K, 248 for Q5_K, 239 for Q6_K, and 232 for IQ2_S, but every production kernel remains spill-free with zero private segment. The complete operator improves despite the higher allocation.
+
+Production down IQ2_S batch-1 sparse and Q5_K batch-4 boundary remained bit-exact against dense MMQ. IQ2_S sparse improved to 3.745 ms in the correctness run but still trails 2.846 ms AITER, identifying the remaining final deficit.
+
 ## Optimization plan
 
 ### Phase 1: compile-time row, fixed-shape, and scalar-address specialization
@@ -963,6 +1030,8 @@ The threshold retains serial scheduling below two host-average row tiles, preser
 Do not add persistent grid-stride traversal. After G8 the non-persistent descriptor gain is only 1-2%, while a persistent scheduler would add control state and risk losing sparse launch behavior for little remaining scheduling headroom.
 
 ### Phase 4: larger project-owned output tiles
+
+Status: closed. G3 rejected `I=64, J=128`; G9 rejected `I=128, J=64`; `I=128, J=128` would combine both rejected pressure sources and approach or exceed the LDS limit.
 
 After obtaining a spill-free arithmetic body, measure larger output tiles.
 
@@ -1087,4 +1156,6 @@ G5 showed that removing the post-write barrier is neutral. G6 retained a compile
 
 G8 retained device row-task descriptors for large gate/up groups and rejected them for down. Batch-1 sparse routing keeps the serial G7 path.
 
-The final high-value geometry ablation is a 128-row output tile with 256 threads. It must preserve zero private segment and beat the retained G8 gate/up and G6/G7 down dispatches after accounting for its 50-55 KiB dynamic LDS footprint. If it fails, larger tiles and additional scheduling state are no longer worthwhile on the current representation.
+G9 rejected the final high-value wider-output geometry despite zero spills. G10 confirmed that 256 threads cannot be applied to `I=64` without redesigning output ownership or introducing split-K-style reduction. G11 retained contiguous bounded activation-tail loads for down.
+
+The current tile, scheduler, addressing, K-loop, synchronization, cache, and tail-control neighborhoods are exhausted. Further worthwhile work must change IQ2_S packed decode or representation rather than add geometry or control state.

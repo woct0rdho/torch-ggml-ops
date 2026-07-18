@@ -281,6 +281,10 @@ static __device__ __forceinline__ void grouped_mmq_k_block(
         int i_max,
         int kb) {
     constexpr int q8_block_ints = sizeof(block_q8_1_mmq) / sizeof(int);
+    const int activation_plane_stride = nrows_activation * q8_block_ints;
+    const int valid_activation_ints = (j_max + 1) * q8_block_ints;
+    const int * activation_k = activations
+        + ((2 * kb) * nrows_activation + row_start) * q8_block_ints;
     const int weight_block_offset =
         tile_i * MMQ_I * kernel_blocks_per_weight_row + kb;
     mmq_load_target<type, J, !fixed_shape>(
@@ -294,20 +298,11 @@ static __device__ __forceinline__ void grouped_mmq_k_block(
     for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += MMQ_NTHREADS) {
         const int l = l0 + threadIdx.y * WARP_SIZE + threadIdx.x;
         if constexpr (full_j) {
-            const int src =
-                ((2 * kb) * nrows_activation + row_start) * q8_block_ints + l;
-            tile_y[l] = activations[src];
+            tile_y[l] = activation_k[l];
+        } else if (l < valid_activation_ints) {
+            tile_y[l] = activation_k[l];
         } else {
-            const int local_row = l / q8_block_ints;
-            const int q8_int = l % q8_block_ints;
-            if (local_row <= j_max) {
-                const int src = (
-                    (2 * kb) * nrows_activation + row_start + local_row
-                ) * q8_block_ints + q8_int;
-                tile_y[l] = activations[src];
-            } else {
-                tile_y[l] = 0;
-            }
+            tile_y[l] = 0;
         }
     }
     __syncthreads();
@@ -318,20 +313,11 @@ static __device__ __forceinline__ void grouped_mmq_k_block(
     for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += MMQ_NTHREADS) {
         const int l = l0 + threadIdx.y * WARP_SIZE + threadIdx.x;
         if constexpr (full_j) {
-            const int src =
-                ((2 * kb + 1) * nrows_activation + row_start) * q8_block_ints + l;
-            tile_y[l] = activations[src];
+            tile_y[l] = activation_k[activation_plane_stride + l];
+        } else if (l < valid_activation_ints) {
+            tile_y[l] = activation_k[activation_plane_stride + l];
         } else {
-            const int local_row = l / q8_block_ints;
-            const int q8_int = l % q8_block_ints;
-            if (local_row <= j_max) {
-                const int src = (
-                    (2 * kb + 1) * nrows_activation + row_start + local_row
-                ) * q8_block_ints + q8_int;
-                tile_y[l] = activations[src];
-            } else {
-                tile_y[l] = 0;
-            }
+            tile_y[l] = 0;
         }
     }
     __syncthreads();
