@@ -833,6 +833,31 @@ Production correctness remained exact against dense MMQ for down Q4_K batch-4 bo
 
 The large IQ2_S gain and smaller Q4_K/Q5_K gains show that fixed-trip branch/address cleanup remains useful after G4, but its value is type-dependent and bounded by register growth.
 
+### G7: pointer-increment gate/up K traversal
+
+Status: retained.
+
+G7 keeps the eight-block gate/up loop rolled but replaces per-iteration weight-block and activation-plane multiplication with incremented packed-weight indices and Q8_1 pointers. The full-row path now loads directly from the current and next activation plane.
+
+The main artifact is:
+
+```text
+/tmp/grouped_step7_gate_pointers.json
+```
+
+Relative to G4, gate/up Q3_K improved by 0.4-1.7% across the focused matrix:
+
+| Point | G4 ms | G7 ms | Speedup |
+|---|---:|---:|---:|
+| Gate/up Q3_K batch 1 uniform | 3.735 | 3.713 | 1.01x |
+| Gate/up Q3_K batch 1 sparse | 5.427 | 5.358 | 1.01x |
+| Gate/up Q3_K batch 4 boundary | 16.755 | 16.480 | 1.02x |
+| Gate/up Q3_K batch 16 uniform | 57.956 | 57.708 | 1.00x |
+
+The batch-1 IQ2_S sparse point was neutral, but separate large-group A/B measurements showed the pointer path improving IQ2_S from 17.306 to 16.930 ms at batch 4 and from 67.928 to 66.909 ms at batch 16. Those artifacts are `/tmp/grouped_step6_iq2_large.json` and `/tmp/grouped_step7_iq2_large.json`.
+
+Production gate/up kernels remain spill-free. The pointer state raises VGPR allocation to 177 for Q3_K/Q4_K, 188 for Q5_K, 190 for Q6_K, and 240 for IQ2_S while reducing Q3_K SGPR allocation from 49 to 44. The complete gains are small but consistent at the important Q3_K and large IQ2_S points, so the affine pointer form is retained.
+
 ## Optimization plan
 
 ### Phase 1: compile-time row, fixed-shape, and scalar-address specialization
@@ -1023,4 +1048,6 @@ The complete fixed-`K=512` decoded-weight LDS cache was rejected in G2 because i
 
 G3 rejected fixed-shape `J=128`; `J=64` remains the production row tile. G4 then removed full-row address decomposition and moved every focused production class ahead of AITER.
 
-G5 showed that removing the post-write barrier is neutral. G6 retained a compile-time two-block down schedule. Next test a pointer-increment gate/up loop without fully unrolling its eight fixed blocks. If that neighborhood plateaus, evaluate whether descriptor setup can beat the already saturated serial grid rather than assuming it will help.
+G5 showed that removing the post-write barrier is neutral. G6 retained a compile-time two-block down schedule, and G7 retained pointer-increment traversal for gate/up.
+
+The remaining scheduling question is whether atomics-free row-tile descriptors can beat an already spill-free and well-saturated serial grid after including setup cost. Treat this as a controlled higher-complexity ablation, not an assumed improvement. Preserve the current sparse batch-1 launch advantage and revert the descriptor path unless it improves model-weighted complete latency.
