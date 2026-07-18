@@ -352,7 +352,19 @@ The decoded-weight stores remain scalar 16-bit stores. One decoder thread produc
 
 Those stores are an intentional transpose. Vectorizing them requires a register/lane transpose or a different producer mapping.
 
-Because each value is stored once and then loaded by four waves, restoring fully vectorized fragment loads is more promising than widening the one-time stores.
+Because each value is stored once and then loaded by four waves, restoring fully vectorized fragment loads was the next measured experiment.
+
+An explicit aligned helper restored the padded and unpadded kernels to two `ds_load_b128` operations per 16-BF16 fragment. The result was strongly shape-dependent rather than universally positive.
+
+At M=32,768, narrow Q3_K improved 3.138 to 2.739 ms, attention-output Q4_K improved 23.177 to 22.802 ms, and query Q3_K improved slightly from 49.803 to 49.392 ms. Query Q4_K regressed 46.295 to 48.976 ms, while Q5_K and shared-down shapes also regressed by about 2-4%.
+
+The likely cause is that wider transactions reduce instruction count but change the bank-conflict and wait schedule. The Q6_K M=64/128/256 results were neutral at 10.945/13.449/20.795 ms versus 10.938/13.402/20.834 ms.
+
+A typed selection was added for Q3_K and attention-output Q4_K, but the first scalar fallback still used direct physical indexing. The compiler recognized that fallback as contiguous and continued to emit fully vectorized loads, so Q4_K query remained regressed at 48.805 ms.
+
+The logical-indexed fallback restored the prior mixed padded ISA: Q4_K controls again emit 16 `ds_load_b128` operations plus 128 scalar 16-bit loads, while selected Q3_K and attention-output Q4_K emit 32 `ds_load_b128` operations.
+
+The final selective run measured 49.324 ms for query Q3_K, 2.691 ms for narrow Q3_K, and 22.437 ms for attention-output Q4_K. Q4_K query/narrow measured 48.716/3.071 ms in the same run, so their earlier 46.295/2.907 ms padding result needs a repeated control before attributing the difference to the vector-load implementation.
 
 ### Q6_K small-row geometry sweep
 
@@ -408,14 +420,14 @@ The latest accepted measurements combine the 128x128 retile, packed-byte prefetc
 
 | Case | Packed ms | BF16 ms | Throughput ratio | Source |
 | --- | ---: | ---: | ---: | --- |
-| Query Q3_K | 49.803 | 59.490 | 1.19x | padded Q3_K run |
-| Query Q4_K | 46.295 | 59.522 | 1.29x | padded Q4_K run |
-| Narrow Q3_K | 3.138 | 2.940 | 0.94x | padded Q3_K run |
-| Narrow Q4_K | 2.907 | 2.978 | 1.02x | padded Q4_K run |
-| Narrow Q5_K | 3.378 | 2.808 | 0.83x | accepted unpadded run |
-| Attention output Q4_K | 23.177 | 22.699 | 0.98x | padded Q4_K run |
-| Shared down Q4_K | 5.261 | approximately 4.16 | approximately 0.79x | accepted unpadded run |
-| Shared down Q5_K | 5.428 | 4.122 | 0.76x | accepted unpadded run |
+| Query Q3_K | 49.324 | 59.462 | 1.21x | padded plus explicit vector local loads |
+| Query Q4_K | 48.716 | 59.511 | 1.22x | padded compiler-managed local loads |
+| Narrow Q3_K | 2.691 | 2.804 | 1.04x | padded plus explicit vector local loads |
+| Narrow Q4_K | 3.071 | 2.849 | 0.93x | padded compiler-managed local loads |
+| Narrow Q5_K | 3.422 | 2.826 | 0.83x | unpadded compiler-managed local loads |
+| Attention output Q4_K | 22.437 | 22.716 | 1.01x | padded plus explicit vector local loads |
+| Shared down Q4_K | 5.327 | 4.141 | 0.78x | unpadded compiler-managed local loads |
+| Shared down Q5_K | 5.452 | 4.126 | 0.76x | unpadded compiler-managed local loads |
 
 The ordinary batch-16 serial estimate is now approximately 1.24 seconds across the 160 projections. The corresponding BF16 estimate is approximately 1.28 seconds using the benchmark's per-shape references.
 

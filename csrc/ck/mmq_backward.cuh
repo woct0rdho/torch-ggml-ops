@@ -384,7 +384,7 @@ static __device__ __forceinline__ void decode_backward_tile_sixteen_q6(
 
 template <int ROWS, int COLUMNS, int PADDING>
 struct backward_shared_b_tile {
-    __hip_bfloat16 values[ROWS * (COLUMNS + PADDING)];
+    alignas(16) __hip_bfloat16 values[ROWS * (COLUMNS + PADDING)];
 
     __device__ __forceinline__ __hip_bfloat16 & operator[](int index) {
         if constexpr (PADDING == 0) {
@@ -392,6 +392,26 @@ struct backward_shared_b_tile {
         } else {
             return values[index + (index / COLUMNS) * PADDING];
         }
+    }
+
+    __device__ __forceinline__ const __hip_bfloat16 & operator[](
+            int index) const {
+        if constexpr (PADDING == 0) {
+            return values[index];
+        } else {
+            return values[index + (index / COLUMNS) * PADDING];
+        }
+    }
+
+    __device__ __forceinline__ void load_fragment_vector(
+            bf16_fragment & fragment,
+            int row,
+            int column) const {
+        const auto * source = reinterpret_cast<const uint4 *>(
+            values + row * (COLUMNS + PADDING) + column);
+        auto * destination = reinterpret_cast<uint4 *>(&fragment);
+        destination[0] = source[0];
+        destination[1] = source[1];
     }
 };
 
@@ -405,7 +425,8 @@ template <
     bool PREFETCH_LOCAL,
     bool FULL_TILES,
     bool PREFETCH_PACKED,
-    int LDS_PADDING>
+    int LDS_PADDING,
+    bool VECTOR_LOCAL_LOAD>
 __launch_bounds__(BACKWARD_THREADS, 2)
 static __global__ void dense_mmq_grad_input_kernel(
         const __hip_bfloat16 * __restrict__ grad_output,
@@ -776,18 +797,29 @@ static __global__ void dense_mmq_grad_input_kernel(
                 for (int n_tile = 0; n_tile < N_TILES - 1; n_tile += 2) {
                     bf16_fragment b_first{};
                     bf16_fragment b_second{};
-                    __hip_bfloat16 * first = fragment_data(b_first);
-                    __hip_bfloat16 * second = fragment_data(b_second);
+                    if constexpr (VECTOR_LOCAL_LOAD) {
+                        shared_b.load_fragment_vector(
+                            b_first,
+                            n_tile * BACKWARD_N_PER_TILE + c_row(lane),
+                            k_tile);
+                        shared_b.load_fragment_vector(
+                            b_second,
+                            (n_tile + 1) * BACKWARD_N_PER_TILE + c_row(lane),
+                            k_tile);
+                    } else {
+                        __hip_bfloat16 * first = fragment_data(b_first);
+                        __hip_bfloat16 * second = fragment_data(b_second);
 #pragma unroll
-                    for (int k = 0; k < 16; ++k) {
-                        first[k] = shared_b[
-                            (n_tile * BACKWARD_N_PER_TILE + c_row(lane)) *
-                                K_ITERATION +
-                            k_tile + k];
-                        second[k] = shared_b[
-                            ((n_tile + 1) * BACKWARD_N_PER_TILE + c_row(lane)) *
-                                K_ITERATION +
-                            k_tile + k];
+                        for (int k = 0; k < 16; ++k) {
+                            first[k] = shared_b[
+                                (n_tile * BACKWARD_N_PER_TILE + c_row(lane)) *
+                                    K_ITERATION +
+                                k_tile + k];
+                            second[k] = shared_b[
+                                ((n_tile + 1) * BACKWARD_N_PER_TILE + c_row(lane)) *
+                                    K_ITERATION +
+                                k_tile + k];
+                        }
                     }
 #pragma unroll
                     for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
@@ -807,13 +839,20 @@ static __global__ void dense_mmq_grad_input_kernel(
                 if constexpr (N_TILES % 2 != 0) {
                     constexpr int n_tile = N_TILES - 1;
                     bf16_fragment b_fragment{};
-                    __hip_bfloat16 * b = fragment_data(b_fragment);
+                    if constexpr (VECTOR_LOCAL_LOAD) {
+                        shared_b.load_fragment_vector(
+                            b_fragment,
+                            n_tile * BACKWARD_N_PER_TILE + c_row(lane),
+                            k_tile);
+                    } else {
+                        __hip_bfloat16 * b = fragment_data(b_fragment);
 #pragma unroll
-                    for (int k = 0; k < 16; ++k) {
-                        b[k] = shared_b[
-                            (n_tile * BACKWARD_N_PER_TILE + c_row(lane)) *
-                                K_ITERATION +
-                            k_tile + k];
+                        for (int k = 0; k < 16; ++k) {
+                            b[k] = shared_b[
+                                (n_tile * BACKWARD_N_PER_TILE + c_row(lane)) *
+                                    K_ITERATION +
+                                k_tile + k];
+                        }
                     }
 #pragma unroll
                     for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
@@ -827,13 +866,20 @@ static __global__ void dense_mmq_grad_input_kernel(
 #pragma unroll
                 for (int n_tile = 0; n_tile < N_TILES; ++n_tile) {
                     bf16_fragment b_fragment{};
-                    __hip_bfloat16 * b = fragment_data(b_fragment);
+                    if constexpr (VECTOR_LOCAL_LOAD) {
+                        shared_b.load_fragment_vector(
+                            b_fragment,
+                            n_tile * BACKWARD_N_PER_TILE + c_row(lane),
+                            k_tile);
+                    } else {
+                        __hip_bfloat16 * b = fragment_data(b_fragment);
 #pragma unroll
-                    for (int k = 0; k < 16; ++k) {
-                        b[k] = shared_b[
-                            (n_tile * BACKWARD_N_PER_TILE + c_row(lane)) *
-                                K_ITERATION +
-                            k_tile + k];
+                        for (int k = 0; k < 16; ++k) {
+                            b[k] = shared_b[
+                                (n_tile * BACKWARD_N_PER_TILE + c_row(lane)) *
+                                    K_ITERATION +
+                                k_tile + k];
+                        }
                     }
 #pragma unroll
                     for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
@@ -886,7 +932,8 @@ template <
     bool PREFETCH_LOCAL = false,
     bool FULL_TILES = false,
     bool PREFETCH_PACKED = false,
-    int LDS_PADDING = 0>
+    int LDS_PADDING = 0,
+    bool VECTOR_LOCAL_LOAD = false>
 static inline void launch_dense_mmq_grad_input_tiled(
         const __hip_bfloat16 * grad_output,
         const char * packed_weight,
@@ -917,7 +964,8 @@ static inline void launch_dense_mmq_grad_input_tiled(
         PREFETCH_LOCAL,
         FULL_TILES,
         PREFETCH_PACKED,
-        LDS_PADDING>
+        LDS_PADDING,
+        VECTOR_LOCAL_LOAD>
         <<<grid, block, 0, stream>>>(
         grad_output,
         packed_weight,
@@ -947,17 +995,22 @@ static inline void launch_dense_mmq_grad_input(
             if constexpr (type == GGML_TYPE_Q3_K) {
                 if (out_features >= 2048) {
                     launch_dense_mmq_grad_input_tiled<
-                        type, 8, 32, 1, 2, 16, true, true, true, 8>(
+                        type, 8, 32, 1, 2, 16, true, true, true, 8, true>(
                         grad_output, packed_weight, grad_input,
                         rows, out_features, in_features, stream);
                 } else {
                     launch_dense_mmq_grad_input_tiled<
-                        type, 8, 32, 1, 2, 16, true, true, false, 8>(
+                        type, 8, 32, 1, 2, 16, true, true, false, 8, true>(
                         grad_output, packed_weight, grad_input,
                         rows, out_features, in_features, stream);
                 }
             } else if constexpr (type == GGML_TYPE_Q4_K) {
-                if (in_features >= 2048) {
+                if (in_features >= 4096) {
+                    launch_dense_mmq_grad_input_tiled<
+                        type, 8, 32, 1, 2, 16, true, true, true, 8, true>(
+                        grad_output, packed_weight, grad_input,
+                        rows, out_features, in_features, stream);
+                } else if (in_features >= 2048) {
                     launch_dense_mmq_grad_input_tiled<
                         type, 8, 32, 1, 2, 16, true, true, true, 8>(
                         grad_output, packed_weight, grad_input,
