@@ -382,20 +382,23 @@ static __device__ __forceinline__ void decode_backward_tile_sixteen_q6(
     }
 }
 
-template <int ROWS, int COLUMNS, int PADDING, bool SWIZZLE>
+template <int ROWS, int COLUMNS, int PADDING, int SWIZZLE_CHUNK>
 struct backward_shared_b_tile {
     static_assert(COLUMNS % 16 == 0);
-    static_assert((COLUMNS / 8 & (COLUMNS / 8 - 1)) == 0);
+    static_assert(SWIZZLE_CHUNK == 0 || COLUMNS % SWIZZLE_CHUNK == 0);
 
     alignas(16) __hip_bfloat16 values[ROWS * (COLUMNS + PADDING)];
 
     static __device__ __forceinline__ int physical_index(int index) {
         const int row = index / COLUMNS;
         const int column = index % COLUMNS;
-        if constexpr (SWIZZLE) {
-            constexpr int chunks_per_row = COLUMNS / 8;
-            const int chunk = (column / 8) ^ (row & (chunks_per_row - 1));
-            return row * (COLUMNS + PADDING) + chunk * 8 + column % 8;
+        if constexpr (SWIZZLE_CHUNK > 0) {
+            constexpr int chunks_per_row = COLUMNS / SWIZZLE_CHUNK;
+            static_assert((chunks_per_row & (chunks_per_row - 1)) == 0);
+            const int chunk =
+                (column / SWIZZLE_CHUNK) ^ (row & (chunks_per_row - 1));
+            return row * (COLUMNS + PADDING) +
+                chunk * SWIZZLE_CHUNK + column % SWIZZLE_CHUNK;
         } else {
             return row * (COLUMNS + PADDING) + column;
         }
@@ -436,7 +439,7 @@ template <
     bool PREFETCH_PACKED,
     int LDS_PADDING,
     bool VECTOR_LOCAL_LOAD,
-    bool LDS_SWIZZLE>
+    int LDS_SWIZZLE_CHUNK>
 __launch_bounds__(BACKWARD_THREADS, 2)
 static __global__ void dense_mmq_grad_input_kernel(
         const __hip_bfloat16 * __restrict__ grad_output,
@@ -461,7 +464,7 @@ static __global__ void dense_mmq_grad_input_kernel(
         static_cast<int64_t>(blocks_per_weight_row) * gguf_block_bytes<type>();
 
     __shared__ backward_shared_b_tile<
-        N_PER_BLOCK, K_ITERATION, LDS_PADDING, LDS_SWIZZLE> shared_b;
+        N_PER_BLOCK, K_ITERATION, LDS_PADDING, LDS_SWIZZLE_CHUNK> shared_b;
     f32_accumulator accumulators[M_TILES_PER_WAVE][N_TILES];
 
     for (int output_start = 0; output_start < out_features;
@@ -944,7 +947,7 @@ template <
     bool PREFETCH_PACKED = false,
     int LDS_PADDING = 0,
     bool VECTOR_LOCAL_LOAD = false,
-    bool LDS_SWIZZLE = false>
+    int LDS_SWIZZLE_CHUNK = 0>
 static inline void launch_dense_mmq_grad_input_tiled(
         const __hip_bfloat16 * grad_output,
         const char * packed_weight,
@@ -977,7 +980,7 @@ static inline void launch_dense_mmq_grad_input_tiled(
         PREFETCH_PACKED,
         LDS_PADDING,
         VECTOR_LOCAL_LOAD,
-        LDS_SWIZZLE>
+        LDS_SWIZZLE_CHUNK>
         <<<grid, block, 0, stream>>>(
         grad_output,
         packed_weight,
@@ -1008,7 +1011,7 @@ static inline void launch_dense_mmq_grad_input(
                 if (out_features >= 2048) {
                     launch_dense_mmq_grad_input_tiled<
                         type, 8, 32, 1, 2, 16, true, true, true,
-                        0, true, true>(
+                        0, true, 8>(
                         grad_output, packed_weight, grad_input,
                         rows, out_features, in_features, stream);
                 } else {
@@ -1028,12 +1031,13 @@ static inline void launch_dense_mmq_grad_input(
                 } else if (in_features >= 2048) {
                     launch_dense_mmq_grad_input_tiled<
                         type, 8, 32, 1, 2, 16, true, true, true,
-                        0, true, true>(
+                        0, true, 8>(
                         grad_output, packed_weight, grad_input,
                         rows, out_features, in_features, stream);
                 } else {
                     launch_dense_mmq_grad_input_tiled<
-                        type, 8, 32, 1, 2, 16, true, true, true>(
+                        type, 8, 32, 1, 2, 16, true, true, true,
+                        0, true, 16>(
                         grad_output, packed_weight, grad_input,
                         rows, out_features, in_features, stream);
                 }
@@ -1041,7 +1045,7 @@ static inline void launch_dense_mmq_grad_input(
                 if (in_features >= 2048) {
                     launch_dense_mmq_grad_input_tiled<
                         type, 8, 32, 1, 2, 16, true, true, true,
-                        0, true, true>(
+                        0, true, 8>(
                         grad_output, packed_weight, grad_input,
                         rows, out_features, in_features, stream);
                 } else {
@@ -1060,12 +1064,12 @@ static inline void launch_dense_mmq_grad_input(
                 in_features % 32 == 0;
             if (full_tiles) {
                 launch_dense_mmq_grad_input_tiled<
-                    type, 2, 64, 0, 1, 0, true, true, false, 0, true, true>(
+                    type, 2, 64, 0, 1, 0, true, true, false, 0, true, 8>(
                     grad_output, packed_weight, grad_input,
                     rows, out_features, in_features, stream);
             } else {
                 launch_dense_mmq_grad_input_tiled<
-                    type, 2, 64, 0, 1, 0, true, false, false, 0, true, true>(
+                    type, 2, 64, 0, 1, 0, true, false, false, 0, true, 8>(
                     grad_output, packed_weight, grad_input,
                     rows, out_features, in_features, stream);
             }
@@ -1074,12 +1078,12 @@ static inline void launch_dense_mmq_grad_input(
                 in_features % 64 == 0;
             if (full_tiles) {
                 launch_dense_mmq_grad_input_tiled<
-                    type, 4, 32, 0, 2, 0, true, true, false, 0, true, true>(
+                    type, 4, 32, 0, 2, 0, true, true, false, 0, true, 8>(
                     grad_output, packed_weight, grad_input,
                     rows, out_features, in_features, stream);
             } else {
                 launch_dense_mmq_grad_input_tiled<
-                    type, 4, 32, 0, 2, 0, true, false, false, 0, true, true>(
+                    type, 4, 32, 0, 2, 0, true, false, false, 0, true, 8>(
                     grad_output, packed_weight, grad_input,
                     rows, out_features, in_features, stream);
             }

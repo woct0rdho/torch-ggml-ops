@@ -181,7 +181,7 @@ Format-specific choices:
 | Narrow Q3_K | no | 8 BF16 values per row |
 | Q4_K query/narrow | yes | XOR swizzle, no padding |
 | Attention-output Q4_K | yes | 8 BF16 values per row |
-| Shared-down Q4_K | yes | unpadded, unswizzled |
+| Shared-down Q4_K | yes | 16-BF16-chunk XOR swizzle, no padding |
 | Narrow Q5_K | yes | XOR swizzle, no padding |
 | Shared-down Q5_K | yes | unpadded, unswizzled |
 
@@ -340,9 +340,11 @@ Q5_K did not benefit from padding. Narrow Q5_K regressed from 3.378 to 3.622 ms,
 
 A later no-padding XOR swizzle sweep showed that the result is shape-specific. Query Q3_K/Q4_K measured 49.040/47.454 ms, narrow Q4_K/Q5_K measured 2.969/3.114 ms, and those cases improved relative to the immediately preceding selected dispatch.
 
-The same swizzle regressed narrow Q3_K to 3.093 ms, attention-output Q4_K to 22.812 ms, and both shared-down formats to 5.401/5.651 ms. The selected dispatch therefore uses swizzle only for wide Q3_K query, Q4_K query/narrow, and narrow Q5_K; padded vector loads remain selected for narrow Q3_K and attention-output Q4_K.
+The eight-BF16-chunk swizzle regressed narrow Q3_K to 3.093 ms, attention-output Q4_K to 22.812 ms, and both shared-down formats to 5.401/5.651 ms. The selected dispatch uses that granularity only for wide Q3_K query, Q4_K query/narrow, and narrow Q5_K; padded vector loads remain selected for narrow Q3_K and attention-output Q4_K.
 
-The final selected run measured 48.694/47.083 ms for Q3_K/Q4_K query, 2.691/2.915/3.065 ms for narrow Q3_K/Q4_K/Q5_K, and 22.402 ms for attention-output Q4_K. The ordinary batch-16 serial estimate fell to approximately 1.216 seconds.
+A follow-up 16-BF16-chunk swizzle improved shared-down Q4_K from 5.316 to 5.166 ms in the initial run and 5.252 ms in the final selected dispatch. Shared-down Q5_K and Q6_K M=256 were neutral. The coarser swizzle is accepted only for shared-down Q4_K.
+
+The selected ordinary run measured 48.694/47.083 ms for Q3_K/Q4_K query, 2.691/2.915/3.065 ms for narrow Q3_K/Q4_K/Q5_K, and 22.402 ms for attention-output Q4_K. With the coarser shared-down Q4_K swizzle, the ordinary batch-16 serial estimate is approximately 1.212 seconds.
 
 ### LDS vectorization inspection
 
@@ -438,10 +440,10 @@ The latest accepted measurements combine the 128x128 retile, packed-byte prefetc
 | Narrow Q4_K | 2.915 | 2.894 | 0.99x | XOR-swizzled vector local loads |
 | Narrow Q5_K | 3.065 | 2.885 | 0.94x | XOR-swizzled vector local loads |
 | Attention output Q4_K | 22.402 | 22.832 | 1.02x | padded vector local loads |
-| Shared down Q4_K | 5.316 | 4.128 | 0.78x | unpadded compiler-managed local loads |
-| Shared down Q5_K | 5.502 | 4.125 | 0.75x | unpadded compiler-managed local loads |
+| Shared down Q4_K | 5.252 | 4.261 | 0.81x | 16-BF16-chunk XOR-swizzled vector loads |
+| Shared down Q5_K | approximately 5.57 | approximately 4.21 | approximately 0.76x | unpadded compiler-managed local loads |
 
-The ordinary batch-16 serial estimate is approximately 1.216 seconds across the 160 projections. The corresponding BF16 estimate is approximately 1.277 seconds using the same run's per-shape references.
+The ordinary batch-16 serial estimate is approximately 1.212 seconds across the 160 projections. The corresponding BF16 estimate is approximately 1.28 seconds across the recent runs.
 
 This is an aggregate scheduling estimate, not an end-to-end training measurement. It does not model overlap with other model work.
 
