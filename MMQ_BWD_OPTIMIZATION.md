@@ -203,6 +203,8 @@ M=64 uses a 16-BF16-chunk XOR LDS swizzle, while M=128 uses an eight-BF16-chunk 
 
 M=256 now reuses the same 128x64 swizzled workgroup tile as M=128. Two M workgroups cover the 256 rows, producing 64 workgroups instead of the previous 32-workgroup 128x128 launch.
 
+Its Q6_K decoder additionally combines four low/high byte pairs into one packed six-bit quant word before BF16 conversion. M=64 and M=128 retain scalar extraction because the packed schedule was neutral or slightly slower there.
+
 ### Other bounds-safe ordinary paths
 
 - rows `<=128`: one N tile;
@@ -428,15 +430,17 @@ The final clean Q6_K benchmark is:
 
 | M | Selected geometry | Packed ms | BF16 ms | Throughput ratio |
 | ---: | --- | ---: | ---: | ---: |
-| 64 | M=1/N=2/K=64 with 16-BF16-chunk XOR LDS swizzle | 5.380 | 9.845 | 1.83x |
-| 128 | M=2/N=4/K=32 with XOR LDS swizzle | 9.187 | 14.433 | 1.57x |
-| 256 | two M blocks of M=2/N=4/K=32 with XOR LDS swizzle | 12.156 | 19.080 | 1.57x |
+| 64 | M=1/N=2/K=64 with 16-BF16-chunk XOR LDS swizzle | 5.356 | 9.850 | 1.84x |
+| 128 | M=2/N=4/K=32 with XOR LDS swizzle | 9.172 | 14.444 | 1.57x |
+| 256 | two M blocks of M=2/N=4/K=32, packed quant extraction, XOR swizzle | 11.758 | 19.023 | 1.62x |
 
-The XOR LDS swizzle changed M=64 from the largest Q6_K deficit into the fastest production-relative kernel at 1.83x BF16 throughput. The final 16-BF16-chunk layout measured 5.365 ms initially and 5.380 ms in the selected repeat, with unchanged 4 KiB LDS capacity and exact benchmark correctness.
+The XOR LDS swizzle changed M=64 from the largest Q6_K deficit into the fastest production-relative kernel at 1.84x BF16 throughput. The final 16-BF16-chunk layout measures about 5.36 ms, with unchanged 4 KiB LDS capacity and exact benchmark correctness.
 
 M=128 improved from 13.402 to 9.187 ms and reached 1.57x BF16. Applying the swizzle to the eight-N-tile M=256 geometry regressed, but reusing the four-N-tile swizzled geometry with two M workgroups reduced 20.894 to 12.156 ms and also reached 1.57x BF16.
 
 The smaller N tile doubles workgroup count and reduces accumulator pressure. Its repeated packed decode across two M blocks costs less than the parallelism and LDS-bank gains it enables.
+
+Packed Q6_K quant-byte extraction measured 5.361/9.370/11.754 ms at M=64/128/256 when enabled globally. Shape-specific selection restored the scalar M=64/M=128 times and retained the M=256 gain, with a final 11.758 ms result.
 
 A post-swizzle M=64 N=3/K=64 candidate regressed from 5.829 to 12.690 ms. Its 48-column tile does not divide 2048, so bounds checks on every workgroup and the irregular final tile overwhelm its extra N reuse.
 
@@ -484,11 +488,11 @@ At batch 16:
 
 | Chunk M | Calls | Packed serial estimate | BF16 serial estimate |
 | ---: | ---: | ---: | ---: |
-| 64 | 512 | 2,755 ms | 5,041 ms |
-| 128 | 256 | 2,352 ms | 3,695 ms |
-| 256 | 128 | 1,556 ms | 2,442 ms |
+| 64 | 512 | 2,742 ms | 5,043 ms |
+| 128 | 256 | 2,348 ms | 3,697 ms |
+| 256 | 128 | 1,505 ms | 2,435 ms |
 
-M=256 now has the lowest batch-16 serial estimate, but it requires about 121 MiB of cotangent storage. M=128 remains a lower-memory 61 MiB aggregation point, while the production M=64 schedule needs no additional aggregation buffer.
+M=256 now has the lowest batch-16 serial estimate at about 1.50 seconds, but it requires about 121 MiB of cotangent storage. M=128 remains a lower-memory 61 MiB aggregation point, while the production M=64 schedule needs no additional aggregation buffer.
 
 Approximate BF16 cotangent storage is:
 
@@ -621,7 +625,7 @@ Local geometry and K-depth tuning have plateaued for shared down. A larger gain 
 
 M=64 was limited by its K=64 decoded-weight row stride of 128 bytes, which mapped every row start to the same bank phase. A 16-BF16-chunk XOR swizzle reduced 10.938 ms to about 5.38 ms without increasing LDS footprint and while preserving two 128-bit loads per fragment.
 
-This confirms that the earlier 85.3% conflict percentage represented a first-order bottleneck. The same swizzle is accepted for M=128 at about 9.18 ms. It regressed the original eight-N-tile M=256 geometry, but pairing it with the four-N-tile geometry improved M=256 to 12.156 ms.
+This confirms that the earlier 85.3% conflict percentage represented a first-order bottleneck. The same swizzle is accepted for M=128 at about 9.17 ms. It regressed the original eight-N-tile M=256 geometry, but pairing it with the four-N-tile geometry improved M=256 to 12.156 ms. Packed quant extraction then reduced M=256 further to 11.758 ms.
 
 Bank distribution must be selected with workgroup count, accumulator pressure, and decode repetition rather than by K depth alone.
 
@@ -693,7 +697,7 @@ Inspect the final code object if the larger swizzle changes VGPR, LDS, or privat
 
 At model scheduling level, evaluate M=128 and M=256 aggregation under the 61 MiB and 121 MiB cotangent-buffer budgets.
 
-M=256 now has the lowest serial estimate at about 1.56 seconds for batch 16 and runs at 1.57x BF16 throughput. M=128 remains the lower-memory aggregation option.
+M=256 now has the lowest serial estimate at about 1.50 seconds for batch 16 and runs at 1.62x BF16 throughput. M=128 remains the lower-memory aggregation option.
 
 ### Address shared-down through representation or cross-call reuse
 

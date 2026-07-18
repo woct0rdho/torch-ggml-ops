@@ -387,6 +387,7 @@ static __device__ __forceinline__ void decode_backward_tile_q5_preloaded(
     }
 }
 
+template <bool PACK_QUANT_BYTES>
 static __device__ __forceinline__ void decode_backward_tile_sixteen_q6(
         const char * packed_row,
         int block_index,
@@ -402,12 +403,37 @@ static __device__ __forceinline__ void decode_backward_tile_sixteen_q6(
     const int low_shift = 4 * (remainder >> 6);
     const int high_byte = chunk * 32 + (value_index & 31);
     const int high_shift = 2 * ((remainder >> 5) & 3);
+    if constexpr (PACK_QUANT_BYTES) {
+        const uint4 packed_low = load_uint4_unaligned(block.ql + low_byte);
+        const uint4 packed_high = load_uint4_unaligned(block.qh + high_byte);
+        const auto * low_words =
+            reinterpret_cast<const uint32_t *>(&packed_low);
+        const auto * high_words =
+            reinterpret_cast<const uint32_t *>(&packed_high);
 #pragma unroll
-    for (int index = 0; index < 16; ++index) {
-        const int low = (block.ql[low_byte + index] >> low_shift) & 0x0f;
-        const int high = (block.qh[high_byte + index] >> high_shift) & 0x03;
-        values[index] = __float2bfloat16(
-            scaled_d * static_cast<float>((low | (high << 4)) - 32));
+        for (int word = 0; word < 4; ++word) {
+            const uint32_t quant_bytes =
+                ((low_words[word] >> low_shift) & 0x0f0f0f0fU) |
+                (((high_words[word] >> high_shift) & 0x03030303U) << 4);
+#pragma unroll
+            for (int byte = 0; byte < 4; ++byte) {
+                const int quant =
+                    static_cast<int>(
+                        (quant_bytes >> (8 * byte)) & 0x3fU) - 32;
+                values[4 * word + byte] = __float2bfloat16(
+                    scaled_d * static_cast<float>(quant));
+            }
+        }
+    } else {
+#pragma unroll
+        for (int index = 0; index < 16; ++index) {
+            const int low =
+                (block.ql[low_byte + index] >> low_shift) & 0x0f;
+            const int high =
+                (block.qh[high_byte + index] >> high_shift) & 0x03;
+            values[index] = __float2bfloat16(
+                scaled_d * static_cast<float>((low | (high << 4)) - 32));
+        }
     }
 }
 
@@ -480,7 +506,8 @@ template <
     int LDS_PADDING,
     bool VECTOR_LOCAL_LOAD,
     int LDS_SWIZZLE_CHUNK,
-    bool PACK_Q5_QUANT_BYTES>
+    bool PACK_Q5_QUANT_BYTES,
+    bool PACK_Q6_QUANT_BYTES>
 __launch_bounds__(BACKWARD_THREADS, 2)
 static __global__ void dense_mmq_grad_input_kernel(
         const __hip_bfloat16 * __restrict__ grad_output,
@@ -527,7 +554,7 @@ static __global__ void dense_mmq_grad_input_kernel(
                     const char * packed_row = packed_weight +
                         static_cast<int64_t>(output_column) * packed_row_bytes;
                     __hip_bfloat16 values[16];
-                    decode_backward_tile_sixteen_q6(
+                    decode_backward_tile_sixteen_q6<PACK_Q6_QUANT_BYTES>(
                         packed_row,
                         input_column / QK_K,
                         input_column % QK_K,
@@ -989,7 +1016,8 @@ template <
     int LDS_PADDING = 0,
     bool VECTOR_LOCAL_LOAD = false,
     int LDS_SWIZZLE_CHUNK = 0,
-    bool PACK_Q5_QUANT_BYTES = false>
+    bool PACK_Q5_QUANT_BYTES = false,
+    bool PACK_Q6_QUANT_BYTES = false>
 static inline void launch_dense_mmq_grad_input_tiled(
         const __hip_bfloat16 * grad_output,
         const char * packed_weight,
@@ -1023,7 +1051,8 @@ static inline void launch_dense_mmq_grad_input_tiled(
         LDS_PADDING,
         VECTOR_LOCAL_LOAD,
         LDS_SWIZZLE_CHUNK,
-        PACK_Q5_QUANT_BYTES>
+        PACK_Q5_QUANT_BYTES,
+        PACK_Q6_QUANT_BYTES>
         <<<grid, block, 0, stream>>>(
         grad_output,
         packed_weight,
@@ -1136,12 +1165,14 @@ static inline void launch_dense_mmq_grad_input(
                 in_features % 64 == 0;
             if (full_tiles) {
                 launch_dense_mmq_grad_input_tiled<
-                    type, 4, 32, 0, 2, 0, true, true, false, 0, true, 8>(
+                    type, 4, 32, 0, 2, 0, true, true, false, 0, true, 8,
+                    false, true>(
                     grad_output, packed_weight, grad_input,
                     rows, out_features, in_features, stream);
             } else {
                 launch_dense_mmq_grad_input_tiled<
-                    type, 4, 32, 0, 2, 0, true, false, false, 0, true, 8>(
+                    type, 4, 32, 0, 2, 0, true, false, false, 0, true, 8,
+                    false, true>(
                     grad_output, packed_weight, grad_input,
                     rows, out_features, in_features, stream);
             }
