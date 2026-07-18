@@ -792,6 +792,47 @@ The complete gate/up Q3_K batch-1 sparse point measured 5.368 ms versus 14.131 m
 
 The magnitude of this gain shows that integer row decomposition and per-load tail control, not only register spilling, were first-order costs in the inherited grouped loop.
 
+### G5: remove the post-write row barrier
+
+Status: rejected and reverted.
+
+The barrier after BF16 writeback is not required for shared-memory correctness because the preceding post-dot barrier already ends the decoded-weight and activation LDS lifetime. Removing it, however, produced only noise-level changes from 0.975x to 1.004x across the focused matrix. The artifact is:
+
+```text
+/tmp/grouped_step5_no_write_barrier.json
+```
+
+Keep the barrier in the retained source. It is not a measurable bottleneck, and retaining the simpler row-iteration synchronization structure is preferable to a neutral change.
+
+### G6: compile-time two-block down unroll
+
+Status: retained for the fixed `K=512` down shape.
+
+G6 factored one packed K-block operation into a force-inlined helper and emits two explicit calls for down's exact `BlocksPerWeightRow=2`. Gate/up and the general fallback retain the original fixed-trip loop, avoiding full unrolling of the eight-block gate/up path.
+
+The retained artifact is:
+
+```text
+/tmp/grouped_step6b_down_unroll.json
+```
+
+| Point | G4 ms | G6 ms | Speedup |
+|---|---:|---:|---:|
+| Down Q4_K batch 1 uniform | 1.599 | 1.565 | 1.02x |
+| Down Q4_K batch 4 uniform | 6.063 | 5.877 | 1.03x |
+| Down Q4_K batch 4 boundary | 6.889 | 6.882 | 1.00x |
+| Down Q4_K batch 16 uniform | 24.292 | 23.057 | 1.05x |
+| Down Q5_K batch 4 uniform | 6.067 | 5.849 | 1.04x |
+| Down IQ2_S batch 16 uniform | 32.846 | 27.102 | 1.21x |
+
+The gate/up body remained neutral after restoring its original loop inline: Q3_K batch 16 changed from 57.956 to 58.107 ms and batch-1 sparse from 5.427 to 5.383 ms.
+
+All down variants remain spill-free. The explicit two-block schedule raises VGPR allocation to 207 for Q3_K, 223 for Q4_K, 230 for Q5_K, 217 for Q6_K, and 218 for IQ2_S, with 46 SGPRs and zero private segment. The register increase is acceptable because the fixed-shape kernels remain below the spill threshold and the complete operator improves.
+
+Production correctness remained exact against dense MMQ for down Q4_K batch-4 boundary and down IQ2_S batch-16 uniform, with zero differing BF16 elements. Complete timings were 6.931 versus 9.278 ms AITER for Q4_K and 28.042 versus 45.382 ms AITER for IQ2_S.
+
+The large IQ2_S gain and smaller Q4_K/Q5_K gains show that fixed-trip branch/address cleanup remains useful after G4, but its value is type-dependent and bounded by register growth.
+
 ## Optimization plan
 
 ### Phase 1: compile-time row, fixed-shape, and scalar-address specialization
@@ -982,4 +1023,4 @@ The complete fixed-`K=512` decoded-weight LDS cache was rejected in G2 because i
 
 G3 rejected fixed-shape `J=128`; `J=64` remains the production row tile. G4 then removed full-row address decomposition and moved every focused production class ahead of AITER.
 
-Continue with low-risk synchronization and fixed-K loop cleanup on the spill-free G4 body. Remove only barriers that are unnecessary by shared-memory lifetime analysis, then test a two-block down unroll and pointer-increment gate/up loop. If those neighborhoods plateau, evaluate whether descriptor setup can beat the already saturated serial grid rather than assuming it will help.
+G5 showed that removing the post-write barrier is neutral. G6 retained a compile-time two-block down schedule. Next test a pointer-increment gate/up loop without fully unrolling its eight fixed blocks. If that neighborhood plateaus, evaluate whether descriptor setup can beat the already saturated serial grid rather than assuming it will help.

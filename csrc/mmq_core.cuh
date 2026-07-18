@@ -266,6 +266,80 @@ static __global__ void dense_mmq_bf16_kernel(
         j_max);
 }
 
+template <ggml_type type, int J, bool fixed_shape, bool full_j>
+static __device__ __forceinline__ void grouped_mmq_k_block(
+        const char * __restrict__ expert_weights,
+        const int * __restrict__ activations,
+        int * __restrict__ tile_x,
+        int * __restrict__ tile_y,
+        float * __restrict__ sum,
+        int tile_i,
+        int row_start,
+        int j_max,
+        int nrows_activation,
+        int kernel_blocks_per_weight_row,
+        int i_max,
+        int kb) {
+    constexpr int q8_block_ints = sizeof(block_q8_1_mmq) / sizeof(int);
+    const int weight_block_offset =
+        tile_i * MMQ_I * kernel_blocks_per_weight_row + kb;
+    mmq_load_target<type, J, !fixed_shape>(
+        expert_weights,
+        tile_x,
+        weight_block_offset,
+        i_max,
+        kernel_blocks_per_weight_row);
+
+#pragma unroll
+    for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += MMQ_NTHREADS) {
+        const int l = l0 + threadIdx.y * WARP_SIZE + threadIdx.x;
+        if constexpr (full_j) {
+            const int src =
+                ((2 * kb) * nrows_activation + row_start) * q8_block_ints + l;
+            tile_y[l] = activations[src];
+        } else {
+            const int local_row = l / q8_block_ints;
+            const int q8_int = l % q8_block_ints;
+            if (local_row <= j_max) {
+                const int src = (
+                    (2 * kb) * nrows_activation + row_start + local_row
+                ) * q8_block_ints + q8_int;
+                tile_y[l] = activations[src];
+            } else {
+                tile_y[l] = 0;
+            }
+        }
+    }
+    __syncthreads();
+    mmq_vec_dot_target<type, J, !fixed_shape>(tile_x, tile_y, sum, 0);
+    __syncthreads();
+
+#pragma unroll
+    for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += MMQ_NTHREADS) {
+        const int l = l0 + threadIdx.y * WARP_SIZE + threadIdx.x;
+        if constexpr (full_j) {
+            const int src =
+                ((2 * kb + 1) * nrows_activation + row_start) * q8_block_ints + l;
+            tile_y[l] = activations[src];
+        } else {
+            const int local_row = l / q8_block_ints;
+            const int q8_int = l % q8_block_ints;
+            if (local_row <= j_max) {
+                const int src = (
+                    (2 * kb + 1) * nrows_activation + row_start + local_row
+                ) * q8_block_ints + q8_int;
+                tile_y[l] = activations[src];
+            } else {
+                tile_y[l] = 0;
+            }
+        }
+    }
+    __syncthreads();
+    mmq_vec_dot_target<type, J, !fixed_shape>(
+        tile_x, tile_y, sum, MMQ_TILE_NE_K);
+    __syncthreads();
+}
+
 template <
     ggml_type type,
     int J,
@@ -285,7 +359,6 @@ static __device__ __forceinline__ void grouped_mmq_row_tile(
         int nrows_activation,
         int blocks_per_weight_row) {
     constexpr bool fixed_shape = fixed_nrows_weight > 0 && fixed_blocks_per_weight_row > 0;
-    constexpr int q8_block_ints = sizeof(block_q8_1_mmq) / sizeof(int);
     const int kernel_nrows_weight = fixed_shape ? fixed_nrows_weight : nrows_weight;
     const int kernel_blocks_per_weight_row =
         fixed_shape ? fixed_blocks_per_weight_row : blocks_per_weight_row;
@@ -293,65 +366,95 @@ static __device__ __forceinline__ void grouped_mmq_row_tile(
     const int j_max = full_j ? J - 1 : row_end - row_start - 1;
     float sum[J * MMQ_I / MMQ_NTHREADS] = {0.0f};
 
-#pragma unroll 1
-    for (int kb = 0; kb < kernel_blocks_per_weight_row; ++kb) {
-        const int weight_block_offset =
-            tile_i * MMQ_I * kernel_blocks_per_weight_row + kb;
-        mmq_load_target<type, J, !fixed_shape>(
+    if constexpr (fixed_blocks_per_weight_row == 2) {
+        grouped_mmq_k_block<type, J, fixed_shape, full_j>(
             expert_weights,
+            activations,
             tile_x,
-            weight_block_offset,
+            tile_y,
+            sum,
+            tile_i,
+            row_start,
+            j_max,
+            nrows_activation,
+            kernel_blocks_per_weight_row,
             i_max,
-            kernel_blocks_per_weight_row);
+            0);
+        grouped_mmq_k_block<type, J, fixed_shape, full_j>(
+            expert_weights,
+            activations,
+            tile_x,
+            tile_y,
+            sum,
+            tile_i,
+            row_start,
+            j_max,
+            nrows_activation,
+            kernel_blocks_per_weight_row,
+            i_max,
+            1);
+    } else {
+        constexpr int q8_block_ints = sizeof(block_q8_1_mmq) / sizeof(int);
+#pragma unroll 1
+        for (int kb = 0; kb < kernel_blocks_per_weight_row; ++kb) {
+            const int weight_block_offset =
+                tile_i * MMQ_I * kernel_blocks_per_weight_row + kb;
+            mmq_load_target<type, J, !fixed_shape>(
+                expert_weights,
+                tile_x,
+                weight_block_offset,
+                i_max,
+                kernel_blocks_per_weight_row);
 
 #pragma unroll
-        for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += MMQ_NTHREADS) {
-            const int l = l0 + threadIdx.y * WARP_SIZE + threadIdx.x;
-            if constexpr (full_j) {
-                const int src =
-                    ((2 * kb) * nrows_activation + row_start) * q8_block_ints + l;
-                tile_y[l] = activations[src];
-            } else {
-                const int local_row = l / q8_block_ints;
-                const int q8_int = l % q8_block_ints;
-                if (local_row <= j_max) {
-                    const int src = (
-                        (2 * kb) * nrows_activation + row_start + local_row
-                    ) * q8_block_ints + q8_int;
+            for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += MMQ_NTHREADS) {
+                const int l = l0 + threadIdx.y * WARP_SIZE + threadIdx.x;
+                if constexpr (full_j) {
+                    const int src =
+                        ((2 * kb) * nrows_activation + row_start) * q8_block_ints + l;
                     tile_y[l] = activations[src];
                 } else {
-                    tile_y[l] = 0;
+                    const int local_row = l / q8_block_ints;
+                    const int q8_int = l % q8_block_ints;
+                    if (local_row <= j_max) {
+                        const int src = (
+                            (2 * kb) * nrows_activation + row_start + local_row
+                        ) * q8_block_ints + q8_int;
+                        tile_y[l] = activations[src];
+                    } else {
+                        tile_y[l] = 0;
+                    }
                 }
             }
-        }
-        __syncthreads();
-        mmq_vec_dot_target<type, J, !fixed_shape>(tile_x, tile_y, sum, 0);
-        __syncthreads();
+            __syncthreads();
+            mmq_vec_dot_target<type, J, !fixed_shape>(tile_x, tile_y, sum, 0);
+            __syncthreads();
 
 #pragma unroll
-        for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += MMQ_NTHREADS) {
-            const int l = l0 + threadIdx.y * WARP_SIZE + threadIdx.x;
-            if constexpr (full_j) {
-                const int src =
-                    ((2 * kb + 1) * nrows_activation + row_start) * q8_block_ints + l;
-                tile_y[l] = activations[src];
-            } else {
-                const int local_row = l / q8_block_ints;
-                const int q8_int = l % q8_block_ints;
-                if (local_row <= j_max) {
-                    const int src = (
-                        (2 * kb + 1) * nrows_activation + row_start + local_row
-                    ) * q8_block_ints + q8_int;
+            for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += MMQ_NTHREADS) {
+                const int l = l0 + threadIdx.y * WARP_SIZE + threadIdx.x;
+                if constexpr (full_j) {
+                    const int src =
+                        ((2 * kb + 1) * nrows_activation + row_start) * q8_block_ints + l;
                     tile_y[l] = activations[src];
                 } else {
-                    tile_y[l] = 0;
+                    const int local_row = l / q8_block_ints;
+                    const int q8_int = l % q8_block_ints;
+                    if (local_row <= j_max) {
+                        const int src = (
+                            (2 * kb + 1) * nrows_activation + row_start + local_row
+                        ) * q8_block_ints + q8_int;
+                        tile_y[l] = activations[src];
+                    } else {
+                        tile_y[l] = 0;
+                    }
                 }
             }
+            __syncthreads();
+            mmq_vec_dot_target<type, J, !fixed_shape>(
+                tile_x, tile_y, sum, MMQ_TILE_NE_K);
+            __syncthreads();
         }
-        __syncthreads();
-        mmq_vec_dot_target<type, J, !fixed_shape>(
-            tile_x, tile_y, sum, MMQ_TILE_NE_K);
-        __syncthreads();
     }
 
     mmq_write_back_bf16<type, J, fixed_shape, full_j>(
