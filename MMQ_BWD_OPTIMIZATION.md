@@ -183,7 +183,7 @@ Format-specific choices:
 | Attention-output Q4_K | yes | 8 BF16 values per row |
 | Shared-down Q4_K | yes | 16-BF16-chunk XOR swizzle, no padding |
 | Narrow Q5_K | yes | XOR swizzle, no padding |
-| Shared-down Q5_K | yes | unpadded, unswizzled |
+| Shared-down Q5_K | yes | 4-BF16-chunk XOR swizzle, no padding |
 
 Non-divisible and smaller-row shapes retain bounds-safe measured kernels.
 
@@ -445,9 +445,9 @@ The latest accepted measurements combine the 128x128 retile, packed-byte prefetc
 | Narrow Q5_K | 3.065 | 2.885 | 0.94x | XOR-swizzled vector local loads |
 | Attention output Q4_K | 22.402 | 22.832 | 1.02x | padded vector local loads |
 | Shared down Q4_K | 5.252 | 4.261 | 0.81x | 16-BF16-chunk XOR-swizzled vector loads |
-| Shared down Q5_K | approximately 5.57 | approximately 4.21 | approximately 0.76x | unpadded compiler-managed local loads |
+| Shared down Q5_K | 5.353 | 4.239 | 0.79x | 4-BF16-chunk XOR swizzle with 64-bit loads |
 
-The ordinary batch-16 serial estimate is approximately 1.212 seconds across the 160 projections. The corresponding BF16 estimate is approximately 1.28 seconds across the recent runs.
+The ordinary batch-16 serial estimate is approximately 1.210 seconds across the 160 projections. The corresponding BF16 estimate is approximately 1.28 seconds across the recent runs.
 
 This is an aggregate scheduling estimate, not an end-to-end training measurement. It does not model overlap with other model work.
 
@@ -587,7 +587,13 @@ They combine:
 - structural LDS fragment cost;
 - insufficient arithmetic amortization for the added padded footprint.
 
-Geometry-only sweeps have already plateaued. A larger gain likely requires decoded-weight reuse across calls or a changed representation.
+A shared-down-specific 4x4 per-wave geometry kept 16 accumulator tiles while doubling M reuse of decoded weights. It regressed Q4_K/Q5_K from about 5.25/5.57 ms to 7.338/7.388 ms because doubled cotangent traffic and four live A fragments outweighed reduced decode repetition.
+
+Increasing shared-down reduction depth from 32 to 64 measured 5.215 ms for Q4_K, below the meaningful margin over the selected K=32 result, and regressed Q5_K to 6.565 ms. Halving barrier frequency does not offset the longer decode phase and loss of the K=32 packed-prefetch specialization.
+
+A finer four-BF16-chunk XOR swizzle with four 64-bit loads per fragment regressed Q4_K to 5.486 ms but improved Q5_K from about 5.57 to 5.353 ms. Q4_K retains the 16-BF16-chunk/two-128-bit-load swizzle, while Q5_K selects the finer swizzle.
+
+Local geometry and K-depth tuning have plateaued for shared down. A larger gain likely requires decoded-weight reuse across calls or a changed representation.
 
 ### Q6_K small rows
 

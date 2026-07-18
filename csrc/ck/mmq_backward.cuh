@@ -417,13 +417,24 @@ struct backward_shared_b_tile {
             bf16_fragment & fragment,
             int row,
             int column) const {
-        const auto * first = reinterpret_cast<const uint4 *>(
-            values + physical_index(row * COLUMNS + column));
-        const auto * second = reinterpret_cast<const uint4 *>(
-            values + physical_index(row * COLUMNS + column + 8));
-        auto * destination = reinterpret_cast<uint4 *>(&fragment);
-        destination[0] = first[0];
-        destination[1] = second[0];
+        if constexpr (SWIZZLE_CHUNK == 4) {
+            auto * destination = reinterpret_cast<uint2 *>(&fragment);
+#pragma unroll
+            for (int chunk = 0; chunk < 4; ++chunk) {
+                const auto * source = reinterpret_cast<const uint2 *>(
+                    values + physical_index(
+                        row * COLUMNS + column + 4 * chunk));
+                destination[chunk] = source[0];
+            }
+        } else {
+            const auto * first = reinterpret_cast<const uint4 *>(
+                values + physical_index(row * COLUMNS + column));
+            const auto * second = reinterpret_cast<const uint4 *>(
+                values + physical_index(row * COLUMNS + column + 8));
+            auto * destination = reinterpret_cast<uint4 *>(&fragment);
+            destination[0] = first[0];
+            destination[1] = second[0];
+        }
     }
 };
 
@@ -1050,7 +1061,8 @@ static inline void launch_dense_mmq_grad_input(
                         rows, out_features, in_features, stream);
                 } else {
                     launch_dense_mmq_grad_input_tiled<
-                        type, 8, 32, 1, 2, 16, true, true, true>(
+                        type, 8, 32, 1, 2, 16, true, true, true,
+                        0, true, 4>(
                         grad_output, packed_weight, grad_input,
                         rows, out_features, in_features, stream);
                 }
