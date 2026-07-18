@@ -382,36 +382,45 @@ static __device__ __forceinline__ void decode_backward_tile_sixteen_q6(
     }
 }
 
-template <int ROWS, int COLUMNS, int PADDING>
+template <int ROWS, int COLUMNS, int PADDING, bool SWIZZLE>
 struct backward_shared_b_tile {
+    static_assert(COLUMNS % 16 == 0);
+    static_assert((COLUMNS / 8 & (COLUMNS / 8 - 1)) == 0);
+
     alignas(16) __hip_bfloat16 values[ROWS * (COLUMNS + PADDING)];
 
-    __device__ __forceinline__ __hip_bfloat16 & operator[](int index) {
-        if constexpr (PADDING == 0) {
-            return values[index];
+    static __device__ __forceinline__ int physical_index(int index) {
+        const int row = index / COLUMNS;
+        const int column = index % COLUMNS;
+        if constexpr (SWIZZLE) {
+            constexpr int chunks_per_row = COLUMNS / 8;
+            const int chunk = (column / 8) ^ (row & (chunks_per_row - 1));
+            return row * (COLUMNS + PADDING) + chunk * 8 + column % 8;
         } else {
-            return values[index + (index / COLUMNS) * PADDING];
+            return row * (COLUMNS + PADDING) + column;
         }
+    }
+
+    __device__ __forceinline__ __hip_bfloat16 & operator[](int index) {
+        return values[physical_index(index)];
     }
 
     __device__ __forceinline__ const __hip_bfloat16 & operator[](
             int index) const {
-        if constexpr (PADDING == 0) {
-            return values[index];
-        } else {
-            return values[index + (index / COLUMNS) * PADDING];
-        }
+        return values[physical_index(index)];
     }
 
     __device__ __forceinline__ void load_fragment_vector(
             bf16_fragment & fragment,
             int row,
             int column) const {
-        const auto * source = reinterpret_cast<const uint4 *>(
-            values + row * (COLUMNS + PADDING) + column);
+        const auto * first = reinterpret_cast<const uint4 *>(
+            values + physical_index(row * COLUMNS + column));
+        const auto * second = reinterpret_cast<const uint4 *>(
+            values + physical_index(row * COLUMNS + column + 8));
         auto * destination = reinterpret_cast<uint4 *>(&fragment);
-        destination[0] = source[0];
-        destination[1] = source[1];
+        destination[0] = first[0];
+        destination[1] = second[0];
     }
 };
 
@@ -426,7 +435,8 @@ template <
     bool FULL_TILES,
     bool PREFETCH_PACKED,
     int LDS_PADDING,
-    bool VECTOR_LOCAL_LOAD>
+    bool VECTOR_LOCAL_LOAD,
+    bool LDS_SWIZZLE>
 __launch_bounds__(BACKWARD_THREADS, 2)
 static __global__ void dense_mmq_grad_input_kernel(
         const __hip_bfloat16 * __restrict__ grad_output,
@@ -451,7 +461,7 @@ static __global__ void dense_mmq_grad_input_kernel(
         static_cast<int64_t>(blocks_per_weight_row) * gguf_block_bytes<type>();
 
     __shared__ backward_shared_b_tile<
-        N_PER_BLOCK, K_ITERATION, LDS_PADDING> shared_b;
+        N_PER_BLOCK, K_ITERATION, LDS_PADDING, LDS_SWIZZLE> shared_b;
     f32_accumulator accumulators[M_TILES_PER_WAVE][N_TILES];
 
     for (int output_start = 0; output_start < out_features;
@@ -933,7 +943,8 @@ template <
     bool FULL_TILES = false,
     bool PREFETCH_PACKED = false,
     int LDS_PADDING = 0,
-    bool VECTOR_LOCAL_LOAD = false>
+    bool VECTOR_LOCAL_LOAD = false,
+    bool LDS_SWIZZLE = false>
 static inline void launch_dense_mmq_grad_input_tiled(
         const __hip_bfloat16 * grad_output,
         const char * packed_weight,
@@ -965,7 +976,8 @@ static inline void launch_dense_mmq_grad_input_tiled(
         FULL_TILES,
         PREFETCH_PACKED,
         LDS_PADDING,
-        VECTOR_LOCAL_LOAD>
+        VECTOR_LOCAL_LOAD,
+        LDS_SWIZZLE>
         <<<grid, block, 0, stream>>>(
         grad_output,
         packed_weight,
@@ -1036,12 +1048,12 @@ static inline void launch_dense_mmq_grad_input(
                 in_features % 32 == 0;
             if (full_tiles) {
                 launch_dense_mmq_grad_input_tiled<
-                    type, 2, 64, 0, 1, 0, true, true>(
+                    type, 2, 64, 0, 1, 0, true, true, false, 0, true, true>(
                     grad_output, packed_weight, grad_input,
                     rows, out_features, in_features, stream);
             } else {
                 launch_dense_mmq_grad_input_tiled<
-                    type, 2, 64, 0, 1, 0, true>(
+                    type, 2, 64, 0, 1, 0, true, false, false, 0, true, true>(
                     grad_output, packed_weight, grad_input,
                     rows, out_features, in_features, stream);
             }

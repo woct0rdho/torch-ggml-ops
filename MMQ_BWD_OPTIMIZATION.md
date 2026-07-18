@@ -195,7 +195,9 @@ Non-divisible and smaller-row shapes retain bounds-safe measured kernels.
 | `<=2048` | 1 | 8 | 16 | 64x128 |
 | larger | 1 | 16 | 16 | 64x256 |
 
-The small-row kernels use sixteen-value Q6_K decoding and paired local-fragment prefetch. M=64, M=128, and M=256 now use exact full-tile paths on production dimensions. Non-production shapes use the same geometries with bounds checks.
+The small-row kernels use sixteen-value Q6_K decoding and paired local-fragment prefetch. M=64, M=128, and M=256 use exact full-tile paths on production dimensions. Non-production shapes use the same geometries with bounds checks.
+
+M=64 additionally uses an eight-BF16-chunk XOR LDS swizzle. Each logical K=64 row keeps the same 128-byte footprint, but row-dependent chunk permutation distributes the two 128-bit fragment loads over eight bank phases instead of mapping every row to the same phase.
 
 ### Other bounds-safe ordinary paths
 
@@ -406,11 +408,13 @@ The final clean Q6_K benchmark is:
 
 | M | Selected geometry | Packed ms | BF16 ms | Throughput ratio |
 | ---: | --- | ---: | ---: | ---: |
-| 64 | M=1/N=2/K=64 | 10.938 | 9.864 | 0.90x |
+| 64 | M=1/N=2/K=64 with XOR LDS swizzle | 5.829 | 9.856 | 1.69x |
 | 128 | M=2/N=4/K=32 | 13.402 | 14.410 | 1.08x |
 | 256 | M=2/N=8/K=32 | 20.834 | 19.000 | 0.91x |
 
-M=64 and M=256 are both about 10% below BF16. M=128 remains faster than BF16.
+The XOR LDS swizzle changed M=64 from the largest Q6_K deficit into the fastest production-relative kernel at 1.69x BF16 throughput. The latency fell from 10.938 to 5.829 ms with unchanged 4 KiB LDS capacity and exact benchmark correctness.
+
+M=128 remains faster than BF16, while M=256 is about 9% below it. Both K=32 geometries are candidates for the same no-padding swizzle.
 
 ## Latest results
 
@@ -452,11 +456,11 @@ At batch 16:
 
 | Chunk M | Calls | Packed serial estimate | BF16 serial estimate |
 | ---: | ---: | ---: | ---: |
-| 64 | 512 | 5,600 ms | 5,050 ms |
+| 64 | 512 | 2,984 ms | 5,046 ms |
 | 128 | 256 | 3,431 ms | 3,689 ms |
 | 256 | 128 | 2,667 ms | 2,432 ms |
 
-M=128 aggregation is currently the fastest serial schedule. M=256 is valid again, but its larger memory budget does not offset its slower serial estimate.
+The optimized production M=64 schedule now needs no aggregation buffer and is faster than M=128 in the batch-16 serial estimate. M=256 remains the lowest kernel-call-count option but requires about 121 MiB of cotangent storage.
 
 Approximate BF16 cotangent storage is:
 
@@ -571,13 +575,11 @@ They combine:
 
 Geometry-only sweeps have already plateaued. A larger gain likely requires decoded-weight reuse across calls or a changed representation.
 
-### Q6_K M=64
+### Q6_K small rows
 
-M=64 remains about 10% behind BF16.
+M=64 was limited by its K=64 decoded-weight row stride of 128 bytes, which mapped every row start to the same bank phase. An eight-BF16-chunk XOR swizzle reduced 10.938 ms to 5.829 ms without increasing LDS footprint and while preserving two 128-bit loads per fragment.
 
-Its K=64 unpadded decoded-weight row stride is 128 bytes, which maps every row start to the same bank phase on a 32-bank, four-byte-bank LDS organization. The reported 85.3% conflict percentage makes a bank-distributed layout relevant.
-
-Any Q6 padding experiment should explicitly preserve 128-bit fragment loads. Repeating the element-wise padded wrapper without fixing load vectorization may exchange one bottleneck for another.
+This confirms that the earlier 85.3% conflict percentage represented a first-order bottleneck. The next bounded experiment is the same no-padding swizzle on the M=128 and M=256 K=32 geometries.
 
 ## TensileLite and hipBLASLt lessons that remain relevant
 
