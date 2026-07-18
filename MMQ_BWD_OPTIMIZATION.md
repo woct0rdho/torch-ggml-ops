@@ -177,7 +177,7 @@ Format-specific choices:
 
 | Type/shape | Packed-byte prefetch | LDS padding |
 | --- | --- | ---: |
-| Wide Q3_K query | yes | XOR swizzle, no padding |
+| Wide Q3_K query | yes, with packed quant-byte extraction | XOR swizzle, no padding |
 | Narrow Q3_K | no | 8 BF16 values per row |
 | Q4_K query/narrow | yes | XOR swizzle, no padding |
 | Attention-output Q4_K | yes | 8 BF16 values per row |
@@ -302,6 +302,8 @@ Q3_K, Q4_K, and Q5_K gained explicit fixed `uint4` packed-byte prefetch helpers.
 
 Q4_K and Q5_K preload packed data for two output rows before decoding the first. Wide Q3_K uses the analogous path.
 
+Wide Q3_K now combines four low/high byte pairs into one unsigned three-bit quant word before scalar BF16 conversion. This reduced query latency from 48.694 to 46.980 ms without changing correctness.
+
 Narrow Q3_K does not use packed prefetch. Its misaligned 110-byte block layout made the prefetch slightly slower than the regular sixteen-value decoder.
 
 Fixed scalar/vector prefetch state was retained. Compiler-managed arrays were avoided because FeatherOps experiments showed that intended VGPR arrays can become unexpected LDS allocations.
@@ -352,7 +354,7 @@ A follow-up 16-BF16-chunk swizzle improved shared-down Q4_K from 5.316 to 5.166 
 
 Shared-down Q5_K and the original Q6_K M=256 geometry were neutral with the coarser swizzle. The 16-BF16 variant is accepted only for shared-down Q4_K and Q6_K M=64.
 
-The selected ordinary run measured 48.694/47.083 ms for Q3_K/Q4_K query, 2.691/2.915/3.065 ms for narrow Q3_K/Q4_K/Q5_K, and 22.402 ms for attention-output Q4_K. With the coarser shared-down Q4_K swizzle, the ordinary batch-16 serial estimate is approximately 1.212 seconds.
+Before packed Q3_K/Q5_K quant extraction, the selected ordinary run measured 48.694/47.083 ms for Q3_K/Q4_K query, 2.691/2.915/3.065 ms for narrow Q3_K/Q4_K/Q5_K, and 22.402 ms for attention-output Q4_K. The later packed extraction changes reduced Q3_K query to 46.980 ms and narrow Q5_K to 2.868 ms.
 
 ### LDS vectorization inspection
 
@@ -450,7 +452,7 @@ The latest accepted measurements combine the 128x128 retile, packed-byte prefetc
 
 | Case | Packed ms | BF16 ms | Throughput ratio | Source |
 | --- | ---: | ---: | ---: | --- |
-| Query Q3_K | 48.694 | 59.502 | 1.22x | XOR-swizzled vector local loads |
+| Query Q3_K | 46.980 | 59.411 | 1.26x | packed quant-byte extraction and XOR-swizzled vector loads |
 | Query Q4_K | 47.083 | 59.468 | 1.26x | XOR-swizzled vector local loads |
 | Narrow Q3_K | 2.691 | 2.802 | 1.04x | padded vector local loads |
 | Narrow Q4_K | 2.915 | 2.894 | 0.99x | XOR-swizzled vector local loads |
@@ -459,7 +461,7 @@ The latest accepted measurements combine the 128x128 retile, packed-byte prefetc
 | Shared down Q4_K | 5.252 | 4.261 | 0.81x | 16-BF16-chunk XOR-swizzled vector loads |
 | Shared down Q5_K | 5.618 | 4.138 | 0.74x | scalar quant extraction and 4-BF16-chunk XOR swizzle |
 
-The ordinary batch-16 serial estimate remains approximately 1.21 seconds across the 160 projections. The corresponding BF16 estimate is approximately 1.28 seconds across the recent runs.
+The ordinary batch-16 serial estimate is now approximately 1.19-1.20 seconds across the 160 projections. The corresponding BF16 estimate is approximately 1.28 seconds across the recent runs.
 
 This is an aggregate scheduling estimate, not an end-to-end training measurement. It does not model overlap with other model work.
 
@@ -578,7 +580,7 @@ PC sampling heavily perturbs short kernels. Treat its percentages qualitatively 
 
 ### Ordinary Q3_K and Q4_K
 
-Wide query is now faster than BF16. Narrow Q4_K is at parity, and attention output is within measurement noise.
+Wide query is now 1.26x BF16 after packed Q3_K extraction. Narrow Q4_K is at parity, and attention output is within measurement noise.
 
 The remaining Q3_K/Q4_K issue is no longer packed-global bandwidth alone. High L2 hit rates and the successful padding ablation show that LDS bank layout and fragment-load instruction form matter materially.
 
@@ -586,7 +588,9 @@ The remaining Q3_K/Q4_K issue is no longer packed-global bandwidth alone. High L
 
 Packing four Q5_K low/high byte pairs into one 32-bit quant word reduced repeated per-byte high-bit extraction. Narrow Q5_K improved from about 3.04 to 2.845-2.868 ms and now reaches 1.03-1.05x BF16 throughput.
 
-The same extraction schedule regressed shared down to 5.759 ms, so it is selected only for the narrow shape. Shared-down Q5_K still needs lower decode issue pressure or cross-call representation reuse.
+The same extraction schedule regressed shared down to 5.759 ms with its four-BF16 swizzle. Pairing packed extraction with the eight-BF16 swizzle still measured 5.695 ms, above the selected scalar-extraction path.
+
+Packed extraction is therefore selected only for the narrow shape. Shared-down Q5_K still needs lower decode issue pressure or cross-call representation reuse.
 
 ### Shared down
 

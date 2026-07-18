@@ -303,14 +303,21 @@ static __device__ __forceinline__ void decode_backward_tile_q3_preloaded(
     const float scaled_d = fp16_to_fp32(block.d) * static_cast<float>(scale);
     const int low_shift = 2 * ((value_index & 127) >> 5);
     const int high_shift = value_index >> 5;
-    const auto * low_bytes = reinterpret_cast<const uint8_t *>(&packed_low);
-    const auto * high_bytes = reinterpret_cast<const uint8_t *>(&packed_high);
+    const auto * low_words = reinterpret_cast<const uint32_t *>(&packed_low);
+    const auto * high_words = reinterpret_cast<const uint32_t *>(&packed_high);
 #pragma unroll
-    for (int index = 0; index < 16; ++index) {
-        const int low = (low_bytes[index] >> low_shift) & 0x03;
-        const int high = ((high_bytes[index] >> high_shift) & 0x01) ^ 0x01;
-        values[index] = __float2bfloat16(
-            scaled_d * static_cast<float>(low - (high << 2)));
+    for (int word = 0; word < 4; ++word) {
+        const uint32_t quant_plus_four_bytes =
+            ((low_words[word] >> low_shift) & 0x03030303U) |
+            (((high_words[word] >> high_shift) & 0x01010101U) << 2);
+#pragma unroll
+        for (int byte = 0; byte < 4; ++byte) {
+            const int quant =
+                static_cast<int>(
+                    (quant_plus_four_bytes >> (8 * byte)) & 0x07U) - 4;
+            values[4 * word + byte] = __float2bfloat16(
+                scaled_d * static_cast<float>(quant));
+        }
     }
 }
 
