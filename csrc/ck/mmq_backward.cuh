@@ -382,6 +382,19 @@ static __device__ __forceinline__ void decode_backward_tile_sixteen_q6(
     }
 }
 
+template <int ROWS, int COLUMNS, int PADDING>
+struct backward_shared_b_tile {
+    __hip_bfloat16 values[ROWS * (COLUMNS + PADDING)];
+
+    __device__ __forceinline__ __hip_bfloat16 & operator[](int index) {
+        if constexpr (PADDING == 0) {
+            return values[index];
+        } else {
+            return values[index + (index / COLUMNS) * PADDING];
+        }
+    }
+};
+
 template <
     ggml_type type,
     int N_TILES,
@@ -391,7 +404,8 @@ template <
     int DECODER_WIDTH,
     bool PREFETCH_LOCAL,
     bool FULL_TILES,
-    bool PREFETCH_PACKED>
+    bool PREFETCH_PACKED,
+    int LDS_PADDING>
 __launch_bounds__(BACKWARD_THREADS, 2)
 static __global__ void dense_mmq_grad_input_kernel(
         const __hip_bfloat16 * __restrict__ grad_output,
@@ -415,7 +429,8 @@ static __global__ void dense_mmq_grad_input_kernel(
     const int64_t packed_row_bytes =
         static_cast<int64_t>(blocks_per_weight_row) * gguf_block_bytes<type>();
 
-    __shared__ __hip_bfloat16 shared_b[N_PER_BLOCK * K_ITERATION];
+    __shared__ backward_shared_b_tile<
+        N_PER_BLOCK, K_ITERATION, LDS_PADDING> shared_b;
     f32_accumulator accumulators[M_TILES_PER_WAVE][N_TILES];
 
     for (int output_start = 0; output_start < out_features;
@@ -431,7 +446,9 @@ static __global__ void dense_mmq_grad_input_kernel(
                     16 * (group_index % groups_per_row);
                 const int output_column = output_start + k;
                 const int input_column = input_column_start + local_input_column;
-                if (input_column + 15 < in_features && output_column < out_features) {
+                if (FULL_TILES ||
+                    (input_column + 15 < in_features && output_column < out_features)
+                ) {
                     const char * packed_row = packed_weight +
                         static_cast<int64_t>(output_column) * packed_row_bytes;
                     __hip_bfloat16 values[16];
@@ -756,7 +773,7 @@ static __global__ void dense_mmq_grad_input_kernel(
 
             if constexpr (PREFETCH_LOCAL) {
 #pragma unroll
-                for (int n_tile = 0; n_tile < N_TILES; n_tile += 2) {
+                for (int n_tile = 0; n_tile < N_TILES - 1; n_tile += 2) {
                     bf16_fragment b_first{};
                     bf16_fragment b_second{};
                     __hip_bfloat16 * first = fragment_data(b_first);
@@ -785,6 +802,25 @@ static __global__ void dense_mmq_grad_input_kernel(
                             accumulators[m_tile][n_tile + 1],
                             a_fragments[m_tile],
                             b_second);
+                    }
+                }
+                if constexpr (N_TILES % 2 != 0) {
+                    constexpr int n_tile = N_TILES - 1;
+                    bf16_fragment b_fragment{};
+                    __hip_bfloat16 * b = fragment_data(b_fragment);
+#pragma unroll
+                    for (int k = 0; k < 16; ++k) {
+                        b[k] = shared_b[
+                            (n_tile * BACKWARD_N_PER_TILE + c_row(lane)) *
+                                K_ITERATION +
+                            k_tile + k];
+                    }
+#pragma unroll
+                    for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
+                        wmma_f32_16x16x16_bf16(
+                            accumulators[m_tile][n_tile],
+                            a_fragments[m_tile],
+                            b_fragment);
                     }
                 }
             } else {
@@ -849,7 +885,8 @@ template <
     int DECODER_WIDTH = 0,
     bool PREFETCH_LOCAL = false,
     bool FULL_TILES = false,
-    bool PREFETCH_PACKED = false>
+    bool PREFETCH_PACKED = false,
+    int LDS_PADDING = 0>
 static inline void launch_dense_mmq_grad_input_tiled(
         const __hip_bfloat16 * grad_output,
         const char * packed_weight,
@@ -879,7 +916,8 @@ static inline void launch_dense_mmq_grad_input_tiled(
         DECODER_WIDTH,
         PREFETCH_LOCAL,
         FULL_TILES,
-        PREFETCH_PACKED>
+        PREFETCH_PACKED,
+        LDS_PADDING>
         <<<grid, block, 0, stream>>>(
         grad_output,
         packed_weight,
@@ -909,12 +947,24 @@ static inline void launch_dense_mmq_grad_input(
             if constexpr (type == GGML_TYPE_Q3_K) {
                 if (out_features >= 2048) {
                     launch_dense_mmq_grad_input_tiled<
-                        type, 8, 32, 1, 2, 16, true, true, true>(
+                        type, 8, 32, 1, 2, 16, true, true, true, 8>(
                         grad_output, packed_weight, grad_input,
                         rows, out_features, in_features, stream);
                 } else {
                     launch_dense_mmq_grad_input_tiled<
-                        type, 8, 32, 1, 2, 16, true, true>(
+                        type, 8, 32, 1, 2, 16, true, true, false, 8>(
+                        grad_output, packed_weight, grad_input,
+                        rows, out_features, in_features, stream);
+                }
+            } else if constexpr (type == GGML_TYPE_Q4_K) {
+                if (in_features >= 2048) {
+                    launch_dense_mmq_grad_input_tiled<
+                        type, 8, 32, 1, 2, 16, true, true, true, 8>(
+                        grad_output, packed_weight, grad_input,
+                        rows, out_features, in_features, stream);
+                } else {
+                    launch_dense_mmq_grad_input_tiled<
+                        type, 8, 32, 1, 2, 16, true, true, true>(
                         grad_output, packed_weight, grad_input,
                         rows, out_features, in_features, stream);
                 }
@@ -929,17 +979,47 @@ static inline void launch_dense_mmq_grad_input(
     }
     if constexpr (type == GGML_TYPE_Q6_K) {
         if (rows <= 64) {
-            launch_dense_mmq_grad_input_tiled<type, 1, 64, 0>(
-                grad_output, packed_weight, grad_input,
-                rows, out_features, in_features, stream);
+            const bool full_tiles = rows == 64 && out_features % 64 == 0 &&
+                in_features % 32 == 0;
+            if (full_tiles) {
+                launch_dense_mmq_grad_input_tiled<
+                    type, 2, 64, 0, 1, 0, true, true>(
+                    grad_output, packed_weight, grad_input,
+                    rows, out_features, in_features, stream);
+            } else {
+                launch_dense_mmq_grad_input_tiled<
+                    type, 2, 64, 0, 1, 0, true>(
+                    grad_output, packed_weight, grad_input,
+                    rows, out_features, in_features, stream);
+            }
         } else if (rows <= 128) {
-            launch_dense_mmq_grad_input_tiled<type, 2, 64, 0>(
-                grad_output, packed_weight, grad_input,
-                rows, out_features, in_features, stream);
+            const bool full_tiles = rows == 128 && out_features % 32 == 0 &&
+                in_features % 64 == 0;
+            if (full_tiles) {
+                launch_dense_mmq_grad_input_tiled<
+                    type, 4, 32, 0, 2, 0, true, true>(
+                    grad_output, packed_weight, grad_input,
+                    rows, out_features, in_features, stream);
+            } else {
+                launch_dense_mmq_grad_input_tiled<
+                    type, 4, 32, 0, 2, 0, true>(
+                    grad_output, packed_weight, grad_input,
+                    rows, out_features, in_features, stream);
+            }
         } else if (rows <= 256) {
-            launch_dense_mmq_grad_input_tiled<type, 4, 32, 0>(
-                grad_output, packed_weight, grad_input,
-                rows, out_features, in_features, stream);
+            const bool full_tiles = rows == 256 && out_features % 32 == 0 &&
+                in_features % 128 == 0;
+            if (full_tiles) {
+                launch_dense_mmq_grad_input_tiled<
+                    type, 8, 32, 0, 2, 0, true, true>(
+                    grad_output, packed_weight, grad_input,
+                    rows, out_features, in_features, stream);
+            } else {
+                launch_dense_mmq_grad_input_tiled<
+                    type, 8, 32, 0, 2, 0, true>(
+                    grad_output, packed_weight, grad_input,
+                    rows, out_features, in_features, stream);
+            }
         } else if (rows <= 2048) {
             launch_dense_mmq_grad_input_tiled<type, 8, 16>(
                 grad_output, packed_weight, grad_input,

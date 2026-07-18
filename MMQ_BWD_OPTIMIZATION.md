@@ -118,9 +118,13 @@ The current source contains uncommitted work after the committed 128x128 ordinar
 - accepted padding for Q4_K when `in_features >= 2048`;
 - unpadded Q5_K and small shared-down Q4_K dispatches.
 
-The source was edited to revert the slower Q5_K padded path after the last extension build. The installed extension therefore needs one rebuild before final validation and benchmarking.
+The source was rebuilt after reverting the slower Q5_K padded path.
 
-No further experiment was run after the request to stop experiments.
+That rebuild exposed a correctness bug in the new Q6_K small-row dispatch. The production-only full-tile flag was selected for arbitrary bounds-safe test shapes, causing the exact Jacobian test with 10 rows and 37 output features to fail.
+
+The dispatch now guards every full-tile specialization by exact row and feature divisibility. The focused exact-Jacobian suite passes for all five packed types.
+
+This also revealed that the earlier M=256 N=7 timing was invalid: 112 input columns per workgroup do not divide 2048, so the full-tile kernel accessed the final N tile out of bounds. The corrected bounds-safe N=7 kernel measures 29.628 ms rather than 18.823 ms. M=256 geometry must be reselected before final validation.
 
 ## Current kernel design
 
@@ -187,11 +191,11 @@ Non-divisible and smaller-row shapes retain bounds-safe measured kernels.
 | ---: | ---: | ---: | ---: | --- |
 | `<=64` | 1 | 2 | 64 | 64x32 |
 | `<=128` | 2 | 4 | 32 | 128x64 |
-| `<=256` | 2 | 7 | 32 | 128x112 |
+| `<=256` | 2 | 8 | 32 | 128x128 |
 | `<=2048` | 1 | 8 | 16 | 64x128 |
 | larger | 1 | 16 | 16 | 64x256 |
 
-The final small-row kernels use sixteen-value Q6_K decoding, paired local-fragment prefetch, and exact full-tile paths.
+The small-row kernels use sixteen-value Q6_K decoding and paired local-fragment prefetch. M=64, M=128, and M=256 now use exact full-tile paths on production dimensions. Non-production shapes use the same geometries with bounds checks.
 
 ### Other bounds-safe ordinary paths
 
@@ -358,14 +362,14 @@ The M=256 neighborhood sweep was:
 
 | Configuration | Time ms | Outcome |
 | --- | ---: | --- |
-| M=2/N=5/K=32 | 19.204 | improved |
-| M=2/N=7/K=32 | 18.861 | selected |
-| M=2/N=8/K=32 | 20.781 | rejected |
+| M=2/N=5/K=32 | 19.204 | invalid full-tile measurement; N width does not divide 2048 |
+| M=2/N=7/K=32 | 18.861 | invalid full-tile measurement; corrected bounds-safe time is 29.628 ms |
+| M=2/N=8/K=32 | 20.834 | selected valid exact-tile geometry |
 | M=2/N=7/K=16 | 24.588 | rejected |
 | M=2/N=7/K=64 | 25.631 | rejected |
 | M=2/N=7/K=32, `GROUP_M=1` | 18.827 | neutral |
 
-N=7 wins despite producing only 38 workgroups. N=8 adds excessive accumulator pressure, K=16 underfills the loader, and K=64 lengthens the decode phase while using about 14 KiB LDS.
+The original conclusion that N=7 won was invalid because the last N workgroup ran outside the logical 2048-column input gradient. N=8 is the selected valid geometry at 20.834 ms. K=16 still underfills the loader, while K=64 lengthens the decode phase and uses about 14 KiB LDS.
 
 For M=128:
 
@@ -390,11 +394,11 @@ The final clean Q6_K benchmark is:
 
 | M | Selected geometry | Packed ms | BF16 ms | Throughput ratio |
 | ---: | --- | ---: | ---: | ---: |
-| 64 | M=1/N=2/K=64 | 10.913 | 9.836 | 0.90x |
-| 128 | M=2/N=4/K=32 | 13.508 | 14.442 | 1.07x |
-| 256 | M=2/N=7/K=32 | 18.823 | 19.030 | 1.01x |
+| 64 | M=1/N=2/K=64 | 10.938 | 9.864 | 0.90x |
+| 128 | M=2/N=4/K=32 | 13.402 | 14.410 | 1.08x |
+| 256 | M=2/N=8/K=32 | 20.834 | 19.000 | 0.91x |
 
-The production 64-row chunk is the only remaining Q6_K deficit.
+M=64 and M=256 are both about 10% below BF16. M=128 remains faster than BF16.
 
 ## Latest results
 
@@ -436,11 +440,11 @@ At batch 16:
 
 | Chunk M | Calls | Packed serial estimate | BF16 serial estimate |
 | ---: | ---: | ---: | ---: |
-| 64 | 512 | 5,587 ms | 5,036 ms |
-| 128 | 256 | 3,458 ms | 3,697 ms |
-| 256 | 128 | 2,409 ms | 2,436 ms |
+| 64 | 512 | 5,600 ms | 5,050 ms |
+| 128 | 256 | 3,431 ms | 3,689 ms |
+| 256 | 128 | 2,667 ms | 2,432 ms |
 
-Aggregating cotangents to M=128 or M=256 removes the remaining kernel-level Q6_K deficit and reduces launch count.
+M=128 aggregation is currently the fastest serial schedule. M=256 is valid again, but its larger memory budget does not offset its slower serial estimate.
 
 Approximate BF16 cotangent storage is:
 
@@ -665,7 +669,7 @@ Preserve the selected M=1/N=2/K=64 geometry. Do not combine this first layout te
 
 At model scheduling level, evaluate M=128 and M=256 aggregation under the 61 MiB and 121 MiB cotangent-buffer budgets.
 
-The kernels are already at or above BF16 throughput at those chunk sizes. Aggregation is now primarily a launch-count and memory-budget decision.
+The M=128 kernel is faster than BF16 and is the current aggregation target. M=256 is close to BF16 but has a larger memory budget and a slower batch-16 serial estimate.
 
 ### Address shared-down through representation or cross-call reuse
 
@@ -746,7 +750,7 @@ The following were measured and reverted or superseded:
 - environment-driven production configuration;
 - Q5_K eight-BF16 LDS row padding;
 - Q4_K padding on small shared-down input width;
-- Q6_K M=256 N=5 and N=8;
+- Q6_K M=256 N=5 and the invalid N=7 full-tile dispatch;
 - Q6_K M=256 K=16 and K=64;
 - Q6_K M=128 N=3 at K=32 and K=64;
 - Q6_K M=64 N=4/K=32.
@@ -755,7 +759,7 @@ The dispatch is a measured shape heuristic, not an autotuning system.
 
 ## Correctness and compatibility
 
-The complete suite passed on the committed 128x128 ordinary-retile state:
+The complete suite passes on the current Q6_K exact-tile guard, valid M=256 N=8 geometry, and selected LDS-padding source:
 
 ```text
 pytest -q tests/
@@ -768,11 +772,11 @@ Focused Q6_K and padding experiments preserved the benchmark correctness envelop
 | ---: | ---: |
 | 64 | `5.100e-04` |
 | 128 | `5.179e-04` |
-| 256 | `5.872e-04` |
+| 256 | `5.100e-04` in the valid N=8 benchmark |
 
 Backward uses the authoritative packed payload and does not quantize cotangents.
 
-The current uncommitted source still requires rebuild, complete tests, and a final benchmark after the Q5_K revert. The installed extension is not yet the final validation target.
+The extension was rebuilt after the Q5_K revert. `python -m compileall -q bench` and `git diff --check` also pass. A complete repeated ordinary benchmark remains required after the final LDS-load work.
 
 ## Profiler and tool issues
 
