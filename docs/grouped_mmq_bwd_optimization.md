@@ -804,6 +804,46 @@ Focused gates:
 
 Do not replace the fused pair with two public outputs and `torch.add` as the production design. That would triple pair output allocation and change the single-rounding contract.
 
+#### GB2 result: retained Q3_K L1 fused pair
+
+Status: retained.
+
+The retained kernel stages two padded `N=128, K=32` Q3_K B tiles in LDS, keeps one 128x128 FP32 accumulator set, and executes the two projection A/B fragment scopes sequentially. It uses the dense narrow-Q3_K width-16 decoder, eight-BF16 padding, K=32, and no explicit packed-byte prefetch.
+
+Artifacts:
+
+```text
+/tmp/grouped_mmq_bwd_step2_q3_pair.json
+/tmp/grouped_mmq_bwd_step2_q3_pair_matrix.json
+/tmp/grouped_bwd_step2_readobj.txt
+/tmp/grouped_bwd_step2_disasm.txt
+```
+
+| Point | Baseline ms | GB2 ms | Speedup | AITER ms |
+|---|---:|---:|---:|---:|
+| Gate/up Q3_K B4 uniform | 128.320 | 11.276 | 11.38x | 24.759 |
+| Gate/up Q3_K B4 boundary | 109.649 | 14.362 | 7.63x | 30.619 |
+| Gate/up Q3_K B4 sparse | 110.148 | 13.761 | 8.00x | 28.661 |
+| Gate/up Q3_K B16 uniform | 636.629 | 45.016 | 14.14x | 129.758 |
+| Gate/up Q3_K B16 boundary | 581.575 | 48.455 | 12.00x | 138.254 |
+| Gate/up Q3_K B16 sparse | 572.634 | 48.714 | 11.76x | 143.105 |
+
+The fused output retains the established `0.00285-0.00287` NRMSE against two separately rounded BF16 projections plus add. Batch 1 remains on the original small-group kernel.
+
+Final resources are:
+
+```text
+248 VGPRs
+27 SGPRs
+20,480-byte LDS
+0-byte private segment
+0 VGPR spills
+0 SGPR spills
+no dynamic stack
+```
+
+The pair is 2.1-2.9x faster than AITER across the measured B4/B16 controls while preserving one output allocation. Its 248 VGPR allocation leaves little room for added live state, so later scheduling and pointer work must shorten or preserve lifetimes rather than add deep prefetch.
+
 ### GB3: split full-row and tail paths before scheduler work
 
 Create separate compile-time bodies for:

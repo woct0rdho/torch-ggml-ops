@@ -372,6 +372,27 @@ static inline void launch_grouped_mmq_pair_grad_input(
         int in_features,
         int64_t bytes_per_expert,
         hipStream_t stream) {
+    if constexpr (type == GGML_TYPE_Q3_K) {
+        if (out_features == GROUPED_BACKWARD_TILED_Q3_OUT_FEATURES &&
+            in_features == GROUPED_BACKWARD_TILED_Q3_IN_FEATURES &&
+            rows >= num_groups * GROUPED_BACKWARD_TILED_M) {
+            launch_grouped_mmq_pair_grad_input_q3_tiled(
+                first_grad_output,
+                second_grad_output,
+                first_packed_weight,
+                second_packed_weight,
+                grad_input,
+                expert_indices,
+                expert_offsets,
+                num_experts,
+                num_groups,
+                rows,
+                bytes_per_expert,
+                stream);
+            return;
+        }
+    }
+
     const dim3 grid(
         (in_features + GROUPED_BACKWARD_N_PER_BLOCK - 1) /
             GROUPED_BACKWARD_N_PER_BLOCK,
