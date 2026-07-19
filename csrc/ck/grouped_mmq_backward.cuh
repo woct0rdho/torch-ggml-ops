@@ -256,6 +256,18 @@ static inline void launch_grouped_mmq_grad_input(
                     rows,
                     bytes_per_expert,
                     stream);
+            } else if (rows >= num_groups * 80) {
+                launch_grouped_mmq_grad_input_iq2_s2(
+                    grad_output,
+                    packed_weight,
+                    grad_input,
+                    expert_indices,
+                    expert_offsets,
+                    num_experts,
+                    num_groups,
+                    rows,
+                    bytes_per_expert,
+                    stream);
             } else {
                 launch_grouped_mmq_grad_input_iq2_tiled<true>(
                     grad_output,

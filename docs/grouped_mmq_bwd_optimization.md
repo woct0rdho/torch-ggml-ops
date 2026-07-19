@@ -1045,6 +1045,19 @@ Resources are spill-free:
 
 The L1 kernels are already at or near the VGPR ceiling. Further IQ2_S work must use the planned `M=128/256, N=64` controls to exchange N accumulators for row reuse; it must not add long-lived prefetch state.
 
+#### GB6 M-reuse controls
+
+The IQ2_S-only `M=256, N=64, K=32` large-down control was rejected and reverted with git. It regressed every B4/B16 routing point: B4 uniform moved from 10.307 to 11.697 ms and B16 uniform moved from 38.992 to 44.059 ms. Halving N doubled the N workgroups, and the extra four-M-tile cotangent live state did not repay that repeated scheduling and decode work. The rejected kernel was spill-free at 225 VGPRs, 24 SGPRs, and 4,096 bytes of LDS, so the loss is geometry rather than spilling.
+
+S2 `M=128, N=64, K=32` was retained only for IQ2_S down when `rows / num_groups >= 80` but the large-family threshold is not reached. This selects batch-1 sparse routing and reduces its latency from 5.537 to 3.618 ms, a 1.53x improvement and only 11% behind AITER. The retained S2 kernel uses 161 VGPRs, 30 SGPRs, and 4,096 bytes of LDS with no private segment or spills.
+
+Artifact:
+
+```text
+/tmp/grouped_mmq_bwd_step6_iq2_n64_reuse.json
+/tmp/grouped_bwd_iq2_reuse_readobj.txt
+```
+
 ### GB7: K-loop, LDS, and addressing refinements
 
 After the arithmetic families are retained, run controlled ablations for:
