@@ -966,6 +966,8 @@ Representative serial-to-task changes are:
 
 The task workspace adds only the task metadata above the single public output. For B4 down the measured incremental allocation was 67,118,592 bytes versus 67,108,864 output bytes, a 9,728-byte descriptor overhead.
 
+N-major task order was rejected and reverted with git. Making row tasks adjacent for one N tile nearly doubled complete latency: Q4_K B16 uniform moved from 35.821 to 65.116 ms, Q5_K from 34.074 to 62.936 ms, and IQ2_S from 32.806 to 62.841 ms. The result shows that keeping all four N tiles of one row task adjacent is essential for packed-weight and cotangent locality. Artifact: `/tmp/grouped_mmq_bwd_step4_row_tasks_nmajor.json`.
+
 A runtime full/tail branch was rejected despite slightly better latency because it produced private segments and 2-4 VGPR spills in Q4_K/Q5_K. The retained task kernels use one bounded body for all tasks and are spill-free:
 
 | Kernel | VGPRs | SGPRs | LDS | Private/spills |
