@@ -864,6 +864,40 @@ The tail body computes `valid_rows` once, treats each cotangent/output region as
 
 Measure this phase before row descriptors. Grouped-forward G4 showed that full/tail specialization can be larger than the later scheduler gain, and an M=64 body may turn batch-1 uniform routing into an entirely full-tile workload.
 
+#### GB3 result: retained S1 `M=64, N=64, K=32`
+
+Status: retained as the batch-1 family for Q3_K pair and Q4_K single.
+
+S1 assigns one sixteen-value decoder group to every loader thread, uses four waves, four N accumulators per wave, and separates exact 64-row bodies from bounded tails. Uniform batch-1 groups execute one exact full tile. Skewed and sparse groups execute one full tile plus one bounded tail when they exceed 64 rows.
+
+Artifact:
+
+```text
+/tmp/grouped_mmq_bwd_step3_s1.json
+/tmp/grouped_bwd_step3_readobj.txt
+/tmp/grouped_bwd_step3_disasm.txt
+```
+
+| Point | Baseline ms | S1 ms | Speedup | AITER ms |
+|---|---:|---:|---:|---:|
+| Gate/up Q3_K B1 uniform | 21.539 | 3.614 | 5.96x | 11.010 |
+| Gate/up Q3_K B1 skewed | 22.898 | 5.653 | 4.05x | 10.837 |
+| Gate/up Q3_K B1 sparse | 24.557 | 5.328 | 4.61x | 8.709 |
+| Gate/up Q3_K B1 boundary | 21.370 | 5.303 | 4.03x | 10.891 |
+| Down Q4_K B1 uniform | 11.518 | 3.590 | 3.21x | 3.417 |
+| Down Q4_K B1 skewed | 12.689 | 4.190 | 3.03x | 3.644 |
+| Down Q4_K B1 sparse | 13.554 | 4.503 | 3.01x | 3.246 |
+| Down Q4_K B1 boundary | 11.776 | 4.129 | 2.85x | 3.716 |
+
+Gate/up Q3_K now beats AITER by 1.6-3.0x at batch 1. Q4_K reaches near parity on uniform/boundary and remains 13-39% behind on skewed/sparse, leaving a focused small-group geometry or row-ownership opportunity.
+
+Resources remain well below the spill boundary:
+
+| Kernel | VGPRs | SGPRs | LDS | Private/spills |
+|---|---:|---:|---:|---:|
+| Q4_K S1 single | 117 | 24 | 4,096 B | 0 |
+| Q3_K S1 pair | 183 | 26 | 10,240 B | 0 |
+
 ### GB4: measure serial ownership, tile ordering, and device row tasks
 
 Do not assume descriptors are required.
