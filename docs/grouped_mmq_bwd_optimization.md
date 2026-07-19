@@ -1124,6 +1124,31 @@ A device setup that emitted separate full-task and tail-task lists was implement
 
 The retained single bounded row-task body is therefore the stopping point for full/tail task scheduling. A future split is only justified if task metadata is already reusable across multiple backward calls or a device-side launch mechanism removes the extra public-operator launch cost.
 
+#### GB7 IQ2_S LDS-layout result: retained pair-specific swizzle and N=64 large tile
+
+The original shared IQ2_S swizzle was split by operator. Down retains a sixteen-BF16 XOR swizzle; pair uses a four-BF16 XOR swizzle. Using four for down regressed B4/B16 by 20-35%, while using it for the pair reduced latency by 15-25%.
+
+The pair-specific four-BF16 swizzle made the original `N=128` L1 body spill, so the resource escape ladder was applied. The retained large pair is `M=128, N=64, K=32`: it uses 219 VGPRs, 54 SGPRs, and 8,192 bytes of LDS with no private segment or spills. The small S1 pair uses 194 VGPRs, 54 SGPRs, and 8,192 bytes of LDS with no private segment or spills.
+
+| Point | Previous ms | Retained ms | Speedup |
+|---|---:|---:|---:|
+| Gate/up IQ2_S B1 uniform | 5.291 | 4.044 | 1.31x |
+| Gate/up IQ2_S B1 sparse | 7.894 | 5.925 | 1.33x |
+| Gate/up IQ2_S B4 uniform | 13.399 | 10.618 | 1.26x |
+| Gate/up IQ2_S B4 sparse | 16.103 | 13.586 | 1.19x |
+| Gate/up IQ2_S B16 uniform | 53.998 | 44.101 | 1.22x |
+| Gate/up IQ2_S B16 skewed | 57.274 | 46.807 | 1.22x |
+
+Artifacts:
+
+```text
+/tmp/grouped_mmq_bwd_step7_iq2_swizzle0.json
+/tmp/grouped_mmq_bwd_step7_iq2_swizzle4.json
+/tmp/grouped_mmq_bwd_step7_iq2_split_swizzle.json
+/tmp/grouped_mmq_bwd_step7_iq2_pair_n64.json
+/tmp/iq2_pair_n64_readobj.txt
+```
+
 ### GB8: representation-level ceiling
 
 This phase begins only after the grouped tile reaches the retained dense-core neighborhood and final kernels are spill-free.
