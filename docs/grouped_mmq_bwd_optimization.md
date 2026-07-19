@@ -1118,6 +1118,12 @@ Do not retry cross-iteration packed prefetch, K=64 ordinary reduction depth, cus
 
 Judge every ablation by complete public-operator latency. Instruction-count reductions without latency wins are not sufficient.
 
+#### GB7 split full/tail task result: rejected
+
+A device setup that emitted separate full-task and tail-task lists was implemented for Q4_K/Q5_K and reverted with git. Separate compile-time full and bounded kernels improved uniform B16 modestly, from 35.821 to 34.067 ms for Q4_K and from 34.074 to 32.007 ms for Q5_K. It regressed every nonuniform B4 point by 6-14% because the second arithmetic launch and tail-list scheduling outweighed removal of row bounds. Since routing distribution cannot be selected from host-visible `rows` and `num_groups`, retaining this path would regress the production dynamic-routing matrix. Artifact: `/tmp/grouped_mmq_bwd_step7_split_tasks.json`.
+
+The retained single bounded row-task body is therefore the stopping point for full/tail task scheduling. A future split is only justified if task metadata is already reusable across multiple backward calls or a device-side launch mechanism removes the extra public-operator launch cost.
+
 ### GB8: representation-level ceiling
 
 This phase begins only after the grouped tile reaches the retained dense-core neighborhood and final kernels are spill-free.
