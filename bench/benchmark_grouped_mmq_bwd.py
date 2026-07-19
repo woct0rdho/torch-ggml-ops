@@ -1,27 +1,30 @@
 #!/usr/bin/env python3
-"""Benchmark production grouped MMQ forward against BF16 AITER GMM.
+"""Benchmark production grouped MMQ input gradients against BF16 AITER GMM.
 
-The packed path measures the complete public operator, including Q8_1 activation
-quantization and grouped multiplication. Gate/up uses grouped_mmq_pair so both
-projections share one Q8_1 workspace. The BF16 reference dequantizes the same
-GGUF experts once, then runs AITER GMM with the production heuristic from
-~/test_no_unsloth/fast_moe_lora.py.
+For each routed expert group, a forward projection is
+``Y[M,N] = X[M,K] @ W[N,K].T`` and the frozen-base input gradient is
+``dX[M,K] = dY[M,N] @ W[N,K]``. The packed path times the public grouped
+input-gradient operators on real GGUF expert weights. Paired gate/up backward
+uses one fused kernel that accumulates both logical Jacobians into one FP32
+accumulator. The BF16 reference uses AITER GMM with the production
+``_gmm_config`` heuristic from ``~/test_no_unsloth/fast_moe_lora.py``; paired
+backward includes two AITER GMM calls and the BF16 gradient sum.
 """
 
 import argparse
 import gc
 import json
 from pathlib import Path
+
 import gguf
 import torch
 from aiter.ops.triton.gmm import gmm
 from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
-import torch_ggml_ops
+import torch_ggml_ops  # noqa: F401 Register native operators before torch.ops use.
 from grouped_mmq_benchmark_common import (
-    CASES,
     DEFAULT_AITER_HEURISTIC_DIR,
-    GroupedMMQCase as GroupedForwardCase,
+    GroupedMMQCase,
     RouteDistribution,
     benchmark_function,
     device_metadata,
@@ -42,7 +45,7 @@ from mmq_benchmark_common import (
 )
 
 
-DEFAULT_OUTPUT = Path("/tmp/torch_ggml_ops_grouped_mmq_fwd_benchmark.json")
+DEFAULT_OUTPUT = Path("/tmp/torch_ggml_ops_grouped_mmq_bwd_benchmark.json")
 
 
 def parse_args() -> argparse.Namespace:
@@ -60,7 +63,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warmup", type=int, default=3)
     parser.add_argument("--repeats", type=int, default=9)
     parser.add_argument("--correctness-rows", type=int, default=256)
-    parser.add_argument("--seed", type=int, default=20260709)
+    parser.add_argument("--seed", type=int, default=20260711)
     parser.add_argument("--aiter-heuristic-dir", type=Path, default=DEFAULT_AITER_HEURISTIC_DIR)
     parser.add_argument(
         "--cases",
@@ -87,12 +90,84 @@ def parse_args() -> argparse.Namespace:
     return args
 
 
-def dense_grouped_mmq_reference(
-    input: torch.Tensor,
+def packed_grouped_single(
+    grad_output: torch.Tensor,
+    packed_weight: torch.Tensor,
+    expert_indices: torch.Tensor,
+    expert_offsets: torch.Tensor,
+    quant_type: int,
+    in_features: int,
+) -> torch.Tensor:
+    return torch.ops.torch_ggml_ops.grouped_mmq_grad_input.default(
+        grad_output,
+        packed_weight,
+        expert_indices,
+        expert_offsets,
+        quant_type,
+        in_features,
+    )
+
+
+def packed_grouped_pair(
+    first_grad_output: torch.Tensor,
+    second_grad_output: torch.Tensor,
+    first_packed_weight: torch.Tensor,
+    second_packed_weight: torch.Tensor,
+    expert_indices: torch.Tensor,
+    expert_offsets: torch.Tensor,
+    quant_type: int,
+    in_features: int,
+) -> torch.Tensor:
+    return torch.ops.torch_ggml_ops.grouped_mmq_pair_grad_input.default(
+        first_grad_output,
+        second_grad_output,
+        first_packed_weight,
+        second_packed_weight,
+        expert_indices,
+        expert_offsets,
+        quant_type,
+        in_features,
+    )
+
+
+def aiter_grouped_single(
+    grad_output: torch.Tensor,
+    selected_logical_weight: torch.Tensor,
+    group_sizes: torch.Tensor,
+    config: dict[str, int],
+) -> torch.Tensor:
+    return gmm(
+        grad_output,
+        selected_logical_weight,
+        group_sizes,
+        preferred_element_type=grad_output.dtype,
+        config=config,
+    )
+
+
+def aiter_grouped_pair(
+    first_grad_output: torch.Tensor,
+    second_grad_output: torch.Tensor,
+    first_selected_logical_weight: torch.Tensor,
+    second_selected_logical_weight: torch.Tensor,
+    group_sizes: torch.Tensor,
+    config: dict[str, int],
+) -> torch.Tensor:
+    first_grad_input = aiter_grouped_single(
+        first_grad_output, first_selected_logical_weight, group_sizes, config
+    )
+    second_grad_input = aiter_grouped_single(
+        second_grad_output, second_selected_logical_weight, group_sizes, config
+    )
+    return torch.add(first_grad_input, second_grad_input)
+
+
+def dense_grouped_single_reference(
+    grad_output: torch.Tensor,
     packed_weight: torch.Tensor,
     distribution: RouteDistribution,
     quant_type: int,
-    out_features: int,
+    in_features: int,
 ) -> torch.Tensor:
     outputs = []
     row_begin = 0
@@ -100,122 +175,115 @@ def dense_grouped_mmq_reference(
         distribution.expert_indices_cpu, distribution.group_sizes_cpu, strict=True
     ):
         row_end = row_begin + size
-        input_group = input[row_begin:row_end].clone()
-        expert_weight = packed_weight[expert].clone()
         outputs.append(
-            torch_ggml_ops.mmq(input_group, expert_weight, quant_type, out_features)
+            torch.ops.torch_ggml_ops.mmq_grad_input.default(
+                grad_output[row_begin:row_end].clone(),
+                packed_weight[expert].clone(),
+                quant_type,
+                in_features,
+            )
         )
         row_begin = row_end
     return torch.cat(outputs, dim=0)
 
 
 def correctness_metrics(
-    case: GroupedForwardCase,
-    input: torch.Tensor,
+    case: GroupedMMQCase,
+    grad_outputs: tuple[torch.Tensor, ...],
     packed_weights: tuple[torch.Tensor, ...],
     logical_weights: tuple[torch.Tensor, ...],
     distribution: RouteDistribution,
     quant_type: int,
-    gmm_config: dict[str, int],
+    aiter_config: dict[str, int],
 ) -> dict:
-    checked_distribution = truncate_distribution(distribution, input.shape[0])
+    checked_distribution = truncate_distribution(
+        distribution, grad_outputs[0].shape[0]
+    )
     expert_indices, expert_offsets, group_sizes = device_metadata(checked_distribution)
     selected_logical = tuple(
-        weight.index_select(0, expert_indices).transpose(1, 2)
+        weight.index_select(0, expert_indices).contiguous()
         for weight in logical_weights
     )
 
     with torch.inference_mode():
         if case.kind == "pair":
-            actual = torch_ggml_ops.grouped_mmq_pair(
-                input,
+            actual = packed_grouped_pair(
+                grad_outputs[0],
+                grad_outputs[1],
                 packed_weights[0],
                 packed_weights[1],
                 expert_indices,
                 expert_offsets,
                 quant_type,
-                case.expected_out_features,
+                case.expected_in_features,
             )
-            dense_reference = tuple(
-                dense_grouped_mmq_reference(
-                    input,
-                    weight,
-                    checked_distribution,
-                    quant_type,
-                    case.expected_out_features,
-                )
-                for weight in packed_weights
+            first_dense = dense_grouped_single_reference(
+                grad_outputs[0],
+                packed_weights[0],
+                checked_distribution,
+                quant_type,
+                case.expected_in_features,
             )
-            bf16_reference = tuple(
-                gmm(
-                    input,
-                    weight,
-                    group_sizes,
-                    preferred_element_type=input.dtype,
-                    config=gmm_config,
-                )
-                for weight in selected_logical
+            second_dense = dense_grouped_single_reference(
+                grad_outputs[1],
+                packed_weights[1],
+                checked_distribution,
+                quant_type,
+                case.expected_in_features,
             )
-            return {
-                "rows": input.shape[0],
-                "same_q8_dense": [
-                    error_metrics(actual[index], dense_reference[index])
-                    for index in range(2)
-                ],
-                "bf16_aiter": [
-                    error_metrics(actual[index], bf16_reference[index])
-                    for index in range(2)
-                ],
-            }
+            dense_reference = torch.add(first_dense, second_dense)
+            aiter_reference = aiter_grouped_pair(
+                grad_outputs[0],
+                grad_outputs[1],
+                selected_logical[0],
+                selected_logical[1],
+                group_sizes,
+                aiter_config,
+            )
+        else:
+            actual = packed_grouped_single(
+                grad_outputs[0],
+                packed_weights[0],
+                expert_indices,
+                expert_offsets,
+                quant_type,
+                case.expected_in_features,
+            )
+            dense_reference = dense_grouped_single_reference(
+                grad_outputs[0],
+                packed_weights[0],
+                checked_distribution,
+                quant_type,
+                case.expected_in_features,
+            )
+            aiter_reference = aiter_grouped_single(
+                grad_outputs[0],
+                selected_logical[0],
+                group_sizes,
+                aiter_config,
+            )
 
-        actual_single = torch_ggml_ops.grouped_mmq(
-            input,
-            packed_weights[0],
-            expert_indices,
-            expert_offsets,
-            quant_type,
-            case.expected_out_features,
-        )
-        dense_single = dense_grouped_mmq_reference(
-            input,
-            packed_weights[0],
-            checked_distribution,
-            quant_type,
-            case.expected_out_features,
-        )
-        bf16_single = gmm(
-            input,
-            selected_logical[0],
-            group_sizes,
-            preferred_element_type=input.dtype,
-            config=gmm_config,
-        )
         return {
-            "rows": input.shape[0],
-            "same_q8_dense": error_metrics(actual_single, dense_single),
-            "bf16_aiter": error_metrics(actual_single, bf16_single),
+            "rows": grad_outputs[0].shape[0],
+            "packed_dense_bf16_sum": error_metrics(actual, dense_reference),
+            "bf16_aiter": error_metrics(actual, aiter_reference),
         }
 
 
 def print_result(result: dict) -> None:
-    mmq = result["grouped_mmq"]
-    aiter = result["aiter_bf16"]
-    if result["kind"] == "pair":
-        nrmse = max(
-            metric["normalized_rmse"]
-            for metric in result["correctness"]["bf16_aiter"]
-        )
-    else:
-        nrmse = result["correctness"]["bf16_aiter"]["normalized_rmse"]
+    packed = result["grouped_mmq_grad_input"]
+    aiter = result["aiter_bf16_grad_input"]
+    correctness = result["correctness"]
     print(
         f"{result['case']:<18} B={result['batch']:>2} "
         f"{result['distribution']:<8} R={result['rows']:>6} "
         f"G={result['group_summary']['active_experts']:>3} "
         f"{result['quant_type']:<5} "
-        f"MMQ={mmq['median_ms']:>8.3f} ms {mmq['logical_tflops']:>6.2f} TF "
+        f"PACKED={packed['median_ms']:>8.3f} ms {packed['logical_tflops']:>6.2f} TF "
         f"AITER={aiter['median_ms']:>8.3f} ms {aiter['logical_tflops']:>6.2f} TF "
-        f"ratio={result['mmq_to_aiter_tflops_ratio']:>5.2f}x "
-        f"NRMSE={nrmse:.3e}",
+        f"ratio={result['packed_to_aiter_tflops_ratio']:>5.2f}x "
+        f"dense_diff={correctness['packed_dense_bf16_sum']['different_bf16_elements']:>7} "
+        f"NRMSE={correctness['bf16_aiter']['normalized_rmse']:.3e}",
         flush=True,
     )
 
@@ -255,8 +323,13 @@ def main() -> None:
             "repeats": args.repeats,
             "correctness_rows": args.correctness_rows,
             "aiter_heuristic": str(args.aiter_heuristic_dir / "fast_moe_lora.py"),
-            "reference": "BF16 AITER gmm with _gmm_config",
+            "reference": "BF16 AITER gmm input gradient with _gmm_config",
+            "pair_reference": "two AITER gmm calls plus torch.add",
             "aiter_work_stealing": False,
+            "cotangent_dtype": str(torch.bfloat16),
+            "packed_storage_dtype": str(torch.uint8),
+            "grad_input_dtype": str(torch.bfloat16),
+            "cotangent_quantization": None,
         },
         "results": [],
     }
@@ -278,6 +351,7 @@ def main() -> None:
             quant_name = quant_names.get(quant_type, str(quant_type))
 
             packed_weights = tuple(load_packed_tensor(tensor) for tensor in case_tensors)
+            physical_shapes = []
             for tensor, packed in zip(case_tensors, packed_weights, strict=True):
                 logical_shape = tuple(int(value) for value in reversed(tensor.shape[:-1]))
                 if logical_shape != (
@@ -289,7 +363,10 @@ def main() -> None:
                         f"expected {(case.expected_out_features, case.expected_in_features)}"
                     )
                 if packed.shape[0] != 256:
-                    raise RuntimeError(f"{tensor.name} has {packed.shape[0]} experts, expected 256")
+                    raise RuntimeError(
+                        f"{tensor.name} has {packed.shape[0]} experts, expected 256"
+                    )
+                physical_shapes.append(list(packed.shape))
 
             logical_weights = tuple(
                 dequantize_gguf_tensor(
@@ -302,8 +379,8 @@ def main() -> None:
                 .contiguous()
                 for tensor, packed in zip(case_tensors, packed_weights, strict=True)
             )
-            gmm_config = gmm_config_for(
-                case.expected_in_features, case.expected_out_features
+            aiter_config = gmm_config_for(
+                case.expected_out_features, case.expected_in_features
             )
 
             for batch_index, batch in enumerate(args.batches):
@@ -313,62 +390,65 @@ def main() -> None:
                     distribution = available_distributions[distribution_name]
                     expert_indices, expert_offsets, group_sizes = device_metadata(distribution)
                     selected_logical = tuple(
-                        weight.index_select(0, expert_indices).transpose(1, 2)
+                        weight.index_select(0, expert_indices).contiguous()
                         for weight in logical_weights
                     )
-                    input_seed = (
-                        args.seed
-                        + case_index * 10000
-                        + batch_index * 100
-                        + distribution_index
+                    grad_outputs = tuple(
+                        make_bf16_input(
+                            rows,
+                            case.expected_out_features,
+                            args.seed
+                            + case_index * 10000
+                            + batch_index * 100
+                            + distribution_index * 10
+                            + projection,
+                        )
+                        for projection in range(case.projections)
                     )
-                    input = make_bf16_input(rows, case.expected_in_features, input_seed)
 
                     if case.kind == "pair":
-                        def mmq_function():
-                            return torch_ggml_ops.grouped_mmq_pair(
-                                input,
+                        def packed_function():
+                            return packed_grouped_pair(
+                                grad_outputs[0],
+                                grad_outputs[1],
                                 packed_weights[0],
                                 packed_weights[1],
                                 expert_indices,
                                 expert_offsets,
                                 quant_type,
-                                case.expected_out_features,
+                                case.expected_in_features,
                             )
 
                         def aiter_function():
-                            return tuple(
-                                gmm(
-                                    input,
-                                    weight,
-                                    group_sizes,
-                                    preferred_element_type=input.dtype,
-                                    config=gmm_config,
-                                )
-                                for weight in selected_logical
+                            return aiter_grouped_pair(
+                                grad_outputs[0],
+                                grad_outputs[1],
+                                selected_logical[0],
+                                selected_logical[1],
+                                group_sizes,
+                                aiter_config,
                             )
                     else:
-                        def mmq_function():
-                            return torch_ggml_ops.grouped_mmq(
-                                input,
+                        def packed_function():
+                            return packed_grouped_single(
+                                grad_outputs[0],
                                 packed_weights[0],
                                 expert_indices,
                                 expert_offsets,
                                 quant_type,
-                                case.expected_out_features,
+                                case.expected_in_features,
                             )
 
                         def aiter_function():
-                            return gmm(
-                                input,
+                            return aiter_grouped_single(
+                                grad_outputs[0],
                                 selected_logical[0],
                                 group_sizes,
-                                preferred_element_type=input.dtype,
-                                config=gmm_config,
+                                aiter_config,
                             )
 
-                    mmq_result = benchmark_function(
-                        mmq_function,
+                    packed_result = benchmark_function(
+                        packed_function,
                         rows,
                         case.expected_out_features,
                         case.expected_in_features,
@@ -389,29 +469,23 @@ def main() -> None:
                     checked_distribution = truncate_distribution(
                         distribution, args.correctness_rows
                     )
-                    correctness_input = input[: checked_distribution.rows].clone()
+                    correctness_grad_outputs = tuple(
+                        grad[: checked_distribution.rows].clone()
+                        for grad in grad_outputs
+                    )
                     correctness = correctness_metrics(
                         case,
-                        correctness_input,
+                        correctness_grad_outputs,
                         packed_weights,
                         logical_weights,
                         checked_distribution,
                         quant_type,
-                        gmm_config,
+                        aiter_config,
                     )
 
-                    workspace_bytes = (
-                        rows
-                        * (case.expected_in_features // (4 * 32))
-                        * 144
-                    )
                     output_bytes = (
-                        case.projections
-                        * rows
-                        * case.expected_out_features
-                        * torch.bfloat16.itemsize
+                        rows * case.expected_in_features * torch.bfloat16.itemsize
                     )
-                    model_calls = case.model_layer_count
                     result = {
                         "case": case.name,
                         "kind": case.kind,
@@ -419,32 +493,36 @@ def main() -> None:
                         "priority": case.priority,
                         "batch": batch,
                         "rows": rows,
-                        "n": case.expected_out_features,
-                        "k": case.expected_in_features,
+                        "out_features": case.expected_out_features,
+                        "in_features": case.expected_in_features,
                         "projections": case.projections,
+                        "grad_output_shapes": [
+                            [rows, case.expected_out_features]
+                            for _ in range(case.projections)
+                        ],
+                        "grad_input_shape": [rows, case.expected_in_features],
+                        "physical_weight_shapes": physical_shapes,
                         "quant_type": quant_name,
                         "quant_type_id": quant_type,
                         "distribution": distribution.name,
                         "group_summary": distribution_summary(distribution),
                         "expert_indices": list(distribution.expert_indices_cpu),
                         "group_sizes": list(distribution.group_sizes_cpu),
-                        "aiter_config": dict(gmm_config),
-                        "q8_workspace_bytes": workspace_bytes,
+                        "aiter_config": dict(aiter_config),
                         "expected_output_bytes": output_bytes,
-                        "pair_shares_one_q8_workspace": case.kind == "pair",
-                        "model_calls_per_forward": model_calls,
-                        "checkpointed_calls_per_optimizer_step": 2 * model_calls,
-                        "grouped_mmq": mmq_result,
-                        "aiter_bf16": aiter_result,
-                        "mmq_to_aiter_tflops_ratio": (
-                            mmq_result["logical_tflops"]
+                        "pair_fuses_two_fp32_accumulations": case.kind == "pair",
+                        "model_calls_per_backward": case.model_layer_count,
+                        "grouped_mmq_grad_input": packed_result,
+                        "aiter_bf16_grad_input": aiter_result,
+                        "packed_to_aiter_tflops_ratio": (
+                            packed_result["logical_tflops"]
                             / aiter_result["logical_tflops"]
                         ),
-                        "estimated_mmq_optimizer_step_ms": (
-                            2 * model_calls * mmq_result["median_ms"]
+                        "estimated_packed_model_backward_ms": (
+                            case.model_layer_count * packed_result["median_ms"]
                         ),
-                        "estimated_aiter_optimizer_step_ms": (
-                            2 * model_calls * aiter_result["median_ms"]
+                        "estimated_aiter_model_backward_ms": (
+                            case.model_layer_count * aiter_result["median_ms"]
                         ),
                         "correctness": correctness,
                         "metadata_device_resident": True,
@@ -455,8 +533,8 @@ def main() -> None:
                     print_result(result)
 
                     del (
-                        input,
-                        correctness_input,
+                        grad_outputs,
+                        correctness_grad_outputs,
                         selected_logical,
                         expert_indices,
                         expert_offsets,
