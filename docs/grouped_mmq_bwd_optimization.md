@@ -1003,6 +1003,48 @@ The decoder must be bitwise consistent with the existing scalar decode. Do not m
 
 If the best spill-free local kernel remains substantially behind AITER after natural-group decode and efficient A reuse, stop the local geometry sweep and move IQ2_S to the representation-level phase.
 
+#### GB6 initial result: retained cooperative width-16 IQ2_S decode
+
+Status: retained; IQ2_S-only M geometry controls remain open.
+
+The project-owned decoder loads two grid entries, two sign bytes, one shared scale nibble, and one `d` factor for each aligned group of sixteen values. It forms all sixteen BF16 values cooperatively without changing the vendored IQ2_S tables or structs. Both gate/up pair and down single now use S1/L1 K=32 kernels with exact full-row and bounded-tail paths.
+
+Artifact:
+
+```text
+/tmp/grouped_mmq_bwd_step6_iq2.json
+/tmp/grouped_bwd_iq2_readobj.txt
+/tmp/grouped_bwd_iq2_disasm.txt
+```
+
+| Point | Baseline ms | GB6 ms | Speedup | AITER ms |
+|---|---:|---:|---:|---:|
+| Gate/up IQ2_S B1 uniform | 26.129 | 5.291 | 4.94x | 11.029 |
+| Gate/up IQ2_S B1 sparse | 21.435 | 7.894 | 2.72x | 8.702 |
+| Gate/up IQ2_S B4 uniform | 135.136 | 13.399 | 10.09x | 25.141 |
+| Gate/up IQ2_S B4 sparse | 123.222 | 16.103 | 7.65x | 29.036 |
+| Gate/up IQ2_S B16 uniform | 771.007 | 53.998 | 14.28x | 130.139 |
+| Gate/up IQ2_S B16 sparse | 768.413 | 56.595 | 13.58x | 145.218 |
+| Down IQ2_S B1 uniform | 12.698 | 4.281 | 2.97x | 3.401 |
+| Down IQ2_S B1 sparse | 10.502 | 5.537 | 1.90x | 3.198 |
+| Down IQ2_S B4 uniform | 55.716 | 10.307 | 5.41x | 8.676 |
+| Down IQ2_S B4 sparse | 84.170 | 11.101 | 7.58x | 8.765 |
+| Down IQ2_S B16 uniform | 395.499 | 38.992 | 10.14x | 43.613 |
+| Down IQ2_S B16 sparse | 483.385 | 40.570 | 11.91x | 35.166 |
+
+All gate/up IQ2_S points now beat AITER, by 1.1-2.6x. Down IQ2_S beats AITER at B16 uniform but remains 12-73% behind across the other measured routing points.
+
+Resources are spill-free:
+
+| Kernel | VGPRs | SGPRs | LDS | Private/spills |
+|---|---:|---:|---:|---:|
+| IQ2_S down L1 | 255 | 22 | 8,192 B | 0 |
+| IQ2_S down S1 | 90 | 22 | 4,096 B | 0 |
+| IQ2_S pair L1 | 250 | 56 | 16,384 B | 0 |
+| IQ2_S pair S1 | 159 | 54 | 8,192 B | 0 |
+
+The L1 kernels are already at or near the VGPR ceiling. Further IQ2_S work must use the planned `M=128/256, N=64` controls to exchange N accumulators for row reuse; it must not add long-lived prefetch state.
+
 ### GB7: K-loop, LDS, and addressing refinements
 
 After the arithmetic families are retained, run controlled ablations for:

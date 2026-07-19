@@ -241,6 +241,38 @@ static inline void launch_grouped_mmq_grad_input(
         }
     }
 
+    if constexpr (type == GGML_TYPE_IQ2_S) {
+        if (out_features == GROUPED_BACKWARD_TILED_IQ2_DOWN_OUT_FEATURES &&
+            in_features == GROUPED_BACKWARD_TILED_IQ2_DOWN_IN_FEATURES) {
+            if (rows >= num_groups * GROUPED_BACKWARD_TILED_M) {
+                launch_grouped_mmq_grad_input_iq2_tiled<false>(
+                    grad_output,
+                    packed_weight,
+                    grad_input,
+                    expert_indices,
+                    expert_offsets,
+                    num_experts,
+                    num_groups,
+                    rows,
+                    bytes_per_expert,
+                    stream);
+            } else {
+                launch_grouped_mmq_grad_input_iq2_tiled<true>(
+                    grad_output,
+                    packed_weight,
+                    grad_input,
+                    expert_indices,
+                    expert_offsets,
+                    num_experts,
+                    num_groups,
+                    rows,
+                    bytes_per_expert,
+                    stream);
+            }
+            return;
+        }
+    }
+
     const dim3 grid(
         (in_features + GROUPED_BACKWARD_N_PER_BLOCK - 1) /
             GROUPED_BACKWARD_N_PER_BLOCK,
@@ -448,6 +480,42 @@ static inline void launch_grouped_mmq_pair_grad_input(
                     stream);
             } else {
                 launch_grouped_mmq_pair_grad_input_q3_small(
+                    first_grad_output,
+                    second_grad_output,
+                    first_packed_weight,
+                    second_packed_weight,
+                    grad_input,
+                    expert_indices,
+                    expert_offsets,
+                    num_experts,
+                    num_groups,
+                    rows,
+                    bytes_per_expert,
+                    stream);
+            }
+            return;
+        }
+    }
+
+    if constexpr (type == GGML_TYPE_IQ2_S) {
+        if (out_features == GROUPED_BACKWARD_TILED_IQ2_PAIR_OUT_FEATURES &&
+            in_features == GROUPED_BACKWARD_TILED_IQ2_PAIR_IN_FEATURES) {
+            if (rows >= num_groups * GROUPED_BACKWARD_TILED_M) {
+                launch_grouped_mmq_pair_grad_input_iq2_tiled<false>(
+                    first_grad_output,
+                    second_grad_output,
+                    first_packed_weight,
+                    second_packed_weight,
+                    grad_input,
+                    expert_indices,
+                    expert_offsets,
+                    num_experts,
+                    num_groups,
+                    rows,
+                    bytes_per_expert,
+                    stream);
+            } else {
+                launch_grouped_mmq_pair_grad_input_iq2_tiled<true>(
                     first_grad_output,
                     second_grad_output,
                     first_packed_weight,

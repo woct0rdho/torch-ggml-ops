@@ -1427,4 +1427,471 @@ static inline void launch_grouped_mmq_grad_input_q5_small(
 }
 
 
+static constexpr int GROUPED_BACKWARD_TILED_IQ2_DOWN_OUT_FEATURES = 2048;
+static constexpr int GROUPED_BACKWARD_TILED_IQ2_DOWN_IN_FEATURES = 512;
+static constexpr int GROUPED_BACKWARD_TILED_IQ2_DOWN_BLOCKS_PER_ROW = 2;
+static constexpr int GROUPED_BACKWARD_TILED_IQ2_PAIR_OUT_FEATURES = 512;
+static constexpr int GROUPED_BACKWARD_TILED_IQ2_PAIR_IN_FEATURES = 2048;
+static constexpr int GROUPED_BACKWARD_TILED_IQ2_PAIR_BLOCKS_PER_ROW = 8;
+static constexpr int GROUPED_BACKWARD_TILED_IQ2_SWIZZLE = 16;
+
+using grouped_backward_iq2_shared_tile = backward_shared_b_tile<
+    GROUPED_BACKWARD_TILED_N,
+    GROUPED_BACKWARD_TILED_K,
+    0,
+    GROUPED_BACKWARD_TILED_IQ2_SWIZZLE>;
+using grouped_backward_iq2_small_shared_tile = backward_shared_b_tile<
+    GROUPED_BACKWARD_SMALL_N,
+    GROUPED_BACKWARD_TILED_K,
+    0,
+    GROUPED_BACKWARD_TILED_IQ2_SWIZZLE>;
+
+template <
+    int N_TILES,
+    int M_TILES_PER_WAVE,
+    bool FULL_ROWS,
+    typename SharedTile>
+static __device__ __forceinline__ void grouped_mmq_grad_input_iq2_tile(
+        const __hip_bfloat16 * __restrict__ grad_output,
+        const char * __restrict__ expert_weight,
+        __hip_bfloat16 * __restrict__ grad_input,
+        SharedTile & shared_b,
+        int block_row_start,
+        int row_end,
+        int input_column_start) {
+    constexpr int packed_row_bytes =
+        GROUPED_BACKWARD_TILED_IQ2_DOWN_BLOCKS_PER_ROW * sizeof(block_iq2_s);
+    constexpr int n_per_block = N_TILES * BACKWARD_N_PER_TILE;
+    constexpr int groups_per_row = n_per_block / 16;
+    const int wave = threadIdx.x / BACKWARD_WAVE_SIZE;
+    const int lane = threadIdx.x % BACKWARD_WAVE_SIZE;
+    const int wave_row_start = block_row_start +
+        wave * M_TILES_PER_WAVE * BACKWARD_M_PER_TILE;
+    f32_accumulator accumulators[M_TILES_PER_WAVE][N_TILES];
+
+#pragma unroll 1
+    for (int output_start = 0;
+         output_start < GROUPED_BACKWARD_TILED_IQ2_DOWN_OUT_FEATURES;
+         output_start += GROUPED_BACKWARD_TILED_K) {
+#pragma unroll
+        for (int group_index = threadIdx.x;
+             group_index < groups_per_row * GROUPED_BACKWARD_TILED_K;
+             group_index += BACKWARD_THREADS) {
+            const int k = group_index / groups_per_row;
+            const int local_input_column =
+                16 * (group_index % groups_per_row);
+            const int input_column = input_column_start + local_input_column;
+            const int block_index = input_column / QK_K;
+            const int value_index = input_column % QK_K;
+            const char * packed_row = expert_weight +
+                static_cast<int64_t>(output_start + k) * packed_row_bytes;
+            __hip_bfloat16 values[16];
+            decode_iq2_s_group_16(
+                packed_row,
+                block_index,
+                value_index,
+                values);
+#pragma unroll
+            for (int index = 0; index < 16; ++index) {
+                shared_b[(local_input_column + index) *
+                    GROUPED_BACKWARD_TILED_K + k] = values[index];
+            }
+        }
+        __syncthreads();
+        grouped_backward_accumulate_projection<
+            N_TILES,
+            M_TILES_PER_WAVE,
+            GROUPED_BACKWARD_TILED_IQ2_DOWN_OUT_FEATURES,
+            FULL_ROWS>(
+            grad_output,
+            shared_b,
+            accumulators,
+            wave_row_start,
+            row_end,
+            output_start,
+            lane);
+        __syncthreads();
+    }
+
+    grouped_backward_store_tile<
+        N_TILES,
+        M_TILES_PER_WAVE,
+        GROUPED_BACKWARD_TILED_IQ2_DOWN_IN_FEATURES,
+        FULL_ROWS>(
+        grad_input,
+        accumulators,
+        wave_row_start,
+        row_end,
+        input_column_start,
+        lane);
+}
+
+template <bool SMALL>
+__launch_bounds__(BACKWARD_THREADS, 2)
+static __global__ void grouped_mmq_grad_input_iq2_tiled_kernel(
+        const __hip_bfloat16 * __restrict__ grad_output,
+        const char * __restrict__ packed_weight,
+        __hip_bfloat16 * __restrict__ grad_input,
+        const int64_t * __restrict__ expert_indices,
+        const int32_t * __restrict__ expert_offsets,
+        int num_experts,
+        int rows,
+        int64_t bytes_per_expert) {
+    constexpr int n_per_block =
+        SMALL ? GROUPED_BACKWARD_SMALL_N : GROUPED_BACKWARD_TILED_N;
+    constexpr int m_per_block =
+        SMALL ? GROUPED_BACKWARD_SMALL_M : GROUPED_BACKWARD_TILED_M;
+    const int group = blockIdx.y;
+    const int row_begin = group == 0 ? 0 : expert_offsets[group - 1];
+    const int row_end = expert_offsets[group];
+    const int64_t expert = expert_indices[group];
+    if (expert < 0 || expert >= num_experts || row_begin < 0 ||
+        row_end <= row_begin || row_end > rows) {
+        return;
+    }
+
+    const int input_column_start = blockIdx.x * n_per_block;
+    const char * expert_weight = packed_weight + expert * bytes_per_expert;
+    using shared_tile = std::conditional_t<
+        SMALL,
+        grouped_backward_iq2_small_shared_tile,
+        grouped_backward_iq2_shared_tile>;
+    __shared__ shared_tile shared_b;
+
+    int block_row_start = row_begin;
+    for (; block_row_start + m_per_block <= row_end;
+         block_row_start += m_per_block) {
+        if constexpr (SMALL) {
+            grouped_mmq_grad_input_iq2_tile<
+                GROUPED_BACKWARD_SMALL_N_TILES,
+                GROUPED_BACKWARD_SMALL_M_TILES_PER_WAVE,
+                true>(
+                grad_output,
+                expert_weight,
+                grad_input,
+                shared_b,
+                block_row_start,
+                row_end,
+                input_column_start);
+        } else {
+            grouped_mmq_grad_input_iq2_tile<
+                GROUPED_BACKWARD_TILED_N_TILES,
+                GROUPED_BACKWARD_TILED_M_TILES_PER_WAVE,
+                true>(
+                grad_output,
+                expert_weight,
+                grad_input,
+                shared_b,
+                block_row_start,
+                row_end,
+                input_column_start);
+        }
+    }
+    if (block_row_start < row_end) {
+        if constexpr (SMALL) {
+            grouped_mmq_grad_input_iq2_tile<
+                GROUPED_BACKWARD_SMALL_N_TILES,
+                GROUPED_BACKWARD_SMALL_M_TILES_PER_WAVE,
+                false>(
+                grad_output,
+                expert_weight,
+                grad_input,
+                shared_b,
+                block_row_start,
+                row_end,
+                input_column_start);
+        } else {
+            grouped_mmq_grad_input_iq2_tile<
+                GROUPED_BACKWARD_TILED_N_TILES,
+                GROUPED_BACKWARD_TILED_M_TILES_PER_WAVE,
+                false>(
+                grad_output,
+                expert_weight,
+                grad_input,
+                shared_b,
+                block_row_start,
+                row_end,
+                input_column_start);
+        }
+    }
+}
+
+template <bool SMALL>
+static inline void launch_grouped_mmq_grad_input_iq2_tiled(
+        const __hip_bfloat16 * grad_output,
+        const char * packed_weight,
+        __hip_bfloat16 * grad_input,
+        const int64_t * expert_indices,
+        const int32_t * expert_offsets,
+        int num_experts,
+        int num_groups,
+        int rows,
+        int64_t bytes_per_expert,
+        hipStream_t stream) {
+    constexpr int n_per_block =
+        SMALL ? GROUPED_BACKWARD_SMALL_N : GROUPED_BACKWARD_TILED_N;
+    const dim3 grid(
+        GROUPED_BACKWARD_TILED_IQ2_DOWN_IN_FEATURES / n_per_block,
+        num_groups,
+        1);
+    const dim3 block(BACKWARD_THREADS, 1, 1);
+    grouped_mmq_grad_input_iq2_tiled_kernel<SMALL>
+        <<<grid, block, 0, stream>>>(
+        grad_output,
+        packed_weight,
+        grad_input,
+        expert_indices,
+        expert_offsets,
+        num_experts,
+        rows,
+        bytes_per_expert);
+}
+
+template <
+    int N_TILES,
+    int M_TILES_PER_WAVE,
+    bool FULL_ROWS,
+    typename SharedTile>
+static __device__ __forceinline__ void grouped_mmq_pair_grad_input_iq2_tile(
+        const __hip_bfloat16 * __restrict__ first_grad_output,
+        const __hip_bfloat16 * __restrict__ second_grad_output,
+        const char * __restrict__ first_expert_weight,
+        const char * __restrict__ second_expert_weight,
+        __hip_bfloat16 * __restrict__ grad_input,
+        SharedTile & first_shared_b,
+        SharedTile & second_shared_b,
+        int block_row_start,
+        int row_end,
+        int input_column_start) {
+    constexpr int packed_row_bytes =
+        GROUPED_BACKWARD_TILED_IQ2_PAIR_BLOCKS_PER_ROW * sizeof(block_iq2_s);
+    constexpr int n_per_block = N_TILES * BACKWARD_N_PER_TILE;
+    constexpr int groups_per_row = n_per_block / 16;
+    const int wave = threadIdx.x / BACKWARD_WAVE_SIZE;
+    const int lane = threadIdx.x % BACKWARD_WAVE_SIZE;
+    const int wave_row_start = block_row_start +
+        wave * M_TILES_PER_WAVE * BACKWARD_M_PER_TILE;
+    f32_accumulator accumulators[M_TILES_PER_WAVE][N_TILES];
+
+#pragma unroll 1
+    for (int output_start = 0;
+         output_start < GROUPED_BACKWARD_TILED_IQ2_PAIR_OUT_FEATURES;
+         output_start += GROUPED_BACKWARD_TILED_K) {
+#pragma unroll
+        for (int group_index = threadIdx.x;
+             group_index < groups_per_row * GROUPED_BACKWARD_TILED_K;
+             group_index += BACKWARD_THREADS) {
+            const int k = group_index / groups_per_row;
+            const int local_input_column =
+                16 * (group_index % groups_per_row);
+            const int input_column = input_column_start + local_input_column;
+            const int block_index = input_column / QK_K;
+            const int value_index = input_column % QK_K;
+            const int64_t row_offset =
+                static_cast<int64_t>(output_start + k) * packed_row_bytes;
+            __hip_bfloat16 values[16];
+            decode_iq2_s_group_16(
+                first_expert_weight + row_offset,
+                block_index,
+                value_index,
+                values);
+#pragma unroll
+            for (int index = 0; index < 16; ++index) {
+                first_shared_b[(local_input_column + index) *
+                    GROUPED_BACKWARD_TILED_K + k] = values[index];
+            }
+            decode_iq2_s_group_16(
+                second_expert_weight + row_offset,
+                block_index,
+                value_index,
+                values);
+#pragma unroll
+            for (int index = 0; index < 16; ++index) {
+                second_shared_b[(local_input_column + index) *
+                    GROUPED_BACKWARD_TILED_K + k] = values[index];
+            }
+        }
+        __syncthreads();
+        grouped_backward_accumulate_projection<
+            N_TILES,
+            M_TILES_PER_WAVE,
+            GROUPED_BACKWARD_TILED_IQ2_PAIR_OUT_FEATURES,
+            FULL_ROWS>(
+            first_grad_output,
+            first_shared_b,
+            accumulators,
+            wave_row_start,
+            row_end,
+            output_start,
+            lane);
+        grouped_backward_accumulate_projection<
+            N_TILES,
+            M_TILES_PER_WAVE,
+            GROUPED_BACKWARD_TILED_IQ2_PAIR_OUT_FEATURES,
+            FULL_ROWS>(
+            second_grad_output,
+            second_shared_b,
+            accumulators,
+            wave_row_start,
+            row_end,
+            output_start,
+            lane);
+        __syncthreads();
+    }
+
+    grouped_backward_store_tile<
+        N_TILES,
+        M_TILES_PER_WAVE,
+        GROUPED_BACKWARD_TILED_IQ2_PAIR_IN_FEATURES,
+        FULL_ROWS>(
+        grad_input,
+        accumulators,
+        wave_row_start,
+        row_end,
+        input_column_start,
+        lane);
+}
+
+template <bool SMALL>
+__launch_bounds__(BACKWARD_THREADS, 2)
+static __global__ void grouped_mmq_pair_grad_input_iq2_tiled_kernel(
+        const __hip_bfloat16 * __restrict__ first_grad_output,
+        const __hip_bfloat16 * __restrict__ second_grad_output,
+        const char * __restrict__ first_packed_weight,
+        const char * __restrict__ second_packed_weight,
+        __hip_bfloat16 * __restrict__ grad_input,
+        const int64_t * __restrict__ expert_indices,
+        const int32_t * __restrict__ expert_offsets,
+        int num_experts,
+        int rows,
+        int64_t bytes_per_expert) {
+    constexpr int n_per_block =
+        SMALL ? GROUPED_BACKWARD_SMALL_N : GROUPED_BACKWARD_TILED_N;
+    constexpr int m_per_block =
+        SMALL ? GROUPED_BACKWARD_SMALL_M : GROUPED_BACKWARD_TILED_M;
+    const int group = blockIdx.y;
+    const int row_begin = group == 0 ? 0 : expert_offsets[group - 1];
+    const int row_end = expert_offsets[group];
+    const int64_t expert = expert_indices[group];
+    if (expert < 0 || expert >= num_experts || row_begin < 0 ||
+        row_end <= row_begin || row_end > rows) {
+        return;
+    }
+
+    const int input_column_start = blockIdx.x * n_per_block;
+    const char * first_expert_weight =
+        first_packed_weight + expert * bytes_per_expert;
+    const char * second_expert_weight =
+        second_packed_weight + expert * bytes_per_expert;
+    using shared_tile = std::conditional_t<
+        SMALL,
+        grouped_backward_iq2_small_shared_tile,
+        grouped_backward_iq2_shared_tile>;
+    __shared__ shared_tile shared_b[2];
+
+    int block_row_start = row_begin;
+    for (; block_row_start + m_per_block <= row_end;
+         block_row_start += m_per_block) {
+        if constexpr (SMALL) {
+            grouped_mmq_pair_grad_input_iq2_tile<
+                GROUPED_BACKWARD_SMALL_N_TILES,
+                GROUPED_BACKWARD_SMALL_M_TILES_PER_WAVE,
+                true>(
+                first_grad_output,
+                second_grad_output,
+                first_expert_weight,
+                second_expert_weight,
+                grad_input,
+                shared_b[0],
+                shared_b[1],
+                block_row_start,
+                row_end,
+                input_column_start);
+        } else {
+            grouped_mmq_pair_grad_input_iq2_tile<
+                GROUPED_BACKWARD_TILED_N_TILES,
+                GROUPED_BACKWARD_TILED_M_TILES_PER_WAVE,
+                true>(
+                first_grad_output,
+                second_grad_output,
+                first_expert_weight,
+                second_expert_weight,
+                grad_input,
+                shared_b[0],
+                shared_b[1],
+                block_row_start,
+                row_end,
+                input_column_start);
+        }
+    }
+    if (block_row_start < row_end) {
+        if constexpr (SMALL) {
+            grouped_mmq_pair_grad_input_iq2_tile<
+                GROUPED_BACKWARD_SMALL_N_TILES,
+                GROUPED_BACKWARD_SMALL_M_TILES_PER_WAVE,
+                false>(
+                first_grad_output,
+                second_grad_output,
+                first_expert_weight,
+                second_expert_weight,
+                grad_input,
+                shared_b[0],
+                shared_b[1],
+                block_row_start,
+                row_end,
+                input_column_start);
+        } else {
+            grouped_mmq_pair_grad_input_iq2_tile<
+                GROUPED_BACKWARD_TILED_N_TILES,
+                GROUPED_BACKWARD_TILED_M_TILES_PER_WAVE,
+                false>(
+                first_grad_output,
+                second_grad_output,
+                first_expert_weight,
+                second_expert_weight,
+                grad_input,
+                shared_b[0],
+                shared_b[1],
+                block_row_start,
+                row_end,
+                input_column_start);
+        }
+    }
+}
+
+template <bool SMALL>
+static inline void launch_grouped_mmq_pair_grad_input_iq2_tiled(
+        const __hip_bfloat16 * first_grad_output,
+        const __hip_bfloat16 * second_grad_output,
+        const char * first_packed_weight,
+        const char * second_packed_weight,
+        __hip_bfloat16 * grad_input,
+        const int64_t * expert_indices,
+        const int32_t * expert_offsets,
+        int num_experts,
+        int num_groups,
+        int rows,
+        int64_t bytes_per_expert,
+        hipStream_t stream) {
+    constexpr int n_per_block =
+        SMALL ? GROUPED_BACKWARD_SMALL_N : GROUPED_BACKWARD_TILED_N;
+    const dim3 grid(
+        GROUPED_BACKWARD_TILED_IQ2_PAIR_IN_FEATURES / n_per_block,
+        num_groups,
+        1);
+    const dim3 block(BACKWARD_THREADS, 1, 1);
+    grouped_mmq_pair_grad_input_iq2_tiled_kernel<SMALL>
+        <<<grid, block, 0, stream>>>(
+        first_grad_output,
+        second_grad_output,
+        first_packed_weight,
+        second_packed_weight,
+        grad_input,
+        expert_indices,
+        expert_offsets,
+        num_experts,
+        rows,
+        bytes_per_expert);
+}
+
 } // namespace torch_ggml_ops::ck

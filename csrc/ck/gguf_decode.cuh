@@ -148,4 +148,75 @@ __device__ __forceinline__ float decode_gguf_value<GGML_TYPE_IQ2_S>(
     return db * static_cast<float>(magnitude * sign);
 }
 
+static __device__ __forceinline__ void decode_iq2_s_group_8(
+        const char * packed_row,
+        int block_index,
+        int value_index,
+        __hip_bfloat16 * values) {
+    const auto & block =
+        reinterpret_cast<const block_iq2_s *>(packed_row)[block_index];
+    const int grid_group = value_index >> 3;
+    const int high =
+        (block.qh[grid_group >> 2] >> (2 * (grid_group & 3))) & 0x03;
+    const int grid_index = block.qs[grid_group] | (high << 8);
+    const uint64_t grid = iq2s_grid[grid_index];
+    const uint8_t signs = block.qs[32 + grid_group];
+    const int scale_group = value_index >> 4;
+    const int scale =
+        (block.scales[scale_group >> 1] >> (4 * (scale_group & 1))) & 0x0f;
+    const float db = fp16_to_fp32(block.d) *
+        (0.5f + static_cast<float>(scale)) * 0.25f;
+#pragma unroll
+    for (int index = 0; index < 8; ++index) {
+        const int magnitude =
+            static_cast<int>((grid >> (8 * index)) & 0xff);
+        const int sign = ((signs >> index) & 0x01) == 0 ? 1 : -1;
+        values[index] = __float2bfloat16(
+            db * static_cast<float>(magnitude * sign));
+    }
+}
+
+static __device__ __forceinline__ void decode_iq2_s_group_16(
+        const char * packed_row,
+        int block_index,
+        int value_index,
+        __hip_bfloat16 * values) {
+    const auto & block =
+        reinterpret_cast<const block_iq2_s *>(packed_row)[block_index];
+    const int first_grid_group = value_index >> 3;
+    const int second_grid_group = first_grid_group + 1;
+    const int first_high =
+        (block.qh[first_grid_group >> 2] >>
+         (2 * (first_grid_group & 3))) & 0x03;
+    const int second_high =
+        (block.qh[second_grid_group >> 2] >>
+         (2 * (second_grid_group & 3))) & 0x03;
+    const uint64_t first_grid = iq2s_grid[
+        block.qs[first_grid_group] | (first_high << 8)];
+    const uint64_t second_grid = iq2s_grid[
+        block.qs[second_grid_group] | (second_high << 8)];
+    const uint8_t first_signs = block.qs[32 + first_grid_group];
+    const uint8_t second_signs = block.qs[32 + second_grid_group];
+    const int scale_group = value_index >> 4;
+    const int scale =
+        (block.scales[scale_group >> 1] >> (4 * (scale_group & 1))) & 0x0f;
+    const float db = fp16_to_fp32(block.d) *
+        (0.5f + static_cast<float>(scale)) * 0.25f;
+#pragma unroll
+    for (int index = 0; index < 8; ++index) {
+        const int first_magnitude =
+            static_cast<int>((first_grid >> (8 * index)) & 0xff);
+        const int second_magnitude =
+            static_cast<int>((second_grid >> (8 * index)) & 0xff);
+        const int first_sign =
+            ((first_signs >> index) & 0x01) == 0 ? 1 : -1;
+        const int second_sign =
+            ((second_signs >> index) & 0x01) == 0 ? 1 : -1;
+        values[index] = __float2bfloat16(
+            db * static_cast<float>(first_magnitude * first_sign));
+        values[8 + index] = __float2bfloat16(
+            db * static_cast<float>(second_magnitude * second_sign));
+    }
+}
+
 } // namespace torch_ggml_ops::ck
