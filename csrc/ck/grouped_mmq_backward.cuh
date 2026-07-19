@@ -2,6 +2,7 @@
 
 #include "bf16_wmma.cuh"
 #include "gguf_decode.cuh"
+#include "grouped_mmq_backward_tiled.cuh"
 
 #include <hip/hip_bf16.h>
 #include <hip/hip_runtime.h>
@@ -164,6 +165,25 @@ static inline void launch_grouped_mmq_grad_input(
         int in_features,
         int64_t bytes_per_expert,
         hipStream_t stream) {
+    if constexpr (type == GGML_TYPE_Q4_K) {
+        if (out_features == GROUPED_BACKWARD_TILED_Q4_OUT_FEATURES &&
+            in_features == GROUPED_BACKWARD_TILED_Q4_IN_FEATURES &&
+            rows >= num_groups * GROUPED_BACKWARD_TILED_M) {
+            launch_grouped_mmq_grad_input_q4_tiled(
+                grad_output,
+                packed_weight,
+                grad_input,
+                expert_indices,
+                expert_offsets,
+                num_experts,
+                num_groups,
+                rows,
+                bytes_per_expert,
+                stream);
+            return;
+        }
+    }
+
     const dim3 grid(
         (in_features + GROUPED_BACKWARD_N_PER_BLOCK - 1) /
             GROUPED_BACKWARD_N_PER_BLOCK,

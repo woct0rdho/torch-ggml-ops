@@ -733,6 +733,46 @@ The first large-group checkpoint is to approach the dense one-expert Q4_K result
 
 If literal L1 spills after grouped metadata is added, apply the resource escape ladder before rejecting cooperative decode: shorten lifetimes and fixed-shape state first, then compare S2 `M=128, N=64, K=32`.
 
+#### GB1 result: retained Q4_K L1
+
+Status: retained.
+
+The first implementation added a fixed down-Q4_K `M=128, N=128, K=32`, 128-thread serial expert kernel in `csrc/ck/grouped_mmq_backward_tiled.cuh`. It reuses the dense width-16 preloaded Q4_K decoder, paired local-fragment loads, and 16-BF16 XOR swizzle. Exact full 128-row chunks and one bounded tail execute in separate compile-time bodies.
+
+Artifacts:
+
+```text
+/tmp/grouped_mmq_bwd_step1_q4_l1.json
+/tmp/grouped_mmq_bwd_step1_q4_matrix.json
+/tmp/grouped_bwd_step1_readobj.txt
+/tmp/grouped_bwd_step1_disasm.txt
+```
+
+| Point | Baseline ms | GB1 ms | Speedup | AITER ms |
+|---|---:|---:|---:|---:|
+| Down Q4_K B4 uniform | 65.633 | 10.846 | 6.05x | 9.033 |
+| Down Q4_K B4 boundary | 63.250 | 11.636 | 5.44x | 10.254 |
+| Down Q4_K B16 uniform | 302.946 | 40.270 | 7.52x | 44.022 |
+| Down Q4_K B16 skewed | 293.581 | 40.906 | 7.18x | 35.540 |
+| Down Q4_K B16 sparse | 293.758 | 41.669 | 7.05x | 32.887 |
+| Down Q4_K B16 boundary | 290.333 | 40.225 | 7.22x | 34.768 |
+
+All checked outputs remained bitwise equal to dense packed MMQ and BF16 AITER. Batch 1 still uses the original small-group path and remained within its prior range.
+
+Final code-object resources for the new kernel are:
+
+```text
+244 VGPRs
+22 SGPRs
+8,192-byte LDS
+0-byte private segment
+0 VGPR spills
+0 SGPR spills
+no dynamic stack
+```
+
+The result validates the main hypothesis: broad A-fragment reuse, K=32, cooperative decode, and exact full-row handling are the first-order grouped-backward gains. GB1 is already near AITER and exceeds it on the measured B16 uniform control, but nonuniform B16 and B4 still leave room for scheduler, geometry, and address refinements.
+
 ### GB2: add Q3_K and preserve fused gate/up
 
 Port the retained narrow-Q3_K width-16 decoder and its measured layout to gate/up:
