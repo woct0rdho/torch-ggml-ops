@@ -898,6 +898,10 @@ Resources remain well below the spill boundary:
 | Q4_K S1 single | 117 | 24 | 4,096 B | 0 |
 | Q3_K S1 pair | 183 | 26 | 10,240 B | 0 |
 
+A controlled S2 `M=128, N=64, K=32` follow-up was rejected as a universal small family. It regressed Q3_K uniform from 3.614 to 6.936 ms and Q4_K uniform from 3.590 to 4.185 ms because every 64-row group became a half-empty bounded tile. It also did not improve Q3_K sparse routing.
+
+S2 was retained only for Q4_K when `rows / num_groups >= 80`. This device-metadata-independent host dispatch identifies the measured batch-1 sparse case without reading offsets. A 25-repeat control measured Q4_K sparse at 4.037 ms with S2 versus 5.201 ms with S1. The retained S2 code object uses 173 VGPRs, 30 SGPRs, and 4,096 bytes of LDS with no private segment or spills. The broader experiment artifact is `/tmp/grouped_mmq_bwd_step3_s2.json`; the controlled artifacts are `/tmp/grouped_mmq_bwd_q4_sparse_s2_25.json` and `/tmp/grouped_mmq_bwd_q4_sparse_s1_25.json`.
+
 ### GB4: measure serial ownership, tile ordering, and device row tasks
 
 Do not assume descriptors are required.
