@@ -1980,4 +1980,156 @@ static inline void launch_grouped_mmq_pair_grad_input_iq2_tiled(
         bytes_per_expert);
 }
 
+__launch_bounds__(BACKWARD_THREADS, 2)
+static __global__ void grouped_mmq_grad_input_q4_row_task_kernel(
+        const __hip_bfloat16 * __restrict__ grad_output,
+        const char * __restrict__ packed_weight,
+        __hip_bfloat16 * __restrict__ grad_input,
+        const int32_t * __restrict__ task_count,
+        const int32_t * __restrict__ task_experts,
+        const int32_t * __restrict__ task_row_starts,
+        const int32_t * __restrict__ task_row_ends,
+        int64_t bytes_per_expert) {
+    const int task = blockIdx.y;
+    if (task >= task_count[0]) {
+        return;
+    }
+    const int expert = task_experts[task];
+    const int row_start = task_row_starts[task];
+    const int row_end = task_row_ends[task];
+    const int input_column_start = blockIdx.x * GROUPED_BACKWARD_TILED_N;
+    const char * expert_weight = packed_weight +
+        static_cast<int64_t>(expert) * bytes_per_expert;
+    __shared__ grouped_backward_q4_shared_tile shared_b;
+    grouped_mmq_grad_input_q4_tile<false>(
+        grad_output,
+        expert_weight,
+        grad_input,
+        shared_b,
+        row_start,
+        row_end,
+        input_column_start);
+}
+
+__launch_bounds__(BACKWARD_THREADS, 2)
+static __global__ void grouped_mmq_grad_input_q5_row_task_kernel(
+        const __hip_bfloat16 * __restrict__ grad_output,
+        const char * __restrict__ packed_weight,
+        __hip_bfloat16 * __restrict__ grad_input,
+        const int32_t * __restrict__ task_count,
+        const int32_t * __restrict__ task_experts,
+        const int32_t * __restrict__ task_row_starts,
+        const int32_t * __restrict__ task_row_ends,
+        int64_t bytes_per_expert) {
+    const int task = blockIdx.y;
+    if (task >= task_count[0]) {
+        return;
+    }
+    const int expert = task_experts[task];
+    const int row_start = task_row_starts[task];
+    const int row_end = task_row_ends[task];
+    const int input_column_start = blockIdx.x * GROUPED_BACKWARD_TILED_N;
+    const char * expert_weight = packed_weight +
+        static_cast<int64_t>(expert) * bytes_per_expert;
+    __shared__ grouped_backward_q5_shared_tile shared_b;
+    grouped_mmq_grad_input_q5_tile<
+        GROUPED_BACKWARD_TILED_N_TILES,
+        GROUPED_BACKWARD_TILED_M_TILES_PER_WAVE,
+        false>(
+        grad_output,
+        expert_weight,
+        grad_input,
+        shared_b,
+        row_start,
+        row_end,
+        input_column_start);
+}
+
+__launch_bounds__(BACKWARD_THREADS, 2)
+static __global__ void grouped_mmq_grad_input_iq2_row_task_kernel(
+        const __hip_bfloat16 * __restrict__ grad_output,
+        const char * __restrict__ packed_weight,
+        __hip_bfloat16 * __restrict__ grad_input,
+        const int32_t * __restrict__ task_count,
+        const int32_t * __restrict__ task_experts,
+        const int32_t * __restrict__ task_row_starts,
+        const int32_t * __restrict__ task_row_ends,
+        int64_t bytes_per_expert) {
+    const int task = blockIdx.y;
+    if (task >= task_count[0]) {
+        return;
+    }
+    const int expert = task_experts[task];
+    const int row_start = task_row_starts[task];
+    const int row_end = task_row_ends[task];
+    const int input_column_start = blockIdx.x * GROUPED_BACKWARD_TILED_N;
+    const char * expert_weight = packed_weight +
+        static_cast<int64_t>(expert) * bytes_per_expert;
+    __shared__ grouped_backward_iq2_shared_tile shared_b;
+    grouped_mmq_grad_input_iq2_tile<
+        GROUPED_BACKWARD_TILED_N_TILES,
+        GROUPED_BACKWARD_TILED_M_TILES_PER_WAVE,
+        false>(
+        grad_output,
+        expert_weight,
+        grad_input,
+        shared_b,
+        row_start,
+        row_end,
+        input_column_start);
+}
+
+template <ggml_type type>
+static inline void launch_grouped_mmq_grad_input_row_tasks(
+        const __hip_bfloat16 * grad_output,
+        const char * packed_weight,
+        __hip_bfloat16 * grad_input,
+        const int32_t * task_count,
+        const int32_t * task_experts,
+        const int32_t * task_row_starts,
+        const int32_t * task_row_ends,
+        int max_tasks,
+        int64_t bytes_per_expert,
+        hipStream_t stream) {
+    const dim3 grid(
+        GROUPED_BACKWARD_TILED_Q4_IN_FEATURES / GROUPED_BACKWARD_TILED_N,
+        max_tasks,
+        1);
+    const dim3 block(BACKWARD_THREADS, 1, 1);
+    if constexpr (type == GGML_TYPE_Q4_K) {
+        grouped_mmq_grad_input_q4_row_task_kernel
+            <<<grid, block, 0, stream>>>(
+            grad_output,
+            packed_weight,
+            grad_input,
+            task_count,
+            task_experts,
+            task_row_starts,
+            task_row_ends,
+            bytes_per_expert);
+    } else if constexpr (type == GGML_TYPE_Q5_K) {
+        grouped_mmq_grad_input_q5_row_task_kernel
+            <<<grid, block, 0, stream>>>(
+            grad_output,
+            packed_weight,
+            grad_input,
+            task_count,
+            task_experts,
+            task_row_starts,
+            task_row_ends,
+            bytes_per_expert);
+    } else if constexpr (type == GGML_TYPE_IQ2_S) {
+        grouped_mmq_grad_input_iq2_row_task_kernel
+            <<<grid, block, 0, stream>>>(
+            grad_output,
+            packed_weight,
+            grad_input,
+            task_count,
+            task_experts,
+            task_row_starts,
+            task_row_ends,
+            bytes_per_expert);
+    }
+}
+
 } // namespace torch_ggml_ops::ck

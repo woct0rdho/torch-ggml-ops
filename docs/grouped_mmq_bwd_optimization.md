@@ -934,6 +934,46 @@ Also test a fixed-program grid-stride kernel over the device task count with 256
 
 Measure serial, descriptor, and persistent candidates separately for gate/up and down. Backward down has only four L1 N tiles per expert, so the grouped-forward down-descriptor rejection is evidence to consider, not a conclusion to copy. Keep direct serial ownership for batch-1 sparse routing unless a measured device path wins without launching inactive-expert arithmetic.
 
+#### GB4 result: retained M-major device row tasks for large down
+
+Status: retained for Q4_K, Q5_K, and IQ2_S down when the average group has at least 128 rows. Gate/up pair and all batch-1 paths remain serial and preserve output-only pair allocation.
+
+The retained path allocates a small device workspace, builds 128-row tasks with the existing atomics-free 256-thread prefix-sum kernel, then launches four N workgroups per task. The grid is M-major: all four N tiles for one row task are adjacent. No CPU descriptors, `.item()`, device-to-host metadata copies, or synchronization were added.
+
+Artifacts:
+
+```text
+/tmp/grouped_mmq_bwd_step4_row_tasks_mmajor.json
+/tmp/grouped_mmq_bwd_step4_row_tasks_bounded.json
+/tmp/grouped_mmq_bwd_step4_row_tasks_bounded_tail.json
+/tmp/tasks_final_readobj.txt
+/tmp/tasks_final_disasm.txt
+```
+
+Representative serial-to-task changes are:
+
+| Point | Serial ms | Row-task ms | Speedup |
+|---|---:|---:|---:|
+| Down Q4_K B4 uniform | 10.846 | 10.461 | 1.04x |
+| Down Q4_K B16 uniform | 40.270 | 35.821 | 1.12x |
+| Down Q4_K B16 sparse | 41.669 | 37.143 | 1.12x |
+| Down Q5_K B4 sparse | 10.797 | 10.438 | 1.03x |
+| Down Q5_K B16 uniform | 37.421 | 34.074 | 1.10x |
+| Down Q5_K B16 boundary | 37.849 | 34.725 | 1.09x |
+| Down IQ2_S B4 skewed | 11.493 | 10.096 | 1.14x |
+| Down IQ2_S B16 uniform | 38.992 | 32.806 | 1.19x |
+| Down IQ2_S B16 boundary | 39.785 | 33.569 | 1.19x |
+
+The task workspace adds only the task metadata above the single public output. For B4 down the measured incremental allocation was 67,118,592 bytes versus 67,108,864 output bytes, a 9,728-byte descriptor overhead.
+
+A runtime full/tail branch was rejected despite slightly better latency because it produced private segments and 2-4 VGPR spills in Q4_K/Q5_K. The retained task kernels use one bounded body for all tasks and are spill-free:
+
+| Kernel | VGPRs | SGPRs | LDS | Private/spills |
+|---|---:|---:|---:|---:|
+| Q4_K row task | 244 | 24 | 8,192 B | 0 |
+| Q5_K row task | 256 | 24 | 8,192 B | 0 |
+| IQ2_S row task | 233 | 24 | 8,192 B | 0 |
+
 ### GB5: port Q5_K with Q4_K
 
 Q5_K is only two layers. It should reuse the Q4_K tile framework and differ only in decode and layout details.

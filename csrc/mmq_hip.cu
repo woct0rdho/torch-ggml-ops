@@ -557,6 +557,33 @@ Tensor new_grouped_row_task_workspace(
         ScalarType::Byte);
 }
 
+bool use_grouped_backward_row_tasks(
+        const GroupedMMQShape & shape, int64_t quant_type) {
+    return shape.out_features == 2048 && shape.in_features == 512 &&
+        shape.rows >= shape.num_groups * torch_ggml_ops::ck::GROUPED_BACKWARD_TILED_M &&
+        (quant_type == GGML_TYPE_Q4_K || quant_type == GGML_TYPE_Q5_K ||
+         quant_type == GGML_TYPE_IQ2_S);
+}
+
+int grouped_backward_row_task_capacity(const GroupedMMQShape & shape) {
+    constexpr int row_tile =
+        torch_ggml_ops::ck::GROUPED_BACKWARD_TILED_M;
+    return (shape.rows + row_tile - 1) / row_tile + shape.num_groups;
+}
+
+Tensor new_grouped_backward_row_task_workspace(
+        const Tensor & input, const GroupedMMQShape & shape) {
+    const int64_t workspace_ints = 1 + 3 * static_cast<int64_t>(
+        grouped_backward_row_task_capacity(shape));
+    const int64_t workspace_bytes = workspace_ints * sizeof(int32_t);
+    std::array<int64_t, 1> workspace_size{workspace_bytes};
+    return torch::stable::new_empty(
+        input,
+        torch::headeronly::IntHeaderOnlyArrayRef(
+            workspace_size.data(), workspace_size.size()),
+        ScalarType::Byte);
+}
+
 Tensor mmq_cuda(
         const Tensor & input,
         const Tensor & packed_weight,
@@ -784,22 +811,59 @@ Tensor grouped_mmq_grad_input_cuda(
     auto * input_pointer =
         static_cast<__hip_bfloat16 *>(grad_input.mutable_data_ptr());
 
-    dispatch_quant_type(quant_type, [&](auto type_tag) {
-        constexpr ggml_type type = decltype(type_tag)::value;
-        torch_ggml_ops::ck::launch_grouped_mmq_grad_input<type>(
-            grad_pointer,
-            packed_pointer,
-            input_pointer,
+    if (use_grouped_backward_row_tasks(shape, quant_type)) {
+        Tensor task_workspace =
+            new_grouped_backward_row_task_workspace(grad_output, shape);
+        auto * task_pointer =
+            static_cast<int32_t *>(task_workspace.mutable_data_ptr());
+        const int max_tasks = grouped_backward_row_task_capacity(shape);
+        int32_t * task_count = task_pointer;
+        int32_t * task_experts = task_count + 1;
+        int32_t * task_row_starts = task_experts + max_tasks;
+        int32_t * task_row_ends = task_row_starts + max_tasks;
+        grouped_mmq_build_row_tasks<<<1, 256, 0, stream>>>(
             expert_pointer,
             offsets_pointer,
+            task_count,
+            task_experts,
+            task_row_starts,
+            task_row_ends,
             shape.num_experts,
             shape.num_groups,
             shape.rows,
-            shape.out_features,
-            shape.in_features,
-            shape.bytes_per_expert,
-            stream);
-    });
+            torch_ggml_ops::ck::GROUPED_BACKWARD_TILED_M);
+        dispatch_quant_type(quant_type, [&](auto type_tag) {
+            constexpr ggml_type type = decltype(type_tag)::value;
+            torch_ggml_ops::ck::launch_grouped_mmq_grad_input_row_tasks<type>(
+                grad_pointer,
+                packed_pointer,
+                input_pointer,
+                task_count,
+                task_experts,
+                task_row_starts,
+                task_row_ends,
+                max_tasks,
+                shape.bytes_per_expert,
+                stream);
+        });
+    } else {
+        dispatch_quant_type(quant_type, [&](auto type_tag) {
+            constexpr ggml_type type = decltype(type_tag)::value;
+            torch_ggml_ops::ck::launch_grouped_mmq_grad_input<type>(
+                grad_pointer,
+                packed_pointer,
+                input_pointer,
+                expert_pointer,
+                offsets_pointer,
+                shape.num_experts,
+                shape.num_groups,
+                shape.rows,
+                shape.out_features,
+                shape.in_features,
+                shape.bytes_per_expert,
+                stream);
+        });
+    }
     check_hip(hipGetLastError(), "grouped_mmq_grad_input_kernel launch");
 
     return grad_input;
