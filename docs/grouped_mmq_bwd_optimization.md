@@ -1163,6 +1163,10 @@ The same `M=128, N=64, K=32` large-pair geometry was tested for Q3_K and retaine
 
 The batch-1 S1 path was unchanged within noise. Artifacts: `/tmp/grouped_mmq_bwd_step7_q3_pair_n64.json`, `/tmp/grouped_mmq_bwd_step7_q3_pair_n64_b1_control.json`, and `/tmp/q3_pair_n64_readobj.txt`.
 
+#### GB7 IQ2_S width-8 control: rejected
+
+The natural width-8 decoder was measured after the width-16 path was retained and then reverted with git. It duplicated scale work and doubled loader groups. Gate/up B16 uniform regressed from 44.101 to 50.274 ms, while down B16 uniform regressed from 32.959 to 42.949 ms. Width 16 is the final local decoder because it matches the scale-nibble sharing boundary and provides exact loader coverage with less repeated state. Artifact: `/tmp/grouped_mmq_bwd_step7_iq2_width8.json`.
+
 ### GB8: representation-level ceiling
 
 This phase begins only after the grouped tile reaches the retained dense-core neighborhood and final kernels are spill-free.
