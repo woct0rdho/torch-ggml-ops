@@ -968,6 +968,8 @@ The task workspace adds only the task metadata above the single public output. F
 
 N-major task order was rejected and reverted with git. Making row tasks adjacent for one N tile nearly doubled complete latency: Q4_K B16 uniform moved from 35.821 to 65.116 ms, Q5_K from 34.074 to 62.936 ms, and IQ2_S from 32.806 to 62.841 ms. The result shows that keeping all four N tiles of one row task adjacent is essential for packed-weight and cotangent locality. Artifact: `/tmp/grouped_mmq_bwd_step4_row_tasks_nmajor.json`.
 
+A fixed 1,024-program grid-stride traversal was also rejected and reverted with git. Q4_K B16 uniform regressed from 35.821 to 38.717 ms and IQ2_S from 32.806 to 36.870 ms; the Q5_K persistent body additionally introduced 10 VGPR spills and a 44-byte private segment. At this arithmetic intensity, direct nonpersistent tasks already provide enough workgroups and better preserve one-task locality. Artifact: `/tmp/grouped_mmq_bwd_step4_persistent1024.json`.
+
 A runtime full/tail branch was rejected despite slightly better latency because it produced private segments and 2-4 VGPR spills in Q4_K/Q5_K. The retained task kernels use one bounded body for all tasks and are spill-free:
 
 | Kernel | VGPRs | SGPRs | LDS | Private/spills |
