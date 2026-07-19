@@ -947,6 +947,38 @@ Port the retained shared-down Q5_K choices:
 
 Reject any Q5_K specialization that regresses Q4_K, introduces spills, or adds broad complexity for a low-weight secondary case.
 
+#### GB5 result: retained Q5_K port
+
+Status: retained.
+
+Q5_K now uses the same L1/S1 full-and-tail framework as Q4_K, with width-16 decode, four-BF16 XOR swizzle, and scalar low/high extraction. The L1 loader prefetches two packed rows per thread into bounded local state. Adding that packed prefetch improved the initial Q5_K port by 12-24% across the B4/B16 matrix.
+
+Artifacts:
+
+```text
+/tmp/grouped_mmq_bwd_step5_q5.json
+/tmp/grouped_mmq_bwd_step5_q5_prefetch.json
+/tmp/grouped_mmq_bwd_step5_q5_small_select.json
+/tmp/grouped_bwd_q5_readobj.txt
+/tmp/grouped_bwd_q5_disasm.txt
+```
+
+| Point | Baseline ms | GB5 ms | Speedup | AITER ms |
+|---|---:|---:|---:|---:|
+| Down Q5_K B1 uniform | 11.728 | 3.694 | 3.17x | 3.377 |
+| Down Q5_K B1 sparse | 13.713 | 3.913 | 3.50x | 3.221 |
+| Down Q5_K B1 boundary | 11.898 | 3.544 | 3.36x | 3.626 |
+| Down Q5_K B4 uniform | 68.550 | 9.862 | 6.95x | 8.952 |
+| Down Q5_K B4 sparse | 65.608 | 10.797 | 6.08x | 8.625 |
+| Down Q5_K B16 uniform | 315.237 | 37.421 | 8.42x | 43.023 |
+| Down Q5_K B16 sparse | 304.028 | 38.851 | 7.83x | 32.650 |
+
+Q5_K now reaches AITER parity at B1 boundary and beats AITER by 15% at B16 uniform. Nonuniform B4/B16 remains 13-25% behind AITER.
+
+The L1 kernel uses 256 VGPRs, 22 SGPRs, and 8,192 bytes of LDS. The S1 kernel uses 115 VGPRs, 22 SGPRs, and 4,096 bytes of LDS. Both have zero private segment and zero spills. L1 is at the architectural per-thread VGPR ceiling, so no additional long-lived prefetch state is allowed.
+
+A Q5_K S2 sparse-routing experiment was rejected and removed: a 25-repeat control measured 4.065 ms for S2 versus 3.913 ms for S1. Unlike Q4_K, the extra Q5_K accumulator state did not repay its half-empty-row reduction. Artifacts are `/tmp/grouped_mmq_bwd_q5_sparse_s2_25.json` and `/tmp/grouped_mmq_bwd_q5_sparse_s1_25.json`.
+
 ### GB6: specialize IQ2_S around eight- and sixteen-value packed groups
 
 IQ2_S is the highest representation-specific priority because gate/up IQ2_S plus down IQ2_S account for approximately 50-58% of weighted packed latency.
