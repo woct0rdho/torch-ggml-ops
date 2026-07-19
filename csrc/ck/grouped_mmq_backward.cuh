@@ -477,7 +477,7 @@ static inline void launch_grouped_mmq_pair_grad_input(
         if (out_features == GROUPED_BACKWARD_TILED_Q3_OUT_FEATURES &&
             in_features == GROUPED_BACKWARD_TILED_Q3_IN_FEATURES) {
             if (rows >= num_groups * GROUPED_BACKWARD_TILED_M) {
-                launch_grouped_mmq_pair_grad_input_q3_tiled(
+                launch_grouped_mmq_pair_grad_input_q3_n64_large(
                     first_grad_output,
                     second_grad_output,
                     first_packed_weight,

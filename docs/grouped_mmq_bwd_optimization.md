@@ -1149,6 +1149,20 @@ Artifacts:
 /tmp/iq2_pair_n64_readobj.txt
 ```
 
+#### GB7 Q3_K pair N=64 result: retained
+
+The same `M=128, N=64, K=32` large-pair geometry was tested for Q3_K and retained. It reduces the large kernel from 248 to 206 VGPRs, keeps 26 SGPRs and 10,240 bytes of LDS, and remains free of private segments and spills.
+
+| Point | N=128 ms | N=64 ms | Speedup |
+|---|---:|---:|---:|
+| Gate/up Q3_K B4 uniform | 11.276 | 10.560 | 1.07x |
+| Gate/up Q3_K B4 boundary | 14.362 | 13.892 | 1.03x |
+| Gate/up Q3_K B16 uniform | 45.016 | 44.630 | 1.01x |
+| Gate/up Q3_K B16 skewed | 49.202 | 47.229 | 1.04x |
+| Gate/up Q3_K B16 sparse | 48.714 | 47.461 | 1.03x |
+
+The batch-1 S1 path was unchanged within noise. Artifacts: `/tmp/grouped_mmq_bwd_step7_q3_pair_n64.json`, `/tmp/grouped_mmq_bwd_step7_q3_pair_n64_b1_control.json`, and `/tmp/q3_pair_n64_readobj.txt`.
+
 ### GB8: representation-level ceiling
 
 This phase begins only after the grouped tile reaches the retained dense-core neighborhood and final kernels are spill-free.
