@@ -337,9 +337,15 @@ def test_grouped_pair_backward_sums_both_logical_jacobians(
     )
 
     # The fused kernel accumulates both logical Jacobians in one FP32 WMMA
-    # accumulator. Torch GEMM can use a different FP32 reduction order before
-    # the single BF16 output rounding.
-    torch.testing.assert_close(input.grad, expected_grad, rtol=0, atol=1e-4)
+    # accumulator and rounds once to BF16. Torch evaluates two GEMMs before the
+    # sum, so reduction and rounding order need an error-based comparison.
+    error = input.grad.float() - expected_grad.float()
+    normalized_rmse = (
+        error.square().mean().sqrt()
+        / expected_grad.float().square().mean().sqrt()
+    )
+    assert normalized_rmse.item() < 0.005
+    assert error.abs().max().item() <= 0.0078125
     assert gate.grad is None
     assert up.grad is None
 

@@ -5,21 +5,19 @@
 This document covers dense `torch_ggml_ops::mmq` forward on gfx1151.
 
 Included:
-
-- BF16 activations;
-- internal Q8_1 activation quantization;
-- packed GGUF Q3_K, Q4_K, Q5_K, Q6_K, and IQ2_S weights;
-- BF16 outputs;
-- the 160 ordinary model projections;
-- the packed Q6_K language-model head;
+- BF16 activations.
+- internal Q8_1 activation quantization.
+- packed GGUF Q3_K, Q4_K, Q5_K, Q6_K, and IQ2_S weights.
+- BF16 outputs.
+- the 160 ordinary model projections.
+- the packed Q6_K language-model head.
 - production batch sizes 1, 4, and 16 at sequence length 2048.
 
 Excluded:
-
-- `grouped_mmq` multiplication and routed-expert scheduling;
-- GatedDeltaNet physical-layout permutations;
-- LoRA GEMMs and residual accumulation;
-- public operator-schema changes;
+- `grouped_mmq` multiplication and routed-expert scheduling.
+- GatedDeltaNet physical-layout permutations.
+- LoRA GEMMs and residual accumulation.
+- public operator-schema changes.
 - changes to `csrc/vendor/llama_cpp/*`.
 
 The grouped path shares the rewritten activation quantizer but now has its own independently optimized multiplication and scheduling implementation, documented in `docs/grouped_mmq_fwd_optimization.md`.
@@ -29,19 +27,17 @@ The grouped path shares the rewritten activation quantizer but now has its own i
 Dense forward optimization is complete for the current fused packed representation and all retained source is committed.
 
 Done:
-
-- replaced the excessive small-workgroup Q8_1 launch with one 512-thread workgroup per real activation row;
-- added compile-time row-tile selection and retained `J=64` only for the 64-row Q6_K fallback;
-- kept the measured ordinary `I=64, J=128`, 128-thread geometry;
-- validated zero private segment for the retained quantizer and dense forward specializations;
+- replaced the excessive small-workgroup Q8_1 launch with one 512-thread workgroup per real activation row.
+- added compile-time row-tile selection and retained `J=64` only for the 64-row Q6_K fallback.
+- kept the measured ordinary `I=64, J=128`, 128-thread geometry.
+- validated zero private segment for the retained quantizer and dense forward specializations.
 - selected 256 rows as the production LM-head loss chunk at the scheduling layer.
 
 The source-of-record benchmark remains `/tmp/mmq_fwd_final_full.json`. The production LM-head decision must be evaluated with the complete loss loop: its M=256 forward call is slower than BF16 in isolation, but the 2,048-row packed loss is faster because M=256 sharply reduces call count and uses the optimized backward kernel.
 
 Remaining work is architectural rather than another broad fused-kernel sweep:
-
-- reuse Q8_1 activation workspaces across same-input projections;
-- change the Q6_K M=256 representation or accumulator organization if a new dense-forward project is authorized;
+- reuse Q8_1 activation workspaces across same-input projections.
+- change the Q6_K M=256 representation or accumulator organization if a new dense-forward project is authorized.
 - consider cross-call decoded-weight reuse or a transient project-owned decoded dense stage.
 
 ## Hardware and measurement rules
@@ -218,7 +214,7 @@ The quantizer is 5.76x faster. Combined traced time fell from about 7.67 ms to 3
 
 The multiplication kernel itself did not improve in this experiment. The end-to-end gain came from eliminating quantization scheduling overhead.
 
-Code-object metadata reports 254 architectural VGPRs for Q4_K `J=128`; rocprofv3 rounds the allocation to 256.
+Code-object metadata reports 254 architectural VGPRs for Q4_K `J=128`. rocprofv3 rounds the allocation to 256.
 
 ### Q6_K LM head at `M=64`
 
@@ -250,7 +246,7 @@ There is no current evidence that forward LDS layout is a large production bottl
 
 | Experiment | Result |
 | --- | --- |
-| One 512-thread Q8_1 block per real row | Removed padded-row work and excessive small workgroups; first-order narrow gain |
+| One 512-thread Q8_1 block per real row | Removed padded-row work and excessive small workgroups. First-order narrow gain |
 | Compile-time forward `J` | Enabled bounded row-tile specialization without vendor changes |
 | Q6_K `J=64` for padded rows `<=64` | 7.413 to 4.202 ms on the low-memory LM-head fallback |
 | Ordinary `I=64`, `J=128`, 128 threads | Best measured general production configuration |
@@ -263,7 +259,7 @@ There is no current evidence that forward LDS layout is a large production bottl
 | `I=128` | Regressed the measured shape mix |
 | Smaller forward thread/tile combinations | Did not improve the production aggregate |
 | A major WMMA representation rewrite | No large remaining production margin and high implementation risk |
-| DirectToLds/DirectToVgpr-style rewrite | Packed reconstruction remains in the path; selected hipBLASLt references also disable these modes |
+| DirectToLds/DirectToVgpr-style rewrite | Packed reconstruction remains in the path. Selected hipBLASLt references also disable these modes |
 | gfx1250 WMMA arb-stall programming | The capability is not available on gfx1151 |
 
 ## Relevant architecture lessons
@@ -271,20 +267,18 @@ There is no current evidence that forward LDS layout is a large production bottl
 TensileLite and shipped hipBLASLt remain useful as records of measured gfx1151 geometry and scheduling. They are not directly reusable generators for packed GGUF MMQ.
 
 Relevant forward lessons:
-
-- four wave32 waves remain a sound workgroup size;
-- conventional global-to-VGPR-to-LDS staging is competitive on gfx1151;
-- one and two LDS buffers both win in different dense shapes, so dual buffering is not a universal rule;
-- wide local reads and aligned LDS layouts are desirable, but must be judged by end-to-end time;
-- source-swap and transposed LDS concepts are useful orientation references rather than drop-in code;
+- four wave32 waves remain a sound workgroup size.
+- conventional global-to-VGPR-to-LDS staging is competitive on gfx1151.
+- one and two LDS buffers both win in different dense shapes, so dual buffering is not a universal rule.
+- wide local reads and aligned LDS layouts are desirable, but must be judged by end-to-end time.
+- source-swap and transposed LDS concepts are useful orientation references rather than drop-in code.
 - generated dense-GEMM solution databases do not model Q8 activation workspaces or GGUF decode.
 
 FeatherOps reinforces several measurement rules:
-
-- use controlled ablations rather than PC samples alone;
-- inspect generated ISA and resource metadata after layout or vectorization changes;
-- use real nonzero operands because zero WMMA inputs can mislead;
-- keep explicit prefetch state in fixed scalar/vector VGPR values rather than compiler-managed arrays;
+- use controlled ablations rather than PC samples alone.
+- inspect generated ISA and resource metadata after layout or vectorization changes.
+- use real nonzero operands because zero WMMA inputs can mislead.
+- keep explicit prefetch state in fixed scalar/vector VGPR values rather than compiler-managed arrays.
 - optimize whole-call time, including quantization and workspace allocation.
 
 ## Completed work and stopping point
@@ -292,9 +286,8 @@ FeatherOps reinforces several measurement rules:
 The retained dense-forward implementation has bounded the useful local neighborhoods for quantizer launch shape, `I`, `J`, thread count, and the current fused packed WMMA organization.
 
 The remaining single-call deficits are:
-
-- Q6_K at M=256: 16.127 ms versus about 13.05 ms BF16, or approximately 0.81x throughput;
-- narrow Q3_K and Q5_K at M=32,768: about 5-9% behind BF16;
+- Q6_K at M=256: 16.127 ms versus about 13.05 ms BF16, or approximately 0.81x throughput.
+- narrow Q3_K and Q5_K at M=32,768: about 5-9% behind BF16.
 - repeated Q8_1 quantization and workspace allocation when several projections consume the same BF16 activation.
 
 These deficits do not change the production LM-head selection. M=256 is the production chunk because the complete 2,048-row packed-loss loop measured 229.958 ms versus 312.690 ms for M=64. The faster backward schedule and lower call count outweigh the forward single-call deficit. M=128 and M=64 remain lower-memory fallbacks.
@@ -308,8 +301,7 @@ No further global `J=64`, `I=128`, or broad tile sweep should be repeated. Those
 This is the highest-confidence dense-forward opportunity. Every dense `mmq` call currently allocates and fills a Q8_1 workspace even when several projections consume the same BF16 tensor.
 
 A future implementation should use either:
-
-- an explicit prepared-activation internal operator; or
+- an explicit prepared-activation internal operator.
 - a dense pair/multi-projection operator analogous to `grouped_mmq_pair`.
 
 Q4_K/Q5_K use the scale-plus-sum Q8 layout, while Q3_K/Q6_K/IQ2_S use the scale-only layout. A layer requiring both classes needs at most two quantizations. Avoid an implicit pointer cache unless it tracks storage identity, tensor version, device, stream ordering, shape, row padding, and metadata layout.
@@ -319,9 +311,8 @@ Q4_K/Q5_K use the scale-plus-sum Q8 layout, while Q3_K/Q6_K/IQ2_S use the scale-
 A future Q6_K project must materially reduce the `J=128` kernel's approximately 225 architectural VGPRs or avoid reconstructing the same packed data in the same way. Acceptance requires a complete M=256 gain without regressing M=64, M=128, or ordinary projections.
 
 Promising higher-ceiling directions are:
-
-- cross-call decoded-weight reuse;
-- a compact lossless int8-plus-scale cache;
+- cross-call decoded-weight reuse.
+- a compact lossless int8-plus-scale cache.
 - transient packed-to-BF16 decode followed by a project-owned dense stage.
 
 On gfx1151, approximate int8 WMMA is not justified by raw arithmetic throughput alone.
@@ -344,8 +335,7 @@ pytest -q tests/
 The `~/test_no_unsloth` integration suite also passes 9 tests, including the production 256-row packed-loss schedule.
 
 Forward normalized RMSE remains within the existing Q8_1 envelope:
-
-- approximately 0.6% for Q3_K and Q6_K;
+- approximately 0.6% for Q3_K and Q6_K.
 - approximately 1.1-2.0% for Q4_K and Q5_K.
 
 Dense forward and quantizer specializations have zero-byte private segments. No file under `csrc/vendor/llama_cpp/*` was modified.

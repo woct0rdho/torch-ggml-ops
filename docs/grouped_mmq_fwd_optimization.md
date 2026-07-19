@@ -5,8 +5,7 @@
 This document covers routed grouped MMQ forward on gfx1151.
 
 The production operators are:
-
-- `grouped_mmq_pair` for gate and up;
+- `grouped_mmq_pair` for gate and up.
 - `grouped_mmq` for down.
 
 Dense MMQ forward and backward are documented separately in `docs/mmq_fwd_optimization.md` and `docs/mmq_bwd_optimization.md`.
@@ -16,21 +15,19 @@ The grouped optimization pass is complete for the current packed representation.
 ## Current status
 
 Done:
-
-- specialized production gate/up and down shapes at compile time with `I=64`, `J=64`, and 128 threads;
-- removed all production private segments and register spills;
-- split exact full-row and bounded tail bodies;
-- retained a two-block fixed-K down schedule and pointer-increment gate/up traversal;
-- added atomics-free device row-task descriptors for large gate/up groups and reused them across paired projections;
-- retained serial row ownership for down after descriptors and a complete decoded-weight LDS cache regressed;
-- added contiguous bounded down-tail activation loads;
+- specialized production gate/up and down shapes at compile time with `I=64`, `J=64`, and 128 threads.
+- removed all production private segments and register spills.
+- split exact full-row and bounded tail bodies.
+- retained a two-block fixed-K down schedule and pointer-increment gate/up traversal.
+- added atomics-free device row-task descriptors for large gate/up groups and reused them across paired projections.
+- retained serial row ownership for down after descriptors and a complete decoded-weight LDS cache regressed.
+- added contiguous bounded down-tail activation loads.
 - validated all 60 production benchmark points exactly against dense MMQ.
 
 Final outcome:
-
-- packed MMQ wins 54 of 60 individual points against BF16 AITER;
-- every gate/up point and every Q4_K/Q5_K down point wins;
-- checkpoint-weighted packed grouped projections are 1.53-2.82x faster than AITER across the measured batch/distribution matrix;
+- packed MMQ wins 54 of 60 individual points against BF16 AITER.
+- every gate/up point and every Q4_K/Q5_K down point wins.
+- checkpoint-weighted packed grouped projections are 1.53-2.82x faster than AITER across the measured batch/distribution matrix.
 - the only remaining individual losses are nonuniform IQ2_S down at batch 1 and batch 4.
 
 Remaining work is representation-level: compact lossless IQ2_S decode caching, cross-call decoded-weight reuse, or a transient project-owned decoded dense stage. The local tile, scheduler, K-loop, bounds, cache, and synchronization neighborhoods are closed.
@@ -44,10 +41,9 @@ Activations are quantized internally to Q8_1. Packed GGUF weights remain the aut
 `expert_indices` and `expert_offsets` remain device-resident. The optimized path must not inspect group sizes through `.item()`, a device-to-host copy, a CPU descriptor, or an implicit synchronization.
 
 The metadata ABI is:
-
-- `expert_indices`: contiguous CUDA `torch.int64`, shape `[G]`;
-- `expert_offsets`: contiguous CUDA `torch.int32`, shape `[G]`;
-- `expert_offsets[-1] = R`;
+- `expert_indices`: contiguous CUDA `torch.int64`, shape `[G]`.
+- `expert_offsets`: contiguous CUDA `torch.int32`, shape `[G]`.
+- `expert_offsets[-1] = R`.
 - `G <= 256`.
 
 The sequence length is 2,048 and top-k is 8. The routed row count is therefore:
@@ -81,14 +77,13 @@ Gate and up use one shared Q8_1 activation workspace. The two packed projections
 `bench/benchmark_grouped_mmq_fwd.py` follows the dense benchmark conventions.
 
 It records:
-
-- complete public packed-operator latency;
-- logical throughput;
-- incremental peak allocation and reservation growth;
-- AITER configuration;
-- routing metadata and distribution statistics;
-- checkpoint-weighted forward and optimizer-step estimates;
-- grouped-versus-dense-MMQ exactness;
+- complete public packed-operator latency.
+- logical throughput.
+- incremental peak allocation and reservation growth.
+- AITER configuration.
+- routing metadata and distribution statistics.
+- checkpoint-weighted forward and optimizer-step estimates.
+- grouped-versus-dense-MMQ exactness.
 - grouped-versus-dequantized-BF16 error.
 
 The packed timing includes Q8_1 quantization and grouped multiplication.
@@ -281,22 +276,19 @@ K iteration = 256 packed values
 ```
 
 Both production families are compile-time specialized:
-
-- gate/up: `NRowsWeight=512`, `BlocksPerWeightRow=8`;
+- gate/up: `NRowsWeight=512`, `BlocksPerWeightRow=8`.
 - down: `NRowsWeight=2048`, `BlocksPerWeightRow=2`.
 
 Common behavior:
-
-- exact output tiles have no output-row fallback;
-- full row tiles use contiguous Q8_1 loads and unmasked BF16 stores;
-- only the final partial row tile uses bounded zero fill and masked stores;
-- packed weights and Q8_1 activations are staged in LDS;
+- exact output tiles have no output-row fallback.
+- full row tiles use contiguous Q8_1 loads and unmasked BF16 stores.
+- only the final partial row tile uses bounded zero fill and masked stores.
+- packed weights and Q8_1 activations are staged in LDS.
 - public inputs and outputs remain BF16 and packed GGUF weights remain authoritative.
 
 Gate/up scheduling is shape- and row-count-specific:
-
-- batch-1-sized groups retain one `(expert, output tile)` workgroup with a serial row loop, preserving sparse launch behavior;
-- when the host-visible average reaches at least two 64-row tiles, one GPU setup workgroup builds atomics-free `(expert, row_start, row_end)` task descriptors;
+- batch-1-sized groups retain one `(expert, output tile)` workgroup with a serial row loop, preserving sparse launch behavior.
+- when the host-visible average reaches at least two 64-row tiles, one GPU setup workgroup builds atomics-free `(expert, row_start, row_end)` task descriptors.
 - `grouped_mmq_pair` builds descriptors once and reuses them for gate and up.
 
 Down retains serial expert row ownership because it already launches 32 output tiles per active expert. Its two fixed K blocks are emitted as two explicit calls, and partial activation tiles use one contiguous integer-span predicate.
@@ -316,9 +308,8 @@ The following traces describe the original spill-heavy baseline and are retained
 ### Gate/up Q3_K, batch 1, uniform
 
 The profiled pair decomposed into:
-
-- Q8_1 quantization: 0.829 ms;
-- first grouped projection: 5.408 ms;
+- Q8_1 quantization: 0.829 ms.
+- first grouped projection: 5.408 ms.
 - second grouped projection: 5.359 ms.
 
 The grouped projections account for about 93% of the packed operator time.
@@ -326,8 +317,7 @@ The grouped projections account for about 93% of the packed operator time.
 ### Gate/up Q3_K, batch 16, uniform
 
 The profiled pair decomposed into:
-
-- Q8_1 quantization: 7.894 ms;
+- Q8_1 quantization: 7.894 ms.
 - two grouped projections: 122.445 ms total.
 
 The grouped projections account for about 94% of the packed operator time.
@@ -335,15 +325,14 @@ The grouped projections account for about 94% of the packed operator time.
 ### Down Q4_K, batch 4, uniform
 
 The profiled single projection decomposed into:
-
-- Q8_1 quantization: 0.916 ms;
+- Q8_1 quantization: 0.916 ms.
 - grouped projection: 21.964 ms.
 
 The multiplication kernel is the first-order bottleneck. More quantizer work is not justified before fixing it.
 
 ## Historical pre-G1 packed code-object resources
 
-The pre-G1 extension code object was extracted from `.hip_fatbin` and inspected with `clang-offload-bundler`, `llvm-readobj`, `llvm-nm`, and `llvm-objdump`. These resources are historical; final retained resources are reported later.
+The pre-G1 extension code object was extracted from `.hip_fatbin` and inspected with `clang-offload-bundler`, `llvm-readobj`, `llvm-nm`, and `llvm-objdump`. These resources are historical. Final retained resources are reported later.
 
 | Grouped kernel | VGPRs | SGPRs | Private bytes/thread | VGPR spills |
 |---|---:|---:|---:|---:|
@@ -443,24 +432,23 @@ TensileLite's runtime helper normally constructs grouped user-argument records o
 
 | Mechanism | Durable lesson | Final outcome |
 |---|---|---|
-| Static macro-tile and matrix-instruction selection | Measure compile-time `I`, `J`, and thread-count families | `I=64`, `J=64`, 128 threads retained; G3/G9 rejected wider tiles |
+| Static macro-tile and matrix-instruction selection | Measure compile-time `I`, `J`, and thread-count families | `I=64`, `J=64`, 128 threads retained. G3/G9 rejected wider tiles |
 | Fixed `DepthU` and assertions | Specialize eight-block gate/up and two-block down traversal | Retained in G1, G6, and G7 |
 | SGPR/immediate global-read offsets | Prefer affine pointer increments and scalar fixed offsets on exact tiles | Gate/up pointer increments retained in G7 |
 | Algorithm-3 issue scheduling | Split read/decode/commit lifetimes before adding pacing | Deeper staged prefetch closed because final kernels are already near the VGPR limit |
-| Wave-separated reads | Keep weight ownership wave-local where geometry divides | Useful layout principle; no separate retained launch variant |
-| `DirectToVgpr` | At most one immediately consumed decoded-weight fragment could be plausible | Wholesale and both-operands paths rejected; not pursued after resource closure |
-| One/two LDS buffers | Extra staging needs a measured residency argument | Complete down decoded cache lost 27-40%; second-stage work remains closed |
-| Store remapping | C-shuffle can trade LDS and synchronization for coalesced output | Not retained; direct BF16 writeback is not the final bottleneck |
-| GSU, split-K, Stream-K | Duplicates packed decode or requires reduction | Rejected for fixed K=512/2048; grouped Stream-K is unsupported |
+| Wave-separated reads | Keep weight ownership wave-local where geometry divides | Useful layout principle. No separate retained launch variant |
+| `DirectToVgpr` | At most one immediately consumed decoded-weight fragment could be plausible | Wholesale and both-operands paths rejected. Not pursued after resource closure |
+| One/two LDS buffers | Extra staging needs a measured residency argument | Complete down decoded cache lost 27-40%. Second-stage work remains closed |
+| Store remapping | C-shuffle can trade LDS and synchronization for coalesced output | Not retained. Direct BF16 writeback is not the final bottleneck |
+| GSU, split-K, Stream-K | Duplicates packed decode or requires reduction | Rejected for fixed K=512/2048. Grouped Stream-K is unsupported |
 
 `UseSgprForGRO` remains a useful code-generation lesson: one per-lane VGPR base plus scalar offsets can reduce address state for affine exact tiles. Shift-pointer edge handling is incompatible with this form, which reinforces separate full and tail bodies. Explicit `readfirstlane` is justified only when final ISA proves that a wave-uniform value remained in VGPRs.
 
 Algorithm-3 scheduling also established an ordering rule that remains useful for any future representation:
-
-- read a bounded packed fragment;
-- decode with temporary metadata and bit-extraction state;
-- commit decoded BF16 values to LDS or form one immediately consumed register operand;
-- end decode-temporary lifetimes;
+- read a bounded packed fragment.
+- decode with temporary metadata and bit-extraction state.
+- commit decoded BF16 values to LDS or form one immediately consumed register operand.
+- end decode-temporary lifetimes.
 - issue LDS reads and WMMA while only bounded next-fragment state is live.
 
 Adding barriers to an unchanged monolithic decoder does not reproduce this dataflow. G5 confirmed that removing one existing write barrier is neutral, while the final VGPR allocations make a deeper live prefetch window unattractive.
@@ -484,11 +472,10 @@ Relevant sources:
 ```
 
 The useful CK lessons were structural rather than directly reusable kernels:
-
-- fixed-NK specialization removes dynamic N/K scheduler state;
-- load, decode, LDS commit, LDS read, and WMMA phases need bounded lifetimes;
-- tile ordering should preserve locality without adding excessive persistent control state;
-- C-shuffle and extra pipeline stages are worthwhile only with a resource argument;
+- fixed-NK specialization removes dynamic N/K scheduler state.
+- load, decode, LDS commit, LDS read, and WMMA phases need bounded lifetimes.
+- tile ordering should preserve locality without adding excessive persistent control state.
+- C-shuffle and extra pipeline stages are worthwhile only with a resource argument.
 - direct global-to-LDS is not a gfx1151 CK mechanism.
 
 The fixed-NK hypothesis produced the largest retained change. Production shapes are exact and narrow:
@@ -514,10 +501,10 @@ G4 retained separate full and tail bodies in one public launch. Full rows have n
 
 ### Dense-MMQ lessons carried into grouped MMQ
 
-- Inspect the final code object after every structural change; source-level register intuition was insufficient.
+- Inspect the final code object after every structural change. Source-level register intuition was insufficient.
 - Use compile-time typed variants and measured dispatch because decode and resource behavior differ by quant type.
 - Optimize complete public-operator latency. Final multiplication still accounts for approximately 87-91% of retained kernel time.
-- Larger cooperative tiles help only when reuse exceeds their LDS, accumulator, and workgroup-residency costs; G3 and G9 show that this condition does not hold here.
+- Larger cooperative tiles help only when reuse exceeds their LDS, accumulator, and workgroup-residency costs. G3 and G9 show that this condition does not hold here.
 - Type-specific packed extraction can win, but the final grouped limit is IQ2_S representation cost rather than a universal decoder schedule.
 - gfx1151 int8 WMMA has no decisive raw throughput advantage over BF16 WMMA. Packed MMQ must win through authoritative-weight compression, reuse, scheduling, and lower traffic.
 
@@ -552,10 +539,9 @@ The remaining six losses are nonuniform IQ2_S down points at batch 1 and batch 4
 Status: retained.
 
 The first implementation combined the two highest-priority spill-removal changes:
-
-- compile-time `J=64` for both production shape families;
-- fixed gate/up `NRowsWeight=512, BlocksPerWeightRow=8` and down `NRowsWeight=2048, BlocksPerWeightRow=2` variants;
-- no output-row fallback in the fixed variants because every production output tile is complete;
+- compile-time `J=64` for both production shape families.
+- fixed gate/up `NRowsWeight=512, BlocksPerWeightRow=8` and down `NRowsWeight=2048, BlocksPerWeightRow=2` variants.
+- no output-row fallback in the fixed variants because every production output tile is complete.
 - a fixed-trip K loop while retaining the general `J=128` fallback for tests and non-production shapes.
 
 The focused timing artifact is:
@@ -591,8 +577,7 @@ The fixed production kernels are spill-free:
 This removes the original 124-520 byte private segments and 30-129 VGPR spills without introducing dynamic stack use. The retained kernels also reduce dynamic LDS by 9,472 bytes relative to the original `J=128` grouped path.
 
 Production-shape correctness was checked against dense MMQ:
-
-- gate/up Q3_K batch 1 sparse: both outputs had zero differing BF16 elements;
+- gate/up Q3_K batch 1 sparse: both outputs had zero differing BF16 elements.
 - down Q4_K batch 4 uniform: zero differing BF16 elements.
 
 The complete public gate/up point measured 7.155 ms versus 14.155 ms AITER, or 1.98x faster. The complete public down Q4_K batch-4 point measured 10.617 ms versus 7.805 ms AITER, or 0.74x. Spill removal therefore explains and resolves most of the original deficit, but batch-4 down and batch-16 gate/up remain the primary performance gaps.
@@ -657,9 +642,8 @@ Keep `J=64` for all production grouped-forward types. The fixed `I=64, J=128` ne
 Status: retained.
 
 G4 split the serial expert loop into compile-time full-row and tail helpers. A full `J=64` row tile now:
-
-- loads the Q8_1 activation region as one contiguous integer span with no row division, remainder, or predicate;
-- writes a complete BF16 row tile with no row predicate;
+- loads the Q8_1 activation region as one contiguous integer span with no row division, remainder, or predicate.
+- writes a complete BF16 row tile with no row predicate.
 - retains the bounded zero-fill and masked-store path only for the final partial tile.
 
 The focused artifact is:
@@ -685,8 +669,7 @@ The focused artifact is:
 The production kernels remain spill-free. Q3_K uses 168 VGPRs, Q4_K uses 168, Q5_K uses 175 for down, and IQ2_S uses 225. The extra compile-time full/tail code raises some register counts but does not create a private segment.
 
 Production correctness remained exact against dense MMQ for both paths:
-
-- gate/up Q3_K batch 1 sparse: zero differing BF16 elements for both outputs;
+- gate/up Q3_K batch 1 sparse: zero differing BF16 elements for both outputs.
 - down Q4_K batch 4 boundary: zero differing BF16 elements.
 
 The complete gate/up Q3_K batch-1 sparse point measured 5.368 ms versus 14.131 ms AITER, or 2.63x. The complete down Q4_K batch-4 boundary point measured 6.962 ms versus 9.286 ms AITER, or 1.33x. G4 moves every focused production class ahead of its baseline AITER reference.
@@ -761,7 +744,7 @@ Production gate/up kernels remain spill-free. The pointer state raises VGPR allo
 
 ### G8: atomics-free row-task descriptors for large gate/up groups
 
-Status: retained for gate/up when the host-visible average is at least two `J=64` row tiles; rejected for down.
+Status: retained for gate/up when the host-visible average is at least two `J=64` row tiles. Rejected for down.
 
 G8 adds a one-workgroup GPU setup pass. Each of at most 256 threads computes one group's task count, participates in a shared-memory prefix sum, and writes compact `(expert, row_start, row_end)` records without atomics. The capacity remains bounded by:
 
@@ -831,7 +814,7 @@ The wider task kernel actually reduced Q3_K/IQ2_S VGPR allocation to 150/201, co
 
 ### G10: 256 threads with `I=64, J=64`
 
-Status: invalid and reverted; timings are non-results.
+Status: invalid and reverted. Timings are non-results.
 
 G10 changed only the workgroup from four to eight waves while retaining the 64-row output tile. The inherited MMQ wave mapping assigns output fragments by `threadIdx.y`, so the additional four waves mapped beyond the logical 64-row output tile and overlapped neighboring output work. The focused test appeared implausibly fast for that reason.
 
@@ -878,10 +861,9 @@ The complete retained 60-point artifact after G11 is:
 ```
 
 All 60 points match concatenated dense MMQ exactly with zero differing BF16 elements. Normalized RMSE against independently dequantized BF16 AITER remains within the original expected ranges:
-
-- Q3_K: 0.00599-0.00613;
-- IQ2_S: 0.00600-0.00611;
-- Q4_K: 0.01120-0.01381;
+- Q3_K: 0.00599-0.00613.
+- IQ2_S: 0.00600-0.00611.
+- Q4_K: 0.01120-0.01381.
 - Q5_K: 0.01300-0.01650.
 
 The packed operator wins 54 of 60 individual points against AITER. All gate/up Q3_K and IQ2_S points win, all down Q4_K and Q5_K points win, and all batch-16 down IQ2_S points win. The only remaining losses are nonuniform down IQ2_S at batch 1 and batch 4.
@@ -922,11 +904,10 @@ The following estimates multiply each complete public-operator latency by the ch
 
 ### Final code-object resources
 
-All retained production arithmetic kernels have zero private segment, zero VGPR spills, zero SGPR spills, and no dynamic stack.
-
-- large-group gate/up row-task Q3_K/IQ2_S: 173/213 VGPRs and 54/50 SGPRs;
-- batch-1 serial gate/up Q3_K/IQ2_S: 177/240 VGPRs and 44/56 SGPRs;
-- down Q4_K/Q5_K/IQ2_S: 244/248/232 VGPRs and 46 SGPRs;
+All retained production arithmetic kernels have zero private segment, zero VGPR spills, zero SGPR spills, and no dynamic stack:
+- large-group gate/up row-task Q3_K/IQ2_S: 173/213 VGPRs and 54/50 SGPRs.
+- batch-1 serial gate/up Q3_K/IQ2_S: 177/240 VGPRs and 44/56 SGPRs.
+- down Q4_K/Q5_K/IQ2_S: 244/248/232 VGPRs and 46 SGPRs.
 - descriptor setup: 13 VGPRs, 23 SGPRs, and 1 KiB LDS.
 
 Dynamic LDS remains 28,928 bytes for Q4_K/Q5_K and 30,976 bytes for Q3_K/IQ2_S at `I=64, J=64`.
@@ -942,25 +923,22 @@ Final sequential kernel traces are under:
 ```
 
 Ignoring benchmark input-generation kernels, the packed multiplication remains dominant:
-
-- gate/up Q3_K batch 16 uniform: 50.875 ms across two row-task projections, 7.703 ms quantization, and 0.009 ms descriptor setup; multiplication is approximately 87% of operator kernel time;
-- down Q4_K batch 4 uniform: 5.555 ms multiplication and 0.522 ms quantization; multiplication is approximately 91%;
-- down IQ2_S batch 4 skewed: 9.576 ms multiplication and 0.945 ms quantization; multiplication is approximately 91%.
+- gate/up Q3_K batch 16 uniform: 50.875 ms across two row-task projections, 7.703 ms quantization, and 0.009 ms descriptor setup. Multiplication is approximately 87% of operator kernel time.
+- down Q4_K batch 4 uniform: 5.555 ms multiplication and 0.522 ms quantization. Multiplication is approximately 91%.
+- down IQ2_S batch 4 skewed: 9.576 ms multiplication and 0.945 ms quantization. Multiplication is approximately 91%.
 
 The remaining deficit is not register spilling, launch setup, LDS banking, or generic metadata traversal. It is the packed IQ2_S arithmetic representation on irregular down groups:
-
 - IQ2_S packed metadata interpretation, grid lookup, scale formation, and BF16 decoded-weight construction remain inside every output-tile workgroup.
 - Down launches 32 output tiles per active expert, so the same expert tail and packed decode structure is repeated many times.
 - Nonuniform groups require one partial `J=64` tile per expert. G11 removed row division and source reconstruction, but the WMMA tile still computes zero-padded rows and the packed weights still must be decoded for that partial tile.
 - BF16 AITER has no packed decode cost and therefore retains a narrow advantage on the six short/nonuniform IQ2_S down points.
 
 The tested same-representation alternatives do not offer more headroom:
-
-- a complete decoded-weight LDS cache loses 27-40%;
-- down row descriptors lose 2-14%;
-- `J=128` and `I=128` lose materially;
-- the post-write barrier is neutral;
-- eight-wave `I=64` ownership is invalid without split-K-style reduction;
+- a complete decoded-weight LDS cache loses 27-40%.
+- down row descriptors lose 2-14%.
+- `J=128` and `I=128` lose materially.
+- the post-write barrier is neutral.
+- eight-wave `I=64` ownership is invalid without split-K-style reduction.
 - split-K, larger LDS, a second stage, and persistent control state conflict with measured regressions and resource constraints.
 
 No further local tile, scheduler, bounds, or synchronization change is worthwhile for the current packed representation. A higher ceiling requires a representation-level change, most plausibly a compact lossless IQ2_S decoded cache that is substantially smaller than BF16, cross-call decoded-weight reuse, or a transient project-owned decoded dense stage. Those are separate architectural projects and should be judged against the now-strong complete-operator baseline rather than added to this kernel as more control state.
@@ -969,12 +947,12 @@ No further local tile, scheduler, bounds, or synchronization change is worthwhil
 
 | Phase | Outcome |
 |---|---|
-| Compile-time row and fixed-shape specialization | Completed in G1; removed all production spills |
-| Down complete decoded-weight LDS cache | Rejected in G2; 27-40% slower |
+| Compile-time row and fixed-shape specialization | Completed in G1. Removed all production spills |
+| Down complete decoded-weight LDS cache | Rejected in G2. 27-40% slower |
 | `J=128` and wider output tiles | Rejected in G3/G9 |
 | Exact full-row and bounded tail paths | Retained in G4 and refined for down in G11 |
 | Fixed two-block down and gate/up pointer traversal | Retained in G6/G7 |
-| Device row-task descriptors | Retained for large gate/up in G8; rejected for down |
+| Device row-task descriptors | Retained for large gate/up in G8. Rejected for down |
 | Barrier removal | Neutral and reverted in G5 |
 | Eight-wave `I=64` workgroup | Invalid output ownership in G10 |
 | End-to-end validation | Complete: 60/60 exact against dense MMQ, 39 project tests, 9 integration tests |
@@ -984,9 +962,8 @@ No further local tile, scheduler, bounds, or synchronization change is worthwhil
 No additional local tile, scheduler, bounds, prefetch-toggle, LDS-cache, or synchronization sweep is planned for the current representation.
 
 The only material remaining per-point deficit is nonuniform IQ2_S down at batch 1 and batch 4. Higher-ceiling follow-up projects are:
-
-- a compact lossless IQ2_S decoded cache substantially smaller than BF16;
-- cross-call decoded-weight reuse;
+- a compact lossless IQ2_S decoded cache substantially smaller than BF16.
+- cross-call decoded-weight reuse.
 - a transient project-owned decoded dense stage.
 
 Any future implementation must preserve device-resident routing metadata, batch-1 sparse launch behavior, exact grouped-versus-dense BF16 output, and complete-operator timing. It must compare against `/tmp/grouped_mmq_fwd_final_full_v2.json`, not the historical baseline.
@@ -1007,7 +984,7 @@ Status: satisfied for the retained production dispatch.
 
 Every retained kernel must preserve exact grouped-versus-dense-MMQ BF16 output.
 
-Production grouped arithmetic kernels require zero private segment and zero spills. The original Q4_K/Q5_K 512-520 bytes per thread was not acceptable; every retained production kernel satisfies the zero-private-segment requirement.
+Production grouped arithmetic kernels require zero private segment and zero spills. The original Q4_K/Q5_K 512-520 bytes per thread was not acceptable. Every retained production kernel satisfies the zero-private-segment requirement.
 
 Batch-1 sparse gate/up must retain a clear advantage over AITER.
 
@@ -1017,27 +994,17 @@ AITER remains the reference, not the ceiling. The final target is the best end-t
 
 ## Non-priorities and rejected directions
 
-Do not replace AITER GMM with `torch.matmul` as the performance reference.
-
-Do not link packed kernels against AITER or hipBLASLt.
-
-Do not construct full logical BF16 expert matrices in the packed production path.
-
-Do not introduce CPU expert descriptors or metadata synchronization.
-
-Do not prioritize another quantizer rewrite: production spills are already removed, and final multiplication still accounts for approximately 87-91% of retained kernel time.
-
-Do not use runtime environment variables or online autotuning for dispatch.
-
-Do not assume raw int8 WMMA throughput will overcome decode, LDS, scratch, or scheduling overhead.
-
-Do not treat PC sampling on these short kernels as quantitative latency data.
-
-Do not use shipped TensileLite grouped YAML choices or their displayed grouped GFLOP/s as a performance bound. Use them only as generator and interface evidence.
-
-Do not copy TensileLite's host-built grouped user-argument setup or per-workgroup GEMM search into the production routing path. Build compact metadata on the device and index it directly.
-
-Do not retry a wholesale direct-to-VGPR conversion, both-operands direct-to-VGPR, a two-LDS pipeline, GSU, split-K, or grouped Stream-K for the current packed representation.
+- Do not replace AITER GMM with `torch.matmul` as the performance reference.
+- Do not link packed kernels against AITER or hipBLASLt.
+- Do not construct full logical BF16 expert matrices in the packed production path.
+- Do not introduce CPU expert descriptors or metadata synchronization.
+- Do not prioritize another quantizer rewrite: production spills are already removed, and final multiplication still accounts for approximately 87-91% of retained kernel time.
+- Do not use runtime environment variables or online autotuning for dispatch.
+- Do not assume raw int8 WMMA throughput will overcome decode, LDS, scratch, or scheduling overhead.
+- Do not treat PC sampling on these short kernels as quantitative latency data.
+- Do not use shipped TensileLite grouped YAML choices or their displayed grouped GFLOP/s as a performance bound. Use them only as generator and interface evidence.
+- Do not copy TensileLite's host-built grouped user-argument setup or per-workgroup GEMM search into the production routing path. Build compact metadata on the device and index it directly.
+- Do not retry a wholesale direct-to-VGPR conversion, both-operands direct-to-VGPR, a two-LDS pipeline, GSU, split-K, or grouped Stream-K for the current packed representation.
 
 ## Final status
 
@@ -1045,7 +1012,7 @@ G1 completed the compile-time `J=64` and fixed-production-shape work and removed
 
 The complete fixed-`K=512` decoded-weight LDS cache was rejected in G2 because its LDS residency cost overwhelmed decode reuse.
 
-G3 rejected fixed-shape `J=128`; `J=64` remains the production row tile. G4 then removed full-row address decomposition and moved every focused production class ahead of AITER.
+G3 rejected fixed-shape `J=128`. `J=64` remains the production row tile. G4 then removed full-row address decomposition and moved every focused production class ahead of AITER.
 
 G5 showed that removing the post-write barrier is neutral. G6 retained a compile-time two-block down schedule, and G7 retained pointer-increment traversal for gate/up.
 

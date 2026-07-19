@@ -5,21 +5,19 @@
 This document covers dense `torch_ggml_ops::mmq_grad_input` backward on gfx1151.
 
 Included:
-
-- BF16 cotangents;
-- packed GGUF Q3_K, Q4_K, Q5_K, Q6_K, and IQ2_S weights;
-- BF16 input gradients;
-- the 160 ordinary model projections;
-- the packed Q6_K language-model head;
+- BF16 cotangents.
+- packed GGUF Q3_K, Q4_K, Q5_K, Q6_K, and IQ2_S weights.
+- BF16 input gradients.
+- the 160 ordinary model projections.
+- the packed Q6_K language-model head.
 - production batch sizes 1, 4, and 16 at sequence length 2048.
 
 Excluded:
-
-- `grouped_mmq` backward and routed-expert scheduling;
-- GatedDeltaNet physical-layout permutations;
-- LoRA GEMMs and residual accumulation;
-- public operator-schema changes;
-- changes to `csrc/vendor/llama_cpp/*`;
+- `grouped_mmq` backward and routed-expert scheduling.
+- GatedDeltaNet physical-layout permutations.
+- LoRA GEMMs and residual accumulation.
+- public operator-schema changes.
+- changes to `csrc/vendor/llama_cpp/*`.
 - direct linkage of the fused packed kernel against hipBLASLt.
 
 ## Current status
@@ -27,11 +25,10 @@ Excluded:
 Dense backward optimization is complete for the current fused packed representation. The final source-of-record benchmark is `/tmp/mmq_bwd_final_autonomous.json`.
 
 Done:
-
-- ordinary batch-16 packed backward is 1.193 seconds versus 1.267 seconds for the BF16 reference, approximately 5.8% faster overall;
-- Q6_K LM-head backward measures 5.357 ms at M=64, 9.084 ms at M=128, and 11.726 ms at M=256, all faster than BF16;
-- the production packed loss now uses 256-row chunks and is 26.5% faster than the former 64-row complete-loss schedule;
-- every retained production specialization has zero private segment and zero VGPR or SGPR spills;
+- ordinary batch-16 packed backward is 1.193 seconds versus 1.267 seconds for the BF16 reference, approximately 5.8% faster overall.
+- Q6_K LM-head backward measures 5.357 ms at M=64, 9.084 ms at M=128, and 11.726 ms at M=256, all faster than BF16.
+- the production packed loss now uses 256-row chunks and is 26.5% faster than the former 64-row complete-loss schedule.
+- every retained production specialization has zero private segment and zero VGPR or SGPR spills.
 - exact full-tile guards and bounds-safe fallbacks pass the current correctness suite.
 
 Remaining work is limited to higher-level representation or cross-call reuse for shared-down Q4_K/Q5_K. Local geometry, K-depth, prefetch, padding, swizzle, and extraction neighborhoods are closed.
@@ -119,7 +116,7 @@ weight = Q6_K
 production backward chunk M = 256
 ```
 
-Benchmarks retain `M = 64, 128, 256`; M=64 and M=128 are lower-memory fallbacks.
+Benchmarks retain `M = 64, 128, 256`. M=64 and M=128 are lower-memory fallbacks.
 
 ## Current source status
 
@@ -130,12 +127,11 @@ Dense backward optimization is complete for the current fused packed representat
 ```
 
 The current source includes:
-
-- the final 128x128 ordinary full-tile geometry;
-- final Q6_K M=64, M=128, and M=256 production geometries;
-- exact full-tile guards that require valid row and feature divisibility;
-- shape-specific LDS padding or XOR swizzles;
-- selected packed quant extraction for wide Q3_K, narrow Q5_K, and Q6_K M=256;
+- the final 128x128 ordinary full-tile geometry.
+- final Q6_K M=64, M=128, and M=256 production geometries.
+- exact full-tile guards that require valid row and feature divisibility.
+- shape-specific LDS padding or XOR swizzles.
+- selected packed quant extraction for wide Q3_K, narrow Q5_K, and Q6_K M=256.
 - bounds-safe fallbacks for arbitrary test and non-production shapes.
 
 The earlier Q6_K N=7 full-tile result was invalid because 112 columns per workgroup do not divide 2,048. It is retained only in the experiment log as a warning. The selected M=256 path uses two 128x64 workgroup tiles with N=4, exact bounds, an eight-BF16 XOR swizzle, and packed quant extraction.
@@ -160,15 +156,14 @@ The templated kernel configuration is:
 ```
 
 The kernel:
-
-- uses four wave32 waves in a 128-thread workgroup;
-- retains multiple 16x16 WMMA accumulators per wave;
-- cooperatively decodes packed weights into BF16 LDS;
-- loads BF16 A fragments directly from the cotangent;
-- shares each decoded B tile across four waves;
-- uses shape- and type-specific decoder width and geometry;
-- avoids cotangent quantization;
-- writes BF16 input gradients directly;
+- uses four wave32 waves in a 128-thread workgroup.
+- retains multiple 16x16 WMMA accumulators per wave.
+- cooperatively decodes packed weights into BF16 LDS.
+- loads BF16 A fragments directly from the cotangent.
+- shares each decoded B tile across four waves.
+- uses shape- and type-specific decoder width and geometry.
+- avoids cotangent quantization.
+- writes BF16 input gradients directly.
 - has zero private segment in every accepted specialization inspected so far.
 
 ## Current dispatch
@@ -223,10 +218,10 @@ Its Q6_K decoder additionally combines four low/high byte pairs into one packed 
 
 ### Other bounds-safe ordinary paths
 
-- rows `<=128`: one N tile;
-- rows `<=256`: four N tiles;
-- rows `<=2048`: type- and shape-specific four, eight, or sixteen N tiles;
-- rows `<=8192`: usually twelve N tiles, with sixteen for Q4_K/Q5_K at `in_features == 2048`;
+- rows `<=128`: one N tile.
+- rows `<=256`: four N tiles.
+- rows `<=2048`: type- and shape-specific four, eight, or sixteen N tiles.
+- rows `<=8192`: usually twelve N tiles, with sixteen for Q4_K/Q5_K at `in_features == 2048`.
 - larger rows that are not eligible for the full-tile specialization: sixteen N tiles.
 
 ## Experiment log
@@ -236,12 +231,11 @@ Its Q6_K decoder additionally combines four low/high byte pairs into one packed 
 The original kernel decoded one packed BF16 value at a time into a small 16x16 tile. It had little M/N reuse and sustained only about 0.05-0.13x BF16 throughput on most production shapes.
 
 The first accepted redesign introduced:
-
-- four wave32 waves;
-- LDS-staged decoded weights;
-- multiple WMMA accumulator tiles;
-- pair, quad, and sixteen-value decoders;
-- measured row/type dispatch;
+- four wave32 waves.
+- LDS-staged decoded weights.
+- multiple WMMA accumulator tiles.
+- pair, quad, and sixteen-value decoders.
+- measured row/type dispatch.
 - Q6_K scale and bit extraction shared across adjacent values.
 
 Representative improvement from the sequential baseline to `/tmp/mmq_bwd_final_full_v3.json`:
@@ -303,13 +297,12 @@ Narrow Q4_K M=32,768 sequence:
 | Final clean pre-padding dispatch | 3.273 | accepted milestone |
 
 Additional rejected experiments:
-
-- 3x6 and 4x4 M/N tiles;
-- a 1x16 K=32 schedule;
-- `GROUP_M=2` and `GROUP_M=4` on the final 128-row geometry;
-- eight-value Q3_K/Q4_K/Q5_K decoding;
-- full vector loading of the Q4_K metadata header;
-- replacing `__syncthreads()` with an LDS-only inline-assembly barrier;
+- 3x6 and 4x4 M/N tiles.
+- a 1x16 K=32 schedule.
+- `GROUP_M=2` and `GROUP_M=4` on the final 128-row geometry.
+- eight-value Q3_K/Q4_K/Q5_K decoding.
+- full vector loading of the Q4_K metadata header.
+- replacing `__syncthreads()` with an LDS-only inline-assembly barrier.
 - runtime environment-driven production dispatch.
 
 The inline-assembly barrier removed `buffer_gl0_inv` but was neutral or slower. It was removed.
@@ -364,7 +357,7 @@ Q5_K did not benefit from padding. Narrow Q5_K regressed from 3.378 to 3.622 ms,
 
 A later no-padding XOR swizzle sweep showed that the result is shape-specific. Query Q3_K/Q4_K measured 49.040/47.454 ms, narrow Q4_K/Q5_K measured 2.969/3.114 ms, and those cases improved relative to the immediately preceding selected dispatch.
 
-The eight-BF16-chunk swizzle regressed narrow Q3_K to 3.093 ms, attention-output Q4_K to 22.812 ms, and both shared-down formats to 5.401/5.651 ms. The selected dispatch uses that granularity only for wide Q3_K query, Q4_K query/narrow, and narrow Q5_K; padded vector loads remain selected for narrow Q3_K and attention-output Q4_K.
+The eight-BF16-chunk swizzle regressed narrow Q3_K to 3.093 ms, attention-output Q4_K to 22.812 ms, and both shared-down formats to 5.401/5.651 ms. The selected dispatch uses that granularity only for wide Q3_K query, Q4_K query/narrow, and narrow Q5_K. Padded vector loads remain selected for narrow Q3_K and attention-output Q4_K.
 
 A coarser 16-BF16-chunk swizzle regressed the high-frequency Q3_K query from 48.694 to 57.001 ms. A finer four-BF16 swizzle with four 64-bit fragment loads also regressed to 50.873 ms. Its selected eight-BF16 granularity is retained.
 
@@ -416,8 +409,8 @@ The M=256 neighborhood sweep was:
 
 | Configuration | Time ms | Outcome |
 | --- | ---: | --- |
-| M=2/N=5/K=32 | 19.204 | invalid full-tile measurement; N width does not divide 2048 |
-| M=2/N=7/K=32 | 18.861 | invalid full-tile measurement; corrected bounds-safe time is 29.628 ms |
+| M=2/N=5/K=32 | 19.204 | invalid full-tile measurement. N width does not divide 2048 |
+| M=2/N=7/K=32 | 18.861 | invalid full-tile measurement. Corrected bounds-safe time is 29.628 ms |
 | M=2/N=8/K=32 | 20.834 | selected valid exact-tile geometry |
 | M=2/N=7/K=16 | 24.588 | rejected |
 | M=2/N=7/K=64 | 25.631 | rejected |
@@ -518,7 +511,7 @@ At batch 16:
 
 M=256 is now the production schedule. It has the lowest batch-16 serial estimate at about 1.50 seconds and requires about 121 MiB of cotangent storage. M=128 and M=64 remain lower-memory fallbacks.
 
-The complete 2,048-row packed-loss loop measured 229.958 ms at M=256 versus 312.690 ms at M=64. Peak allocation above resident inputs increased from 69.03 to 253.57 MiB; the approximately 184.5 MiB increase is accepted.
+The complete 2,048-row packed-loss loop measured 229.958 ms at M=256 versus 312.690 ms at M=64. Peak allocation above resident inputs increased from 69.03 to 253.57 MiB. The approximately 184.5 MiB increase is accepted.
 
 Approximate BF16 cotangent storage is:
 
@@ -645,10 +638,9 @@ Packed extraction is therefore selected only for the narrow shape. Shared-down Q
 Shared-down Q4_K/Q5_K remain around 0.76-0.79x BF16.
 
 They combine:
-
-- only four N workgroups per M tile;
-- lower L2 hit rate;
-- structural LDS fragment cost;
+- only four N workgroups per M tile.
+- lower L2 hit rate.
+- structural LDS fragment cost.
 - insufficient arithmetic amortization for the added padded footprint.
 
 A shared-down-specific 4x4 per-wave geometry kept 16 accumulator tiles while doubling M reuse of decoded weights. It regressed Q4_K/Q5_K from about 5.25/5.57 ms to 7.338/7.388 ms because doubled cotangent traffic and four live A fragments outweighed reduced decode repetition.
@@ -689,39 +681,35 @@ Runtime logging identified two selected gfx1151 BF16 families:
 | Narrow, attention output | `MT128x32x32` | `MIWaveTile=2x2`, `MIWaveGroup=4x1`, one LDS buffer, 8-element LDS padding |
 
 Both use:
-
-- four wave32 waves;
-- `DepthU=32`;
-- scheduled global and local prefetch;
-- conventional global-to-VGPR-to-LDS staging;
-- wide local reads;
-- `SourceSwap=true`;
+- four wave32 waves.
+- `DepthU=32`.
+- scheduled global and local prefetch.
+- conventional global-to-VGPR-to-LDS staging.
+- wide local reads.
+- `SourceSwap=true`.
 - no DirectToLds or DirectToVgpr.
 
 Transferred and already validated ideas:
-
-- four-wave workgroups;
-- multi-M and multi-N WMMA tiles per wave;
-- `K_ITERATION=32` for the accepted ordinary tile;
-- paired local-fragment prefetch;
-- one LDS buffer as the default;
-- eight-element LDS padding where measured;
-- favorable transposed output orientation;
+- four-wave workgroups.
+- multi-M and multi-N WMMA tiles per wave.
+- `K_ITERATION=32` for the accepted ordinary tile.
+- paired local-fragment prefetch.
+- one LDS buffer as the default.
+- eight-element LDS padding where measured.
+- favorable transposed output orientation.
 - fine-grained geometry-specific dispatch.
 
 Still relevant:
-
-- explicit two-stage packed-byte prefetch into fixed VGPR state;
-- fully vectorized local reads after padding;
-- a second LDS buffer only after the one-buffer load path is efficient;
+- explicit two-stage packed-byte prefetch into fixed VGPR state.
+- fully vectorized local reads after padding.
+- a second LDS buffer only after the one-buffer load path is efficient.
 - low-level instruction scheduling if HIP cannot retain the desired load/wait/WMMA order.
 
 Not directly transferable:
-
-- DirectToLds cannot bypass GGUF reconstruction;
-- DirectToVgpr does not distribute one cooperatively decoded tile efficiently to four waves;
-- Stream-K and GlobalSplitU do not remove repeated decode;
-- gfx1151 lacks the gfx1250 WMMA arb-stall control;
+- DirectToLds cannot bypass GGUF reconstruction.
+- DirectToVgpr does not distribute one cooperatively decoded tile efficiently to four waves.
+- Stream-K and GlobalSplitU do not remove repeated decode.
+- gfx1151 lacks the gfx1250 WMMA arb-stall control.
 - dense solution databases cannot describe packed decode inside the reduction loop.
 
 ## FeatherOps lessons that remain relevant
@@ -740,29 +728,27 @@ Not directly transferable:
 The final selected production run is complete. Ordinary batch-16 serial time is 1.193 seconds versus 1.267 seconds for BF16, and all three Q6_K production kernels exceed BF16 throughput.
 
 Done:
-
-- replaced the original scalar, low-reuse decoder with four-wave cooperative multi-value decode;
-- selected the 128x128 ordinary geometry with `K_ITERATION=32` and `GROUP_M=1`;
-- added exact full-tile paths, bounded fallbacks, packed-byte prefetch, and type-specific extraction;
-- selected shape-specific LDS padding and XOR swizzles;
-- retiled Q6_K M=64, M=128, and M=256;
-- selected M=256 as the production LM-head chunk at the loss scheduler;
+- replaced the original scalar, low-reuse decoder with four-wave cooperative multi-value decode.
+- selected the 128x128 ordinary geometry with `K_ITERATION=32` and `GROUP_M=1`.
+- added exact full-tile paths, bounded fallbacks, packed-byte prefetch, and type-specific extraction.
+- selected shape-specific LDS padding and XOR swizzles.
+- retiled Q6_K M=64, M=128, and M=256.
+- selected M=256 as the production LM-head chunk at the loss scheduler.
 - verified zero private segment and zero spills for every retained production specialization.
 
 No further ordinary geometry, K-depth, swizzle-only, or prefetch-toggle sweep has a high-confidence meaningful margin.
 
 ### Monitor the production M=256 LM-head schedule
 
-The packed Liger loss uses M=256. Its complete MMQ-forward, in-place cross-entropy, and MMQ-backward loop is 26.5% faster than the previous M=64 schedule. Peak allocation above resident inputs increases from 69.03 to 253.57 MiB; that approximately 184.5 MiB increase is accepted. M=128 remains the first lower-memory fallback.
+The packed Liger loss uses M=256. Its complete MMQ-forward, in-place cross-entropy, and MMQ-backward loop is 26.5% faster than the previous M=64 schedule. Peak allocation above resident inputs increases from 69.03 to 253.57 MiB. That approximately 184.5 MiB increase is accepted. M=128 remains the first lower-memory fallback.
 
 ### Remaining high-ceiling work: shared-down representation reuse
 
 Shared-down Q4_K/Q5_K remain the only material dense-backward deficits, at approximately 0.78x and 0.74x BF16 for M=32,768. Local geometry and K-depth experiments have plateaued.
 
 Future work should change representation or reuse decoded data across calls. Candidate projects are:
-
-- transient packed-to-BF16 decode followed by a project-owned dense stage;
-- a persistent lossless int8-plus-scale cache;
+- transient packed-to-BF16 decode followed by a project-owned dense stage.
+- a persistent lossless int8-plus-scale cache.
 - a decoded-weight cache shared across repeated backward calls.
 
 A lossless int8-plus-scale cache is preferable to approximate Q8/int8 WMMA because gfx1151 has no decisive raw int8 WMMA throughput advantage. Approximate storage for the 160 ordinary weights is roughly 475 MiB, versus about 760 MiB in BF16.
@@ -803,9 +789,8 @@ Four-, eight-, and 16-BF16 granularities have been compared on the important lay
 The current scalar stores are a transpose from decoder-friendly registers into WMMA-friendly LDS.
 
 Possible approaches include:
-
-- cross-lane register transpose;
-- decoder remapping to fixed input columns across multiple K values;
+- cross-lane register transpose.
+- decoder remapping to fixed input columns across multiple K values.
 - a second LDS transpose stage.
 
 These options may lose metadata sharing or add shuffle/barrier overhead. They are lower priority than repeated fragment-load optimization.
@@ -815,36 +800,32 @@ These options may lose metadata sharing or add shuffle/barrier overhead. They ar
 The following were measured and reverted or superseded.
 
 Geometry and traversal:
-
-- larger backward wave counts;
-- oversized N tiles that reduced workgroup count too far;
-- 2x2, 3x6, 4x4, and 1x16 ordinary geometries;
-- `GROUP_M=2` or `GROUP_M=4` on the final 128-row geometry;
+- larger backward wave counts.
+- oversized N tiles that reduced workgroup count too far.
+- 2x2, 3x6, 4x4, and 1x16 ordinary geometries.
+- `GROUP_M=2` or `GROUP_M=4` on the final 128-row geometry.
 - shared-down 4x4 and 1x16 geometries.
 
 Decode and scheduling:
-
-- shuffle-based replacement of LDS sharing;
-- eight-value ordinary decoders;
-- ordinary `K_ITERATION=64` after the sixteen-value decoder;
-- vector loading the complete Q4_K metadata header;
-- cross-iteration Q3_K packed-fragment prefetch;
-- shared-down K=64;
+- shuffle-based replacement of LDS sharing.
+- eight-value ordinary decoders.
+- ordinary `K_ITERATION=64` after the sixteen-value decoder.
+- vector loading the complete Q4_K metadata header.
+- cross-iteration Q3_K packed-fragment prefetch.
+- shared-down K=64.
 - disabling shared-down Q5_K local or packed-byte prefetch.
 
 LDS and configuration:
-
-- custom LDS-only inline-assembly barriers;
-- environment-driven production configuration;
-- Q5_K eight-BF16 LDS row padding;
+- custom LDS-only inline-assembly barriers.
+- environment-driven production configuration.
+- Q5_K eight-BF16 LDS row padding.
 - Q4_K padding on small shared-down input width.
 
 Q6_K neighborhoods:
-
-- M=256 N=5 and the invalid N=7 full-tile dispatch;
-- M=256 K=16 and K=64;
-- M=128 N=3 at K=32 and K=64;
-- M=64 N=3/N=4 at K=64 and N=4/K=32;
+- M=256 N=5 and the invalid N=7 full-tile dispatch.
+- M=256 K=16 and K=64.
+- M=128 N=3 at K=32 and K=64.
+- M=64 N=3/N=4 at K=64 and N=4/K=32.
 - four- and 16-BF16 swizzles on the selected 128x64 geometry.
 
 The dispatch is a measured shape heuristic, not an autotuning system.
@@ -879,6 +860,6 @@ One validation run had a single grouped-pair element exceed its absolute toleran
 - Never run two GPU benchmarks or profilers in parallel.
 - PC sampling perturbs short kernels heavily and should be interpreted qualitatively.
 - One multi-counter M=256 Q6_K run caused an HSA memory fault and queue-sync timeouts. Use one counter at a time for that specialization.
-- One earlier post-profiler process encountered a transient `hipErrorLaunchFailure`; a fresh focused test and full rerun succeeded without source changes.
+- One earlier post-profiler process encountered a transient `hipErrorLaunchFailure`. A fresh focused test and full rerun succeeded without source changes.
 - `roc-obj-ls` fails because of a `rocm_sdk_core._cli` import error.
 - Inspect code objects through `.hip_fatbin`, `clang-offload-bundler`, `llvm-readobj`, `llvm-nm`, and `llvm-objdump`.
