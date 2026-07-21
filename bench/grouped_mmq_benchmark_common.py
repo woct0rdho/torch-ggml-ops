@@ -2,16 +2,12 @@
 
 import argparse
 import statistics
-import sys
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Callable
 
 import numpy as np
 import torch
 from mmq_benchmark_common import cuda_event_times_ms, incremental_peak_bytes
-
-DEFAULT_AITER_HEURISTIC_DIR = Path.home() / "test_no_unsloth"
 
 
 @dataclass(frozen=True)
@@ -119,15 +115,6 @@ def select_cases(case_names: str, primary_only: bool) -> tuple[GroupedMMQCase, .
     if not selected:
         raise ValueError("no grouped benchmark cases selected")
     return selected
-
-
-def load_gmm_config(heuristic_dir: Path) -> Callable[[int, int], dict[str, int]]:
-    sys.path.insert(0, str(heuristic_dir))
-    try:
-        from fast_moe_lora import _gmm_config  # ty: ignore[unresolved-import]
-    finally:
-        sys.path.pop(0)
-    return _gmm_config
 
 
 def adjust_positive_sizes(values: list[int], total: int) -> tuple[int, ...]:

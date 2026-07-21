@@ -332,7 +332,7 @@ pytest -q tests/
 39 passed
 ```
 
-The `~/test_no_unsloth` integration suite also passes 9 tests, including the production 256-row packed-loss schedule.
+The historical downstream integration suite also passed 9 tests, including the production 256-row packed-loss schedule. Current project validation is self-contained.
 
 Forward normalized RMSE remains within the existing Q8_1 envelope:
 - approximately 0.6% for Q3_K and Q6_K.

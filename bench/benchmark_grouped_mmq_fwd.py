@@ -4,8 +4,7 @@
 The packed path measures the complete public operator, including Q8_1 activation
 quantization and grouped multiplication. Gate/up uses grouped_mmq_pair so both
 projections share one Q8_1 workspace. The BF16 reference dequantizes the same
-GGUF experts once, then runs AITER GMM with the production heuristic from
-~/test_no_unsloth/fast_moe_lora.py.
+GGUF experts once, then runs AITER GMM with the project-owned gfx1151 heuristic.
 """
 
 import argparse
@@ -17,20 +16,18 @@ import gguf
 import torch
 from aiter.ops.triton.gmm import gmm
 from grouped_mmq_benchmark_common import (
-    DEFAULT_AITER_HEURISTIC_DIR,
+    GroupedMMQCase as GroupedForwardCase,
+)
+from grouped_mmq_benchmark_common import (
     RouteDistribution,
     benchmark_function,
     device_metadata,
     distribution_summary,
     error_metrics,
-    load_gmm_config,
     parse_name_list,
     route_distributions,
     select_cases,
     truncate_distribution,
-)
-from grouped_mmq_benchmark_common import (
-    GroupedMMQCase as GroupedForwardCase,
 )
 from mmq_benchmark_common import (
     DEFAULT_MODEL,
@@ -42,6 +39,7 @@ from mmq_benchmark_common import (
 from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
 import torch_ggml_ops
+from torch_ggml_ops.aiter_gmm_heuristics import gmm_config as aiter_gmm_config
 
 DEFAULT_OUTPUT = Path("/tmp/torch_ggml_ops_grouped_mmq_fwd_benchmark.json")
 
@@ -63,9 +61,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--correctness-rows", type=int, default=256)
     parser.add_argument("--seed", type=int, default=20260709)
     parser.add_argument(
-        "--aiter-heuristic-dir", type=Path, default=DEFAULT_AITER_HEURISTIC_DIR
-    )
-    parser.add_argument(
         "--cases",
         type=str,
         default="",
@@ -76,9 +71,6 @@ def parse_args() -> argparse.Namespace:
 
     if not args.model.is_file():
         parser.error(f"GGUF model not found: {args.model}")
-    heuristic_file = args.aiter_heuristic_dir / "fast_moe_lora.py"
-    if not heuristic_file.is_file():
-        parser.error(f"AITER heuristic not found: {heuristic_file}")
     if args.sequence_length <= 0 or args.top_k <= 0:
         parser.error("--sequence-length and --top-k must be positive")
     if args.warmup < 0 or args.repeats <= 0 or args.correctness_rows <= 0:
@@ -232,7 +224,6 @@ def main() -> None:
         raise RuntimeError("a HIP/CUDA device is required")
 
     cases = select_cases(args.cases, args.primary_only)
-    gmm_config_for = load_gmm_config(args.aiter_heuristic_dir)
     reader = gguf.GGUFReader(args.model)
     tensors = {tensor.name: tensor for tensor in reader.tensors}
     quant_names = {int(value): value.name for value in gguf.GGMLQuantizationType}
@@ -260,8 +251,8 @@ def main() -> None:
             "warmup": args.warmup,
             "repeats": args.repeats,
             "correctness_rows": args.correctness_rows,
-            "aiter_heuristic": str(args.aiter_heuristic_dir / "fast_moe_lora.py"),
-            "reference": "BF16 AITER gmm with _gmm_config",
+            "aiter_heuristic": "torch_ggml_ops.aiter_gmm_heuristics.gmm_config",
+            "reference": "BF16 AITER gmm with project-owned gmm_config",
             "aiter_work_stealing": False,
         },
         "results": [],
@@ -314,7 +305,7 @@ def main() -> None:
                 .contiguous()
                 for tensor, packed in zip(case_tensors, packed_weights, strict=True)
             )
-            gmm_config = gmm_config_for(
+            gmm_config = aiter_gmm_config(
                 case.expected_in_features, case.expected_out_features
             )
 

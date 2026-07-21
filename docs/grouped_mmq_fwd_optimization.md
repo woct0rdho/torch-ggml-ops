@@ -88,11 +88,11 @@ It records:
 
 The packed timing includes Q8_1 quantization and grouped multiplication.
 
-The BF16 performance reference is AITER Triton `gmm`, using `_gmm_config` from `~/test_no_unsloth/fast_moe_lora.py`. It is not `torch.matmul`.
+The BF16 performance reference is AITER Triton `gmm`, using the project-owned `torch_ggml_ops.aiter_gmm_heuristics.gmm_config`. It is not `torch.matmul`.
 
 AITER receives independently dequantized BF16 versions of the same logical GGUF experts. Dequantization and active-weight selection are setup costs and are not inside the timed GMM call.
 
-The AITER reference uses the same production transposed weight metadata as `fast_moe_lora.py`. `work_stealing` remains disabled, matching the production call.
+The AITER reference uses the production transposed weight metadata expected by the grouped kernel. `work_stealing` remains disabled, matching the production call.
 
 The full baseline command was:
 
@@ -976,7 +976,7 @@ python -m compileall -q bench
 git diff --check
 ```
 
-Then rerun the complete 60-point matrix and the `~/test_no_unsloth` integration suite.
+Then rerun the complete 60-point matrix and the local project test suite.
 
 ## Acceptance criteria
 

@@ -839,7 +839,7 @@ pytest -q tests/
 39 passed
 ```
 
-The `~/test_no_unsloth` integration suite passes 9 tests with the production M=256 packed-loss schedule.
+The historical downstream integration suite passed 9 tests with the production M=256 packed-loss schedule. Current project validation is self-contained.
 
 Focused Q6_K and padding experiments preserved the benchmark correctness envelope. Final LM-head NRMSE was approximately:
 

@@ -155,10 +155,10 @@ These counts explain why row-task ordering and nonuniform launch overhead were m
 
 The production comparison is AITER Triton `gmm`, not `torch.matmul`.
 
-The benchmark loads `_gmm_config` from:
+The benchmark uses the project-owned heuristic:
 
 ```text
-~/test_no_unsloth/fast_moe_lora.py
+torch_ggml_ops.aiter_gmm_heuristics.gmm_config
 ```
 
 The timed AITER path starts with independently dequantized BF16 experts. Dequantization and active-expert `index_select` are setup costs and are not included in the GMM timing.
@@ -800,10 +800,10 @@ Local tile or scheduler work should resume only if these experiments expose a ne
 ## Validation record
 
 Final retained source and documentation passed:
-- `python -m compileall -q bench`.
-- `pytest -q` in `torch-ggml-ops`: 46 passed, 14 warnings.
-- `pytest -q` in `~/test_no_unsloth`: 9 passed, 20 warnings.
-- `python -m compileall -q ~/test_no_unsloth`.
+- `python -m compileall -q bench torch_ggml_ops tests`.
+- `python -m pytest -q`: 58 passed, 14 warnings.
+- `ty check`.
+- `ruff check --extend-select=I`.
 - `git diff --check`.
 
 The correctness matrix covers dense and grouped single forward/backward for Q3_K, Q4_K, Q5_K, Q6_K, and IQ2_S. Grouped pair forward and fused pair backward are also parameterized across all five accepted types. Pair forward is bitwise equal to two single projections. The small generic fused-backward test uses deterministic inputs and limits of NRMSE below `5e-5` and maximum absolute error at most `2^-12`. The observed worst case is approximately `1.31e-5` NRMSE and `6.10e-5` maximum absolute error. The separate full-production benchmark retains its established 0.002844-0.002878 NRMSE range because the production specialized kernel's single FP32 accumulation differs from two separately rounded BF16 projections plus add.
@@ -811,11 +811,11 @@ The correctness matrix covers dense and grouped single forward/backward for Q3_K
 Validation commands for future retained changes:
 
 ```bash
-python -m compileall -q bench
-pytest -q
-cd ~/test_no_unsloth && pytest -q
-python -m compileall -q ~/test_no_unsloth
-cd ~/torch-ggml-ops && git diff --check
+python -m compileall -q bench torch_ggml_ops tests
+python -m pytest -q
+ty check
+ruff check --extend-select=I
+git diff --check
 ```
 
 Then run the full 60-point matrix, inspect the final gfx1151 code object, and collect representative profiler traces sequentially.
