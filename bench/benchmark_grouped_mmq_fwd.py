@@ -12,16 +12,12 @@ import argparse
 import gc
 import json
 from pathlib import Path
+
 import gguf
 import torch
 from aiter.ops.triton.gmm import gmm
-from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
-
-import torch_ggml_ops
 from grouped_mmq_benchmark_common import (
-    CASES,
     DEFAULT_AITER_HEURISTIC_DIR,
-    GroupedMMQCase as GroupedForwardCase,
     RouteDistribution,
     benchmark_function,
     device_metadata,
@@ -33,6 +29,9 @@ from grouped_mmq_benchmark_common import (
     select_cases,
     truncate_distribution,
 )
+from grouped_mmq_benchmark_common import (
+    GroupedMMQCase as GroupedForwardCase,
+)
 from mmq_benchmark_common import (
     DEFAULT_MODEL,
     load_packed_tensor,
@@ -40,7 +39,9 @@ from mmq_benchmark_common import (
     parse_int_list,
     synchronize,
 )
+from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
+import torch_ggml_ops
 
 DEFAULT_OUTPUT = Path("/tmp/torch_ggml_ops_grouped_mmq_fwd_benchmark.json")
 
@@ -61,7 +62,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repeats", type=int, default=9)
     parser.add_argument("--correctness-rows", type=int, default=256)
     parser.add_argument("--seed", type=int, default=20260709)
-    parser.add_argument("--aiter-heuristic-dir", type=Path, default=DEFAULT_AITER_HEURISTIC_DIR)
+    parser.add_argument(
+        "--aiter-heuristic-dir", type=Path, default=DEFAULT_AITER_HEURISTIC_DIR
+    )
     parser.add_argument(
         "--cases",
         type=str,
@@ -79,11 +82,15 @@ def parse_args() -> argparse.Namespace:
     if args.sequence_length <= 0 or args.top_k <= 0:
         parser.error("--sequence-length and --top-k must be positive")
     if args.warmup < 0 or args.repeats <= 0 or args.correctness_rows <= 0:
-        parser.error("warmup must be nonnegative; repeats/correctness rows must be positive")
+        parser.error(
+            "warmup must be nonnegative; repeats/correctness rows must be positive"
+        )
     known_distributions = {"uniform", "skewed", "sparse", "boundary"}
     unknown = sorted(set(args.distributions) - known_distributions)
     if unknown:
-        parser.error(f"unknown distributions {unknown}; expected {sorted(known_distributions)}")
+        parser.error(
+            f"unknown distributions {unknown}; expected {sorted(known_distributions)}"
+        )
     return args
 
 
@@ -202,8 +209,7 @@ def print_result(result: dict) -> None:
     aiter = result["aiter_bf16"]
     if result["kind"] == "pair":
         nrmse = max(
-            metric["normalized_rmse"]
-            for metric in result["correctness"]["bf16_aiter"]
+            metric["normalized_rmse"] for metric in result["correctness"]["bf16_aiter"]
         )
     else:
         nrmse = result["correctness"]["bf16_aiter"]["normalized_rmse"]
@@ -277,9 +283,13 @@ def main() -> None:
             quant_type = quant_types.pop()
             quant_name = quant_names.get(quant_type, str(quant_type))
 
-            packed_weights = tuple(load_packed_tensor(tensor) for tensor in case_tensors)
+            packed_weights = tuple(
+                load_packed_tensor(tensor) for tensor in case_tensors
+            )
             for tensor, packed in zip(case_tensors, packed_weights, strict=True):
-                logical_shape = tuple(int(value) for value in reversed(tensor.shape[:-1]))
+                logical_shape = tuple(
+                    int(value) for value in reversed(tensor.shape[:-1])
+                )
                 if logical_shape != (
                     case.expected_out_features,
                     case.expected_in_features,
@@ -289,7 +299,9 @@ def main() -> None:
                         f"expected {(case.expected_out_features, case.expected_in_features)}"
                     )
                 if packed.shape[0] != 256:
-                    raise RuntimeError(f"{tensor.name} has {packed.shape[0]} experts, expected 256")
+                    raise RuntimeError(
+                        f"{tensor.name} has {packed.shape[0]} experts, expected 256"
+                    )
 
             logical_weights = tuple(
                 dequantize_gguf_tensor(
@@ -309,9 +321,13 @@ def main() -> None:
             for batch_index, batch in enumerate(args.batches):
                 rows = batch * args.sequence_length * args.top_k
                 available_distributions = route_distributions(rows, batch)
-                for distribution_index, distribution_name in enumerate(args.distributions):
+                for distribution_index, distribution_name in enumerate(
+                    args.distributions
+                ):
                     distribution = available_distributions[distribution_name]
-                    expert_indices, expert_offsets, group_sizes = device_metadata(distribution)
+                    expert_indices, expert_offsets, group_sizes = device_metadata(
+                        distribution
+                    )
                     selected_logical = tuple(
                         weight.index_select(0, expert_indices).transpose(1, 2)
                         for weight in logical_weights
@@ -325,7 +341,15 @@ def main() -> None:
                     input = make_bf16_input(rows, case.expected_in_features, input_seed)
 
                     if case.kind == "pair":
-                        def mmq_function():
+
+                        def mmq_function(
+                            input=input,
+                            packed_weights=packed_weights,
+                            expert_indices=expert_indices,
+                            expert_offsets=expert_offsets,
+                            quant_type=quant_type,
+                            out_features=case.expected_out_features,
+                        ):
                             return torch_ggml_ops.grouped_mmq_pair(
                                 input,
                                 packed_weights[0],
@@ -333,10 +357,15 @@ def main() -> None:
                                 expert_indices,
                                 expert_offsets,
                                 quant_type,
-                                case.expected_out_features,
+                                out_features,
                             )
 
-                        def aiter_function():
+                        def aiter_function(
+                            input=input,
+                            selected_logical=selected_logical,
+                            group_sizes=group_sizes,
+                            gmm_config=gmm_config,
+                        ):
                             return tuple(
                                 gmm(
                                     input,
@@ -348,17 +377,30 @@ def main() -> None:
                                 for weight in selected_logical
                             )
                     else:
-                        def mmq_function():
+
+                        def mmq_function(
+                            input=input,
+                            packed_weights=packed_weights,
+                            expert_indices=expert_indices,
+                            expert_offsets=expert_offsets,
+                            quant_type=quant_type,
+                            out_features=case.expected_out_features,
+                        ):
                             return torch_ggml_ops.grouped_mmq(
                                 input,
                                 packed_weights[0],
                                 expert_indices,
                                 expert_offsets,
                                 quant_type,
-                                case.expected_out_features,
+                                out_features,
                             )
 
-                        def aiter_function():
+                        def aiter_function(
+                            input=input,
+                            selected_logical=selected_logical,
+                            group_sizes=group_sizes,
+                            gmm_config=gmm_config,
+                        ):
                             return gmm(
                                 input,
                                 selected_logical[0],
@@ -401,9 +443,7 @@ def main() -> None:
                     )
 
                     workspace_bytes = (
-                        rows
-                        * (case.expected_in_features // (4 * 32))
-                        * 144
+                        rows * (case.expected_in_features // (4 * 32)) * 144
                     )
                     output_bytes = (
                         case.projections
@@ -454,6 +494,7 @@ def main() -> None:
                     report["results"].append(result)
                     print_result(result)
 
+                    del mmq_function, aiter_function
                     del (
                         input,
                         correctness_input,

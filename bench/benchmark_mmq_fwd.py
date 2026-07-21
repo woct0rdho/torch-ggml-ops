@@ -20,9 +20,6 @@ from pathlib import Path
 
 import gguf
 import torch
-from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
-
-import torch_ggml_ops
 from mmq_benchmark_common import (
     DEFAULT_MODEL,
     cuda_event_times_ms,
@@ -34,7 +31,9 @@ from mmq_benchmark_common import (
     summarize_timing,
     synchronize,
 )
+from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
+import torch_ggml_ops
 
 DEFAULT_OUTPUT = Path("/tmp/torch_ggml_ops_mmq_fwd_benchmark.json")
 

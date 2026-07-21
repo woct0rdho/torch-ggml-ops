@@ -267,23 +267,17 @@ def test_grouped_pair_production_row_tasks_match_dense(
     for expert, row_end in zip(experts.cpu().tolist(), offsets.cpu().tolist()):
         group_input = input[row_begin:row_end].clone()
         expected_gate_parts.append(
-            torch_ggml_ops.mmq(
-                group_input, gate[expert].clone(), int(quant_type), 512
-            )
+            torch_ggml_ops.mmq(group_input, gate[expert].clone(), int(quant_type), 512)
         )
         expected_up_parts.append(
-            torch_ggml_ops.mmq(
-                group_input, up[expert].clone(), int(quant_type), 512
-            )
+            torch_ggml_ops.mmq(group_input, up[expert].clone(), int(quant_type), 512)
         )
         row_begin = row_end
 
     torch.testing.assert_close(
         actual_gate, torch.cat(expected_gate_parts), rtol=0, atol=0
     )
-    torch.testing.assert_close(
-        actual_up, torch.cat(expected_up_parts), rtol=0, atol=0
-    )
+    torch.testing.assert_close(actual_up, torch.cat(expected_up_parts), rtol=0, atol=0)
 
 
 @pytest.mark.parametrize("qname", tuple(_PROJECTIONS))
@@ -376,10 +370,11 @@ def test_grouped_pair_backward_sums_both_logical_jacobians(
     # The fused kernel accumulates both logical Jacobians in one FP32 WMMA
     # accumulator and rounds once to BF16. Torch evaluates two GEMMs before the
     # sum, so reduction and rounding order need an error-based comparison.
-    error = input.grad.float() - expected_grad.float()
+    input_grad = input.grad
+    assert input_grad is not None
+    error = input_grad.float() - expected_grad.float()
     normalized_rmse = (
-        error.square().mean().sqrt()
-        / expected_grad.float().square().mean().sqrt()
+        error.square().mean().sqrt() / expected_grad.float().square().mean().sqrt()
     )
     assert normalized_rmse.item() < 5e-5
     assert error.abs().max().item() <= 2**-12

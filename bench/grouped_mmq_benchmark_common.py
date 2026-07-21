@@ -9,9 +9,7 @@ from typing import Callable
 
 import numpy as np
 import torch
-
 from mmq_benchmark_common import cuda_event_times_ms, incremental_peak_bytes
-
 
 DEFAULT_AITER_HEURISTIC_DIR = Path.home() / "test_no_unsloth"
 
@@ -110,7 +108,9 @@ def select_cases(case_names: str, primary_only: bool) -> tuple[GroupedMMQCase, .
         names = tuple(name.strip() for name in case_names.split(",") if name.strip())
         unknown = sorted(set(names) - set(by_name))
         if unknown:
-            raise ValueError(f"unknown cases {unknown}; available cases are {sorted(by_name)}")
+            raise ValueError(
+                f"unknown cases {unknown}; available cases are {sorted(by_name)}"
+            )
         selected = tuple(by_name[name] for name in names)
     else:
         selected = CASES
@@ -124,7 +124,7 @@ def select_cases(case_names: str, primary_only: bool) -> tuple[GroupedMMQCase, .
 def load_gmm_config(heuristic_dir: Path) -> Callable[[int, int], dict[str, int]]:
     sys.path.insert(0, str(heuristic_dir))
     try:
-        from fast_moe_lora import _gmm_config
+        from fast_moe_lora import _gmm_config  # ty: ignore[unresolved-import]
     finally:
         sys.path.pop(0)
     return _gmm_config

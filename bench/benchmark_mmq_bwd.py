@@ -19,9 +19,6 @@ from pathlib import Path
 
 import gguf
 import torch
-from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
-
-import torch_ggml_ops  # noqa: F401 Register native operators before torch.ops use.
 from mmq_benchmark_common import (
     DEFAULT_MODEL,
     cuda_event_times_ms,
@@ -33,7 +30,9 @@ from mmq_benchmark_common import (
     summarize_timing,
     synchronize,
 )
+from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
+import torch_ggml_ops  # noqa: F401 Register native operators before torch.ops use.
 
 DEFAULT_OUTPUT = Path("/tmp/torch_ggml_ops_mmq_bwd_benchmark.json")
 
@@ -44,9 +43,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--sequence-length", type=int, default=2048)
     parser.add_argument("--batches", type=parse_int_list, default=(1, 4, 16))
-    parser.add_argument(
-        "--lm-head-chunks", type=parse_int_list, default=(64, 128, 256)
-    )
+    parser.add_argument("--lm-head-chunks", type=parse_int_list, default=(64, 128, 256))
     parser.add_argument("--warmup", type=int, default=3)
     parser.add_argument("--repeats", type=int, default=7)
     parser.add_argument("--correctness-rows", type=int, default=8)
@@ -221,9 +218,7 @@ def main() -> None:
             "packed_storage_dtype": str(torch.uint8),
             "grad_input_dtype": str(torch.bfloat16),
             "cotangent_quantization": None,
-            "torch_reference": (
-                "torch.mm(BF16_grad_output, dequantized_BF16_weight)"
-            ),
+            "torch_reference": ("torch.mm(BF16_grad_output, dequantized_BF16_weight)"),
         },
         "results": [],
     }
@@ -366,8 +361,7 @@ def main() -> None:
                     "mmq_grad_input": packed_result,
                     "torch_bf16": bf16_result,
                     "packed_to_bf16_tflops_ratio": (
-                        packed_result["logical_tflops"]
-                        / bf16_result["logical_tflops"]
+                        packed_result["logical_tflops"] / bf16_result["logical_tflops"]
                     ),
                     "estimated_packed_model_backward_ms": (
                         model_invocations * packed_result["median_ms"]

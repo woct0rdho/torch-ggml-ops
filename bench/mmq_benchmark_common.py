@@ -11,13 +11,10 @@ import gguf
 import numpy as np
 import torch
 
-
 DEFAULT_MODEL = Path(
     os.environ.get(
         "GGUF_MMQ_BENCH_MODEL",
-        os.path.expanduser(
-            "~/models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf"
-        ),
+        os.path.expanduser("~/models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf"),
     )
 )
 
@@ -137,7 +134,7 @@ def synchronize() -> None:
 
 
 def cuda_event_times_ms(
-    function: Callable[[], torch.Tensor], warmup: int, repeats: int
+    function: Callable[[], object], warmup: int, repeats: int
 ) -> list[float]:
     for _ in range(warmup):
         output = function()
@@ -157,7 +154,7 @@ def cuda_event_times_ms(
     return times
 
 
-def incremental_peak_bytes(function: Callable[[], torch.Tensor]) -> tuple[int, int]:
+def incremental_peak_bytes(function: Callable[[], object]) -> tuple[int, int]:
     synchronize()
     baseline_allocated = torch.cuda.memory_allocated()
     baseline_reserved = torch.cuda.memory_reserved()

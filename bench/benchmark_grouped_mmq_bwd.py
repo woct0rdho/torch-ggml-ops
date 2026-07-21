@@ -19,9 +19,6 @@ from pathlib import Path
 import gguf
 import torch
 from aiter.ops.triton.gmm import gmm
-from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
-
-import torch_ggml_ops  # noqa: F401 Register native operators before torch.ops use.
 from grouped_mmq_benchmark_common import (
     DEFAULT_AITER_HEURISTIC_DIR,
     GroupedMMQCase,
@@ -43,7 +40,9 @@ from mmq_benchmark_common import (
     parse_int_list,
     synchronize,
 )
+from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
+import torch_ggml_ops  # noqa: F401 Register native operators before torch.ops use.
 
 DEFAULT_OUTPUT = Path("/tmp/torch_ggml_ops_grouped_mmq_bwd_benchmark.json")
 
@@ -64,7 +63,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repeats", type=int, default=9)
     parser.add_argument("--correctness-rows", type=int, default=256)
     parser.add_argument("--seed", type=int, default=20260711)
-    parser.add_argument("--aiter-heuristic-dir", type=Path, default=DEFAULT_AITER_HEURISTIC_DIR)
+    parser.add_argument(
+        "--aiter-heuristic-dir", type=Path, default=DEFAULT_AITER_HEURISTIC_DIR
+    )
     parser.add_argument(
         "--cases",
         type=str,
@@ -82,11 +83,15 @@ def parse_args() -> argparse.Namespace:
     if args.sequence_length <= 0 or args.top_k <= 0:
         parser.error("--sequence-length and --top-k must be positive")
     if args.warmup < 0 or args.repeats <= 0 or args.correctness_rows <= 0:
-        parser.error("warmup must be nonnegative; repeats/correctness rows must be positive")
+        parser.error(
+            "warmup must be nonnegative; repeats/correctness rows must be positive"
+        )
     known_distributions = {"uniform", "skewed", "sparse", "boundary"}
     unknown = sorted(set(args.distributions) - known_distributions)
     if unknown:
-        parser.error(f"unknown distributions {unknown}; expected {sorted(known_distributions)}")
+        parser.error(
+            f"unknown distributions {unknown}; expected {sorted(known_distributions)}"
+        )
     return args
 
 
@@ -196,9 +201,7 @@ def correctness_metrics(
     quant_type: int,
     aiter_config: dict[str, int],
 ) -> dict:
-    checked_distribution = truncate_distribution(
-        distribution, grad_outputs[0].shape[0]
-    )
+    checked_distribution = truncate_distribution(distribution, grad_outputs[0].shape[0])
     expert_indices, expert_offsets, group_sizes = device_metadata(checked_distribution)
     selected_logical = tuple(
         weight.index_select(0, expert_indices).contiguous()
@@ -350,10 +353,14 @@ def main() -> None:
             quant_type = quant_types.pop()
             quant_name = quant_names.get(quant_type, str(quant_type))
 
-            packed_weights = tuple(load_packed_tensor(tensor) for tensor in case_tensors)
+            packed_weights = tuple(
+                load_packed_tensor(tensor) for tensor in case_tensors
+            )
             physical_shapes = []
             for tensor, packed in zip(case_tensors, packed_weights, strict=True):
-                logical_shape = tuple(int(value) for value in reversed(tensor.shape[:-1]))
+                logical_shape = tuple(
+                    int(value) for value in reversed(tensor.shape[:-1])
+                )
                 if logical_shape != (
                     case.expected_out_features,
                     case.expected_in_features,
@@ -386,9 +393,13 @@ def main() -> None:
             for batch_index, batch in enumerate(args.batches):
                 rows = batch * args.sequence_length * args.top_k
                 available_distributions = route_distributions(rows, batch)
-                for distribution_index, distribution_name in enumerate(args.distributions):
+                for distribution_index, distribution_name in enumerate(
+                    args.distributions
+                ):
                     distribution = available_distributions[distribution_name]
-                    expert_indices, expert_offsets, group_sizes = device_metadata(distribution)
+                    expert_indices, expert_offsets, group_sizes = device_metadata(
+                        distribution
+                    )
                     selected_logical = tuple(
                         weight.index_select(0, expert_indices).contiguous()
                         for weight in logical_weights
@@ -407,7 +418,15 @@ def main() -> None:
                     )
 
                     if case.kind == "pair":
-                        def packed_function():
+
+                        def packed_function(
+                            grad_outputs=grad_outputs,
+                            packed_weights=packed_weights,
+                            expert_indices=expert_indices,
+                            expert_offsets=expert_offsets,
+                            quant_type=quant_type,
+                            in_features=case.expected_in_features,
+                        ):
                             return packed_grouped_pair(
                                 grad_outputs[0],
                                 grad_outputs[1],
@@ -416,10 +435,15 @@ def main() -> None:
                                 expert_indices,
                                 expert_offsets,
                                 quant_type,
-                                case.expected_in_features,
+                                in_features,
                             )
 
-                        def aiter_function():
+                        def aiter_function(
+                            grad_outputs=grad_outputs,
+                            selected_logical=selected_logical,
+                            group_sizes=group_sizes,
+                            aiter_config=aiter_config,
+                        ):
                             return aiter_grouped_pair(
                                 grad_outputs[0],
                                 grad_outputs[1],
@@ -429,17 +453,30 @@ def main() -> None:
                                 aiter_config,
                             )
                     else:
-                        def packed_function():
+
+                        def packed_function(
+                            grad_outputs=grad_outputs,
+                            packed_weights=packed_weights,
+                            expert_indices=expert_indices,
+                            expert_offsets=expert_offsets,
+                            quant_type=quant_type,
+                            in_features=case.expected_in_features,
+                        ):
                             return packed_grouped_single(
                                 grad_outputs[0],
                                 packed_weights[0],
                                 expert_indices,
                                 expert_offsets,
                                 quant_type,
-                                case.expected_in_features,
+                                in_features,
                             )
 
-                        def aiter_function():
+                        def aiter_function(
+                            grad_outputs=grad_outputs,
+                            selected_logical=selected_logical,
+                            group_sizes=group_sizes,
+                            aiter_config=aiter_config,
+                        ):
                             return aiter_grouped_single(
                                 grad_outputs[0],
                                 selected_logical[0],
@@ -532,6 +569,7 @@ def main() -> None:
                     report["results"].append(result)
                     print_result(result)
 
+                    del packed_function, aiter_function
                     del (
                         grad_outputs,
                         correctness_grad_outputs,
