@@ -801,12 +801,12 @@ Local tile or scheduler work should resume only if these experiments expose a ne
 
 Final retained source and documentation passed:
 - `python -m compileall -q bench`.
-- `pytest -q` in `torch-ggml-ops`: 39 passed, 14 warnings.
+- `pytest -q` in `torch-ggml-ops`: 46 passed, 14 warnings.
 - `pytest -q` in `~/test_no_unsloth`: 9 passed, 20 warnings.
 - `python -m compileall -q ~/test_no_unsloth`.
 - `git diff --check`.
 
-The grouped fused-pair test uses NRMSE and maximum-absolute-error gates rather than an unrealistically strict absolute comparison against two separately rounded Torch GEMMs. Retained limits are NRMSE below 0.005 and maximum absolute error at most 0.0078125, matching production fused-rounding behavior.
+The correctness matrix covers dense and grouped single forward/backward for Q3_K, Q4_K, Q5_K, Q6_K, and IQ2_S. Grouped pair forward and fused pair backward are also parameterized across all five accepted types. Pair forward is bitwise equal to two single projections. The small generic fused-backward test uses deterministic inputs and limits of NRMSE below `5e-5` and maximum absolute error at most `2^-12`. The observed worst case is approximately `1.31e-5` NRMSE and `6.10e-5` maximum absolute error. The separate full-production benchmark retains its established 0.002844-0.002878 NRMSE range because the production specialized kernel's single FP32 accumulation differs from two separately rounded BF16 projections plus add.
 
 Validation commands for future retained changes:
 

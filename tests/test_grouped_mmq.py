@@ -23,6 +23,13 @@ _PROJECTIONS = {
     "Q6_K": "output.weight",
     "IQ2_S": "blk.10.ffn_gate_exps.weight",
 }
+_PAIR_PROJECTIONS = {
+    "Q3_K": ("blk.0.ffn_gate_exps.weight", "blk.0.ffn_up_exps.weight"),
+    "Q4_K": ("blk.0.attn_gate.weight", "blk.0.attn_qkv.weight"),
+    "Q5_K": ("blk.0.ffn_down_exps.weight", "blk.1.ffn_down_exps.weight"),
+    "Q6_K": ("output.weight", "output.weight"),
+    "IQ2_S": ("blk.10.ffn_gate_exps.weight", "blk.10.ffn_up_exps.weight"),
+}
 
 
 def _require_runtime() -> None:
@@ -42,18 +49,20 @@ def _packed_experts(
     *,
     num_experts: int = 8,
     out_features: int = 37,
+    row_offset: int = 0,
 ) -> tuple[torch.Tensor, gguf.GGMLQuantizationType, int]:
     tensor = next(t for t in reader.tensors if t.name == tensor_name)
+    row_slice = slice(row_offset, row_offset + out_features)
     if tensor.data.ndim == 3:
         host = np.array(
-            tensor.data[:num_experts, :out_features],
+            tensor.data[:num_experts, row_slice],
             dtype=np.uint8,
             copy=True,
             order="C",
         )
     else:
         one_expert = np.array(
-            tensor.data[:out_features],
+            tensor.data[row_slice],
             dtype=np.uint8,
             copy=True,
             order="C",
@@ -70,6 +79,30 @@ def _group_metadata() -> tuple[torch.Tensor, torch.Tensor]:
     experts = torch.tensor([0, 2, 5, 7], device="cuda", dtype=torch.int64)
     offsets = torch.tensor([1, 128, 257, 262], device="cuda", dtype=torch.int32)
     return experts, offsets
+
+
+def _pair_packed_experts(
+    reader: gguf.GGUFReader, qname: str, *, out_features: int = 37
+) -> tuple[
+    torch.Tensor,
+    torch.Tensor,
+    gguf.GGMLQuantizationType,
+    int,
+]:
+    first_name, second_name = _PAIR_PROJECTIONS[qname]
+    first, quant_type, in_features = _packed_experts(
+        reader, first_name, out_features=out_features
+    )
+    second, second_quant_type, second_in_features = _packed_experts(
+        reader,
+        second_name,
+        out_features=out_features,
+        row_offset=out_features if second_name == first_name else 0,
+    )
+    assert quant_type.name == qname
+    assert second_quant_type == quant_type
+    assert second_in_features == in_features
+    return first, second, quant_type, in_features
 
 
 def _logical_grouped_forward(
@@ -168,33 +201,33 @@ def test_grouped_forward_matches_q8_activation_reference_error(
     assert normalized_rmse.item() < 0.04
 
 
-@pytest.mark.parametrize("layer", (0, 10))
+@pytest.mark.parametrize("qname", tuple(_PAIR_PROJECTIONS))
 def test_grouped_pair_matches_two_single_projections(
-    reader: gguf.GGUFReader, layer: int
+    reader: gguf.GGUFReader, qname: str
 ) -> None:
-    gate, quant_type, in_features = _packed_experts(
-        reader, f"blk.{layer}.ffn_gate_exps.weight"
-    )
-    up, up_quant_type, up_in_features = _packed_experts(
-        reader, f"blk.{layer}.ffn_up_exps.weight"
-    )
-    assert up_quant_type == quant_type
-    assert up_in_features == in_features
+    first, second, quant_type, in_features = _pair_packed_experts(reader, qname)
     experts, offsets = _group_metadata()
-    input = torch.randn(262, in_features, device="cuda", dtype=torch.bfloat16)
-
-    actual_gate, actual_up = torch_ggml_ops.grouped_mmq_pair(
-        input, gate, up, experts, offsets, int(quant_type), 37
-    )
-    expected_gate = torch_ggml_ops.grouped_mmq(
-        input, gate, experts, offsets, int(quant_type), 37
-    )
-    expected_up = torch_ggml_ops.grouped_mmq(
-        input, up, experts, offsets, int(quant_type), 37
+    generator = torch.Generator(device="cuda").manual_seed(3456)
+    input = torch.randn(
+        262,
+        in_features,
+        generator=generator,
+        device="cuda",
+        dtype=torch.bfloat16,
     )
 
-    torch.testing.assert_close(actual_gate, expected_gate, rtol=0, atol=0)
-    torch.testing.assert_close(actual_up, expected_up, rtol=0, atol=0)
+    actual_first, actual_second = torch_ggml_ops.grouped_mmq_pair(
+        input, first, second, experts, offsets, int(quant_type), 37
+    )
+    expected_first = torch_ggml_ops.grouped_mmq(
+        input, first, experts, offsets, int(quant_type), 37
+    )
+    expected_second = torch_ggml_ops.grouped_mmq(
+        input, second, experts, offsets, int(quant_type), 37
+    )
+
+    torch.testing.assert_close(actual_first, expected_first, rtol=0, atol=0)
+    torch.testing.assert_close(actual_second, expected_second, rtol=0, atol=0)
 
 
 def test_grouped_pair_production_row_tasks_match_dense(
@@ -293,46 +326,50 @@ def test_grouped_backward_is_logical_weight_jacobian(
     assert packed.grad is None
 
 
+@pytest.mark.parametrize("qname", tuple(_PAIR_PROJECTIONS))
 def test_grouped_pair_backward_sums_both_logical_jacobians(
-    reader: gguf.GGUFReader,
+    reader: gguf.GGUFReader, qname: str
 ) -> None:
-    gate, quant_type, in_features = _packed_experts(
-        reader, "blk.10.ffn_gate_exps.weight"
-    )
-    up, _, _ = _packed_experts(reader, "blk.10.ffn_up_exps.weight")
+    first, second, quant_type, in_features = _pair_packed_experts(reader, qname)
     experts = torch.tensor([0, 2, 5], device="cuda", dtype=torch.int64)
     offsets = torch.tensor([2, 5, 6], device="cuda", dtype=torch.int32)
+    generator = torch.Generator(device="cuda").manual_seed(9012)
     input = torch.randn(
         6,
         in_features,
+        generator=generator,
         device="cuda",
         dtype=torch.bfloat16,
         requires_grad=True,
     )
-    gate_grad = torch.randn(6, 37, device="cuda", dtype=torch.bfloat16)
-    up_grad = torch.randn(6, 37, device="cuda", dtype=torch.bfloat16)
-
-    gate_output, up_output = torch_ggml_ops.grouped_mmq_pair(
-        input, gate, up, experts, offsets, int(quant_type), 37
+    first_grad = torch.randn(
+        6, 37, generator=generator, device="cuda", dtype=torch.bfloat16
     )
-    torch.autograd.backward((gate_output, up_output), (gate_grad, up_grad))
-    logical_gate = dequantize_gguf_tensor(
-        gate.index_select(0, experts),
+    second_grad = torch.randn(
+        6, 37, generator=generator, device="cuda", dtype=torch.bfloat16
+    )
+
+    first_output, second_output = torch_ggml_ops.grouped_mmq_pair(
+        input, first, second, experts, offsets, int(quant_type), 37
+    )
+    torch.autograd.backward((first_output, second_output), (first_grad, second_grad))
+    logical_first = dequantize_gguf_tensor(
+        first.index_select(0, experts),
         quant_type,
         dtype=torch.bfloat16,
         device="cuda",
     ).reshape(3, 37, in_features)
-    logical_up = dequantize_gguf_tensor(
-        up.index_select(0, experts),
+    logical_second = dequantize_gguf_tensor(
+        second.index_select(0, experts),
         quant_type,
         dtype=torch.bfloat16,
         device="cuda",
     ).reshape(3, 37, in_features)
     expected_grad = _logical_grouped_pair_input_gradient(
-        gate_grad,
-        up_grad,
-        logical_gate,
-        logical_up,
+        first_grad,
+        second_grad,
+        logical_first,
+        logical_second,
         offsets,
     )
 
@@ -344,10 +381,10 @@ def test_grouped_pair_backward_sums_both_logical_jacobians(
         error.square().mean().sqrt()
         / expected_grad.float().square().mean().sqrt()
     )
-    assert normalized_rmse.item() < 0.005
-    assert error.abs().max().item() <= 0.0078125
-    assert gate.grad is None
-    assert up.grad is None
+    assert normalized_rmse.item() < 5e-5
+    assert error.abs().max().item() <= 2**-12
+    assert first.grad is None
+    assert second.grad is None
 
 
 def test_grouped_backward_route_group_boundaries(
