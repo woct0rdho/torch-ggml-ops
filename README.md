@@ -1,97 +1,20 @@
 # torch-ggml-ops
 
-This package provides PyTorch bindings for GGML operators with quantized weights. It currently provides dense MMQ and grouped expert MMQ.
+This package provides PyTorch bindings of GGML operators with quantized weights. Currently it provides dense MMQ, grouped MMQ, and grouped MMQ pair for fused gate-up. All ops support gradients on inputs. See https://github.com/woct0rdho/transformers5-qwen3.5-recipe for example usage.
 
-## Operators
+Currently all ops support bf16 input and output activations, and quant types `IQ2_S, Q3_K, Q4_K, Q5_K, Q6_K`, which are enough to run the APEX Mini quantized model.
 
-```text
-torch_ggml_ops::mmq(
-    Tensor input,
-    Tensor packed_weight,
-    int quant_type,
-    int out_features,
-) -> Tensor
+The kernels are tested on Strix Halo (gfx1151), and they should also work on RDNA3 GPUs. More work is needed to support other GPUs.
 
-torch_ggml_ops::mmq_grad_input(
-    Tensor grad_output,
-    Tensor packed_weight,
-    int quant_type,
-    int in_features,
-) -> Tensor
+The kernel parameters are tuned for typical input and weight shapes of Qwen3.5-35B-A3B. An autotune system is possible but not yet implemented.
 
-torch_ggml_ops::grouped_mmq_grad_input(
-    Tensor grad_output,
-    Tensor packed_weight,
-    Tensor expert_indices,
-    Tensor expert_offsets,
-    int quant_type,
-    int in_features,
-) -> Tensor
+The forward kernels are modified from llama.cpp . The GGUF format is only optimized for forward where each matmul tile needs only one scale, but when doing backward each matmul tile crosses multiple quantized blocks and requires multiple scales. So we do not use int8 MMA, but dequantize each tile into bf16 and run bf16 MMA. This is still faster and saves most of the VRAM compared to dequantizing the whole weights into bf16.
 
-torch_ggml_ops::grouped_mmq_pair_grad_input(
-    Tensor first_grad_output,
-    Tensor second_grad_output,
-    Tensor first_packed_weight,
-    Tensor second_packed_weight,
-    Tensor expert_indices,
-    Tensor expert_offsets,
-    int quant_type,
-    int in_features,
-) -> Tensor
-
-torch_ggml_ops::grouped_mmq(
-    Tensor input,
-    Tensor packed_weight,
-    Tensor expert_indices,
-    Tensor expert_offsets,
-    int quant_type,
-    int out_features,
-) -> Tensor
-
-torch_ggml_ops::grouped_mmq_pair(
-    Tensor input,
-    Tensor first_packed_weight,
-    Tensor second_packed_weight,
-    Tensor expert_indices,
-    Tensor expert_offsets,
-    int quant_type,
-    int out_features,
-) -> (Tensor, Tensor)
-```
-
-`grouped_mmq` consumes expert-sorted rows and applies one packed matrix per group. `grouped_mmq_pair` runs two equal-geometry projections, such as MoE gate and up, while sharing one dynamic `Q8_1` activation workspace.
-
-## Contract
-
-All native operators require:
-
-- contiguous HIP `torch.bfloat16` activation or cotangent input with zero storage offset.
-- contiguous HIP `torch.uint8` packed GGUF payloads with zero storage offset.
-- `IQ2_S`, `Q3_K`, `Q4_K`, `Q5_K`, or `Q6_K` weights.
-- logical weight input width (`in_features`) divisible by 256.
-- direct BF16 output on PyTorch's current stream.
-- no hidden input, output, or packed-weight copy.
-- currently only supports gfx1151.
-
-Grouped MMQ additionally requires:
-
-- two-dimensional input `[rows, in_features]` sorted into contiguous expert groups.
-- physical packed weight shape `[num_experts, out_features, packed_row_bytes]`.
-- contiguous, strictly increasing `torch.int64` active expert indices.
-- contiguous, positive, strictly increasing `torch.int32` cumulative expert offsets.
-- one positive group per active expert and a final offset equal to the input row count.
-
-The forward operators allocate their compact `Q8_1` activation workspace through PyTorch. BF16 values are converted to FP32 only in registers for `Q8_1` scaling and rounding, then the packed-weight multiplication uses RDNA3 int8 WMMA with int32 accumulation. Grouped blocks read active expert payloads in place. Inactive experts are not copied or dequantized.
-
-The registered autograd formulas define the frozen logical-weight Jacobian rather than differentiating through Q8 rounding. Dense `mmq` backward calls `mmq_grad_input`, while grouped backward calls `grouped_mmq_grad_input`. Both read BF16 `grad_output`, decode authoritative GGUF blocks directly to BF16 WMMA fragments, accumulate in FP32, and write BF16 `grad_input` without materializing logical weights. `grouped_mmq_pair_grad_input` accumulates both gate and up logical Jacobians in one FP32 accumulator and performs one BF16 output write. The narrow gfx11 WMMA wrapper is adapted from pinned MIT-licensed AMD Composable Kernel sources; provenance is recorded under `csrc/ck/`.
-
-Grouped backward launch geometry uses only tensor shape metadata. Expert IDs and cumulative offsets remain device-resident and are read by the kernel on PyTorch's current stream; no host grouped-GEMM descriptor construction, device-to-host metadata copy, maximum-group synchronization, or CPU expert-index calculation is performed. Packed weights never receive gradients, and higher-order differentiation through the native input-gradient operators is rejected explicitly. The Qwen3.5 integration retains AITER GMM for the rank-small LoRA branches and AITER PTGMM for LoRA factor gradients.
-
-The native grouped operators are projection primitives. Routing sort, gate activation, LoRA, routing-weight multiplication, inverse permutation, and top-k reduction remain framework responsibilities.
+The backward kernels are implemented with CK Tile, and it should be straightforward to port them to CuTe on Nvidia GPUs.
 
 ## Installation
 
-The C++ extension uses Python 3.10 ABI3 and the LibTorch 2.10 stable ABI.
+The C++ extension uses Python 3.10 ABI3 and libtorch 2.10 stable ABI. It requires PyTorch >= 2.10 .
 
 Extract source code from the llama.cpp repo:
 
@@ -99,13 +22,13 @@ Extract source code from the llama.cpp repo:
 python3 tools/generate_vendor.py --llama-cpp=/path/to/llama.cpp/
 ```
 
-Build against ROCm and PyTorch in the current environment, and install in place:
+Build the package with ROCm and PyTorch in the current environment, and install in place:
 
 ```bash
 pip install --no-build-isolation --no-deps -e .
 ```
 
-Run unit tests:
+Currently my forked [transformers with GGUF quantizer](https://github.com/woct0rdho/transformers/tree/gguf) is required to run the tests. Install it, and download the [example GGUF model](https://huggingface.co/mudler/Qwen3.6-35B-A3B-APEX-GGUF/blob/main/Qwen3.6-35B-A3B-APEX-I-Mini.gguf), then run the tests:
 
 ```bash
 GGUF_MMQ_TEST_MODEL=/path/to/model.gguf pytest tests/
@@ -113,5 +36,7 @@ GGUF_MMQ_TEST_MODEL=/path/to/model.gguf pytest tests/
 
 ## TODO
 
-- Shape-aware grouped geometry and scheduling for very large per-expert route counts.
-- Windows support.
+- fp16
+- other quant types
+- other GPUs
+- autotune
