@@ -85,46 +85,32 @@ static __device__ __forceinline__ void grouped_mmq_grad_input_q4_tile(
 
 #pragma unroll
         for (int k_tile = 0; k_tile < GROUPED_BACKWARD_TILED_K; k_tile += 16) {
-            bf16_fragment a_fragments[GROUPED_BACKWARD_TILED_M_TILES_PER_WAVE];
+            bf16_fragment_a a_fragments[GROUPED_BACKWARD_TILED_M_TILES_PER_WAVE];
 #pragma unroll
             for (int m_tile = 0;
                  m_tile < GROUPED_BACKWARD_TILED_M_TILES_PER_WAVE;
                  ++m_tile) {
-                __hip_bfloat16 * a = fragment_data(a_fragments[m_tile]);
-                const int a_row = wave_row_start +
-                    m_tile * BACKWARD_M_PER_TILE + c_row(lane);
-#pragma unroll
-                for (int k = 0; k < 16; ++k) {
-                    if constexpr (FULL_ROWS) {
-                        a[k] = grad_output[
-                            static_cast<int64_t>(a_row) *
-                                GROUPED_BACKWARD_TILED_Q4_OUT_FEATURES +
-                            output_start + k_tile + k];
-                    } else {
-                        a[k] = a_row < row_end
-                            ? grad_output[
-                                static_cast<int64_t>(a_row) *
-                                    GROUPED_BACKWARD_TILED_Q4_OUT_FEATURES +
-                                output_start + k_tile + k]
-                            : __float2bfloat16(0.0f);
-                    }
-                }
+                load_a_fragment<!FULL_ROWS, false>(
+                    a_fragments[m_tile],
+                    grad_output,
+                    GROUPED_BACKWARD_TILED_Q4_OUT_FEATURES,
+                    wave_row_start + m_tile * BACKWARD_M_PER_TILE,
+                    output_start + k_tile,
+                    row_end,
+                    0,
+                    lane);
             }
 
 #pragma unroll
             for (int n_tile = 0;
                  n_tile < GROUPED_BACKWARD_TILED_N_TILES;
                  n_tile += 2) {
-                bf16_fragment b_first{};
-                bf16_fragment b_second{};
-                shared_b.load_fragment_vector(
-                    b_first,
-                    n_tile * BACKWARD_N_PER_TILE + c_row(lane),
-                    k_tile);
-                shared_b.load_fragment_vector(
-                    b_second,
-                    (n_tile + 1) * BACKWARD_N_PER_TILE + c_row(lane),
-                    k_tile);
+                bf16_fragment_b b_first{};
+                bf16_fragment_b b_second{};
+                shared_b.load_b_fragment(
+                    b_first, n_tile * BACKWARD_N_PER_TILE, k_tile, lane);
+                shared_b.load_b_fragment(
+                    b_second, (n_tile + 1) * BACKWARD_N_PER_TILE, k_tile, lane);
 #pragma unroll
                 for (int m_tile = 0;
                      m_tile < GROUPED_BACKWARD_TILED_M_TILES_PER_WAVE;
@@ -157,24 +143,24 @@ static __device__ __forceinline__ void grouped_mmq_grad_input_q4_tile(
              n_tile < GROUPED_BACKWARD_TILED_N_TILES;
              ++n_tile) {
 #pragma unroll
-            for (int element = 0; element < 8; ++element) {
+            for (int element = 0; element < ACCUMULATOR_ELEMENTS; ++element) {
                 const int output_row = wave_row_start +
                     m_tile * BACKWARD_M_PER_TILE +
-                    c_column(lane, element);
+                    acc_m(lane, element);
                 const int output_column = input_column_start +
-                    n_tile * BACKWARD_N_PER_TILE + c_row(lane);
+                    n_tile * BACKWARD_N_PER_TILE + acc_n(lane, element);
                 if constexpr (FULL_ROWS) {
                     grad_input[
                         static_cast<int64_t>(output_row) *
                             GROUPED_BACKWARD_TILED_Q4_IN_FEATURES +
                         output_column] = __float2bfloat16(
-                            accumulators[m_tile][n_tile].values[element]);
+                            accumulators[m_tile][n_tile].value(element));
                 } else if (output_row < row_end) {
                     grad_input[
                         static_cast<int64_t>(output_row) *
                             GROUPED_BACKWARD_TILED_Q4_IN_FEATURES +
                         output_column] = __float2bfloat16(
-                            accumulators[m_tile][n_tile].values[element]);
+                            accumulators[m_tile][n_tile].value(element));
                 }
             }
         }
@@ -333,46 +319,32 @@ static __device__ __forceinline__ void grouped_mmq_pair_grad_input_q3_tile(
 #pragma unroll
         for (int k_tile = 0; k_tile < GROUPED_BACKWARD_TILED_K; k_tile += 16) {
             {
-                bf16_fragment a_fragments
+                bf16_fragment_a a_fragments
                     [GROUPED_BACKWARD_TILED_M_TILES_PER_WAVE];
 #pragma unroll
                 for (int m_tile = 0;
                      m_tile < GROUPED_BACKWARD_TILED_M_TILES_PER_WAVE;
                      ++m_tile) {
-                    __hip_bfloat16 * a = fragment_data(a_fragments[m_tile]);
-                    const int a_row = wave_row_start +
-                        m_tile * BACKWARD_M_PER_TILE + c_row(lane);
-#pragma unroll
-                    for (int k = 0; k < 16; ++k) {
-                        if constexpr (FULL_ROWS) {
-                            a[k] = first_grad_output[
-                                static_cast<int64_t>(a_row) *
-                                    GROUPED_BACKWARD_TILED_Q3_OUT_FEATURES +
-                                output_start + k_tile + k];
-                        } else {
-                            a[k] = a_row < row_end
-                                ? first_grad_output[
-                                    static_cast<int64_t>(a_row) *
-                                        GROUPED_BACKWARD_TILED_Q3_OUT_FEATURES +
-                                    output_start + k_tile + k]
-                                : __float2bfloat16(0.0f);
-                        }
-                    }
+                    load_a_fragment<!FULL_ROWS, false>(
+                        a_fragments[m_tile],
+                        first_grad_output,
+                        GROUPED_BACKWARD_TILED_Q3_OUT_FEATURES,
+                        wave_row_start + m_tile * BACKWARD_M_PER_TILE,
+                        output_start + k_tile,
+                        row_end,
+                        0,
+                        lane);
                 }
 #pragma unroll
                 for (int n_tile = 0;
                      n_tile < GROUPED_BACKWARD_TILED_N_TILES;
                      n_tile += 2) {
-                    bf16_fragment b_first{};
-                    bf16_fragment b_second{};
-                    first_shared_b.load_fragment_vector(
-                        b_first,
-                        n_tile * BACKWARD_N_PER_TILE + c_row(lane),
-                        k_tile);
-                    first_shared_b.load_fragment_vector(
-                        b_second,
-                        (n_tile + 1) * BACKWARD_N_PER_TILE + c_row(lane),
-                        k_tile);
+                    bf16_fragment_b b_first{};
+                    bf16_fragment_b b_second{};
+                    first_shared_b.load_b_fragment(
+                        b_first, n_tile * BACKWARD_N_PER_TILE, k_tile, lane);
+                    first_shared_b.load_b_fragment(
+                        b_second, (n_tile + 1) * BACKWARD_N_PER_TILE, k_tile, lane);
 #pragma unroll
                     for (int m_tile = 0;
                          m_tile < GROUPED_BACKWARD_TILED_M_TILES_PER_WAVE;
@@ -394,46 +366,32 @@ static __device__ __forceinline__ void grouped_mmq_pair_grad_input_q3_tile(
                 }
             }
             {
-                bf16_fragment a_fragments
+                bf16_fragment_a a_fragments
                     [GROUPED_BACKWARD_TILED_M_TILES_PER_WAVE];
 #pragma unroll
                 for (int m_tile = 0;
                      m_tile < GROUPED_BACKWARD_TILED_M_TILES_PER_WAVE;
                      ++m_tile) {
-                    __hip_bfloat16 * a = fragment_data(a_fragments[m_tile]);
-                    const int a_row = wave_row_start +
-                        m_tile * BACKWARD_M_PER_TILE + c_row(lane);
-#pragma unroll
-                    for (int k = 0; k < 16; ++k) {
-                        if constexpr (FULL_ROWS) {
-                            a[k] = second_grad_output[
-                                static_cast<int64_t>(a_row) *
-                                    GROUPED_BACKWARD_TILED_Q3_OUT_FEATURES +
-                                output_start + k_tile + k];
-                        } else {
-                            a[k] = a_row < row_end
-                                ? second_grad_output[
-                                    static_cast<int64_t>(a_row) *
-                                        GROUPED_BACKWARD_TILED_Q3_OUT_FEATURES +
-                                    output_start + k_tile + k]
-                                : __float2bfloat16(0.0f);
-                        }
-                    }
+                    load_a_fragment<!FULL_ROWS, false>(
+                        a_fragments[m_tile],
+                        second_grad_output,
+                        GROUPED_BACKWARD_TILED_Q3_OUT_FEATURES,
+                        wave_row_start + m_tile * BACKWARD_M_PER_TILE,
+                        output_start + k_tile,
+                        row_end,
+                        0,
+                        lane);
                 }
 #pragma unroll
                 for (int n_tile = 0;
                      n_tile < GROUPED_BACKWARD_TILED_N_TILES;
                      n_tile += 2) {
-                    bf16_fragment b_first{};
-                    bf16_fragment b_second{};
-                    second_shared_b.load_fragment_vector(
-                        b_first,
-                        n_tile * BACKWARD_N_PER_TILE + c_row(lane),
-                        k_tile);
-                    second_shared_b.load_fragment_vector(
-                        b_second,
-                        (n_tile + 1) * BACKWARD_N_PER_TILE + c_row(lane),
-                        k_tile);
+                    bf16_fragment_b b_first{};
+                    bf16_fragment_b b_second{};
+                    second_shared_b.load_b_fragment(
+                        b_first, n_tile * BACKWARD_N_PER_TILE, k_tile, lane);
+                    second_shared_b.load_b_fragment(
+                        b_second, (n_tile + 1) * BACKWARD_N_PER_TILE, k_tile, lane);
 #pragma unroll
                     for (int m_tile = 0;
                          m_tile < GROUPED_BACKWARD_TILED_M_TILES_PER_WAVE;
@@ -467,24 +425,24 @@ static __device__ __forceinline__ void grouped_mmq_pair_grad_input_q3_tile(
              n_tile < GROUPED_BACKWARD_TILED_N_TILES;
              ++n_tile) {
 #pragma unroll
-            for (int element = 0; element < 8; ++element) {
+            for (int element = 0; element < ACCUMULATOR_ELEMENTS; ++element) {
                 const int output_row = wave_row_start +
                     m_tile * BACKWARD_M_PER_TILE +
-                    c_column(lane, element);
+                    acc_m(lane, element);
                 const int output_column = input_column_start +
-                    n_tile * BACKWARD_N_PER_TILE + c_row(lane);
+                    n_tile * BACKWARD_N_PER_TILE + acc_n(lane, element);
                 if constexpr (FULL_ROWS) {
                     grad_input[
                         static_cast<int64_t>(output_row) *
                             GROUPED_BACKWARD_TILED_Q3_IN_FEATURES +
                         output_column] = __float2bfloat16(
-                            accumulators[m_tile][n_tile].values[element]);
+                            accumulators[m_tile][n_tile].value(element));
                 } else if (output_row < row_end) {
                     grad_input[
                         static_cast<int64_t>(output_row) *
                             GROUPED_BACKWARD_TILED_Q3_IN_FEATURES +
                         output_column] = __float2bfloat16(
-                            accumulators[m_tile][n_tile].values[element]);
+                            accumulators[m_tile][n_tile].value(element));
                 }
             }
         }
@@ -615,39 +573,27 @@ static __device__ __forceinline__ void grouped_backward_accumulate_projection(
         int lane) {
 #pragma unroll
     for (int k_tile = 0; k_tile < GROUPED_BACKWARD_TILED_K; k_tile += 16) {
-        bf16_fragment a_fragments[M_TILES_PER_WAVE];
+        bf16_fragment_a a_fragments[M_TILES_PER_WAVE];
 #pragma unroll
         for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
-            __hip_bfloat16 * a = fragment_data(a_fragments[m_tile]);
-            const int a_row = wave_row_start +
-                m_tile * BACKWARD_M_PER_TILE + c_row(lane);
-#pragma unroll
-            for (int k = 0; k < 16; ++k) {
-                if constexpr (FULL_ROWS) {
-                    a[k] = grad_output[
-                        static_cast<int64_t>(a_row) * OUT_FEATURES +
-                        output_start + k_tile + k];
-                } else {
-                    a[k] = a_row < row_end
-                        ? grad_output[
-                            static_cast<int64_t>(a_row) * OUT_FEATURES +
-                            output_start + k_tile + k]
-                        : __float2bfloat16(0.0f);
-                }
-            }
+            load_a_fragment<!FULL_ROWS, false>(
+                a_fragments[m_tile],
+                grad_output,
+                OUT_FEATURES,
+                wave_row_start + m_tile * BACKWARD_M_PER_TILE,
+                output_start + k_tile,
+                row_end,
+                0,
+                lane);
         }
 #pragma unroll
         for (int n_tile = 0; n_tile < N_TILES; n_tile += 2) {
-            bf16_fragment b_first{};
-            bf16_fragment b_second{};
-            shared_b.load_fragment_vector(
-                b_first,
-                n_tile * BACKWARD_N_PER_TILE + c_row(lane),
-                k_tile);
-            shared_b.load_fragment_vector(
-                b_second,
-                (n_tile + 1) * BACKWARD_N_PER_TILE + c_row(lane),
-                k_tile);
+            bf16_fragment_b b_first{};
+            bf16_fragment_b b_second{};
+            shared_b.load_b_fragment(
+                b_first, n_tile * BACKWARD_N_PER_TILE, k_tile, lane);
+            shared_b.load_b_fragment(
+                b_second, (n_tile + 1) * BACKWARD_N_PER_TILE, k_tile, lane);
 #pragma unroll
             for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
                 wmma_f32_16x16x16_bf16(
@@ -683,21 +629,21 @@ static __device__ __forceinline__ void grouped_backward_store_tile(
 #pragma unroll
         for (int n_tile = 0; n_tile < N_TILES; ++n_tile) {
 #pragma unroll
-            for (int element = 0; element < 8; ++element) {
+            for (int element = 0; element < ACCUMULATOR_ELEMENTS; ++element) {
                 const int output_row = wave_row_start +
-                    m_tile * BACKWARD_M_PER_TILE + c_column(lane, element);
+                    m_tile * BACKWARD_M_PER_TILE + acc_m(lane, element);
                 const int output_column = input_column_start +
-                    n_tile * BACKWARD_N_PER_TILE + c_row(lane);
+                    n_tile * BACKWARD_N_PER_TILE + acc_n(lane, element);
                 if constexpr (FULL_ROWS) {
                     grad_input[
                         static_cast<int64_t>(output_row) * IN_FEATURES +
                         output_column] = __float2bfloat16(
-                            accumulators[m_tile][n_tile].values[element]);
+                            accumulators[m_tile][n_tile].value(element));
                 } else if (output_row < row_end) {
                     grad_input[
                         static_cast<int64_t>(output_row) * IN_FEATURES +
                         output_column] = __float2bfloat16(
-                            accumulators[m_tile][n_tile].values[element]);
+                            accumulators[m_tile][n_tile].value(element));
                 }
             }
         }

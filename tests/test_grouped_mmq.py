@@ -1,3 +1,4 @@
+import contextlib
 import os
 from pathlib import Path
 
@@ -120,6 +121,26 @@ def _logical_grouped_forward(
         device=input.device,
     ).reshape(experts.numel(), out_features, input.shape[1])
     return _grouped_linear(input, logical, offsets)
+
+
+@contextlib.contextmanager
+def _accurate_bf16_reduction():
+    """Stop torch from reducing bf16 matmul partial sums in bf16.
+
+    PyTorch defaults allow_bf16_reduced_precision_reduction to True, which lets
+    the backend accumulate split-K partials in bf16. On this reference that costs
+    real accuracy: scored against an fp64 accumulation of the same products, the
+    default reference gets 63% of its outputs correctly rounded, and 100% with
+    the flag off. Without this the test compares the kernel against an oracle
+    that is itself wrong on ~38% of elements.
+    """
+    key = "allow_bf16_reduced_precision_reduction"
+    previous = getattr(torch.backends.cuda.matmul, key)
+    setattr(torch.backends.cuda.matmul, key, False)
+    try:
+        yield
+    finally:
+        setattr(torch.backends.cuda.matmul, key, previous)
 
 
 def _logical_grouped_input_gradient(
@@ -426,9 +447,89 @@ def test_grouped_backward_route_group_boundaries(
         dtype=torch.bfloat16,
         device="cuda",
     ).reshape(experts.numel(), 37, in_features)
-    expected = _logical_grouped_input_gradient(grad_output, logical, offsets)
+    with _accurate_bf16_reduction():
+        expected = _logical_grouped_input_gradient(grad_output, logical, offsets)
 
-    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    # One bf16 ULP, not bit-exact: two valid fp32 orderings of the same 37
+    # products can land on opposite sides of a rounding boundary. Measured
+    # residue on this case is 4 / 320000 elements, each exactly 1.00 ULP.
+    torch.testing.assert_close(actual, expected, rtol=2**-7, atol=0)
+
+
+# The tiled / row-task backward kernels are gated on the exact down-projection
+# geometry -- out_features == 2048 and in_features == 512 -- plus a row-count
+# threshold (use_grouped_backward_row_tasks in mmq_hip.cu, and the dispatch in
+# launch_grouped_mmq_grad_input, ck/grouped_mmq_backward.cuh). Every other test in
+# this file uses out_features=37, which cannot satisfy that gate, so those kernels
+# -- the ones a real MoE down projection runs -- would otherwise go untested.
+_DOWN_PROJECTIONS = {
+    "Q4_K": "blk.2.ffn_down_exps.weight",
+    "Q5_K": "blk.0.ffn_down_exps.weight",
+    "IQ2_S": "blk.10.ffn_down_exps.weight",
+}
+_DOWN_GROUPS = 4
+_DOWN_OUT_FEATURES = 2048
+
+
+@pytest.mark.parametrize("qname", tuple(_DOWN_PROJECTIONS))
+# Three row regimes around the dispatch thresholds. Which kernel each one selects
+# differs per quant type; captured with torch.profiler on an RTX 4090, these nine
+# cases cover eight distinct kernels, none of which any other test reaches:
+#   rows/group  Q4_K              Q5_K            IQ2_S
+#   160         q4_row_task       q5_row_task     iq2_row_task
+#   100         q4_small_s2       q5_small        iq2_s2
+#    40         q4_small          q5_small        iq2_tiled<true>
+@pytest.mark.parametrize("rows_per_group", (160, 100, 40))
+def test_grouped_backward_down_projection_selects_tiled_kernels(
+    reader: gguf.GGUFReader, qname: str, rows_per_group: int
+) -> None:
+    packed, quant_type, in_features = _packed_experts(
+        reader,
+        _DOWN_PROJECTIONS[qname],
+        num_experts=_DOWN_GROUPS,
+        out_features=_DOWN_OUT_FEATURES,
+    )
+    assert quant_type.name == qname
+    assert in_features == 512  # or the dispatch gate above is not being exercised
+
+    rows = rows_per_group * _DOWN_GROUPS
+    experts = torch.arange(_DOWN_GROUPS, device="cuda", dtype=torch.int64)
+    offsets = torch.tensor(
+        [(index + 1) * rows_per_group for index in range(_DOWN_GROUPS)],
+        device="cuda",
+        dtype=torch.int32,
+    )
+    generator = torch.Generator(device="cuda").manual_seed(97531)
+    grad_output = torch.randn(
+        rows,
+        _DOWN_OUT_FEATURES,
+        generator=generator,
+        device="cuda",
+        dtype=torch.bfloat16,
+    )
+
+    actual = torch.ops.torch_ggml_ops.grouped_mmq_grad_input.default(
+        grad_output, packed, experts, offsets, int(quant_type), in_features
+    )
+
+    logical = dequantize_gguf_tensor(
+        packed.index_select(0, experts),
+        quant_type,
+        dtype=torch.bfloat16,
+        device="cuda",
+    ).reshape(experts.numel(), _DOWN_OUT_FEATURES, in_features)
+    with _accurate_bf16_reduction():
+        expected = _logical_grouped_input_gradient(grad_output, logical, offsets)
+
+    assert actual.shape == (rows, in_features)
+    assert actual.dtype == torch.bfloat16
+    assert torch.isfinite(actual).all()
+    # One bf16 ULP relative, plus a small absolute floor: this reduces over
+    # K=2048, so a good fraction of the outputs are near-zero cancellations where
+    # relative error is unbounded for any reduction order. Measured worst case
+    # over the three quant types and three row regimes is 1.75e-6 absolute,
+    # against an output RMS of ~0.33-0.48.
+    torch.testing.assert_close(actual, expected, rtol=2**-7, atol=2**-18)
 
 
 def test_grouped_grad_input_direct_ops_compose_and_reject_higher_order(

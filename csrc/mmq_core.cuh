@@ -11,6 +11,13 @@
 #define MMQ_TILE_NE_K 32
 #define MMQ_TILE_Y_K (MMQ_TILE_NE_K + MMQ_TILE_NE_K / QI8_1)
 
+// Vec-dot ratio for the Q3_K Q8_1 MMQ path (llama.cpp vecdotq.cuh). The upstream
+// subset pruned this because the AMD build never compiles the TURING_MMA branch
+// that uses it; the CUDA (Turing) forward path does. Value is llama.cpp-canonical.
+#ifndef VDR_Q3_K_Q8_1_MMQ
+#define VDR_Q3_K_Q8_1_MMQ 2
+#endif
+
 static constexpr int MMQ_I = 64;
 static constexpr int MMQ_J = 128;
 static constexpr int MMQ_J_SMALL = 64;
@@ -118,7 +125,15 @@ template <ggml_type type, int J, bool full_i = false, bool full_j = false>
 static __device__ __forceinline__ void mmq_write_back_bf16(
         const float * sum, __hip_bfloat16 * dst, int stride, int i_max, int j_max) {
     using namespace ggml_cuda_mma;
+    // tile_C MUST mirror the vec-dot's accumulator layout so the sum[] indexing
+    // matches: RDNA3/CDNA use the J-major int C tile; NVIDIA (Turing/Ampere/Ada)
+    // use the I-major tile<16,8,int>. Reading sum with the wrong layout scrambles
+    // the output (nrmse ~2.4 on the 4090 before this fix).
+#if defined(AMD_MFMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
     using tile_C = tile<16, 16, int, DATA_LAYOUT_J_MAJOR>;
+#else
+    using tile_C = tile<16, 8, int>;
+#endif
     constexpr int ntx = 16 / tile_C::I;
     const int i0 = (threadIdx.y / ntx) * (ntx * tile_C::I);
 

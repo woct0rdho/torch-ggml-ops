@@ -4,8 +4,10 @@
 #include "gguf_decode.cuh"
 #include "grouped_mmq_backward_tiled.cuh"
 
+#if defined(__HIP__)
 #include <hip/hip_bf16.h>
 #include <hip/hip_runtime.h>
+#endif
 
 namespace torch_ggml_ops::ck {
 
@@ -111,41 +113,39 @@ static __global__ void grouped_mmq_grad_input_kernel(
             }
             __syncthreads();
 
-            bf16_fragment a_fragment{};
-            bf16_fragment b_fragment{};
-            __hip_bfloat16 * a = fragment_data(a_fragment);
-            __hip_bfloat16 * b = fragment_data(b_fragment);
-            const int a_row = wave_row_start + c_row(lane);
-#pragma unroll
-            for (int k_fragment = 0;
-                 k_fragment < GROUPED_BACKWARD_K_PER_ITERATION;
-                 ++k_fragment) {
-                const int output_feature = output_start + k_fragment;
-                a[k_fragment] =
-                    a_row < row_end && output_feature < out_features
-                    ? grad_output[
-                          static_cast<int64_t>(a_row) * out_features +
-                          output_feature]
-                    : __float2bfloat16(0.0f);
-                b[k_fragment] = shared_b[
-                    c_row(lane) * GROUPED_BACKWARD_K_PER_ITERATION +
-                    k_fragment];
-            }
+            bf16_fragment_a a_fragment{};
+            bf16_fragment_b b_fragment{};
+            load_a_fragment<true, true>(
+                a_fragment,
+                grad_output,
+                out_features,
+                wave_row_start,
+                output_start,
+                row_end,
+                out_features,
+                lane);
+            load_b_fragment(
+                b_fragment,
+                shared_b,
+                GROUPED_BACKWARD_K_PER_ITERATION,
+                0,
+                0,
+                lane);
 
             wmma_f32_16x16x16_bf16(accumulator, a_fragment, b_fragment);
             __syncthreads();
         }
 
 #pragma unroll
-        for (int element = 0; element < 8; ++element) {
-            const int output_row =
-                wave_row_start + c_column(lane, element);
-            const int output_column = input_column_start + c_row(lane);
+        for (int element = 0; element < ACCUMULATOR_ELEMENTS; ++element) {
+            const int output_row = wave_row_start + acc_m(lane, element);
+            const int output_column =
+                input_column_start + acc_n(lane, element);
             if (output_row < row_end && output_column < in_features) {
                 grad_input[
                     static_cast<int64_t>(output_row) * in_features +
                     output_column] =
-                    __float2bfloat16(accumulator.values[element]);
+                    __float2bfloat16(accumulator.value(element));
             }
         }
     }
@@ -390,52 +390,26 @@ static __global__ void grouped_mmq_pair_grad_input_kernel(
             }
             __syncthreads();
 
-            const int a_row = wave_row_start + c_row(lane);
-            {
-                bf16_fragment a_fragment{};
-                bf16_fragment b_fragment{};
-                __hip_bfloat16 * a = fragment_data(a_fragment);
-                __hip_bfloat16 * b = fragment_data(b_fragment);
 #pragma unroll
-                for (int k_fragment = 0;
-                     k_fragment < GROUPED_BACKWARD_K_PER_ITERATION;
-                     ++k_fragment) {
-                    const int output_feature = output_start + k_fragment;
-                    const bool valid =
-                        a_row < row_end && output_feature < out_features;
-                    const int64_t grad_offset =
-                        static_cast<int64_t>(a_row) * out_features + output_feature;
-                    a[k_fragment] = valid
-                        ? first_grad_output[grad_offset]
-                        : __float2bfloat16(0.0f);
-                    b[k_fragment] = shared_b[0][
-                        c_row(lane) * GROUPED_BACKWARD_K_PER_ITERATION +
-                        k_fragment];
-                }
-                wmma_f32_16x16x16_bf16(
-                    accumulator, a_fragment, b_fragment);
-            }
-            {
-                bf16_fragment a_fragment{};
-                bf16_fragment b_fragment{};
-                __hip_bfloat16 * a = fragment_data(a_fragment);
-                __hip_bfloat16 * b = fragment_data(b_fragment);
-#pragma unroll
-                for (int k_fragment = 0;
-                     k_fragment < GROUPED_BACKWARD_K_PER_ITERATION;
-                     ++k_fragment) {
-                    const int output_feature = output_start + k_fragment;
-                    const bool valid =
-                        a_row < row_end && output_feature < out_features;
-                    const int64_t grad_offset =
-                        static_cast<int64_t>(a_row) * out_features + output_feature;
-                    a[k_fragment] = valid
-                        ? second_grad_output[grad_offset]
-                        : __float2bfloat16(0.0f);
-                    b[k_fragment] = shared_b[1][
-                        c_row(lane) * GROUPED_BACKWARD_K_PER_ITERATION +
-                        k_fragment];
-                }
+            for (int projection = 0; projection < 2; ++projection) {
+                bf16_fragment_a a_fragment{};
+                bf16_fragment_b b_fragment{};
+                load_a_fragment<true, true>(
+                    a_fragment,
+                    projection == 0 ? first_grad_output : second_grad_output,
+                    out_features,
+                    wave_row_start,
+                    output_start,
+                    row_end,
+                    out_features,
+                    lane);
+                load_b_fragment(
+                    b_fragment,
+                    shared_b[projection],
+                    GROUPED_BACKWARD_K_PER_ITERATION,
+                    0,
+                    0,
+                    lane);
                 wmma_f32_16x16x16_bf16(
                     accumulator, a_fragment, b_fragment);
             }
@@ -443,15 +417,15 @@ static __global__ void grouped_mmq_pair_grad_input_kernel(
         }
 
 #pragma unroll
-        for (int element = 0; element < 8; ++element) {
-            const int output_row =
-                wave_row_start + c_column(lane, element);
-            const int output_column = input_column_start + c_row(lane);
+        for (int element = 0; element < ACCUMULATOR_ELEMENTS; ++element) {
+            const int output_row = wave_row_start + acc_m(lane, element);
+            const int output_column =
+                input_column_start + acc_n(lane, element);
             if (output_row < row_end && output_column < in_features) {
                 grad_input[
                     static_cast<int64_t>(output_row) * in_features +
                     output_column] =
-                    __float2bfloat16(accumulator.values[element]);
+                    __float2bfloat16(accumulator.value(element));
             }
         }
     }

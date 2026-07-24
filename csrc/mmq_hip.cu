@@ -1,4 +1,4 @@
-// torch.utils.cpp_extension disables HIP half operators/conversions by default.
+// torch.utils.cpp_extension disables half operators/conversions by default.
 // llama.cpp MMQ deliberately uses the native half/half2 arithmetic surface.
 #ifdef __HIP_NO_HALF_OPERATORS__
 #undef __HIP_NO_HALF_OPERATORS__
@@ -6,12 +6,32 @@
 #ifdef __HIP_NO_HALF_CONVERSIONS__
 #undef __HIP_NO_HALF_CONVERSIONS__
 #endif
+#ifdef __CUDA_NO_HALF_OPERATORS__
+#undef __CUDA_NO_HALF_OPERATORS__
+#endif
+#ifdef __CUDA_NO_HALF_CONVERSIONS__
+#undef __CUDA_NO_HALF_CONVERSIONS__
+#endif
+#ifdef __CUDA_NO_HALF2_OPERATORS__
+#undef __CUDA_NO_HALF2_OPERATORS__
+#endif
+#ifdef __CUDA_NO_BFLOAT16_CONVERSIONS__
+#undef __CUDA_NO_BFLOAT16_CONVERSIONS__
+#endif
 
 #include "mmq_core.cuh"
 #include "ck/grouped_mmq_backward.cuh"
 #include "ck/mmq_backward.cuh"
 
+#if defined(__HIP__)
 #include <hip/hip_runtime.h>
+#else
+// torch 2.13's stable C shim no longer re-declares aoti_torch_get_current_cuda_stream,
+// and the inductor C shim guards it behind USE_CUDA (undefined in this stable-ABI
+// build). The symbol is still exported by libtorch_cuda, so forward-declare just it
+// with matching C linkage (AOTITorchError == int32_t, 0 == success).
+extern "C" int32_t aoti_torch_get_current_cuda_stream(int32_t device_index, void ** ret_stream);
+#endif
 #include <Python.h>
 #include <torch/csrc/stable/accelerator.h>
 #include <torch/csrc/stable/c/shim.h>

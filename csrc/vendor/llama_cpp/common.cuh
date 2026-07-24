@@ -4,28 +4,57 @@
 // Derived from ggml/src/ggml-common.h, ggml/src/ggml-cuda/common.cuh, and ggml/src/ggml-cuda/vendors/hip.h
 // at commit 39d54170de9c963eca32cbe062ee8c7bb7e57cde.
 
+#if defined(__HIP__)
 #include <hip/hip_bf16.h>
 #include <hip/hip_fp16.h>
 #include <hip/hip_runtime.h>
+#else
+#include "port_cuda.cuh"
+#endif
 
 #include <cstdint>
 #include <type_traits>
 
+#if defined(__HIP__)
 #define GGML_USE_HIP 1
 #define RDNA 1
 #define RDNA3 1
 #define RDNA3_5 1
 #define AMD_WMMA_AVAILABLE 1
-#define WARP_SIZE 32
+#else
+// CUDA: enable the dormant NVIDIA MMA paths that llama.cpp's mma.cuh /
+// mmq-*-targets.cuh already carry side-by-side with the AMD path. Gated on the
+// architecture the way upstream llama.cpp gates them, rather than hard-defined:
+// the bf16 backward compiles to mma.sync.aligned.m16n8k16.f32.bf16.bf16.f32,
+// which is Ampere and later. Without the gate a pre-Ampere build emits that
+// instruction anyway and dies inside ptxas with no indication why.
+#define GGML_CUDA_CC_TURING 750
 #define GGML_CUDA_CC_AMPERE 800
+#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= GGML_CUDA_CC_TURING
+#define TURING_MMA_AVAILABLE 1
+#endif
+#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= GGML_CUDA_CC_AMPERE
+#define AMPERE_MMA_AVAILABLE 1
+#endif
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < GGML_CUDA_CC_AMPERE
+#error "torch-ggml-ops on CUDA needs compute capability 8.0+ (the bf16 backward uses mma.sync.m16n8k16.bf16)"
+#endif
+#endif
+#define WARP_SIZE 32
+#ifndef GGML_CUDA_CC_AMPERE
+#define GGML_CUDA_CC_AMPERE 800
+#endif
 
 #ifndef CUDART_VERSION
 #define CUDART_VERSION 12000
 #endif
 
+#if defined(__HIP__)
+// HIP's __shfl* take no mask; on CUDA the native *_sync intrinsics are used.
 #define __shfl_sync(mask, var, lane, width) __shfl((var), (lane), (width))
 #define __shfl_up_sync(mask, var, delta, width) __shfl_up((var), (delta), (width))
 #define __shfl_xor_sync(mask, var, lane_mask, width) __shfl_xor((var), (lane_mask), (width))
+#endif
 
 #define GGML_UNUSED(x) (void)(x)
 template <typename... Args>
@@ -36,8 +65,11 @@ __host__ __device__ constexpr inline void ggml_unused_vars_impl(Args &&...) noex
 
 using ggml_half = half;
 using ggml_half2 = half2;
+#if defined(__HIP__)
 using nv_bfloat16 = __hip_bfloat16;
 using nv_bfloat162 = __hip_bfloat162;
+#endif
+// On CUDA, nv_bfloat16 / nv_bfloat162 are provided natively by cuda_bf16.h.
 
 // GGML quantization identifiers used by the checkpoint.
 enum ggml_type : int32_t {
@@ -84,26 +116,21 @@ struct block_q3_K {
 static_assert(sizeof(block_q3_K) == 110, "wrong q3_K block size");
 
 struct block_q4_K {
-    union {
-        struct {
-            half d;
-            half dmin;
-        };
-        half2 dm;
-    };
+    // Upstream aliases (d, dmin) with a half2 `dm` via an anonymous union, but on
+    // CUDA `half` is __half (has a constructor) and cannot live in an anonymous
+    // aggregate. Store the two scales flat (identical 4-byte layout) and build the
+    // half2 on demand via make_half2(d, dmin) at the (few) former `dm` use sites.
+    half d;
+    half dmin;
     uint8_t scales[K_SCALE_SIZE];
     uint8_t qs[QK_K / 2];
 };
 static_assert(sizeof(block_q4_K) == 144, "wrong q4_K block size");
 
 struct block_q5_K {
-    union {
-        struct {
-            half d;
-            half dmin;
-        };
-        half2 dm;
-    };
+    // See block_q4_K: flat (d, dmin) instead of an anonymous union with half2 dm.
+    half d;
+    half dmin;
     uint8_t scales[K_SCALE_SIZE];
     uint8_t qh[QK_K / 8];
     uint8_t qs[QK_K / 2];
@@ -155,6 +182,9 @@ static __device__ __forceinline__ void ggml_cuda_memcpy_1(
     }
 }
 
+#if defined(__HIP__)
+// HIP lacks the SIMD-in-a-word video intrinsics; reimplement with clang vectors.
+// On CUDA, __vsubss4 / __vsub4 / __vcmpne4 are native device intrinsics.
 using int8x4_t = int8_t __attribute__((ext_vector_type(4)));
 using uint8x4_t = uint8_t __attribute__((ext_vector_type(4)));
 
@@ -180,6 +210,7 @@ static __device__ __forceinline__ unsigned int __vcmpne4(unsigned int a, unsigne
     }
     return c;
 }
+#endif // __HIP__
 
 static __device__ __forceinline__ int get_int_b2(const void * x, const int i32) {
     const uint16_t * x16 = static_cast<const uint16_t *>(x);
