@@ -110,3 +110,17 @@ def test_writer_maps_grouped_m_launch_coordinates() -> None:
     assert ".amdhsa_system_sgpr_workgroup_id_z 1" in source
     assert "s_mul_i32 s4, s4, 256" in source
     assert "s_add_u32 s2, s4, s2" in source
+
+
+def test_writer_can_disable_store_priority() -> None:
+    pilot = Solution.pilot()
+    no_store_priority = replace(pilot, store_priority_opt=False)
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(128, 2048, 512),
+        no_store_priority,
+    )
+    assert validate_solution(key) == ()
+
+    source = KernelWriterAssembly(key, _toolchain()).source()
+    assert "s_setprio" not in source

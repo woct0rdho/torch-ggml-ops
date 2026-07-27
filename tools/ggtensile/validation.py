@@ -124,7 +124,6 @@ def _validate_solution_parameters(
         ("prefetch_global_read", "PrefetchGlobalRead"),
         ("prefetch_local_read", "PrefetchLocalRead"),
         ("one_lds_buffer", "1LDSBuffer"),
-        ("store_priority_opt", "StorePriorityOpt"),
         ("num_elements_per_batch_store", "NumElementsPerBatchStore"),
         ("store_vector_width", "StoreVectorWidth"),
         ("transpose_lds", "TransposeLDS"),

@@ -119,8 +119,9 @@ Campaign procedure:
    - `ScheduleIterAlg=2` preserves the original full-wait schedule.
    - `ScheduleIterAlg=3` waits for the oldest A and B loads, issues independent WMMAs, and delays full waits until their operands are consumed.
    - The SIA3 solution is bit-exact and remains at 196 VGPRs, 19 SGPRs, and 8192 LDS bytes.
-   - A 25-repeat rotating bracket measured SIA3 at 117.981 ms versus SIA2 at 120.101 ms, a 1.80% throughput gain.
-   - SIA3 is the current assembly control, but it remains below the 2% finalist gate.
+   - Before locality correction, a 25-repeat bracket measured SIA3 at 117.981 ms versus SIA2 at 120.101 ms.
+   - With WGM1 and XOR-8 selected, SIA3 measured 45.133 ms versus SIA2 at 45.315 ms.
+   - SIA3 remains selected; its final-layout gain is only 0.40%, so larger scheduling neighborhoods remain open.
    - Next compare cross-pair local-read prefetch, bounded next-DepthU packed/A prefetch, and only schedules that emit distinct ISA.
 5. **Tile and ownership geometry (`pending`)**
    - Admit focused complete solutions around `MacroTile 128x128, DepthU 32`.
@@ -138,9 +139,11 @@ Campaign procedure:
    - Compare hipcc and GGTensile load widths, lane duplication, address induction, cache flags, and waits.
    - Evaluate legal half-wave replication, wider aligned Q4_K loads, scalar uniform metadata, and bounded decode reuse.
    - Expose a knob only if multiple correct mechanisms remain competitive.
-8. **Epilogue and low-level scheduling (`pending`)**
-   - Tune store order, `NumElementsPerBatchStore`, `StorePriorityOpt`, waits, and instruction priority only after the main loop is competitive.
-   - Treat TensileLite's SIA3/no-store-priority result as mechanism evidence rather than a value to copy.
+8. **Epilogue and low-level scheduling (`active`)**
+   - `StorePriorityOpt=false` removes the two epilogue `s_setprio` instructions.
+   - A 25-repeat bracket measured no priority at 45.327 ms versus priority at 45.413 ms.
+   - The 0.19% difference is not independently significant; no priority is the provisional control because it is simpler and showed no regression.
+   - Store order, `NumElementsPerBatchStore`, and other epilogue changes remain secondary to the 256-iteration main loop.
 9. **Advanced exact-shape mechanisms (`pending`)**
    - Consider persistent traversal, decode-sharing across M tiles, or split reduction only after profiling identifies the remaining limit.
    - Split-K/Stream-K requires an explicit FP32 fixup contract before it becomes a parameter.
