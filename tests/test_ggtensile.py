@@ -78,3 +78,19 @@ def test_writer_emits_distinct_xor8_lds_layout() -> None:
     assert "v_xor_b32" in source
     assert source.count("ds_load_b128") == 32
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
+
+
+def test_writer_emits_sia3_partial_wait_schedule() -> None:
+    pilot = Solution.pilot()
+    scheduled = replace(pilot, schedule_iter_alg=3)
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(128, 2048, 512),
+        scheduled,
+    )
+    assert validate_solution(key) == ()
+
+    source = KernelWriterAssembly(key, _toolchain()).source()
+    assert source.count("s_waitcnt vmcnt(2) lgkmcnt(2)") == 2
+    assert source.count("s_waitcnt lgkmcnt(2)") == 6
+    assert source.count("v_wmma_f32_16x16x16_bf16") == 32

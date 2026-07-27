@@ -112,7 +112,6 @@ def _validate_solution_parameters(
         ("prefetch_global_read", "PrefetchGlobalRead"),
         ("prefetch_local_read", "PrefetchLocalRead"),
         ("one_lds_buffer", "1LDSBuffer"),
-        ("schedule_iter_alg", "ScheduleIterAlg"),
         ("store_priority_opt", "StorePriorityOpt"),
         ("num_elements_per_batch_store", "NumElementsPerBatchStore"),
         ("store_vector_width", "StoreVectorWidth"),
@@ -138,6 +137,13 @@ def _validate_solution_parameters(
             "solution.ldsswizzlechunkb.unimplemented",
             "KernelWriterAssembly implements only LdsSwizzleChunkB=0 or 8",
             "LdsSwizzleChunkB",
+        )
+    if solution.schedule_iter_alg not in (2, 3):
+        _reject(
+            reasons,
+            "solution.scheduleiteralg.unimplemented",
+            "KernelWriterAssembly implements only ScheduleIterAlg=2 or 3",
+            "ScheduleIterAlg",
         )
 
     instruction = solution.matrix_instruction

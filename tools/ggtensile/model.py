@@ -274,9 +274,7 @@ class Solution:
             lds_block_size_per_pad_b=_integer(
                 item["LdsBlockSizePerPadB"], "LdsBlockSizePerPadB"
             ),
-            lds_swizzle_chunk_b=_integer(
-                item["LdsSwizzleChunkB"], "LdsSwizzleChunkB"
-            ),
+            lds_swizzle_chunk_b=_integer(item["LdsSwizzleChunkB"], "LdsSwizzleChunkB"),
             decoder_width=_integer(item["DecoderWidth"], "DecoderWidth"),
             prefetch_packed_weight=_boolean(
                 item["PrefetchPackedWeight"], "PrefetchPackedWeight"

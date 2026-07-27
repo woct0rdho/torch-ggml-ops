@@ -351,9 +351,7 @@ class KernelWriterAssembly:
                 if self.solution_key.solution.lds_swizzle_chunk_b == 8:
                     lds_address = r.lds_address + element % 4
                     if row:
-                        lds_offset = 64 * element + (
-                            32 if element % 4 < 2 else -32
-                        )
+                        lds_offset = 64 * element + (32 if element % 4 < 2 else -32)
                 asm.inst(f"v_bfe_u32 v{value}, v{packed}, {byte_shift}, 8")
                 asm.inst(f"v_bfe_u32 v{value}, v{value}, v{r.address + 11}, 4")
                 asm.inst(f"v_cvt_f32_ubyte0_e32 v{value}, v{value}")
@@ -435,19 +433,66 @@ class KernelWriterAssembly:
                 asm.inst(
                     f"ds_load_b128 v[{second + 4}:{second + 7}], v{second_address} offset:{second_offset + second_chunk_offset}"
                 )
-                asm.inst("s_waitcnt vmcnt(0) lgkmcnt(0)")
-                self._emit_wmma_pair(asm, n_tile, first)
-                self._emit_wmma_pair(asm, n_tile + 1, second)
+                if self.solution_key.solution.schedule_iter_alg == 3:
+                    self._emit_sia3_wmma_pair(
+                        asm,
+                        n_tile,
+                        first,
+                        second,
+                        first_pair=n_tile == 0,
+                    )
+                else:
+                    asm.inst("s_waitcnt vmcnt(0) lgkmcnt(0)")
+                    self._emit_wmma_pair(asm, n_tile, first)
+                    self._emit_wmma_pair(asm, n_tile + 1, second)
+
+    def _emit_sia3_wmma_pair(
+        self,
+        asm: _Assembly,
+        n_tile: int,
+        first: int,
+        second: int,
+        *,
+        first_pair: bool,
+    ) -> None:
+        r = self.registers
+        if first_pair:
+            asm.inst("s_waitcnt vmcnt(2) lgkmcnt(2)")
+            self._emit_wmma_instruction(asm, 0, n_tile, r.valu_a, first)
+            asm.inst("s_waitcnt lgkmcnt(0)")
+            self._emit_wmma_instruction(asm, 0, n_tile + 1, r.valu_a, second)
+            asm.inst("s_waitcnt vmcnt(0)")
+            self._emit_wmma_instruction(asm, 1, n_tile, r.valu_a + 8, first)
+            self._emit_wmma_instruction(asm, 1, n_tile + 1, r.valu_a + 8, second)
+            return
+
+        asm.inst("s_waitcnt lgkmcnt(2)")
+        self._emit_wmma_instruction(asm, 0, n_tile, r.valu_a, first)
+        self._emit_wmma_instruction(asm, 1, n_tile, r.valu_a + 8, first)
+        asm.inst("s_waitcnt lgkmcnt(0)")
+        self._emit_wmma_instruction(asm, 0, n_tile + 1, r.valu_a, second)
+        self._emit_wmma_instruction(asm, 1, n_tile + 1, r.valu_a + 8, second)
 
     def _emit_wmma_pair(self, asm: _Assembly, n_tile: int, valu_b: int) -> None:
         r = self.registers
         for m_tile, valu_a in ((0, r.valu_a), (1, r.valu_a + 8)):
-            accum = r.accum + (8 * m_tile + n_tile) * 8
-            asm.inst(
-                f"v_wmma_f32_16x16x16_bf16 v[{accum}:{accum + 7}], "
-                f"v[{valu_a}:{valu_a + 7}], v[{valu_b}:{valu_b + 7}], "
-                f"v[{accum}:{accum + 7}]"
-            )
+            self._emit_wmma_instruction(asm, m_tile, n_tile, valu_a, valu_b)
+
+    def _emit_wmma_instruction(
+        self,
+        asm: _Assembly,
+        m_tile: int,
+        n_tile: int,
+        valu_a: int,
+        valu_b: int,
+    ) -> None:
+        r = self.registers
+        accum = r.accum + (8 * m_tile + n_tile) * 8
+        asm.inst(
+            f"v_wmma_f32_16x16x16_bf16 v[{accum}:{accum + 7}], "
+            f"v[{valu_a}:{valu_a + 7}], v[{valu_b}:{valu_b + 7}], "
+            f"v[{accum}:{accum + 7}]"
+        )
 
     def _emit_store(self, asm: _Assembly) -> None:
         r = self.registers

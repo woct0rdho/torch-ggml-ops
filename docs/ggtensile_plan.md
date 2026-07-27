@@ -72,7 +72,7 @@ The artifact inspector requires:
 - no register indices beyond metadata declarations;
 - the expected static WMMA and barrier structure.
 
-Normalized assembly and HSACO SHA-256 values are recorded. Building the same candidate twice must produce byte-identical artifacts before it is eligible for integration.
+Normalized assembly and code-object identities stay in the generated inspection manifest. Building the same candidate twice must produce byte-identical artifacts before it is eligible for integration.
 
 ## Correctness And Performance Gates
 
@@ -96,18 +96,55 @@ The exact target is `ProblemSize(M=32768, N=2048, K=8192)`, corresponding to BF1
 
 Campaign procedure:
 
-1. **Baseline and harness (`completed`)**: solution `ggsol_13512e1fccbf43e7` generated assembly SHA-256 `153c890c31b5fa031016b261f7f6a7393b4b39d6af5008884c927f2f5d659715`, code object SHA-256 `5a33bd66b727315ff423af43bd5712a637be53fae20bc443d8abfe64b16de921`, and normalized ISA SHA-256 `73e58cc21d555654c67637fa24e2e75b31e6068bc0487e9024a459b939c20fdd`. Inspection reports 196 VGPRs, 19 SGPRs, 8192 LDS bytes, 32 static WMMAs, zero private storage/spills/scratch/calls/dynamic stack, and the required gfx1151 code-object-v5 ABI. On real `blk.39.attn_q.weight` and deterministic random BF16 cotangent, all 67,108,864 BF16 outputs match HIP bit-for-bit; candidate and HIP have the same 409,880 differences versus independently dequantized BF16 matmul, maximum absolute error 0.0625, and normalized RMSE 0.0001924804. Nine warmed alternating samples measured HIP at median 47.61 ms, 23.09 TFLOP/s, and 38.9% of roof versus assembly at median 122.90 ms, 8.95 TFLOP/s, and 15.1% of roof. The 2.58x latency deficit makes LDS conflicts and scheduling the immediate blockers. The reusable driver is `tools/benchmark_ggtensile.py`; the full baseline report is `/tmp/ggtensile-m32768-n2048-k8192-baseline/benchmark.json`.
-2. **Obvious assembly corrections (`active`)**: remove full-wait serialization that has no dependency, hoist exact-shape affine address state, avoid repeated waits and arithmetic inside the K loop, and use the retained Q4_K query LDS bank-conflict solution. Changes without a meaningful alternative remain implementation improvements rather than tuning knobs.
-3. **LDS layout and local-read schedule (`active`)**: `LdsSwizzleChunkB={0,8}` is implemented as distinct exact addressing for both decoded stores and WMMA fragment reads. The first XOR-8 attempt exposed and corrected the gfx1151 mapping detail that adding 16 logical K positions moves N-row residues 0/1 forward 32 bytes but residues 2/3 backward 32 bytes. Final solution `ggsol_dcb1461df35f5a5b` is bit-exact to HIP and uses 200 VGPRs, 19 SGPRs, and 8192 LDS bytes with no disallowed resources. A warmed 25-repeat rotating HIP/XOR-8/unpadded bracket measured 121.383 ms versus 121.299 ms for unpadded, a 0.07% standalone regression, so XOR-8 is rejected as the selected serial schedule but retained as a valid mechanism for paired scheduling tests. Full `lgkmcnt(0)` waits hide the historical bank-layout benefit. The benchmark driver now supports an assembly control in the same process and records non-finite candidate failures structurally. Next, add `PrefetchLocalRead` schedules that overlap DS reads with independent WMMAs, then compare unpadded, padding-8, XOR-8, and only valid combinations. Reject layouts that do not preserve exact WMMA lane mapping.
-4. **Main-loop schedule (`pending`)**: implement distinct `ScheduleIterAlg` paths for decode/global-read, LDS write, A read, B local read, and WMMA ordering. Sweep `ScheduleIterAlg`, `PrefetchGlobalRead`, `PrefetchPackedWeight`, and `1LDSBuffer` only where emitted ISA differs. The first neighborhood is current serial scheduling, local-read pipelining, and a bounded next-DepthU packed/A prefetch; prior HIP evidence warns that cross-iteration packed prefetch can lose through VGPR lifetime.
-5. **Tile and ownership geometry (`pending`)**: admit complete valid solutions around `MacroTile 128x128, DepthU 32`, then focused `128x64`, `64x128`, `256x64`, and DepthU 16/64 variants where register allocation, decode ownership, and LDS coverage are implemented. Model wave ownership explicitly through `MatrixInstruction` and `WorkGroup`; do not infer performance from nominal tile area. Accumulator pressure, active waves, workgroup residency, repeated decode, and A/B reuse are measured together.
-6. **Global traversal (`pending`)**: implement exact-shape `WorkGroupMapping`/`GroupM` mappings that change launch-to-tile traversal while preserving one workgroup per output tile. Compare current two-dimensional order with focused M clustering and static mapping factors 1/2/4/8. The large M dimension makes packed-weight and cotangent L2 reuse a first-order concern, but prior HIP results show mappings are geometry-specific.
-7. **A and packed-weight traffic (`pending`)**: inspect hipcc's gfx1151 lowering for Q4_K and compare global load widths, lane duplication, address induction, cache flags, and wait placement. Evaluate half-wave load plus legal lane replication for WMMA A/B operands, wider aligned Q4_K header/quant loads, scalarized uniform metadata, and bounded decode reuse. These become knobs only if multiple correct emitted mechanisms remain competitive.
-8. **Epilogue and low-level scheduling (`pending`)**: tune store order, `NumElementsPerBatchStore`, `StorePriorityOpt`, wait placement, instruction priority, and independent VALU placement only after the main loop is competitive. TensileLite's SIA3/no-store-priority result is mechanism evidence, not a value to copy blindly; this target's 256 dynamic reduction iterations make epilogue tuning secondary.
-9. **Advanced exact-shape mechanisms (`pending`)**: consider persistent tile traversal, decode-sharing across multiple M tiles, or split reduction only if profiles show a remaining launch/locality/repeated-decode limit. Split-K/Stream-K requires an explicit FP32 fixup contract and is not admitted as a parameter beforehand. No dense shadow weight or external decode workspace is allowed.
-10. **Retention and integration (`pending`)**: bracket finalists with warmed alternating 25-repeat HIP/assembly/HIP runs, require bit-exact HIP agreement or a justified fixed bound, byte-identical rebuilds, zero private storage/spills/scratch/calls/dynamic stack, and a stable gain above 2%. Retain the fastest exact solution, add static dispatch with HIP fallback, and rerun the full project suite and target benchmark.
+1. **Baseline and harness (`completed`)**
+   - Inspection reports 196 VGPRs, 19 SGPRs, 8192 LDS bytes, 32 static WMMAs, zero disallowed resources, and the required gfx1151 code-object-v5 ABI.
+   - All 67,108,864 BF16 outputs match HIP bit-for-bit on real `blk.39.attn_q.weight` and deterministic random cotangent.
+   - Candidate and HIP have the same 409,880 differences versus independently dequantized BF16 matmul, maximum absolute error 0.0625, and normalized RMSE 0.0001924804.
+   - Nine warmed alternating samples measured HIP at 47.61 ms and 23.09 TFLOP/s versus assembly at 122.90 ms and 8.95 TFLOP/s.
+   - The reusable driver is `tools/benchmark_ggtensile.py`; the full report is `/tmp/ggtensile-m32768-n2048-k8192-baseline/benchmark.json`.
+2. **Obvious assembly corrections (`active`)**
+   - Remove waits that have no current dependency.
+   - Hoist exact-shape affine address state and repeated K-loop arithmetic.
+   - Treat unconditional improvements as writer changes rather than tuning knobs.
+3. **LDS layout (`completed`)**
+   - `LdsSwizzleChunkB={0,8}` now emits distinct decoded-store and WMMA-read addressing.
+   - Adding 16 logical K positions moves N-row residues 0/1 forward 32 bytes but residues 2/3 backward 32 bytes under XOR-8.
+   - The XOR-8 solution is bit-exact and uses 200 VGPRs, 19 SGPRs, and 8192 LDS bytes with no disallowed resources.
+   - A 25-repeat rotating bracket measured XOR-8 at 121.383 ms versus unpadded at 121.299 ms under SIA2, a 0.07% regression.
+   - Under SIA3, XOR-8 measured 120.035 ms versus unpadded at 118.962 ms, a 0.90% regression.
+   - XOR-8 is rejected for this geometry because it adds four VGPRs without a stable latency gain; the correct mechanism remains available to future solutions.
+4. **Main-loop schedule (`active`)**
+   - `ScheduleIterAlg=2` preserves the original full-wait schedule.
+   - `ScheduleIterAlg=3` waits for the oldest A and B loads, issues independent WMMAs, and delays full waits until their operands are consumed.
+   - The SIA3 solution is bit-exact and remains at 196 VGPRs, 19 SGPRs, and 8192 LDS bytes.
+   - A 25-repeat rotating bracket measured SIA3 at 117.981 ms versus SIA2 at 120.101 ms, a 1.80% throughput gain.
+   - SIA3 is the current assembly control, but it remains below the 2% finalist gate.
+   - Next compare cross-pair local-read prefetch, bounded next-DepthU packed/A prefetch, and only schedules that emit distinct ISA.
+5. **Tile and ownership geometry (`pending`)**
+   - Admit focused complete solutions around `MacroTile 128x128, DepthU 32`.
+   - Implement `128x64`, `64x128`, `256x64`, and DepthU 16/64 only with consistent wave ownership, decode coverage, LDS, and register allocation.
+   - Measure accumulator pressure, workgroup residency, repeated decode, and A/B reuse together.
+6. **Global traversal (`pending`)**
+   - Implement exact `WorkGroupMapping`/`GroupM` traversal without changing output ownership.
+   - Compare the current order with focused static factors 1/2/4/8.
+   - Treat packed-weight and cotangent L2 reuse as geometry-specific measured effects.
+7. **A and packed-weight traffic (`pending`)**
+   - Compare hipcc and GGTensile load widths, lane duplication, address induction, cache flags, and waits.
+   - Evaluate legal half-wave replication, wider aligned Q4_K loads, scalar uniform metadata, and bounded decode reuse.
+   - Expose a knob only if multiple correct mechanisms remain competitive.
+8. **Epilogue and low-level scheduling (`pending`)**
+   - Tune store order, `NumElementsPerBatchStore`, `StorePriorityOpt`, waits, and instruction priority only after the main loop is competitive.
+   - Treat TensileLite's SIA3/no-store-priority result as mechanism evidence rather than a value to copy.
+9. **Advanced exact-shape mechanisms (`pending`)**
+   - Consider persistent traversal, decode-sharing across M tiles, or split reduction only after profiling identifies the remaining limit.
+   - Split-K/Stream-K requires an explicit FP32 fixup contract before it becomes a parameter.
+   - Never introduce a dense shadow weight or external decode workspace.
+10. **Retention and integration (`pending`)**
+   - Bracket finalists with warmed rotating 25-repeat controls.
+   - Require accepted correctness, byte-identical rebuilds, no disallowed resources, and a stable gain above 2%.
+   - Retain the fastest exact solution, add static dispatch with HIP fallback, and rerun the full suite and target benchmark.
 
-Tuning parameters are added conservatively. `MacroTile`, `DepthU`, `MatrixInstruction`, `WorkGroup`, `GlobalReadVectorWidthA/B`, `LocalReadVectorWidth`, `PrefetchGlobalRead`, `PrefetchLocalRead`, `1LDSBuffer`, `ScheduleIterAlg`, `StorePriorityOpt`, `NumElementsPerBatchStore`, `StoreVectorWidth`, `WorkGroupMapping`, `TransposeLDS`, `LdsPadB`, `LdsBlockSizePerPadB`, `DecoderWidth`, and `PrefetchPackedWeight` already exist in the schema but remain rejected at non-pilot values until a distinct correct writer path exists. `LdsSwizzleChunkB`, active-wave ownership, and any persistent/decode-sharing policy are added only with explicit semantics and linked validation. Requested solutions are never silently repaired.
+Tuning parameters are added conservatively. Existing schema names remain rejected at non-pilot values until a distinct correct writer path exists. `LdsSwizzleChunkB`, active-wave ownership, and persistent or decode-sharing policies require explicit semantics and linked validation. Requested solutions are never silently repaired.
 
 ## Integration And Expansion
 
