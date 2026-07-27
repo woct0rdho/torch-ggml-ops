@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -27,7 +28,7 @@ def _toolchain() -> Toolchain:
 def test_pilot_solution_identity_and_round_trip() -> None:
     key = _pilot_key()
     assert validate_solution(key) == ()
-    assert key.hash == "ggsol_e2cace7280dd3cb8"
+    assert key.hash == "ggsol_493082f972ef96fc"
     assert SolutionKey.from_mapping(key.to_mapping()) == key
 
 
@@ -60,3 +61,20 @@ def test_build_and_inspect_pilot(tmp_path: Path) -> None:
     assert inspection.sgpr_spill_count == 0
     assert inspection.wmma_count == 32
     assert inspection.barrier_count == 2
+
+
+def test_writer_emits_distinct_xor8_lds_layout() -> None:
+    pilot = Solution.pilot()
+    swizzled = replace(pilot, lds_swizzle_chunk_b=8)
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(128, 2048, 512),
+        swizzled,
+    )
+    assert validate_solution(key) == ()
+
+    source = KernelWriterAssembly(key, _toolchain()).source()
+    assert "Precompute XOR-8 LDS store bases" in source
+    assert "v_xor_b32" in source
+    assert source.count("ds_load_b128") == 32
+    assert source.count("v_wmma_f32_16x16x16_bf16") == 32

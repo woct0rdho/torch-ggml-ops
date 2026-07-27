@@ -21,6 +21,7 @@ class RegisterLayout:
     global_read_b: int
     quant_dm: int
     quant_scale: int
+    lds_address: int
     address: int
     temporary: int
     serial: int
@@ -122,8 +123,7 @@ class KernelWriterAssembly:
         module.add(code.TextBlock(self._body()))
         return str(module)
 
-    @staticmethod
-    def _allocate_registers() -> RegisterLayout:
+    def _allocate_registers(self) -> RegisterLayout:
         from rocisa.enum import RegisterType
         from rocisa.register import RegisterPool
 
@@ -135,6 +135,9 @@ class KernelWriterAssembly:
         global_read_b = vgprs.checkOutAligned(8, 4, "GlobalReadB")
         quant_dm = vgprs.checkOut(2, "Q4K dm")
         quant_scale = vgprs.checkOut(6, "Q4K scale/min")
+        lds_address = -1
+        if self.solution_key.solution.lds_swizzle_chunk_b == 8:
+            lds_address = vgprs.checkOut(4, "swizzled LDS addresses")
         address = vgprs.checkOutAligned(12, 2, "addresses")
         temporary = vgprs.checkOut(7, "temporaries")
         serial = vgprs.checkOut(1, "Serial")
@@ -154,6 +157,7 @@ class KernelWriterAssembly:
             global_read_b=global_read_b,
             quant_dm=quant_dm,
             quant_scale=quant_scale,
+            lds_address=lds_address,
             address=address,
             temporary=temporary,
             serial=serial,
@@ -223,6 +227,16 @@ class KernelWriterAssembly:
         asm.inst(f"v_add_nc_u32 v{a + 10}, v{a + 10}, v{t}")
         asm.inst(f"v_and_b32 v{a + 11}, 2, v{r.serial}")
         asm.inst(f"v_lshlrev_b32 v{a + 11}, 1, v{a + 11}")
+        if self.solution_key.solution.lds_swizzle_chunk_b == 8:
+            lds = r.lds_address
+            asm.comment("Precompute XOR-8 LDS store bases for N row residues 0-3.")
+            asm.inst(f"v_mov_b32 v{lds}, v{a + 10}")
+            asm.inst(f"v_lshrrev_b32 v{t}, 6, v{r.serial}")
+            asm.inst(f"v_lshlrev_b32 v{t}, 5, v{t}")
+            asm.inst(f"v_add_nc_u32 v{lds + 1}, 16, v{lds}")
+            asm.inst(f"v_sub_nc_u32 v{lds + 1}, v{lds + 1}, v{t}")
+            asm.inst(f"v_add_nc_u32 v{lds + 2}, 32, v{lds}")
+            asm.inst(f"v_add_nc_u32 v{lds + 3}, 32, v{lds + 1}")
 
     def _emit_q4_k_global_reads(self, asm: _Assembly) -> None:
         r = self.registers
@@ -333,13 +347,20 @@ class KernelWriterAssembly:
                 d_scaled = t + 1 + 2 * row
                 min_scaled = d_scaled + 1
                 lds_offset = 64 * element + 32 * row
+                lds_address = r.address + 10
+                if self.solution_key.solution.lds_swizzle_chunk_b == 8:
+                    lds_address = r.lds_address + element % 4
+                    if row:
+                        lds_offset = 64 * element + (
+                            32 if element % 4 < 2 else -32
+                        )
                 asm.inst(f"v_bfe_u32 v{value}, v{packed}, {byte_shift}, 8")
                 asm.inst(f"v_bfe_u32 v{value}, v{value}, v{r.address + 11}, 4")
                 asm.inst(f"v_cvt_f32_ubyte0_e32 v{value}, v{value}")
                 asm.inst(f"v_fma_f32 v{value}, v{d_scaled}, v{value}, -v{min_scaled}")
                 self._emit_round_bf16(asm, value, rounding)
                 asm.inst(
-                    f"ds_store_b16_d16_hi v{r.address + 10}, v{value} offset:{lds_offset}"
+                    f"ds_store_b16_d16_hi v{lds_address}, v{value} offset:{lds_offset}"
                 )
 
     def _emit_wmma(self, asm: _Assembly) -> None:
@@ -381,24 +402,38 @@ class KernelWriterAssembly:
             )
             asm.inst(f"v_and_b32 v{t}, 15, v{r.serial}")
             asm.inst(f"v_lshlrev_b32 v{t}, 6, v{t}")
-            if k_tile:
-                asm.inst(f"v_add_nc_u32 v{t}, {2 * k_tile}, v{t}")
+            if self.solution_key.solution.lds_swizzle_chunk_b == 8:
+                asm.inst(f"v_and_b32 v{t + 1}, 3, v{r.serial}")
+                asm.inst(f"v_lshlrev_b32 v{t + 1}, 4, v{t + 1}")
+                asm.inst(f"v_add_nc_u32 v{t + 2}, v{t}, v{t + 1}")
+                if k_tile:
+                    asm.inst(f"v_xor_b32 v{t + 2}, 32, v{t + 2}")
+                asm.inst(f"v_xor_b32 v{t + 3}, 16, v{t + 2}")
+                first_address = t + 2
+                second_address = t + 3
+                second_chunk_offset = 0
+            else:
+                if k_tile:
+                    asm.inst(f"v_add_nc_u32 v{t}, {2 * k_tile}, v{t}")
+                first_address = t
+                second_address = t
+                second_chunk_offset = 16
             for n_tile in range(0, 8, 2):
                 first = r.valu_b
                 second = r.valu_b + 8
                 first_offset = 1024 * n_tile
                 second_offset = first_offset + 1024
                 asm.inst(
-                    f"ds_load_b128 v[{first}:{first + 3}], v{t} offset:{first_offset}"
+                    f"ds_load_b128 v[{first}:{first + 3}], v{first_address} offset:{first_offset}"
                 )
                 asm.inst(
-                    f"ds_load_b128 v[{first + 4}:{first + 7}], v{t} offset:{first_offset + 16}"
+                    f"ds_load_b128 v[{first + 4}:{first + 7}], v{second_address} offset:{first_offset + second_chunk_offset}"
                 )
                 asm.inst(
-                    f"ds_load_b128 v[{second}:{second + 3}], v{t} offset:{second_offset}"
+                    f"ds_load_b128 v[{second}:{second + 3}], v{first_address} offset:{second_offset}"
                 )
                 asm.inst(
-                    f"ds_load_b128 v[{second + 4}:{second + 7}], v{t} offset:{second_offset + 16}"
+                    f"ds_load_b128 v[{second + 4}:{second + 7}], v{second_address} offset:{second_offset + second_chunk_offset}"
                 )
                 asm.inst("s_waitcnt vmcnt(0) lgkmcnt(0)")
                 self._emit_wmma_pair(asm, n_tile, first)

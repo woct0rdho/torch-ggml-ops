@@ -2,6 +2,7 @@
 
 
 import argparse
+import contextlib
 import json
 import statistics
 import sys
@@ -32,6 +33,8 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--solution-key", type=Path, required=True)
     parser.add_argument("--code-object", type=Path, required=True)
+    parser.add_argument("--assembly-control-solution-key", type=Path)
+    parser.add_argument("--assembly-control-code-object", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
     parser.add_argument("--tensor", default=DEFAULT_TENSOR)
@@ -56,16 +59,21 @@ def _event_time(function) -> tuple[float, torch.Tensor]:
 
 def _metrics(actual: torch.Tensor, expected: torch.Tensor) -> dict[str, object]:
     difference = actual.float() - expected.float()
-    error_rms = float(difference.square().mean().sqrt())
+    finite = bool(torch.isfinite(difference).all())
     reference_rms = float(expected.float().square().mean().sqrt())
+    error_rms = float(difference.square().mean().sqrt()) if finite else None
     return {
         "different_bf16_elements": int(torch.count_nonzero(actual != expected)),
         "elements": actual.numel(),
-        "finite": bool(torch.isfinite(actual).all()),
-        "max_absolute_error": float(difference.abs().max()),
+        "finite": finite,
+        "max_absolute_error": float(difference.abs().max()) if finite else None,
         "error_rms": error_rms,
         "reference_rms": reference_rms,
-        "normalized_rmse": error_rms / reference_rms if reference_rms else None,
+        "normalized_rmse": (
+            error_rms / reference_rms
+            if error_rms is not None and reference_rms
+            else None
+        ),
     }
 
 
@@ -87,8 +95,19 @@ def main() -> None:
     args = _parser().parse_args()
     if args.warmup < 0 or args.repeats <= 0:
         raise ValueError("warmup must be nonnegative and repeats must be positive")
+    if (args.assembly_control_solution_key is None) != (
+        args.assembly_control_code_object is None
+    ):
+        raise ValueError("both assembly-control paths must be provided together")
     key = SolutionKey.from_json_file(args.solution_key)
     size = key.problem_size
+    assembly_control_key = None
+    if args.assembly_control_solution_key is not None:
+        assembly_control_key = SolutionKey.from_json_file(
+            args.assembly_control_solution_key
+        )
+        if assembly_control_key.problem_size != size:
+            raise ValueError("assembly control and candidate sizes differ")
     reader = gguf.GGUFReader(args.model)
     tensor = next((item for item in reader.tensors if item.name == args.tensor), None)
     if tensor is None:
@@ -115,6 +134,9 @@ def main() -> None:
     candidate_output = torch.empty(
         (size.m, size.n), dtype=torch.bfloat16, device="cuda"
     )
+    assembly_control_output = None
+    if assembly_control_key is not None:
+        assembly_control_output = torch.empty_like(candidate_output)
     quant_type = int(tensor.tensor_type)
 
     def control():
@@ -122,7 +144,15 @@ def main() -> None:
             grad_output, packed_weight, quant_type, size.n
         )
 
-    with DenseBackwardModule(key, args.code_object) as candidate:
+    with contextlib.ExitStack() as stack:
+        candidate = stack.enter_context(DenseBackwardModule(key, args.code_object))
+        assembly_control = None
+        if assembly_control_key is not None:
+            assembly_control = stack.enter_context(
+                DenseBackwardModule(
+                    assembly_control_key, args.assembly_control_code_object
+                )
+            )
 
         def launch_candidate():
             candidate.launch(
@@ -133,15 +163,36 @@ def main() -> None:
             )
             return candidate_output
 
+        def launch_assembly_control():
+            assert assembly_control is not None
+            assert assembly_control_output is not None
+            assembly_control.launch(
+                grad_output,
+                packed_weight,
+                assembly_control_output,
+                stream=torch.cuda.current_stream().cuda_stream,
+            )
+            return assembly_control_output
+
+        functions = {"hip": control, "candidate": launch_candidate}
+        if assembly_control is not None:
+            functions["assembly_control"] = launch_assembly_control
+
         for _ in range(args.warmup):
-            control_output = control()
-            launch_candidate()
+            for function in functions.values():
+                function()
         torch.cuda.synchronize()
 
         control_output = control()
         launch_candidate()
+        if assembly_control is not None:
+            launch_assembly_control()
         torch.cuda.synchronize()
         correctness = {"candidate_vs_hip": _metrics(candidate_output, control_output)}
+        if assembly_control_output is not None:
+            correctness["assembly_control_vs_hip"] = _metrics(
+                assembly_control_output, control_output
+            )
 
         if not args.skip_reference:
             logical_weight = (
@@ -161,24 +212,20 @@ def main() -> None:
             correctness["hip_vs_reference"] = _metrics(control_output, reference)
             del logical_weight, reference
 
-        control_samples: list[float] = []
-        candidate_samples: list[float] = []
+        samples = {name: [] for name in functions}
+        names = list(functions)
         for repeat in range(args.repeats):
-            order = ("control", "candidate")
-            if repeat & 1:
-                order = tuple(reversed(order))
+            offset = repeat % len(names)
+            order = names[offset:] + names[:offset]
             for name in order:
-                if name == "control":
-                    elapsed, output = _event_time(control)
-                    control_samples.append(elapsed)
+                elapsed, output = _event_time(functions[name])
+                samples[name].append(elapsed)
+                if name == "hip":
                     del output
-                else:
-                    elapsed, _ = _event_time(launch_candidate)
-                    candidate_samples.append(elapsed)
 
     logical_flops = 2 * size.m * size.n * size.k
-    control_timing = _timing_summary(control_samples, logical_flops)
-    candidate_timing = _timing_summary(candidate_samples, logical_flops)
+    control_timing = _timing_summary(samples["hip"], logical_flops)
+    candidate_timing = _timing_summary(samples["candidate"], logical_flops)
     report = {
         "SolutionKey": key.to_mapping(),
         "SolutionHash": key.hash,
@@ -202,6 +249,23 @@ def main() -> None:
             candidate_timing["median_tflops"] / control_timing["median_tflops"]
         ),
     }
+    if assembly_control_key is not None:
+        assembly_control_timing = _timing_summary(
+            samples["assembly_control"], logical_flops
+        )
+        report["AssemblyControl"] = {
+            "SolutionKey": assembly_control_key.to_mapping(),
+            "SolutionHash": assembly_control_key.hash,
+            "KernelName": assembly_control_key.kernel_name,
+            "CodeObject": str(args.assembly_control_code_object),
+            **assembly_control_timing,
+        }
+        report["CandidateToAssemblyControlLatency"] = (
+            candidate_timing["median_ms"] / assembly_control_timing["median_ms"]
+        )
+        report["CandidateToAssemblyControlThroughput"] = (
+            candidate_timing["median_tflops"] / assembly_control_timing["median_tflops"]
+        )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
     print(json.dumps(report, indent=2, allow_nan=False))

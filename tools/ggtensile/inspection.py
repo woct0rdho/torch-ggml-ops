@@ -192,7 +192,7 @@ def _validate_metadata(
         ".private_segment_fixed_size": 0,
         ".max_flat_workgroup_size": solution.num_threads,
         ".wavefront_size": solution.wavefront_size,
-        ".vgpr_count": 196,
+        ".vgpr_count": 196 + (4 if solution.lds_swizzle_chunk_b == 8 else 0),
         ".sgpr_count": 19,
         ".vgpr_spill_count": 0,
         ".sgpr_spill_count": 0,

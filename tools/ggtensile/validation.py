@@ -132,6 +132,14 @@ def _validate_solution_parameters(
                 parameter,
             )
 
+    if solution.lds_swizzle_chunk_b not in (0, 8):
+        _reject(
+            reasons,
+            "solution.ldsswizzlechunkb.unimplemented",
+            "KernelWriterAssembly implements only LdsSwizzleChunkB=0 or 8",
+            "LdsSwizzleChunkB",
+        )
+
     instruction = solution.matrix_instruction
     if len(instruction) == 9:
         macro_tile0 = instruction[0] * instruction[5] * instruction[7]

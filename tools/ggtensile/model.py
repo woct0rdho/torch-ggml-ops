@@ -168,6 +168,7 @@ class Solution:
     transpose_lds: int
     lds_pad_b: int
     lds_block_size_per_pad_b: int
+    lds_swizzle_chunk_b: int
     decoder_width: int
     prefetch_packed_weight: bool
 
@@ -195,6 +196,7 @@ class Solution:
             "TransposeLDS",
             "LdsPadB",
             "LdsBlockSizePerPadB",
+            "LdsSwizzleChunkB",
             "DecoderWidth",
             "PrefetchPackedWeight",
         }
@@ -225,6 +227,7 @@ class Solution:
             transpose_lds=0,
             lds_pad_b=0,
             lds_block_size_per_pad_b=0,
+            lds_swizzle_chunk_b=0,
             decoder_width=16,
             prefetch_packed_weight=True,
         )
@@ -271,6 +274,9 @@ class Solution:
             lds_block_size_per_pad_b=_integer(
                 item["LdsBlockSizePerPadB"], "LdsBlockSizePerPadB"
             ),
+            lds_swizzle_chunk_b=_integer(
+                item["LdsSwizzleChunkB"], "LdsSwizzleChunkB"
+            ),
             decoder_width=_integer(item["DecoderWidth"], "DecoderWidth"),
             prefetch_packed_weight=_boolean(
                 item["PrefetchPackedWeight"], "PrefetchPackedWeight"
@@ -314,6 +320,7 @@ class Solution:
             "TransposeLDS": self.transpose_lds,
             "LdsPadB": self.lds_pad_b,
             "LdsBlockSizePerPadB": self.lds_block_size_per_pad_b,
+            "LdsSwizzleChunkB": self.lds_swizzle_chunk_b,
             "DecoderWidth": self.decoder_width,
             "PrefetchPackedWeight": self.prefetch_packed_weight,
         }
