@@ -117,6 +117,8 @@ Campaign procedure:
    - Storing invariant A byte offsets instead of row indices in those same VGPRs removes two more multiplies per DepthU iteration. A 25-repeat bracket measured 40.116 ms and 27.41 TFLOP/s versus 40.247 ms and 27.32 TFLOP/s, a 0.33% resource-neutral gain; retain it.
    - For the retained 128-wide N tile, packed Q-byte offsets map directly from lane bits 0 and 2 plus a scalar tile offset, while scale-byte selection maps from lane bits 1-2. Encoding those mappings directly removes three more VALU instructions per iteration.
    - A 25-repeat bracket measured direct packed-offset mapping at 39.964 ms and 27.51 TFLOP/s versus 40.141 ms and 27.39 TFLOP/s, a 0.44% resource-neutral gain with bit-exact output; retain it.
+   - All exact-shape A and packed-weight offsets fit in 32 bits. Using gfx11 scalar-base `global_load` addressing removes vector high-half pointer construction and carry chains while preserving the 64-bit kernarg bases in SGPRs.
+   - A 25-repeat bracket measured scalar-base loads at 39.579 ms and 27.78 TFLOP/s versus 39.990 ms and 27.49 TFLOP/s, a 1.03% resource-neutral gain with bit-exact output; retain the address mode.
 3. **LDS layout (`completed`)**
    - `LdsSwizzleChunkB={0,8}` emits distinct decoded-store and WMMA-read addressing.
    - Adding 16 logical K positions moves N-row residues 0/1 forward 32 bytes but residues 2/3 backward 32 bytes under XOR-8.
