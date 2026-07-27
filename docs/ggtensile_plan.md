@@ -107,12 +107,14 @@ Campaign procedure:
    - Hoist exact-shape affine address state and repeated K-loop arithmetic.
    - Treat unconditional improvements as writer changes rather than tuning knobs.
 3. **LDS layout (`completed`)**
-   - `LdsSwizzleChunkB={0,8}` now emits distinct decoded-store and WMMA-read addressing.
+   - `LdsSwizzleChunkB={0,8}` emits distinct decoded-store and WMMA-read addressing.
    - Adding 16 logical K positions moves N-row residues 0/1 forward 32 bytes but residues 2/3 backward 32 bytes under XOR-8.
-   - The XOR-8 solution is bit-exact and uses 200 VGPRs, 19 SGPRs, and 8192 LDS bytes with no disallowed resources.
-   - A 25-repeat rotating bracket measured XOR-8 at 121.383 ms versus unpadded at 121.299 ms under SIA2, a 0.07% regression.
-   - Under SIA3, XOR-8 measured 120.035 ms versus unpadded at 118.962 ms, a 0.90% regression.
-   - XOR-8 is rejected for this geometry because it adds four VGPRs without a stable latency gain; the correct mechanism remains available to future solutions.
+   - XOR-8 is bit-exact and uses 200 VGPRs, 20 SGPRs, and 8192 LDS bytes with no disallowed resources.
+   - Under the old all-M traversal, XOR-8 was neutral under SIA2 and 0.90% slower under SIA3.
+   - The layout was retested after WGM1 corrected cotangent locality because layout and cache traversal interact.
+   - A 25-repeat WGM1/SIA3 bracket measured XOR-8 at 45.136 ms, unpadded at 52.604 ms, and HIP at 47.733 ms.
+   - XOR-8 is retained with WGM1 for this exact shape: it is 14.2% faster than unpadded and 5.44% faster than HIP.
+   - The selected assembly reaches approximately 24.36 TFLOP/s and 41.0% of the WMMA roof.
 4. **Main-loop schedule (`active`)**
    - `ScheduleIterAlg=2` preserves the original full-wait schedule.
    - `ScheduleIterAlg=3` waits for the oldest A and B loads, issues independent WMMAs, and delays full waits until their operands are consumed.
