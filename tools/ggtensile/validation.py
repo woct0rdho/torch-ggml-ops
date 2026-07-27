@@ -220,14 +220,14 @@ def _validate_solution_parameters(
             "PrefetchPackedWeightNext",
         )
     if solution.schedule_iter_alg in (4, 5) and (
-        solution.macro_tile0 != 128
-        or solution.macro_tile1 != 128
-        or solution.num_threads != 128
-    ):
+        solution.macro_tile0,
+        solution.macro_tile1,
+        solution.num_threads,
+    ) not in ((64, 128, 128), (128, 128, 128)):
         _reject(
             reasons,
             "solution.scheduleiteralg.geometry",
-            "ScheduleIterAlg=4 or 5 requires the 128x128 four-wave geometry",
+            "ScheduleIterAlg=4 or 5 requires a 64x128 or 128x128 four-wave geometry",
             "ScheduleIterAlg",
             "MacroTile0",
             "MacroTile1",
@@ -242,6 +242,7 @@ def _validate_solution_parameters(
         )
 
     allowed_geometries = {
+        ((16, 16, 16, 1, 1, 1, 8, 4, 1), 64, 128, 32, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 2, 8, 4, 1), 128, 128, 32, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 2, 8, 4, 1), 128, 128, 64, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 4, 4, 4, 1), 256, 64, 32, (32, 4, 1)),
@@ -258,7 +259,7 @@ def _validate_solution_parameters(
         _reject(
             reasons,
             "solution.geometry.unimplemented",
-            "KernelWriterAssembly implements only 128x128x32, 128x128x64, 256x64x32, and 256x128x32 geometry",
+            "KernelWriterAssembly implements only 64x128x32, 128x128x32, 128x128x64, 256x64x32, and 256x128x32 geometry",
             "MatrixInstruction",
             "MacroTile0",
             "MacroTile1",

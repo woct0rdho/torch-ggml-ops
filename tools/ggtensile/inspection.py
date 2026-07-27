@@ -98,7 +98,13 @@ def inspect_artifact(
     mnemonics = tuple(instruction.split(None, 1)[0] for instruction in instructions)
     wmma_count = mnemonics.count("v_wmma_f32_16x16x16_bf16")
     barrier_count = mnemonics.count("s_barrier")
-    expected_wmmas = 32 * solution_key.solution.depth_u // 32
+    solution = solution_key.solution
+    expected_wmmas = (
+        solution.matrix_instruction[5]
+        * solution.matrix_instruction[6]
+        * solution.depth_u
+        // 16
+    )
     _require(
         wmma_count == expected_wmmas,
         f"expected {expected_wmmas} static WMMAs, found {wmma_count}",
@@ -200,21 +206,27 @@ def _validate_metadata(
         * solution.macro_tile1
         // (decoder_threads * solution.decoder_width)
     )
-    swizzle_vgprs = (
-        32 // solution.lds_swizzle_chunk_b if solution.lds_swizzle_chunk_b else 0
+    n_tiles = solution.matrix_instruction[6]
+
+    def allocate(cursor: int, count: int, alignment: int = 1) -> int:
+        aligned = (cursor + alignment - 1) // alignment * alignment
+        return aligned + count
+
+    expected_vgprs = allocate(0, 8 * m_tiles * n_tiles, 8)
+    expected_vgprs = allocate(
+        expected_vgprs,
+        8 * m_tiles * solution.prefetch_global_read,
+        4,
     )
-    global_prefetch_vgprs = 8 * m_tiles * (solution.prefetch_global_read - 1)
-    local_prefetch_vgprs = 16 * (solution.prefetch_local_read - 1)
-    decoder_temporary_vgprs = max(0, 2 * (decoder_rows - 2))
-    expected_vgprs = (
-        164
-        + 8 * m_tiles
-        + 8 * decoder_rows
-        + swizzle_vgprs
-        + global_prefetch_vgprs
-        + local_prefetch_vgprs
-        + decoder_temporary_vgprs
-    )
+    expected_vgprs = allocate(expected_vgprs, 16 * solution.prefetch_local_read, 4)
+    expected_vgprs = allocate(expected_vgprs, 4 * decoder_rows, 4)
+    expected_vgprs = allocate(expected_vgprs, decoder_rows)
+    expected_vgprs = allocate(expected_vgprs, 3 * decoder_rows)
+    if solution.lds_swizzle_chunk_b:
+        expected_vgprs = allocate(expected_vgprs, 32 // solution.lds_swizzle_chunk_b)
+    expected_vgprs = allocate(expected_vgprs, 12, 2)
+    expected_vgprs = allocate(expected_vgprs, max(7, 3 + 2 * decoder_rows))
+    expected_vgprs = allocate(expected_vgprs, 1)
     expected = {
         ".kernarg_segment_size": 40,
         ".kernarg_segment_align": 8,

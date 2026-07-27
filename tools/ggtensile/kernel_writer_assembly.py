@@ -501,8 +501,11 @@ class KernelWriterAssembly:
         asm.inst(f"v_add_nc_u32 v{a + 8}, v{t}, v{t + 1}")
         asm.inst(f"v_lshlrev_b32 v{t + 2}, {solution.macro_tile0.bit_length() - 1}, s2")
         asm.inst(f"v_add_nc_u32 v{a + 8}, v{a + 8}, v{t + 2}")
-        asm.inst(f"v_add_nc_u32 v{a + 9}, 16, v{a + 8}")
-        row_pointers = ((a + 8, a), (a + 9, a + 2))
+        if m_tiles == 2:
+            asm.inst(f"v_add_nc_u32 v{a + 9}, 16, v{a + 8}")
+        row_pointers = tuple(
+            (a + 8 + m_tile, a + 2 * m_tile) for m_tile in range(m_tiles)
+        )
 
         asm.inst(f"s_lshl_b32 s{r.scalar_temporary + 1}, s{r.loop_counter}, 1")
         for row, pointer in row_pointers:
