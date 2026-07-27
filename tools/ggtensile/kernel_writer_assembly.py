@@ -361,6 +361,19 @@ class KernelWriterAssembly:
                 )
                 asm.inst(f"v_add_nc_u32 v{lds + residue}, v{t + 1}, v{lds + residue}")
 
+        solution = self.solution_key.solution
+        m_tiles = solution.matrix_instruction[5]
+        m_per_wave = 16 * m_tiles
+        asm.comment("Precompute A row coordinates shared by every DepthU iteration.")
+        asm.inst(f"v_lshrrev_b32 v{t}, 5, v{r.serial}")
+        asm.inst(f"v_lshlrev_b32 v{t}, {m_per_wave.bit_length() - 1}, v{t}")
+        asm.inst(f"v_and_b32 v{t + 1}, 15, v{r.serial}")
+        asm.inst(f"v_add_nc_u32 v{a + 8}, v{t}, v{t + 1}")
+        asm.inst(f"v_lshlrev_b32 v{t + 2}, {solution.macro_tile0.bit_length() - 1}, s2")
+        asm.inst(f"v_add_nc_u32 v{a + 8}, v{a + 8}, v{t + 2}")
+        if m_tiles == 2:
+            asm.inst(f"v_add_nc_u32 v{a + 9}, 16, v{a + 8}")
+
     def _emit_q4_k_global_reads(
         self,
         asm: _Assembly,
@@ -429,10 +442,6 @@ class KernelWriterAssembly:
 
         for row in range(decoder_rows):
             self._emit_add_vector_offset(asm, a + 4 + 2 * row, a + 2 * row, t + 1)
-        asm.inst(f"v_lshrrev_b32 v{t + 1}, 5, v{t}")
-        asm.inst(f"v_and_b32 v{t + 1}, 3, v{t + 1}")
-        self._emit_add_vector_offset(asm, a + 8, a, t + 1)
-
         if self.solution_key.solution.packed_weight_lane_share == 2:
             asm.comment("Load packed q bytes on one lane from each nibble pair.")
             asm.inst(f"v_and_b32 v{t + 2}, 2, v{r.serial}")
@@ -445,14 +454,18 @@ class KernelWriterAssembly:
             )
         if self.solution_key.solution.packed_weight_lane_share == 2:
             asm.inst(f"s_mov_b32 exec_lo, s{r.scalar_temporary + 1}")
+
+        asm.inst(f"v_lshrrev_b32 v{t + 1}, 5, v{t}")
+        asm.inst(f"v_and_b32 v{t + 1}, 3, v{t + 1}")
+        self._emit_add_vector_offset(asm, a + 4, a, t + 1)
         for row in range(decoder_rows):
             asm.inst(
                 f"global_load_b32 v{dm + row}, v[{a + 2 * row}:{a + 2 * row + 1}], off"
             )
         for row in range(decoder_rows):
-            address_pair = a + 8
+            address_pair = a + 4
             if row:
-                self._emit_add_literal64(asm, a + 6, a + 8, row * row_delta)
+                self._emit_add_literal64(asm, a + 6, a + 4, row * row_delta)
                 address_pair = a + 6
             asm.inst(
                 f"global_load_d16_u8 v{scale + 3 * row}, v[{address_pair}:{address_pair + 1}], off offset:4"
@@ -489,20 +502,11 @@ class KernelWriterAssembly:
         r = self.registers
         solution = self.solution_key.solution
         m_tiles = solution.matrix_instruction[5]
-        m_per_wave = 16 * m_tiles
         size = self.solution_key.problem_size
         a = r.address
         t = r.temporary
 
         asm.comment("Prefetch A fragments while Q4_K data is pending.")
-        asm.inst(f"v_lshrrev_b32 v{t}, 5, v{r.serial}")
-        asm.inst(f"v_lshlrev_b32 v{t}, {m_per_wave.bit_length() - 1}, v{t}")
-        asm.inst(f"v_and_b32 v{t + 1}, 15, v{r.serial}")
-        asm.inst(f"v_add_nc_u32 v{a + 8}, v{t}, v{t + 1}")
-        asm.inst(f"v_lshlrev_b32 v{t + 2}, {solution.macro_tile0.bit_length() - 1}, s2")
-        asm.inst(f"v_add_nc_u32 v{a + 8}, v{a + 8}, v{t + 2}")
-        if m_tiles == 2:
-            asm.inst(f"v_add_nc_u32 v{a + 9}, 16, v{a + 8}")
         row_pointers = tuple(
             (a + 8 + m_tile, a + 2 * m_tile) for m_tile in range(m_tiles)
         )

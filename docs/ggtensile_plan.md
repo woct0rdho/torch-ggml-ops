@@ -112,6 +112,8 @@ Campaign procedure:
    - Q4_K nibble decode originally extracted a byte and then a nibble with two `v_bfe` instructions per value. Four per-lane bit offsets in dead address VGPRs permit one direct nibble extract, removing 28 VALU instructions per DepthU iteration without changing loads, LDS, registers, or numerical order.
    - A 25-repeat bracket measured direct nibble extraction at 40.644 ms and 27.05 TFLOP/s versus 41.210 ms and 26.68 TFLOP/s for the two-step control, a 1.37% latency reduction. Output remains bit-exact and independent builds are byte-reproducible.
    - Retain direct nibble extraction as an unconditional writer improvement. Continue examining shorter-lived affine and decode state that does not increase persistent register pressure.
+   - Reordering transient Q4_K scale pointers keeps A row coordinates live in existing address VGPRs across the reduction loop. This hoist removes seven VALU instructions per DepthU iteration without adding registers or changing exact output.
+   - A 25-repeat bracket measured the hoisted path at 40.135 ms and 27.40 TFLOP/s versus 40.396 ms and 27.22 TFLOP/s, a 0.65% favorable instruction reduction. Retain it under the neutral-or-better simplification rule.
 3. **LDS layout (`completed`)**
    - `LdsSwizzleChunkB={0,8}` emits distinct decoded-store and WMMA-read addressing.
    - Adding 16 logical K positions moves N-row residues 0/1 forward 32 bytes but residues 2/3 backward 32 bytes under XOR-8.
