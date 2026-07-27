@@ -478,19 +478,36 @@ class KernelWriterAssembly:
         a = r.address
         t = r.temporary
         asm.comment("Load A and issue two DepthU=16 WMMA halves.")
-        asm.inst(f"v_lshrrev_b32 v{t}, 5, v{r.serial}")
-        asm.inst(f"v_lshlrev_b32 v{t}, {m_per_wave.bit_length() - 1}, v{t}")
-        asm.inst(f"v_and_b32 v{t + 1}, 15, v{r.serial}")
-        asm.inst(f"v_add_nc_u32 v{a + 8}, v{t}, v{t + 1}")
-        asm.inst(f"v_lshlrev_b32 v{t + 2}, {solution.macro_tile0.bit_length() - 1}, s2")
-        asm.inst(f"v_add_nc_u32 v{a + 8}, v{a + 8}, v{t + 2}")
-        if m_tiles == 2:
-            asm.inst(f"v_add_nc_u32 v{a + 9}, 16, v{a + 8}")
+        if solution.schedule_iter_alg != 4:
+            asm.inst(f"v_lshrrev_b32 v{t}, 5, v{r.serial}")
+            asm.inst(f"v_lshlrev_b32 v{t}, {m_per_wave.bit_length() - 1}, v{t}")
+            asm.inst(f"v_and_b32 v{t + 1}, 15, v{r.serial}")
+            asm.inst(f"v_add_nc_u32 v{a + 8}, v{t}, v{t + 1}")
+            asm.inst(
+                f"v_lshlrev_b32 v{t + 2}, {solution.macro_tile0.bit_length() - 1}, s2"
+            )
+            asm.inst(f"v_add_nc_u32 v{a + 8}, v{a + 8}, v{t + 2}")
+            if m_tiles == 2:
+                asm.inst(f"v_add_nc_u32 v{a + 9}, 16, v{a + 8}")
+        else:
+            asm.comment("Reuse prefetched A pointers across fused B decode.")
         for k_tile in (0, 16):
-            asm.inst(f"s_lshl_b32 s{r.scalar_temporary + 1}, s{r.loop_counter}, 1")
-            if solution.schedule_iter_alg == 4 and k_tile == 0:
-                pass
+            if solution.schedule_iter_alg == 4:
+                if k_tile:
+                    self._emit_add_literal64(asm, a, a, 2 * k_tile)
+                    self._emit_add_literal64(asm, a + 2, a + 2, 2 * k_tile)
+                    for m_tile, pointer in ((0, a), (1, a + 2)):
+                        valu_a = r.valu_a + 8 * m_tile
+                        asm.inst(
+                            f"global_load_b128 v[{valu_a}:{valu_a + 3}], "
+                            f"v[{pointer}:{pointer + 1}], off"
+                        )
+                        asm.inst(
+                            f"global_load_b128 v[{valu_a + 4}:{valu_a + 7}], "
+                            f"v[{pointer}:{pointer + 1}], off offset:16"
+                        )
             elif m_tiles == 2:
+                asm.inst(f"s_lshl_b32 s{r.scalar_temporary + 1}, s{r.loop_counter}, 1")
                 for m_tile, row, pointer in (
                     (0, a + 8, a),
                     (1, a + 9, a + 2),
@@ -511,6 +528,7 @@ class KernelWriterAssembly:
                         f"v[{pointer}:{pointer + 1}], off offset:16"
                     )
             else:
+                asm.inst(f"s_lshl_b32 s{r.scalar_temporary + 1}, s{r.loop_counter}, 1")
                 for m_tile in range(m_tiles):
                     if m_tile:
                         asm.inst(f"v_add_nc_u32 v{t}, {16 * m_tile}, v{a + 8}")

@@ -106,8 +106,10 @@ Campaign procedure:
    - Remove waits that have no current dependency.
    - A persistent A-pointer hoist removed repeated exact-shape address work but raised VGPRs from 200 to 204.
    - The hoist measured 45.285 ms versus 45.179 ms for the selected control, a 0.23% regression, and was reverted.
+   - SIA4's prefetched first-half A row coordinates and pointers survive fused B decode in existing address VGPRs. Reusing them removes duplicate coordinate reconstruction and derives second-half pointers with two 32-byte increments without increasing live state.
+   - A 25-repeat bracket measured pointer reuse at 42.646 ms versus the original SIA4 path at 43.081 ms, a 1.01% latency reduction with unchanged 200 VGPR and 20 SGPR allocation.
+   - Retain pointer reuse as an unconditional writer improvement rather than a tuning knob. Independent builds remain byte-reproducible.
    - Continue examining shorter-lived affine state that does not increase persistent register pressure.
-   - Treat unconditional improvements as writer changes rather than tuning knobs.
 3. **LDS layout (`completed`)**
    - `LdsSwizzleChunkB={0,8}` emits distinct decoded-store and WMMA-read addressing.
    - Adding 16 logical K positions moves N-row residues 0/1 forward 32 bytes but residues 2/3 backward 32 bytes under XOR-8.
@@ -136,7 +138,7 @@ Campaign procedure:
    - SIA4 is bit-exact and passes inspection at 200 VGPRs, 20 SGPRs, 8192 LDS bytes, 32 static WMMAs, and zero disallowed resources. Independent builds produced byte-identical assembly, object, and code object.
    - A 25-repeat rotating bracket measured SIA4 at 42.666 ms and 25.77 TFLOP/s versus SIA3 at 45.137 ms and 24.36 TFLOP/s, a 5.47% latency reduction and 5.79% throughput gain.
    - The same bracket measured HIP at 47.841 ms, so SIA4 is 10.82% lower latency and 12.13% higher throughput. SIA4 reaches 43.38% of the BF16 WMMA roof.
-   - Retain SIA4 as the selected assembly control. Next examine the duplicated first-half A address setup and bounded next-DepthU packed/A prefetch.
+   - Retain SIA4 as the selected assembly control. The unconditional pointer-reuse improvement is recorded under obvious assembly corrections; next examine bounded next-DepthU packed/A prefetch.
 5. **Tile and ownership geometry (`active`)**
    - Admit focused complete solutions around `MacroTile 128x128, DepthU 32`.
    - The writer now supports a complete `256x64x32` solution with four M16 tiles and four N16 tiles per wave, one decoder-owned packed row per lane, 4 KiB LDS, and geometry-derived register allocation, decode coverage, WMMA ownership, and stores.
