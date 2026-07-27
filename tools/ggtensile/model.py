@@ -172,6 +172,7 @@ class Solution:
     decoder_width: int
     prefetch_packed_weight: bool
     prefetch_packed_weight_next: bool
+    packed_weight_lane_share: int
 
     _KEYS: ClassVar[frozenset[str]] = frozenset(
         {
@@ -201,6 +202,7 @@ class Solution:
             "DecoderWidth",
             "PrefetchPackedWeight",
             "PrefetchPackedWeightNext",
+            "PackedWeightLaneShare",
         }
     )
 
@@ -233,6 +235,7 @@ class Solution:
             decoder_width=16,
             prefetch_packed_weight=True,
             prefetch_packed_weight_next=False,
+            packed_weight_lane_share=1,
         )
 
     @classmethod
@@ -285,6 +288,9 @@ class Solution:
             prefetch_packed_weight_next=_boolean(
                 item["PrefetchPackedWeightNext"], "PrefetchPackedWeightNext"
             ),
+            packed_weight_lane_share=_integer(
+                item["PackedWeightLaneShare"], "PackedWeightLaneShare"
+            ),
         )
 
     @property
@@ -328,6 +334,7 @@ class Solution:
             "DecoderWidth": self.decoder_width,
             "PrefetchPackedWeight": self.prefetch_packed_weight,
             "PrefetchPackedWeightNext": self.prefetch_packed_weight_next,
+            "PackedWeightLaneShare": self.packed_weight_lane_share,
         }
 
 

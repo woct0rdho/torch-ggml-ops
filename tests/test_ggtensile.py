@@ -203,6 +203,43 @@ def test_writer_prefetches_both_a_halves(tmp_path: Path) -> None:
     assert inspection.lds_num_bytes == 8192
 
 
+def test_writer_shares_packed_weight_across_nibble_lanes(
+    tmp_path: Path,
+) -> None:
+    pilot = Solution.pilot()
+    shared = replace(
+        pilot,
+        schedule_iter_alg=4,
+        prefetch_global_read=2,
+        packed_weight_lane_share=2,
+        lds_swizzle_chunk_b=8,
+    )
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(32768, 2048, 8192),
+        shared,
+    )
+    assert validate_solution(key) == ()
+
+    toolchain = _toolchain()
+    assembly = tmp_path / "packed_weight_lane_share.s"
+    object_path = tmp_path / "packed_weight_lane_share.o"
+    code_object = tmp_path / "packed_weight_lane_share.hsaco"
+    source = KernelWriterAssembly(key, toolchain).source()
+    assembly.write_text(source)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+
+    assert "s_and_saveexec_b32" in source
+    assert source.count("v_mov_b32_dpp") == 8
+    assert "ds_bpermute_b32" not in source
+    assert source.count("v_wmma_f32_16x16x16_bf16") == 32
+    inspection = inspect_artifact(key, code_object, toolchain)
+    assert inspection.vgpr_count == 216
+    assert inspection.sgpr_count == 20
+    assert inspection.lds_num_bytes == 8192
+
+
 def test_writer_pipelines_packed_weight_reads(tmp_path: Path) -> None:
     pilot = Solution.pilot()
     pipelined = replace(

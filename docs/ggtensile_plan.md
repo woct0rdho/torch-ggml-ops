@@ -171,7 +171,11 @@ Campaign procedure:
    - `PrefetchPackedWeight` retains its existing current-tile meaning. The separate `PrefetchPackedWeightNext` mechanism issues the next packed Q4_K tile before current WMMAs, lets VMEM run while current LDS fragments are consumed, then decodes into the same LDS after the read-side barrier.
    - The next-tile pipeline is bit-exact and remains at 216 VGPRs, 20 SGPRs, and 8192 LDS bytes. It adds no dynamic barrier relative to the two-barrier-per-DepthU steady state.
    - A nine-repeat screen measured next-tile prefetch at 42.345 ms versus 42.410 ms for the selected control, only 0.15% lower latency. Reject it for this shape because packed-weight VMEM overlap is not a material remaining limit.
-   - Continue with legal half-wave replication, wider aligned Q4_K loads, scalar uniform metadata, and bounded decode reuse. Expose a knob only if multiple correct mechanisms remain competitive.
+   - `PackedWeightLaneShare=2` loads each duplicated 16-byte packed-q span only on low-nibble lanes and replicates it to the corresponding high-nibble lanes. It halves packed-q bytes while leaving lane-specific scale/min traffic unchanged.
+   - The LDS-crossbar implementation uses eight `ds_bpermute_b32` operations per DepthU iteration and measured 42.638 ms versus 42.152 ms, a 1.15% regression.
+   - The VALU-crossbar implementation replaces the LDS operations and wait with DPP shifts plus conditional selection. It measured 43.129 ms versus 42.335 ms, a 1.88% regression.
+   - Both lane-sharing implementations are bit-exact and resource-identical to the 216-VGPR control, but their cross-lane work costs more than the saved packed-q traffic. Reject lane sharing for this shape.
+   - Continue with wider aligned Q4_K loads, scalar uniform metadata, and bounded decode reuse. Expose a knob only if multiple correct mechanisms remain competitive.
 8. **Epilogue and low-level scheduling (`active`)**
    - `StorePriorityOpt=false` removes the two epilogue `s_setprio` instructions.
    - A 25-repeat bracket measured no priority at 45.327 ms versus priority at 45.413 ms.

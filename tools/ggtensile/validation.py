@@ -179,6 +179,13 @@ def _validate_solution_parameters(
             "PrefetchLocalRead",
             "ScheduleIterAlg",
         )
+    if solution.packed_weight_lane_share not in (1, 2):
+        _reject(
+            reasons,
+            "solution.packedweightlaneshare.unimplemented",
+            "KernelWriterAssembly implements PackedWeightLaneShare=1 or 2",
+            "PackedWeightLaneShare",
+        )
     if solution.prefetch_packed_weight_next and (
         solution.schedule_iter_alg != 4
         or solution.prefetch_global_read != 2

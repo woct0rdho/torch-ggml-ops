@@ -247,6 +247,7 @@ class KernelWriterAssembly:
                     * self.solution_key.solution.prefetch_global_read
                 )
                 asm.inst(f"s_waitcnt vmcnt({a_load_count})")
+            self._emit_packed_weight_lane_share(asm)
             self._emit_q4_k_decode(asm)
             if self.solution_key.solution.num_threads > 128:
                 asm.label(".LDecodeReady")
@@ -279,6 +280,7 @@ class KernelWriterAssembly:
         self._emit_q4_k_global_reads(asm, wait_for_reads=False)
         self._emit_first_a_global_reads(asm)
         asm.inst(f"s_waitcnt vmcnt({a_load_count})")
+        self._emit_packed_weight_lane_share(asm)
         self._emit_q4_k_decode(asm, label_suffix="Initial")
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
@@ -300,6 +302,7 @@ class KernelWriterAssembly:
 
         self._emit_first_a_global_reads(asm)
         asm.inst(f"s_waitcnt vmcnt({a_load_count})")
+        self._emit_packed_weight_lane_share(asm)
         self._emit_q4_k_decode(asm, label_suffix="Steady")
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
@@ -386,11 +389,18 @@ class KernelWriterAssembly:
         asm.inst(f"v_and_b32 v{t + 1}, 3, v{t + 1}")
         self._emit_add_vector_offset(asm, a + 8, a, t + 1)
 
+        if self.solution_key.solution.packed_weight_lane_share == 2:
+            asm.comment("Load packed q bytes on one lane from each nibble pair.")
+            asm.inst(f"v_and_b32 v{t + 2}, 2, v{r.serial}")
+            asm.inst(f"v_cmp_eq_u32_e32 vcc_lo, 0, v{t + 2}")
+            asm.inst(f"s_and_saveexec_b32 s{r.scalar_temporary + 1}, vcc_lo")
         for row in range(decoder_rows):
             asm.inst(
                 f"global_load_b128 v[{q + 4 * row}:{q + 4 * row + 3}], "
                 f"v[{a + 4 + 2 * row}:{a + 5 + 2 * row}], off offset:16"
             )
+        if self.solution_key.solution.packed_weight_lane_share == 2:
+            asm.inst(f"s_mov_b32 exec_lo, s{r.scalar_temporary + 1}")
         for row in range(decoder_rows):
             asm.inst(
                 f"global_load_b32 v{dm + row}, v[{a + 2 * row}:{a + 2 * row + 1}], off"
@@ -411,6 +421,25 @@ class KernelWriterAssembly:
             )
         if wait_for_reads:
             asm.inst("s_waitcnt vmcnt(0)")
+
+    def _emit_packed_weight_lane_share(self, asm: _Assembly) -> None:
+        solution = self.solution_key.solution
+        if solution.packed_weight_lane_share == 1:
+            return
+
+        r = self.registers
+        decoder_rows = solution.matrix_instruction[6] // 4
+        lane_pair = r.temporary
+        shifted = lane_pair + 1
+        asm.comment("Replicate packed q bytes across low/high-nibble lane pairs.")
+        asm.inst(f"v_and_b32 v{lane_pair}, 2, v{r.serial}")
+        asm.inst(f"v_cmp_eq_u32_e32 vcc_lo, 0, v{lane_pair}")
+        for register in range(r.global_read_b, r.global_read_b + 4 * decoder_rows):
+            asm.inst(
+                f"v_mov_b32_dpp v{shifted}, v{register} row_shr:2 "
+                "row_mask:0xf bank_mask:0xf"
+            )
+            asm.inst(f"v_cndmask_b32 v{register}, v{shifted}, v{register}, vcc_lo")
 
     def _emit_first_a_global_reads(self, asm: _Assembly) -> None:
         r = self.registers
