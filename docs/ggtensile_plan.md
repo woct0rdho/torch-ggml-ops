@@ -137,8 +137,11 @@ Campaign procedure:
    - The `256x64x32` kernel is bit-exact to HIP across all 67,108,864 outputs and passes inspection at 208 VGPRs, 20 SGPRs, 4096 LDS bytes, 32 static WMMAs, and zero disallowed resources.
    - This geometry halves decoded-B work but doubles cotangent A traffic across the expanded N-tile traversal. A 25-repeat bracket measured 66.597 ms versus 45.300 ms for selected `128x128x32` and 48.172 ms for HIP, a 47.0% regression to the assembly control.
    - Reject `256x64x32` for this exact shape and retain `128x128x32`.
+   - A complete `256x128x32` solution uses eight waves while keeping two M16 and eight N16 tiles per wave. The first four waves cooperatively decode B, so total packed-weight decode is halved without increasing A traffic.
+   - The `256x128x32` kernel is bit-exact and passes inspection at 200 VGPRs, 20 SGPRs, 8192 LDS bytes, 32 static WMMAs, and zero disallowed resources.
+   - A nine-repeat screen measured `256x128x32` at 50.469 ms versus 46.021 ms for `128x128x32` and 48.381 ms for HIP, a 9.66% regression to the assembly control. The eight-wave workgroup's scheduling and residency cost outweighs reduced B decode, so this geometry is rejected.
    - The generalized writer rebuilt the selected geometry at 45.446 ms versus 45.456 ms for its prior artifact, confirming neutral performance on the retained path.
-   - Continue with complete geometries that reduce A traffic or alter reuse in a materially different direction; evaluate DepthU changes only with consistent decode coverage, LDS, and register allocation.
+   - Retain the four-wave `128x128x32` geometry. Evaluate DepthU changes only with consistent decode coverage, LDS, and register allocation.
 6. **Global traversal (`completed`)**
    - The writer enables the workgroup-Z system SGPR and maps `m_block = blockIdx.z * WorkGroupMapping + blockIdx.x`.
    - The runtime launches X as `WorkGroupMapping`, Y as the 16 N tiles, and Z as the remaining M groups.

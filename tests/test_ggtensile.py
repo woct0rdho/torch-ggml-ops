@@ -185,6 +185,42 @@ def test_writer_builds_256x64_geometry(tmp_path: Path) -> None:
     assert inspection.lds_num_bytes == 4096
 
 
+def test_writer_builds_256x128_cooperative_decode_geometry(
+    tmp_path: Path,
+) -> None:
+    pilot = Solution.pilot()
+    geometry = replace(
+        pilot,
+        work_group=(32, 8, 1),
+        matrix_instruction=(16, 16, 16, 1, 1, 2, 8, 8, 1),
+        macro_tile0=256,
+    )
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(32768, 2048, 8192),
+        geometry,
+    )
+    assert validate_solution(key) == ()
+
+    toolchain = _toolchain()
+    assembly = tmp_path / "cooperative_decode.s"
+    object_path = tmp_path / "cooperative_decode.o"
+    code_object = tmp_path / "cooperative_decode.hsaco"
+    source = KernelWriterAssembly(key, toolchain).source()
+    assembly.write_text(source)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+
+    assert "Only the first four waves cooperatively decode B." in source
+    assert "s_cbranch_scc0 .LDecodeReady" in source
+    assert source.count("v_wmma_f32_16x16x16_bf16") == 32
+    inspection = inspect_artifact(key, code_object, toolchain)
+    assert inspection.vgpr_count == 196
+    assert inspection.sgpr_count == 20
+    assert inspection.max_flat_workgroup_size == 256
+    assert inspection.lds_num_bytes == 8192
+
+
 def test_writer_can_disable_store_priority() -> None:
     pilot = Solution.pilot()
     no_store_priority = replace(pilot, store_priority_opt=False)

@@ -113,7 +113,6 @@ def _validate_solution_parameters(
         ("kernel_language", "KernelLanguage"),
         ("isa", "ISA"),
         ("wavefront_size", "WavefrontSize"),
-        ("work_group", "WorkGroup"),
         ("depth_u", "DepthU"),
         ("global_read_vector_width_a", "GlobalReadVectorWidthA"),
         ("global_read_vector_width_b", "GlobalReadVectorWidthB"),
@@ -161,22 +160,25 @@ def _validate_solution_parameters(
         )
 
     allowed_geometries = {
-        ((16, 16, 16, 1, 1, 2, 8, 4, 1), 128, 128),
-        ((16, 16, 16, 1, 1, 4, 4, 4, 1), 256, 64),
+        ((16, 16, 16, 1, 1, 2, 8, 4, 1), 128, 128, (32, 4, 1)),
+        ((16, 16, 16, 1, 1, 4, 4, 4, 1), 256, 64, (32, 4, 1)),
+        ((16, 16, 16, 1, 1, 2, 8, 8, 1), 256, 128, (32, 8, 1)),
     }
     geometry = (
         solution.matrix_instruction,
         solution.macro_tile0,
         solution.macro_tile1,
+        solution.work_group,
     )
     if geometry not in allowed_geometries:
         _reject(
             reasons,
             "solution.geometry.unimplemented",
-            "KernelWriterAssembly implements only 128x128x32 and 256x64x32 geometry",
+            "KernelWriterAssembly implements only 128x128x32, 256x64x32, and 256x128x32 geometry",
             "MatrixInstruction",
             "MacroTile0",
             "MacroTile1",
+            "WorkGroup",
         )
 
     instruction = solution.matrix_instruction
@@ -196,11 +198,11 @@ def _validate_solution_parameters(
                 "MacroTile1",
                 source="SolutionStructs",
             )
-    if solution.num_threads != 128:
+    if solution.num_threads not in (128, 256):
         _reject(
             reasons,
             "solution.work_group.num_threads",
-            "pilot requires NumThreads=128",
+            "KernelWriterAssembly requires NumThreads=128 or 256",
             "WorkGroup",
             source="SolutionStructs",
         )

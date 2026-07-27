@@ -221,8 +221,15 @@ class KernelWriterAssembly:
 
         self._emit_static_thread_coordinates(asm)
         asm.label(".LDepthULoop")
+        if self.solution_key.solution.num_threads > 128:
+            asm.comment("Only the first four waves cooperatively decode B.")
+            asm.inst(f"v_readfirstlane_b32 s{r.scalar_temporary + 1}, v{r.serial}")
+            asm.inst(f"s_cmp_lt_u32 s{r.scalar_temporary + 1}, 128")
+            asm.inst("s_cbranch_scc0 .LDecodeReady")
         self._emit_q4_k_global_reads(asm)
         self._emit_q4_k_decode(asm)
+        if self.solution_key.solution.num_threads > 128:
+            asm.label(".LDecodeReady")
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
         asm.inst("buffer_gl0_inv")
