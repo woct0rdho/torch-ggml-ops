@@ -531,11 +531,18 @@ class KernelWriterAssembly:
                 "neg(0) op_sel_hi:[1,0,0]"
             )
 
+        asm.comment("Prepare direct packed-nibble bit offsets.")
+        for packed_byte in range(4):
+            asm.inst(
+                f"v_add_nc_u32 v{r.address + 4 + packed_byte}, "
+                f"{8 * packed_byte}, v{r.address + 11}"
+            )
+
         asm.comment("Decode 16 nibbles from each packed output row into LDS.")
         for row in range(decoder_rows):
             for element in range(16):
                 packed = r.global_read_b + 4 * row + element // 4
-                byte_shift = 8 * (element % 4)
+                bit_offset = r.address + 4 + element % 4
                 value = t + 5
                 rounding = t + 6
                 d_scaled = t + 1 + 2 * row
@@ -551,8 +558,7 @@ class KernelWriterAssembly:
                         lds_offset = 64 * element + (
                             32 if residue < residues // 2 else -32
                         )
-                asm.inst(f"v_bfe_u32 v{value}, v{packed}, {byte_shift}, 8")
-                asm.inst(f"v_bfe_u32 v{value}, v{value}, v{r.address + 11}, 4")
+                asm.inst(f"v_bfe_u32 v{value}, v{packed}, v{bit_offset}, 4")
                 asm.inst(f"v_cvt_f32_ubyte0_e32 v{value}, v{value}")
                 asm.inst(f"v_fma_f32 v{value}, v{d_scaled}, v{value}, -v{min_scaled}")
                 self._emit_round_bf16(asm, value, rounding)

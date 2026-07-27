@@ -109,7 +109,9 @@ Campaign procedure:
    - SIA4's prefetched first-half A row coordinates and pointers survive fused B decode in existing address VGPRs. Reusing them removes duplicate coordinate reconstruction and derives second-half pointers with two 32-byte increments without increasing live state.
    - A 25-repeat bracket measured pointer reuse at 42.646 ms versus the original SIA4 path at 43.081 ms, a 1.01% latency reduction with unchanged 200 VGPR and 20 SGPR allocation.
    - Retain pointer reuse as an unconditional writer improvement rather than a tuning knob. Independent builds remain byte-reproducible.
-   - Continue examining shorter-lived affine state that does not increase persistent register pressure.
+   - Q4_K nibble decode originally extracted a byte and then a nibble with two `v_bfe` instructions per value. Four per-lane bit offsets in dead address VGPRs permit one direct nibble extract, removing 28 VALU instructions per DepthU iteration without changing loads, LDS, registers, or numerical order.
+   - A 25-repeat bracket measured direct nibble extraction at 40.644 ms and 27.05 TFLOP/s versus 41.210 ms and 26.68 TFLOP/s for the two-step control, a 1.37% latency reduction. Output remains bit-exact and independent builds are byte-reproducible.
+   - Retain direct nibble extraction as an unconditional writer improvement. Continue examining shorter-lived affine and decode state that does not increase persistent register pressure.
 3. **LDS layout (`completed`)**
    - `LdsSwizzleChunkB={0,8}` emits distinct decoded-store and WMMA-read addressing.
    - Adding 16 logical K positions moves N-row residues 0/1 forward 32 bytes but residues 2/3 backward 32 bytes under XOR-8.
