@@ -178,6 +178,18 @@ Campaign procedure:
 
 Tuning parameters are added conservatively. Existing schema names remain rejected at non-pilot values until a distinct correct writer path exists. `LdsSwizzleChunkB`, active-wave ownership, and persistent or decode-sharing policies require explicit semantics and linked validation. Requested solutions are never silently repaired.
 
+## Production M32768 N2048 K512 Result
+
+The selected WGM1, XOR-8, SIA4, no-store-priority solution was also built for `ProblemSize(M=32768, N=2048, K=512)` and tested on real `blk.5.ffn_gate_shexp.weight`. This is the dominant Q4_K narrow geometry with 70 model calls.
+
+- All 67,108,864 candidate outputs match HIP bit-for-bit.
+- Candidate and HIP have the same 16,684 differences versus independently dequantized BF16 matmul, maximum absolute error 0.00390625, and normalized RMSE 0.0000345316.
+- A 25-repeat rotating bracket measured SIA4 at 2.755 ms and 24.94 TFLOP/s, SIA3 at 2.848 ms and 24.13 TFLOP/s, and HIP at 3.045 ms and 22.57 TFLOP/s.
+- SIA4 reduces latency by 3.26% versus SIA3 and 9.53% versus HIP. At 70 calls, the direct candidate-to-HIP delta is approximately 20.3 ms per complete model workload.
+- The exact artifact remains at 200 VGPRs, 20 SGPRs, 8192 LDS bytes, and zero disallowed resources.
+
+This result clears the per-shape performance gate and demonstrates that the K8192 schedule is not overfit to a long reduction. Production integration still waits for guarded runtime dispatch, immutable manifests, and complete workload validation.
+
 ## Integration And Expansion
 
 The pilot uses a separate exact-problem symbol and does not replace the existing HIP `in_features=2048` range symbol. Production dispatch may select an assembly artifact only when every exact `ProblemType` and `ProblemSize` assertion and artifact-identity check matches; otherwise it uses HIP.
