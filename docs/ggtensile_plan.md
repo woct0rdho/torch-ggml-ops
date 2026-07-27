@@ -131,10 +131,14 @@ Campaign procedure:
    - With WGM1 and XOR-8 selected, SIA3 measured 45.133 ms versus SIA2 at 45.315 ms.
    - SIA3 remains selected; its final-layout gain is only 0.40%, so larger scheduling neighborhoods remain open.
    - Next compare cross-pair local-read prefetch, bounded next-DepthU packed/A prefetch, and only schedules that emit distinct ISA.
-5. **Tile and ownership geometry (`pending`)**
+5. **Tile and ownership geometry (`active`)**
    - Admit focused complete solutions around `MacroTile 128x128, DepthU 32`.
-   - Implement `128x64`, `64x128`, `256x64`, and DepthU 16/64 only with consistent wave ownership, decode coverage, LDS, and register allocation.
-   - Measure accumulator pressure, workgroup residency, repeated decode, and A/B reuse together.
+   - The writer now supports a complete `256x64x32` solution with four M16 tiles and four N16 tiles per wave, one decoder-owned packed row per lane, 4 KiB LDS, and geometry-derived register allocation, decode coverage, WMMA ownership, and stores.
+   - The `256x64x32` kernel is bit-exact to HIP across all 67,108,864 outputs and passes inspection at 208 VGPRs, 20 SGPRs, 4096 LDS bytes, 32 static WMMAs, and zero disallowed resources.
+   - This geometry halves decoded-B work but doubles cotangent A traffic across the expanded N-tile traversal. A 25-repeat bracket measured 66.597 ms versus 45.300 ms for selected `128x128x32` and 48.172 ms for HIP, a 47.0% regression to the assembly control.
+   - Reject `256x64x32` for this exact shape and retain `128x128x32`.
+   - The generalized writer rebuilt the selected geometry at 45.446 ms versus 45.456 ms for its prior artifact, confirming neutral performance on the retained path.
+   - Continue with complete geometries that reduce A traffic or alter reuse in a materially different direction; evaluate DepthU changes only with consistent decode coverage, LDS, and register allocation.
 6. **Global traversal (`completed`)**
    - The writer enables the workgroup-Z system SGPR and maps `m_block = blockIdx.z * WorkGroupMapping + blockIdx.x`.
    - The runtime launches X as `WorkGroupMapping`, Y as the 16 N tiles, and Z as the remaining M groups.

@@ -185,6 +185,12 @@ def _validate_metadata(
     errors: list[str],
 ) -> None:
     solution = solution_key.solution
+    m_tiles = solution.matrix_instruction[5]
+    decoder_rows = solution.matrix_instruction[6] // 4
+    swizzle_vgprs = (
+        32 // solution.lds_swizzle_chunk_b if solution.lds_swizzle_chunk_b else 0
+    )
+    expected_vgprs = 164 + 8 * m_tiles + 8 * decoder_rows + swizzle_vgprs
     expected = {
         ".kernarg_segment_size": 40,
         ".kernarg_segment_align": 8,
@@ -192,8 +198,7 @@ def _validate_metadata(
         ".private_segment_fixed_size": 0,
         ".max_flat_workgroup_size": solution.num_threads,
         ".wavefront_size": solution.wavefront_size,
-        ".vgpr_count": 196
-        + (32 // solution.lds_swizzle_chunk_b if solution.lds_swizzle_chunk_b else 0),
+        ".vgpr_count": expected_vgprs,
         ".sgpr_count": 20,
         ".vgpr_spill_count": 0,
         ".sgpr_spill_count": 0,

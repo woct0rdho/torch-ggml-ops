@@ -151,6 +151,40 @@ def test_writer_maps_grouped_m_launch_coordinates() -> None:
     assert "s_add_u32 s2, s4, s2" in source
 
 
+def test_writer_builds_256x64_geometry(tmp_path: Path) -> None:
+    pilot = Solution.pilot()
+    geometry = replace(
+        pilot,
+        matrix_instruction=(16, 16, 16, 1, 1, 4, 4, 4, 1),
+        macro_tile0=256,
+        macro_tile1=64,
+        lds_swizzle_chunk_b=8,
+    )
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(32768, 2048, 8192),
+        geometry,
+    )
+    assert validate_solution(key) == ()
+
+    toolchain = _toolchain()
+    assembly = tmp_path / "geometry.s"
+    object_path = tmp_path / "geometry.o"
+    code_object = tmp_path / "geometry.hsaco"
+    source = KernelWriterAssembly(key, toolchain).source()
+    assembly.write_text(source)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+
+    assert source.count("v_wmma_f32_16x16x16_bf16") == 32
+    assert source.count("ds_store_b16_d16_hi") == 16
+    assert source.count("ds_load_b128") == 16
+    inspection = inspect_artifact(key, code_object, toolchain)
+    assert inspection.vgpr_count == 208
+    assert inspection.sgpr_count == 20
+    assert inspection.lds_num_bytes == 4096
+
+
 def test_writer_can_disable_store_priority() -> None:
     pilot = Solution.pilot()
     no_store_priority = replace(pilot, store_priority_opt=False)

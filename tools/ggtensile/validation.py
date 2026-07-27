@@ -114,9 +114,6 @@ def _validate_solution_parameters(
         ("isa", "ISA"),
         ("wavefront_size", "WavefrontSize"),
         ("work_group", "WorkGroup"),
-        ("matrix_instruction", "MatrixInstruction"),
-        ("macro_tile0", "MacroTile0"),
-        ("macro_tile1", "MacroTile1"),
         ("depth_u", "DepthU"),
         ("global_read_vector_width_a", "GlobalReadVectorWidthA"),
         ("global_read_vector_width_b", "GlobalReadVectorWidthB"),
@@ -155,12 +152,31 @@ def _validate_solution_parameters(
             "KernelWriterAssembly implements only ScheduleIterAlg=2 or 3",
             "ScheduleIterAlg",
         )
-    if solution.work_group_mapping not in (1, 2, 4, 8, 256):
+    if solution.work_group_mapping not in (1, 2, 4, 8, 128, 256):
         _reject(
             reasons,
             "solution.workgroupmapping.unimplemented",
-            "KernelWriterAssembly implements WorkGroupMapping=1, 2, 4, 8, or 256",
+            "KernelWriterAssembly implements WorkGroupMapping=1, 2, 4, 8, 128, or 256",
             "WorkGroupMapping",
+        )
+
+    allowed_geometries = {
+        ((16, 16, 16, 1, 1, 2, 8, 4, 1), 128, 128),
+        ((16, 16, 16, 1, 1, 4, 4, 4, 1), 256, 64),
+    }
+    geometry = (
+        solution.matrix_instruction,
+        solution.macro_tile0,
+        solution.macro_tile1,
+    )
+    if geometry not in allowed_geometries:
+        _reject(
+            reasons,
+            "solution.geometry.unimplemented",
+            "KernelWriterAssembly implements only 128x128x32 and 256x64x32 geometry",
+            "MatrixInstruction",
+            "MacroTile0",
+            "MacroTile1",
         )
 
     instruction = solution.matrix_instruction
@@ -188,11 +204,12 @@ def _validate_solution_parameters(
             "WorkGroup",
             source="SolutionStructs",
         )
-    if solution.lds_num_bytes != 8192:
+    expected_lds = 2 * solution.depth_u * solution.macro_tile1
+    if solution.lds_num_bytes != expected_lds:
         _reject(
             reasons,
             "solution.lds_num_bytes",
-            "pilot requires LdsNumBytes=8192",
+            "LdsNumBytes must hold one decoded B tile",
             "MacroTile1",
             "DepthU",
             "LdsPadB",
