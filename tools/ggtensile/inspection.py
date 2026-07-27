@@ -98,7 +98,12 @@ def inspect_artifact(
     mnemonics = tuple(instruction.split(None, 1)[0] for instruction in instructions)
     wmma_count = mnemonics.count("v_wmma_f32_16x16x16_bf16")
     barrier_count = mnemonics.count("s_barrier")
-    _require(wmma_count == 32, f"expected 32 static WMMAs, found {wmma_count}", errors)
+    expected_wmmas = 32 * solution_key.solution.depth_u // 32
+    _require(
+        wmma_count == expected_wmmas,
+        f"expected {expected_wmmas} static WMMAs, found {wmma_count}",
+        errors,
+    )
     expected_barriers = 3 if solution_key.solution.prefetch_packed_weight_next else 2
     _require(
         barrier_count == expected_barriers,
@@ -189,12 +194,18 @@ def _validate_metadata(
 ) -> None:
     solution = solution_key.solution
     m_tiles = solution.matrix_instruction[5]
-    decoder_rows = solution.matrix_instruction[6] // 4
+    decoder_threads = min(solution.num_threads, 128)
+    decoder_rows = (
+        solution.depth_u
+        * solution.macro_tile1
+        // (decoder_threads * solution.decoder_width)
+    )
     swizzle_vgprs = (
         32 // solution.lds_swizzle_chunk_b if solution.lds_swizzle_chunk_b else 0
     )
     global_prefetch_vgprs = 8 * m_tiles * (solution.prefetch_global_read - 1)
     local_prefetch_vgprs = 16 * (solution.prefetch_local_read - 1)
+    decoder_temporary_vgprs = max(0, 2 * (decoder_rows - 2))
     expected_vgprs = (
         164
         + 8 * m_tiles
@@ -202,6 +213,7 @@ def _validate_metadata(
         + swizzle_vgprs
         + global_prefetch_vgprs
         + local_prefetch_vgprs
+        + decoder_temporary_vgprs
     )
     expected = {
         ".kernarg_segment_size": 40,

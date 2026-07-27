@@ -123,6 +123,15 @@ class KernelWriterAssembly:
         module.add(code.TextBlock(self._body()))
         return str(module)
 
+    def _decoder_rows(self) -> int:
+        solution = self.solution_key.solution
+        decoder_threads = min(solution.num_threads, 128)
+        return (
+            solution.depth_u
+            * solution.macro_tile1
+            // (decoder_threads * solution.decoder_width)
+        )
+
     def _allocate_registers(self) -> RegisterLayout:
         from rocisa.enum import RegisterType
         from rocisa.register import RegisterPool
@@ -131,7 +140,7 @@ class KernelWriterAssembly:
         vgprs.addRange(0, 255, "GGTensile VGPRs")
         m_tiles = self.solution_key.solution.matrix_instruction[5]
         n_tiles = self.solution_key.solution.matrix_instruction[6]
-        decoder_rows = n_tiles // 4
+        decoder_rows = self._decoder_rows()
         accum = vgprs.checkOutAligned(8 * m_tiles * n_tiles, 8, "accumulators")
         valu_a = vgprs.checkOutAligned(
             8 * m_tiles * self.solution_key.solution.prefetch_global_read,
@@ -151,7 +160,7 @@ class KernelWriterAssembly:
         if swizzle:
             lds_address = vgprs.checkOut(32 // swizzle, "swizzled LDS addresses")
         address = vgprs.checkOutAligned(12, 2, "addresses")
-        temporary = vgprs.checkOut(7, "temporaries")
+        temporary = vgprs.checkOut(max(7, 3 + 2 * decoder_rows), "temporaries")
         serial = vgprs.checkOut(1, "Serial")
 
         sgprs = RegisterPool(64, RegisterType.Sgpr, True)
@@ -257,7 +266,10 @@ class KernelWriterAssembly:
             self._emit_wmma(asm)
             asm.inst("s_waitcnt lgkmcnt(0)")
             asm.inst("s_barrier")
-            asm.inst(f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, 32")
+            asm.inst(
+                f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, "
+                f"{self.solution_key.solution.depth_u}"
+            )
             asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
             asm.inst("s_cbranch_scc1 .LDepthULoop")
         asm.inst("s_nop 7", "cover final WMMA result latency")
@@ -316,9 +328,13 @@ class KernelWriterAssembly:
         t = r.temporary
         n_tiles = self.solution_key.solution.matrix_instruction[6]
         k_shift = n_tiles.bit_length() - 1
+        row_stride = 2 * self.solution_key.solution.depth_u
+        segment_stride = 16 * row_stride
         asm.comment("v[address+10] is the LDS row base; +11 is nibble shift.")
         asm.inst(f"v_and_b32 v{a + 10}, {n_tiles - 1}, v{r.serial}")
-        asm.inst(f"v_lshlrev_b32 v{a + 10}, 10, v{a + 10}")
+        asm.inst(
+            f"v_lshlrev_b32 v{a + 10}, {segment_stride.bit_length() - 1}, v{a + 10}"
+        )
         asm.inst(f"v_lshrrev_b32 v{t}, {k_shift}, v{r.serial}")
         asm.inst(f"v_lshlrev_b32 v{t}, 1, v{t}")
         asm.inst(f"v_add_nc_u32 v{a + 10}, v{a + 10}, v{t}")
@@ -353,9 +369,9 @@ class KernelWriterAssembly:
     ) -> None:
         r = self.registers
         n_tiles = self.solution_key.solution.matrix_instruction[6]
-        decoder_rows = n_tiles // 4
+        decoder_rows = self._decoder_rows()
         k_shift = n_tiles.bit_length() - 1
-        k_span = 32 // decoder_rows
+        k_span = self.solution_key.solution.depth_u // decoder_rows
         row_delta = k_span * 1152
         q = r.global_read_b
         dm = r.quant_dm
@@ -383,6 +399,34 @@ class KernelWriterAssembly:
         asm.inst(f"v_lshlrev_b32 v{t + 1}, 5, v{t + 1}")
         asm.inst(f"v_and_b32 v{t + 2}, 31, v{t}")
         asm.inst(f"v_add_nc_u32 v{t + 1}, v{t + 1}, v{t + 2}")
+        if decoder_rows > 2:
+            asm.inst(f"v_lshrrev_b32 v{t + 2}, 5, v{t}")
+            asm.inst(f"v_and_b32 v{t + 2}, 3, v{t + 2}")
+            for row in range(decoder_rows):
+                block_address = a
+                if row:
+                    self._emit_add_literal64(asm, a + 2, a, row * row_delta)
+                    block_address = a + 2
+                self._emit_add_vector_offset(asm, a + 4, block_address, t + 1)
+                asm.inst(
+                    f"global_load_b128 v[{q + 4 * row}:{q + 4 * row + 3}], "
+                    f"v[{a + 4}:{a + 5}], off offset:16"
+                )
+                asm.inst(
+                    f"global_load_b32 v{dm + row}, "
+                    f"v[{block_address}:{block_address + 1}], off"
+                )
+                self._emit_add_vector_offset(asm, a + 6, block_address, t + 2)
+                for scale_offset in (4, 8, 12):
+                    scale_register = scale + 3 * row + scale_offset // 4 - 1
+                    asm.inst(
+                        f"global_load_d16_u8 v{scale_register}, "
+                        f"v[{a + 6}:{a + 7}], off offset:{scale_offset}"
+                    )
+            if wait_for_reads:
+                asm.inst("s_waitcnt vmcnt(0)")
+            return
+
         for row in range(decoder_rows):
             self._emit_add_vector_offset(asm, a + 4 + 2 * row, a + 2 * row, t + 1)
         asm.inst(f"v_lshrrev_b32 v{t + 1}, 5, v{t}")
@@ -428,7 +472,7 @@ class KernelWriterAssembly:
             return
 
         r = self.registers
-        decoder_rows = solution.matrix_instruction[6] // 4
+        decoder_rows = self._decoder_rows()
         lane_pair = r.temporary
         shifted = lane_pair + 1
         asm.comment("Replicate packed q bytes across low/high-nibble lane pairs.")
@@ -487,7 +531,7 @@ class KernelWriterAssembly:
         label_suffix: str = "",
     ) -> None:
         r = self.registers
-        decoder_rows = self.solution_key.solution.matrix_instruction[6] // 4
+        decoder_rows = self._decoder_rows()
         scale = r.quant_scale
         t = r.temporary
         asm.comment("Unpack Q4_K six-bit scale/min fields.")
@@ -538,26 +582,26 @@ class KernelWriterAssembly:
                 f"{8 * packed_byte}, v{r.address + 11}"
             )
 
+        row_stride = 2 * self.solution_key.solution.depth_u
         asm.comment("Decode 16 nibbles from each packed output row into LDS.")
         for row in range(decoder_rows):
             for element in range(16):
                 packed = r.global_read_b + 4 * row + element // 4
                 bit_offset = r.address + 4 + element % 4
-                value = t + 5
-                rounding = t + 6
+                value = t + 1 + 2 * decoder_rows
+                rounding = value + 1
                 d_scaled = t + 1 + 2 * row
                 min_scaled = d_scaled + 1
-                lds_offset = 64 * element + 32 * row
+                lds_offset = row_stride * element + 32 * row
                 lds_address = r.address + 10
                 swizzle = self.solution_key.solution.lds_swizzle_chunk_b
                 if swizzle:
                     residues = 32 // swizzle
                     residue = element % residues
                     lds_address = r.lds_address + residue
-                    if row:
-                        lds_offset = 64 * element + (
-                            32 if residue < residues // 2 else -32
-                        )
+                    lds_offset = row_stride * element + 64 * (row // 2)
+                    if row % 2:
+                        lds_offset += 32 if residue < residues // 2 else -32
                 asm.inst(f"v_bfe_u32 v{value}, v{packed}, v{bit_offset}, 4")
                 asm.inst(f"v_cvt_f32_ubyte0_e32 v{value}, v{value}")
                 asm.inst(f"v_fma_f32 v{value}, v{d_scaled}, v{value}, -v{min_scaled}")
@@ -589,7 +633,7 @@ class KernelWriterAssembly:
                 asm.inst(f"v_add_nc_u32 v{a + 9}, 16, v{a + 8}")
         else:
             asm.comment("Reuse prefetched A pointers across fused B decode.")
-        for k_tile in (0, 16):
+        for k_tile in range(0, solution.depth_u, 16):
             if solution.schedule_iter_alg in (4, 5):
                 if k_tile and solution.prefetch_global_read == 1:
                     self._emit_add_literal64(asm, a, a, 2 * k_tile)
@@ -604,6 +648,24 @@ class KernelWriterAssembly:
                             f"global_load_b128 v[{valu_a + 4}:{valu_a + 7}], "
                             f"v[{pointer}:{pointer + 1}], off offset:16"
                         )
+                elif (
+                    solution.depth_u == 64
+                    and solution.prefetch_global_read == 2
+                    and k_tile == 32
+                ):
+                    for k_half in range(2):
+                        self._emit_add_literal64(asm, a, a, 32)
+                        self._emit_add_literal64(asm, a + 2, a + 2, 32)
+                        for m_tile, pointer in ((0, a), (1, a + 2)):
+                            valu_a = r.valu_a + 8 * (k_half * m_tiles + m_tile)
+                            asm.inst(
+                                f"global_load_b128 v[{valu_a}:{valu_a + 3}], "
+                                f"v[{pointer}:{pointer + 1}], off"
+                            )
+                            asm.inst(
+                                f"global_load_b128 v[{valu_a + 4}:{valu_a + 7}], "
+                                f"v[{pointer}:{pointer + 1}], off offset:16"
+                            )
             elif m_tiles == 2:
                 asm.inst(f"s_lshl_b32 s{r.scalar_temporary + 1}, s{r.loop_counter}, 1")
                 for m_tile, row, pointer in (
@@ -647,8 +709,9 @@ class KernelWriterAssembly:
                         f"global_load_b128 v[{valu_a + 4}:{valu_a + 7}], "
                         f"v[{a}:{a + 1}], off offset:16"
                     )
+            row_stride = 2 * solution.depth_u
             asm.inst(f"v_and_b32 v{t}, 15, v{r.serial}")
-            asm.inst(f"v_lshlrev_b32 v{t}, 6, v{t}")
+            asm.inst(f"v_lshlrev_b32 v{t}, {row_stride.bit_length() - 1}, v{t}")
             swizzle = self.solution_key.solution.lds_swizzle_chunk_b
             chunk_addresses: tuple[int, ...] = ()
             if swizzle == 4:
@@ -668,7 +731,11 @@ class KernelWriterAssembly:
                 asm.inst(f"v_and_b32 v{t + 1}, {mask}, v{r.serial}")
                 asm.inst(f"v_lshlrev_b32 v{t + 1}, {byte_shift}, v{t + 1}")
                 asm.inst(f"v_add_nc_u32 v{t + 2}, v{t}, v{t + 1}")
-                if k_tile:
+                if k_tile >= 32:
+                    asm.inst(
+                        f"v_add_nc_u32 v{t + 2}, {2 * (k_tile // 32) * 32}, v{t + 2}"
+                    )
+                if k_tile % 32:
                     asm.inst(f"v_xor_b32 v{t + 2}, 32, v{t + 2}")
                 asm.inst(f"v_xor_b32 v{t + 3}, 16, v{t + 2}")
                 first_address = t + 2
@@ -686,10 +753,12 @@ class KernelWriterAssembly:
                 first_address,
                 second_address,
                 second_chunk_offset,
+                row_stride,
             )
             valu_a_base = r.valu_a
-            if solution.prefetch_global_read == 2 and k_tile:
-                valu_a_base += 8 * m_tiles
+            if solution.prefetch_global_read > 1:
+                k_half = (k_tile // 16) % solution.prefetch_global_read
+                valu_a_base += 8 * m_tiles * k_half
             if self.solution_key.solution.prefetch_local_read == 2:
                 self._emit_prefetched_wmma_pairs(
                     asm,
@@ -729,9 +798,9 @@ class KernelWriterAssembly:
                                 asm.inst("s_waitcnt lgkmcnt(0)")
                             elif n_tile == 0:
                                 pending_a = (
-                                    2 * m_tiles
-                                    if k_tile == 0
-                                    and solution.prefetch_global_read == 2
+                                    2 * m_tiles * (solution.prefetch_global_read - 1)
+                                    if k_tile % (16 * solution.prefetch_global_read)
+                                    == 0
                                     else 0
                                 )
                                 asm.inst(f"s_waitcnt vmcnt({pending_a}) lgkmcnt(0)")
@@ -763,9 +832,11 @@ class KernelWriterAssembly:
         first_address: int,
         second_address: int,
         second_chunk_offset: int,
+        row_stride: int,
     ) -> int:
-        first_offset = 1024 * n_tile
-        second_offset = first_offset + 1024
+        tile_stride = 16 * row_stride
+        first_offset = tile_stride * n_tile
+        second_offset = first_offset + tile_stride
         if swizzle == 4:
             for chunk, chunk_address in enumerate(chunk_addresses):
                 destination = first + 2 * chunk
@@ -803,7 +874,7 @@ class KernelWriterAssembly:
         self,
         asm: _Assembly,
         n_tiles: int,
-        lds_arguments: tuple[int, tuple[int, ...], int, int, int],
+        lds_arguments: tuple[int, tuple[int, ...], int, int, int, int],
     ) -> None:
         r = self.registers
         n_pairs = n_tiles // 2

@@ -311,6 +311,40 @@ def test_writer_combines_global_prefetch_with_partial_waits(
     assert inspection.lds_num_bytes == 8192
 
 
+def test_writer_builds_depth_u64_geometry(tmp_path: Path) -> None:
+    pilot = Solution.pilot()
+    depth_u64 = replace(
+        pilot,
+        depth_u=64,
+        schedule_iter_alg=4,
+        prefetch_global_read=2,
+        lds_swizzle_chunk_b=8,
+    )
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(32768, 2048, 8192),
+        depth_u64,
+    )
+    assert validate_solution(key) == ()
+
+    toolchain = _toolchain()
+    assembly = tmp_path / "depth_u64.s"
+    object_path = tmp_path / "depth_u64.o"
+    code_object = tmp_path / "depth_u64.hsaco"
+    source = KernelWriterAssembly(key, toolchain).source()
+    assembly.write_text(source)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+
+    assert source.count("v_wmma_f32_16x16x16_bf16") == 64
+    assert source.count("ds_store_b16_d16_hi") == 64
+    inspection = inspect_artifact(key, code_object, toolchain)
+    assert inspection.vgpr_count == 236
+    assert inspection.sgpr_count == 20
+    assert inspection.lds_num_bytes == 16384
+    assert inspection.barrier_count == 2
+
+
 def test_writer_prefetches_next_local_read_pair(tmp_path: Path) -> None:
     pilot = Solution.pilot()
     prefetched = replace(

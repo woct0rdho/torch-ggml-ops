@@ -113,7 +113,6 @@ def _validate_solution_parameters(
         ("kernel_language", "KernelLanguage"),
         ("isa", "ISA"),
         ("wavefront_size", "WavefrontSize"),
-        ("depth_u", "DepthU"),
         ("global_read_vector_width_a", "GlobalReadVectorWidthA"),
         ("global_read_vector_width_b", "GlobalReadVectorWidthB"),
         ("local_read_vector_width", "LocalReadVectorWidth"),
@@ -200,6 +199,26 @@ def _validate_solution_parameters(
             "PrefetchGlobalRead",
             "PrefetchLocalRead",
         )
+    if solution.depth_u == 64 and (
+        solution.schedule_iter_alg != 4
+        or solution.prefetch_global_read != 2
+        or solution.prefetch_local_read != 1
+        or solution.lds_swizzle_chunk_b != 8
+        or solution.packed_weight_lane_share != 1
+        or solution.prefetch_packed_weight_next
+    ):
+        _reject(
+            reasons,
+            "solution.depthu64.schedule",
+            "DepthU=64 requires SIA4, PGR2, PLR1, XOR-8, and independent current-tile packed reads",
+            "DepthU",
+            "ScheduleIterAlg",
+            "PrefetchGlobalRead",
+            "PrefetchLocalRead",
+            "LdsSwizzleChunkB",
+            "PackedWeightLaneShare",
+            "PrefetchPackedWeightNext",
+        )
     if solution.schedule_iter_alg in (4, 5) and (
         solution.macro_tile0 != 128
         or solution.macro_tile1 != 128
@@ -223,21 +242,23 @@ def _validate_solution_parameters(
         )
 
     allowed_geometries = {
-        ((16, 16, 16, 1, 1, 2, 8, 4, 1), 128, 128, (32, 4, 1)),
-        ((16, 16, 16, 1, 1, 4, 4, 4, 1), 256, 64, (32, 4, 1)),
-        ((16, 16, 16, 1, 1, 2, 8, 8, 1), 256, 128, (32, 8, 1)),
+        ((16, 16, 16, 1, 1, 2, 8, 4, 1), 128, 128, 32, (32, 4, 1)),
+        ((16, 16, 16, 1, 1, 2, 8, 4, 1), 128, 128, 64, (32, 4, 1)),
+        ((16, 16, 16, 1, 1, 4, 4, 4, 1), 256, 64, 32, (32, 4, 1)),
+        ((16, 16, 16, 1, 1, 2, 8, 8, 1), 256, 128, 32, (32, 8, 1)),
     }
     geometry = (
         solution.matrix_instruction,
         solution.macro_tile0,
         solution.macro_tile1,
+        solution.depth_u,
         solution.work_group,
     )
     if geometry not in allowed_geometries:
         _reject(
             reasons,
             "solution.geometry.unimplemented",
-            "KernelWriterAssembly implements only 128x128x32, 256x64x32, and 256x128x32 geometry",
+            "KernelWriterAssembly implements only 128x128x32, 128x128x64, 256x64x32, and 256x128x32 geometry",
             "MatrixInstruction",
             "MacroTile0",
             "MacroTile1",
