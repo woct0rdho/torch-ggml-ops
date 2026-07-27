@@ -143,11 +143,11 @@ def _validate_solution_parameters(
             "KernelWriterAssembly implements only LdsSwizzleChunkB=0, 4, 8, or 16",
             "LdsSwizzleChunkB",
         )
-    if solution.schedule_iter_alg not in (2, 3):
+    if solution.schedule_iter_alg not in (2, 3, 4):
         _reject(
             reasons,
             "solution.scheduleiteralg.unimplemented",
-            "KernelWriterAssembly implements only ScheduleIterAlg=2 or 3",
+            "KernelWriterAssembly implements only ScheduleIterAlg=2, 3, or 4",
             "ScheduleIterAlg",
         )
     if solution.prefetch_local_read not in (1, 2):
@@ -164,6 +164,20 @@ def _validate_solution_parameters(
             "PrefetchLocalRead=2 requires ScheduleIterAlg=3",
             "PrefetchLocalRead",
             "ScheduleIterAlg",
+        )
+    if solution.schedule_iter_alg == 4 and (
+        solution.macro_tile0 != 128
+        or solution.macro_tile1 != 128
+        or solution.num_threads != 128
+    ):
+        _reject(
+            reasons,
+            "solution.scheduleiteralg.geometry",
+            "ScheduleIterAlg=4 requires the 128x128 four-wave geometry",
+            "ScheduleIterAlg",
+            "MacroTile0",
+            "MacroTile1",
+            "WorkGroup",
         )
     if solution.work_group_mapping not in (1, 2, 4, 8, 128, 256):
         _reject(

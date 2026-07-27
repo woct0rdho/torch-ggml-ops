@@ -122,18 +122,21 @@ Campaign procedure:
    - XOR-4 uses eight bank phases, 204 VGPRs, and four `ds_load_b64` operations per fragment instead of two `ds_load_b128` operations.
    - XOR-4 still reports 68.75% bank conflicts and measures 45.178 ms versus XOR-8 at 45.053 ms, so its doubled LDS issue count has no compensating benefit.
    - XOR-4 is rejected and XOR-8 remains selected.
-   - The selected assembly reaches approximately 24.36 TFLOP/s and 41.0% of the WMMA roof.
+   - At the LDS-layout milestone, the selected assembly reached approximately 24.36 TFLOP/s and 41.0% of the WMMA roof; later schedule results are recorded below.
 4. **Main-loop schedule (`active`)**
    - `ScheduleIterAlg=2` preserves the original full-wait schedule.
    - `ScheduleIterAlg=3` waits for the oldest A and B loads, issues independent WMMAs, and delays full waits until their operands are consumed.
-   - The SIA3 solution is bit-exact and remains at 196 VGPRs, 19 SGPRs, and 8192 LDS bytes.
+   - The SIA3 solution is bit-exact and remains at 196 VGPRs, 19 SGPRs, and 8192 LDS bytes before the selected XOR-8 layout's additional registers.
    - Before locality correction, a 25-repeat bracket measured SIA3 at 117.981 ms versus SIA2 at 120.101 ms.
    - With WGM1 and XOR-8 selected, SIA3 measured 45.133 ms versus SIA2 at 45.315 ms.
-   - SIA3 remains selected; its final-layout gain is only 0.40%, so larger scheduling neighborhoods remain open.
    - `PrefetchLocalRead=2` uses 16 additional VGPRs to ping-pong decoded-B fragments, issuing the next N pair's LDS reads while WMMAs consume the current pair. Half-pair waits preserve SIA3's oldest-ready issue order.
    - The PLR2 kernel is bit-exact and resource-clean at 216 VGPRs, 20 SGPRs, and 8192 LDS bytes. A nine-repeat screen measured 46.521 ms versus 46.120 ms for PLR1, a 0.87% regression.
    - Reject PLR2 for this shape because its additional register pressure does not produce useful latency hiding. The PLR1 source and code object remain byte-identical after the writer refactor.
-   - Next compare bounded next-DepthU packed/A prefetch and only schedules that emit distinct ISA.
+   - `ScheduleIterAlg=4` issues the first DepthU half's A loads after the older packed-weight loads, waits only for Q4_K data, and overlaps A completion with fused B decode. It requires no additional registers or LDS.
+   - SIA4 is bit-exact and passes inspection at 200 VGPRs, 20 SGPRs, 8192 LDS bytes, 32 static WMMAs, and zero disallowed resources. Independent builds produced byte-identical assembly, object, and code object.
+   - A 25-repeat rotating bracket measured SIA4 at 42.666 ms and 25.77 TFLOP/s versus SIA3 at 45.137 ms and 24.36 TFLOP/s, a 5.47% latency reduction and 5.79% throughput gain.
+   - The same bracket measured HIP at 47.841 ms, so SIA4 is 10.82% lower latency and 12.13% higher throughput. SIA4 reaches 43.38% of the BF16 WMMA roof.
+   - Retain SIA4 as the selected assembly control. Next examine the duplicated first-half A address setup and bounded next-DepthU packed/A prefetch.
 5. **Tile and ownership geometry (`active`)**
    - Admit focused complete solutions around `MacroTile 128x128, DepthU 32`.
    - The writer now supports a complete `256x64x32` solution with four M16 tiles and four N16 tiles per wave, one decoder-owned packed row per lane, 4 KiB LDS, and geometry-derived register allocation, decode coverage, WMMA ownership, and stores.

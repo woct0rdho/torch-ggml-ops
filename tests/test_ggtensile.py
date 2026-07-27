@@ -135,6 +135,40 @@ def test_writer_emits_sia3_partial_wait_schedule() -> None:
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
 
 
+def test_writer_overlaps_first_a_half_with_decode(tmp_path: Path) -> None:
+    pilot = Solution.pilot()
+    scheduled = replace(
+        pilot,
+        schedule_iter_alg=4,
+        lds_swizzle_chunk_b=8,
+    )
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(32768, 2048, 8192),
+        scheduled,
+    )
+    assert validate_solution(key) == ()
+
+    toolchain = _toolchain()
+    assembly = tmp_path / "schedule4.s"
+    object_path = tmp_path / "schedule4.o"
+    code_object = tmp_path / "schedule4.hsaco"
+    source = KernelWriterAssembly(key, toolchain).source()
+    assembly.write_text(source)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+
+    prefetch = source.index("Prefetch the first A half")
+    q4_decode = source.index("Unpack Q4_K six-bit scale/min fields")
+    assert prefetch < q4_decode
+    assert source[prefetch:q4_decode].count("s_waitcnt vmcnt(4)") == 1
+    assert source.count("v_wmma_f32_16x16x16_bf16") == 32
+    inspection = inspect_artifact(key, code_object, toolchain)
+    assert inspection.vgpr_count == 200
+    assert inspection.sgpr_count == 20
+    assert inspection.lds_num_bytes == 8192
+
+
 def test_writer_prefetches_next_local_read_pair(tmp_path: Path) -> None:
     pilot = Solution.pilot()
     prefetched = replace(

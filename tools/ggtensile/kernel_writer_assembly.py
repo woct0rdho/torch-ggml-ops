@@ -230,7 +230,12 @@ class KernelWriterAssembly:
             asm.inst(f"v_readfirstlane_b32 s{r.scalar_temporary + 1}, v{r.serial}")
             asm.inst(f"s_cmp_lt_u32 s{r.scalar_temporary + 1}, 128")
             asm.inst("s_cbranch_scc0 .LDecodeReady")
-        self._emit_q4_k_global_reads(asm)
+        schedule = self.solution_key.solution.schedule_iter_alg
+        self._emit_q4_k_global_reads(asm, wait_for_reads=schedule != 4)
+        if schedule == 4:
+            self._emit_first_a_global_reads(asm)
+            a_load_count = 2 * self.solution_key.solution.matrix_instruction[5]
+            asm.inst(f"s_waitcnt vmcnt({a_load_count})")
         self._emit_q4_k_decode(asm)
         if self.solution_key.solution.num_threads > 128:
             asm.label(".LDecodeReady")
@@ -285,7 +290,12 @@ class KernelWriterAssembly:
                 )
                 asm.inst(f"v_add_nc_u32 v{lds + residue}, v{t + 1}, v{lds + residue}")
 
-    def _emit_q4_k_global_reads(self, asm: _Assembly) -> None:
+    def _emit_q4_k_global_reads(
+        self,
+        asm: _Assembly,
+        *,
+        wait_for_reads: bool = True,
+    ) -> None:
         r = self.registers
         n_tiles = self.solution_key.solution.matrix_instruction[6]
         decoder_rows = n_tiles // 4
@@ -347,7 +357,43 @@ class KernelWriterAssembly:
             asm.inst(
                 f"global_load_d16_u8 v{scale + 3 * row + 2}, v[{address_pair}:{address_pair + 1}], off offset:12"
             )
-        asm.inst("s_waitcnt vmcnt(0)")
+        if wait_for_reads:
+            asm.inst("s_waitcnt vmcnt(0)")
+
+    def _emit_first_a_global_reads(self, asm: _Assembly) -> None:
+        r = self.registers
+        solution = self.solution_key.solution
+        m_tiles = solution.matrix_instruction[5]
+        m_per_wave = 16 * m_tiles
+        size = self.solution_key.problem_size
+        a = r.address
+        t = r.temporary
+
+        asm.comment("Prefetch the first A half while Q4_K data is pending.")
+        asm.inst(f"v_lshrrev_b32 v{t}, 5, v{r.serial}")
+        asm.inst(f"v_lshlrev_b32 v{t}, {m_per_wave.bit_length() - 1}, v{t}")
+        asm.inst(f"v_and_b32 v{t + 1}, 15, v{r.serial}")
+        asm.inst(f"v_add_nc_u32 v{a + 8}, v{t}, v{t + 1}")
+        asm.inst(f"v_lshlrev_b32 v{t + 2}, {solution.macro_tile0.bit_length() - 1}, s2")
+        asm.inst(f"v_add_nc_u32 v{a + 8}, v{a + 8}, v{t + 2}")
+        asm.inst(f"v_add_nc_u32 v{a + 9}, 16, v{a + 8}")
+        row_pointers = ((a + 8, a), (a + 9, a + 2))
+
+        asm.inst(f"s_lshl_b32 s{r.scalar_temporary + 1}, s{r.loop_counter}, 1")
+        for row, pointer in row_pointers:
+            asm.inst(f"v_mul_lo_u32 v{t}, {2 * size.k}, v{row}")
+            asm.inst(f"v_add_nc_u32 v{t}, s{r.scalar_temporary + 1}, v{t}")
+            self._emit_add_pointer(asm, pointer, r.kernarg, t)
+        for m_tile, (_, pointer) in enumerate(row_pointers):
+            valu_a = r.valu_a + 8 * m_tile
+            asm.inst(
+                f"global_load_b128 v[{valu_a}:{valu_a + 3}], "
+                f"v[{pointer}:{pointer + 1}], off"
+            )
+            asm.inst(
+                f"global_load_b128 v[{valu_a + 4}:{valu_a + 7}], "
+                f"v[{pointer}:{pointer + 1}], off offset:16"
+            )
 
     def _emit_q4_k_decode(self, asm: _Assembly) -> None:
         r = self.registers
@@ -442,7 +488,9 @@ class KernelWriterAssembly:
             asm.inst(f"v_add_nc_u32 v{a + 9}, 16, v{a + 8}")
         for k_tile in (0, 16):
             asm.inst(f"s_lshl_b32 s{r.scalar_temporary + 1}, s{r.loop_counter}, 1")
-            if m_tiles == 2:
+            if solution.schedule_iter_alg == 4 and k_tile == 0:
+                pass
+            elif m_tiles == 2:
                 for m_tile, row, pointer in (
                     (0, a + 8, a),
                     (1, a + 9, a + 2),
