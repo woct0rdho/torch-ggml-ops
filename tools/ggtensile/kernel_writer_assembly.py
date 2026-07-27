@@ -134,7 +134,11 @@ class KernelWriterAssembly:
         decoder_rows = n_tiles // 4
         accum = vgprs.checkOutAligned(8 * m_tiles * n_tiles, 8, "accumulators")
         valu_a = vgprs.checkOutAligned(8 * m_tiles, 4, "ValuA")
-        valu_b = vgprs.checkOutAligned(16, 4, "ValuB")
+        valu_b = vgprs.checkOutAligned(
+            16 * self.solution_key.solution.prefetch_local_read,
+            4,
+            "ValuB",
+        )
         global_read_b = vgprs.checkOutAligned(4 * decoder_rows, 4, "GlobalReadB")
         quant_dm = vgprs.checkOut(decoder_rows, "Q4K dm")
         quant_scale = vgprs.checkOut(3 * decoder_rows, "Q4K scale/min")
@@ -482,6 +486,7 @@ class KernelWriterAssembly:
             asm.inst(f"v_and_b32 v{t}, 15, v{r.serial}")
             asm.inst(f"v_lshlrev_b32 v{t}, 6, v{t}")
             swizzle = self.solution_key.solution.lds_swizzle_chunk_b
+            chunk_addresses: tuple[int, ...] = ()
             if swizzle == 4:
                 asm.inst(f"v_and_b32 v{t + 1}, 7, v{r.serial}")
                 chunk_addresses = tuple(t + 2 + chunk for chunk in range(4))
@@ -511,52 +516,160 @@ class KernelWriterAssembly:
                 first_address = t
                 second_address = t
                 second_chunk_offset = 16
-            for n_tile in range(0, n_tiles, 2):
-                first = r.valu_b
-                second = r.valu_b + 8
-                first_offset = 1024 * n_tile
-                second_offset = first_offset + 1024
-                if swizzle == 4:
-                    for chunk, chunk_address in enumerate(chunk_addresses):
-                        destination = first + 2 * chunk
-                        asm.inst(
-                            f"ds_load_b64 v[{destination}:{destination + 1}], "
-                            f"v{chunk_address} offset:{first_offset}"
-                        )
-                    for chunk, chunk_address in enumerate(chunk_addresses):
-                        destination = second + 2 * chunk
-                        asm.inst(
-                            f"ds_load_b64 v[{destination}:{destination + 1}], "
-                            f"v{chunk_address} offset:{second_offset}"
-                        )
-                    pending_second_loads = 4
-                else:
-                    asm.inst(
-                        f"ds_load_b128 v[{first}:{first + 3}], v{first_address} offset:{first_offset}"
-                    )
-                    asm.inst(
-                        f"ds_load_b128 v[{first + 4}:{first + 7}], v{second_address} offset:{first_offset + second_chunk_offset}"
-                    )
-                    asm.inst(
-                        f"ds_load_b128 v[{second}:{second + 3}], v{first_address} offset:{second_offset}"
-                    )
-                    asm.inst(
-                        f"ds_load_b128 v[{second + 4}:{second + 7}], v{second_address} offset:{second_offset + second_chunk_offset}"
-                    )
-                    pending_second_loads = 2
-                if self.solution_key.solution.schedule_iter_alg == 3:
-                    self._emit_sia3_wmma_pair(
+            lds_arguments = (
+                swizzle,
+                chunk_addresses,
+                first_address,
+                second_address,
+                second_chunk_offset,
+            )
+            if self.solution_key.solution.prefetch_local_read == 2:
+                self._emit_prefetched_wmma_pairs(
+                    asm,
+                    n_tiles,
+                    lds_arguments,
+                )
+            else:
+                for n_tile in range(0, n_tiles, 2):
+                    first = r.valu_b
+                    second = r.valu_b + 8
+                    load_count = self._emit_lds_pair(
                         asm,
                         n_tile,
                         first,
                         second,
-                        first_pair=n_tile == 0,
-                        pending_second_loads=pending_second_loads,
+                        *lds_arguments,
                     )
-                else:
-                    asm.inst("s_waitcnt vmcnt(0) lgkmcnt(0)")
-                    self._emit_wmma_pair(asm, n_tile, first)
-                    self._emit_wmma_pair(asm, n_tile + 1, second)
+                    if self.solution_key.solution.schedule_iter_alg == 3:
+                        self._emit_sia3_wmma_pair(
+                            asm,
+                            n_tile,
+                            first,
+                            second,
+                            first_pair=n_tile == 0,
+                            pending_second_loads=load_count // 2,
+                        )
+                    else:
+                        asm.inst("s_waitcnt vmcnt(0) lgkmcnt(0)")
+                        self._emit_wmma_pair(asm, n_tile, first)
+                        self._emit_wmma_pair(asm, n_tile + 1, second)
+
+    @staticmethod
+    def _emit_lds_pair(
+        asm: _Assembly,
+        n_tile: int,
+        first: int,
+        second: int,
+        swizzle: int,
+        chunk_addresses: tuple[int, ...],
+        first_address: int,
+        second_address: int,
+        second_chunk_offset: int,
+    ) -> int:
+        first_offset = 1024 * n_tile
+        second_offset = first_offset + 1024
+        if swizzle == 4:
+            for chunk, chunk_address in enumerate(chunk_addresses):
+                destination = first + 2 * chunk
+                asm.inst(
+                    f"ds_load_b64 v[{destination}:{destination + 1}], "
+                    f"v{chunk_address} offset:{first_offset}"
+                )
+            for chunk, chunk_address in enumerate(chunk_addresses):
+                destination = second + 2 * chunk
+                asm.inst(
+                    f"ds_load_b64 v[{destination}:{destination + 1}], "
+                    f"v{chunk_address} offset:{second_offset}"
+                )
+            return 8
+
+        asm.inst(
+            f"ds_load_b128 v[{first}:{first + 3}], "
+            f"v{first_address} offset:{first_offset}"
+        )
+        asm.inst(
+            f"ds_load_b128 v[{first + 4}:{first + 7}], "
+            f"v{second_address} offset:{first_offset + second_chunk_offset}"
+        )
+        asm.inst(
+            f"ds_load_b128 v[{second}:{second + 3}], "
+            f"v{first_address} offset:{second_offset}"
+        )
+        asm.inst(
+            f"ds_load_b128 v[{second + 4}:{second + 7}], "
+            f"v{second_address} offset:{second_offset + second_chunk_offset}"
+        )
+        return 4
+
+    def _emit_prefetched_wmma_pairs(
+        self,
+        asm: _Assembly,
+        n_tiles: int,
+        lds_arguments: tuple[int, tuple[int, ...], int, int, int],
+    ) -> None:
+        r = self.registers
+        n_pairs = n_tiles // 2
+        self._emit_lds_pair(
+            asm,
+            0,
+            r.valu_b,
+            r.valu_b + 8,
+            *lds_arguments,
+        )
+        for pair in range(n_pairs):
+            n_tile = 2 * pair
+            buffer = 16 * (pair % 2)
+            first = r.valu_b + buffer
+            second = first + 8
+            pending_loads = 0
+            if pair + 1 < n_pairs:
+                next_buffer = 16 * ((pair + 1) % 2)
+                pending_loads = self._emit_lds_pair(
+                    asm,
+                    n_tile + 2,
+                    r.valu_b + next_buffer,
+                    r.valu_b + next_buffer + 8,
+                    *lds_arguments,
+                )
+            self._emit_prefetched_wmma_pair(
+                asm,
+                n_tile,
+                first,
+                second,
+                first_pair=pair == 0,
+                pending_loads=pending_loads,
+            )
+
+    def _emit_prefetched_wmma_pair(
+        self,
+        asm: _Assembly,
+        n_tile: int,
+        first: int,
+        second: int,
+        *,
+        first_pair: bool,
+        pending_loads: int,
+    ) -> None:
+        r = self.registers
+        m_tiles = self.solution_key.solution.matrix_instruction[5]
+        if first_pair:
+            pending_a_loads = 2 * (m_tiles - 1)
+            asm.inst(f"s_waitcnt vmcnt({pending_a_loads}) lgkmcnt({pending_loads + 2})")
+            self._emit_wmma_instruction(asm, 0, n_tile, r.valu_a, first)
+            asm.inst(f"s_waitcnt lgkmcnt({pending_loads})")
+            self._emit_wmma_instruction(asm, 0, n_tile + 1, r.valu_a, second)
+            for m_tile in range(1, m_tiles):
+                pending_a_loads -= 2
+                asm.inst(f"s_waitcnt vmcnt({pending_a_loads})")
+                valu_a = r.valu_a + 8 * m_tile
+                self._emit_wmma_instruction(asm, m_tile, n_tile, valu_a, first)
+                self._emit_wmma_instruction(asm, m_tile, n_tile + 1, valu_a, second)
+            return
+
+        asm.inst(f"s_waitcnt lgkmcnt({pending_loads + 2})")
+        self._emit_wmma_pair(asm, n_tile, first)
+        asm.inst(f"s_waitcnt lgkmcnt({pending_loads})")
+        self._emit_wmma_pair(asm, n_tile + 1, second)
 
     def _emit_sia3_wmma_pair(
         self,

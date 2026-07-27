@@ -130,7 +130,10 @@ Campaign procedure:
    - Before locality correction, a 25-repeat bracket measured SIA3 at 117.981 ms versus SIA2 at 120.101 ms.
    - With WGM1 and XOR-8 selected, SIA3 measured 45.133 ms versus SIA2 at 45.315 ms.
    - SIA3 remains selected; its final-layout gain is only 0.40%, so larger scheduling neighborhoods remain open.
-   - Next compare cross-pair local-read prefetch, bounded next-DepthU packed/A prefetch, and only schedules that emit distinct ISA.
+   - `PrefetchLocalRead=2` uses 16 additional VGPRs to ping-pong decoded-B fragments, issuing the next N pair's LDS reads while WMMAs consume the current pair. Half-pair waits preserve SIA3's oldest-ready issue order.
+   - The PLR2 kernel is bit-exact and resource-clean at 216 VGPRs, 20 SGPRs, and 8192 LDS bytes. A nine-repeat screen measured 46.521 ms versus 46.120 ms for PLR1, a 0.87% regression.
+   - Reject PLR2 for this shape because its additional register pressure does not produce useful latency hiding. The PLR1 source and code object remain byte-identical after the writer refactor.
+   - Next compare bounded next-DepthU packed/A prefetch and only schedules that emit distinct ISA.
 5. **Tile and ownership geometry (`active`)**
    - Admit focused complete solutions around `MacroTile 128x128, DepthU 32`.
    - The writer now supports a complete `256x64x32` solution with four M16 tiles and four N16 tiles per wave, one decoder-owned packed row per lane, 4 KiB LDS, and geometry-derived register allocation, decode coverage, WMMA ownership, and stores.

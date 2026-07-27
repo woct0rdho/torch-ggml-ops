@@ -135,6 +135,39 @@ def test_writer_emits_sia3_partial_wait_schedule() -> None:
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
 
 
+def test_writer_prefetches_next_local_read_pair(tmp_path: Path) -> None:
+    pilot = Solution.pilot()
+    prefetched = replace(
+        pilot,
+        schedule_iter_alg=3,
+        prefetch_local_read=2,
+        lds_swizzle_chunk_b=8,
+    )
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(32768, 2048, 8192),
+        prefetched,
+    )
+    assert validate_solution(key) == ()
+
+    toolchain = _toolchain()
+    assembly = tmp_path / "prefetch_local_read.s"
+    object_path = tmp_path / "prefetch_local_read.o"
+    code_object = tmp_path / "prefetch_local_read.hsaco"
+    source = KernelWriterAssembly(key, toolchain).source()
+    assembly.write_text(source)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+
+    assert source.count("s_waitcnt vmcnt(2) lgkmcnt(6)") == 2
+    assert source.count("s_waitcnt lgkmcnt(6)") == 4
+    assert source.count("v_wmma_f32_16x16x16_bf16") == 32
+    inspection = inspect_artifact(key, code_object, toolchain)
+    assert inspection.vgpr_count == 216
+    assert inspection.sgpr_count == 20
+    assert inspection.lds_num_bytes == 8192
+
+
 def test_writer_maps_grouped_m_launch_coordinates() -> None:
     pilot = Solution.pilot()
     all_m = replace(pilot, work_group_mapping=256)

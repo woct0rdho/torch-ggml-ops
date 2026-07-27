@@ -190,7 +190,10 @@ def _validate_metadata(
     swizzle_vgprs = (
         32 // solution.lds_swizzle_chunk_b if solution.lds_swizzle_chunk_b else 0
     )
-    expected_vgprs = 164 + 8 * m_tiles + 8 * decoder_rows + swizzle_vgprs
+    local_prefetch_vgprs = 16 * (solution.prefetch_local_read - 1)
+    expected_vgprs = (
+        164 + 8 * m_tiles + 8 * decoder_rows + swizzle_vgprs + local_prefetch_vgprs
+    )
     expected = {
         ".kernarg_segment_size": 40,
         ".kernarg_segment_align": 8,
