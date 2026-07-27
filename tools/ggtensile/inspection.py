@@ -99,8 +99,11 @@ def inspect_artifact(
     wmma_count = mnemonics.count("v_wmma_f32_16x16x16_bf16")
     barrier_count = mnemonics.count("s_barrier")
     _require(wmma_count == 32, f"expected 32 static WMMAs, found {wmma_count}", errors)
+    expected_barriers = 3 if solution_key.solution.prefetch_packed_weight_next else 2
     _require(
-        barrier_count == 2, f"expected two barriers, found {barrier_count}", errors
+        barrier_count == expected_barriers,
+        f"expected {expected_barriers} barriers, found {barrier_count}",
+        errors,
     )
     _require(
         not any(mnemonic.startswith("scratch_") for mnemonic in mnemonics),

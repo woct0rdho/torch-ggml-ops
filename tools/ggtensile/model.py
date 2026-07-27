@@ -171,6 +171,7 @@ class Solution:
     lds_swizzle_chunk_b: int
     decoder_width: int
     prefetch_packed_weight: bool
+    prefetch_packed_weight_next: bool
 
     _KEYS: ClassVar[frozenset[str]] = frozenset(
         {
@@ -199,6 +200,7 @@ class Solution:
             "LdsSwizzleChunkB",
             "DecoderWidth",
             "PrefetchPackedWeight",
+            "PrefetchPackedWeightNext",
         }
     )
 
@@ -230,6 +232,7 @@ class Solution:
             lds_swizzle_chunk_b=0,
             decoder_width=16,
             prefetch_packed_weight=True,
+            prefetch_packed_weight_next=False,
         )
 
     @classmethod
@@ -279,6 +282,9 @@ class Solution:
             prefetch_packed_weight=_boolean(
                 item["PrefetchPackedWeight"], "PrefetchPackedWeight"
             ),
+            prefetch_packed_weight_next=_boolean(
+                item["PrefetchPackedWeightNext"], "PrefetchPackedWeightNext"
+            ),
         )
 
     @property
@@ -321,6 +327,7 @@ class Solution:
             "LdsSwizzleChunkB": self.lds_swizzle_chunk_b,
             "DecoderWidth": self.decoder_width,
             "PrefetchPackedWeight": self.prefetch_packed_weight,
+            "PrefetchPackedWeightNext": self.prefetch_packed_weight_next,
         }
 
 

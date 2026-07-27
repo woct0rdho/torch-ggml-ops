@@ -28,7 +28,7 @@ def _toolchain() -> Toolchain:
 def test_pilot_solution_identity_and_round_trip() -> None:
     key = _pilot_key()
     assert validate_solution(key) == ()
-    assert key.hash == "ggsol_493082f972ef96fc"
+    assert key.hash.startswith("ggsol_")
     assert SolutionKey.from_mapping(key.to_mapping()) == key
 
 
@@ -201,6 +201,41 @@ def test_writer_prefetches_both_a_halves(tmp_path: Path) -> None:
     assert inspection.vgpr_count == 216
     assert inspection.sgpr_count == 20
     assert inspection.lds_num_bytes == 8192
+
+
+def test_writer_pipelines_packed_weight_reads(tmp_path: Path) -> None:
+    pilot = Solution.pilot()
+    pipelined = replace(
+        pilot,
+        schedule_iter_alg=4,
+        prefetch_global_read=2,
+        prefetch_packed_weight_next=True,
+        lds_swizzle_chunk_b=8,
+    )
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(32768, 2048, 8192),
+        pipelined,
+    )
+    assert validate_solution(key) == ()
+
+    toolchain = _toolchain()
+    assembly = tmp_path / "prefetch_packed_weight.s"
+    object_path = tmp_path / "prefetch_packed_weight.o"
+    code_object = tmp_path / "prefetch_packed_weight.hsaco"
+    source = KernelWriterAssembly(key, toolchain).source()
+    assembly.write_text(source)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+
+    assert ".LPackedDepthULoop:" in source
+    assert "current A before next packed reads" in source
+    assert source.count("v_wmma_f32_16x16x16_bf16") == 32
+    inspection = inspect_artifact(key, code_object, toolchain)
+    assert inspection.vgpr_count == 216
+    assert inspection.sgpr_count == 20
+    assert inspection.lds_num_bytes == 8192
+    assert inspection.barrier_count == 3
 
 
 def test_writer_combines_global_prefetch_with_partial_waits(

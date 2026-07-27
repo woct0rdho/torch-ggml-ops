@@ -179,6 +179,20 @@ def _validate_solution_parameters(
             "PrefetchLocalRead",
             "ScheduleIterAlg",
         )
+    if solution.prefetch_packed_weight_next and (
+        solution.schedule_iter_alg != 4
+        or solution.prefetch_global_read != 2
+        or solution.prefetch_local_read != 1
+    ):
+        _reject(
+            reasons,
+            "solution.prefetchpackedweightnext.schedule",
+            "PrefetchPackedWeightNext requires SIA4, PGR2, and PLR1",
+            "PrefetchPackedWeightNext",
+            "ScheduleIterAlg",
+            "PrefetchGlobalRead",
+            "PrefetchLocalRead",
+        )
     if solution.schedule_iter_alg in (4, 5) and (
         solution.macro_tile0 != 128
         or solution.macro_tile1 != 128

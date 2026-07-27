@@ -228,40 +228,84 @@ class KernelWriterAssembly:
         asm.inst(f"s_mov_b32 s{r.loop_counter}, 0")
 
         self._emit_static_thread_coordinates(asm)
-        asm.label(".LDepthULoop")
-        if self.solution_key.solution.num_threads > 128:
-            asm.comment("Only the first four waves cooperatively decode B.")
-            asm.inst(f"v_readfirstlane_b32 s{r.scalar_temporary + 1}, v{r.serial}")
-            asm.inst(f"s_cmp_lt_u32 s{r.scalar_temporary + 1}, 128")
-            asm.inst("s_cbranch_scc0 .LDecodeReady")
-        schedule = self.solution_key.solution.schedule_iter_alg
-        self._emit_q4_k_global_reads(asm, wait_for_reads=schedule not in (4, 5))
-        if schedule in (4, 5):
-            self._emit_first_a_global_reads(asm)
-            a_load_count = (
-                2
-                * self.solution_key.solution.matrix_instruction[5]
-                * self.solution_key.solution.prefetch_global_read
-            )
-            asm.inst(f"s_waitcnt vmcnt({a_load_count})")
-        self._emit_q4_k_decode(asm)
-        if self.solution_key.solution.num_threads > 128:
-            asm.label(".LDecodeReady")
-        asm.inst("s_waitcnt lgkmcnt(0)")
-        asm.inst("s_barrier")
-        asm.inst("buffer_gl0_inv")
-        self._emit_wmma(asm)
-        asm.inst("s_waitcnt lgkmcnt(0)")
-        asm.inst("s_barrier")
-        asm.inst(f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, 32")
-        asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
-        asm.inst("s_cbranch_scc1 .LDepthULoop")
+        if self.solution_key.solution.prefetch_packed_weight_next:
+            self._emit_packed_weight_pipeline(asm)
+        else:
+            asm.label(".LDepthULoop")
+            if self.solution_key.solution.num_threads > 128:
+                asm.comment("Only the first four waves cooperatively decode B.")
+                asm.inst(f"v_readfirstlane_b32 s{r.scalar_temporary + 1}, v{r.serial}")
+                asm.inst(f"s_cmp_lt_u32 s{r.scalar_temporary + 1}, 128")
+                asm.inst("s_cbranch_scc0 .LDecodeReady")
+            schedule = self.solution_key.solution.schedule_iter_alg
+            self._emit_q4_k_global_reads(asm, wait_for_reads=schedule not in (4, 5))
+            if schedule in (4, 5):
+                self._emit_first_a_global_reads(asm)
+                a_load_count = (
+                    2
+                    * self.solution_key.solution.matrix_instruction[5]
+                    * self.solution_key.solution.prefetch_global_read
+                )
+                asm.inst(f"s_waitcnt vmcnt({a_load_count})")
+            self._emit_q4_k_decode(asm)
+            if self.solution_key.solution.num_threads > 128:
+                asm.label(".LDecodeReady")
+            asm.inst("s_waitcnt lgkmcnt(0)")
+            asm.inst("s_barrier")
+            asm.inst("buffer_gl0_inv")
+            self._emit_wmma(asm)
+            asm.inst("s_waitcnt lgkmcnt(0)")
+            asm.inst("s_barrier")
+            asm.inst(f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, 32")
+            asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
+            asm.inst("s_cbranch_scc1 .LDepthULoop")
         asm.inst("s_nop 7", "cover final WMMA result latency")
         self._emit_store(asm)
         asm.inst("s_endpgm")
         asm.lines.append(f".L{name}_end:")
         asm.lines.append(f".size {name}, .L{name}_end - {name}")
         return asm.text()
+
+    def _emit_packed_weight_pipeline(self, asm: _Assembly) -> None:
+        r = self.registers
+        size = self.solution_key.problem_size
+        a_load_count = (
+            2
+            * self.solution_key.solution.matrix_instruction[5]
+            * self.solution_key.solution.prefetch_global_read
+        )
+
+        asm.comment("Prime decoded B and both A fragments.")
+        self._emit_q4_k_global_reads(asm, wait_for_reads=False)
+        self._emit_first_a_global_reads(asm)
+        asm.inst(f"s_waitcnt vmcnt({a_load_count})")
+        self._emit_q4_k_decode(asm, label_suffix="Initial")
+        asm.inst("s_waitcnt lgkmcnt(0)")
+        asm.inst("s_barrier")
+        asm.inst("buffer_gl0_inv")
+
+        asm.label(".LPackedDepthULoop")
+        asm.inst("s_waitcnt vmcnt(0)", "current A before next packed reads")
+        asm.inst(f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, 32")
+        asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
+        asm.inst("s_cbranch_scc0 .LPackedNoPrefetch")
+        self._emit_q4_k_global_reads(asm, wait_for_reads=False)
+        asm.label(".LPackedNoPrefetch")
+
+        self._emit_wmma(asm)
+        asm.inst("s_waitcnt lgkmcnt(0)")
+        asm.inst("s_barrier")
+        asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
+        asm.inst("s_cbranch_scc0 .LPackedDepthUDone")
+
+        self._emit_first_a_global_reads(asm)
+        asm.inst(f"s_waitcnt vmcnt({a_load_count})")
+        self._emit_q4_k_decode(asm, label_suffix="Steady")
+        asm.inst("s_waitcnt lgkmcnt(0)")
+        asm.inst("s_barrier")
+        asm.inst("buffer_gl0_inv")
+        asm.inst("s_branch .LPackedDepthULoop")
+        asm.label(".LPackedDepthUDone")
 
     def _emit_static_thread_coordinates(self, asm: _Assembly) -> None:
         r = self.registers
@@ -407,19 +451,26 @@ class KernelWriterAssembly:
                     f"v[{pointer}:{pointer + 1}], off offset:16"
                 )
 
-    def _emit_q4_k_decode(self, asm: _Assembly) -> None:
+    def _emit_q4_k_decode(
+        self,
+        asm: _Assembly,
+        *,
+        label_suffix: str = "",
+    ) -> None:
         r = self.registers
         decoder_rows = self.solution_key.solution.matrix_instruction[6] // 4
         scale = r.quant_scale
         t = r.temporary
         asm.comment("Unpack Q4_K six-bit scale/min fields.")
+        scale_odd = f".LScaleOdd{label_suffix}"
+        scale_ready = f".LScaleReady{label_suffix}"
         asm.inst(f"s_cmp_eq_u32 s{r.input_half}, 0")
-        asm.inst("s_cbranch_scc0 .LScaleOdd")
+        asm.inst(f"s_cbranch_scc0 {scale_odd}")
         for row in range(decoder_rows):
             asm.inst(f"v_and_b32 v{scale + 3 * row}, 0x3f, v{scale + 3 * row}")
             asm.inst(f"v_and_b32 v{scale + 3 * row + 1}, 0x3f, v{scale + 3 * row + 1}")
-        asm.inst("s_branch .LScaleReady")
-        asm.label(".LScaleOdd")
+        asm.inst(f"s_branch {scale_ready}")
+        asm.label(scale_odd)
         for row in range(decoder_rows):
             lo = scale + 3 * row
             minimum = lo + 1
@@ -432,7 +483,7 @@ class KernelWriterAssembly:
             asm.inst(f"v_and_b32 v{t}, 0x30, v{t}")
             asm.inst(f"v_lshrrev_b32 v{minimum}, 4, v{high}")
             asm.inst(f"v_or_b32 v{minimum}, v{minimum}, v{t}")
-        asm.label(".LScaleReady")
+        asm.label(scale_ready)
 
         asm.comment("Convert and scale packed FP16 d/dmin values in FP32.")
         for row in range(decoder_rows):
@@ -639,7 +690,9 @@ class KernelWriterAssembly:
                         )
                     else:
                         if solution.schedule_iter_alg == 4:
-                            if n_tile == 0:
+                            if solution.prefetch_packed_weight_next:
+                                asm.inst("s_waitcnt lgkmcnt(0)")
+                            elif n_tile == 0:
                                 pending_a = (
                                     2 * m_tiles
                                     if k_tile == 0

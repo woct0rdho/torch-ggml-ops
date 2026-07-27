@@ -145,7 +145,7 @@ Campaign procedure:
    - The same bracket measured HIP at 47.886 ms. PGR2 is 14.58% lower latency and 17.06% higher throughput, reaching 45.25% of the BF16 WMMA roof.
    - `ScheduleIterAlg=5` combines PGR2 with SIA3's oldest-ready A and half-pair B waits. It is bit-exact and resource-identical to SIA4/PGR2.
    - A nine-repeat screen measured SIA5 at 40.753 ms versus SIA4/PGR2 at 41.134 ms, a 0.93% latency reduction that does not clear the retention gate.
-   - Reject SIA5 for this shape and retain SIA4 with PGR2 as the selected assembly control. Next examine packed-weight prefetch and schedules that overlap fused decode with WMMA execution.
+   - Reject SIA5 for this shape and retain SIA4 with PGR2 as the selected assembly control.
 5. **Tile and ownership geometry (`active`)**
    - Admit focused complete solutions around `MacroTile 128x128, DepthU 32`.
    - The writer now supports a complete `256x64x32` solution with four M16 tiles and four N16 tiles per wave, one decoder-owned packed row per lane, 4 KiB LDS, and geometry-derived register allocation, decode coverage, WMMA ownership, and stores.
@@ -165,10 +165,13 @@ Campaign procedure:
    - A 25-repeat WGM1/WGM2/HIP bracket measured 52.588/54.307/47.811 ms.
    - WGM1 sustains 20.91 TFLOP/s and 35.2% of the WMMA roof, and remains 10.0% slower than HIP.
    - WGM1 is retained for this exact shape; traversal remains an explicit complete-solution parameter rather than a global rule.
-7. **A and packed-weight traffic (`pending`)**
+7. **A and packed-weight traffic (`active`)**
    - Compare hipcc and GGTensile load widths, lane duplication, address induction, cache flags, and waits.
-   - Evaluate legal half-wave replication, wider aligned Q4_K loads, scalar uniform metadata, and bounded decode reuse.
-   - Expose a knob only if multiple correct mechanisms remain competitive.
+   - Raw selected-kernel counters place wait-count stalls at approximately 17.9-19.0% of aggregate wave cycles and barrier stalls at approximately 8.0-8.1%. VALU and LDS instruction-cycle counters are much smaller fractions; these are workload-wide ratios, not mutually exclusive cycle attribution.
+   - `PrefetchPackedWeight` retains its existing current-tile meaning. The separate `PrefetchPackedWeightNext` mechanism issues the next packed Q4_K tile before current WMMAs, lets VMEM run while current LDS fragments are consumed, then decodes into the same LDS after the read-side barrier.
+   - The next-tile pipeline is bit-exact and remains at 216 VGPRs, 20 SGPRs, and 8192 LDS bytes. It adds no dynamic barrier relative to the two-barrier-per-DepthU steady state.
+   - A nine-repeat screen measured next-tile prefetch at 42.345 ms versus 42.410 ms for the selected control, only 0.15% lower latency. Reject it for this shape because packed-weight VMEM overlap is not a material remaining limit.
+   - Continue with legal half-wave replication, wider aligned Q4_K loads, scalar uniform metadata, and bounded decode reuse. Expose a knob only if multiple correct mechanisms remain competitive.
 8. **Epilogue and low-level scheduling (`active`)**
    - `StorePriorityOpt=false` removes the two epilogue `s_setprio` instructions.
    - A 25-repeat bracket measured no priority at 45.327 ms versus priority at 45.413 ms.
