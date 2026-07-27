@@ -248,6 +248,16 @@ class KernelWriterAssembly:
             asm.inst(f"v_sub_nc_u32 v{lds + 1}, v{lds + 1}, v{t}")
             asm.inst(f"v_add_nc_u32 v{lds + 2}, 32, v{lds}")
             asm.inst(f"v_add_nc_u32 v{lds + 3}, 32, v{lds + 1}")
+        elif swizzle == 4:
+            lds = r.lds_address
+            asm.comment("Precompute XOR-4 LDS store bases for N row residues 0-7.")
+            asm.inst(f"v_lshrrev_b32 v{t}, 5, v{r.serial}")
+            asm.inst(f"v_lshlrev_b32 v{t + 1}, 3, v{t}")
+            asm.inst(f"v_sub_nc_u32 v{t + 1}, v{a + 10}, v{t + 1}")
+            for residue in range(8):
+                asm.inst(f"v_xor_b32 v{lds + residue}, {residue}, v{t}")
+                asm.inst(f"v_lshlrev_b32 v{lds + residue}, 3, v{lds + residue}")
+                asm.inst(f"v_add_nc_u32 v{lds + residue}, v{t + 1}, v{lds + residue}")
         elif swizzle == 16:
             lds = r.lds_address
             asm.comment("Precompute XOR-16 LDS store bases for N row residues 0-1.")
@@ -422,7 +432,18 @@ class KernelWriterAssembly:
             asm.inst(f"v_and_b32 v{t}, 15, v{r.serial}")
             asm.inst(f"v_lshlrev_b32 v{t}, 6, v{t}")
             swizzle = self.solution_key.solution.lds_swizzle_chunk_b
-            if swizzle in (8, 16):
+            if swizzle == 4:
+                asm.inst(f"v_and_b32 v{t + 1}, 7, v{r.serial}")
+                chunk_addresses = tuple(t + 2 + chunk for chunk in range(4))
+                for chunk, chunk_address in enumerate(chunk_addresses):
+                    logical_chunk = k_tile // 4 + chunk
+                    asm.inst(f"v_xor_b32 v{chunk_address}, {logical_chunk}, v{t + 1}")
+                    asm.inst(f"v_lshlrev_b32 v{chunk_address}, 3, v{chunk_address}")
+                    asm.inst(f"v_add_nc_u32 v{chunk_address}, v{t}, v{chunk_address}")
+                first_address = -1
+                second_address = -1
+                second_chunk_offset = 0
+            elif swizzle in (8, 16):
                 mask = 32 // swizzle - 1
                 byte_shift = (2 * swizzle).bit_length() - 1
                 asm.inst(f"v_and_b32 v{t + 1}, {mask}, v{r.serial}")
@@ -445,18 +466,34 @@ class KernelWriterAssembly:
                 second = r.valu_b + 8
                 first_offset = 1024 * n_tile
                 second_offset = first_offset + 1024
-                asm.inst(
-                    f"ds_load_b128 v[{first}:{first + 3}], v{first_address} offset:{first_offset}"
-                )
-                asm.inst(
-                    f"ds_load_b128 v[{first + 4}:{first + 7}], v{second_address} offset:{first_offset + second_chunk_offset}"
-                )
-                asm.inst(
-                    f"ds_load_b128 v[{second}:{second + 3}], v{first_address} offset:{second_offset}"
-                )
-                asm.inst(
-                    f"ds_load_b128 v[{second + 4}:{second + 7}], v{second_address} offset:{second_offset + second_chunk_offset}"
-                )
+                if swizzle == 4:
+                    for chunk, chunk_address in enumerate(chunk_addresses):
+                        destination = first + 2 * chunk
+                        asm.inst(
+                            f"ds_load_b64 v[{destination}:{destination + 1}], "
+                            f"v{chunk_address} offset:{first_offset}"
+                        )
+                    for chunk, chunk_address in enumerate(chunk_addresses):
+                        destination = second + 2 * chunk
+                        asm.inst(
+                            f"ds_load_b64 v[{destination}:{destination + 1}], "
+                            f"v{chunk_address} offset:{second_offset}"
+                        )
+                    pending_second_loads = 4
+                else:
+                    asm.inst(
+                        f"ds_load_b128 v[{first}:{first + 3}], v{first_address} offset:{first_offset}"
+                    )
+                    asm.inst(
+                        f"ds_load_b128 v[{first + 4}:{first + 7}], v{second_address} offset:{first_offset + second_chunk_offset}"
+                    )
+                    asm.inst(
+                        f"ds_load_b128 v[{second}:{second + 3}], v{first_address} offset:{second_offset}"
+                    )
+                    asm.inst(
+                        f"ds_load_b128 v[{second + 4}:{second + 7}], v{second_address} offset:{second_offset + second_chunk_offset}"
+                    )
+                    pending_second_loads = 2
                 if self.solution_key.solution.schedule_iter_alg == 3:
                     self._emit_sia3_wmma_pair(
                         asm,
@@ -464,6 +501,7 @@ class KernelWriterAssembly:
                         first,
                         second,
                         first_pair=n_tile == 0,
+                        pending_second_loads=pending_second_loads,
                     )
                 else:
                     asm.inst("s_waitcnt vmcnt(0) lgkmcnt(0)")
@@ -478,10 +516,11 @@ class KernelWriterAssembly:
         second: int,
         *,
         first_pair: bool,
+        pending_second_loads: int,
     ) -> None:
         r = self.registers
         if first_pair:
-            asm.inst("s_waitcnt vmcnt(2) lgkmcnt(2)")
+            asm.inst(f"s_waitcnt vmcnt(2) lgkmcnt({pending_second_loads})")
             self._emit_wmma_instruction(asm, 0, n_tile, r.valu_a, first)
             asm.inst("s_waitcnt lgkmcnt(0)")
             self._emit_wmma_instruction(asm, 0, n_tile + 1, r.valu_a, second)
@@ -490,7 +529,7 @@ class KernelWriterAssembly:
             self._emit_wmma_instruction(asm, 1, n_tile + 1, r.valu_a + 8, second)
             return
 
-        asm.inst("s_waitcnt lgkmcnt(2)")
+        asm.inst(f"s_waitcnt lgkmcnt({pending_second_loads})")
         self._emit_wmma_instruction(asm, 0, n_tile, r.valu_a, first)
         self._emit_wmma_instruction(asm, 1, n_tile, r.valu_a + 8, first)
         asm.inst("s_waitcnt lgkmcnt(0)")
