@@ -373,6 +373,11 @@ class KernelWriterAssembly:
         asm.inst(f"v_add_nc_u32 v{a + 8}, v{a + 8}, v{t + 2}")
         if m_tiles == 2:
             asm.inst(f"v_add_nc_u32 v{a + 9}, 16, v{a + 8}")
+        row_stride_a = 2 * self.solution_key.problem_size.k
+        for m_tile in range(m_tiles):
+            asm.inst(
+                f"v_mul_lo_u32 v{a + 8 + m_tile}, {row_stride_a}, v{a + 8 + m_tile}"
+            )
 
     def _emit_q4_k_global_reads(
         self,
@@ -502,7 +507,6 @@ class KernelWriterAssembly:
         r = self.registers
         solution = self.solution_key.solution
         m_tiles = solution.matrix_instruction[5]
-        size = self.solution_key.problem_size
         a = r.address
         t = r.temporary
 
@@ -512,9 +516,8 @@ class KernelWriterAssembly:
         )
 
         asm.inst(f"s_lshl_b32 s{r.scalar_temporary + 1}, s{r.loop_counter}, 1")
-        for row, pointer in row_pointers:
-            asm.inst(f"v_mul_lo_u32 v{t}, {2 * size.k}, v{row}")
-            asm.inst(f"v_add_nc_u32 v{t}, s{r.scalar_temporary + 1}, v{t}")
+        for row_offset, pointer in row_pointers:
+            asm.inst(f"v_add_nc_u32 v{t}, s{r.scalar_temporary + 1}, v{row_offset}")
             self._emit_add_pointer(asm, pointer, r.kernarg, t)
         for k_half in range(solution.prefetch_global_read):
             if k_half:
