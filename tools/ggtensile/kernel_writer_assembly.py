@@ -233,7 +233,11 @@ class KernelWriterAssembly:
         asm.inst(f"s_lshr_b32 s{r.input_half}, s3, {tile_shift - 1}")
         asm.inst(f"s_and_b32 s{r.input_half}, s{r.input_half}, 1")
         asm.inst(f"s_and_b32 s{r.scalar_temporary}, s3, {tiles_per_weight_block - 1}")
-        asm.inst(f"s_lshl_b32 s{r.scalar_temporary}, s{r.scalar_temporary}, {n_shift}")
+        quant_tile_shift = n_shift - 1 if n_per_block == 128 else n_shift
+        asm.inst(
+            f"s_lshl_b32 s{r.scalar_temporary}, s{r.scalar_temporary}, "
+            f"{quant_tile_shift}"
+        )
         asm.inst(f"s_mov_b32 s{r.loop_counter}, 0")
 
         self._emit_static_thread_coordinates(asm)
@@ -410,16 +414,27 @@ class KernelWriterAssembly:
             asm.inst(f"v_add_co_ci_u32_e64 v{a + 3}, null, v{a + 1}, 0, vcc_lo")
 
         asm.comment("Build quant and scale-byte addresses.")
-        asm.inst(f"v_and_b32 v{t}, {n_tiles - 1}, v{r.serial}")
-        asm.inst(f"v_lshlrev_b32 v{t}, 4, v{t}")
-        asm.inst(f"v_add_nc_u32 v{t}, s{r.scalar_temporary}, v{t}")
-        asm.inst(f"v_lshrrev_b32 v{t + 1}, 6, v{t}")
-        asm.inst(f"v_lshlrev_b32 v{t + 1}, 5, v{t + 1}")
-        asm.inst(f"v_and_b32 v{t + 2}, 31, v{t}")
-        asm.inst(f"v_add_nc_u32 v{t + 1}, v{t + 1}, v{t + 2}")
+        direct_quant_mapping = self.solution_key.solution.macro_tile1 == 128
+        if direct_quant_mapping:
+            asm.inst(f"v_and_b32 v{t}, 1, v{r.serial}")
+            asm.inst(f"v_lshlrev_b32 v{t}, 4, v{t}")
+            asm.inst(f"v_bfe_u32 v{t + 1}, v{r.serial}, 2, 1")
+            asm.inst(f"v_lshl_add_u32 v{t + 1}, v{t + 1}, 5, v{t}")
+            asm.inst(f"v_add_nc_u32 v{t + 1}, s{r.scalar_temporary}, v{t + 1}")
+        else:
+            asm.inst(f"v_and_b32 v{t}, {n_tiles - 1}, v{r.serial}")
+            asm.inst(f"v_lshlrev_b32 v{t}, 4, v{t}")
+            asm.inst(f"v_add_nc_u32 v{t}, s{r.scalar_temporary}, v{t}")
+            asm.inst(f"v_lshrrev_b32 v{t + 1}, 6, v{t}")
+            asm.inst(f"v_lshlrev_b32 v{t + 1}, 5, v{t + 1}")
+            asm.inst(f"v_and_b32 v{t + 2}, 31, v{t}")
+            asm.inst(f"v_add_nc_u32 v{t + 1}, v{t + 1}, v{t + 2}")
         if decoder_rows > 2:
-            asm.inst(f"v_lshrrev_b32 v{t + 2}, 5, v{t}")
-            asm.inst(f"v_and_b32 v{t + 2}, 3, v{t + 2}")
+            if direct_quant_mapping:
+                asm.inst(f"v_bfe_u32 v{t + 2}, v{r.serial}, 1, 2")
+            else:
+                asm.inst(f"v_lshrrev_b32 v{t + 2}, 5, v{t}")
+                asm.inst(f"v_and_b32 v{t + 2}, 3, v{t + 2}")
             for row in range(decoder_rows):
                 block_address = a
                 if row:
@@ -460,8 +475,11 @@ class KernelWriterAssembly:
         if self.solution_key.solution.packed_weight_lane_share == 2:
             asm.inst(f"s_mov_b32 exec_lo, s{r.scalar_temporary + 1}")
 
-        asm.inst(f"v_lshrrev_b32 v{t + 1}, 5, v{t}")
-        asm.inst(f"v_and_b32 v{t + 1}, 3, v{t + 1}")
+        if direct_quant_mapping:
+            asm.inst(f"v_bfe_u32 v{t + 1}, v{r.serial}, 1, 2")
+        else:
+            asm.inst(f"v_lshrrev_b32 v{t + 1}, 5, v{t}")
+            asm.inst(f"v_and_b32 v{t + 1}, 3, v{t + 1}")
         self._emit_add_vector_offset(asm, a + 4, a, t + 1)
         for row in range(decoder_rows):
             asm.inst(

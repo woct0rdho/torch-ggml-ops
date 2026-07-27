@@ -115,6 +115,8 @@ Campaign procedure:
    - Reordering transient Q4_K scale pointers keeps A row coordinates live in existing address VGPRs across the reduction loop. This hoist removes seven VALU instructions per DepthU iteration without adding registers or changing exact output.
    - A 25-repeat bracket measured the hoisted path at 40.135 ms and 27.40 TFLOP/s versus 40.396 ms and 27.22 TFLOP/s, a 0.65% favorable instruction reduction. Retain it under the neutral-or-better simplification rule.
    - Storing invariant A byte offsets instead of row indices in those same VGPRs removes two more multiplies per DepthU iteration. A 25-repeat bracket measured 40.116 ms and 27.41 TFLOP/s versus 40.247 ms and 27.32 TFLOP/s, a 0.33% resource-neutral gain; retain it.
+   - For the retained 128-wide N tile, packed Q-byte offsets map directly from lane bits 0 and 2 plus a scalar tile offset, while scale-byte selection maps from lane bits 1-2. Encoding those mappings directly removes three more VALU instructions per iteration.
+   - A 25-repeat bracket measured direct packed-offset mapping at 39.964 ms and 27.51 TFLOP/s versus 40.141 ms and 27.39 TFLOP/s, a 0.44% resource-neutral gain with bit-exact output; retain it.
 3. **LDS layout (`completed`)**
    - `LdsSwizzleChunkB={0,8}` emits distinct decoded-store and WMMA-read addressing.
    - Adding 16 logical K positions moves N-row residues 0/1 forward 32 bytes but residues 2/3 backward 32 bytes under XOR-8.
