@@ -141,11 +141,11 @@ def _validate_solution_parameters(
                 parameter,
             )
 
-    if solution.lds_swizzle_chunk_b not in (0, 8):
+    if solution.lds_swizzle_chunk_b not in (0, 8, 16):
         _reject(
             reasons,
             "solution.ldsswizzlechunkb.unimplemented",
-            "KernelWriterAssembly implements only LdsSwizzleChunkB=0 or 8",
+            "KernelWriterAssembly implements only LdsSwizzleChunkB=0, 8, or 16",
             "LdsSwizzleChunkB",
         )
     if solution.schedule_iter_alg not in (2, 3):

@@ -136,8 +136,9 @@ class KernelWriterAssembly:
         quant_dm = vgprs.checkOut(2, "Q4K dm")
         quant_scale = vgprs.checkOut(6, "Q4K scale/min")
         lds_address = -1
-        if self.solution_key.solution.lds_swizzle_chunk_b == 8:
-            lds_address = vgprs.checkOut(4, "swizzled LDS addresses")
+        swizzle = self.solution_key.solution.lds_swizzle_chunk_b
+        if swizzle:
+            lds_address = vgprs.checkOut(32 // swizzle, "swizzled LDS addresses")
         address = vgprs.checkOutAligned(12, 2, "addresses")
         temporary = vgprs.checkOut(7, "temporaries")
         serial = vgprs.checkOut(1, "Serial")
@@ -236,7 +237,8 @@ class KernelWriterAssembly:
         asm.inst(f"v_add_nc_u32 v{a + 10}, v{a + 10}, v{t}")
         asm.inst(f"v_and_b32 v{a + 11}, 2, v{r.serial}")
         asm.inst(f"v_lshlrev_b32 v{a + 11}, 1, v{a + 11}")
-        if self.solution_key.solution.lds_swizzle_chunk_b == 8:
+        swizzle = self.solution_key.solution.lds_swizzle_chunk_b
+        if swizzle == 8:
             lds = r.lds_address
             asm.comment("Precompute XOR-8 LDS store bases for N row residues 0-3.")
             asm.inst(f"v_mov_b32 v{lds}, v{a + 10}")
@@ -246,6 +248,11 @@ class KernelWriterAssembly:
             asm.inst(f"v_sub_nc_u32 v{lds + 1}, v{lds + 1}, v{t}")
             asm.inst(f"v_add_nc_u32 v{lds + 2}, 32, v{lds}")
             asm.inst(f"v_add_nc_u32 v{lds + 3}, 32, v{lds + 1}")
+        elif swizzle == 16:
+            lds = r.lds_address
+            asm.comment("Precompute XOR-16 LDS store bases for N row residues 0-1.")
+            asm.inst(f"v_mov_b32 v{lds}, v{a + 10}")
+            asm.inst(f"v_add_nc_u32 v{lds + 1}, 32, v{lds}")
 
     def _emit_q4_k_global_reads(self, asm: _Assembly) -> None:
         r = self.registers
@@ -357,10 +364,15 @@ class KernelWriterAssembly:
                 min_scaled = d_scaled + 1
                 lds_offset = 64 * element + 32 * row
                 lds_address = r.address + 10
-                if self.solution_key.solution.lds_swizzle_chunk_b == 8:
-                    lds_address = r.lds_address + element % 4
+                swizzle = self.solution_key.solution.lds_swizzle_chunk_b
+                if swizzle:
+                    residues = 32 // swizzle
+                    residue = element % residues
+                    lds_address = r.lds_address + residue
                     if row:
-                        lds_offset = 64 * element + (32 if element % 4 < 2 else -32)
+                        lds_offset = 64 * element + (
+                            32 if residue < residues // 2 else -32
+                        )
                 asm.inst(f"v_bfe_u32 v{value}, v{packed}, {byte_shift}, 8")
                 asm.inst(f"v_bfe_u32 v{value}, v{value}, v{r.address + 11}, 4")
                 asm.inst(f"v_cvt_f32_ubyte0_e32 v{value}, v{value}")
@@ -409,9 +421,12 @@ class KernelWriterAssembly:
             )
             asm.inst(f"v_and_b32 v{t}, 15, v{r.serial}")
             asm.inst(f"v_lshlrev_b32 v{t}, 6, v{t}")
-            if self.solution_key.solution.lds_swizzle_chunk_b == 8:
-                asm.inst(f"v_and_b32 v{t + 1}, 3, v{r.serial}")
-                asm.inst(f"v_lshlrev_b32 v{t + 1}, 4, v{t + 1}")
+            swizzle = self.solution_key.solution.lds_swizzle_chunk_b
+            if swizzle in (8, 16):
+                mask = 32 // swizzle - 1
+                byte_shift = (2 * swizzle).bit_length() - 1
+                asm.inst(f"v_and_b32 v{t + 1}, {mask}, v{r.serial}")
+                asm.inst(f"v_lshlrev_b32 v{t + 1}, {byte_shift}, v{t + 1}")
                 asm.inst(f"v_add_nc_u32 v{t + 2}, v{t}, v{t + 1}")
                 if k_tile:
                     asm.inst(f"v_xor_b32 v{t + 2}, 32, v{t + 2}")

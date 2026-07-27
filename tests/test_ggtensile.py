@@ -85,6 +85,22 @@ def test_writer_emits_distinct_xor8_lds_layout() -> None:
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
 
 
+def test_writer_emits_distinct_xor16_lds_layout() -> None:
+    pilot = Solution.pilot()
+    swizzled = replace(pilot, lds_swizzle_chunk_b=16)
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(128, 2048, 512),
+        swizzled,
+    )
+    assert validate_solution(key) == ()
+
+    source = KernelWriterAssembly(key, _toolchain()).source()
+    assert "Precompute XOR-16 LDS store bases" in source
+    assert source.count("ds_load_b128") == 32
+    assert source.count("v_wmma_f32_16x16x16_bf16") == 32
+
+
 def test_writer_emits_sia3_partial_wait_schedule() -> None:
     pilot = Solution.pilot()
     scheduled = replace(pilot, schedule_iter_alg=3)

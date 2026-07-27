@@ -116,6 +116,9 @@ Campaign procedure:
    - The layout was retested after WGM1 corrected cotangent locality because layout and cache traversal interact.
    - A 25-repeat WGM1/SIA3 bracket measured XOR-8 at 45.136 ms, unpadded at 52.604 ms, and HIP at 47.733 ms.
    - XOR-8 is retained with WGM1 for this exact shape: it is 14.2% faster than unpadded and 5.44% faster than HIP.
+   - Profiling reports 68.75% LDS bank conflicts for both selected XOR-8 and HIP, versus 79.17% for unpadded.
+   - XOR-16 is bit-exact and reduces allocation to 198 VGPRs, but its conflict ratio returns to 79.17%.
+   - A 25-repeat bracket measured XOR-16 at 52.633 ms versus XOR-8 at 45.006 ms, a 16.95% regression, so XOR-16 is rejected for this shape.
    - The selected assembly reaches approximately 24.36 TFLOP/s and 41.0% of the WMMA roof.
 4. **Main-loop schedule (`active`)**
    - `ScheduleIterAlg=2` preserves the original full-wait schedule.
