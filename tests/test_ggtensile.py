@@ -33,10 +33,15 @@ def test_pilot_solution_identity_and_round_trip() -> None:
 
 
 def test_writer_enables_and_flattens_packed_workitem_xy() -> None:
-    source = KernelWriterAssembly(_pilot_key(), _toolchain()).source()
+    writer = KernelWriterAssembly(_pilot_key(), _toolchain())
+    source = writer.source()
+    registers = writer.registers
     assert ".amdhsa_system_vgpr_workitem_id 1" in source
-    assert "v_bfe_u32 v195, v0, 10, 10" in source
-    assert "v_add_nc_u32 v195, v195, v188" in source
+    assert f"v_bfe_u32 v{registers.serial}, v0, 10, 10" in source
+    assert (
+        f"v_add_nc_u32 v{registers.serial}, v{registers.serial}, "
+        f"v{registers.temporary}" in source
+    )
 
 
 def test_build_and_inspect_pilot(tmp_path: Path) -> None:

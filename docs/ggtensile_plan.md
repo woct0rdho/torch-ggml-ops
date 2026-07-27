@@ -104,7 +104,9 @@ Campaign procedure:
    - The reusable driver is `tools/benchmark_ggtensile.py`; the full report is `/tmp/ggtensile-m32768-n2048-k8192-baseline/benchmark.json`.
 2. **Obvious assembly corrections (`active`)**
    - Remove waits that have no current dependency.
-   - Hoist exact-shape affine address state and repeated K-loop arithmetic.
+   - A persistent A-pointer hoist removed repeated exact-shape address work but raised VGPRs from 200 to 204.
+   - The hoist measured 45.285 ms versus 45.179 ms for the selected control, a 0.23% regression, and was reverted.
+   - Continue examining shorter-lived affine state that does not increase persistent register pressure.
    - Treat unconditional improvements as writer changes rather than tuning knobs.
 3. **LDS layout (`completed`)**
    - `LdsSwizzleChunkB={0,8}` emits distinct decoded-store and WMMA-read addressing.
