@@ -102,7 +102,7 @@ class KernelWriterAssembly:
             kernArgsVersion=0,
             codeObjectVersion="5",
             groupSegmentSize=self.solution_key.solution.lds_num_bytes,
-            sgprWorkGroup=(1, 1, 0),
+            sgprWorkGroup=(1, 1, 1),
             vgprWorkItem=1,
             flatWorkGroupSize=self.solution_key.solution.num_threads,
             totalVgprs=self.registers.total_vgprs,
@@ -143,7 +143,7 @@ class KernelWriterAssembly:
         serial = vgprs.checkOut(1, "Serial")
 
         sgprs = RegisterPool(64, RegisterType.Sgpr, True)
-        sgprs.addRange(4, 63, "GGTensile SGPRs")
+        sgprs.addRange(5, 63, "GGTensile SGPRs")
         kernarg = sgprs.checkOutAligned(10, 2, "loaded kernargs")
         loop_counter = sgprs.checkOut(1, "LoopCounter")
         block_offset = sgprs.checkOut(1, "PackedBlockOffset")
@@ -181,9 +181,18 @@ class KernelWriterAssembly:
         asm.inst(f"v_lshlrev_b32 v{r.serial}, 5, v{r.serial}")
         asm.inst(f"v_and_b32 v{r.temporary}, 0x3ff, v0")
         asm.inst(f"v_add_nc_u32 v{r.serial}, v{r.serial}, v{r.temporary}")
-        asm.inst("s_load_dwordx4 s[4:7], s[0:1], 0x0")
-        asm.inst("s_load_dwordx4 s[8:11], s[0:1], 0x10")
-        asm.inst("s_load_dwordx2 s[12:13], s[0:1], 0x20")
+        group_m = self.solution_key.solution.work_group_mapping
+        asm.comment("Map grouped M launch coordinates to the logical M tile.")
+        if group_m == 1:
+            asm.inst("s_mov_b32 s2, s4")
+        else:
+            asm.inst(f"s_mul_i32 s4, s4, {group_m}")
+            asm.inst("s_add_u32 s2, s4, s2")
+        kernarg = r.kernarg
+        asm.inst(f"s_load_dwordx2 s[{kernarg}:{kernarg + 1}], s[0:1], 0x0")
+        asm.inst(f"s_load_dwordx2 s[{kernarg + 2}:{kernarg + 3}], s[0:1], 0x8")
+        asm.inst(f"s_load_dwordx2 s[{kernarg + 4}:{kernarg + 5}], s[0:1], 0x10")
+        asm.inst(f"s_load_dwordx4 s[{kernarg + 6}:{kernarg + 9}], s[0:1], 0x18")
         asm.inst("s_waitcnt lgkmcnt(0)")
         for register in range(r.accum, r.accum + 128):
             asm.inst(f"v_mov_b32 v{register}, 0")
@@ -253,7 +262,7 @@ class KernelWriterAssembly:
         asm.inst(f"v_add_nc_u32 v{t}, s{loop}, v{t}")
         asm.inst(f"v_mul_lo_u32 v{t}, 1152, v{t}")
         asm.inst(f"v_add_nc_u32 v{t}, s{block}, v{t}")
-        self._emit_add_pointer(asm, a, 6, t)
+        self._emit_add_pointer(asm, a, r.kernarg + 2, t)
         asm.inst(f"v_add_co_u32 v{a + 2}, vcc_lo, v{a}, 18432")
         asm.inst(f"v_add_co_ci_u32_e64 v{a + 3}, null, v{a + 1}, 0, vcc_lo")
 
@@ -380,12 +389,12 @@ class KernelWriterAssembly:
             asm.inst(f"v_add_nc_u32 v{t}, s{r.scalar_temporary + 1}, v{t}")
             if k_tile:
                 asm.inst(f"v_add_nc_u32 v{t}, {2 * k_tile}, v{t}")
-            self._emit_add_pointer(asm, a, 4, t)
+            self._emit_add_pointer(asm, a, r.kernarg, t)
             asm.inst(f"v_mul_lo_u32 v{t}, {2 * size.k}, v{a + 9}")
             asm.inst(f"v_add_nc_u32 v{t}, s{r.scalar_temporary + 1}, v{t}")
             if k_tile:
                 asm.inst(f"v_add_nc_u32 v{t}, {2 * k_tile}, v{t}")
-            self._emit_add_pointer(asm, a + 2, 4, t)
+            self._emit_add_pointer(asm, a + 2, r.kernarg, t)
             asm.inst(
                 f"global_load_b128 v[{r.valu_a}:{r.valu_a + 3}], v[{a}:{a + 1}], off"
             )
@@ -513,7 +522,7 @@ class KernelWriterAssembly:
         asm.inst(f"v_and_b32 v{t + 1}, 15, v{r.serial}")
         asm.inst(f"v_lshlrev_b32 v{t + 1}, 1, v{t + 1}")
         asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
-        self._emit_add_pointer(asm, a, 8, t)
+        self._emit_add_pointer(asm, a, r.kernarg + 4, t)
         if self.solution_key.solution.store_priority_opt:
             asm.inst("s_setprio 1")
         for m_tile in range(2):

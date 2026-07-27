@@ -53,9 +53,9 @@ def test_build_and_inspect_pilot(tmp_path: Path) -> None:
     assert inspection.target == "gfx1151"
     assert inspection.code_object_version == 5
     assert inspection.vgpr_count == 196
-    assert inspection.sgpr_count == 19
+    assert inspection.sgpr_count == 20
     assert inspection.max_vgpr_index == 195
-    assert inspection.max_sgpr_index == 18
+    assert inspection.max_sgpr_index == 19
     assert inspection.private_segment_bytes == 0
     assert inspection.vgpr_spill_count == 0
     assert inspection.sgpr_spill_count == 0
@@ -94,3 +94,19 @@ def test_writer_emits_sia3_partial_wait_schedule() -> None:
     assert source.count("s_waitcnt vmcnt(2) lgkmcnt(2)") == 2
     assert source.count("s_waitcnt lgkmcnt(2)") == 6
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
+
+
+def test_writer_maps_grouped_m_launch_coordinates() -> None:
+    pilot = Solution.pilot()
+    all_m = replace(pilot, work_group_mapping=256)
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(32768, 2048, 8192),
+        all_m,
+    )
+    assert validate_solution(key) == ()
+
+    source = KernelWriterAssembly(key, _toolchain()).source()
+    assert ".amdhsa_system_sgpr_workgroup_id_z 1" in source
+    assert "s_mul_i32 s4, s4, 256" in source
+    assert "s_add_u32 s2, s4, s2" in source

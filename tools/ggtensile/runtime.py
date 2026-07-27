@@ -108,12 +108,14 @@ class DenseBackwardModule:
             )
         )
         solution = self.solution_key.solution
+        group_m = solution.work_group_mapping
+        m_blocks = size.m // solution.macro_tile0
         self._check(
             self._lib.hipModuleLaunchKernel(
                 self._function,
-                size.m // solution.macro_tile0,
+                group_m,
                 size.n // solution.macro_tile1,
-                1,
+                m_blocks // group_m,
                 *solution.work_group,
                 0,
                 ctypes.c_void_p(stream),

@@ -124,10 +124,14 @@ Campaign procedure:
    - Admit focused complete solutions around `MacroTile 128x128, DepthU 32`.
    - Implement `128x64`, `64x128`, `256x64`, and DepthU 16/64 only with consistent wave ownership, decode coverage, LDS, and register allocation.
    - Measure accumulator pressure, workgroup residency, repeated decode, and A/B reuse together.
-6. **Global traversal (`pending`)**
-   - Implement exact `WorkGroupMapping`/`GroupM` traversal without changing output ownership.
-   - Compare the current order with focused static factors 1/2/4/8.
-   - Treat packed-weight and cotangent L2 reuse as geometry-specific measured effects.
+6. **Global traversal (`completed`)**
+   - The writer enables the workgroup-Z system SGPR and maps `m_block = blockIdx.z * WorkGroupMapping + blockIdx.x`.
+   - The runtime launches X as `WorkGroupMapping`, Y as the 16 N tiles, and Z as the remaining M groups.
+   - WGM1 reduced SIA3 from 119.36 ms for the all-M control to 52.40 ms, a 2.28x speedup, by scheduling all N workgroups for one M tile together.
+   - Nine-repeat screens measured WGM2 at 54.97 ms, WGM4 at 56.86 ms, and WGM8 at 57.46 ms; WGM1 won every comparison.
+   - A 25-repeat WGM1/WGM2/HIP bracket measured 52.588/54.307/47.811 ms.
+   - WGM1 sustains 20.91 TFLOP/s and 35.2% of the WMMA roof, and remains 10.0% slower than HIP.
+   - WGM1 is retained for this exact shape; traversal remains an explicit complete-solution parameter rather than a global rule.
 7. **A and packed-weight traffic (`pending`)**
    - Compare hipcc and GGTensile load widths, lane duplication, address induction, cache flags, and waits.
    - Evaluate legal half-wave replication, wider aligned Q4_K loads, scalar uniform metadata, and bounded decode reuse.

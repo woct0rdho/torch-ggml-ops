@@ -91,6 +91,18 @@ def _validate_problem_size(
                 divisor_name,
                 source="ProblemSize",
             )
+    if solution.macro_tile0 > 0 and solution.work_group_mapping > 0:
+        m_blocks = problem_size.m // solution.macro_tile0
+        if m_blocks % solution.work_group_mapping:
+            _reject(
+                reasons,
+                "problem_size.m.work_group_mapping",
+                "M tile count must be divisible by WorkGroupMapping",
+                "M",
+                "MacroTile0",
+                "WorkGroupMapping",
+                source="ProblemSize",
+            )
 
 
 def _validate_solution_parameters(
@@ -115,7 +127,6 @@ def _validate_solution_parameters(
         ("store_priority_opt", "StorePriorityOpt"),
         ("num_elements_per_batch_store", "NumElementsPerBatchStore"),
         ("store_vector_width", "StoreVectorWidth"),
-        ("work_group_mapping", "WorkGroupMapping"),
         ("transpose_lds", "TransposeLDS"),
         ("lds_pad_b", "LdsPadB"),
         ("lds_block_size_per_pad_b", "LdsBlockSizePerPadB"),
@@ -144,6 +155,13 @@ def _validate_solution_parameters(
             "solution.scheduleiteralg.unimplemented",
             "KernelWriterAssembly implements only ScheduleIterAlg=2 or 3",
             "ScheduleIterAlg",
+        )
+    if solution.work_group_mapping not in (1, 2, 4, 8, 256):
+        _reject(
+            reasons,
+            "solution.workgroupmapping.unimplemented",
+            "KernelWriterAssembly implements WorkGroupMapping=1, 2, 4, 8, or 256",
+            "WorkGroupMapping",
         )
 
     instruction = solution.matrix_instruction
