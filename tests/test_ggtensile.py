@@ -203,6 +203,41 @@ def test_writer_prefetches_both_a_halves(tmp_path: Path) -> None:
     assert inspection.lds_num_bytes == 8192
 
 
+def test_writer_combines_global_prefetch_with_partial_waits(
+    tmp_path: Path,
+) -> None:
+    pilot = Solution.pilot()
+    scheduled = replace(
+        pilot,
+        schedule_iter_alg=5,
+        prefetch_global_read=2,
+        lds_swizzle_chunk_b=8,
+    )
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(32768, 2048, 8192),
+        scheduled,
+    )
+    assert validate_solution(key) == ()
+
+    toolchain = _toolchain()
+    assembly = tmp_path / "schedule5.s"
+    object_path = tmp_path / "schedule5.o"
+    code_object = tmp_path / "schedule5.hsaco"
+    source = KernelWriterAssembly(key, toolchain).source()
+    assembly.write_text(source)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+
+    assert source.count("s_waitcnt vmcnt(6) lgkmcnt(2)") == 1
+    assert source.count("s_waitcnt vmcnt(2) lgkmcnt(2)") == 1
+    assert source.count("v_wmma_f32_16x16x16_bf16") == 32
+    inspection = inspect_artifact(key, code_object, toolchain)
+    assert inspection.vgpr_count == 216
+    assert inspection.sgpr_count == 20
+    assert inspection.lds_num_bytes == 8192
+
+
 def test_writer_prefetches_next_local_read_pair(tmp_path: Path) -> None:
     pilot = Solution.pilot()
     prefetched = replace(

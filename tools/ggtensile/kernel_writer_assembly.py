@@ -235,8 +235,8 @@ class KernelWriterAssembly:
             asm.inst(f"s_cmp_lt_u32 s{r.scalar_temporary + 1}, 128")
             asm.inst("s_cbranch_scc0 .LDecodeReady")
         schedule = self.solution_key.solution.schedule_iter_alg
-        self._emit_q4_k_global_reads(asm, wait_for_reads=schedule != 4)
-        if schedule == 4:
+        self._emit_q4_k_global_reads(asm, wait_for_reads=schedule not in (4, 5))
+        if schedule in (4, 5):
             self._emit_first_a_global_reads(asm)
             a_load_count = (
                 2
@@ -490,7 +490,7 @@ class KernelWriterAssembly:
         a = r.address
         t = r.temporary
         asm.comment("Load A and issue two DepthU=16 WMMA halves.")
-        if solution.schedule_iter_alg != 4:
+        if solution.schedule_iter_alg not in (4, 5):
             asm.inst(f"v_lshrrev_b32 v{t}, 5, v{r.serial}")
             asm.inst(f"v_lshlrev_b32 v{t}, {m_per_wave.bit_length() - 1}, v{t}")
             asm.inst(f"v_and_b32 v{t + 1}, 15, v{r.serial}")
@@ -504,7 +504,7 @@ class KernelWriterAssembly:
         else:
             asm.comment("Reuse prefetched A pointers across fused B decode.")
         for k_tile in (0, 16):
-            if solution.schedule_iter_alg == 4:
+            if solution.schedule_iter_alg in (4, 5):
                 if k_tile and solution.prefetch_global_read == 1:
                     self._emit_add_literal64(asm, a, a, 2 * k_tile)
                     self._emit_add_literal64(asm, a + 2, a + 2, 2 * k_tile)
@@ -621,7 +621,12 @@ class KernelWriterAssembly:
                         second,
                         *lds_arguments,
                     )
-                    if self.solution_key.solution.schedule_iter_alg == 3:
+                    if solution.schedule_iter_alg in (3, 5):
+                        trailing_a_loads = (
+                            2 * m_tiles
+                            if solution.prefetch_global_read == 2 and k_tile == 0
+                            else 0
+                        )
                         self._emit_sia3_wmma_pair(
                             asm,
                             n_tile,
@@ -629,6 +634,8 @@ class KernelWriterAssembly:
                             second,
                             first_pair=n_tile == 0,
                             pending_second_loads=load_count // 2,
+                            valu_a_base=valu_a_base,
+                            trailing_a_loads=trailing_a_loads,
                         )
                     else:
                         if solution.schedule_iter_alg == 4:
@@ -783,32 +790,33 @@ class KernelWriterAssembly:
         *,
         first_pair: bool,
         pending_second_loads: int,
+        valu_a_base: int,
+        trailing_a_loads: int,
     ) -> None:
-        r = self.registers
         m_tiles = self.solution_key.solution.matrix_instruction[5]
         if first_pair:
-            pending_a_loads = 2 * (m_tiles - 1)
+            pending_a_loads = 2 * (m_tiles - 1) + trailing_a_loads
             asm.inst(
                 f"s_waitcnt vmcnt({pending_a_loads}) lgkmcnt({pending_second_loads})"
             )
-            self._emit_wmma_instruction(asm, 0, n_tile, r.valu_a, first)
+            self._emit_wmma_instruction(asm, 0, n_tile, valu_a_base, first)
             asm.inst("s_waitcnt lgkmcnt(0)")
-            self._emit_wmma_instruction(asm, 0, n_tile + 1, r.valu_a, second)
+            self._emit_wmma_instruction(asm, 0, n_tile + 1, valu_a_base, second)
             for m_tile in range(1, m_tiles):
                 pending_a_loads -= 2
                 asm.inst(f"s_waitcnt vmcnt({pending_a_loads})")
-                valu_a = r.valu_a + 8 * m_tile
+                valu_a = valu_a_base + 8 * m_tile
                 self._emit_wmma_instruction(asm, m_tile, n_tile, valu_a, first)
                 self._emit_wmma_instruction(asm, m_tile, n_tile + 1, valu_a, second)
             return
 
         asm.inst(f"s_waitcnt lgkmcnt({pending_second_loads})")
         for m_tile in range(m_tiles):
-            valu_a = r.valu_a + 8 * m_tile
+            valu_a = valu_a_base + 8 * m_tile
             self._emit_wmma_instruction(asm, m_tile, n_tile, valu_a, first)
         asm.inst("s_waitcnt lgkmcnt(0)")
         for m_tile in range(m_tiles):
-            valu_a = r.valu_a + 8 * m_tile
+            valu_a = valu_a_base + 8 * m_tile
             self._emit_wmma_instruction(asm, m_tile, n_tile + 1, valu_a, second)
 
     def _emit_wmma_pair(

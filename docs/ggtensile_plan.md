@@ -143,7 +143,9 @@ Campaign procedure:
    - PGR2 is bit-exact and resource-clean at 216 VGPRs, 20 SGPRs, and 8192 LDS bytes. Independent builds produce byte-identical assembly, object, and code object.
    - A 25-repeat bracket measured PGR2 at 40.906 ms and 26.88 TFLOP/s versus PGR1 at 42.723 ms and 25.74 TFLOP/s, a 4.25% latency reduction and 4.44% throughput gain.
    - The same bracket measured HIP at 47.886 ms. PGR2 is 14.58% lower latency and 17.06% higher throughput, reaching 45.25% of the BF16 WMMA roof.
-   - Retain SIA4 with PGR2 as the selected assembly control. Next examine packed-weight prefetch and schedules that overlap fused decode with WMMA execution.
+   - `ScheduleIterAlg=5` combines PGR2 with SIA3's oldest-ready A and half-pair B waits. It is bit-exact and resource-identical to SIA4/PGR2.
+   - A nine-repeat screen measured SIA5 at 40.753 ms versus SIA4/PGR2 at 41.134 ms, a 0.93% latency reduction that does not clear the retention gate.
+   - Reject SIA5 for this shape and retain SIA4 with PGR2 as the selected assembly control. Next examine packed-weight prefetch and schedules that overlap fused decode with WMMA execution.
 5. **Tile and ownership geometry (`active`)**
    - Admit focused complete solutions around `MacroTile 128x128, DepthU 32`.
    - The writer now supports a complete `256x64x32` solution with four M16 tiles and four N16 tiles per wave, one decoder-owned packed row per lane, 4 KiB LDS, and geometry-derived register allocation, decode coverage, WMMA ownership, and stores.

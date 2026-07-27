@@ -142,11 +142,11 @@ def _validate_solution_parameters(
             "KernelWriterAssembly implements only LdsSwizzleChunkB=0, 4, 8, or 16",
             "LdsSwizzleChunkB",
         )
-    if solution.schedule_iter_alg not in (2, 3, 4):
+    if solution.schedule_iter_alg not in (2, 3, 4, 5):
         _reject(
             reasons,
             "solution.scheduleiteralg.unimplemented",
-            "KernelWriterAssembly implements only ScheduleIterAlg=2, 3, or 4",
+            "KernelWriterAssembly implements only ScheduleIterAlg=2, 3, 4, or 5",
             "ScheduleIterAlg",
         )
     if solution.prefetch_global_read not in (1, 2):
@@ -156,11 +156,11 @@ def _validate_solution_parameters(
             "KernelWriterAssembly implements only PrefetchGlobalRead=1 or 2",
             "PrefetchGlobalRead",
         )
-    if solution.prefetch_global_read == 2 and solution.schedule_iter_alg != 4:
+    if solution.prefetch_global_read == 2 and solution.schedule_iter_alg not in (4, 5):
         _reject(
             reasons,
             "solution.prefetchglobalread.schedule",
-            "PrefetchGlobalRead=2 requires ScheduleIterAlg=4",
+            "PrefetchGlobalRead=2 requires ScheduleIterAlg=4 or 5",
             "PrefetchGlobalRead",
             "ScheduleIterAlg",
         )
@@ -179,7 +179,7 @@ def _validate_solution_parameters(
             "PrefetchLocalRead",
             "ScheduleIterAlg",
         )
-    if solution.schedule_iter_alg == 4 and (
+    if solution.schedule_iter_alg in (4, 5) and (
         solution.macro_tile0 != 128
         or solution.macro_tile1 != 128
         or solution.num_threads != 128
@@ -187,7 +187,7 @@ def _validate_solution_parameters(
         _reject(
             reasons,
             "solution.scheduleiteralg.geometry",
-            "ScheduleIterAlg=4 requires the 128x128 four-wave geometry",
+            "ScheduleIterAlg=4 or 5 requires the 128x128 four-wave geometry",
             "ScheduleIterAlg",
             "MacroTile0",
             "MacroTile1",
