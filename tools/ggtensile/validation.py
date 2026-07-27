@@ -117,7 +117,6 @@ def _validate_solution_parameters(
         ("global_read_vector_width_a", "GlobalReadVectorWidthA"),
         ("global_read_vector_width_b", "GlobalReadVectorWidthB"),
         ("local_read_vector_width", "LocalReadVectorWidth"),
-        ("prefetch_global_read", "PrefetchGlobalRead"),
         ("one_lds_buffer", "1LDSBuffer"),
         ("num_elements_per_batch_store", "NumElementsPerBatchStore"),
         ("store_vector_width", "StoreVectorWidth"),
@@ -148,6 +147,21 @@ def _validate_solution_parameters(
             reasons,
             "solution.scheduleiteralg.unimplemented",
             "KernelWriterAssembly implements only ScheduleIterAlg=2, 3, or 4",
+            "ScheduleIterAlg",
+        )
+    if solution.prefetch_global_read not in (1, 2):
+        _reject(
+            reasons,
+            "solution.prefetchglobalread.unimplemented",
+            "KernelWriterAssembly implements only PrefetchGlobalRead=1 or 2",
+            "PrefetchGlobalRead",
+        )
+    if solution.prefetch_global_read == 2 and solution.schedule_iter_alg != 4:
+        _reject(
+            reasons,
+            "solution.prefetchglobalread.schedule",
+            "PrefetchGlobalRead=2 requires ScheduleIterAlg=4",
+            "PrefetchGlobalRead",
             "ScheduleIterAlg",
         )
     if solution.prefetch_local_read not in (1, 2):

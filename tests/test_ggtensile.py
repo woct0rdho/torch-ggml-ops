@@ -158,7 +158,7 @@ def test_writer_overlaps_first_a_half_with_decode(tmp_path: Path) -> None:
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
 
-    prefetch = source.index("Prefetch the first A half")
+    prefetch = source.index("Prefetch A fragments")
     q4_decode = source.index("Unpack Q4_K six-bit scale/min fields")
     assert prefetch < q4_decode
     assert "Reuse prefetched A pointers across fused B decode." in source
@@ -166,6 +166,39 @@ def test_writer_overlaps_first_a_half_with_decode(tmp_path: Path) -> None:
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
     inspection = inspect_artifact(key, code_object, toolchain)
     assert inspection.vgpr_count == 200
+    assert inspection.sgpr_count == 20
+    assert inspection.lds_num_bytes == 8192
+
+
+def test_writer_prefetches_both_a_halves(tmp_path: Path) -> None:
+    pilot = Solution.pilot()
+    prefetched = replace(
+        pilot,
+        schedule_iter_alg=4,
+        prefetch_global_read=2,
+        lds_swizzle_chunk_b=8,
+    )
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(32768, 2048, 8192),
+        prefetched,
+    )
+    assert validate_solution(key) == ()
+
+    toolchain = _toolchain()
+    assembly = tmp_path / "prefetch_global_read.s"
+    object_path = tmp_path / "prefetch_global_read.o"
+    code_object = tmp_path / "prefetch_global_read.hsaco"
+    source = KernelWriterAssembly(key, toolchain).source()
+    assembly.write_text(source)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+
+    assert source.count("s_waitcnt vmcnt(8)") == 1
+    assert source.count("s_waitcnt vmcnt(4) lgkmcnt(0)") == 1
+    assert source.count("v_wmma_f32_16x16x16_bf16") == 32
+    inspection = inspect_artifact(key, code_object, toolchain)
+    assert inspection.vgpr_count == 216
     assert inspection.sgpr_count == 20
     assert inspection.lds_num_bytes == 8192
 

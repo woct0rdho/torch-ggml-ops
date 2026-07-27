@@ -138,7 +138,12 @@ Campaign procedure:
    - SIA4 is bit-exact and passes inspection at 200 VGPRs, 20 SGPRs, 8192 LDS bytes, 32 static WMMAs, and zero disallowed resources. Independent builds produced byte-identical assembly, object, and code object.
    - A 25-repeat rotating bracket measured SIA4 at 42.666 ms and 25.77 TFLOP/s versus SIA3 at 45.137 ms and 24.36 TFLOP/s, a 5.47% latency reduction and 5.79% throughput gain.
    - The same bracket measured HIP at 47.841 ms, so SIA4 is 10.82% lower latency and 12.13% higher throughput. SIA4 reaches 43.38% of the BF16 WMMA roof.
-   - Retain SIA4 as the selected assembly control. The unconditional pointer-reuse improvement is recorded under obvious assembly corrections; next examine bounded next-DepthU packed/A prefetch.
+   - The unconditional pointer-reuse improvement is recorded under obvious assembly corrections.
+   - `PrefetchGlobalRead=2` adds a second 16-VGPR A fragment set. Both DepthU halves issue behind older packed-weight reads, first-half A overlaps fused decode, and second-half A remains pending through first-half WMMAs.
+   - PGR2 is bit-exact and resource-clean at 216 VGPRs, 20 SGPRs, and 8192 LDS bytes. Independent builds produce byte-identical assembly, object, and code object.
+   - A 25-repeat bracket measured PGR2 at 40.906 ms and 26.88 TFLOP/s versus PGR1 at 42.723 ms and 25.74 TFLOP/s, a 4.25% latency reduction and 4.44% throughput gain.
+   - The same bracket measured HIP at 47.886 ms. PGR2 is 14.58% lower latency and 17.06% higher throughput, reaching 45.25% of the BF16 WMMA roof.
+   - Retain SIA4 with PGR2 as the selected assembly control. Next examine packed-weight prefetch and schedules that overlap fused decode with WMMA execution.
 5. **Tile and ownership geometry (`active`)**
    - Admit focused complete solutions around `MacroTile 128x128, DepthU 32`.
    - The writer now supports a complete `256x64x32` solution with four M16 tiles and four N16 tiles per wave, one decoder-owned packed row per lane, 4 KiB LDS, and geometry-derived register allocation, decode coverage, WMMA ownership, and stores.
@@ -180,13 +185,14 @@ Tuning parameters are added conservatively. Existing schema names remain rejecte
 
 ## Production M32768 N2048 K512 Result
 
-The selected WGM1, XOR-8, SIA4, no-store-priority solution was also built for `ProblemSize(M=32768, N=2048, K=512)` and tested on real `blk.5.ffn_gate_shexp.weight`. This is the dominant Q4_K narrow geometry with 70 model calls.
+The selected WGM1, XOR-8, SIA4, PGR2, no-store-priority solution was also built for `ProblemSize(M=32768, N=2048, K=512)` and tested on real `blk.5.ffn_gate_shexp.weight`. This is the dominant Q4_K narrow geometry with 70 model calls.
 
 - All 67,108,864 candidate outputs match HIP bit-for-bit.
 - Candidate and HIP have the same 16,684 differences versus independently dequantized BF16 matmul, maximum absolute error 0.00390625, and normalized RMSE 0.0000345316.
-- A 25-repeat rotating bracket measured SIA4 at 2.755 ms and 24.94 TFLOP/s, SIA3 at 2.848 ms and 24.13 TFLOP/s, and HIP at 3.045 ms and 22.57 TFLOP/s.
-- SIA4 reduces latency by 3.26% versus SIA3 and 9.53% versus HIP. At 70 calls, the direct candidate-to-HIP delta is approximately 20.3 ms per complete model workload.
-- The exact artifact remains at 200 VGPRs, 20 SGPRs, 8192 LDS bytes, and zero disallowed resources.
+- The initial PGR1 bracket measured SIA4 at 2.755 ms and 24.94 TFLOP/s, SIA3 at 2.848 ms and 24.13 TFLOP/s, and HIP at 3.045 ms and 22.57 TFLOP/s.
+- A subsequent 25-repeat bracket measured PGR2 at 2.702 ms and 25.43 TFLOP/s, PGR1 at 2.753 ms and 24.96 TFLOP/s, and HIP at 3.025 ms and 22.71 TFLOP/s.
+- PGR2 reduces latency by 1.86% versus PGR1 and 10.69% versus HIP. At 70 calls, the direct candidate-to-HIP delta is approximately 22.6 ms per complete model workload.
+- The selected exact artifact uses 216 VGPRs, 20 SGPRs, 8192 LDS bytes, and zero disallowed resources.
 
 This result clears the per-shape performance gate and demonstrates that the K8192 schedule is not overfit to a long reduction. Production integration still waits for guarded runtime dispatch, immutable manifests, and complete workload validation.
 
