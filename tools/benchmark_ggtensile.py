@@ -1,0 +1,213 @@
+#!/usr/bin/env python3
+
+
+import argparse
+import json
+import statistics
+import sys
+from pathlib import Path
+
+import gguf
+import numpy as np
+import torch
+from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
+
+import torch_ggml_ops  # noqa: F401 Register the installed HIP control.
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools.ggtensile.model import SolutionKey  # noqa: E402
+from tools.ggtensile.runtime import DenseBackwardModule  # noqa: E402
+
+DEFAULT_MODEL = Path("/home/wd/models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf")
+DEFAULT_TENSOR = "blk.39.attn_q.weight"
+BF16_WMMA_ROOFLINE_TFLOPS = 59.4
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Benchmark one exact GGTensile artifact against HIP"
+    )
+    parser.add_argument("--solution-key", type=Path, required=True)
+    parser.add_argument("--code-object", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
+    parser.add_argument("--tensor", default=DEFAULT_TENSOR)
+    parser.add_argument("--warmup", type=int, default=3)
+    parser.add_argument("--repeats", type=int, default=9)
+    parser.add_argument("--seed", type=int, default=20260727)
+    parser.add_argument(
+        "--skip-reference", action="store_true", help="skip independent BF16 matmul"
+    )
+    return parser
+
+
+def _event_time(function) -> tuple[float, torch.Tensor]:
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+    start.record()
+    output = function()
+    end.record()
+    end.synchronize()
+    return float(start.elapsed_time(end)), output
+
+
+def _metrics(actual: torch.Tensor, expected: torch.Tensor) -> dict[str, object]:
+    difference = actual.float() - expected.float()
+    error_rms = float(difference.square().mean().sqrt())
+    reference_rms = float(expected.float().square().mean().sqrt())
+    return {
+        "different_bf16_elements": int(torch.count_nonzero(actual != expected)),
+        "elements": actual.numel(),
+        "finite": bool(torch.isfinite(actual).all()),
+        "max_absolute_error": float(difference.abs().max()),
+        "error_rms": error_rms,
+        "reference_rms": reference_rms,
+        "normalized_rmse": error_rms / reference_rms if reference_rms else None,
+    }
+
+
+def _timing_summary(samples_ms: list[float], logical_flops: int) -> dict[str, object]:
+    median_ms = statistics.median(samples_ms)
+    median_tflops = logical_flops / (median_ms * 1.0e9)
+    return {
+        "samples_ms": samples_ms,
+        "median_ms": median_ms,
+        "mean_ms": statistics.fmean(samples_ms),
+        "min_ms": min(samples_ms),
+        "max_ms": max(samples_ms),
+        "median_tflops": median_tflops,
+        "wmma_roofline_fraction": median_tflops / BF16_WMMA_ROOFLINE_TFLOPS,
+    }
+
+
+def main() -> None:
+    args = _parser().parse_args()
+    if args.warmup < 0 or args.repeats <= 0:
+        raise ValueError("warmup must be nonnegative and repeats must be positive")
+    key = SolutionKey.from_json_file(args.solution_key)
+    size = key.problem_size
+    reader = gguf.GGUFReader(args.model)
+    tensor = next((item for item in reader.tensors if item.name == args.tensor), None)
+    if tensor is None:
+        raise KeyError(f"GGUF tensor not found: {args.tensor}")
+    if tensor.tensor_type.name != "Q4_K":
+        raise ValueError(f"expected Q4_K tensor, found {tensor.tensor_type.name}")
+    logical_shape = tuple(int(value) for value in reversed(tensor.shape))
+    if logical_shape != (size.k, size.n):
+        raise ValueError(
+            f"tensor shape {logical_shape} does not match K,N={(size.k, size.n)}"
+        )
+
+    packed_host = np.array(tensor.data, dtype=np.uint8, copy=True, order="C")
+    packed_weight = torch.from_numpy(packed_host).cuda()
+    del packed_host
+    generator = torch.Generator(device="cuda").manual_seed(args.seed)
+    grad_output = torch.randn(
+        size.m,
+        size.k,
+        dtype=torch.bfloat16,
+        device="cuda",
+        generator=generator,
+    )
+    candidate_output = torch.empty(
+        (size.m, size.n), dtype=torch.bfloat16, device="cuda"
+    )
+    quant_type = int(tensor.tensor_type)
+
+    def control():
+        return torch.ops.torch_ggml_ops.mmq_grad_input.default(
+            grad_output, packed_weight, quant_type, size.n
+        )
+
+    with DenseBackwardModule(key, args.code_object) as candidate:
+
+        def launch_candidate():
+            candidate.launch(
+                grad_output,
+                packed_weight,
+                candidate_output,
+                stream=torch.cuda.current_stream().cuda_stream,
+            )
+            return candidate_output
+
+        for _ in range(args.warmup):
+            control_output = control()
+            launch_candidate()
+        torch.cuda.synchronize()
+
+        control_output = control()
+        launch_candidate()
+        torch.cuda.synchronize()
+        correctness = {"candidate_vs_hip": _metrics(candidate_output, control_output)}
+
+        if not args.skip_reference:
+            logical_weight = (
+                dequantize_gguf_tensor(
+                    packed_weight,
+                    tensor.tensor_type,
+                    dtype=torch.bfloat16,
+                    device="cuda",
+                )
+                .reshape(size.k, size.n)
+                .contiguous()
+            )
+            reference = torch.mm(grad_output, logical_weight)
+            correctness["candidate_vs_reference"] = _metrics(
+                candidate_output, reference
+            )
+            correctness["hip_vs_reference"] = _metrics(control_output, reference)
+            del logical_weight, reference
+
+        control_samples: list[float] = []
+        candidate_samples: list[float] = []
+        for repeat in range(args.repeats):
+            order = ("control", "candidate")
+            if repeat & 1:
+                order = tuple(reversed(order))
+            for name in order:
+                if name == "control":
+                    elapsed, output = _event_time(control)
+                    control_samples.append(elapsed)
+                    del output
+                else:
+                    elapsed, _ = _event_time(launch_candidate)
+                    candidate_samples.append(elapsed)
+
+    logical_flops = 2 * size.m * size.n * size.k
+    control_timing = _timing_summary(control_samples, logical_flops)
+    candidate_timing = _timing_summary(candidate_samples, logical_flops)
+    report = {
+        "SolutionKey": key.to_mapping(),
+        "SolutionHash": key.hash,
+        "KernelName": key.kernel_name,
+        "CodeObject": str(args.code_object),
+        "Model": str(args.model),
+        "Tensor": args.tensor,
+        "LogicalWeightShape": [size.k, size.n],
+        "PhysicalWeightShape": list(tensor.data.shape),
+        "GradOutputShape": [size.m, size.k],
+        "GradInputShape": [size.m, size.n],
+        "LogicalFlops": logical_flops,
+        "Bf16WmmaRooflineTflops": BF16_WMMA_ROOFLINE_TFLOPS,
+        "Correctness": correctness,
+        "HIP": control_timing,
+        "GGTensile": candidate_timing,
+        "CandidateToHipLatency": (
+            candidate_timing["median_ms"] / control_timing["median_ms"]
+        ),
+        "CandidateToHipThroughput": (
+            candidate_timing["median_tflops"] / control_timing["median_tflops"]
+        ),
+    }
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
+    print(json.dumps(report, indent=2, allow_nan=False))
+    if correctness["candidate_vs_hip"]["different_bf16_elements"]:
+        raise SystemExit("candidate does not match HIP")
+
+
+if __name__ == "__main__":
+    main()
