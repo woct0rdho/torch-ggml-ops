@@ -303,8 +303,10 @@ class Solution:
             elements = self.macro_tile1 * self.depth_u
             bytes_unpadded = 2 * elements
             pad_periods = bytes_unpadded // self.lds_block_size_per_pad_b
-            return bytes_unpadded + 2 * self.lds_pad_b * pad_periods
-        return 2 * self.depth_u * (self.macro_tile1 + self.lds_pad_b)
+            single_buffer = bytes_unpadded + 2 * self.lds_pad_b * pad_periods
+        else:
+            single_buffer = 2 * self.depth_u * (self.macro_tile1 + self.lds_pad_b)
+        return single_buffer * (2 if self.one_lds_buffer == 0 else 1)
 
     def to_mapping(self) -> dict[str, object]:
         return {

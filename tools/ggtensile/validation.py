@@ -116,7 +116,6 @@ def _validate_solution_parameters(
         ("global_read_vector_width_a", "GlobalReadVectorWidthA"),
         ("global_read_vector_width_b", "GlobalReadVectorWidthB"),
         ("local_read_vector_width", "LocalReadVectorWidth"),
-        ("one_lds_buffer", "1LDSBuffer"),
         ("num_elements_per_batch_store", "NumElementsPerBatchStore"),
         ("store_vector_width", "StoreVectorWidth"),
         ("transpose_lds", "TransposeLDS"),
@@ -140,6 +139,40 @@ def _validate_solution_parameters(
             "solution.ldsswizzlechunkb.unimplemented",
             "KernelWriterAssembly implements only LdsSwizzleChunkB=0, 4, 8, or 16",
             "LdsSwizzleChunkB",
+        )
+    if solution.one_lds_buffer not in (0, 1):
+        _reject(
+            reasons,
+            "solution.1ldsbuffer.unimplemented",
+            "KernelWriterAssembly implements only 1LDSBuffer=0 or 1",
+            "1LDSBuffer",
+        )
+    if solution.one_lds_buffer == 0 and (
+        solution.macro_tile0 != 128
+        or solution.macro_tile1 != 128
+        or solution.depth_u != 32
+        or solution.num_threads != 128
+        or solution.schedule_iter_alg != 4
+        or solution.prefetch_global_read != 2
+        or solution.prefetch_local_read != 1
+        or solution.lds_swizzle_chunk_b != 8
+        or solution.packed_weight_lane_share != 1
+        or solution.prefetch_packed_weight_next
+    ):
+        _reject(
+            reasons,
+            "solution.1ldsbuffer.pipeline",
+            "1LDSBuffer=0 requires 128x128x32, SIA4, PGR2, PLR1, XOR-8, and independent packed reads",
+            "1LDSBuffer",
+            "MacroTile0",
+            "MacroTile1",
+            "DepthU",
+            "ScheduleIterAlg",
+            "PrefetchGlobalRead",
+            "PrefetchLocalRead",
+            "LdsSwizzleChunkB",
+            "PackedWeightLaneShare",
+            "PrefetchPackedWeightNext",
         )
     if solution.schedule_iter_alg not in (2, 3, 4, 5):
         _reject(
@@ -292,14 +325,20 @@ def _validate_solution_parameters(
             "WorkGroup",
             source="SolutionStructs",
         )
-    expected_lds = 2 * solution.depth_u * solution.macro_tile1
+    expected_lds = (
+        2
+        * solution.depth_u
+        * solution.macro_tile1
+        * (2 if solution.one_lds_buffer == 0 else 1)
+    )
     if solution.lds_num_bytes != expected_lds:
         _reject(
             reasons,
             "solution.lds_num_bytes",
-            "LdsNumBytes must hold one decoded B tile",
+            "LdsNumBytes must hold the selected decoded-B buffer count",
             "MacroTile1",
             "DepthU",
+            "1LDSBuffer",
             "LdsPadB",
             "LdsBlockSizePerPadB",
             source="SolutionStructs",

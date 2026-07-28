@@ -134,6 +134,8 @@ def inspect_artifact(
         * solution.depth_u
         // 16
     )
+    if solution.one_lds_buffer == 0:
+        expected_wmmas *= 2
     _require(
         wmma_count == expected_wmmas,
         f"expected {expected_wmmas} static WMMAs, found {wmma_count}",

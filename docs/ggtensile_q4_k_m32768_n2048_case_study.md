@@ -126,7 +126,7 @@ Campaign procedure:
 
 Tuning parameters are added conservatively. Existing schema names remain rejected at non-pilot values until a distinct correct writer path exists. `LdsSwizzleChunkB`, active-wave ownership, and persistent or decode-sharing policies require explicit semantics and linked validation. Requested solutions are never silently repaired.
 
-## Production M32768 N2048 K512 Result
+## Pre-Pipeline M32768 N2048 K512 Result
 
 The selected WGM1, XOR-8, SIA4, PGR2, no-store-priority solution was also built for `ProblemSize(M=32768, N=2048, K=512)` and tested on real `blk.5.ffn_gate_shexp.weight`. This is the dominant Q4_K narrow geometry with 70 model calls.
 
@@ -135,7 +135,7 @@ The selected WGM1, XOR-8, SIA4, PGR2, no-store-priority solution was also built 
 - The initial PGR1 bracket measured SIA4 at 2.755 ms and 24.94 TFLOP/s, SIA3 at 2.848 ms and 24.13 TFLOP/s, and HIP at 3.045 ms and 22.57 TFLOP/s.
 - A subsequent 25-repeat bracket measured PGR2 at 2.702 ms and 25.43 TFLOP/s, PGR1 at 2.753 ms and 24.96 TFLOP/s, and HIP at 3.025 ms and 22.71 TFLOP/s.
 - PGR2 reduces latency by 1.86% versus PGR1 and 10.69% versus HIP. The current scalar-base kernel measures 2.653 ms versus HIP at 3.030 ms; at 70 calls, that direct delta is approximately 26.4 ms per complete model workload.
-- The selected exact artifact uses 212 VGPRs, 20 SGPRs, 8192 LDS bytes, and zero disallowed resources.
+- The selected one-buffer artifact at this milestone uses 212 VGPRs, 20 SGPRs, 8192 LDS bytes, and zero disallowed resources.
 
 This result clears the per-shape performance gate and demonstrates that the K8192 schedule is not overfit to a long reduction. Production integration still waits for guarded runtime dispatch and complete workload validation.
 
@@ -161,7 +161,28 @@ Before VOPD lowering, the selected K8192 and K512 artifacts had the same static 
    - The benchmark correctness protocol now rewrites the complete `grad_output` tensor and separately mutates a packed-weight byte between candidate launches. K8192 and K512 both remain bit-exact to HIP after each producer handoff as well as for the original inputs.
    - A nine-repeat screen measured gains of 0.41% on K8192 and 0.32% on K512. A 25-repeat bracket measured K8192 at 39.757 ms versus 39.886 ms, a 0.33% gain, and K512 at 2.6434 ms versus 2.6393 ms, a neutral 0.15% difference.
    - Retain the omission under the unconditional instruction-reduction rule. It is resource-neutral, favorable on the long-K priority shape, within run noise on K512, and covered by explicit post-update correctness checks.
+4. Dependency-batched Q4_K decode (`rejected`)
+   - Dead Q4_K metadata VGPRs were reused to issue independent nibble extracts, conversions, FMAs, BF16 rounding, and LDS stores in two- and four-value batches. Both schedules were bit-exact, producer-handoff clean, instruction-identical, and resource-identical to the serial decoder.
+   - Four-value batches regressed K8192 by 0.62% and K512 by 1.57% in nine-repeat screens. Two-value batches improved both 25-repeat controls by approximately 0.78%, measuring 39.395 ms versus 39.703 ms on K8192 and 2.6132 ms versus 2.6337 ms on K512.
+   - Reject both schedules. The four-value path is slower, and the two-value path does not provide the larger margin now required to justify additional scheduling machinery. Further serial-chain tuning is closed unless it is part of a true next-tile overlap pipeline.
+
+## True Decoded-B Pipeline
+
+The two-buffer solution uses `1LDSBuffer=0` with the selected `128x128x32`, SIA4, PGR2, PLR1, XOR-8 configuration. Validation rejects the value for every other geometry or schedule. LDS grows from 8192 to 16384 bytes while the kernel remains at 212 VGPRs and 20 SGPRs with zero private storage, spills, scratch instructions, calls, or dynamic stack.
+
+The pipeline primes decoded B0 and current A, issues the next packed tile behind pending current-A loads, consumes B0 while decoding B1 into the opposite LDS buffer in eight bounded chunks, and reloads both next-A halves after the final current-tile WMMA pair. A single steady-state barrier waits for all current LDS reads and next-buffer stores before toggling read/write roles. The final reduction tile is peeled so no out-of-range packed or A prefetch occurs. Static inspection reports two barriers and 64 WMMAs because it sees the prime/steady and peeled-final paths once each; those static counts are not dynamic per-iteration counts.
+
+Initial K64 execution exposed a live-range bug: decode preparation reused `v205:v208`, which had held LDS read addresses for later WMMA pairs. The first N pair was correct and the remaining pairs were misaddressed. The corrected writer preserves first-pair temporary addresses, then moves steady read addresses into Q4_K metadata VGPRs after that metadata becomes dead. Reduced real-weight checks are bit-exact at K32, K64, K96, and K512, covering prime/final execution, one overlap, repeated swaps, and next-A handoff.
+
+Production correctness passes for all 67,108,864 outputs on both shapes, including complete `grad_output` rewrites and packed-weight mutation between launches. Against independently dequantized BF16 matmul, candidate and HIP have the same K8192 result of 409,880 differing BF16 elements, maximum absolute error 0.0625, and normalized RMSE 0.0001924804. They have the same K512 result of 16,684 differing elements, maximum absolute error 0.00390625, and normalized RMSE 0.0000345316.
+
+A nine-repeat screen measured K8192 at 39.247 ms versus 40.495 ms for the one-buffer assembly control, a 3.08% reduction, and K512 at 2.5077 ms versus 2.6640 ms, a 5.86% reduction. The 25-repeat bracket measured:
+
+- K8192: 38.012 ms and 28.93 TFLOP/s versus 39.467 ms, a 3.69% latency reduction. HIP measured 47.779 ms.
+- K512: 2.5063 ms and 27.42 TFLOP/s versus 2.6654 ms, a 5.97% latency reduction. HIP measured 3.0246 ms.
+
+Retain the true pipeline. It clears the greater-than-2% resource-bearing mechanism gate on both the long- and short-reduction controls, preserves exact output and source reproducibility, and directly removes decode/barrier serialization rather than tuning a sub-percent instruction neighborhood.
 
 ## Case-Study Continuation
 
-The next exact-shape work follows the multi-shape roadmap while preserving this case as a rotating control. First priorities are gfx1151 VOPD pairing, memory-clause and dependency scheduling, exact lower-bound kernels, and a true two-buffer decoded-B pipeline that overlaps next-tile decode with current WMMA. New resource-bearing mechanisms require a stable gain above 2%; unconditional instruction or resource reductions may be retained when neutral or favorable on both K8192 and K512.
+The retained two-buffer artifacts become the rotating controls for further exact-shape work. The next priorities are exact lower-bound kernels and profiling of the new steady state, followed only by coupled schedules or ownership changes with a plausible multi-percent margin. Sub-percent serial decode, clause, delay, and epilogue neighborhoods remain closed. New resource-bearing mechanisms require a stable gain above 2%; unconditional instruction or resource reductions may be retained when neutral or favorable on both K8192 and K512.

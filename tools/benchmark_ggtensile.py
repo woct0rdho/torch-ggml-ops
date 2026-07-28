@@ -215,6 +215,8 @@ def main() -> None:
         )
         packed_bytes[16].copy_(original_packed_byte)
         del original_packed_byte, updated_control_output
+        launch_candidate()
+        torch.cuda.synchronize()
 
         if not args.skip_reference:
             logical_weight = (

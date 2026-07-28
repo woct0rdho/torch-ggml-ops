@@ -645,6 +645,56 @@ def test_writer_builds_256x128_cooperative_decode_geometry(
     assert inspection.lds_num_bytes == 8192
 
 
+def test_writer_builds_true_decoded_b_pipeline(tmp_path: Path) -> None:
+    pipeline = replace(
+        Solution.pilot(),
+        one_lds_buffer=0,
+        schedule_iter_alg=4,
+        prefetch_global_read=2,
+        lds_swizzle_chunk_b=8,
+        store_priority_opt=False,
+    )
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(32768, 2048, 512),
+        pipeline,
+    )
+    assert validate_solution(key) == ()
+    assert pipeline.lds_num_bytes == 16384
+
+    toolchain = _toolchain()
+    assembly = tmp_path / "decoded_b_pipeline.s"
+    object_path = tmp_path / "decoded_b_pipeline.o"
+    code_object = tmp_path / "decoded_b_pipeline.hsaco"
+    source = KernelWriterAssembly(key, toolchain).source()
+    assembly.write_text(source)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+
+    assert "Prime decoded B0 and current-tile A." in source
+    assert "Issue next packed tile behind current-tile A." in source
+    assert "Reload next-tile A0 after current A0 becomes dead." in source
+    assert source.count("v_wmma_f32_16x16x16_bf16") == 64
+    assert source.count("s_barrier") == 2
+    inspection = inspect_artifact(key, code_object, toolchain)
+    assert inspection.vgpr_count == 212
+    assert inspection.sgpr_count == 20
+    assert inspection.lds_num_bytes == 16384
+    assert inspection.wmma_count == 64
+    assert inspection.barrier_count == 2
+
+
+def test_two_lds_buffers_reject_unsupported_schedule() -> None:
+    unsupported = replace(Solution.pilot(), one_lds_buffer=0)
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(32768, 2048, 512),
+        unsupported,
+    )
+    rule_ids = {reason.rule_id for reason in validate_solution(key)}
+    assert "solution.1ldsbuffer.pipeline" in rule_ids
+
+
 def test_writer_can_disable_store_priority() -> None:
     pilot = Solution.pilot()
     no_store_priority = replace(pilot, store_priority_opt=False)
