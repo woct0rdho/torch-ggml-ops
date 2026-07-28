@@ -601,8 +601,11 @@ class KernelWriterAssembly:
             asm.inst(f"v_add_nc_u32 v{a + 5}, 16, v{a + 4}")
         row_stride_a = 2 * self.solution_key.problem_size.k
         for m_tile in range(m_tiles):
-            asm.inst(
-                f"v_mul_lo_u32 v{a + 4 + m_tile}, {row_stride_a}, v{a + 4 + m_tile}"
+            self._emit_scale_u32(
+                asm,
+                a + 4 + m_tile,
+                row_stride_a,
+                a + 4 + m_tile,
             )
 
     def _emit_q4_k_global_reads(
@@ -946,7 +949,7 @@ class KernelWriterAssembly:
                     (0, a + 4, a),
                     (1, a + 5, a + 2),
                 ):
-                    asm.inst(f"v_mul_lo_u32 v{t}, {2 * size.k}, v{row}")
+                    self._emit_scale_u32(asm, t, 2 * size.k, row)
                     asm.inst(f"v_add_nc_u32 v{t}, s{r.scalar_temporary + 1}, v{t}")
                     if k_tile:
                         asm.inst(f"v_add_nc_u32 v{t}, {2 * k_tile}, v{t}")
@@ -969,7 +972,7 @@ class KernelWriterAssembly:
                         row = t
                     else:
                         row = a + 4
-                    asm.inst(f"v_mul_lo_u32 v{t}, {2 * size.k}, v{row}")
+                    self._emit_scale_u32(asm, t, 2 * size.k, row)
                     asm.inst(f"v_add_nc_u32 v{t}, s{r.scalar_temporary + 1}, v{t}")
                     if k_tile:
                         asm.inst(f"v_add_nc_u32 v{t}, {2 * k_tile}, v{t}")
@@ -1341,7 +1344,7 @@ class KernelWriterAssembly:
         asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
         asm.inst(f"v_lshlrev_b32 v{t + 1}, {solution.macro_tile0.bit_length() - 1}, s2")
         asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
-        asm.inst(f"v_mul_lo_u32 v{t}, {2 * size.n}, v{t}")
+        self._emit_scale_u32(asm, t, 2 * size.n, t)
         asm.inst(
             f"v_lshlrev_b32 v{t + 1}, {(2 * solution.macro_tile1).bit_length() - 1}, s3"
         )
@@ -1375,6 +1378,19 @@ class KernelWriterAssembly:
             f"v_add3_u32 v{value_register}, v{temporary_register}, "
             f"v{value_register}, 0x7fff"
         )
+
+    @staticmethod
+    def _emit_scale_u32(
+        asm: _Assembly,
+        destination: int,
+        scale: int,
+        source: int,
+    ) -> None:
+        if scale > 0 and scale & (scale - 1) == 0:
+            shift = scale.bit_length() - 1
+            asm.inst(f"v_lshlrev_b32 v{destination}, {shift}, v{source}")
+        else:
+            asm.inst(f"v_mul_lo_u32 v{destination}, {scale}, v{source}")
 
     @staticmethod
     def _emit_add_pointer(

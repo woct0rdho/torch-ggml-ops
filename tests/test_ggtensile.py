@@ -114,6 +114,46 @@ def test_writer_specializes_production_q4_k_row_stride(
     )
 
 
+def test_writer_strength_reduces_power_of_two_row_strides() -> None:
+    toolchain = _toolchain()
+    pipeline = replace(
+        Solution.pilot(),
+        one_lds_buffer=0,
+        schedule_iter_alg=4,
+        prefetch_global_read=2,
+        lds_swizzle_chunk_b=8,
+        store_priority_opt=False,
+    )
+    production_key = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(128, 2048, 512),
+        pipeline,
+    )
+    production_writer = KernelWriterAssembly(production_key, toolchain)
+    production_source = production_writer.source()
+    registers = production_writer.registers
+    assert (
+        f"lshlrev_b32 v{registers.address + 4}, 10, "
+        f"v{registers.address + 4}" in production_source
+    )
+    assert (
+        f"v_lshlrev_b32 v{registers.temporary}, 12, "
+        f"v{registers.temporary}" in production_source
+    )
+
+    reduced_key = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(128, 2048, 96),
+        pipeline,
+    )
+    reduced_writer = KernelWriterAssembly(reduced_key, toolchain)
+    reduced_source = reduced_writer.source()
+    assert (
+        f"v_mul_lo_u32 v{reduced_writer.registers.address + 4}, 192, "
+        f"v{reduced_writer.registers.address + 4}" in reduced_source
+    )
+
+
 def test_validation_rejects_nonproduction_n() -> None:
     key = SolutionKey(
         ProblemType.dense_mmq_backward_q4_k(),
