@@ -151,6 +151,10 @@ Prepared weights, BF16 shadows, external decode workspaces, GSU, Stream-K, and p
 - Two-value dependency-batched decode was bit-exact and resource-identical and improved both 25-repeat controls by about 0.78%; four-value batches regressed K8192 by 0.62% and K512 by 1.57%. Both were rejected under the larger-margin requirement.
 - Moving next-A0 loads to their first-half death point measured 39.618 ms versus 39.278 ms on K8192 and 2.5146 ms versus 2.5299 ms on K512. The mixed 0.87% regression and 0.61% gain was rejected.
 - A-load `s_clause 3` pairs measured gains of only 0.035% on K8192 and 0.29% on K512. Added SALU and constrained arbitration were not justified.
+- The complete one-buffer matrix is slower than the retained two-buffer pipeline on all 12 keys. Nine-repeat three-way screens regress individual keys by 3.49-24.65% and weighted latency by 8.97%, despite reducing LDS from 16 KiB to 8 KiB. Lost fused decode/WMMA overlap dominates at every production M/N/K.
+- Complete WGM2/WGM4/WGM8 matrices regress weighted latency by 1.45%/5.22%/16.27% against WGM1. WGM1 wins 10 keys; the only alternate wins are sub-gate M2048 results of 1.61% for narrow WGM2 and 0.54% for attention-output WGM2, and both decay at larger mappings. WGM1 remains the traversal seed.
+- Four-wave half-tile geometry scans reject `64x128` and retain `128x128` for ten keys. One-buffer `128x64` is selected for attention-output M2048 and M8192: fresh 25-repeat brackets measure 1.1909 versus 1.2700 ms, a 6.23% gain, and 4.9407 versus 5.0825 ms, a 2.79% gain. The selected artifacts use 140 VGPRs, 16 SGPRs, and 4 KiB LDS. Attention-output M32768 regressed in the screen and retains two-buffer `128x128`.
+- A current focused `256x64` scan first exposed and then validated a stale SIA2/3 A-coordinate bug. After correction, all six narrow/attention keys are bit-exact, but narrow regresses by 4.69-49.84%, attention M8192/M32768 regress by over 24%, and attention M2048 gains only 0.94% versus retained `128x128`, which is slower than selected `128x64`. `256x64` remains rejected.
 - Duff-style exact-trip body unroll factors 2/4/8 and complete K512 factor 15 or K8192 factor 16 were bit-exact and resource-clean, but grew source from about 54 KiB to 69-278 KiB and code objects from 13.8 KiB to 16.4-53.5 KiB. Nine-repeat K512 screens gained at most 0.97%; K8192 screens ranged from neutral to 0.63% slower. None reached the 2% resource-bearing gate, so no factor advanced or remains in the writer.
 
 ### Packed-weight sharing and addressing
@@ -171,6 +175,7 @@ Prepared weights, BF16 shadows, external decode workspaces, GSU, Stream-K, and p
 - The true pipeline showed that temporary lifetime is part of correctness: interleaved decode clobbered later-pair LDS addresses even though one-buffer execution was valid.
 - The dedicated-wave fault showed that `v_sub_nc_u32` operand order can turn a local-ID correction into a 32-bit global-address wrap. Reduced K32/K64 tests should precede production launches for every new control-flow or induction regime.
 - Static counts for peeled or branched kernels include mutually exclusive paths and must not be interpreted as dynamic work without control-flow analysis.
+- Hoisted address state must be scoped to schedules that consume it. SIA4/5 use precomputed A byte offsets, while SIA2/3 rebuild row coordinates inside `_emit_wmma`; applying both transformations multiplied the row stride twice and corrupted about half of a `256x64` output despite clean assembly and metadata.
 - Broad derived-counter groups may exceed gfx1151 collection capabilities; preserve supported raw groups and compare artifacts under the same collection protocol.
 
 ## Evidence Locations
@@ -185,5 +190,9 @@ Prepared weights, BF16 shadows, external decode workspaces, GSU, Stream-K, and p
 - Rejected body-unroll artifacts use `/tmp/ggtensile-m32768-n2048-k{512,8192}-unroll{factor}-a/`, with factor-specific generate, inspect, correctness, and nine-repeat timing evidence.
 - Exact production-N coverage artifacts: `/tmp/ggtensile-m2048-n512-k2048-production-n-a/` and `/tmp/ggtensile-m2048-n4096-k2048-production-n-a/`.
 - Complete retained-pipeline prepare, correctness, and nine-repeat screen: `/tmp/ggtensile-q4-k-retained-matrix-a/`.
+- Rejected complete one-buffer correctness and three-way screen: `/tmp/ggtensile-q4-k-one-buffer-matrix-a/`.
+- Rejected complete traversal matrices: `/tmp/ggtensile-q4-k-wgm{2,4,8}-matrix-a/`.
+- Geometry matrices and attention-output confirmations: `/tmp/ggtensile-q4-k-geometry-{64x128,128x64}-matrix-a/`.
+- Corrected and rejected focused `256x64` matrix: `/tmp/ggtensile-q4-k-geometry-256x64-focused-fixed-a/`; exact `256x128` and SIA3/PLR2 checks are under `/tmp/ggtensile-q4-k-{geometry-256x128,sia3-plr2}-fixed-check-a/`.
 
 The original K8192 baseline was 122.90 ms versus HIP at 47.61 ms. It remains useful as the start of the trajectory, but it is not a current performance control.

@@ -586,6 +586,8 @@ class KernelWriterAssembly:
                 asm.inst(f"v_mov_b32 v{a + 6}, 0")
 
         solution = self.solution_key.solution
+        if solution.schedule_iter_alg not in (4, 5):
+            return
         m_tiles = solution.matrix_instruction[5]
         m_per_wave = 16 * m_tiles
         asm.comment("Precompute A row coordinates shared by every DepthU iteration.")

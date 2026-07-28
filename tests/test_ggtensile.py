@@ -693,6 +693,7 @@ def test_writer_builds_256x64_geometry(tmp_path: Path) -> None:
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
 
+    assert "Precompute A row coordinates shared by every DepthU iteration." not in source
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
     assert source.count("ds_store_b16_d16_hi") == 16
     assert source.count("ds_load_b128") == 16
