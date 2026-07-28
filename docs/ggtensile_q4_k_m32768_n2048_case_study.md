@@ -143,7 +143,19 @@ This result clears the per-shape performance gate and demonstrates that the K819
 
 Artifact inspection now records non-WMMA VALU issue and operation counts, VOPD pairs, VMEM and LDS instructions, waits, clauses, dependency delays, and `buffer_gl0_inv` instructions in addition to resources, WMMAs, and barriers. This accounting is structural: it describes the emitted loop body once, while dynamic costs scale with the reduction iteration count.
 
-The selected K8192 and K512 artifacts have the same static body: 675 non-WMMA VALU issues and operations, 146 VMEM instructions, 64 LDS instructions, 12 waits, 32 WMMAs, two barriers, and one `buffer_gl0_inv`. They contain zero VOPD pairs, `s_clause` instructions, and `s_delay_alu` instructions. This is the comparison baseline for the low-level scheduling campaign; every candidate must report both issue deltas and unchanged hard-resource status.
+Before VOPD lowering, the selected K8192 and K512 artifacts had the same static body: 675 non-WMMA VALU issues and operations, 146 VMEM instructions, 64 LDS instructions, 12 waits, 32 WMMAs, two barriers, and one `buffer_gl0_inv`. They contained zero VOPD pairs, `s_clause` instructions, and `s_delay_alu` instructions. This is the comparison baseline for the low-level scheduling campaign; every candidate must report both issue deltas and unchanged hard-resource status.
+
+## Low-Level Scheduling Campaign
+
+1. Accumulator-zero VOPD lowering (`retained`)
+   - Accumulator initialization is deferred across the pre-loop coordinate block. Independent zero moves are paired in the VOPD X slot with `v_add_nc_u32`, `v_lshlrev_b32`, and `v_and_b32` Y-slot operations, then any remaining zero moves are emitted before the reduction-loop label.
+   - The lowering enforces opposite destination parity, requires the Y operation's second source to be a VGPR, and never moves initialization into the dynamic loop. It emits 20 VOPD pairs, reducing non-WMMA VALU issues from 675 to 655 while preserving 675 operations.
+   - Both exact shapes remain bit-exact at 212 VGPRs, 20 SGPRs, 8192 LDS bytes, and zero disallowed resources. A 25-repeat rotating bracket measured K8192 at 39.939 ms versus 40.014 ms and K512 at 2.6362 ms versus 2.6377 ms.
+   - Retain this as an unconditional gfx1151 lowering: it is neutral-to-favorable on both controls and removes instructions without adding resources. VOPD work inside the dynamic decode loop remains open and requires a different instruction-selection or register-ownership mechanism.
+2. Memory clauses and dependency delays (`pending`)
+   - Add only ISA-valid clauses around independent VMEM groups and explicit dependency delays demonstrated necessary by disassembly or profiling. Bracket clause and delay placement separately before coupling them with broader schedules.
+3. L0 invalidation audit (`pending`)
+   - Remove or relocate `buffer_gl0_inv` only under a guarded exact-shape experiment with complete correctness and rotating controls.
 
 ## Case-Study Continuation
 

@@ -1,5 +1,6 @@
 import contextlib
 import hashlib
+import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,6 +38,7 @@ class RegisterLayout:
 class _Assembly:
     def __init__(self) -> None:
         self.lines: list[str] = []
+        self._pending_zero_moves: dict[int, list[int]] = {0: [], 1: []}
 
     def comment(self, text: str) -> None:
         self.lines.append(f"// {text}")
@@ -45,8 +47,41 @@ class _Assembly:
         self.lines.append(f"{name}:")
 
     def inst(self, text: str, comment: str = "") -> None:
+        dual = self._dual_with_pending_zero(text)
+        if dual is not None:
+            text = dual
         suffix = f" // {comment}" if comment else ""
         self.lines.append(f"  {text}{suffix}")
+
+    def defer_zero_moves(self, registers: range) -> None:
+        if any(self._pending_zero_moves.values()):
+            raise KernelWriterError("cannot nest deferred VGPR zero fills")
+        for register in reversed(registers):
+            self._pending_zero_moves[register & 1].append(register)
+
+    def flush_zero_moves(self) -> None:
+        for parity in (0, 1):
+            while self._pending_zero_moves[parity]:
+                register = self._pending_zero_moves[parity].pop()
+                self.inst(f"v_mov_b32 v{register}, 0")
+
+    def _dual_with_pending_zero(self, text: str) -> str | None:
+        match = re.fullmatch(
+            r"v_(add_nc_u32|lshlrev_b32|and_b32) v(\d+), ([^,]+), (v\d+)",
+            text,
+        )
+        if match is None:
+            return None
+        y_destination = int(match.group(2))
+        x_parity = 1 - (y_destination & 1)
+        if not self._pending_zero_moves[x_parity]:
+            return None
+        x_destination = self._pending_zero_moves[x_parity].pop()
+        y_instruction = (
+            f"v_dual_{match.group(1)} v{y_destination}, "
+            f"{match.group(3)}, {match.group(4)}"
+        )
+        return f"v_dual_mov_b32 v{x_destination}, 0 :: {y_instruction}"
 
     def text(self) -> str:
         return "\n".join(self.lines) + "\n"
@@ -220,8 +255,8 @@ class KernelWriterAssembly:
             * self.solution_key.solution.matrix_instruction[5]
             * self.solution_key.solution.matrix_instruction[6]
         )
-        for register in range(r.accum, r.accum + accumulator_count):
-            asm.inst(f"v_mov_b32 v{register}, 0")
+        asm.comment("Pair accumulator zeroing with independent pre-loop address VALU.")
+        asm.defer_zero_moves(range(r.accum, r.accum + accumulator_count))
 
         n_per_block = self.solution_key.solution.macro_tile1
         tiles_per_weight_block = 256 // n_per_block
@@ -241,6 +276,7 @@ class KernelWriterAssembly:
         asm.inst(f"s_mov_b32 s{r.loop_counter}, 0")
 
         self._emit_static_thread_coordinates(asm)
+        asm.flush_zero_moves()
         if self.solution_key.solution.prefetch_packed_weight_next:
             self._emit_packed_weight_pipeline(asm)
         else:
