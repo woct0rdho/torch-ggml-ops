@@ -76,7 +76,7 @@ def test_build_and_inspect_pilot(tmp_path: Path) -> None:
     assert inspection.wait_count > 0
     assert inspection.clause_count == 0
     assert inspection.delay_alu_count == 0
-    assert inspection.buffer_gl0_inv_count == 1
+    assert inspection.buffer_gl0_inv_count == 0
 
 
 def test_cli_generate_build_and_inspect_manifests(tmp_path: Path) -> None:

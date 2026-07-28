@@ -194,6 +194,28 @@ def main() -> None:
                 assembly_control_output, control_output
             )
 
+        grad_output.neg_()
+        updated_control_output = control()
+        launch_candidate()
+        torch.cuda.synchronize()
+        correctness["candidate_after_grad_output_update_vs_hip"] = _metrics(
+            candidate_output, updated_control_output
+        )
+        grad_output.neg_()
+        del updated_control_output
+
+        packed_bytes = packed_weight.view(-1)
+        original_packed_byte = packed_bytes[16].clone()
+        packed_bytes[16].bitwise_xor_(1)
+        updated_control_output = control()
+        launch_candidate()
+        torch.cuda.synchronize()
+        correctness["candidate_after_packed_weight_update_vs_hip"] = _metrics(
+            candidate_output, updated_control_output
+        )
+        packed_bytes[16].copy_(original_packed_byte)
+        del original_packed_byte, updated_control_output
+
         if not args.skip_reference:
             logical_weight = (
                 dequantize_gguf_tensor(
@@ -269,8 +291,13 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
     print(json.dumps(report, indent=2, allow_nan=False))
-    if correctness["candidate_vs_hip"]["different_bf16_elements"]:
-        raise SystemExit("candidate does not match HIP")
+    mismatches = {
+        name: metrics["different_bf16_elements"]
+        for name, metrics in correctness.items()
+        if name.endswith("_vs_hip") and metrics["different_bf16_elements"]
+    }
+    if mismatches:
+        raise SystemExit(f"candidate does not match HIP: {mismatches}")
 
 
 if __name__ == "__main__":

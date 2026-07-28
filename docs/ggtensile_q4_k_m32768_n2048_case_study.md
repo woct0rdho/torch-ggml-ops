@@ -152,10 +152,15 @@ Before VOPD lowering, the selected K8192 and K512 artifacts had the same static 
    - The lowering enforces opposite destination parity, requires the Y operation's second source to be a VGPR, and never moves initialization into the dynamic loop. It emits 20 VOPD pairs, reducing non-WMMA VALU issues from 675 to 655 while preserving 675 operations.
    - Both exact shapes remain bit-exact at 212 VGPRs, 20 SGPRs, 8192 LDS bytes, and zero disallowed resources. A 25-repeat rotating bracket measured K8192 at 39.939 ms versus 40.014 ms and K512 at 2.6362 ms versus 2.6377 ms.
    - Retain this as an unconditional gfx1151 lowering: it is neutral-to-favorable on both controls and removes instructions without adding resources. VOPD work inside the dynamic decode loop remains open and requires a different instruction-selection or register-ownership mechanism.
-2. Memory clauses and dependency delays (`pending`)
-   - Add only ISA-valid clauses around independent VMEM groups and explicit dependency delays demonstrated necessary by disassembly or profiling. Bracket clause and delay placement separately before coupling them with broader schedules.
-3. L0 invalidation audit (`pending`)
-   - Remove or relocate `buffer_gl0_inv` only under a guarded exact-shape experiment with complete correctness and rotating controls.
+2. A-load memory clauses (`rejected`)
+   - Two `s_clause 3` instructions grouped the four contiguous A loads for each PGR2 half. The artifact was bit-exact and resource-identical, with two static clauses and no change to VALU, VMEM, LDS, or wait counts.
+   - A nine-repeat rotating screen measured K8192 at 40.834 ms versus 40.848 ms and K512 at 2.5950 ms versus 2.6025 ms. Gains of 0.035% and 0.29% do not justify dynamic SALU and constrained wave arbitration, so the clauses were removed.
+   - Dependency delays remain open only where static dependency analysis or profiling identifies a specific uncovered hazard; do not copy hipcc's delay stream without matching instruction distances.
+3. L0 invalidation audit (`retained`)
+   - The kernel reads immutable A and packed-weight data, writes a disjoint output, and does not reread output data. Removing the per-DepthU `buffer_gl0_inv` leaves zero static invalidations and does not change registers, LDS, VALU, VMEM, LDS, waits, barriers, or numerical order.
+   - The benchmark correctness protocol now rewrites the complete `grad_output` tensor and separately mutates a packed-weight byte between candidate launches. K8192 and K512 both remain bit-exact to HIP after each producer handoff as well as for the original inputs.
+   - A nine-repeat screen measured gains of 0.41% on K8192 and 0.32% on K512. A 25-repeat bracket measured K8192 at 39.757 ms versus 39.886 ms, a 0.33% gain, and K512 at 2.6434 ms versus 2.6393 ms, a neutral 0.15% difference.
+   - Retain the omission under the unconditional instruction-reduction rule. It is resource-neutral, favorable on the long-K priority shape, within run noise on K512, and covered by explicit post-update correctness checks.
 
 ## Case-Study Continuation
 

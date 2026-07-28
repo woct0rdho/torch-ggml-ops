@@ -302,7 +302,6 @@ class KernelWriterAssembly:
                 asm.label(".LDecodeReady")
             asm.inst("s_waitcnt lgkmcnt(0)")
             asm.inst("s_barrier")
-            asm.inst("buffer_gl0_inv")
             self._emit_wmma(asm)
             asm.inst("s_waitcnt lgkmcnt(0)")
             asm.inst("s_barrier")
@@ -336,7 +335,6 @@ class KernelWriterAssembly:
         self._emit_q4_k_decode(asm, label_suffix="Initial")
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
-        asm.inst("buffer_gl0_inv")
 
         asm.label(".LPackedDepthULoop")
         asm.inst("s_waitcnt vmcnt(0)", "current A before next packed reads")
@@ -358,7 +356,6 @@ class KernelWriterAssembly:
         self._emit_q4_k_decode(asm, label_suffix="Steady")
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
-        asm.inst("buffer_gl0_inv")
         asm.inst("s_branch .LPackedDepthULoop")
         asm.label(".LPackedDepthUDone")
 
