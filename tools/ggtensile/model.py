@@ -397,7 +397,6 @@ class KernelArtifact:
     object_path: Path | None
     code_object_path: Path | None
     assembly_sha256: str
-    code_object_sha256: str | None
     vgpr_count: int
     sgpr_count: int
     lds_num_bytes: int
@@ -413,7 +412,6 @@ class KernelArtifact:
                 str(self.code_object_path) if self.code_object_path else None
             ),
             "AssemblySHA256": self.assembly_sha256,
-            "CodeObjectSHA256": self.code_object_sha256,
             "NumVgpr": self.vgpr_count,
             "NumSgpr": self.sgpr_count,
             "LdsNumBytes": self.lds_num_bytes,

@@ -1,8 +1,10 @@
+import json
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+from tools.ggtensile.cli import main as ggtensile_cli_main
 from tools.ggtensile.inspection import inspect_artifact
 from tools.ggtensile.kernel_writer_assembly import KernelWriterAssembly
 from tools.ggtensile.model import ProblemSize, ProblemType, Solution, SolutionKey
@@ -66,6 +68,104 @@ def test_build_and_inspect_pilot(tmp_path: Path) -> None:
     assert inspection.sgpr_spill_count == 0
     assert inspection.wmma_count == 32
     assert inspection.barrier_count == 2
+
+
+def test_cli_generate_build_and_inspect_manifests(tmp_path: Path) -> None:
+    solution_path = tmp_path / "requested.json"
+    solution_path.write_text(json.dumps(_pilot_key().to_mapping()))
+    artifact_dir = tmp_path / "artifact"
+
+    assert (
+        ggtensile_cli_main(
+            [
+                "generate",
+                "--solution-key",
+                str(solution_path),
+                "--output-dir",
+                str(artifact_dir),
+            ]
+        )
+        == 0
+    )
+    generate = json.loads((artifact_dir / "generate.json").read_text())
+    assert generate["Phase"] == "Generate"
+    assert generate["Status"] == "Accepted"
+    assert "SchemaVersion" not in generate
+    assert len(generate["AssemblySHA256"]) == 64
+
+    assert (
+        ggtensile_cli_main(
+            [
+                "build",
+                "--generate-manifest",
+                str(artifact_dir / "generate.json"),
+            ]
+        )
+        == 0
+    )
+    build = json.loads((artifact_dir / "build.json").read_text())
+    assert build["Phase"] == "Build"
+    assert build["Status"] == "Accepted"
+    assert "ObjectSHA256" not in build
+    assert "CodeObjectSHA256" not in build
+
+    assert (
+        ggtensile_cli_main(
+            [
+                "inspect",
+                "--build-manifest",
+                str(artifact_dir / "build.json"),
+            ]
+        )
+        == 0
+    )
+    inspection = json.loads((artifact_dir / "inspect.json").read_text())
+    assert inspection["Phase"] == "Inspect"
+    assert inspection["Status"] == "Accepted"
+    assert inspection["Inspection"]["NumVgpr"] == 192
+    assert "CodeObjectSHA256" not in inspection["Inspection"]
+    assert "NormalizedAssemblySHA256" not in inspection["Inspection"]
+
+    assert (
+        ggtensile_cli_main(
+            [
+                "generate",
+                "--solution-key",
+                str(solution_path),
+                "--output-dir",
+                str(artifact_dir),
+            ]
+        )
+        == 2
+    )
+
+
+def test_cli_records_rejected_solution_manifest(tmp_path: Path) -> None:
+    rejected = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(32768, 2048, 8192),
+        replace(Solution.pilot(), depth_u=16),
+    )
+    solution_path = tmp_path / "rejected.json"
+    solution_path.write_text(json.dumps(rejected.to_mapping()))
+    artifact_dir = tmp_path / "rejected"
+
+    assert (
+        ggtensile_cli_main(
+            [
+                "generate",
+                "--solution-key",
+                str(solution_path),
+                "--output-dir",
+                str(artifact_dir),
+            ]
+        )
+        == 2
+    )
+    manifest = json.loads((artifact_dir / "generate.json").read_text())
+    assert manifest["Status"] == "Rejected"
+    assert manifest["RejectReasons"]
+    assert not (artifact_dir / "kernel.s").exists()
 
 
 def test_writer_emits_distinct_xor8_lds_layout() -> None:

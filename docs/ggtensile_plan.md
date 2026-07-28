@@ -41,7 +41,7 @@ Unsupported problem types, problem sizes, and solutions are normal results, not 
 
 Solution parsing is strict: unknown parameters, implicit numeric coercions, and missing parameters fail before validation. Pilot defaults are available explicitly through `Solution.pilot()`, but are included in `SolutionKey`. GGTensile never mutates or repairs a requested solution.
 
-The command-line interface accepts JSON files or an inline pilot problem, writes a manifest for both accepted and rejected solutions, and has separate `generate`, `build`, and `inspect` commands. `generate` runs `KernelWriterAssembly`; `build` invokes the assembler and linker; `inspect` validates the resulting code object. This phase separation keeps interfaces suitable for a future EvoTensile-style search scheduler and compile cache.
+The command-line interface accepts strict JSON solution files, writes a manifest for both accepted and rejected solutions, and has separate `generate`, `build`, and `inspect` commands. `generate` runs `KernelWriterAssembly`; `build` accepts only an accepted generate manifest and verifies the source assembly hash before invoking the assembler and linker; `inspect` accepts only an accepted build manifest and validates the resulting code object. Every phase refuses to overwrite an existing artifact. This phase separation keeps interfaces suitable for a future EvoTensile-style search scheduler and compile cache.
 
 ## Pilot Kernel
 
@@ -61,7 +61,7 @@ The manual tuning process follows the case study in `~/ComfyUI-FeatherOps/doc/te
 
 ## Toolchain And Reproducibility
 
-The toolchain resolver accepts explicit paths and otherwise discovers the ROCm SDK shipped with the active Python environment. It records compiler, assembler, linker, ROCISA, target, and generator identities in the manifest. Builds use code-object v5 and deterministic commands. Temporary files live outside the source tree, and output installation is atomic.
+The toolchain resolver accepts explicit paths and otherwise discovers the ROCm SDK shipped with the active Python environment. Builds use code-object v5 and deterministic commands. Temporary build files live outside the output directory and accepted artifacts are installed only after assembly and linking succeed.
 
 The artifact inspector requires:
 
@@ -72,7 +72,7 @@ The artifact inspector requires:
 - no register indices beyond metadata declarations;
 - the expected static WMMA and barrier structure.
 
-Normalized assembly and code-object identities stay in the generated inspection manifest. Building the same candidate twice must produce byte-identical artifacts before it is eligible for integration.
+The generated source assembly hash is the sole artifact content identity. Object and code-object translation is treated as deterministic toolchain output rather than a separately controlled identity; inspection validates its symbol, ABI, ISA, and resources.
 
 ## Correctness And Performance Gates
 
@@ -84,7 +84,7 @@ Timing is performed only after correctness passes, using the same tensors and la
 
 - zero correctness failures;
 - zero private storage, spills, scratch, calls, or dynamic stack;
-- byte-identical rebuilds;
+- byte-identical source assembly rebuilds;
 - no stable regression above 1%; and
 - at least a stable 2% Q4_K `in_features=2048` gain, or equivalent latency with a useful VGPR reduction.
 
@@ -108,9 +108,9 @@ Campaign procedure:
    - The hoist measured 45.285 ms versus 45.179 ms for the selected control, a 0.23% regression, and was reverted.
    - SIA4's prefetched first-half A row coordinates and pointers survive fused B decode in existing address VGPRs. Reusing them removes duplicate coordinate reconstruction and derives second-half pointers with two 32-byte increments without increasing live state.
    - A 25-repeat bracket measured pointer reuse at 42.646 ms versus the original SIA4 path at 43.081 ms, a 1.01% latency reduction with unchanged 200 VGPR and 20 SGPR allocation.
-   - Retain pointer reuse as an unconditional writer improvement rather than a tuning knob. Independent builds remain byte-reproducible.
+   - Retain pointer reuse as an unconditional writer improvement rather than a tuning knob. Independent source assembly generation remains byte-reproducible.
    - Q4_K nibble decode originally extracted a byte and then a nibble with two `v_bfe` instructions per value. Four per-lane bit offsets in dead address VGPRs permit one direct nibble extract, removing 28 VALU instructions per DepthU iteration without changing loads, LDS, registers, or numerical order.
-   - A 25-repeat bracket measured direct nibble extraction at 40.644 ms and 27.05 TFLOP/s versus 41.210 ms and 26.68 TFLOP/s for the two-step control, a 1.37% latency reduction. Output remains bit-exact and independent builds are byte-reproducible.
+   - A 25-repeat bracket measured direct nibble extraction at 40.644 ms and 27.05 TFLOP/s versus 41.210 ms and 26.68 TFLOP/s for the two-step control, a 1.37% latency reduction. Output remains bit-exact and independent source assembly generation is byte-reproducible.
    - Retain direct nibble extraction as an unconditional writer improvement. Continue examining shorter-lived affine and decode state that does not increase persistent register pressure.
    - Reordering transient Q4_K scale pointers keeps A row coordinates live in existing address VGPRs across the reduction loop. This hoist removes seven VALU instructions per DepthU iteration without adding registers or changing exact output.
    - A 25-repeat bracket measured the hoisted path at 40.135 ms and 27.40 TFLOP/s versus 40.396 ms and 27.22 TFLOP/s, a 0.65% favorable instruction reduction. Retain it under the neutral-or-better simplification rule.
@@ -144,14 +144,14 @@ Campaign procedure:
    - With WGM1 and XOR-8 selected, SIA3 measured 45.133 ms versus SIA2 at 45.315 ms.
    - `PrefetchLocalRead=2` uses 16 additional VGPRs to ping-pong decoded-B fragments, issuing the next N pair's LDS reads while WMMAs consume the current pair. Half-pair waits preserve SIA3's oldest-ready issue order.
    - The PLR2 kernel is bit-exact and resource-clean at 216 VGPRs, 20 SGPRs, and 8192 LDS bytes. A nine-repeat screen measured 46.521 ms versus 46.120 ms for PLR1, a 0.87% regression.
-   - Reject PLR2 for this shape because its additional register pressure does not produce useful latency hiding. The PLR1 source and code object remain byte-identical after the writer refactor.
+   - Reject PLR2 for this shape because its additional register pressure does not produce useful latency hiding. The PLR1 source assembly remains byte-identical after the writer refactor.
    - `ScheduleIterAlg=4` issues the first DepthU half's A loads after the older packed-weight loads, waits only for Q4_K data, and overlaps A completion with fused B decode. It requires no additional registers or LDS.
-   - SIA4 is bit-exact and passes inspection at 200 VGPRs, 20 SGPRs, 8192 LDS bytes, 32 static WMMAs, and zero disallowed resources. Independent builds produced byte-identical assembly, object, and code object.
+   - SIA4 is bit-exact and passes inspection at 200 VGPRs, 20 SGPRs, 8192 LDS bytes, 32 static WMMAs, and zero disallowed resources. Independent source assembly generation is byte-identical.
    - A 25-repeat rotating bracket measured SIA4 at 42.666 ms and 25.77 TFLOP/s versus SIA3 at 45.137 ms and 24.36 TFLOP/s, a 5.47% latency reduction and 5.79% throughput gain.
    - The same bracket measured HIP at 47.841 ms, so SIA4 is 10.82% lower latency and 12.13% higher throughput. SIA4 reaches 43.38% of the BF16 WMMA roof.
    - The unconditional pointer-reuse improvement is recorded under obvious assembly corrections.
    - `PrefetchGlobalRead=2` adds a second 16-VGPR A fragment set. Both DepthU halves issue behind older packed-weight reads, first-half A overlaps fused decode, and second-half A remains pending through first-half WMMAs.
-   - PGR2 is bit-exact and resource-clean at 216 VGPRs, 20 SGPRs, and 8192 LDS bytes. Independent builds produce byte-identical assembly, object, and code object.
+   - PGR2 is bit-exact and resource-clean at 216 VGPRs, 20 SGPRs, and 8192 LDS bytes. Independent source assembly generation is byte-identical.
    - A 25-repeat bracket measured PGR2 at 40.906 ms and 26.88 TFLOP/s versus PGR1 at 42.723 ms and 25.74 TFLOP/s, a 4.25% latency reduction and 4.44% throughput gain.
    - The same bracket measured HIP at 47.886 ms. PGR2 is 14.58% lower latency and 17.06% higher throughput, reaching 45.25% of the BF16 WMMA roof.
    - `ScheduleIterAlg=5` combines PGR2 with SIA3's oldest-ready A and half-pair B waits. It is bit-exact and resource-identical to SIA4/PGR2.
@@ -172,7 +172,7 @@ Campaign procedure:
    - A complete `128x128x64` solution derives the 128-byte LDS row stride from DepthU, decodes four packed rows per lane, emits 64 static WMMAs, and rolls two prefetched A halves after the first 32 reduction positions.
    - DU64 is bit-exact and resource-clean at 236 VGPRs, 20 SGPRs, and 16384 LDS bytes. Its first launch exposed and corrected a reduction induction step that still advanced by 32; exact execution validation remains mandatory beyond assembly and inspection.
    - A 25-repeat bracket measured DU64 at 40.394 ms and 27.22 TFLOP/s versus DU32 at 40.772 ms and 26.97 TFLOP/s, only a 0.93% latency reduction.
-   - Reject DU64 because the sub-gate gain does not justify 20 additional VGPRs and doubled LDS. Retain the four-wave `128x128x32` geometry; the generalized DU32 source and code object remain byte-identical.
+   - Reject DU64 because the sub-gate gain does not justify 20 additional VGPRs and doubled LDS. Retain the four-wave `128x128x32` geometry; generalized DU32 source assembly remains byte-identical.
 6. Global traversal (`completed`)
    - The writer enables the workgroup-Z system SGPR and maps `m_block = blockIdx.z * WorkGroupMapping + blockIdx.x`.
    - The runtime launches X as `WorkGroupMapping`, Y as the 16 N tiles, and Z as the remaining M groups.
@@ -203,7 +203,7 @@ Campaign procedure:
    - Never introduce a dense shadow weight or external decode workspace.
 10. Retention and integration (`pending`)
    - Bracket finalists with warmed rotating 25-repeat controls.
-   - Require accepted correctness, byte-identical rebuilds, no disallowed resources, and a stable gain above 2%.
+   - Require accepted correctness, byte-identical source assembly generation, no disallowed resources, and a stable gain above 2%.
    - Retain the fastest exact solution, add static dispatch with HIP fallback, and rerun the full suite and target benchmark.
 
 Tuning parameters are added conservatively. Existing schema names remain rejected at non-pilot values until a distinct correct writer path exists. `LdsSwizzleChunkB`, active-wave ownership, and persistent or decode-sharing policies require explicit semantics and linked validation. Requested solutions are never silently repaired.

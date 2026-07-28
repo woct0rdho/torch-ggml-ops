@@ -1,4 +1,3 @@
-import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,8 +14,6 @@ class InspectionError(RuntimeError):
 @dataclass(frozen=True)
 class ArtifactInspection:
     kernel_name: str
-    code_object_sha256: str
-    normalized_assembly_sha256: str
     code_object_version: int
     target: str
     kernarg_segment_size: int
@@ -36,8 +33,6 @@ class ArtifactInspection:
     def to_mapping(self) -> dict[str, object]:
         return {
             "KernelName": self.kernel_name,
-            "CodeObjectSHA256": self.code_object_sha256,
-            "NormalizedAssemblySHA256": self.normalized_assembly_sha256,
             "CodeObjectVersion": self.code_object_version,
             "Target": self.target,
             "KernargSegmentSize": self.kernarg_segment_size,
@@ -141,11 +136,8 @@ def inspect_artifact(
     if errors:
         raise InspectionError("artifact rejected: " + "; ".join(errors))
 
-    normalized = "\n".join(instructions) + "\n"
     return ArtifactInspection(
         kernel_name=solution_key.kernel_name,
-        code_object_sha256=_sha256_file(code_object),
-        normalized_assembly_sha256=hashlib.sha256(normalized.encode()).hexdigest(),
         code_object_version=5,
         target="gfx1151",
         kernarg_segment_size=_integer(kernel, ".kernarg_segment_size"),
@@ -305,14 +297,6 @@ def _max_register_index(disassembly: str, prefix: str) -> int:
     for match in pattern.finditer(disassembly):
         values.extend(int(value) for value in match.groups() if value is not None)
     return max(values, default=-1)
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as file:
-        for block in iter(lambda: file.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def _require(condition: bool, message: str, errors: list[str]) -> None:
