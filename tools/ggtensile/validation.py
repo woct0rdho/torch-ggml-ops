@@ -69,11 +69,11 @@ def _validate_problem_size(
                 parameter,
                 source="ProblemSize",
             )
-    if problem_size.n != 2048:
+    if problem_size.n not in (512, 2048, 4096):
         _reject(
             reasons,
-            "problem_size.n.pilot",
-            "Q4_K pilot requires N=in_features=2048",
+            "problem_size.n.production",
+            "Q4_K dense campaign requires N=in_features in {512, 2048, 4096}",
             "N",
             source="ProblemSize",
         )

@@ -34,6 +34,35 @@ def test_pilot_solution_identity_and_round_trip() -> None:
     assert SolutionKey.from_mapping(key.to_mapping()) == key
 
 
+@pytest.mark.parametrize(("n", "packed_row_bytes"), ((512, 288), (2048, 1152), (4096, 2304)))
+def test_writer_specializes_production_q4_k_row_stride(
+    n: int, packed_row_bytes: int
+) -> None:
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(128, n, 512),
+        Solution.pilot(),
+    )
+    assert validate_solution(key) == ()
+    writer = KernelWriterAssembly(key, _toolchain())
+    source = writer.source()
+    temporary = writer.registers.temporary
+    assert (
+        f"v_mul_lo_u32 v{temporary}, {packed_row_bytes}, v{temporary}" in source
+    )
+
+
+def test_validation_rejects_nonproduction_n() -> None:
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(128, 1024, 512),
+        Solution.pilot(),
+    )
+    assert {reason.rule_id for reason in validate_solution(key)} == {
+        "problem_size.n.production"
+    }
+
+
 def test_writer_enables_and_flattens_packed_workitem_xy() -> None:
     writer = KernelWriterAssembly(_pilot_key(), _toolchain())
     source = writer.source()

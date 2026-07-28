@@ -614,7 +614,8 @@ class KernelWriterAssembly:
         decoder_rows = self._decoder_rows()
         k_shift = n_tiles.bit_length() - 1
         k_span = self.solution_key.solution.depth_u // decoder_rows
-        row_delta = k_span * 1152
+        packed_row_bytes = self.solution_key.problem_size.n // 256 * 144
+        row_delta = k_span * packed_row_bytes
         q = r.global_read_b
         dm = r.quant_dm
         scale = r.quant_scale
@@ -626,7 +627,7 @@ class KernelWriterAssembly:
         asm.comment("Build Q4_K block addresses for decoder-owned output rows.")
         asm.inst(f"v_lshrrev_b32 v{t}, {k_shift}, v{r.serial}")
         asm.inst(f"v_add_nc_u32 v{t}, s{loop}, v{t}")
-        asm.inst(f"v_mul_lo_u32 v{t}, 1152, v{t}")
+        asm.inst(f"v_mul_lo_u32 v{t}, {packed_row_bytes}, v{t}")
         asm.inst(f"v_add_nc_u32 v{t}, s{block}, v{t}")
         asm.inst(f"v_mov_b32 v{a}, v{t}")
         if decoder_rows == 2:

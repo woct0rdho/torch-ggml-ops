@@ -87,6 +87,7 @@ These changes are bit-exact, resource-neutral or resource-reducing, and neutral-
 - Remove `buffer_gl0_inv`: K8192 measured 39.757 ms versus 39.886 ms; K512 was neutral within 0.15%. Producer-handoff checks establish correctness after input updates.
 - Remove unused runtime dimension kernarg loads while preserving the 40-byte ABI: allocation falls from 20 to 16 SGPRs. Serial 25-repeat brackets measured K8192 at 38.2548 ms versus 38.3512 ms, a 0.25% reduction, and K512 at 2.5224 ms versus 2.5331 ms, a 0.42% reduction. Both production tensors and producer-handoff mutations remain bit-exact to HIP.
 - Specialize the decoded-B pipeline loop for the exact K trip count: remove the pre-stage exit test and unconditional back branch, then test the next-trip condition after the steady stage. K32 emits no steady body and passes the reduced trip tests at K32/K64/K96/K512. Serial 25-repeat brackets measured K8192 at 38.1932 ms versus 38.3088 ms, a 0.30% reduction, and K512 at 2.5054 ms versus 2.5236 ms, a 0.72% reduction. Static resources and issue counts are unchanged.
+- Generalize exact production N coverage by deriving Q4_K packed-row bytes as `(N/256)*144` and accepting only N512/N2048/N4096. Duplicate `(2048,512,2048)` and `(2048,4096,2048)` artifacts are reproducible and resource-clean. Shared-down and attention-output tensors are bit-exact to HIP, including both producer mutations. One-repeat execution checks measured about 0.201 versus 0.293 ms and 1.166 versus 1.310 ms respectively; these are coverage checks, not retention brackets.
 
 ### True-pipeline validation and profiling
 
@@ -147,6 +148,7 @@ Prepared weights, BF16 shadows, external decode workspaces, GSU, Stream-K, and p
 - Two-value dependency-batched decode was bit-exact and resource-identical and improved both 25-repeat controls by about 0.78%; four-value batches regressed K8192 by 0.62% and K512 by 1.57%. Both were rejected under the larger-margin requirement.
 - Moving next-A0 loads to their first-half death point measured 39.618 ms versus 39.278 ms on K8192 and 2.5146 ms versus 2.5299 ms on K512. The mixed 0.87% regression and 0.61% gain was rejected.
 - A-load `s_clause 3` pairs measured gains of only 0.035% on K8192 and 0.29% on K512. Added SALU and constrained arbitration were not justified.
+- Duff-style exact-trip body unroll factors 2/4/8 and complete K512 factor 15 or K8192 factor 16 were bit-exact and resource-clean, but grew source from about 54 KiB to 69-278 KiB and code objects from 13.8 KiB to 16.4-53.5 KiB. Nine-repeat K512 screens gained at most 0.97%; K8192 screens ranged from neutral to 0.63% slower. None reached the 2% resource-bearing gate, so no factor advanced or remains in the writer.
 
 ### Packed-weight sharing and addressing
 
@@ -177,5 +179,7 @@ Prepared weights, BF16 shadows, external decode workspaces, GSU, Stream-K, and p
 - K8192 and K512 lower bounds: `/tmp/ggtensile-m32768-n2048-k8192-lower-bounds/` and `/tmp/ggtensile-m32768-n2048-k512-lower-bounds/`.
 - Dead-kernarg lowering and serial 25-repeat brackets: `/tmp/ggtensile-m32768-n2048-k8192-dead-kernargs-a/` and `/tmp/ggtensile-m32768-n2048-k512-dead-kernargs-a/`.
 - Exact-trip branch lowering and serial 25-repeat brackets: `/tmp/ggtensile-m32768-n2048-k8192-postcheck-loop-a/` and `/tmp/ggtensile-m32768-n2048-k512-postcheck-loop-a/`.
+- Rejected body-unroll artifacts use `/tmp/ggtensile-m32768-n2048-k{512,8192}-unroll{factor}-a/`, with factor-specific generate, inspect, correctness, and nine-repeat timing evidence.
+- Exact production-N coverage artifacts: `/tmp/ggtensile-m2048-n512-k2048-production-n-a/` and `/tmp/ggtensile-m2048-n4096-k2048-production-n-a/`.
 
 The original K8192 baseline was 122.90 ms versus HIP at 47.61 ms. It remains useful as the start of the trajectory, but it is not a current performance control.
