@@ -1064,7 +1064,7 @@ class KernelWriterAssembly:
         asm.inst(f"v_and_b32 v{t + 1}, 15, v{r.serial}")
         asm.inst(f"v_lshlrev_b32 v{t + 1}, 1, v{t + 1}")
         asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
-        self._emit_add_pointer(asm, a, r.kernarg + 4, t)
+        asm.inst(f"v_mov_b32 v{a}, v{t}")
         if self.solution_key.solution.store_priority_opt:
             asm.inst("s_setprio 1")
         for m_tile in range(m_tiles):
@@ -1073,11 +1073,11 @@ class KernelWriterAssembly:
                     accum = r.accum + (n_tiles * m_tile + n_tile) * 8 + element
                     self._emit_round_bf16(asm, accum, t + 2)
                     asm.inst(
-                        f"global_store_d16_hi_b16 v[{a}:{a + 1}], v{accum}, off offset:{32 * n_tile}"
+                        f"global_store_d16_hi_b16 v{a}, v{accum}, "
+                        f"s[{r.kernarg + 4}:{r.kernarg + 5}] offset:{32 * n_tile}"
                     )
                 if not (m_tile == m_tiles - 1 and element == 7):
-                    asm.inst(f"v_add_co_u32 v{a}, vcc_lo, v{a}, {4 * size.n}")
-                    asm.inst(f"v_add_co_ci_u32_e64 v{a + 1}, null, v{a + 1}, 0, vcc_lo")
+                    asm.inst(f"v_add_nc_u32 v{a}, {4 * size.n}, v{a}")
         if self.solution_key.solution.store_priority_opt:
             asm.inst("s_setprio 0")
 
