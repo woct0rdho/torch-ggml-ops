@@ -29,6 +29,15 @@ class ArtifactInspection:
     max_sgpr_index: int
     wmma_count: int
     barrier_count: int
+    valu_issue_count: int
+    valu_operation_count: int
+    vopd_count: int
+    vmem_count: int
+    lds_count: int
+    wait_count: int
+    clause_count: int
+    delay_alu_count: int
+    buffer_gl0_inv_count: int
 
     def to_mapping(self) -> dict[str, object]:
         return {
@@ -48,6 +57,15 @@ class ArtifactInspection:
             "MaxSgprIndex": self.max_sgpr_index,
             "StaticWmmaCount": self.wmma_count,
             "StaticBarrierCount": self.barrier_count,
+            "StaticValuIssueCount": self.valu_issue_count,
+            "StaticValuOperationCount": self.valu_operation_count,
+            "StaticVopdCount": self.vopd_count,
+            "StaticVmemCount": self.vmem_count,
+            "StaticLdsCount": self.lds_count,
+            "StaticWaitCount": self.wait_count,
+            "StaticClauseCount": self.clause_count,
+            "StaticDelayAluCount": self.delay_alu_count,
+            "StaticBufferGl0InvCount": self.buffer_gl0_inv_count,
         }
 
 
@@ -93,6 +111,22 @@ def inspect_artifact(
     mnemonics = tuple(instruction.split(None, 1)[0] for instruction in instructions)
     wmma_count = mnemonics.count("v_wmma_f32_16x16x16_bf16")
     barrier_count = mnemonics.count("s_barrier")
+    vopd_count = sum(" :: " in instruction for instruction in instructions)
+    valu_issue_count = sum(
+        mnemonic.startswith("v_") and not mnemonic.startswith("v_wmma_")
+        for mnemonic in mnemonics
+    )
+    valu_operation_count = valu_issue_count + vopd_count
+    vmem_count = sum(
+        mnemonic.startswith(("global_", "flat_", "buffer_", "scratch_"))
+        and mnemonic != "buffer_gl0_inv"
+        for mnemonic in mnemonics
+    )
+    lds_count = sum(mnemonic.startswith("ds_") for mnemonic in mnemonics)
+    wait_count = sum(mnemonic.startswith("s_waitcnt") for mnemonic in mnemonics)
+    clause_count = mnemonics.count("s_clause")
+    delay_alu_count = mnemonics.count("s_delay_alu")
+    buffer_gl0_inv_count = mnemonics.count("buffer_gl0_inv")
     solution = solution_key.solution
     expected_wmmas = (
         solution.matrix_instruction[5]
@@ -153,6 +187,15 @@ def inspect_artifact(
         max_sgpr_index=max_sgpr,
         wmma_count=wmma_count,
         barrier_count=barrier_count,
+        valu_issue_count=valu_issue_count,
+        valu_operation_count=valu_operation_count,
+        vopd_count=vopd_count,
+        vmem_count=vmem_count,
+        lds_count=lds_count,
+        wait_count=wait_count,
+        clause_count=clause_count,
+        delay_alu_count=delay_alu_count,
+        buffer_gl0_inv_count=buffer_gl0_inv_count,
     )
 
 

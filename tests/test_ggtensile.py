@@ -68,6 +68,15 @@ def test_build_and_inspect_pilot(tmp_path: Path) -> None:
     assert inspection.sgpr_spill_count == 0
     assert inspection.wmma_count == 32
     assert inspection.barrier_count == 2
+    assert inspection.valu_issue_count > 0
+    assert inspection.valu_operation_count == inspection.valu_issue_count
+    assert inspection.vopd_count == 0
+    assert inspection.vmem_count > 0
+    assert inspection.lds_count > 0
+    assert inspection.wait_count > 0
+    assert inspection.clause_count == 0
+    assert inspection.delay_alu_count == 0
+    assert inspection.buffer_gl0_inv_count == 1
 
 
 def test_cli_generate_build_and_inspect_manifests(tmp_path: Path) -> None:
@@ -123,6 +132,8 @@ def test_cli_generate_build_and_inspect_manifests(tmp_path: Path) -> None:
     assert inspection["Phase"] == "Inspect"
     assert inspection["Status"] == "Accepted"
     assert inspection["Inspection"]["NumVgpr"] == 192
+    assert inspection["Inspection"]["StaticValuIssueCount"] > 0
+    assert inspection["Inspection"]["StaticVopdCount"] == 0
     assert "CodeObjectSHA256" not in inspection["Inspection"]
     assert "NormalizedAssemblySHA256" not in inspection["Inspection"]
 

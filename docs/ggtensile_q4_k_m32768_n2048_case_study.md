@@ -139,6 +139,12 @@ The selected WGM1, XOR-8, SIA4, PGR2, no-store-priority solution was also built 
 
 This result clears the per-shape performance gate and demonstrates that the K8192 schedule is not overfit to a long reduction. Production integration still waits for guarded runtime dispatch and complete workload validation.
 
+## Static Issue Baseline
+
+Artifact inspection now records non-WMMA VALU issue and operation counts, VOPD pairs, VMEM and LDS instructions, waits, clauses, dependency delays, and `buffer_gl0_inv` instructions in addition to resources, WMMAs, and barriers. This accounting is structural: it describes the emitted loop body once, while dynamic costs scale with the reduction iteration count.
+
+The selected K8192 and K512 artifacts have the same static body: 675 non-WMMA VALU issues and operations, 146 VMEM instructions, 64 LDS instructions, 12 waits, 32 WMMAs, two barriers, and one `buffer_gl0_inv`. They contain zero VOPD pairs, `s_clause` instructions, and `s_delay_alu` instructions. This is the comparison baseline for the low-level scheduling campaign; every candidate must report both issue deltas and unchanged hard-resource status.
+
 ## Case-Study Continuation
 
 The next exact-shape work follows the multi-shape roadmap while preserving this case as a rotating control. First priorities are gfx1151 VOPD pairing, memory-clause and dependency scheduling, exact lower-bound kernels, and a true two-buffer decoded-B pipeline that overlaps next-tile decode with current WMMA. New resource-bearing mechanisms require a stable gain above 2%; unconditional instruction or resource reductions may be retained when neutral or favorable on both K8192 and K512.
