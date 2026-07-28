@@ -183,6 +183,22 @@ A nine-repeat screen measured K8192 at 39.247 ms versus 40.495 ms for the one-bu
 
 Retain the true pipeline. It clears the greater-than-2% resource-bearing mechanism gate on both the long- and short-reduction controls, preserves exact output and source reproducibility, and directly removes decode/barrier serialization rather than tuning a sub-percent instruction neighborhood.
 
+Post-retention profiling compares the current one-buffer and two-buffer artifacts under the same raw-counter protocol. The pipeline reduces median aggregate wave cycles by approximately 4.9%, wait-count stalls from 23.74% to 21.38%, and barrier stalls from 8.58% to 6.11%. LDS instruction count is unchanged; additional address and peeled-path work raises VALU instructions, but overlap more than repays it. Moving next-A0 loads from the final WMMA pair to their first-half death point was bit-exact but measured 39.618 ms versus 39.278 ms on K8192 and 2.5146 ms versus 2.5299 ms on K512. Reject the mixed 0.87% regression/0.61% gain and keep both next-A halves after the final pair.
+
+## Exact Lower Bounds
+
+`tools/benchmark_ggtensile_lower_bounds.py` builds two diagnostic artifacts without adding production `Solution` parameters or changing runtime dispatch. Both preserve the selected ABI, 128-thread workgroup, 212-VGPR declaration, 20 SGPRs, and 16 KiB LDS occupancy. Generated source assembly is hashed and each diagnostic code object passes the standard symbol, metadata, register, private-storage, spill, scratch, stack, and call checks with explicit diagnostic WMMA/barrier expectations.
+
+- `wmma_floor` decodes and stages one B tile once, then executes the complete A-load/LDS-read/WMMA reduction against that resident tile. It isolates the matrix/A/LDS path while preserving output stores and the production grid.
+- `decode_floor` executes packed Q4_K reads, scale/min reconstruction, BF16 conversion, LDS stores, and one synchronization per DepthU tile without A loads or WMMA. It isolates decoder/LDS cost on the production grid.
+
+Nine-repeat rotating measurements produced:
+
+- K8192: complete 37.868 ms, WMMA floor 24.149 ms or 45.53 equivalent TFLOP/s, and decode floor 16.842 ms. The floor sum is 1.0825 times complete latency, while complete is 1.568 times the dominant WMMA floor.
+- K512: complete 2.3131 ms, WMMA floor 1.6197 ms or 42.43 equivalent TFLOP/s, and decode floor 1.0915 ms. The floor sum is 1.1721 times complete latency, while complete is 1.428 times the dominant WMMA floor.
+
+The complete kernel already overlaps enough work to beat the sum of isolated floors, but same-wave interleaving leaves a large gap to the matrix/A/LDS floor. The next plausible multi-percent mechanism is separate compute-wave and decoder-wave ownership within one workgroup so the scheduler can issue WMMA and next-tile decode from different waves. Further same-wave wait placement, decode batching, clauses, and epilogue changes remain closed.
+
 ## Case-Study Continuation
 
-The retained two-buffer artifacts become the rotating controls for further exact-shape work. The next priorities are exact lower-bound kernels and profiling of the new steady state, followed only by coupled schedules or ownership changes with a plausible multi-percent margin. Sub-percent serial decode, clause, delay, and epilogue neighborhoods remain closed. New resource-bearing mechanisms require a stable gain above 2%; unconditional instruction or resource reductions may be retained when neutral or favorable on both K8192 and K512.
+The retained two-buffer artifacts become the rotating controls for further exact-shape work. The next priority is a strict dedicated-decoder-wave experiment derived from the measured lower bounds, followed only by ownership or geometry changes with a plausible multi-percent margin. Sub-percent serial decode, clause, delay, wait-placement, and epilogue neighborhoods remain closed. New resource-bearing mechanisms require a stable gain above 2%; unconditional instruction or resource reductions may be retained when neutral or favorable on both K8192 and K512.

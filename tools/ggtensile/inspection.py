@@ -84,6 +84,9 @@ def inspect_artifact(
     solution_key: SolutionKey,
     code_object: Path,
     toolchain: Toolchain,
+    *,
+    expected_wmma_count: int | None = None,
+    expected_barrier_count: int | None = None,
 ) -> ArtifactInspection:
     if not code_object.is_file():
         raise InspectionError(f"code object does not exist: {code_object}")
@@ -128,20 +131,26 @@ def inspect_artifact(
     delay_alu_count = mnemonics.count("s_delay_alu")
     buffer_gl0_inv_count = mnemonics.count("buffer_gl0_inv")
     solution = solution_key.solution
-    expected_wmmas = (
-        solution.matrix_instruction[5]
-        * solution.matrix_instruction[6]
-        * solution.depth_u
-        // 16
-    )
-    if solution.one_lds_buffer == 0:
-        expected_wmmas *= 2
+    expected_wmmas = expected_wmma_count
+    if expected_wmmas is None:
+        expected_wmmas = (
+            solution.matrix_instruction[5]
+            * solution.matrix_instruction[6]
+            * solution.depth_u
+            // 16
+        )
+        if solution.one_lds_buffer == 0:
+            expected_wmmas *= 2
     _require(
         wmma_count == expected_wmmas,
         f"expected {expected_wmmas} static WMMAs, found {wmma_count}",
         errors,
     )
-    expected_barriers = 3 if solution_key.solution.prefetch_packed_weight_next else 2
+    expected_barriers = expected_barrier_count
+    if expected_barriers is None:
+        expected_barriers = (
+            3 if solution_key.solution.prefetch_packed_weight_next else 2
+        )
     _require(
         barrier_count == expected_barriers,
         f"expected {expected_barriers} barriers, found {barrier_count}",

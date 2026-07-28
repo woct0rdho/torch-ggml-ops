@@ -4,6 +4,7 @@ import re
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
 from .model import SolutionKey
@@ -13,6 +14,11 @@ from .validation import validate_solution
 
 class KernelWriterError(RuntimeError):
     pass
+
+
+class DiagnosticMode(str, Enum):
+    WMMA_FLOOR = "wmma_floor"
+    DECODE_FLOOR = "decode_floor"
 
 
 @dataclass(frozen=True)
@@ -91,7 +97,13 @@ class _Assembly:
 class KernelWriterAssembly:
     """Emit the exact gfx1151 Q4_K dense-backward pilot solution."""
 
-    def __init__(self, solution_key: SolutionKey, toolchain: Toolchain) -> None:
+    def __init__(
+        self,
+        solution_key: SolutionKey,
+        toolchain: Toolchain,
+        *,
+        diagnostic_mode: DiagnosticMode | None = None,
+    ) -> None:
         reasons = validate_solution(solution_key)
         if reasons:
             details = "; ".join(
@@ -100,6 +112,9 @@ class KernelWriterAssembly:
             raise KernelWriterError(f"solution rejected: {details}")
         self.solution_key = solution_key
         self.toolchain = toolchain
+        self.diagnostic_mode = diagnostic_mode
+        if diagnostic_mode is not None and solution_key.solution.one_lds_buffer != 0:
+            raise KernelWriterError("lower-bound diagnostics require 1LDSBuffer=0")
         self.registers = self._allocate_registers()
 
     def write(self, output: Path) -> str:
@@ -145,7 +160,10 @@ class KernelWriterAssembly:
             totalAgprs=0,
             totalSgprs=self.registers.total_sgprs,
         )
-        signature.addDescriptionTopic("GGTensile Q4_K dense MMQ backward")
+        description = "GGTensile Q4_K dense MMQ backward"
+        if self.diagnostic_mode is not None:
+            description += f" {self.diagnostic_mode.value} diagnostic"
+        signature.addDescriptionTopic(description)
         signature.addArg("grad_output", SVK.SIG_GLOBALBUFFER, "bf16", "generic")
         signature.addArg("packed_weight", SVK.SIG_GLOBALBUFFER, "struct", "generic")
         signature.addArg("grad_input", SVK.SIG_GLOBALBUFFER, "bf16", "generic")
@@ -256,8 +274,11 @@ class KernelWriterAssembly:
             * self.solution_key.solution.matrix_instruction[5]
             * self.solution_key.solution.matrix_instruction[6]
         )
-        asm.comment("Pair accumulator zeroing with independent pre-loop address VALU.")
-        asm.defer_zero_moves(range(r.accum, r.accum + accumulator_count))
+        if self.diagnostic_mode != DiagnosticMode.DECODE_FLOOR:
+            asm.comment(
+                "Pair accumulator zeroing with independent pre-loop address VALU."
+            )
+            asm.defer_zero_moves(range(r.accum, r.accum + accumulator_count))
 
         n_per_block = self.solution_key.solution.macro_tile1
         tiles_per_weight_block = 256 // n_per_block
@@ -278,7 +299,13 @@ class KernelWriterAssembly:
 
         self._emit_static_thread_coordinates(asm)
         asm.flush_zero_moves()
-        if self.solution_key.solution.one_lds_buffer == 0:
+        store_output = True
+        if self.diagnostic_mode == DiagnosticMode.WMMA_FLOOR:
+            self._emit_wmma_floor(asm)
+        elif self.diagnostic_mode == DiagnosticMode.DECODE_FLOOR:
+            self._emit_decode_floor(asm)
+            store_output = False
+        elif self.solution_key.solution.one_lds_buffer == 0:
             self._emit_decoded_b_pipeline(asm)
         elif self.solution_key.solution.prefetch_packed_weight_next:
             self._emit_packed_weight_pipeline(asm)
@@ -314,12 +341,55 @@ class KernelWriterAssembly:
             )
             asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
             asm.inst("s_cbranch_scc1 .LDepthULoop")
-        asm.inst("s_nop 7", "cover final WMMA result latency")
-        self._emit_store(asm)
+        if store_output:
+            asm.inst("s_nop 7", "cover final WMMA result latency")
+            self._emit_store(asm)
         asm.inst("s_endpgm")
         asm.lines.append(f".L{name}_end:")
         asm.lines.append(f".size {name}, .L{name}_end - {name}")
         return asm.text()
+
+    def _emit_wmma_floor(self, asm: _Assembly) -> None:
+        r = self.registers
+        size = self.solution_key.problem_size
+        solution = self.solution_key.solution
+        a_load_count = 2 * solution.matrix_instruction[5] * solution.prefetch_global_read
+
+        asm.comment("Prime one decoded-B tile for the WMMA/A/LDS lower bound.")
+        self._emit_q4_k_global_reads(asm, wait_for_reads=False)
+        self._emit_first_a_global_reads(asm)
+        asm.inst(f"s_waitcnt vmcnt({a_load_count})")
+        self._emit_q4_k_decode(asm, label_suffix="WmmaFloorPrime")
+        asm.inst("s_waitcnt lgkmcnt(0)")
+        asm.inst("s_barrier")
+
+        asm.label(".LWmmaFloorLoop")
+        asm.inst("s_waitcnt vmcnt(0)")
+        self._emit_wmma(asm, pipeline=True)
+        asm.inst(
+            f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, {solution.depth_u}"
+        )
+        asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
+        asm.inst("s_cbranch_scc0 .LWmmaFloorDone")
+        self._emit_first_a_global_reads(asm)
+        asm.inst("s_branch .LWmmaFloorLoop")
+        asm.label(".LWmmaFloorDone")
+
+    def _emit_decode_floor(self, asm: _Assembly) -> None:
+        r = self.registers
+        size = self.solution_key.problem_size
+        solution = self.solution_key.solution
+        asm.comment("Measure packed Q4_K reads, decode, LDS stores, and synchronization.")
+        asm.label(".LDecodeFloorLoop")
+        self._emit_q4_k_global_reads(asm)
+        self._emit_q4_k_decode(asm, label_suffix="DecodeFloor")
+        asm.inst("s_waitcnt lgkmcnt(0)")
+        asm.inst("s_barrier")
+        asm.inst(
+            f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, {solution.depth_u}"
+        )
+        asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
+        asm.inst("s_cbranch_scc1 .LDecodeFloorLoop")
 
     def _emit_packed_weight_pipeline(self, asm: _Assembly) -> None:
         r = self.registers

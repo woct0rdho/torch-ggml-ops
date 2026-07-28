@@ -6,7 +6,7 @@ import pytest
 
 from tools.ggtensile.cli import main as ggtensile_cli_main
 from tools.ggtensile.inspection import inspect_artifact
-from tools.ggtensile.kernel_writer_assembly import KernelWriterAssembly
+from tools.ggtensile.kernel_writer_assembly import DiagnosticMode, KernelWriterAssembly
 from tools.ggtensile.model import ProblemSize, ProblemType, Solution, SolutionKey
 from tools.ggtensile.toolchain import Toolchain, ToolchainError
 from tools.ggtensile.validation import validate_solution
@@ -693,6 +693,54 @@ def test_two_lds_buffers_reject_unsupported_schedule() -> None:
     )
     rule_ids = {reason.rule_id for reason in validate_solution(key)}
     assert "solution.1ldsbuffer.pipeline" in rule_ids
+
+
+@pytest.mark.parametrize(
+    ("mode", "wmma_count"),
+    ((DiagnosticMode.WMMA_FLOOR, 32), (DiagnosticMode.DECODE_FLOOR, 0)),
+)
+def test_writer_builds_lower_bound_diagnostics(
+    tmp_path: Path,
+    mode: DiagnosticMode,
+    wmma_count: int,
+) -> None:
+    solution = replace(
+        Solution.pilot(),
+        one_lds_buffer=0,
+        schedule_iter_alg=4,
+        prefetch_global_read=2,
+        lds_swizzle_chunk_b=8,
+        store_priority_opt=False,
+    )
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(32768, 2048, 512),
+        solution,
+    )
+    toolchain = _toolchain()
+    assembly = tmp_path / f"{mode.value}.s"
+    object_path = tmp_path / f"{mode.value}.o"
+    code_object = tmp_path / f"{mode.value}.hsaco"
+    source = KernelWriterAssembly(
+        key,
+        toolchain,
+        diagnostic_mode=mode,
+    ).source()
+    assembly.write_text(source)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+
+    inspection = inspect_artifact(
+        key,
+        code_object,
+        toolchain,
+        expected_wmma_count=wmma_count,
+        expected_barrier_count=1,
+    )
+    assert inspection.vgpr_count == 212
+    assert inspection.lds_num_bytes == 16384
+    assert inspection.wmma_count == wmma_count
+    assert inspection.barrier_count == 1
 
 
 def test_writer_can_disable_store_priority() -> None:
