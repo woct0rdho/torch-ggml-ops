@@ -281,7 +281,7 @@ def _validate_metadata(
         ".max_flat_workgroup_size": solution.num_threads,
         ".wavefront_size": solution.wavefront_size,
         ".vgpr_count": expected_vgprs,
-        ".sgpr_count": 20,
+        ".sgpr_count": 16,
         ".vgpr_spill_count": 0,
         ".sgpr_spill_count": 0,
     }

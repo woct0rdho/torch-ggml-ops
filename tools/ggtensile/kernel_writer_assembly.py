@@ -219,7 +219,7 @@ class KernelWriterAssembly:
 
         sgprs = RegisterPool(64, RegisterType.Sgpr, True)
         sgprs.addRange(5, 63, "GGTensile SGPRs")
-        kernarg = sgprs.checkOutAligned(10, 2, "loaded kernargs")
+        kernarg = sgprs.checkOutAligned(6, 2, "loaded pointer kernargs")
         loop_counter = sgprs.checkOut(1, "LoopCounter")
         block_offset = sgprs.checkOut(1, "PackedBlockOffset")
         input_half = sgprs.checkOut(1, "InputHalf")
@@ -267,7 +267,6 @@ class KernelWriterAssembly:
         asm.inst(f"s_load_dwordx2 s[{kernarg}:{kernarg + 1}], s[0:1], 0x0")
         asm.inst(f"s_load_dwordx2 s[{kernarg + 2}:{kernarg + 3}], s[0:1], 0x8")
         asm.inst(f"s_load_dwordx2 s[{kernarg + 4}:{kernarg + 5}], s[0:1], 0x10")
-        asm.inst(f"s_load_dwordx4 s[{kernarg + 6}:{kernarg + 9}], s[0:1], 0x18")
         asm.inst("s_waitcnt lgkmcnt(0)")
         accumulator_count = (
             8

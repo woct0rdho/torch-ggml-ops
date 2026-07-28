@@ -41,7 +41,7 @@ Unsupported problem types, problem sizes, and solutions are normal results, not 
 
 Solution parsing is strict: unknown parameters, implicit numeric coercions, and missing parameters fail before validation. Pilot defaults are available explicitly through `Solution.pilot()`, but are included in `SolutionKey`. GGTensile never mutates or repairs a requested solution.
 
-The command-line interface accepts strict JSON solution files, writes a manifest for both accepted and rejected solutions, and has separate `generate`, `build`, and `inspect` commands. `generate` runs `KernelWriterAssembly`; `build` accepts only an accepted generate manifest and verifies the source assembly hash before invoking the assembler and linker; `inspect` accepts only an accepted build manifest and validates the resulting code object. Every phase refuses to overwrite an existing artifact. This phase separation keeps interfaces suitable for a future EvoTensile-style search scheduler and compile cache.
+The command-line interface accepts strict JSON solution files, writes a manifest for both accepted and rejected solutions, and has separate `generate`, `build`, and `inspect` commands. `generate` runs `KernelWriterAssembly`; `build` accepts only an accepted generate manifest and verifies the source assembly hash before invoking the assembler and linker; `inspect` accepts only an accepted build manifest and validates the resulting code object. Every phase refuses to overwrite an existing artifact. This phase separation supports reproducible manual experiments, bounded per-shape scan scripts, and compile caching without requiring a large-grid search system.
 
 ## Pilot Kernel
 
@@ -88,101 +88,189 @@ Timing is performed only after correctness passes, using the same tensors and la
 - no stable regression above 1%; and
 - at least a stable 2% Q4_K `in_features=2048` gain, or equivalent latency with a useful VGPR reduction.
 
-## Q4_K Pilot Case Study
+## Dense Backward Q4_K Experiment
 
-The first measured case study covers `ProblemSize(M=32768, N=2048, K=8192)` and the companion production reduction `K=512`. It established exact Q4_K decoding, WGM1 traversal, the XOR-8 LDS layout, SIA4/PGR2 scheduling, scalar-base global addressing, and the current 212-VGPR resource-clean implementation.
+The first measured pair covers `ProblemSize(M=32768, N=2048, K=8192)` and the companion production reduction `K=512`. It established exact Q4_K decoding, WGM1 traversal, the XOR-8 LDS layout, SIA4/PGR2 scheduling, scalar-base global addressing, and the current 212-VGPR resource-clean implementation.
 
-The K8192 path improved from the initial 122.90 ms assembly baseline to approximately 40 ms and now outperforms the HIP control. The K512 companion measures approximately 2.653 ms versus HIP at 3.030 ms while preserving the independently verified numerical envelope. Detailed measurements, retained/rejected candidates, resources, and remaining exact-shape experiments are recorded in [ggtensile_q4_k_m32768_n2048_case_study.md](ggtensile_q4_k_m32768_n2048_case_study.md).
+The selected four-wave, two-buffer decoded-B pipeline measures 38.012 ms and 28.93 TFLOP/s at K8192 versus HIP at 47.779 ms. The K512 companion measures 2.5063 ms and 27.42 TFLOP/s versus HIP at 3.0246 ms while preserving the independently verified numerical envelope. Detailed measurements, retained and rejected mechanisms, lower bounds, debugging lessons, and the 12-shape campaign are recorded in [experiment_ggtensile_mmq_bwd_q4_k.md](experiment_ggtensile_mmq_bwd_q4_k.md).
 
-This case study is evidence for the generator and search process, not a universal solution. Geometry, decoder ownership, LDS layout, traversal, scheduling, and epilogue policy remain shape- and quant-specific in the multi-shape roadmap below.
+This experiment is evidence for the generator and search process, not a universal solution. Geometry, decoder ownership, LDS layout, traversal, scheduling, and epilogue policy remain shape- and quant-specific in the multi-shape roadmap below.
 
 ## Multi-Shape GGTensile Tuning Plan
 
 ### Performance position
 
-The current selected Q4_K kernel sustains approximately `27.5-27.8 TFLOP/s`, or `46-47%` of the gfx1151 BF16 WMMA roof of approximately `59.4 TFLOP/s`. It reaches about `61-62%` of the approximately `45 TFLOP/s` delivered by a well-tuned hipBLASLt BF16 GEMM on this machine. The hipBLASLt result is an upper reference rather than an immediate fused-kernel target because GGTensile repeatedly loads packed data, reconstructs BF16 weights, stages LDS, and synchronizes before WMMA.
+The current selected Q4_K kernel sustains 28.93 TFLOP/s at K8192, or about 48.7% of the gfx1151 BF16 WMMA roof of approximately 59.4 TFLOP/s. It reaches about 64% of the approximately 45 TFLOP/s delivered by a well-tuned hipBLASLt BF16 GEMM on this machine. The hipBLASLt result is an upper reference rather than an immediate fused-kernel target because GGTensile repeatedly loads packed data, reconstructs BF16 weights, stages LDS, and synchronizes before WMMA.
 
-The existing HIP optimization logs have already closed broad ordinary-geometry, K64, two-LDS-buffer, decoder-width, local-prefetch, and traversal sweeps. GGTensile should revisit a closed direction only when direct assembly control creates a materially different mechanism. The strongest untested distinction is gfx1151 dual-issue and dependency scheduling: hipcc emits extensive VOPD, `s_clause`, and `s_delay_alu` scheduling for the HIP Q4_K kernel, while the current handwritten GGTensile path emits no VOPD.
+The exact-shape experiment has already measured ordinary geometry changes, DepthU 64, one- and two-LDS-buffer schedules, dedicated decoder waves, decoder batching, local prefetch, traversal, accumulator-clear VOPD, clauses, cache invalidation, and dependency placement. The two-buffer pipeline is retained; dedicated decoder waves and sub-percent scheduling neighborhoods are closed. Revisit this shape only for a materially different mechanism with a plausible multi-percent gain, while prioritizing the remaining production Q4_K shape families.
 
 ROCm rocm-libraries PR 9385 provides additional gfx1151 evidence. Its relevant transferable mechanisms are correct sub-dword WMMA local reads, capping local-read buffers by actual loop iterations, placing long-lived values before transient address registers, and using interaction-based shape tuning rather than one universal configuration. GGTensile should port those principles where they match the fused decoder rather than copying general GEMM code paths.
 
-### Proposed tuning controls
+### Production shape inventory and priority
 
-Every new control must change emitted ISA or resource ownership, participate in strict solution identity and validation, and remain rejected at unsupported values. Controls should use TensileLite terminology where the mechanism matches and explicit GGUF terminology where packed decode differs.
+The dense Q4_K campaign is the exact Cartesian product of `M={2048,8192,32768}` and `(N,K)={(2048,512),(512,2048),(4096,2048),(2048,8192)}` in GGTensile coordinates. Every generated kernel is correct for one exact `ProblemType` and `ProblemSize`; dispatch requires an exact key match and falls back to HIP otherwise. Grouped MMQ is outside this campaign.
 
-- Main-loop scheduling: add structured controls for global reads per WMMA group, local reads per WMMA group, decode operations per WMMA group, WMMA group size, and explicit VMEM/LDS wait budgets. Numeric `ScheduleIterAlg` values should map to named, inspectable issue schedules rather than accumulating opaque special cases.
-- Pipeline ownership: separate A prefetch lead, packed-Q prefetch lead, and metadata prefetch lead. Add `LdsBufferCount` and `DecodeAhead` only with complete implementations. Initial useful ranges are A lead `{1,2}`, decode lead `{0,1}`, and LDS buffers `{1,2}`.
-- Decoder ownership: add active compute waves, decoder waves, decoder width, and metadata-sharing method. Initial wave counts are `{1,2,4}` and decoder widths are `{8,16,32}` only where a quant-specific implementation provides complete decode coverage.
-- Geometry: retain `MacroTile`, `MIWaveTile`, `MIWaveGroup`, and `DepthU` as coupled controls. Candidate M/N dimensions come from `{32,64,128,256}` after exact divisibility filtering; initial DepthU values are `{16,32,64}`.
-- Traversal: distinguish grouped-M traversal, M/N launch order, and exact `WorkGroupMapping`. K staggering is lower priority and should be admitted only after profiling shows cache-set or partition contention rather than ordinary packed-weight reuse.
-- Global reads: separate A vector width, packed-payload vector width, and metadata vector width. Add scalar-global versus buffer-SRD addressing and cache policy only when both forms are implemented and inspected.
-- LDS: retain swizzle chunk as one layout dimension and add row padding, block-size-per-pad, and local-read grouping where they produce distinct address formulas. Layout remains quant-, geometry-, and shape-specific.
-- Epilogue: implement `NumElementsPerBatchStore` as a real store-scheduling control, along with store traversal and rounding/store interleave. Initial batch sizes are `{4,8,10,16,32}`. `StorePriorityOpt` must be retuned jointly with the selected main-loop and store schedule.
-- ISA lowering: add internal policies for VOPD pairing, VMEM clause formation, dependency-aware ordering, and register allocation modulo constraints. These should begin as unconditional lowering passes or internal experiments, not public tuning knobs.
+The established packaged-HIP timings below are planning seeds from the dense-backward optimization record. The campaign inventory must refresh them in the same process and build used for GGTensile decisions. The current experiment's fresh M32768 controls, 3.0246 ms for narrow and 47.779 ms for query, illustrate why historical absolute values cannot be mixed with a new bracket.
 
-### Unconditional assembly work
+| Family `(N,K)` | Calls | HIP ms at M2048/M8192/M32768 | Weighted Q4_K share | Current GGTensile status | First optimization question |
+| --- | ---: | ---: | ---: | --- | --- |
+| Narrow `(2048,512)` | 70 | `0.230/0.775/2.988` | about 32-40% | M32768 selected at 2.5063 ms; M2048/M8192 open | Can exact K512 trip specialization, lower fixed overhead, or lower-resource ownership beat the retained pipeline? |
+| Shared down `(512,2048)` | 30 | `0.261/1.537/5.266` | about 19-27% | all three open | Does N512 prefer different M ownership, XOR-16-style LDS layout, or traversal that reuses packed B across M? |
+| Attention output `(4096,2048)` | 10 | `1.339/5.912/23.803` | about 33-36% | all three open | Does wide N favor different traversal, N ownership, and epilogue cadence while preserving A locality? |
+| Query `(2048,8192)` | 1 | `3.376/12.567/48.613` | about 7-8% | M32768 selected at 38.012 ms; M2048/M8192 open | Does the same decode/WMMA pipeline win at lower M, or does occupancy and traversal change the balance? |
 
-The first experiments should improve generated ISA without adding resources or changing mathematical order.
+Narrow is first by call count, but attention output is first by aggregate latency at M8192 and M32768. Shared down has fewer weighted milliseconds but stronger evidence of HIP underperformance at those row counts. Candidate scheduling should therefore use fresh `call_count * HIP_median_ms` contribution and measured gap, not call count alone. Query remains last unless a mechanism discovered on another long-K shape transfers directly.
 
-- Implement a gfx1151 VOPD pairing pass. Start with accumulator zeroing, independent address arithmetic, scale/min unpacking, and prologue/epilogue operations. Pairing must enforce wave32, opcode-slot, source-bank, literal-sharing, destination, and old-value read rules from the gfx11 VOPD specification.
-- Make register allocation VOPD-aware. Preserve the current value-first order of accumulators, A fragments, B fragments, and transient state while selecting compatible register modulo classes for profitable pairs.
-- Compare hipcc and GGTensile blocks as scheduling evidence. Transfer legal VOPD pairs, memory clauses, and issue distances, but do not copy compiler-generated pointer state or its larger allocation.
-- Add measured `s_clause` candidates around the four A loads and packed-Q/metadata load groups. Clause length is retained only when timing and counters improve; lower instruction count alone is insufficient.
-- Audit `buffer_gl0_inv`. It invalidates vector L0 rather than LDS. An omission candidate is legal only after proving that the corresponding barrier protects LDS-only producer/consumer traffic, all global inputs are immutable, and exact execution remains correct across all target shapes.
-- Centralize fragment-buffer allocation and cap each buffer by actual loop iterations and modulo reuse, following the mechanism validated by PR 9385.
-- Extend direct lane/offset formulas and scalar-base addressing to every quant decoder before adding broader address-mode knobs.
+The first coverage change is not a tuning parameter. The current pilot validation accepts only `N=2048`; it must be generalized to the three exact N values in this inventory while retaining divisibility, packed-Q4_K layout, launch, and full-tile proofs. No candidate for N512 or N4096 is timed until reduced and production-size correctness establishes that coverage.
 
-### True decoded-B pipeline
+### Control taxonomy
 
-The largest high-level opportunity is a true two-buffer decoded-B pipeline. The rejected packed-next experiment moved only VMEM reads, and DepthU64 reduced loop/barrier frequency without overlapping next-tile decode with current WMMA. Neither tested the complete mechanism.
+GGTensile must distinguish implemented search axes, fixed identity fields, fused-decoder mechanisms that still need alternate emitters, and compiler-style lowering. A field does not become tunable merely because it exists in `Solution` or TensileLite.
 
-The intended pipeline primes B0 in LDS0, consumes LDS0 while loading and decoding B1 into LDS1, issues A at a measured lead, waits only when a specific fragment becomes live, and performs one buffer-swap barrier per DepthU tile instead of separate decode-ready and LDS-reuse barriers. Current packed-Q, d/min, and scale registers are dead after decode and can normally be reused for the next tile, so the primary fixed cost should be an additional 8 KiB LDS rather than a second complete packed-register set.
+The writer currently emits genuinely different paths for these coupled axes:
 
-Decode should be interleaved in bounded chunks between current-tile WMMA pairs. Candidate schedules vary the number of decoded values between WMMA groups and the first-use wait thresholds. Retention requires a stable gain above 2% because the mechanism adds LDS and scheduling complexity.
+- geometry through the implemented `MatrixInstruction`, `MacroTile`, `WorkGroup`, and `DepthU` combinations;
+- `WorkGroupMapping`, constrained by the exact M tile count;
+- the implemented `ScheduleIterAlg`, `PrefetchGlobalRead`, and `PrefetchLocalRead` combinations;
+- one decoded-B LDS buffer versus the complete two-buffer pipeline, represented by `1LDSBuffer=1` and `0` respectively;
+- `LdsSwizzleChunkB` values `0`, `4`, `8`, and `16`;
+- `StorePriorityOpt`, packed-next-only prefetch, and packed-weight lane sharing.
 
-### Shape and quant strategy
+These paths are valid bounded-scan inputs, but a value rejected on the measured M32768 pair is not automatically rejected for a different exact key. It enters a new scan only when the shape changes the stated cost model. For example, a K512 key may change prologue and epilogue weight, while N512 changes decode duplication and launch locality. The scan records the changed premise instead of silently reopening a closed experiment.
 
-GGTensile should tune shape families rather than seek one universal kernel. The 1,135-shape EvoTensile campaign retained many solution families, and the local dense/grouped logs show the same shape dependence.
+The following `Solution` fields remain fixed identity until an alternate path changes emitted ISA: `DecoderWidth=16`, both global-read vector widths, `LocalReadVectorWidth=16`, `NumElementsPerBatchStore=8`, `StoreVectorWidth=1`, `TransposeLDS=0`, both LDS pad fields, and `PrefetchPackedWeight=true`. In particular, the current store loop ignores `NumElementsPerBatchStore` as a scheduling choice; accepting another number would be a fake knob.
 
-The first multi-shape Q4_K campaign covers `(N,K)=(2048,8192)`, `(2048,512)`, `(4096,2048)`, and `(512,2048)` in GGTensile GEMM coordinates, at production M values `2048`, `8192`, and `32768` where each shape exists. Long-K kernels emphasize steady-loop scheduling, decode overlap, and traversal. K512 kernels emphasize prologue, epilogue, active waves, and store batching.
+Potential future mechanisms are not public controls yet:
 
-After Q4_K, expand in the established order: Q8_0, Q6_K, Q3_K, Q5_K, then IQ2_S. Each quant family owns its packed-read width, metadata reuse, extraction method, decoder ownership, and LDS layout. Existing HIP winners are seeds rather than conclusions: Q8_0 G2/padding/traversal, Q6 small-M geometries, and Q3/Q5 extraction choices define the first neighborhoods.
+- active compute-wave count and compute/decoder ownership;
+- decoder width, decode chunk size, metadata-sharing method, and packed-payload assignment;
+- independent A, packed-payload, and metadata prefetch leads;
+- explicit wait budgets and decode operations per WMMA group;
+- alternative packed and metadata load widths;
+- row-padded LDS formulas beyond the implemented XOR layouts;
+- real store batching, store traversal, vector stores, or LDS store remap;
+- fixed-trip reduction unroll policy.
 
-Small-M language-model-head shapes require a separate active-wave and geometry campaign. GSU, Stream-K, and persistent grids remain deferred unless a small-M/large-K profile demonstrates inadequate workgroup parallelism and the project explicitly accepts the required fixup or workspace contract.
+Each becomes a strict solution field only after at least two complete, validated emitters exist. Until then it is an internal named experiment or an unconditional derived choice.
+
+TensileLite supplies mechanism vocabulary and linked-constraint evidence, not a parameter list to copy. `MIWaveTile`, `MIWaveGroup`, `DepthU`, PGR, PLR, LDS buffer count, vectorized reads, workgroup mapping, store batching, and scheduling are relevant where GGTensile implements the same behavior. General-GEMM controls such as GSU, Stream-K, DirectToLds, DirectToVgpr, sparse metadata paths, source swap, activation, bias, and workspace epilogues do not describe this fused packed decoder. `StaggerU` is admitted only if a profile identifies K-partition or cache-set contention that ordinary traversal does not explain.
+
+### Exact-shape lowering
+
+Apply exact-shape compiler work before adding resource-bearing mechanisms. These passes are derived from `ProblemSize` and the selected complete solution; they are not search knobs.
+
+- Remove dead kernarg state. Completed: the writer now loads only the three live pointers, preserves the 40-byte ABI, and reduces declared SGPRs from 20 to 16. Serial 25-repeat brackets improved K512 by 0.42% and K8192 by 0.25% with no other static-resource change.
+- Fold exact dimensions, strides, tile counts, launch divisors, and Q4_K block offsets into immediates. Retain dynamic workgroup and lane coordinates, which are not shape constants.
+- Generate fixed reduction trip counts. Preserve the selected prime/steady/final pipeline, then test K512 loop unroll factors `{1,2,4,8,16}` as internal lowering choices. Inspect code size and instruction-cache behavior; full unrolling is not presumed beneficial.
+- Peel the exact prime and final iterations, remove impossible tails and bounds, and delete branch, counter, and pointer state only when no dynamic consumer remains.
+- Strength-reduce affine A and packed-weight addressing only when the induction form does not extend a live range or raise VGPR allocation. The rejected persistent-A experiment remains the control for resource-growing pointer state.
+- Derive immediate-offset versus explicit-address forms per exact geometry and keep scalar-base addressing wherever offsets fit.
+- Recompute register lifetimes after each geometry or pipeline change. Keep long-lived accumulators and fragments before transient decode/address state, cap fragment buffers by actual modulo reuse, and compact only after auditing every consumer.
+- Form legal VOPD pairs where instruction selection and register modulo classes permit them. Keep the 20 retained accumulator-clear pairs. The steady decoder is dominated by `v_bfe`, conversion, `v_fma_f32`, and BF16 rounding operations that are not useful gfx11 VOPD-Y candidates, so dynamic VOPD requires a concrete alternate lowering rather than an assumed compiler pass gain.
+- Omit `buffer_gl0_inv` only under the established immutable-input and producer-handoff proof. Preserve the instruction if a future memory contract invalidates that proof.
+
+An unconditional change is retained when it is bit-exact, reproducible, resource-clean, and neutral-to-favorable on representative K512 and K8192 brackets. Lower static instruction count alone is not sufficient: prior HIP work showed that removing conversion or LDS work can also remove latency-hiding cadence.
+
+### High-level shape experiments
+
+Start every open key from the selected `128x128x32`, four-wave, XOR-8, SIA4/PGR2/PLR1 two-buffer pipeline when compatible. Also preserve HIP and the best one-buffer assembly as controls. Search in focused neighborhoods, promoting only winners to the next neighborhood.
+
+For narrow K512 keys:
+
+- run exact lowering and fixed-trip unroll before new resource ownership;
+- compare one versus two decoded-B buffers and the implemented four-wave M64/M128 ownership where exact divisibility holds;
+- scan valid traversal divisors for each M and recheck XOR-8 against unpadded/XOR-16 only because short K changes fixed-cost weighting;
+- profile prologue, final-store, VMEM-wait, and barrier shares; implement real store batching or active-wave alternatives only if those shares are first-order.
+
+For shared-down N512/K2048 keys:
+
+- compare M64/M128 ownership and one/two-buffer overlap while keeping N tile coverage exact;
+- prioritize `WorkGroupMapping` and packed-B locality because only four N128 tiles exist and prior dense traversal changes produced large L2 gains;
+- compare XOR-8, XOR-16, and unpadded LDS layouts with static LDS issue counts and dynamic stalls, using the HIP XOR-16 winner only as a seed;
+- add wider-N ownership only if the implemented neighborhood shows repeated A traffic or launch overhead as the dominant floor.
+
+For attention-output N4096/K2048 keys:
+
+- scan traversal first because the wide N grid can trade A reuse against packed-B reuse;
+- compare the retained four-wave geometries and buffer count, then profile A traffic, L2 hit rate, LDS waits, and store share;
+- consider wider-N ownership and a real batched epilogue only after those profiles show a multi-percent ceiling. Larger accumulator sets must remain below the resource warning boundary and cannot be justified by fewer workgroups alone.
+
+For query K8192 keys:
+
+- preserve the true two-buffer pipeline and scan only M-dependent traversal and compatible geometry on M2048/M8192;
+- use lower-bound kernels when the complete/WMMA/decode relationship materially differs from M32768;
+- do not reopen clauses, dependency batching, early A0 placement, packed-next-only prefetch, lane sharing, PLR2, SIA5, DepthU64, or dedicated decoder waves without a changed resource or stall premise;
+- revisit M32768 only for a mechanism plausibly exceeding its remaining approximately 3.6% latency gap to 30 TFLOP/s.
+
+### Traversal and locality
+
+Traversal is a first-order exact-shape axis. Prior dense-backward DB7/DB8 controls changed only grouped-M launch mapping yet cut large-M latency by about 39-42% on the first families and raised L2 hit rate by 30.6-47.4 percentage points in the complete sweep. Earlier Q4_K pilot WGM1 likewise changed the kernel from roughly 119 ms to roughly 52 ms. Geometry-specific counterexamples also prove that no global mapping rule is valid.
+
+For each exact key, scan only `WorkGroupMapping` values that divide `M/MacroTile0`. Compare normalized assembly to ensure the body is otherwise unchanged, then retain mappings by event timing and locality evidence. Treat L2 hit rate, occupancy, LDS stalls, and cache traffic as explanatory counters; timing remains authoritative. Do not infer a winner from launch-order intuition or conflict percentages alone.
+
+### Scheduling and ISA experiments
+
+Low-level scheduling follows high-level geometry, traversal, and pipeline selection because those choices change live ranges and the useful latency-hiding mix.
+
+- Express a schedule as named placement of packed reads, metadata reads, decode chunks, A reads, LDS reads/writes, WMMAs, waits, and the swap barrier. Numeric `ScheduleIterAlg` values remain aliases for complete inspectable schedules.
+- Vary wait thresholds only at actual first-use boundaries. Validate VMEM and LDS dependencies statically and with reduced execution before production launch.
+- Compare hipcc output with GGTensile as evidence for instruction selection, clauses, VOPD, and dependency distances. Do not copy generic bounds, 64-bit pointer chains, or compiler state into an exact kernel.
+- Keep `s_clause` closed by default: A-load clauses gained only 0.035% on K8192 and 0.29% on K512. Reopen clauses only for a different load group with profile evidence of arbitration loss.
+- Treat `s_delay_alu` and `s_waitcnt_depctr` as hazard/scheduling instructions, not decorative optimizations. Add them only from a verified gfx1151 dependency requirement or a measured expert-scheduling experiment.
+- Evaluate static issue classes, VOPD operations versus issues, VMEM, LDS, waits, barriers, code size, and resources together. A shorter assembly that slows the rotating bracket is rejected.
 
 ### Lower bounds and profiling
 
-Before a broad search, build three exact-shape lower-bound kernels: WMMA consuming an already staged decoded-B tile, packed decode plus LDS without WMMA, and the complete fused kernel. These isolate matrix-pipeline, decode, LDS, and synchronization floors and prevent tuning the wrong subsystem.
+For each materially different family, generate the complete fused kernel and, when diagnosis is ambiguous, exact `wmma_floor` and `decode_floor` kernels. The floors preserve launch geometry and declared resources so their differences isolate matrix/A/LDS work from packed decode/LDS work rather than occupancy.
 
-Collect static and dynamic evidence for VOPD eligibility, VALU issue count, WMMA issue density, VMEM wait cycles, LDS wait cycles, barriers, L0/L2 behavior, LDS conflicts, occupancy, and resource allocation. Use only counter groups supported together by gfx1151; preserve narrower raw-counter runs when derived combinations exceed hardware collection capacity.
+Collect only gfx1151-supported counter groups. Useful evidence includes aggregate wave cycles, wait-count and barrier stalls, VMEM/LDS issue counts, L0/L2 behavior, LDS conflicts, occupancy, and resource allocation. Preserve raw runs when derived-counter combinations exceed hardware collection capacity. Counter values guide the next experiment but never replace same-process event timing.
 
-The initial target is a reproducible move above `30 TFLOP/s` on K8192 without sacrificing K512. Approximately `35 TFLOP/s` is an ambitious second-stage target for VOPD plus a true decoded-B pipeline. The `45 TFLOP/s` dense GEMM result remains a comparison ceiling, not an acceptance requirement for fused packed decode.
+### Bounded campaign runner
+
+The campaign script operates outside `KernelWriterAssembly` and consumes an explicit inventory plus an explicit candidate list. It does not construct a broad Cartesian product or repair unsupported solutions.
+
+For every exact `(key, candidate)` pair it must:
+
+1. Generate into an immutable output directory, preserve accepted or structured-rejected manifests, and hash only generated source assembly.
+2. Build only accepted generation manifests and refuse source-hash mismatches or overwrites.
+3. Inspect symbol, ABI, gfx1151/wave32 metadata, register bounds, LDS, WMMAs, waits, barriers, and all hard resource exclusions.
+4. Run reduced K32/K64/K96-style tests when a new control-flow, induction, ownership, or pipeline mechanism is introduced.
+5. Run exact production-shape comparison against HIP, independent GGUF/BF16 reference checks, and producer-handoff mutation checks where cache policy is affected.
+6. Screen accepted candidates with warmed rotating nine-repeat HIP/current/candidate controls in one process.
+7. Confirm finalists with fresh 25-repeat rotating brackets and preserve raw samples, median, dispersion, ratio, normalized assembly, and rejection reasoning.
+
+The runner may cache compilation by exact solution and assembly identity, but validation and timing evidence retain their own protocol identity. It never benchmarks while compiling, never times a correctness failure, and never converts absence into rejection. Non-finite timings, malformed result rows, or incomplete rotations fail the observation.
+
+### Measurement and retention gates
+
+Every retained candidate must be exact-shape correct, source-reproducible, and free of private storage, spills, scratch, calls, and dynamic stack. New resource-bearing mechanisms require a stable gain above 2% on their target key and no repeatable regression above 1% on another key that shares the same emitted path. Resource-neutral compiler simplifications may remain when neutral or favorable on both a short-K and long-K control.
+
+Per-key finalists are selected by fresh local brackets. Campaign success is selected by complete-model impact: run all 12 exact keys under the appropriate M workload, weight by checkpoint call counts, and report raw family totals as well as the aggregate. Keep HIP as fallback for any key where assembly does not win. A family improvement does not justify dispatching a slower exact key.
 
 ### Deferred directions
 
 Do not prioritize GSU, Stream-K, persistent workgroups, generic DirectToLds, or broad DirectToVgpr controls. They require output fixup/workspace, address a regular-grid deficit not yet observed, or cannot perform cooperative GGUF reconstruction. A is already loaded directly into WMMA-facing VGPRs, while packed B must be decoded before LDS consumption.
 
-Prepared weights, compact alternate layouts, and BF16 shadows remain outside GGTensile kernel tuning because they change model-visible ownership, lifetime, invalidation, and memory contracts. Public integration remains deferred until GGTensile covers the production matrix/quant families well.
+Prepared weights, compact alternate layouts, and BF16 shadows remain outside GGTensile kernel tuning because they change model-visible ownership, lifetime, invalidation, and memory contracts. Public integration remains deferred until GGTensile covers the production matrix and quant families well.
 
-Broad PLR2, packed-next-only, K64, two-LDS-buffer without decode overlap, and half-area Q4_K tile sweeps remain closed. Reopen one only if VOPD, register compaction, or the complete pipeline changes its resource or stall regime.
+Broad PLR2, packed-next-only, K64, two-LDS-buffer without decode overlap, and half-area Q4_K tile sweeps remain closed for the measured pair. Reopen one only when an exact shape or a preceding retained change demonstrably changes its resource or stall regime.
 
 ### Campaign sequence
 
-1. Establish per-shape lower bounds and a same-process profile for the current selected artifacts.
-2. Implement and bracket unconditional VOPD, clause, dependency-ordering, and cache-invalidation candidates on K8192 and K512.
-3. Add structured schedule controls and search small coupled grids around the selected SIA4/PGR2 path.
-4. Implement the true two-LDS decoded-B pipeline and retain it only if the measured gain pays for the added LDS and complexity.
-5. Complete the four Q4_K production shape families, including M-dependent active-wave and traversal policies.
-6. Expand quant coverage in the Q8_0, Q6_K, Q3_K, Q5_K, and IQ2_S order.
-7. Run an EvoTensile-style measured campaign with exact candidate-shape evidence, candidate-family promotion, workload weighting, and preserved rejection records.
-8. Finalize only after fresh rotating brackets and complete Qwen/DeepSeek workload validation; public runtime dispatch remains a later project.
+1. Create the machine-readable 12-key inventory with representative tensors, call counts, fresh HIP medians, historical controls, and exact validation requirements. Generalize N coverage only as required by these keys.
+2. Add the bounded runner with immutable generate, build, inspect, correctness, screen, and confirmation evidence.
+3. Apply and bracket exact-shape lowering on the selected M32768 K512 and K8192 controls. Dead kernarg dimensions are complete; fixed-trip reduction and K512 loop policy are next.
+4. Run the retained pipeline and one-buffer control on every compatible key, establish lower bounds only where diagnosis is unclear, and rank open keys by fresh weighted latency and plausible gap.
+5. Optimize the two open narrow keys, then interleave attention-output and shared-down work by weighted contribution. Optimize the two open query keys last. Within each key, test traversal before expanding geometry/dataflow and test low-level scheduling only on high-level finalists.
+6. Reconfirm every per-key finalist, fall back to HIP where assembly does not win, and run complete weighted Qwen backward correctness and latency across all 12 keys. Update the experiment log after every retained or rejected mechanism.
+7. **Final step, always: optimization-exhaustion review.** Re-read every resource used by the campaign: this plan and experiment log; all dense/grouped MMQ optimization records; current HIP and GGTensile sources; normalized HIP and assembly disassemblies; manifests, rejected candidates, lower bounds, profiles, counters, and timing brackets; TensileLite solution, scheduling, LDS, register, and store mechanisms; EvoTensile search and measurement records; FeatherOps/hipBLASLt/CK studies; the gfx1151 ISA reference; and LLVM AMDGPU instruction, VOPD, hazard, delay, and scheduling sources/tests. Classify every newly inferred idea as duplicate/closed, contract-incompatible, unsupported, deferred with an explicit prerequisite, or actionable with a target key, mechanism, expected multi-percent path, and measurement gate. If any actionable idea remains, insert its implementation and experiment immediately before this final step, execute it, record the result, and perform the complete final review again. This review must remain the last step after every plan edit and cannot pass in the same iteration that discovers actionable work. The dense Q4_K optimization campaign is exhausted only when a complete review produces no new valid actionable kernel idea and every prior actionable idea has been retained, rejected, or explicitly deferred outside the current contract.
 
-Screens use warmed rotating nine-repeat controls, followed by 25-repeat brackets for finalists. New resource-bearing mechanisms require accepted correctness, reproducible source assembly, no private storage/spills/scratch/calls/dynamic stack, and a stable gain above 2%. Unconditional instruction or resource reductions may be retained when neutral or favorable across both long-K and short-K controls.
+Quant-family expansion starts only after step 7 reaches that stopping condition. Public runtime dispatch remains a later project.
 
 ## Integration And Expansion
 
-The pilot uses a separate exact-problem symbol and does not replace the existing HIP `in_features=2048` range symbol. Production dispatch may select an assembly artifact only when every exact `ProblemType` and `ProblemSize` assertion and source-assembly identity check matches; otherwise it uses HIP.
+Each GGTensile artifact uses a separate exact-problem symbol and does not replace an existing HIP range symbol. Production dispatch may select an assembly artifact only when every exact `ProblemType` and `ProblemSize` assertion and source-assembly identity check matches; otherwise it uses HIP. Cross-shape correctness is deliberately not part of a generated kernel's contract.
 
 After Q4_K passes the full gate, dense backward expands in this order: Q8_0, Q6_K, Q3_K, Q5_K, and IQ2_S. Dense forward is considered only after all six dense-backward types pass complete Qwen and DeepSeek correctness and weighted benchmarks. Grouped MMQ remains deferred until dense assembly demonstrates a useful measured advantage.
 
-Future automated search should operate outside `KernelWriterAssembly`. It may construct, repair, mutate, cache, validate, and rank complete solutions, but GGTensile continues to provide deterministic `SolutionKey` identity, explainable rejection, isolated generation/build/inspection phases, and immutable evidence manifests.
+Bounded scan scripts operate outside `KernelWriterAssembly`. They may construct, cache, validate, and rank complete solutions for explicit exact keys, but GGTensile continues to provide deterministic `SolutionKey` identity, explainable rejection, isolated generation/build/inspection phases, and immutable evidence manifests. A larger automated search system remains optional and is not needed to complete the 12-shape Q4_K campaign.
