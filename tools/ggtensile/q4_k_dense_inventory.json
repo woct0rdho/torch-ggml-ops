@@ -24,7 +24,8 @@
       "RepresentativeTensor": "blk.5.ffn_gate_shexp.weight",
       "CallCount": 70,
       "HistoricalHipMedianMs": 0.230,
-      "CurrentStatus": "open"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_128x128_pipeline"
     },
     {
       "Family": "narrow",
@@ -32,7 +33,8 @@
       "RepresentativeTensor": "blk.5.ffn_gate_shexp.weight",
       "CallCount": 70,
       "HistoricalHipMedianMs": 0.775,
-      "CurrentStatus": "open"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_128x128_pipeline"
     },
     {
       "Family": "narrow",
@@ -40,7 +42,8 @@
       "RepresentativeTensor": "blk.5.ffn_gate_shexp.weight",
       "CallCount": 70,
       "HistoricalHipMedianMs": 2.988,
-      "CurrentStatus": "selected"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_128x128_pipeline"
     },
     {
       "Family": "shared_down",
@@ -48,7 +51,8 @@
       "RepresentativeTensor": "blk.5.ffn_down_shexp.weight",
       "CallCount": 30,
       "HistoricalHipMedianMs": 0.261,
-      "CurrentStatus": "open"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_128x128_pipeline"
     },
     {
       "Family": "shared_down",
@@ -56,7 +60,8 @@
       "RepresentativeTensor": "blk.5.ffn_down_shexp.weight",
       "CallCount": 30,
       "HistoricalHipMedianMs": 1.537,
-      "CurrentStatus": "open"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_128x128_pipeline"
     },
     {
       "Family": "shared_down",
@@ -64,7 +69,8 @@
       "RepresentativeTensor": "blk.5.ffn_down_shexp.weight",
       "CallCount": 30,
       "HistoricalHipMedianMs": 5.266,
-      "CurrentStatus": "open"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_128x128_pipeline"
     },
     {
       "Family": "attention_output",
@@ -72,7 +78,8 @@
       "RepresentativeTensor": "blk.3.attn_output.weight",
       "CallCount": 10,
       "HistoricalHipMedianMs": 1.339,
-      "CurrentStatus": "open"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "attention_m2048_128x64"
     },
     {
       "Family": "attention_output",
@@ -80,7 +87,8 @@
       "RepresentativeTensor": "blk.3.attn_output.weight",
       "CallCount": 10,
       "HistoricalHipMedianMs": 5.912,
-      "CurrentStatus": "open"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "attention_m8192_128x64_sia5_priority"
     },
     {
       "Family": "attention_output",
@@ -88,7 +96,8 @@
       "RepresentativeTensor": "blk.3.attn_output.weight",
       "CallCount": 10,
       "HistoricalHipMedianMs": 23.803,
-      "CurrentStatus": "open"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_128x128_pipeline"
     },
     {
       "Family": "query",
@@ -96,7 +105,8 @@
       "RepresentativeTensor": "blk.39.attn_q.weight",
       "CallCount": 1,
       "HistoricalHipMedianMs": 3.376,
-      "CurrentStatus": "open"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_128x128_pipeline"
     },
     {
       "Family": "query",
@@ -104,7 +114,8 @@
       "RepresentativeTensor": "blk.39.attn_q.weight",
       "CallCount": 1,
       "HistoricalHipMedianMs": 12.567,
-      "CurrentStatus": "open"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_128x128_pipeline"
     },
     {
       "Family": "query",
@@ -112,7 +123,8 @@
       "RepresentativeTensor": "blk.39.attn_q.weight",
       "CallCount": 1,
       "HistoricalHipMedianMs": 48.613,
-      "CurrentStatus": "selected"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_128x128_pipeline"
     }
   ]
 }

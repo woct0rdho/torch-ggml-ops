@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from tools.ggtensile.campaign import CampaignError, load_inventory, load_solution
+from tools.ggtensile.campaign import (
+    CampaignError,
+    load_inventory,
+    load_solution,
+    load_solution_catalog,
+)
 from tools.ggtensile.cli import main as ggtensile_cli_main
 from tools.ggtensile.inspection import inspect_artifact
 from tools.ggtensile.kernel_writer_assembly import DiagnosticMode, KernelWriterAssembly
@@ -32,6 +37,7 @@ def _toolchain() -> Toolchain:
 def test_q4_k_campaign_inventory_is_exact_and_versionless() -> None:
     inventory = load_inventory()
     solution = load_solution()
+    catalog = load_solution_catalog()
     assert len(inventory.entries) == 12
     assert {entry.family for entry in inventory.entries} == {
         "narrow",
@@ -44,8 +50,19 @@ def test_q4_k_campaign_inventory_is_exact_and_versionless() -> None:
         8192,
         32768,
     }
+    assert all(entry.current_status == "selected" for entry in inventory.entries)
+    assert {entry.selected_solution for entry in inventory.entries} == set(catalog)
     assert all(
         validate_solution(entry.solution_key(inventory.problem_type, solution)) == ()
+        for entry in inventory.entries
+    )
+    assert all(
+        validate_solution(
+            entry.solution_key(
+                inventory.problem_type, catalog[entry.selected_solution]
+            )
+        )
+        == ()
         for entry in inventory.entries
     )
     shared_down = next(
@@ -82,6 +99,9 @@ def test_q4_k_campaign_prepare_is_serial_and_immutable(tmp_path: Path) -> None:
     assert summary["Phase"] == "Prepare"
     assert summary["Status"] == "Accepted"
     assert len(summary["Entries"]) == 1
+    assert summary["Entries"][0]["SelectedSolution"] == (
+        "retained_128x128_pipeline"
+    )
     artifact = root / "m2048_n512_k2048"
     assert (artifact / "generate.json").is_file()
     assert (artifact / "build.json").is_file()

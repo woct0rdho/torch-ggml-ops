@@ -7,6 +7,9 @@ from .model import ProblemSize, ProblemType, SchemaError, Solution, SolutionKey
 
 DEFAULT_INVENTORY = Path(__file__).with_name("q4_k_dense_inventory.json")
 DEFAULT_RETAINED_SOLUTION = Path(__file__).with_name("q4_k_retained_solution.json")
+DEFAULT_SELECTED_SOLUTIONS = Path(__file__).with_name(
+    "q4_k_selected_solutions.json"
+)
 
 _FAMILY_SPECS = {
     "narrow": ((2048, 512), "blk.5.ffn_gate_shexp.weight", 70),
@@ -59,6 +62,7 @@ class CampaignEntry:
     call_count: int
     historical_hip_median_ms: float
     current_status: str
+    selected_solution: str
 
     @property
     def slug(self) -> str:
@@ -128,6 +132,29 @@ def load_solution(path: Path = DEFAULT_RETAINED_SOLUTION) -> Solution:
         raise CampaignError(f"invalid campaign solution: {error}") from error
 
 
+def load_solution_catalog(
+    path: Path = DEFAULT_SELECTED_SOLUTIONS,
+) -> dict[str, Solution]:
+    root = _mapping(
+        _load_json(path, "solution catalog"),
+        "solution catalog",
+        frozenset({"Solutions"}),
+    )
+    raw_solutions = root["Solutions"]
+    if not isinstance(raw_solutions, Mapping) or not raw_solutions:
+        raise CampaignError("Solutions must be a nonempty JSON object")
+    solutions: dict[str, Solution] = {}
+    for name, value in raw_solutions.items():
+        selected_name = _string(name, "solution catalog key")
+        try:
+            solutions[selected_name] = Solution.from_mapping(value)
+        except SchemaError as error:
+            raise CampaignError(
+                f"invalid catalog solution {selected_name!r}: {error}"
+            ) from error
+    return solutions
+
+
 def load_inventory(path: Path = DEFAULT_INVENTORY) -> CampaignInventory:
     root = _mapping(
         _load_json(path, "inventory"),
@@ -164,6 +191,7 @@ def load_inventory(path: Path = DEFAULT_INVENTORY) -> CampaignInventory:
                     "CallCount",
                     "HistoricalHipMedianMs",
                     "CurrentStatus",
+                    "SelectedSolution",
                 }
             ),
         )
@@ -192,9 +220,14 @@ def load_inventory(path: Path = DEFAULT_INVENTORY) -> CampaignInventory:
             call_count=_integer(item["CallCount"], f"Keys[{index}].CallCount"),
             historical_hip_median_ms=float(historical),
             current_status=status,
+            selected_solution=_string(
+                item["SelectedSolution"], f"Keys[{index}].SelectedSolution"
+            ),
         )
         if entry.call_count <= 0:
             raise CampaignError(f"Keys[{index}].CallCount must be positive")
+        if not entry.selected_solution:
+            raise CampaignError(f"Keys[{index}].SelectedSolution must not be empty")
         entries.append(entry)
 
     expected_sizes = {

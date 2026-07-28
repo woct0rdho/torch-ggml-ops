@@ -114,10 +114,10 @@ The established packaged-HIP timings below are planning seeds from the dense-bac
 
 | Family `(N,K)` | Calls | HIP ms at M2048/M8192/M32768 | Weighted Q4_K share | Current GGTensile status | First optimization question |
 | --- | ---: | ---: | ---: | --- | --- |
-| Narrow `(2048,512)` | 70 | `0.230/0.775/2.988` | about 32-40% | retained pipeline screen `0.174/0.621/2.518` ms | Can lower fixed overhead or lower-resource ownership beat the retained pipeline? |
-| Shared down `(512,2048)` | 30 | `0.261/1.537/5.266` | about 19-27% | retained pipeline screen `0.206/1.196/3.404` ms | Does N512 prefer different M ownership, XOR-16-style LDS layout, or traversal that reuses packed B across M? |
-| Attention output `(4096,2048)` | 10 | `1.339/5.912/23.803` | about 33-36% | M2048 selects `128x64` at 1.191 ms; M8192 selects `128x64` SIA5/store-priority at 4.888 ms; M32768 retains `128x128` | Does M32768 need a different wide-N ownership or epilogue cadence? |
-| Query `(2048,8192)` | 1 | `3.376/12.567/48.613` | about 7-8% | retained pipeline screen `2.404/9.927/39.923` ms | Does the same decode/WMMA pipeline remain best at lower M, or does occupancy and traversal change the balance? |
+| Narrow `(2048,512)` | 70 | `0.230/0.775/2.988` | about 32-40% | selected `0.180/0.612/2.528` ms | complete; retained pipeline wins all three keys |
+| Shared down `(512,2048)` | 30 | `0.261/1.537/5.266` | about 19-27% | selected `0.208/1.192/3.390` ms | complete; retained pipeline wins all three keys |
+| Attention output `(4096,2048)` | 10 | `1.339/5.912/23.803` | about 33-36% | selected `1.211/5.005/19.461` ms | complete; M2048 uses `128x64`, M8192 adds SIA5/store priority, M32768 retains `128x128` |
+| Query `(2048,8192)` | 1 | `3.376/12.567/48.613` | about 7-8% | selected `2.439/10.062/38.448` ms | complete; retained pipeline wins all three keys |
 
 Narrow is first by call count, but attention output is first by aggregate latency at M8192 and M32768. Shared down has fewer weighted milliseconds but stronger evidence of HIP underperformance at those row counts. Candidate scheduling should therefore use fresh `call_count * HIP_median_ms` contribution and measured gap, not call count alone. Query remains last unless a mechanism discovered on another long-K shape transfers directly.
 
@@ -163,8 +163,8 @@ Apply exact-shape compiler work before adding resource-bearing mechanisms. These
 - Fold exact dimensions, strides, tile counts, launch divisors, and Q4_K block offsets into immediates. Retain dynamic workgroup and lane coordinates, which are not shape constants.
 - Generate fixed reduction trip counts. Completed branch-only specialization preserves the prime/steady/final pipeline, removes the pre-stage exit test and unconditional back branch, and uses one post-stage compare. K32 emits no steady body; K64 and larger exact keys retain the steady path. Serial 25-repeat brackets improved K512 by 0.72% and K8192 by 0.30% with unchanged resources and static issue counts. Duff-style body unroll is closed: factors 2/4/8 and complete K512 factor 15 or K8192 factor 16 grew code objects by 19-289%; K512 gains were at most 0.97%, and K8192 was neutral to 0.63% slower. No unroll control remains in the writer.
 - Peel the exact prime and final iterations, remove impossible tails and bounds, and delete branch, counter, and pointer state only when no dynamic consumer remains.
-- Strength-reduce affine A and packed-weight addressing only when the induction form does not extend a live range or raise VGPR allocation. Completed power-of-two row-stride lowering emits shifts for production A/output strides and preserves multiply fallback for reduced K96. Two A shifts pair with accumulator clears, raising VOPD pairs from 20 to 22 and reducing static VALU issues from 903 to 901. Serial 25-repeat brackets are neutral at K512 and improve K8192 by 0.30% with unchanged resources. The rejected persistent-A experiment remains the control for resource-growing pointer state.
-- Derive immediate-offset versus explicit-address forms per exact geometry and keep scalar-base addressing wherever offsets fit.
+- Strength-reduce affine A and packed-weight addressing only when the induction form does not extend a live range or raise VGPR allocation. Completed power-of-two row-stride lowering emits shifts for production A/output strides and preserves multiply fallback for reduced K96. Two A shifts pair with accumulator clears, raising VOPD pairs from 20 to 22 and reducing static VALU issues from 903 to 901. Serial 25-repeat brackets are neutral at K512 and improve K8192 by 0.30% with unchanged resources. A persistent packed-row base was also tested: it saved three dynamic VALU operations per tile but raised allocation to 213 VGPRs, gained only 1.37% on K512, and regressed K8192 by 0.09%, so it was removed. The rejected persistent-A experiment remains the other control for resource-growing pointer state.
+- Derive immediate-offset versus explicit-address forms per exact geometry and keep scalar-base addressing wherever offsets fit. Replacing packed-row `v_mul_lo_u32` by a lower-latency `v_lshl_add_u32` plus shift chain added one dynamic issue and gained only 0.61% on K512 and 0.45% on K8192, so the single multiply remains selected.
 - Recompute register lifetimes after each geometry or pipeline change. Keep long-lived accumulators and fragments before transient decode/address state, cap fragment buffers by actual modulo reuse, and compact only after auditing every consumer. A completed correctness fix now emits hoisted A byte offsets only for SIA4/5; SIA2/3 reconstruct row coordinates in `_emit_wmma` and no longer multiply an already-strided value again. Exact `256x64`, `256x128`, and SIA3/PLR2 execution validates the separation.
 - Form legal VOPD pairs where instruction selection and register modulo classes permit them. Keep the 20 retained accumulator-clear pairs. The steady decoder is dominated by `v_bfe`, conversion, `v_fma_f32`, and BF16 rounding operations that are not useful gfx11 VOPD-Y candidates, so dynamic VOPD requires a concrete alternate lowering rather than an assumed compiler pass gain.
 - Omit `buffer_gl0_inv` only under the established immutable-input and producer-handoff proof. Preserve the instruction if a future memory contract invalidates that proof.
@@ -184,10 +184,9 @@ For narrow K512 keys:
 
 For shared-down N512/K2048 keys:
 
-- compare M64/M128 ownership and one/two-buffer overlap while keeping N tile coverage exact;
-- prioritize `WorkGroupMapping` and packed-B locality because only four N128 tiles exist and prior dense traversal changes produced large L2 gains;
-- compare XOR-8, XOR-16, and unpadded LDS layouts with static LDS issue counts and dynamic stalls, using the HIP XOR-16 winner only as a seed;
-- add wider-N ownership only if the implemented neighborhood shows repeated A traffic or launch overhead as the dominant floor.
+- M64/M128 ownership, one/two-buffer overlap, WGM1/2/4/8, and half-tile geometries are complete and retain the `128x128` two-buffer seed;
+- high-M ownership is closed: `256x64` regresses weighted shared-down latency by 101%, and `256x128` by 47%; only M2048 `256x128` is near neutral at a 2.57% regression. Reduced packed-B duplication does not repay one-buffer scheduling and eight-wave residency;
+- wider ownership or new LDS layouts require a new profile showing a first-order repeated-B or stall ceiling; the implemented geometry neighborhood provides no such signal.
 
 For attention-output N4096/K2048 keys:
 
@@ -199,7 +198,9 @@ For attention-output N4096/K2048 keys:
 - store priority on the complete two-buffer matrix is closed. Eleven keys are neutral or worse; query M2048's only 2.01% screen signal falls to 1.45% in a fresh 25-repeat confirmation;
 - corrected `256x64` is closed after a focused screen: it regresses narrow by 4.69-49.84%, regresses attention-output M8192/M32768 by over 24%, and gains only 0.94% at M2048 versus the retained control, which is already slower than selected `128x64`;
 - true two-buffer half-tile pipelines were implemented, reduced-trip checked, and screened before removal. `64x128` regressed weighted latency by 71.95%; `128x64` regressed by 4.39% and lost by roughly 4-6% to the selected one-buffer attention artifacts. The pipeline remains restricted to `128x128`;
-- consider a real batched epilogue only if profiles show a multi-percent ceiling. Larger accumulator sets must remain below the resource warning boundary and cannot be justified by fewer workgroups alone.
+- eight-wave `256x128` ownership is closed across shared-down, narrow, and attention output. Narrow regresses 16-30%, attention regresses 9-39%, and shared-down regresses up to 56%; a larger workgroup without a new sharing mechanism is not actionable;
+- the M32768 lower bounds are complete at 18.686 ms total, 12.008 ms WMMA/A/LDS, and 8.532 ms decode/LDS; the floor sum is only 1.099 times complete because overlap is already strong. The WMMA/A floor sustains 45.78 TFLOP/s, so cooperative A staging is not a traffic-dominant large-margin direction and would add LDS work plus the rejected eight-wave/one-buffer regime;
+- consider a real batched epilogue only if a future profile shows a multi-percent ceiling. Larger accumulator sets must remain below the resource warning boundary and cannot be justified by fewer workgroups alone.
 
 For query K8192 keys:
 
@@ -233,7 +234,7 @@ Collect only gfx1151-supported counter groups. Useful evidence includes aggregat
 
 ### Bounded campaign runner
 
-`tools/run_ggtensile_q4_k_campaign.py` operates outside `KernelWriterAssembly` and consumes the versionless `tools/ggtensile/q4_k_dense_inventory.json` plus an explicit solution. It does not construct a broad Cartesian product or repair unsupported solutions. The retained-solution matrix prepares all 12 exact kernels at 212 VGPRs, 16 SGPRs, and 16 KiB LDS; every key passes bit-exact HIP and producer-mutation checks. Its first serial nine-repeat screen measures a weighted candidate/HIP latency ratio of 0.7906.
+`tools/run_ggtensile_q4_k_campaign.py` operates outside `KernelWriterAssembly` and consumes the versionless `tools/ggtensile/q4_k_dense_inventory.json` plus either one explicit scan solution or the versionless `q4_k_selected_solutions.json` catalog. It does not construct a broad Cartesian product or repair unsupported solutions. The catalog-driven final matrix passes immutable prepare, correctness, and 25-repeat confirmation on all 12 exact keys. Weighted selected/HIP latency is 0.7902, a 20.98% reduction; every exact key independently beats HIP.
 
 For every exact `(key, candidate)` pair it must:
 
@@ -263,13 +264,13 @@ Broad PLR2, packed-next-only, K64, two-LDS-buffer without decode overlap, and ha
 
 ### Campaign sequence
 
-1. Maintain the completed machine-readable 12-key inventory with representative tensors, call counts, fresh HIP medians, historical controls, and exact validation requirements.
-2. Use the completed bounded runner for immutable generate, build, inspect, correctness, screen, and confirmation evidence; never overlap GPU campaign phases.
-3. Apply and bracket exact-shape lowering on the selected M32768 K512 and K8192 controls. Dead kernarg dimensions and branch-only fixed-trip reduction are retained; body unroll is rejected, so the current exact-shape loop-lowering stage is complete.
-4. Retained-pipeline and one-buffer controls are complete on every key; one buffer is rejected globally. Rank open keys by fresh weighted latency and plausible gap, and establish lower bounds only where diagnosis is unclear.
-5. Optimize the two open narrow keys, then interleave attention-output and shared-down work by weighted contribution. Optimize the two open query keys last. Within each key, test traversal before expanding geometry/dataflow and test low-level scheduling only on high-level finalists.
-6. Reconfirm every per-key finalist, fall back to HIP where assembly does not win, and run complete weighted Qwen backward correctness and latency across all 12 keys. Update the experiment log after every retained or rejected mechanism.
-7. **Final step, always: optimization-exhaustion review.** Re-read every resource used by the campaign: this plan and experiment log; all dense/grouped MMQ optimization records; current HIP and GGTensile sources; normalized HIP and assembly disassemblies; manifests, rejected candidates, lower bounds, profiles, counters, and timing brackets; TensileLite solution, scheduling, LDS, register, and store mechanisms; EvoTensile search and measurement records; FeatherOps/hipBLASLt/CK studies; the gfx1151 ISA reference; and LLVM AMDGPU instruction, VOPD, hazard, delay, and scheduling sources/tests. Classify every newly inferred idea as duplicate/closed, contract-incompatible, unsupported, deferred with an explicit prerequisite, or actionable with a target key, mechanism, expected multi-percent path, and measurement gate. If any actionable idea remains, insert its implementation and experiment immediately before this final step, execute it, record the result, and perform the complete final review again. This review must remain the last step after every plan edit and cannot pass in the same iteration that discovers actionable work. The dense Q4_K optimization campaign is exhausted only when a complete review produces no new valid actionable kernel idea and every prior actionable idea has been retained, rejected, or explicitly deferred outside the current contract.
+1. Complete: maintain the machine-readable 12-key inventory with representative tensors, call counts, fresh HIP medians, historical controls, exact validation requirements, and selected-solution references.
+2. Complete: use the bounded runner for immutable generate, build, inspect, correctness, screen, and confirmation evidence without overlapping GPU campaign phases.
+3. Complete: apply and bracket exact-shape lowering. Dead kernarg dimensions, branch-only fixed trips, and power-of-two row-stride shifts are retained; body unroll and resource-growing induction are rejected.
+4. Complete: establish retained-pipeline, one-buffer, traversal, geometry, scheduling, and lower-bound controls on every materially different family.
+5. Complete: optimize every exact key by weighted priority. Ten keys select the retained `128x128` pipeline; attention-output M2048 and M8192 select `128x64`, with SIA5/store priority additionally selected at M8192.
+6. Complete: reconfirm every per-key finalist and run the catalog-driven weighted 12-key matrix. Every key beats HIP; selected weighted latency is 683.77 ms versus 865.35 ms, a 20.98% reduction.
+7. Final step, always: optimization-exhaustion review. Re-read every resource used by the campaign: this plan and experiment log; all dense/grouped MMQ optimization records; current HIP and GGTensile sources; normalized HIP and assembly disassemblies; manifests, rejected candidates, lower bounds, profiles, counters, and timing brackets; TensileLite solution, scheduling, LDS, register, and store mechanisms; EvoTensile search and measurement records; FeatherOps/hipBLASLt/CK studies; the gfx1151 ISA reference; and LLVM AMDGPU instruction, VOPD, hazard, delay, and scheduling sources/tests. Classify every newly inferred idea as duplicate/closed, contract-incompatible, unsupported, deferred with an explicit prerequisite, or actionable with a target key, mechanism, expected multi-percent path, and measurement gate. If any actionable idea remains, insert its implementation and experiment immediately before this final step, execute it, record the result, and perform the complete final review again. This review must remain the last step after every plan edit and cannot pass in the same iteration that discovers actionable work. The dense Q4_K optimization campaign is exhausted only when a complete review produces no new valid actionable kernel idea and every prior actionable idea has been retained, rejected, or explicitly deferred outside the current contract.
 
 Quant-family expansion starts only after step 7 reaches that stopping condition. Public runtime dispatch remains a later project.
 

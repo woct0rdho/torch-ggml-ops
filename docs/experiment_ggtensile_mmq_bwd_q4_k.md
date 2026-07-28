@@ -17,22 +17,22 @@ The dense Q4_K campaign contains only 12 production shapes: the Cartesian produc
 - `(4096,2048)`: attention output, 10 model calls;
 - `(2048,8192)`: attention query/query gate, one model call.
 
-The two `M=32768, N=2048` shapes are confirmed and selected below. The retained pipeline now builds, inspects, executes bit-exactly, and has a nine-repeat baseline on all 12 keys; ten still require per-key selection and confirmation. The campaign optimizes them manually with a bounded serial runner rather than a large-grid EvoTensile campaign. Grouped MMQ is explicitly outside this campaign.
+All 12 production shapes now have exact selected solutions. Ten use the retained `128x128` true two-buffer pipeline; attention-output M2048 uses one-buffer `128x64`, and attention-output M8192 uses one-buffer `128x64` with SIA5/store priority. The catalog-driven runner prepares, checks, and confirms the complete matrix. Grouped MMQ is explicitly outside this campaign.
 
 ## Latest Result
 
 ### Selected solution
 
-The selected kernel is the four-wave true decoded-B pipeline:
+The default selected kernel is the four-wave true decoded-B pipeline:
 
 - `MacroTile=128x128`, `DepthU=32`, and `WorkGroup=[32,4,1]`;
 - WGM1 traversal and XOR-8 decoded-B LDS layout;
 - SIA4, PGR2, and PLR1;
 - `1LDSBuffer=0`, giving two 8 KiB decoded-B buffers;
 - no store priority, no packed-next-only prefetch, and no packed-weight lane sharing;
-- direct nibble and packed-offset formulas, scalar-base global loads and stores, compact address VGPRs, accumulator-clear VOPD, and no `buffer_gl0_inv`.
+- direct nibble and packed-offset formulas, scalar-base global loads and stores, compact address VGPRs, power-of-two row-stride shifts, accumulator-clear VOPD, and no `buffer_gl0_inv`.
 
-The artifact uses 212 VGPRs, 16 SGPRs, and 16 KiB LDS. It has no private storage, spills, scratch instructions, calls, or dynamic stack. Static inspection sees 64 WMMAs, 128 LDS instructions, 164 VMEM instructions, 903 non-WMMA VALU issues representing 923 operations, 20 VOPD pairs, 23 waits, and two barriers. WMMAs and LDS instructions appear in both the steady and peeled-final static paths, so those counts are not per-iteration dynamic counts.
+The default artifact uses 212 VGPRs, 16 SGPRs, and 16 KiB LDS. It has no private storage, spills, scratch instructions, calls, or dynamic stack. Static inspection sees 64 WMMAs, 128 LDS instructions, 164 VMEM instructions, 901 non-WMMA VALU issues representing 923 operations, 22 VOPD pairs, 23 waits, and two barriers. WMMAs and LDS instructions appear in both the steady and peeled-final static paths, so those counts are not per-iteration dynamic counts. The two attention M2048/M8192 variants use 140 VGPRs, 16 SGPRs, and 4 KiB LDS.
 
 ### Performance
 
@@ -43,13 +43,13 @@ The retained 25-repeat rotating brackets measured:
 
 The K8192 result is about 48.7% of the approximately 59.4 TFLOP/s gfx1151 BF16 WMMA roof. It remains below the 30 TFLOP/s experiment target, which requires approximately 36.65 ms and therefore another 3.6% reduction from the selected result.
 
-The first complete 12-key retained-pipeline screen measured a call-weighted candidate/HIP latency ratio of 0.7906, or a 20.94% aggregate reduction. In M2048/M8192/M32768 order, retained-pipeline medians were narrow `0.174/0.621/2.518` ms, shared down `0.206/1.196/3.404` ms, attention output `1.250/4.978/19.481` ms, and query `2.404/9.927/39.923` ms. Every exact key beat its same-process HIP control in this screen. These are baseline screens; only the two selected M32768 N2048 keys already have finalist confirmation evidence.
+The catalog-driven final 25-repeat matrix measured a call-weighted selected/HIP latency ratio of 0.7902, or a 20.98% aggregate reduction. In M2048/M8192/M32768 order, selected medians were narrow `0.180/0.612/2.528` ms, shared down `0.208/1.192/3.390` ms, attention output `1.211/5.005/19.461` ms, and query `2.439/10.062/38.448` ms. Family reductions were 19.29% narrow, 30.58% shared down, 16.18% attention output, and 20.57% query. Every exact key beats HIP in the final matrix.
 
 ### Correctness
 
-All 67,108,864 outputs match HIP bit-for-bit on both production tensors. The same equality holds after rewriting the complete `grad_output` tensor and after mutating a packed-weight byte between launches, which guards the retained L0-invalidation omission.
+Every exact key in the final catalog-driven matrix matches HIP bit-for-bit before and after complete `grad_output` rewrites and packed-weight mutation. This covers all 12 production shapes and guards the retained L0-invalidation omission.
 
-Against independently dequantized BF16 matmul:
+Against independently dequantized BF16 matmul on the original M32768 N2048 controls:
 
 - K8192 candidate and HIP each differ in 409,880 BF16 elements, with maximum absolute error 0.0625 and normalized RMSE 0.0001924804.
 - K512 candidate and HIP each differ in 16,684 BF16 elements, with maximum absolute error 0.00390625 and normalized RMSE 0.0000345316.
@@ -63,7 +63,7 @@ Independent source generation is byte-reproducible, and both artifacts pass the 
 - `tools/benchmark_ggtensile.py` provides warmed rotating HIP, candidate, and assembly-control timing; full-output comparison; independent BF16-reference comparison; and producer-handoff checks.
 - Artifact inspection records ABI and hard resources plus static VALU issues and operations, VOPD pairs, VMEM, LDS, waits, barriers, clauses, dependency delays, and L0 invalidations.
 - `tools/benchmark_ggtensile_lower_bounds.py` generates, builds, inspects, and rotates exact `wmma_floor` and `decode_floor` diagnostic artifacts while leaving production `Solution` and dispatch contracts unchanged.
-- `tools/ggtensile/q4_k_dense_inventory.json` records the exact 12 keys, representative tensors, call counts, historical HIP controls, and validation contract without a schema version. `tools/run_ggtensile_q4_k_campaign.py` runs immutable prepare, correctness, nine-repeat screen, and 25-repeat confirmation phases serially and reports call-weighted totals.
+- `tools/ggtensile/q4_k_dense_inventory.json` records the exact 12 keys, representative tensors, call counts, historical HIP controls, validation contract, and selected-solution references without a schema version. `tools/ggtensile/q4_k_selected_solutions.json` contains the three complete selected solution mappings. `tools/run_ggtensile_q4_k_campaign.py` runs immutable prepare, correctness, nine-repeat screen, and 25-repeat confirmation phases serially and reports call-weighted totals.
 
 ### Retained kernel mechanisms
 
@@ -108,6 +108,8 @@ The diagnostics preserve the selected ABI, 128-thread workgroup, 212-VGPR declar
 
 The complete kernel already beats the sum of isolated floors through overlap, but the remaining gap to the WMMA/A/LDS floor confirms that the hardware ceiling is not yet exhausted.
 
+Attention-output M32768 measures 18.686 ms complete, 12.008 ms for the WMMA/A/LDS floor at 45.78 equivalent TFLOP/s, and 8.532 ms for the decode/LDS floor. The floor sum is only 1.099 times complete. This balanced overlap does not support cooperative A staging as a large-margin direction, especially because it would add LDS traffic and require the rejected eight-wave/one-buffer regime.
+
 ## What Remains To Do
 
 ### Revisit policy for the measured pair
@@ -120,11 +122,9 @@ Any new resource-bearing mechanism must remain bit-exact, reproducible, resource
 
 ### Twelve-shape dense Q4_K campaign
 
-The next work is to establish controls and optimize the ten unmeasured production shapes. Start by running the selected two-buffer design unchanged across all compatible shapes to expose where M, N, and K alter occupancy, traversal, decode amortization, and epilogue cost. Then tune each exact shape manually or with bounded per-shape scans over implemented solution mechanisms. Reuse a solution only when it wins independently; no generated kernel needs to remain valid for another shape.
+The dense Q4_K 12-key optimization campaign is complete. The selected-solution catalog, exact validation, final correctness, and weighted 25-repeat matrix are the current controls. Further work in this document is only the permanent optimization-exhaustion review and any newly actionable large-margin direction it discovers.
 
-Prioritize by complete-model frequency: remaining `(N,K)=(2048,512)` narrow shapes first, then `(512,2048)` shared down, `(4096,2048)` attention output, and finally the remaining `(2048,8192)` query shapes. For each exact shape, retain one HIP control, one current assembly control, candidate measurements, correctness evidence, resource inspection, and rejection reasoning.
-
-Quant-family expansion and public runtime dispatch remain governed by [ggtensile_plan.md](ggtensile_plan.md). The selected assembly artifacts are controls and evidence; public integration remains deferred until all 12 dense Q4_K shapes are covered and complete-workload validation passes.
+Quant-family expansion and public runtime dispatch remain governed by [ggtensile_plan.md](ggtensile_plan.md). Public integration remains deferred until dispatch engineering, complete end-to-end Qwen/DeepSeek validation, and broader dense multi-quant coverage are complete; exact-kernel campaign completion does not by itself authorize runtime exposure.
 
 Prepared weights, BF16 shadows, external decode workspaces, GSU, Stream-K, and persistent workgroups remain outside this experiment contract unless the broader plan explicitly accepts their ownership, workspace, or fixup requirements.
 
@@ -156,6 +156,8 @@ Prepared weights, BF16 shadows, external decode workspaces, GSU, Stream-K, and p
 - Complete WGM2/WGM4/WGM8 matrices regress weighted latency by 1.45%/5.22%/16.27% against WGM1. WGM1 wins 10 keys; the only alternate wins are sub-gate M2048 results of 1.61% for narrow WGM2 and 0.54% for attention-output WGM2, and both decay at larger mappings. WGM1 remains the traversal seed.
 - Four-wave half-tile geometry scans reject `64x128` and retain `128x128` for ten keys. One-buffer `128x64` is selected for attention-output M2048 and M8192: fresh 25-repeat brackets measure 1.1909 versus 1.2700 ms, a 6.23% gain, and 4.9407 versus 5.0825 ms, a 2.79% gain. The selected artifacts use 140 VGPRs, 16 SGPRs, and 4 KiB LDS. Attention-output M32768 regressed in the screen and retains two-buffer `128x128`.
 - A current focused `256x64` scan first exposed and then validated a stale SIA2/3 A-coordinate bug. After correction, all six narrow/attention keys are bit-exact, but narrow regresses by 4.69-49.84%, attention M8192/M32768 regress by over 24%, and attention M2048 gains only 0.94% versus retained `128x128`, which is slower than selected `128x64`. `256x64` remains rejected.
+- Shared-down high-M ownership is decisively rejected. `256x64` regresses weighted family latency by 101%; eight-wave `256x128` regresses by 47%, with only M2048 near neutral at a 2.57% regression. Halving repeated B decode does not repay one-buffer scheduling and residency losses.
+- Eight-wave `256x128` also regresses narrow by 16-30% and attention output by 9-39%. A larger workgroup without a new cross-wave sharing mechanism is closed across the production families.
 - True two-buffer `64x128` and `128x64` pipelines were implemented and passed reduced K32/K64/K96 plus all 12 exact production checks. Their complete screens regressed weighted latency by 71.95% and 4.39%; two-buffer `128x64` also lost by roughly 4-6% to the selected one-buffer attention artifacts. The alternate pipeline emitters were removed and the strict solution surface remains narrow.
 - Selected N64 attention geometry retains XOR-8 on every M. XOR-4 regresses weighted attention latency by 3.57%, while unpadded and XOR-16 regress by about 20%.
 - Selected N64 attention geometry also retains WGM1. WGM2/WGM4/WGM8 regress weighted M2048/M8192 latency by 3.30%/10.81%/37.47%; M2048's best alternate gain is only 0.15%.
@@ -167,6 +169,8 @@ Prepared weights, BF16 shadows, external decode workspaces, GSU, Stream-K, and p
 
 - `PackedWeightLaneShare=2` halved duplicated packed-Q bytes. The LDS crossbar regressed 1.15%; the DPP/VALU crossbar regressed 1.88%. Cross-lane work cost more than the saved traffic.
 - Persistent A-pointer hoisting raised allocation from 200 to 204 VGPRs and regressed 0.23%; the resource-neutral coordinate/byte-offset hoists were retained instead.
+- A persistent lane-specific packed-row byte offset reduced static VALU operations by three and issues by four, with one more VOPD pair, but raised allocation from 212 to 213 VGPRs. Nine-repeat screens gained only 1.37% on K512 and regressed K8192 by 0.09%, so it failed the resource-bearing gate and was removed.
+- Replacing the packed-row multiply by `v_lshl_add_u32` plus a shift used one extra dynamic issue per tile. It remained bit-exact but gained only 0.61% on K512 and 0.45% on K8192, so the single multiply remains selected.
 
 ### Epilogue and traversal
 
@@ -191,16 +195,22 @@ Prepared weights, BF16 shadows, external decode workspaces, GSU, Stream-K, and p
 - Retained K512 pipeline: `/tmp/ggtensile-m32768-n2048-k512-true-pipeline/`.
 - Current one-buffer and pipeline profiles: `/tmp/ggtensile-profile-current-one-buffer/` and `/tmp/ggtensile-profile-true-pipeline/`.
 - K8192 and K512 lower bounds: `/tmp/ggtensile-m32768-n2048-k8192-lower-bounds/` and `/tmp/ggtensile-m32768-n2048-k512-lower-bounds/`.
+- Attention-output M32768 lower bounds: `/tmp/ggtensile-m32768-n4096-k2048-lower-bounds-a/`.
 - Dead-kernarg lowering and serial 25-repeat brackets: `/tmp/ggtensile-m32768-n2048-k8192-dead-kernargs-a/` and `/tmp/ggtensile-m32768-n2048-k512-dead-kernargs-a/`.
 - Exact-trip branch lowering and serial 25-repeat brackets: `/tmp/ggtensile-m32768-n2048-k8192-postcheck-loop-a/` and `/tmp/ggtensile-m32768-n2048-k512-postcheck-loop-a/`.
 - Power-of-two row-stride lowering and serial brackets: `/tmp/ggtensile-m32768-n2048-k{512,8192}-row-shifts-a/`.
+- Rejected persistent packed-row artifacts: `/tmp/ggtensile-m32768-n2048-k{512,8192}-persistent-packed-row-a/`.
+- Rejected packed shift-add artifacts: `/tmp/ggtensile-m32768-n2048-k{512,8192}-packed-shift-add-a/`.
 - Rejected body-unroll artifacts use `/tmp/ggtensile-m32768-n2048-k{512,8192}-unroll{factor}-a/`, with factor-specific generate, inspect, correctness, and nine-repeat timing evidence.
 - Exact production-N coverage artifacts: `/tmp/ggtensile-m2048-n512-k2048-production-n-a/` and `/tmp/ggtensile-m2048-n4096-k2048-production-n-a/`.
 - Complete retained-pipeline prepare, correctness, and nine-repeat screen: `/tmp/ggtensile-q4-k-retained-matrix-a/`.
+- Catalog-driven final prepare, correctness, and 25-repeat matrix: `/tmp/ggtensile-q4-k-selected-catalog-final-a/`.
 - Rejected complete one-buffer correctness and three-way screen: `/tmp/ggtensile-q4-k-one-buffer-matrix-a/`.
 - Rejected complete traversal matrices: `/tmp/ggtensile-q4-k-wgm{2,4,8}-matrix-a/`.
 - Geometry matrices and attention-output confirmations: `/tmp/ggtensile-q4-k-geometry-{64x128,128x64}-matrix-a/`.
 - Corrected and rejected focused `256x64` matrix: `/tmp/ggtensile-q4-k-geometry-256x64-focused-fixed-a/`; exact `256x128` and SIA3/PLR2 checks are under `/tmp/ggtensile-q4-k-{geometry-256x128,sia3-plr2}-fixed-check-a/`.
+- Rejected shared-down high-M ownership matrices: `/tmp/ggtensile-q4-k-geometry-{256x64,256x128}-shared-down-a/`.
+- Rejected narrow/attention eight-wave ownership: `/tmp/ggtensile-q4-k-geometry-256x128-narrow-attention-a/`.
 - Rejected two-buffer half-tile matrices: `/tmp/ggtensile-q4-k-pipeline-{64x128,128x64}-matrix-a/`; reduced trip checks use `/tmp/ggtensile-pipeline-{64x128,128x64}-debug-k{32,64,96}/`.
 - Rejected N64 LDS layouts: `/tmp/ggtensile-q4-k-geometry-128x64-xor{0,4,16}-attention-a/`.
 - Rejected N64 traversal: `/tmp/ggtensile-q4-k-geometry-128x64-wgm{2,4,8}-attention-a/`.

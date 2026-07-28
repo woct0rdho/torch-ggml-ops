@@ -14,11 +14,13 @@ if str(REPO_ROOT) not in sys.path:
 from tools.ggtensile.campaign import (  # noqa: E402
     DEFAULT_INVENTORY,
     DEFAULT_RETAINED_SOLUTION,
+    DEFAULT_SELECTED_SOLUTIONS,
     CampaignEntry,
     CampaignError,
     CampaignInventory,
     load_inventory,
     load_solution,
+    load_solution_catalog,
 )
 from tools.ggtensile.cli import main as ggtensile_cli_main  # noqa: E402
 from tools.ggtensile.model import ProblemSize, Solution, SolutionKey  # noqa: E402
@@ -58,7 +60,14 @@ def _parser() -> argparse.ArgumentParser:
 
     prepare = subparsers.add_parser("prepare")
     _add_selection_arguments(prepare)
-    prepare.add_argument("--solution", type=Path, default=DEFAULT_RETAINED_SOLUTION)
+    solution_source = prepare.add_mutually_exclusive_group()
+    solution_source.add_argument("--solution", type=Path)
+    solution_source.add_argument(
+        "--solution-catalog",
+        type=Path,
+        const=DEFAULT_SELECTED_SOLUTIONS,
+        nargs="?",
+    )
 
     for command in _PHASE_PROTOCOL:
         phase = subparsers.add_parser(command)
@@ -96,9 +105,26 @@ def _prepare(
     root = arguments.artifact_root.resolve()
     if root.exists():
         raise CampaignError(f"refusing to overwrite artifact root {root}")
-    solution: Solution = load_solution(arguments.solution)
+    source_mapping: dict[str, object]
+    if arguments.solution_catalog is not None:
+        catalog = load_solution_catalog(arguments.solution_catalog)
+        missing = sorted(
+            {entry.selected_solution for entry in entries} - catalog.keys()
+        )
+        if missing:
+            raise CampaignError(f"selected solutions are missing from catalog: {missing}")
+        solutions = [catalog[entry.selected_solution] for entry in entries]
+        source_mapping = {
+            "SolutionCatalog": str(arguments.solution_catalog.resolve())
+        }
+    else:
+        solution_path = arguments.solution or DEFAULT_RETAINED_SOLUTION
+        solution: Solution = load_solution(solution_path)
+        solutions = [solution] * len(entries)
+        source_mapping = {"Solution": str(solution_path.resolve())}
     keys = [
-        entry.solution_key(inventory.problem_type, solution) for entry in entries
+        entry.solution_key(inventory.problem_type, solution)
+        for entry, solution in zip(entries, solutions, strict=True)
     ]
     rejected = [
         (entry.slug, tuple(reason.to_mapping() for reason in validate_solution(key)))
@@ -137,6 +163,7 @@ def _prepare(
                 "ProblemSize": entry.problem_size.to_mapping(),
                 "RepresentativeTensor": entry.representative_tensor,
                 "CallCount": entry.call_count,
+                "SelectedSolution": entry.selected_solution,
                 "ArtifactDirectory": str(artifact),
                 "GenerateManifest": str(artifact / "generate.json"),
                 "BuildManifest": str(artifact / "build.json"),
@@ -150,7 +177,7 @@ def _prepare(
             "Phase": "Prepare",
             "Status": "Accepted",
             "Inventory": str(arguments.inventory.resolve()),
-            "Solution": str(arguments.solution.resolve()),
+            **source_mapping,
             "Entries": prepared,
         },
     )
