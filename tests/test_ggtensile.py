@@ -426,7 +426,9 @@ def test_writer_overlaps_first_a_half_with_decode(tmp_path: Path) -> None:
     q4_decode = source.index("Unpack Q4_K six-bit scale/min fields")
     assert prefetch < q4_decode
     assert "Reuse prefetched A pointers across fused B decode." in source
-    assert "Prepare direct packed-nibble bit offsets." in source
+    assert "0x0f0f0f0f" in source
+    assert "v_cvt_f32_ubyte3_e32" in source
+    assert "s_nop" not in source
     assert source[prefetch:q4_decode].count("s_waitcnt vmcnt(4)") == 1
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
     inspection = inspect_artifact(key, code_object, toolchain)

@@ -341,7 +341,6 @@ class KernelWriterAssembly:
             asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
             asm.inst("s_cbranch_scc1 .LDepthULoop")
         if store_output:
-            asm.inst("s_nop 7", "cover final WMMA result latency")
             self._emit_store(asm)
         asm.inst("s_endpgm")
         asm.lines.append(f".L{name}_end:")
@@ -842,13 +841,6 @@ class KernelWriterAssembly:
                 "neg(0) op_sel_hi:[1,0,0]"
             )
 
-        asm.comment("Prepare direct packed-nibble bit offsets.")
-        for packed_byte in range(4):
-            asm.inst(
-                f"v_add_nc_u32 v{r.address + packed_byte}, "
-                f"{8 * packed_byte}, v{r.address + 7}"
-            )
-
     def _emit_q4_k_decode_chunk(self, asm: _Assembly, chunk: int) -> None:
         r = self.registers
         decoder_rows = self._decoder_rows()
@@ -856,9 +848,10 @@ class KernelWriterAssembly:
         first_element = 4 * (chunk % 4)
         row_stride = 2 * self.solution_key.solution.depth_u
         t = r.temporary
+        packed = r.global_read_b + 4 * row + first_element // 4
+        asm.inst(f"v_lshrrev_b32 v{packed}, v{r.address + 7}, v{packed}")
+        asm.inst(f"v_and_b32 v{packed}, 0x0f0f0f0f, v{packed}")
         for element in range(first_element, first_element + 4):
-            packed = r.global_read_b + 4 * row + element // 4
-            bit_offset = r.address + element % 4
             value = t + 1 + 2 * decoder_rows
             rounding = value + 1
             d_scaled = t + 1 + 2 * row
@@ -873,8 +866,9 @@ class KernelWriterAssembly:
                 lds_offset = row_stride * element + 64 * (row // 2)
                 if row % 2:
                     lds_offset += 32 if residue < residues // 2 else -32
-            asm.inst(f"v_bfe_u32 v{value}, v{packed}, v{bit_offset}, 4")
-            asm.inst(f"v_cvt_f32_ubyte0_e32 v{value}, v{value}")
+            asm.inst(
+                f"v_cvt_f32_ubyte{element % 4}_e32 v{value}, v{packed}"
+            )
             asm.inst(f"v_fma_f32 v{value}, v{d_scaled}, v{value}, -v{min_scaled}")
             self._emit_round_bf16(asm, value, rounding)
             asm.inst(
