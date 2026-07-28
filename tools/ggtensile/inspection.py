@@ -224,7 +224,7 @@ def _validate_metadata(
     expected_vgprs = allocate(expected_vgprs, 3 * decoder_rows)
     if solution.lds_swizzle_chunk_b:
         expected_vgprs = allocate(expected_vgprs, 32 // solution.lds_swizzle_chunk_b)
-    expected_vgprs = allocate(expected_vgprs, 12, 2)
+    expected_vgprs = allocate(expected_vgprs, 8, 2)
     expected_vgprs = allocate(expected_vgprs, max(7, 3 + 2 * decoder_rows))
     expected_vgprs = allocate(expected_vgprs, 1)
     expected = {

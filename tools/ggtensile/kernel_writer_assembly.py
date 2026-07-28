@@ -159,7 +159,7 @@ class KernelWriterAssembly:
         swizzle = self.solution_key.solution.lds_swizzle_chunk_b
         if swizzle:
             lds_address = vgprs.checkOut(32 // swizzle, "swizzled LDS addresses")
-        address = vgprs.checkOutAligned(12, 2, "addresses")
+        address = vgprs.checkOutAligned(8, 2, "addresses")
         temporary = vgprs.checkOut(max(7, 3 + 2 * decoder_rows), "temporaries")
         serial = vgprs.checkOut(1, "Serial")
 
@@ -334,16 +334,14 @@ class KernelWriterAssembly:
         k_shift = n_tiles.bit_length() - 1
         row_stride = 2 * self.solution_key.solution.depth_u
         segment_stride = 16 * row_stride
-        asm.comment("v[address+10] is the LDS row base; +11 is nibble shift.")
-        asm.inst(f"v_and_b32 v{a + 10}, {n_tiles - 1}, v{r.serial}")
-        asm.inst(
-            f"v_lshlrev_b32 v{a + 10}, {segment_stride.bit_length() - 1}, v{a + 10}"
-        )
+        asm.comment("v[address+6] is the LDS row base; +7 is nibble shift.")
+        asm.inst(f"v_and_b32 v{a + 6}, {n_tiles - 1}, v{r.serial}")
+        asm.inst(f"v_lshlrev_b32 v{a + 6}, {segment_stride.bit_length() - 1}, v{a + 6}")
         asm.inst(f"v_lshrrev_b32 v{t}, {k_shift}, v{r.serial}")
         asm.inst(f"v_lshlrev_b32 v{t}, 1, v{t}")
-        asm.inst(f"v_add_nc_u32 v{a + 10}, v{a + 10}, v{t}")
-        asm.inst(f"v_and_b32 v{a + 11}, 2, v{r.serial}")
-        asm.inst(f"v_lshlrev_b32 v{a + 11}, 1, v{a + 11}")
+        asm.inst(f"v_add_nc_u32 v{a + 6}, v{a + 6}, v{t}")
+        asm.inst(f"v_and_b32 v{a + 7}, 2, v{r.serial}")
+        asm.inst(f"v_lshlrev_b32 v{a + 7}, 1, v{a + 7}")
         swizzle = self.solution_key.solution.lds_swizzle_chunk_b
         if swizzle:
             lds = r.lds_address
@@ -357,7 +355,7 @@ class KernelWriterAssembly:
                 f"v_lshrrev_b32 v{t}, {k_shift + swizzle.bit_length() - 1}, v{r.serial}"
             )
             asm.inst(f"v_lshlrev_b32 v{t + 1}, {swizzle_shift}, v{t}")
-            asm.inst(f"v_sub_nc_u32 v{t + 1}, v{a + 10}, v{t + 1}")
+            asm.inst(f"v_sub_nc_u32 v{t + 1}, v{a + 6}, v{t + 1}")
             for residue in range(residues):
                 asm.inst(f"v_xor_b32 v{lds + residue}, {residue}, v{t}")
                 asm.inst(
@@ -372,15 +370,15 @@ class KernelWriterAssembly:
         asm.inst(f"v_lshrrev_b32 v{t}, 5, v{r.serial}")
         asm.inst(f"v_lshlrev_b32 v{t}, {m_per_wave.bit_length() - 1}, v{t}")
         asm.inst(f"v_and_b32 v{t + 1}, 15, v{r.serial}")
-        asm.inst(f"v_add_nc_u32 v{a + 8}, v{t}, v{t + 1}")
+        asm.inst(f"v_add_nc_u32 v{a + 4}, v{t}, v{t + 1}")
         asm.inst(f"v_lshlrev_b32 v{t + 2}, {solution.macro_tile0.bit_length() - 1}, s2")
-        asm.inst(f"v_add_nc_u32 v{a + 8}, v{a + 8}, v{t + 2}")
+        asm.inst(f"v_add_nc_u32 v{a + 4}, v{a + 4}, v{t + 2}")
         if m_tiles == 2:
-            asm.inst(f"v_add_nc_u32 v{a + 9}, 16, v{a + 8}")
+            asm.inst(f"v_add_nc_u32 v{a + 5}, 16, v{a + 4}")
         row_stride_a = 2 * self.solution_key.problem_size.k
         for m_tile in range(m_tiles):
             asm.inst(
-                f"v_mul_lo_u32 v{a + 8 + m_tile}, {row_stride_a}, v{a + 8 + m_tile}"
+                f"v_mul_lo_u32 v{a + 4 + m_tile}, {row_stride_a}, v{a + 4 + m_tile}"
             )
 
     def _emit_q4_k_global_reads(
@@ -439,21 +437,21 @@ class KernelWriterAssembly:
                 if row:
                     asm.inst(f"v_add_nc_u32 v{a + row}, {row * row_delta}, v{a}")
                     block_address = a + row
-                asm.inst(f"v_add_nc_u32 v{a + 4}, v{block_address}, v{t + 1}")
+                asm.inst(f"v_add_nc_u32 v{t + 3}, v{block_address}, v{t + 1}")
                 asm.inst(
                     f"global_load_b128 v[{q + 4 * row}:{q + 4 * row + 3}], "
-                    f"v{a + 4}, s[{r.kernarg + 2}:{r.kernarg + 3}] offset:16"
+                    f"v{t + 3}, s[{r.kernarg + 2}:{r.kernarg + 3}] offset:16"
                 )
                 asm.inst(
                     f"global_load_b32 v{dm + row}, "
                     f"v{block_address}, s[{r.kernarg + 2}:{r.kernarg + 3}]"
                 )
-                asm.inst(f"v_add_nc_u32 v{a + 5}, v{block_address}, v{t + 2}")
+                asm.inst(f"v_add_nc_u32 v{t + 4}, v{block_address}, v{t + 2}")
                 for scale_offset in (4, 8, 12):
                     scale_register = scale + 3 * row + scale_offset // 4 - 1
                     asm.inst(
                         f"global_load_d16_u8 v{scale_register}, "
-                        f"v{a + 5}, s[{r.kernarg + 2}:{r.kernarg + 3}] "
+                        f"v{t + 4}, s[{r.kernarg + 2}:{r.kernarg + 3}] "
                         f"offset:{scale_offset}"
                     )
             if wait_for_reads:
@@ -461,7 +459,7 @@ class KernelWriterAssembly:
             return
 
         for row in range(decoder_rows):
-            asm.inst(f"v_add_nc_u32 v{a + 4 + row}, v{a + row}, v{t + 1}")
+            asm.inst(f"v_add_nc_u32 v{a + 2 + row}, v{a + row}, v{t + 1}")
         if self.solution_key.solution.packed_weight_lane_share == 2:
             asm.comment("Load packed q bytes on one lane from each nibble pair.")
             asm.inst(f"v_and_b32 v{t + 2}, 2, v{r.serial}")
@@ -470,7 +468,7 @@ class KernelWriterAssembly:
         for row in range(decoder_rows):
             asm.inst(
                 f"global_load_b128 v[{q + 4 * row}:{q + 4 * row + 3}], "
-                f"v{a + 4 + row}, s[{r.kernarg + 2}:{r.kernarg + 3}] offset:16"
+                f"v{a + 2 + row}, s[{r.kernarg + 2}:{r.kernarg + 3}] offset:16"
             )
         if self.solution_key.solution.packed_weight_lane_share == 2:
             asm.inst(f"s_mov_b32 exec_lo, s{r.scalar_temporary + 1}")
@@ -480,17 +478,17 @@ class KernelWriterAssembly:
         else:
             asm.inst(f"v_lshrrev_b32 v{t + 1}, 5, v{t}")
             asm.inst(f"v_and_b32 v{t + 1}, 3, v{t + 1}")
-        asm.inst(f"v_add_nc_u32 v{a + 4}, v{a}, v{t + 1}")
+        asm.inst(f"v_add_nc_u32 v{a + 2}, v{a}, v{t + 1}")
         for row in range(decoder_rows):
             asm.inst(
                 f"global_load_b32 v{dm + row}, v{a + row}, "
                 f"s[{r.kernarg + 2}:{r.kernarg + 3}]"
             )
         for row in range(decoder_rows):
-            address_pair = a + 4
+            address_pair = a + 2
             if row:
-                asm.inst(f"v_add_nc_u32 v{a + 5}, {row * row_delta}, v{a + 4}")
-                address_pair = a + 5
+                asm.inst(f"v_add_nc_u32 v{a + 3}, {row * row_delta}, v{a + 2}")
+                address_pair = a + 3
             asm.inst(
                 f"global_load_d16_u8 v{scale + 3 * row}, v{address_pair}, "
                 f"s[{r.kernarg + 2}:{r.kernarg + 3}] offset:4"
@@ -532,7 +530,7 @@ class KernelWriterAssembly:
         a = r.address
 
         asm.comment("Prefetch A fragments while Q4_K data is pending.")
-        row_pointers = tuple((a + 8 + m_tile, a + m_tile) for m_tile in range(m_tiles))
+        row_pointers = tuple((a + 4 + m_tile, a + m_tile) for m_tile in range(m_tiles))
 
         asm.inst(f"s_lshl_b32 s{r.scalar_temporary + 1}, s{r.loop_counter}, 1")
         for row_offset, pointer in row_pointers:
@@ -608,8 +606,8 @@ class KernelWriterAssembly:
         asm.comment("Prepare direct packed-nibble bit offsets.")
         for packed_byte in range(4):
             asm.inst(
-                f"v_add_nc_u32 v{r.address + 4 + packed_byte}, "
-                f"{8 * packed_byte}, v{r.address + 11}"
+                f"v_add_nc_u32 v{r.address + packed_byte}, "
+                f"{8 * packed_byte}, v{r.address + 7}"
             )
 
         row_stride = 2 * self.solution_key.solution.depth_u
@@ -617,13 +615,13 @@ class KernelWriterAssembly:
         for row in range(decoder_rows):
             for element in range(16):
                 packed = r.global_read_b + 4 * row + element // 4
-                bit_offset = r.address + 4 + element % 4
+                bit_offset = r.address + element % 4
                 value = t + 1 + 2 * decoder_rows
                 rounding = value + 1
                 d_scaled = t + 1 + 2 * row
                 min_scaled = d_scaled + 1
                 lds_offset = row_stride * element + 32 * row
-                lds_address = r.address + 10
+                lds_address = r.address + 6
                 swizzle = self.solution_key.solution.lds_swizzle_chunk_b
                 if swizzle:
                     residues = 32 // swizzle
@@ -654,13 +652,13 @@ class KernelWriterAssembly:
             asm.inst(f"v_lshrrev_b32 v{t}, 5, v{r.serial}")
             asm.inst(f"v_lshlrev_b32 v{t}, {m_per_wave.bit_length() - 1}, v{t}")
             asm.inst(f"v_and_b32 v{t + 1}, 15, v{r.serial}")
-            asm.inst(f"v_add_nc_u32 v{a + 8}, v{t}, v{t + 1}")
+            asm.inst(f"v_add_nc_u32 v{a + 4}, v{t}, v{t + 1}")
             asm.inst(
                 f"v_lshlrev_b32 v{t + 2}, {solution.macro_tile0.bit_length() - 1}, s2"
             )
-            asm.inst(f"v_add_nc_u32 v{a + 8}, v{a + 8}, v{t + 2}")
+            asm.inst(f"v_add_nc_u32 v{a + 4}, v{a + 4}, v{t + 2}")
             if m_tiles == 2:
-                asm.inst(f"v_add_nc_u32 v{a + 9}, 16, v{a + 8}")
+                asm.inst(f"v_add_nc_u32 v{a + 5}, 16, v{a + 4}")
         else:
             asm.comment("Reuse prefetched A pointers across fused B decode.")
         for k_tile in range(0, solution.depth_u, 16):
@@ -699,8 +697,8 @@ class KernelWriterAssembly:
             elif m_tiles == 2:
                 asm.inst(f"s_lshl_b32 s{r.scalar_temporary + 1}, s{r.loop_counter}, 1")
                 for m_tile, row, pointer in (
-                    (0, a + 8, a),
-                    (1, a + 9, a + 2),
+                    (0, a + 4, a),
+                    (1, a + 5, a + 2),
                 ):
                     asm.inst(f"v_mul_lo_u32 v{t}, {2 * size.k}, v{row}")
                     asm.inst(f"v_add_nc_u32 v{t}, s{r.scalar_temporary + 1}, v{t}")
@@ -721,10 +719,10 @@ class KernelWriterAssembly:
                 asm.inst(f"s_lshl_b32 s{r.scalar_temporary + 1}, s{r.loop_counter}, 1")
                 for m_tile in range(m_tiles):
                     if m_tile:
-                        asm.inst(f"v_add_nc_u32 v{t}, {16 * m_tile}, v{a + 8}")
+                        asm.inst(f"v_add_nc_u32 v{t}, {16 * m_tile}, v{a + 4}")
                         row = t
                     else:
-                        row = a + 8
+                        row = a + 4
                     asm.inst(f"v_mul_lo_u32 v{t}, {2 * size.k}, v{row}")
                     asm.inst(f"v_add_nc_u32 v{t}, s{r.scalar_temporary + 1}, v{t}")
                     if k_tile:

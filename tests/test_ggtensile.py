@@ -57,9 +57,9 @@ def test_build_and_inspect_pilot(tmp_path: Path) -> None:
     inspection = inspect_artifact(key, code_object, toolchain)
     assert inspection.target == "gfx1151"
     assert inspection.code_object_version == 5
-    assert inspection.vgpr_count == 196
+    assert inspection.vgpr_count == 192
     assert inspection.sgpr_count == 20
-    assert inspection.max_vgpr_index == 195
+    assert inspection.max_vgpr_index == 191
     assert inspection.max_sgpr_index == 19
     assert inspection.private_segment_bytes == 0
     assert inspection.vgpr_spill_count == 0
@@ -166,7 +166,7 @@ def test_writer_overlaps_first_a_half_with_decode(tmp_path: Path) -> None:
     assert source[prefetch:q4_decode].count("s_waitcnt vmcnt(4)") == 1
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
     inspection = inspect_artifact(key, code_object, toolchain)
-    assert inspection.vgpr_count == 200
+    assert inspection.vgpr_count == 196
     assert inspection.sgpr_count == 20
     assert inspection.lds_num_bytes == 8192
 
@@ -199,7 +199,7 @@ def test_writer_prefetches_both_a_halves(tmp_path: Path) -> None:
     assert source.count("s_waitcnt vmcnt(4) lgkmcnt(0)") == 1
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
     inspection = inspect_artifact(key, code_object, toolchain)
-    assert inspection.vgpr_count == 216
+    assert inspection.vgpr_count == 212
     assert inspection.sgpr_count == 20
     assert inspection.lds_num_bytes == 8192
 
@@ -236,7 +236,7 @@ def test_writer_shares_packed_weight_across_nibble_lanes(
     assert "ds_bpermute_b32" not in source
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
     inspection = inspect_artifact(key, code_object, toolchain)
-    assert inspection.vgpr_count == 216
+    assert inspection.vgpr_count == 212
     assert inspection.sgpr_count == 20
     assert inspection.lds_num_bytes == 8192
 
@@ -270,7 +270,7 @@ def test_writer_pipelines_packed_weight_reads(tmp_path: Path) -> None:
     assert "current A before next packed reads" in source
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
     inspection = inspect_artifact(key, code_object, toolchain)
-    assert inspection.vgpr_count == 216
+    assert inspection.vgpr_count == 212
     assert inspection.sgpr_count == 20
     assert inspection.lds_num_bytes == 8192
     assert inspection.barrier_count == 3
@@ -306,7 +306,7 @@ def test_writer_combines_global_prefetch_with_partial_waits(
     assert source.count("s_waitcnt vmcnt(2) lgkmcnt(2)") == 1
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
     inspection = inspect_artifact(key, code_object, toolchain)
-    assert inspection.vgpr_count == 216
+    assert inspection.vgpr_count == 212
     assert inspection.sgpr_count == 20
     assert inspection.lds_num_bytes == 8192
 
@@ -340,7 +340,7 @@ def test_writer_builds_128x64_geometry(tmp_path: Path) -> None:
     assert source.count("v_wmma_f32_16x16x16_bf16") == 16
     assert source.count("ds_store_b16_d16_hi") == 16
     inspection = inspect_artifact(key, code_object, toolchain)
-    assert inspection.vgpr_count == 144
+    assert inspection.vgpr_count == 140
     assert inspection.sgpr_count == 20
     assert inspection.lds_num_bytes == 4096
     assert inspection.barrier_count == 2
@@ -375,7 +375,7 @@ def test_writer_builds_64x128_geometry(tmp_path: Path) -> None:
     assert source.count("v_wmma_f32_16x16x16_bf16") == 16
     assert source.count("ds_store_b16_d16_hi") == 32
     inspection = inspect_artifact(key, code_object, toolchain)
-    assert inspection.vgpr_count == 136
+    assert inspection.vgpr_count == 132
     assert inspection.sgpr_count == 20
     assert inspection.lds_num_bytes == 8192
     assert inspection.barrier_count == 2
@@ -409,7 +409,7 @@ def test_writer_builds_depth_u64_geometry(tmp_path: Path) -> None:
     assert source.count("v_wmma_f32_16x16x16_bf16") == 64
     assert source.count("ds_store_b16_d16_hi") == 64
     inspection = inspect_artifact(key, code_object, toolchain)
-    assert inspection.vgpr_count == 236
+    assert inspection.vgpr_count == 232
     assert inspection.sgpr_count == 20
     assert inspection.lds_num_bytes == 16384
     assert inspection.barrier_count == 2
@@ -443,7 +443,7 @@ def test_writer_prefetches_next_local_read_pair(tmp_path: Path) -> None:
     assert source.count("s_waitcnt lgkmcnt(6)") == 4
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
     inspection = inspect_artifact(key, code_object, toolchain)
-    assert inspection.vgpr_count == 216
+    assert inspection.vgpr_count == 212
     assert inspection.sgpr_count == 20
     assert inspection.lds_num_bytes == 8192
 
@@ -493,7 +493,7 @@ def test_writer_builds_256x64_geometry(tmp_path: Path) -> None:
     assert source.count("ds_store_b16_d16_hi") == 16
     assert source.count("ds_load_b128") == 16
     inspection = inspect_artifact(key, code_object, toolchain)
-    assert inspection.vgpr_count == 208
+    assert inspection.vgpr_count == 204
     assert inspection.sgpr_count == 20
     assert inspection.lds_num_bytes == 4096
 
@@ -528,7 +528,7 @@ def test_writer_builds_256x128_cooperative_decode_geometry(
     assert "s_cbranch_scc0 .LDecodeReady" in source
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
     inspection = inspect_artifact(key, code_object, toolchain)
-    assert inspection.vgpr_count == 196
+    assert inspection.vgpr_count == 192
     assert inspection.sgpr_count == 20
     assert inspection.max_flat_workgroup_size == 256
     assert inspection.lds_num_bytes == 8192

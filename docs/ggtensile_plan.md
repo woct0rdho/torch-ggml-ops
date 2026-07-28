@@ -96,13 +96,13 @@ The exact target is `ProblemSize(M=32768, N=2048, K=8192)`, corresponding to BF1
 
 Campaign procedure:
 
-1. **Baseline and harness (`completed`)**
+1. Baseline and harness (`completed`)
    - Inspection reports 196 VGPRs, 19 SGPRs, 8192 LDS bytes, 32 static WMMAs, zero disallowed resources, and the required gfx1151 code-object-v5 ABI.
    - All 67,108,864 BF16 outputs match HIP bit-for-bit on real `blk.39.attn_q.weight` and deterministic random cotangent.
    - Candidate and HIP have the same 409,880 differences versus independently dequantized BF16 matmul, maximum absolute error 0.0625, and normalized RMSE 0.0001924804.
    - Nine warmed alternating samples measured HIP at 47.61 ms and 23.09 TFLOP/s versus assembly at 122.90 ms and 8.95 TFLOP/s.
    - The reusable driver is `tools/benchmark_ggtensile.py`; the full report is `/tmp/ggtensile-m32768-n2048-k8192-baseline/benchmark.json`.
-2. **Obvious assembly corrections (`active`)**
+2. Obvious assembly corrections (`active`)
    - Remove waits that have no current dependency.
    - A persistent A-pointer hoist removed repeated exact-shape address work but raised VGPRs from 200 to 204.
    - The hoist measured 45.285 ms versus 45.179 ms for the selected control, a 0.23% regression, and was reverted.
@@ -119,7 +119,9 @@ Campaign procedure:
    - A 25-repeat bracket measured direct packed-offset mapping at 39.964 ms and 27.51 TFLOP/s versus 40.141 ms and 27.39 TFLOP/s, a 0.44% resource-neutral gain with bit-exact output; retain it.
    - All exact-shape A and packed-weight offsets fit in 32 bits. Using gfx11 scalar-base `global_load` addressing removes vector high-half pointer construction and carry chains while preserving the 64-bit kernarg bases in SGPRs.
    - A 25-repeat bracket measured scalar-base loads at 39.579 ms and 27.78 TFLOP/s versus 39.990 ms and 27.49 TFLOP/s, a 1.03% resource-neutral gain with bit-exact output; retain the address mode.
-3. **LDS layout (`completed`)**
+   - Scalar-base addressing permits the address block to shrink from 12 to 8 VGPRs by separating four transient offsets from four persistent A/LDS coordinates. Direct nibble offsets reuse the transient block after global reads issue.
+   - A 25-repeat bracket measured the 212-VGPR layout at 39.827 ms versus 39.898 ms for the 216-VGPR control, a neutral-to-favorable 0.18% result with bit-exact output and unchanged SGPR/LDS use; retain the smaller layout.
+3. LDS layout (`completed`)
    - `LdsSwizzleChunkB={0,8}` emits distinct decoded-store and WMMA-read addressing.
    - Adding 16 logical K positions moves N-row residues 0/1 forward 32 bytes but residues 2/3 backward 32 bytes under XOR-8.
    - XOR-8 is bit-exact and uses 200 VGPRs, 20 SGPRs, and 8192 LDS bytes with no disallowed resources.
@@ -134,7 +136,7 @@ Campaign procedure:
    - XOR-4 still reports 68.75% bank conflicts and measures 45.178 ms versus XOR-8 at 45.053 ms, so its doubled LDS issue count has no compensating benefit.
    - XOR-4 is rejected and XOR-8 remains selected.
    - At the LDS-layout milestone, the selected assembly reached approximately 24.36 TFLOP/s and 41.0% of the WMMA roof; later schedule results are recorded below.
-4. **Main-loop schedule (`active`)**
+4. Main-loop schedule (`active`)
    - `ScheduleIterAlg=2` preserves the original full-wait schedule.
    - `ScheduleIterAlg=3` waits for the oldest A and B loads, issues independent WMMAs, and delays full waits until their operands are consumed.
    - The SIA3 solution is bit-exact and remains at 196 VGPRs, 19 SGPRs, and 8192 LDS bytes before the selected XOR-8 layout's additional registers.
@@ -155,7 +157,7 @@ Campaign procedure:
    - `ScheduleIterAlg=5` combines PGR2 with SIA3's oldest-ready A and half-pair B waits. It is bit-exact and resource-identical to SIA4/PGR2.
    - A nine-repeat screen measured SIA5 at 40.753 ms versus SIA4/PGR2 at 41.134 ms, a 0.93% latency reduction that does not clear the retention gate.
    - Reject SIA5 for this shape and retain SIA4 with PGR2 as the selected assembly control.
-5. **Tile and ownership geometry (`active`)**
+5. Tile and ownership geometry (`active`)
    - Admit focused complete solutions around `MacroTile 128x128, DepthU 32`.
    - The writer now supports a complete `256x64x32` solution with four M16 tiles and four N16 tiles per wave, one decoder-owned packed row per lane, 4 KiB LDS, and geometry-derived register allocation, decode coverage, WMMA ownership, and stores.
    - The `256x64x32` kernel is bit-exact to HIP across all 67,108,864 outputs and passes inspection at 208 VGPRs, 20 SGPRs, 4096 LDS bytes, 32 static WMMAs, and zero disallowed resources.
@@ -171,7 +173,7 @@ Campaign procedure:
    - DU64 is bit-exact and resource-clean at 236 VGPRs, 20 SGPRs, and 16384 LDS bytes. Its first launch exposed and corrected a reduction induction step that still advanced by 32; exact execution validation remains mandatory beyond assembly and inspection.
    - A 25-repeat bracket measured DU64 at 40.394 ms and 27.22 TFLOP/s versus DU32 at 40.772 ms and 26.97 TFLOP/s, only a 0.93% latency reduction.
    - Reject DU64 because the sub-gate gain does not justify 20 additional VGPRs and doubled LDS. Retain the four-wave `128x128x32` geometry; the generalized DU32 source and code object remain byte-identical.
-6. **Global traversal (`completed`)**
+6. Global traversal (`completed`)
    - The writer enables the workgroup-Z system SGPR and maps `m_block = blockIdx.z * WorkGroupMapping + blockIdx.x`.
    - The runtime launches X as `WorkGroupMapping`, Y as the 16 N tiles, and Z as the remaining M groups.
    - WGM1 reduced SIA3 from 119.36 ms for the all-M control to 52.40 ms, a 2.28x speedup, by scheduling all N workgroups for one M tile together.
@@ -179,7 +181,7 @@ Campaign procedure:
    - A 25-repeat WGM1/WGM2/HIP bracket measured 52.588/54.307/47.811 ms.
    - WGM1 sustains 20.91 TFLOP/s and 35.2% of the WMMA roof, and remains 10.0% slower than HIP.
    - WGM1 is retained for this exact shape; traversal remains an explicit complete-solution parameter rather than a global rule.
-7. **A and packed-weight traffic (`active`)**
+7. A and packed-weight traffic (`active`)
    - Compare hipcc and GGTensile load widths, lane duplication, address induction, cache flags, and waits.
    - Raw selected-kernel counters place wait-count stalls at approximately 17.9-19.0% of aggregate wave cycles and barrier stalls at approximately 8.0-8.1%. VALU and LDS instruction-cycle counters are much smaller fractions; these are workload-wide ratios, not mutually exclusive cycle attribution.
    - `PrefetchPackedWeight` retains its existing current-tile meaning. The separate `PrefetchPackedWeightNext` mechanism issues the next packed Q4_K tile before current WMMAs, lets VMEM run while current LDS fragments are consumed, then decodes into the same LDS after the read-side barrier.
@@ -190,16 +192,16 @@ Campaign procedure:
    - The VALU-crossbar implementation replaces the LDS operations and wait with DPP shifts plus conditional selection. It measured 43.129 ms versus 42.335 ms, a 1.88% regression.
    - Both lane-sharing implementations are bit-exact and resource-identical to the 216-VGPR control, but their cross-lane work costs more than the saved packed-q traffic. Reject lane sharing for this shape.
    - Continue with wider aligned Q4_K loads, scalar uniform metadata, and bounded decode reuse. Expose a knob only if multiple correct mechanisms remain competitive.
-8. **Epilogue and low-level scheduling (`active`)**
+8. Epilogue and low-level scheduling (`active`)
    - `StorePriorityOpt=false` removes the two epilogue `s_setprio` instructions.
    - A 25-repeat bracket measured no priority at 45.327 ms versus priority at 45.413 ms.
    - The 0.19% difference is not independently significant; no priority is the provisional control because it is simpler and showed no regression.
    - Store order, `NumElementsPerBatchStore`, and other epilogue changes remain secondary to the 256-iteration main loop.
-9. **Advanced exact-shape mechanisms (`pending`)**
+9. Advanced exact-shape mechanisms (`pending`)
    - Consider persistent traversal, decode-sharing across M tiles, or split reduction only after profiling identifies the remaining limit.
    - Split-K/Stream-K requires an explicit FP32 fixup contract before it becomes a parameter.
    - Never introduce a dense shadow weight or external decode workspace.
-10. **Retention and integration (`pending`)**
+10. Retention and integration (`pending`)
    - Bracket finalists with warmed rotating 25-repeat controls.
    - Require accepted correctness, byte-identical rebuilds, no disallowed resources, and a stable gain above 2%.
    - Retain the fastest exact solution, add static dispatch with HIP fallback, and rerun the full suite and target benchmark.
