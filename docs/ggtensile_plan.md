@@ -114,10 +114,10 @@ The established packaged-HIP timings below are planning seeds from the dense-bac
 
 | Family `(N,K)` | Calls | HIP ms at M2048/M8192/M32768 | Weighted Q4_K share | Current GGTensile status | First optimization question |
 | --- | ---: | ---: | ---: | --- | --- |
-| Narrow `(2048,512)` | 70 | `0.230/0.775/2.988` | about 32-40% | M32768 selected at 2.5063 ms; M2048/M8192 open | Can exact K512 trip specialization, lower fixed overhead, or lower-resource ownership beat the retained pipeline? |
-| Shared down `(512,2048)` | 30 | `0.261/1.537/5.266` | about 19-27% | all three open | Does N512 prefer different M ownership, XOR-16-style LDS layout, or traversal that reuses packed B across M? |
-| Attention output `(4096,2048)` | 10 | `1.339/5.912/23.803` | about 33-36% | all three open | Does wide N favor different traversal, N ownership, and epilogue cadence while preserving A locality? |
-| Query `(2048,8192)` | 1 | `3.376/12.567/48.613` | about 7-8% | M32768 selected at 38.012 ms; M2048/M8192 open | Does the same decode/WMMA pipeline win at lower M, or does occupancy and traversal change the balance? |
+| Narrow `(2048,512)` | 70 | `0.230/0.775/2.988` | about 32-40% | retained pipeline screen `0.174/0.621/2.518` ms | Can lower fixed overhead or lower-resource ownership beat the retained pipeline? |
+| Shared down `(512,2048)` | 30 | `0.261/1.537/5.266` | about 19-27% | retained pipeline screen `0.206/1.196/3.404` ms | Does N512 prefer different M ownership, XOR-16-style LDS layout, or traversal that reuses packed B across M? |
+| Attention output `(4096,2048)` | 10 | `1.339/5.912/23.803` | about 33-36% | retained pipeline screen `1.250/4.978/19.481` ms | Does wide N favor different traversal, N ownership, and epilogue cadence while preserving A locality? |
+| Query `(2048,8192)` | 1 | `3.376/12.567/48.613` | about 7-8% | retained pipeline screen `2.404/9.927/39.923` ms | Does the same decode/WMMA pipeline remain best at lower M, or does occupancy and traversal change the balance? |
 
 Narrow is first by call count, but attention output is first by aggregate latency at M8192 and M32768. Shared down has fewer weighted milliseconds but stronger evidence of HIP underperformance at those row counts. Candidate scheduling should therefore use fresh `call_count * HIP_median_ms` contribution and measured gap, not call count alone. Query remains last unless a mechanism discovered on another long-K shape transfers directly.
 
@@ -227,7 +227,7 @@ Collect only gfx1151-supported counter groups. Useful evidence includes aggregat
 
 ### Bounded campaign runner
 
-The campaign script operates outside `KernelWriterAssembly` and consumes an explicit inventory plus an explicit candidate list. It does not construct a broad Cartesian product or repair unsupported solutions.
+`tools/run_ggtensile_q4_k_campaign.py` operates outside `KernelWriterAssembly` and consumes the versionless `tools/ggtensile/q4_k_dense_inventory.json` plus an explicit solution. It does not construct a broad Cartesian product or repair unsupported solutions. The retained-solution matrix prepares all 12 exact kernels at 212 VGPRs, 16 SGPRs, and 16 KiB LDS; every key passes bit-exact HIP and producer-mutation checks. Its first serial nine-repeat screen measures a weighted candidate/HIP latency ratio of 0.7906.
 
 For every exact `(key, candidate)` pair it must:
 
@@ -257,8 +257,8 @@ Broad PLR2, packed-next-only, K64, two-LDS-buffer without decode overlap, and ha
 
 ### Campaign sequence
 
-1. Create the machine-readable 12-key inventory with representative tensors, call counts, fresh HIP medians, historical controls, and exact validation requirements. Exact N512/N4096 validation and packed-row addressing are complete; inventory automation remains.
-2. Add the bounded runner with immutable generate, build, inspect, correctness, screen, and confirmation evidence.
+1. Maintain the completed machine-readable 12-key inventory with representative tensors, call counts, fresh HIP medians, historical controls, and exact validation requirements.
+2. Use the completed bounded runner for immutable generate, build, inspect, correctness, screen, and confirmation evidence; never overlap GPU campaign phases.
 3. Apply and bracket exact-shape lowering on the selected M32768 K512 and K8192 controls. Dead kernarg dimensions and branch-only fixed-trip reduction are retained; body unroll is rejected, so the current exact-shape loop-lowering stage is complete.
 4. Run the retained pipeline and one-buffer control on every compatible key, establish lower bounds only where diagnosis is unclear, and rank open keys by fresh weighted latency and plausible gap.
 5. Optimize the two open narrow keys, then interleave attention-output and shared-down work by weighted contribution. Optimize the two open query keys last. Within each key, test traversal before expanding geometry/dataflow and test low-level scheduling only on high-level finalists.

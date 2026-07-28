@@ -17,7 +17,7 @@ The dense Q4_K campaign contains only 12 production shapes: the Cartesian produc
 - `(4096,2048)`: attention output, 10 model calls;
 - `(2048,8192)`: attention query/query gate, one model call.
 
-The two `M=32768, N=2048` shapes are measured and selected below. Ten production shapes remain. The next campaign phase is to optimize all 12 manually, supported by small scripts that generate, build, inspect, check, and bracket focused candidate sets. A large-grid EvoTensile campaign is unnecessary for this inventory. Grouped MMQ is explicitly outside this campaign.
+The two `M=32768, N=2048` shapes are confirmed and selected below. The retained pipeline now builds, inspects, executes bit-exactly, and has a nine-repeat baseline on all 12 keys; ten still require per-key selection and confirmation. The campaign optimizes them manually with a bounded serial runner rather than a large-grid EvoTensile campaign. Grouped MMQ is explicitly outside this campaign.
 
 ## Latest Result
 
@@ -43,6 +43,8 @@ The retained 25-repeat rotating brackets measured:
 
 The K8192 result is about 48.7% of the approximately 59.4 TFLOP/s gfx1151 BF16 WMMA roof. It remains below the 30 TFLOP/s experiment target, which requires approximately 36.65 ms and therefore another 3.6% reduction from the selected result.
 
+The first complete 12-key retained-pipeline screen measured a call-weighted candidate/HIP latency ratio of 0.7906, or a 20.94% aggregate reduction. In M2048/M8192/M32768 order, retained-pipeline medians were narrow `0.174/0.621/2.518` ms, shared down `0.206/1.196/3.404` ms, attention output `1.250/4.978/19.481` ms, and query `2.404/9.927/39.923` ms. Every exact key beat its same-process HIP control in this screen. These are baseline screens; only the two selected M32768 N2048 keys already have finalist confirmation evidence.
+
 ### Correctness
 
 All 67,108,864 outputs match HIP bit-for-bit on both production tensors. The same equality holds after rewriting the complete `grad_output` tensor and after mutating a packed-weight byte between launches, which guards the retained L0-invalidation omission.
@@ -61,6 +63,7 @@ Independent source generation is byte-reproducible, and both artifacts pass the 
 - `tools/benchmark_ggtensile.py` provides warmed rotating HIP, candidate, and assembly-control timing; full-output comparison; independent BF16-reference comparison; and producer-handoff checks.
 - Artifact inspection records ABI and hard resources plus static VALU issues and operations, VOPD pairs, VMEM, LDS, waits, barriers, clauses, dependency delays, and L0 invalidations.
 - `tools/benchmark_ggtensile_lower_bounds.py` generates, builds, inspects, and rotates exact `wmma_floor` and `decode_floor` diagnostic artifacts while leaving production `Solution` and dispatch contracts unchanged.
+- `tools/ggtensile/q4_k_dense_inventory.json` records the exact 12 keys, representative tensors, call counts, historical HIP controls, and validation contract without a schema version. `tools/run_ggtensile_q4_k_campaign.py` runs immutable prepare, correctness, nine-repeat screen, and 25-repeat confirmation phases serially and reports call-weighted totals.
 
 ### Retained kernel mechanisms
 
@@ -181,5 +184,6 @@ Prepared weights, BF16 shadows, external decode workspaces, GSU, Stream-K, and p
 - Exact-trip branch lowering and serial 25-repeat brackets: `/tmp/ggtensile-m32768-n2048-k8192-postcheck-loop-a/` and `/tmp/ggtensile-m32768-n2048-k512-postcheck-loop-a/`.
 - Rejected body-unroll artifacts use `/tmp/ggtensile-m32768-n2048-k{512,8192}-unroll{factor}-a/`, with factor-specific generate, inspect, correctness, and nine-repeat timing evidence.
 - Exact production-N coverage artifacts: `/tmp/ggtensile-m2048-n512-k2048-production-n-a/` and `/tmp/ggtensile-m2048-n4096-k2048-production-n-a/`.
+- Complete retained-pipeline prepare, correctness, and nine-repeat screen: `/tmp/ggtensile-q4-k-retained-matrix-a/`.
 
 The original K8192 baseline was 122.90 ms versus HIP at 47.61 ms. It remains useful as the start of the trajectory, but it is not a current performance control.

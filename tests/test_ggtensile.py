@@ -4,12 +4,14 @@ from pathlib import Path
 
 import pytest
 
+from tools.ggtensile.campaign import CampaignError, load_inventory, load_solution
 from tools.ggtensile.cli import main as ggtensile_cli_main
 from tools.ggtensile.inspection import inspect_artifact
 from tools.ggtensile.kernel_writer_assembly import DiagnosticMode, KernelWriterAssembly
 from tools.ggtensile.model import ProblemSize, ProblemType, Solution, SolutionKey
 from tools.ggtensile.toolchain import Toolchain, ToolchainError
 from tools.ggtensile.validation import validate_solution
+from tools.run_ggtensile_q4_k_campaign import main as campaign_main
 
 
 def _pilot_key() -> SolutionKey:
@@ -25,6 +27,66 @@ def _toolchain() -> Toolchain:
         return Toolchain.discover()
     except ToolchainError as error:
         pytest.skip(str(error))
+
+
+def test_q4_k_campaign_inventory_is_exact_and_versionless() -> None:
+    inventory = load_inventory()
+    solution = load_solution()
+    assert len(inventory.entries) == 12
+    assert {entry.family for entry in inventory.entries} == {
+        "narrow",
+        "shared_down",
+        "attention_output",
+        "query",
+    }
+    assert {entry.problem_size.m for entry in inventory.entries} == {
+        2048,
+        8192,
+        32768,
+    }
+    assert all(
+        validate_solution(entry.solution_key(inventory.problem_type, solution)) == ()
+        for entry in inventory.entries
+    )
+    shared_down = next(
+        entry
+        for entry in inventory.entries
+        if entry.problem_size == ProblemSize(2048, 512, 2048)
+    )
+    assert shared_down.expected_logical_weight_shape == (2048, 512)
+    assert shared_down.expected_physical_weight_shape == (2048, 288)
+
+
+def test_q4_k_campaign_inventory_rejects_schema_version(tmp_path: Path) -> None:
+    inventory_path = tmp_path / "inventory.json"
+    value = json.loads(
+        Path("tools/ggtensile/q4_k_dense_inventory.json").read_text()
+    )
+    value["SchemaVersion"] = 1
+    inventory_path.write_text(json.dumps(value))
+    with pytest.raises(CampaignError, match="invalid inventory keys"):
+        load_inventory(inventory_path)
+
+
+def test_q4_k_campaign_prepare_is_serial_and_immutable(tmp_path: Path) -> None:
+    root = tmp_path / "campaign"
+    arguments = [
+        "prepare",
+        "--artifact-root",
+        str(root),
+        "--key",
+        "2048,512,2048",
+    ]
+    assert campaign_main(arguments) == 0
+    summary = json.loads((root / "prepare.json").read_text())
+    assert summary["Phase"] == "Prepare"
+    assert summary["Status"] == "Accepted"
+    assert len(summary["Entries"]) == 1
+    artifact = root / "m2048_n512_k2048"
+    assert (artifact / "generate.json").is_file()
+    assert (artifact / "build.json").is_file()
+    assert (artifact / "inspect.json").is_file()
+    assert campaign_main(arguments) == 2
 
 
 def test_pilot_solution_identity_and_round_trip() -> None:
