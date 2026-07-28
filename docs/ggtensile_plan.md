@@ -161,7 +161,7 @@ Apply exact-shape compiler work before adding resource-bearing mechanisms. These
 
 - Remove dead kernarg state. Completed: the writer now loads only the three live pointers, preserves the 40-byte ABI, and reduces declared SGPRs from 20 to 16. Serial 25-repeat brackets improved K512 by 0.42% and K8192 by 0.25% with no other static-resource change.
 - Fold exact dimensions, strides, tile counts, launch divisors, and Q4_K block offsets into immediates. Retain dynamic workgroup and lane coordinates, which are not shape constants.
-- Generate fixed reduction trip counts. Preserve the selected prime/steady/final pipeline, then test K512 loop unroll factors `{1,2,4,8,16}` as internal lowering choices. Inspect code size and instruction-cache behavior; full unrolling is not presumed beneficial.
+- Generate fixed reduction trip counts. Completed branch-only specialization preserves the prime/steady/final pipeline, removes the pre-stage exit test and unconditional back branch, and uses one post-stage compare. K32 emits no steady body; K64 and larger exact keys retain the steady path. Serial 25-repeat brackets improved K512 by 0.72% and K8192 by 0.30% with unchanged resources and static issue counts. Full body-unroll factors `{2,4,8,16}` remain internal experiments, with code size and instruction-cache behavior as hard checks.
 - Peel the exact prime and final iterations, remove impossible tails and bounds, and delete branch, counter, and pointer state only when no dynamic consumer remains.
 - Strength-reduce affine A and packed-weight addressing only when the induction form does not extend a live range or raise VGPR allocation. The rejected persistent-A experiment remains the control for resource-growing pointer state.
 - Derive immediate-offset versus explicit-address forms per exact geometry and keep scalar-base addressing wherever offsets fit.
@@ -259,7 +259,7 @@ Broad PLR2, packed-next-only, K64, two-LDS-buffer without decode overlap, and ha
 
 1. Create the machine-readable 12-key inventory with representative tensors, call counts, fresh HIP medians, historical controls, and exact validation requirements. Generalize N coverage only as required by these keys.
 2. Add the bounded runner with immutable generate, build, inspect, correctness, screen, and confirmation evidence.
-3. Apply and bracket exact-shape lowering on the selected M32768 K512 and K8192 controls. Dead kernarg dimensions are complete; fixed-trip reduction and K512 loop policy are next.
+3. Apply and bracket exact-shape lowering on the selected M32768 K512 and K8192 controls. Dead kernarg dimensions and branch-only fixed-trip reduction are complete; bounded body unroll and K512 loop policy are next.
 4. Run the retained pipeline and one-buffer control on every compatible key, establish lower bounds only where diagnosis is unclear, and rank open keys by fresh weighted latency and plausible gap.
 5. Optimize the two open narrow keys, then interleave attention-output and shared-down work by weighted contribution. Optimize the two open query keys last. Within each key, test traversal before expanding geometry/dataflow and test low-level scheduling only on high-level finalists.
 6. Reconfirm every per-key finalist, fall back to HIP where assembly does not win, and run complete weighted Qwen backward correctness and latency across all 12 keys. Update the experiment log after every retained or rejected mechanism.

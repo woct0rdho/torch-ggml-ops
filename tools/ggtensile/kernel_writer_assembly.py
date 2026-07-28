@@ -447,34 +447,36 @@ class KernelWriterAssembly:
         asm.inst("s_barrier")
         self._emit_toggle_lds_write_buffer(asm)
 
-        asm.label(".LDecodedBPipelineLoop")
-        asm.inst(
-            f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, {solution.depth_u}"
-        )
-        asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
-        asm.inst("s_cbranch_scc0 .LDecodedBPipelineFinal")
+        if size.k > solution.depth_u:
+            asm.label(".LDecodedBPipelineLoop")
+            asm.inst(
+                f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, {solution.depth_u}"
+            )
 
-        asm.comment("Issue next packed tile behind current-tile A.")
-        self._emit_q4_k_global_reads(asm, wait_for_reads=False)
-        asm.inst(f"s_waitcnt vmcnt({packed_load_count})")
+            asm.comment("Issue next packed tile behind current-tile A.")
+            self._emit_q4_k_global_reads(asm, wait_for_reads=False)
+            asm.inst(f"s_waitcnt vmcnt({packed_load_count})")
 
-        def after_wmma_pair(k_tile: int, n_tile: int) -> None:
-            pair = (k_tile // 16) * (solution.matrix_instruction[6] // 2)
-            pair += n_tile // 2
-            if pair == 0:
-                asm.inst("s_waitcnt vmcnt(0)")
-                self._emit_q4_k_decode_prepare(asm, label_suffix="PipelineSteady")
-                self._emit_pipeline_lds_read_addresses(asm, 0)
-            self._emit_q4_k_decode_chunk(asm, pair)
-            if pair == 7:
-                self._emit_next_a_half(asm, 0)
-                self._emit_next_a_half(asm, 1)
+            def after_wmma_pair(k_tile: int, n_tile: int) -> None:
+                pair = (k_tile // 16) * (solution.matrix_instruction[6] // 2)
+                pair += n_tile // 2
+                if pair == 0:
+                    asm.inst("s_waitcnt vmcnt(0)")
+                    self._emit_q4_k_decode_prepare(
+                        asm, label_suffix="PipelineSteady"
+                    )
+                    self._emit_pipeline_lds_read_addresses(asm, 0)
+                self._emit_q4_k_decode_chunk(asm, pair)
+                if pair == 7:
+                    self._emit_next_a_half(asm, 0)
+                    self._emit_next_a_half(asm, 1)
 
-        self._emit_wmma(asm, pipeline=True, after_pair=after_wmma_pair)
-        asm.inst("s_waitcnt lgkmcnt(0)")
-        asm.inst("s_barrier")
-        self._emit_swap_lds_buffers(asm)
-        asm.inst("s_branch .LDecodedBPipelineLoop")
+            self._emit_wmma(asm, pipeline=True, after_pair=after_wmma_pair)
+            asm.inst("s_waitcnt lgkmcnt(0)")
+            asm.inst("s_barrier")
+            self._emit_swap_lds_buffers(asm)
+            asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k - solution.depth_u}")
+            asm.inst("s_cbranch_scc1 .LDecodedBPipelineLoop")
 
         asm.label(".LDecodedBPipelineFinal")
         asm.inst("s_waitcnt vmcnt(0)")

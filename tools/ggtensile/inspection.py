@@ -140,7 +140,7 @@ def inspect_artifact(
             // 16
         )
         if solution.one_lds_buffer == 0:
-            expected_wmmas *= 2
+            expected_wmmas *= 1 + int(solution_key.problem_size.k > solution.depth_u)
     _require(
         wmma_count == expected_wmmas,
         f"expected {expected_wmmas} static WMMAs, found {wmma_count}",
@@ -148,9 +148,12 @@ def inspect_artifact(
     )
     expected_barriers = expected_barrier_count
     if expected_barriers is None:
-        expected_barriers = (
-            3 if solution_key.solution.prefetch_packed_weight_next else 2
-        )
+        if solution.one_lds_buffer == 0:
+            expected_barriers = 1 + int(
+                solution_key.problem_size.k > solution.depth_u
+            )
+        else:
+            expected_barriers = 3 if solution.prefetch_packed_weight_next else 2
     _require(
         barrier_count == expected_barriers,
         f"expected {expected_barriers} barriers, found {barrier_count}",

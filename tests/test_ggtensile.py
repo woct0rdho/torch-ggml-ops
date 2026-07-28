@@ -686,6 +686,37 @@ def test_writer_builds_true_decoded_b_pipeline(tmp_path: Path) -> None:
     assert inspection.barrier_count == 2
 
 
+def test_writer_specializes_single_tile_decoded_b_pipeline(tmp_path: Path) -> None:
+    pipeline = replace(
+        Solution.pilot(),
+        one_lds_buffer=0,
+        schedule_iter_alg=4,
+        prefetch_global_read=2,
+        lds_swizzle_chunk_b=8,
+        store_priority_opt=False,
+    )
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemSize(128, 2048, 32),
+        pipeline,
+    )
+    toolchain = _toolchain()
+    assembly = tmp_path / "single_tile_pipeline.s"
+    object_path = tmp_path / "single_tile_pipeline.o"
+    code_object = tmp_path / "single_tile_pipeline.hsaco"
+    source = KernelWriterAssembly(key, toolchain).source()
+    assembly.write_text(source)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+
+    assert ".LDecodedBPipelineLoop:" not in source
+    assert source.count("v_wmma_f32_16x16x16_bf16") == 32
+    assert source.count("s_barrier") == 1
+    inspection = inspect_artifact(key, code_object, toolchain)
+    assert inspection.wmma_count == 32
+    assert inspection.barrier_count == 1
+
+
 def test_two_lds_buffers_reject_unsupported_schedule() -> None:
     unsupported = replace(Solution.pilot(), one_lds_buffer=0)
     key = SolutionKey(

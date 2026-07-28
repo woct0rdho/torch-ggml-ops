@@ -86,6 +86,7 @@ These changes are bit-exact, resource-neutral or resource-reducing, and neutral-
 - Pair 20 accumulator clears with independent pre-loop integer VALU using gfx1151 VOPD: reduces static non-WMMA VALU issues from 675 to 655 in the one-buffer body. A 25-repeat bracket was slightly favorable on both shapes.
 - Remove `buffer_gl0_inv`: K8192 measured 39.757 ms versus 39.886 ms; K512 was neutral within 0.15%. Producer-handoff checks establish correctness after input updates.
 - Remove unused runtime dimension kernarg loads while preserving the 40-byte ABI: allocation falls from 20 to 16 SGPRs. Serial 25-repeat brackets measured K8192 at 38.2548 ms versus 38.3512 ms, a 0.25% reduction, and K512 at 2.5224 ms versus 2.5331 ms, a 0.42% reduction. Both production tensors and producer-handoff mutations remain bit-exact to HIP.
+- Specialize the decoded-B pipeline loop for the exact K trip count: remove the pre-stage exit test and unconditional back branch, then test the next-trip condition after the steady stage. K32 emits no steady body and passes the reduced trip tests at K32/K64/K96/K512. Serial 25-repeat brackets measured K8192 at 38.1932 ms versus 38.3088 ms, a 0.30% reduction, and K512 at 2.5054 ms versus 2.5236 ms, a 0.72% reduction. Static resources and issue counts are unchanged.
 
 ### True-pipeline validation and profiling
 
@@ -175,5 +176,6 @@ Prepared weights, BF16 shadows, external decode workspaces, GSU, Stream-K, and p
 - Current one-buffer and pipeline profiles: `/tmp/ggtensile-profile-current-one-buffer/` and `/tmp/ggtensile-profile-true-pipeline/`.
 - K8192 and K512 lower bounds: `/tmp/ggtensile-m32768-n2048-k8192-lower-bounds/` and `/tmp/ggtensile-m32768-n2048-k512-lower-bounds/`.
 - Dead-kernarg lowering and serial 25-repeat brackets: `/tmp/ggtensile-m32768-n2048-k8192-dead-kernargs-a/` and `/tmp/ggtensile-m32768-n2048-k512-dead-kernargs-a/`.
+- Exact-trip branch lowering and serial 25-repeat brackets: `/tmp/ggtensile-m32768-n2048-k8192-postcheck-loop-a/` and `/tmp/ggtensile-m32768-n2048-k512-postcheck-loop-a/`.
 
 The original K8192 baseline was 122.90 ms versus HIP at 47.61 ms. It remains useful as the start of the trajectory, but it is not a current performance control.
