@@ -25,5 +25,6 @@
   "DecoderWidth": 16,
   "PrefetchPackedWeight": true,
   "PrefetchPackedWeightNext": false,
-  "PackedWeightLaneShare": 1
+  "PackedWeightLaneShare": 1,
+  "Q5KExtraction": "packed"
 }

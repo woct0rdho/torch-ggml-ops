@@ -183,6 +183,7 @@ class Solution:
     prefetch_packed_weight: bool
     prefetch_packed_weight_next: bool
     packed_weight_lane_share: int
+    q5_k_extraction: str
 
     _KEYS: ClassVar[frozenset[str]] = frozenset(
         {
@@ -213,6 +214,7 @@ class Solution:
             "PrefetchPackedWeight",
             "PrefetchPackedWeightNext",
             "PackedWeightLaneShare",
+            "Q5KExtraction",
         }
     )
 
@@ -246,6 +248,7 @@ class Solution:
             prefetch_packed_weight=True,
             prefetch_packed_weight_next=False,
             packed_weight_lane_share=1,
+            q5_k_extraction="packed",
         )
 
     @classmethod
@@ -301,6 +304,7 @@ class Solution:
             packed_weight_lane_share=_integer(
                 item["PackedWeightLaneShare"], "PackedWeightLaneShare"
             ),
+            q5_k_extraction=_string(item["Q5KExtraction"], "Q5KExtraction"),
         )
 
     @property
@@ -347,6 +351,7 @@ class Solution:
             "PrefetchPackedWeight": self.prefetch_packed_weight,
             "PrefetchPackedWeightNext": self.prefetch_packed_weight_next,
             "PackedWeightLaneShare": self.packed_weight_lane_share,
+            "Q5KExtraction": self.q5_k_extraction,
         }
 
 

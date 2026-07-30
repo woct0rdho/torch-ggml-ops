@@ -110,6 +110,19 @@ def test_quant_types_have_distinct_problem_identity() -> None:
     assert q4_key.hash != q5_key.hash
     assert "dense_bwd_q4_k_" in q4_key.kernel_name
     assert "dense_bwd_q5_k_" in q5_key.kernel_name
+    q5_scalar = SolutionKey(
+        q5,
+        ProblemSize(128, 2048, 512),
+        replace(Solution.pilot(), q5_k_extraction="scalar"),
+    )
+    assert validate_solution(q5_scalar) == ()
+    assert validate_solution(
+        SolutionKey(
+            q4,
+            ProblemSize(128, 2048, 512),
+            replace(Solution.pilot(), q5_k_extraction="scalar"),
+        )
+    )
 
 
 def test_q4_k_campaign_inventory_rejects_schema_version(tmp_path: Path) -> None:

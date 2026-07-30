@@ -167,7 +167,7 @@ def _validate_solution_parameters(
         or solution.macro_tile1 != 128
         or solution.depth_u != 32
         or solution.num_threads != 128
-        or solution.schedule_iter_alg != 4
+        or solution.schedule_iter_alg not in (4, 5)
         or solution.prefetch_global_read != 2
         or solution.prefetch_local_read != 1
         or solution.lds_swizzle_chunk_b != 8
@@ -232,6 +232,13 @@ def _validate_solution_parameters(
             "solution.packedweightlaneshare.unimplemented",
             "KernelWriterAssembly implements PackedWeightLaneShare=1 or 2",
             "PackedWeightLaneShare",
+        )
+    if solution.q5_k_extraction not in ("packed", "scalar"):
+        _reject(
+            reasons,
+            "solution.q5kextraction.unimplemented",
+            "Q5KExtraction must be 'packed' or 'scalar'",
+            "Q5KExtraction",
         )
     if solution.prefetch_packed_weight_next and (
         solution.schedule_iter_alg != 4
@@ -364,6 +371,17 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
     reasons: list[RejectReason] = []
     _validate_problem_type(solution_key.problem_type, reasons)
     _validate_solution_parameters(solution_key.solution, reasons)
+    if (
+        solution_key.problem_type.quant_data_type == "Q4_K"
+        and solution_key.solution.q5_k_extraction != "packed"
+    ):
+        _reject(
+            reasons,
+            "solution.q5kextraction.q4_inert",
+            "Q5KExtraction='scalar' is valid only for Q5_K",
+            "Q5KExtraction",
+            source="ProblemType",
+        )
     _validate_problem_size(
         solution_key.problem_type,
         solution_key.problem_size,

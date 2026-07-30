@@ -1196,7 +1196,13 @@ class KernelWriterAssembly:
                 lds_offset = row_stride * element + 64 * (row // 2)
                 if row % 2:
                     lds_offset += 32 if residue < residues // 2 else -32
-            asm.inst(f"v_cvt_f32_ubyte{element % 4}_e32 v{value}, v{low}")
+            if self.solution_key.solution.q5_k_extraction == "scalar":
+                asm.inst(
+                    f"v_bfe_u32 v{value}, v{low}, {8 * (element % 4)}, 5"
+                )
+                asm.inst(f"v_cvt_f32_u32_e32 v{value}, v{value}")
+            else:
+                asm.inst(f"v_cvt_f32_ubyte{element % 4}_e32 v{value}, v{low}")
             asm.inst(f"v_fma_f32 v{value}, v{d_scaled}, v{value}, -v{min_scaled}")
             self._emit_round_bf16(asm, value, rounding)
             asm.inst(
