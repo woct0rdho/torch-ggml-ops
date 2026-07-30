@@ -255,7 +255,8 @@ class KernelWriterAssembly:
         if swizzle:
             lds_address = vgprs.checkOut(32 // swizzle, "swizzled LDS addresses")
         address = vgprs.checkOutAligned(8, 2, "addresses")
-        temporary = vgprs.checkOut(max(7, 3 + 2 * decoder_rows), "temporaries")
+        temporary_count = max(7, 3 + 2 * decoder_rows)
+        temporary = vgprs.checkOut(temporary_count, "temporaries")
         serial = vgprs.checkOut(1, "Serial")
 
         sgprs = RegisterPool(64, RegisterType.Sgpr, True)
@@ -277,7 +278,7 @@ class KernelWriterAssembly:
             address=address,
             temporary=temporary,
             serial=serial,
-            total_vgprs=serial + 1,
+            total_vgprs=max(serial + 1, temporary + temporary_count),
             kernarg=kernarg,
             loop_counter=loop_counter,
             block_offset=block_offset,
@@ -693,6 +694,10 @@ class KernelWriterAssembly:
     ) -> None:
         r = self.registers
         decoder_rows = self._decoder_rows()
+        n_tiles = self.solution_key.solution.matrix_instruction[6]
+        n_per_tile = self.solution_key.solution.macro_tile1
+        tiles_per_weight_block = 256 // n_per_tile
+        n_shift = n_per_tile.bit_length() - 1
         k_shift = self.solution_key.solution.matrix_instruction[6].bit_length() - 1
         k_span = self.solution_key.solution.depth_u // decoder_rows
         packed_row_bytes = self.solution_key.problem_size.n // 256 * 110
@@ -714,10 +719,10 @@ class KernelWriterAssembly:
             asm.inst(f"v_add_nc_u32 v{a + 1}, {row_delta}, v{a}")
 
         asm.comment("Map each lane to a Q3_K 16-value group in the 256-value block.")
-        asm.inst(f"v_and_b32 v{t}, 7, v{r.serial}")
+        asm.inst(f"v_and_b32 v{t}, {n_tiles - 1}, v{r.serial}")
         asm.inst(f"v_lshlrev_b32 v{t}, 4, v{t}")
-        asm.inst(f"v_and_b32 v{t + 1}, 1, s3")
-        asm.inst(f"v_lshlrev_b32 v{t + 1}, 7, v{t + 1}")
+        asm.inst(f"v_and_b32 v{t + 1}, {tiles_per_weight_block - 1}, s3")
+        asm.inst(f"v_lshlrev_b32 v{t + 1}, {n_shift}, v{t + 1}")
         asm.inst(f"v_add_nc_u32 v{t + 1}, v{t + 1}, v{t}")
         asm.inst(f"v_and_b32 v{t + 2}, 31, v{t + 1}")
         asm.inst(f"v_and_b32 v{t + 3}, 31, v{t + 1}")
@@ -1130,12 +1135,17 @@ class KernelWriterAssembly:
         del label_suffix
         r = self.registers
         decoder_rows = self._decoder_rows()
+        n_tiles = self.solution_key.solution.matrix_instruction[6]
+        n_per_tile = self.solution_key.solution.macro_tile1
+        tiles_per_weight_block = 256 // n_per_tile
+        n_shift = n_per_tile.bit_length() - 1
         scale = r.quant_scale
         t = r.temporary
         asm.comment("Reconstruct Q3_K signed scale and d in FP32.")
-        asm.inst(f"v_and_b32 v{t}, 7, v{r.serial}")
-        asm.inst(f"v_and_b32 v{t + 1}, 1, s3")
-        asm.inst(f"v_lshlrev_b32 v{t + 1}, 3, v{t + 1}")
+        asm.inst(f"v_and_b32 v{t}, {n_tiles - 1}, v{r.serial}")
+        asm.inst(f"v_lshlrev_b32 v{t}, 4, v{t}")
+        asm.inst(f"v_and_b32 v{t + 1}, {tiles_per_weight_block - 1}, s3")
+        asm.inst(f"v_lshlrev_b32 v{t + 1}, {n_shift}, v{t + 1}")
         asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
         asm.inst(f"v_lshrrev_b32 v{t + 1}, 3, v{t}")
         asm.inst(f"v_lshlrev_b32 v{t + 1}, 2, v{t + 1}")
@@ -1157,24 +1167,34 @@ class KernelWriterAssembly:
                 f"v_fma_mix_f32 v{d_scaled}, v{r.quant_dm + row}, v{low}, "
                 "neg(0) op_sel_hi:[1,0,0]"
             )
-        asm.inst(f"v_and_b32 v{t}, 7, v{r.serial}")
-        asm.inst(f"v_lshrrev_b32 v{t}, 1, v{t}")
-        asm.inst(f"v_and_b32 v{t + 1}, 1, s3")
-        asm.inst(f"v_lshlrev_b32 v{t + 1}, 2, v{t + 1}")
+        asm.inst(f"v_and_b32 v{t}, {n_tiles - 1}, v{r.serial}")
+        asm.inst(f"v_lshlrev_b32 v{t}, 4, v{t}")
+        asm.inst(f"v_and_b32 v{t + 1}, {tiles_per_weight_block - 1}, s3")
+        asm.inst(f"v_lshlrev_b32 v{t + 1}, {n_shift}, v{t + 1}")
         asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
+        asm.inst(f"v_lshrrev_b32 v{t}, 5, v{t}")
         asm.inst(f"v_mov_b32 v{r.address + 7}, v{t}")
 
     def _emit_q3_k_decode_chunk(self, asm: _Assembly, chunk: int) -> None:
         r = self.registers
         decoder_rows = self._decoder_rows()
+        n_tiles = self.solution_key.solution.matrix_instruction[6]
+        n_per_tile = self.solution_key.solution.macro_tile1
+        tiles_per_weight_block = 256 // n_per_tile
+        n_shift = n_per_tile.bit_length() - 1
         row = chunk // 4
         first_element = 4 * (chunk % 4)
         row_stride = 2 * self.solution_key.solution.depth_u
         t = r.temporary
         low = r.global_read_b + 4 * row + first_element // 4
         high = r.global_read_b + 4 * decoder_rows + 4 * row + first_element // 4
-        asm.inst(f"v_and_b32 v{t}, 7, v{r.serial}")
-        asm.inst(f"v_lshrrev_b32 v{t}, 1, v{t}")
+        asm.inst(f"v_and_b32 v{t}, {n_tiles - 1}, v{r.serial}")
+        asm.inst(f"v_lshlrev_b32 v{t}, 4, v{t}")
+        asm.inst(f"v_and_b32 v{t + 1}, {tiles_per_weight_block - 1}, s3")
+        asm.inst(f"v_lshlrev_b32 v{t + 1}, {n_shift}, v{t + 1}")
+        asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
+        asm.inst(f"v_and_b32 v{t + 1}, 127, v{t}")
+        asm.inst(f"v_lshrrev_b32 v{t}, 5, v{t + 1}")
         asm.inst(f"v_lshlrev_b32 v{t}, 1, v{t}")
         asm.inst(f"v_lshrrev_b32 v{low}, v{t}, v{low}")
         asm.inst(f"v_and_b32 v{low}, 0x03030303, v{low}")
