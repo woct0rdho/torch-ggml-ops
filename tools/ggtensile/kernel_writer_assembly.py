@@ -1195,9 +1195,9 @@ class KernelWriterAssembly:
                 if row % 2:
                     lds_offset += 32 if residue < residues // 2 else -32
             asm.inst(f"v_cvt_f32_ubyte{element % 4}_e32 v{rounding}, v{high}")
-            asm.inst(f"v_mul_f32 v{rounding}, v{d_scaled}, v{rounding}")
             asm.inst(f"v_cvt_f32_ubyte{element % 4}_e32 v{value}, v{low}")
-            asm.inst(f"v_fma_f32 v{value}, v{d_scaled}, v{value}, -v{rounding}")
+            asm.inst(f"v_sub_f32 v{value}, v{value}, v{rounding}")
+            asm.inst(f"v_mul_f32 v{value}, v{d_scaled}, v{value}")
             self._emit_round_bf16(asm, value, rounding)
             asm.inst(
                 f"ds_store_b16_d16_hi v{lds_address}, v{value} offset:{lds_offset}"
