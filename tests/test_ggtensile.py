@@ -58,9 +58,7 @@ def test_q4_k_campaign_inventory_is_exact_and_versionless() -> None:
     )
     assert all(
         validate_solution(
-            entry.solution_key(
-                inventory.problem_type, catalog[entry.selected_solution]
-            )
+            entry.solution_key(inventory.problem_type, catalog[entry.selected_solution])
         )
         == ()
         for entry in inventory.entries
@@ -76,7 +74,9 @@ def test_q4_k_campaign_inventory_is_exact_and_versionless() -> None:
 
 def test_q5_k_campaign_inventory_is_exact_and_quant_aware() -> None:
     inventory = load_inventory(Path("tools/ggtensile/q5_k_dense_inventory.json"))
-    catalog = load_solution_catalog(Path("tools/ggtensile/q5_k_selected_solutions.json"))
+    catalog = load_solution_catalog(
+        Path("tools/ggtensile/q5_k_selected_solutions.json")
+    )
     assert inventory.problem_type == ProblemType.dense_mmq_backward_q5_k()
     assert len(inventory.entries) == 6
     assert {entry.family for entry in inventory.entries} == {"narrow", "shared_down"}
@@ -127,9 +127,7 @@ def test_quant_types_have_distinct_problem_identity() -> None:
 
 def test_q4_k_campaign_inventory_rejects_schema_version(tmp_path: Path) -> None:
     inventory_path = tmp_path / "inventory.json"
-    value = json.loads(
-        Path("tools/ggtensile/q4_k_dense_inventory.json").read_text()
-    )
+    value = json.loads(Path("tools/ggtensile/q4_k_dense_inventory.json").read_text())
     value["SchemaVersion"] = 1
     inventory_path.write_text(json.dumps(value))
     with pytest.raises(CampaignError, match="invalid inventory keys"):
@@ -150,9 +148,7 @@ def test_q4_k_campaign_prepare_is_serial_and_immutable(tmp_path: Path) -> None:
     assert summary["Phase"] == "Prepare"
     assert summary["Status"] == "Accepted"
     assert len(summary["Entries"]) == 1
-    assert summary["Entries"][0]["SelectedSolution"] == (
-        "retained_128x128_pipeline"
-    )
+    assert summary["Entries"][0]["SelectedSolution"] == ("retained_128x128_pipeline")
     artifact = root / "m2048_n512_k2048"
     assert (artifact / "generate.json").is_file()
     assert (artifact / "build.json").is_file()
@@ -167,7 +163,9 @@ def test_pilot_solution_identity_and_round_trip() -> None:
     assert SolutionKey.from_mapping(key.to_mapping()) == key
 
 
-@pytest.mark.parametrize(("n", "packed_row_bytes"), ((512, 288), (2048, 1152), (4096, 2304)))
+@pytest.mark.parametrize(
+    ("n", "packed_row_bytes"), ((512, 288), (2048, 1152), (4096, 2304))
+)
 def test_writer_specializes_production_q4_k_row_stride(
     n: int, packed_row_bytes: int
 ) -> None:
@@ -180,9 +178,7 @@ def test_writer_specializes_production_q4_k_row_stride(
     writer = KernelWriterAssembly(key, _toolchain())
     source = writer.source()
     temporary = writer.registers.temporary
-    assert (
-        f"v_mul_lo_u32 v{temporary}, {packed_row_bytes}, v{temporary}" in source
-    )
+    assert f"v_mul_lo_u32 v{temporary}, {packed_row_bytes}, v{temporary}" in source
 
 
 def test_writer_strength_reduces_power_of_two_row_strides() -> None:
@@ -303,6 +299,7 @@ def test_build_and_inspect_q5_k_payload_backend(tmp_path: Path) -> None:
     assert "Decode Q5_K low nibbles and high payload bits into LDS." in text
     assert "offset:48" in text
     assert "0x01010101" in text
+    assert "v_lshl_or_b32" in text
     inspection = inspect_artifact(key, code_object, toolchain)
     assert inspection.vgpr_count == 200
     assert inspection.sgpr_count == 16
@@ -836,7 +833,9 @@ def test_writer_builds_256x64_geometry(tmp_path: Path) -> None:
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
 
-    assert "Precompute A row coordinates shared by every DepthU iteration." not in source
+    assert (
+        "Precompute A row coordinates shared by every DepthU iteration." not in source
+    )
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
     assert source.count("ds_store_b16_d16_hi") == 16
     assert source.count("ds_load_b128") == 16

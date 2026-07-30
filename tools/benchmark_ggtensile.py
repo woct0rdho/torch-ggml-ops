@@ -22,7 +22,7 @@ if str(REPO_ROOT) not in sys.path:
 from tools.ggtensile.model import SolutionKey  # noqa: E402
 from tools.ggtensile.runtime import DenseBackwardModule  # noqa: E402
 
-DEFAULT_MODEL = Path("/home/wd/models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf")
+DEFAULT_MODEL = Path.home() / "models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf"
 DEFAULT_TENSOR = "blk.39.attn_q.weight"
 BF16_WMMA_ROOFLINE_TFLOPS = 59.4
 

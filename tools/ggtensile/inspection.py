@@ -149,9 +149,7 @@ def inspect_artifact(
     expected_barriers = expected_barrier_count
     if expected_barriers is None:
         if solution.one_lds_buffer == 0:
-            expected_barriers = 1 + int(
-                solution_key.problem_size.k > solution.depth_u
-            )
+            expected_barriers = 1 + int(solution_key.problem_size.k > solution.depth_u)
         else:
             expected_barriers = 3 if solution.prefetch_packed_weight_next else 2
     _require(

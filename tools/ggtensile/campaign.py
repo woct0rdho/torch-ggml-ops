@@ -7,9 +7,7 @@ from .model import ProblemSize, ProblemType, SchemaError, Solution, SolutionKey
 
 DEFAULT_INVENTORY = Path(__file__).with_name("q4_k_dense_inventory.json")
 DEFAULT_RETAINED_SOLUTION = Path(__file__).with_name("q4_k_retained_solution.json")
-DEFAULT_SELECTED_SOLUTIONS = Path(__file__).with_name(
-    "q4_k_selected_solutions.json"
-)
+DEFAULT_SELECTED_SOLUTIONS = Path(__file__).with_name("q4_k_selected_solutions.json")
 
 _EXPECTED_M = (2048, 8192, 32768)
 _CAMPAIGN_SPECS = {
@@ -36,7 +34,9 @@ def _campaign_spec(quant_type: str) -> Mapping[str, object]:
     try:
         return _CAMPAIGN_SPECS[quant_type]
     except KeyError as error:
-        raise CampaignError(f"unsupported campaign quant type {quant_type!r}") from error
+        raise CampaignError(
+            f"unsupported campaign quant type {quant_type!r}"
+        ) from error
 
 
 class CampaignError(ValueError):
@@ -96,7 +96,9 @@ class CampaignEntry:
         spec = _campaign_spec(self.quant_data_type)
         return (size.k, size.n // 256 * int(spec["block_bytes"]))
 
-    def solution_key(self, problem_type: ProblemType, solution: Solution) -> SolutionKey:
+    def solution_key(
+        self, problem_type: ProblemType, solution: Solution
+    ) -> SolutionKey:
         return SolutionKey(problem_type, self.problem_size, solution)
 
 
@@ -119,7 +121,9 @@ class CampaignInventory:
         if unknown_families:
             raise CampaignError(f"unknown families: {unknown_families}")
         inventory_sizes = {entry.problem_size for entry in self.entries}
-        unknown_sizes = [size.to_mapping() for size in sizes if size not in inventory_sizes]
+        unknown_sizes = [
+            size.to_mapping() for size in sizes if size not in inventory_sizes
+        ]
         if unknown_sizes:
             raise CampaignError(f"sizes are not in the inventory: {unknown_sizes}")
         family_filter = set(families)
@@ -226,12 +230,12 @@ def load_inventory(path: Path = DEFAULT_INVENTORY) -> CampaignInventory:
         try:
             size = ProblemSize.from_mapping(item["ProblemSize"])
         except SchemaError as error:
-            raise CampaignError(f"invalid Keys[{index}].ProblemSize: {error}") from error
+            raise CampaignError(
+                f"invalid Keys[{index}].ProblemSize: {error}"
+            ) from error
         historical = item["HistoricalHipMedianMs"]
         if type(historical) not in (int, float) or historical <= 0:
-            raise CampaignError(
-                f"Keys[{index}].HistoricalHipMedianMs must be positive"
-            )
+            raise CampaignError(f"Keys[{index}].HistoricalHipMedianMs must be positive")
         status = _string(item["CurrentStatus"], f"Keys[{index}].CurrentStatus")
         if status not in ("open", "selected"):
             raise CampaignError(f"invalid CurrentStatus {status!r}")

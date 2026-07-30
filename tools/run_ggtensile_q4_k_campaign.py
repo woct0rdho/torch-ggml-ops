@@ -27,7 +27,7 @@ from tools.ggtensile.model import ProblemSize, Solution, SolutionKey  # noqa: E4
 from tools.ggtensile.validation import validate_solution  # noqa: E402
 
 BENCHMARK = REPO_ROOT / "tools" / "benchmark_ggtensile.py"
-DEFAULT_MODEL = Path("/home/wd/models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf")
+DEFAULT_MODEL = Path.home() / "models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf"
 _PHASE_PROTOCOL = {
     "correctness": ("Correctness", 2, 1),
     "screen": ("Screen", 10, 9),
@@ -112,11 +112,11 @@ def _prepare(
             {entry.selected_solution for entry in entries} - catalog.keys()
         )
         if missing:
-            raise CampaignError(f"selected solutions are missing from catalog: {missing}")
+            raise CampaignError(
+                f"selected solutions are missing from catalog: {missing}"
+            )
         solutions = [catalog[entry.selected_solution] for entry in entries]
-        source_mapping = {
-            "SolutionCatalog": str(arguments.solution_catalog.resolve())
-        }
+        source_mapping = {"SolutionCatalog": str(arguments.solution_catalog.resolve())}
     else:
         solution_path = arguments.solution or DEFAULT_RETAINED_SOLUTION
         solution: Solution = load_solution(solution_path)
@@ -217,12 +217,17 @@ def _check_correctness(report: Mapping[str, object], *, has_control: bool) -> No
         required.add("assembly_control_vs_hip")
     missing = required - correctness.keys()
     if missing:
-        raise CampaignError(f"benchmark report lacks correctness rows {sorted(missing)}")
+        raise CampaignError(
+            f"benchmark report lacks correctness rows {sorted(missing)}"
+        )
     for name in required:
         metrics = correctness[name]
         if not isinstance(metrics, Mapping):
             raise CampaignError(f"invalid correctness row {name}")
-        if metrics.get("different_bf16_elements") != 0 or metrics.get("finite") is not True:
+        if (
+            metrics.get("different_bf16_elements") != 0
+            or metrics.get("finite") is not True
+        ):
             raise CampaignError(f"correctness row {name} is not bit-exact and finite")
 
 
@@ -304,8 +309,13 @@ def _measure(
         try:
             reported_key = SolutionKey.from_mapping(report["SolutionKey"])
         except (KeyError, TypeError, ValueError) as error:
-            raise CampaignError(f"invalid SolutionKey in {report_path}: {error}") from error
-        if reported_key != expected_key or report.get("Tensor") != entry.representative_tensor:
+            raise CampaignError(
+                f"invalid SolutionKey in {report_path}: {error}"
+            ) from error
+        if (
+            reported_key != expected_key
+            or report.get("Tensor") != entry.representative_tensor
+        ):
             raise CampaignError(f"benchmark identity mismatch in {report_path}")
         _check_correctness(report, has_control=control_root is not None)
         hip_ms = _timing_median(report, "HIP")
@@ -332,9 +342,7 @@ def _measure(
         }
         if control_ms is not None:
             observation["AssemblyControlMedianMs"] = control_ms
-            observation["CandidateToAssemblyControlLatency"] = (
-                candidate_ms / control_ms
-            )
+            observation["CandidateToAssemblyControlLatency"] = candidate_ms / control_ms
         observations.append(observation)
 
     summary: dict[str, object] = {

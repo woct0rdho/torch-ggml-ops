@@ -84,7 +84,9 @@ class ProblemType:
     @classmethod
     def dense_mmq_backward(cls, quant_data_type: str) -> Self:
         if quant_data_type not in {"Q4_K", "Q5_K"}:
-            raise ValueError(f"unsupported dense MMQ backward quant type {quant_data_type!r}")
+            raise ValueError(
+                f"unsupported dense MMQ backward quant type {quant_data_type!r}"
+            )
         return cls(
             operation_type="DenseMMQBackward",
             quant_data_type=quant_data_type,
@@ -185,6 +187,7 @@ class Solution:
     packed_weight_lane_share: int
     q5_k_extraction: str
     q5_k_nibble_shift_hoist: bool
+    q5_k_metadata_vector_load: bool
 
     _KEYS: ClassVar[frozenset[str]] = frozenset(
         {
@@ -217,6 +220,7 @@ class Solution:
             "PackedWeightLaneShare",
             "Q5KExtraction",
             "Q5KNibbleShiftHoist",
+            "Q5KMetadataVectorLoad",
         }
     )
 
@@ -252,6 +256,7 @@ class Solution:
             packed_weight_lane_share=1,
             q5_k_extraction="packed",
             q5_k_nibble_shift_hoist=False,
+            q5_k_metadata_vector_load=False,
         )
 
     @classmethod
@@ -311,6 +316,9 @@ class Solution:
             q5_k_nibble_shift_hoist=_boolean(
                 item["Q5KNibbleShiftHoist"], "Q5KNibbleShiftHoist"
             ),
+            q5_k_metadata_vector_load=_boolean(
+                item["Q5KMetadataVectorLoad"], "Q5KMetadataVectorLoad"
+            ),
         )
 
     @property
@@ -359,6 +367,7 @@ class Solution:
             "PackedWeightLaneShare": self.packed_weight_lane_share,
             "Q5KExtraction": self.q5_k_extraction,
             "Q5KNibbleShiftHoist": self.q5_k_nibble_shift_hoist,
+            "Q5KMetadataVectorLoad": self.q5_k_metadata_vector_load,
         }
 
 

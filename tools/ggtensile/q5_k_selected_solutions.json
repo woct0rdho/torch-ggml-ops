@@ -29,7 +29,8 @@
       "PrefetchPackedWeightNext": false,
       "PackedWeightLaneShare": 1,
       "Q5KExtraction": "packed",
-      "Q5KNibbleShiftHoist": true
+      "Q5KNibbleShiftHoist": true,
+      "Q5KMetadataVectorLoad": false
     },
     "retained_128x128_pipeline_no_hoist": {
       "KernelLanguage": "Assembly",
@@ -60,7 +61,8 @@
       "PrefetchPackedWeightNext": false,
       "PackedWeightLaneShare": 1,
       "Q5KExtraction": "packed",
-      "Q5KNibbleShiftHoist": false
+      "Q5KNibbleShiftHoist": false,
+      "Q5KMetadataVectorLoad": false
     }
   }
 }

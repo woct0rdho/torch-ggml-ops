@@ -27,5 +27,6 @@
   "PrefetchPackedWeightNext": false,
   "PackedWeightLaneShare": 1,
   "Q5KExtraction": "packed",
-  "Q5KNibbleShiftHoist": false
+  "Q5KNibbleShiftHoist": false,
+  "Q5KMetadataVectorLoad": false
 }
