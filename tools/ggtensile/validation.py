@@ -32,7 +32,16 @@ def _reject(
 def _validate_problem_type(
     problem_type: ProblemType, reasons: list[RejectReason]
 ) -> None:
-    expected = ProblemType.dense_mmq_backward_q4_k()
+    if problem_type.quant_data_type not in {"Q4_K", "Q5_K"}:
+        _reject(
+            reasons,
+            "problem_type.quant_data_type.unsupported",
+            "dense MMQ backward supports only Q4_K and Q5_K",
+            "QuantDataType",
+            source="ProblemType",
+        )
+        return
+    expected = ProblemType.dense_mmq_backward(problem_type.quant_data_type)
     for attribute, parameter in (
         ("operation_type", "OperationType"),
         ("quant_data_type", "QuantDataType"),
@@ -47,14 +56,17 @@ def _validate_problem_type(
             _reject(
                 reasons,
                 f"problem_type.{parameter.lower()}.unsupported",
-                f"pilot requires {parameter}={getattr(expected, attribute)!r}",
+                f"dense MMQ backward requires {parameter}={getattr(expected, attribute)!r}",
                 parameter,
                 source="ProblemType",
             )
 
 
 def _validate_problem_size(
-    problem_size: ProblemSize, solution: Solution, reasons: list[RejectReason]
+    problem_type: ProblemType,
+    problem_size: ProblemSize,
+    solution: Solution,
+    reasons: list[RejectReason],
 ) -> None:
     for parameter, value in (
         ("M", problem_size.m),
@@ -69,11 +81,14 @@ def _validate_problem_size(
                 parameter,
                 source="ProblemSize",
             )
-    if problem_size.n not in (512, 2048, 4096):
+    allowed_n = (512, 2048, 4096)
+    if problem_type.quant_data_type == "Q5_K":
+        allowed_n = (512, 2048)
+    if problem_size.n not in allowed_n:
         _reject(
             reasons,
             "problem_size.n.production",
-            "Q4_K dense campaign requires N=in_features in {512, 2048, 4096}",
+            f"{problem_type.quant_data_type} dense campaign requires N=in_features in {allowed_n}",
             "N",
             source="ProblemSize",
         )
@@ -349,5 +364,10 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
     reasons: list[RejectReason] = []
     _validate_problem_type(solution_key.problem_type, reasons)
     _validate_solution_parameters(solution_key.solution, reasons)
-    _validate_problem_size(solution_key.problem_size, solution_key.solution, reasons)
+    _validate_problem_size(
+        solution_key.problem_type,
+        solution_key.problem_size,
+        solution_key.solution,
+        reasons,
+    )
     return tuple(reasons)

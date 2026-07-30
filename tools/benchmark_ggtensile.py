@@ -112,8 +112,11 @@ def main() -> None:
     tensor = next((item for item in reader.tensors if item.name == args.tensor), None)
     if tensor is None:
         raise KeyError(f"GGUF tensor not found: {args.tensor}")
-    if tensor.tensor_type.name != "Q4_K":
-        raise ValueError(f"expected Q4_K tensor, found {tensor.tensor_type.name}")
+    expected_quant_type = key.problem_type.quant_data_type
+    if tensor.tensor_type.name != expected_quant_type:
+        raise ValueError(
+            f"expected {expected_quant_type} tensor, found {tensor.tensor_type.name}"
+        )
     logical_shape = tuple(int(value) for value in reversed(tensor.shape))
     if logical_shape != (size.k, size.n):
         raise ValueError(

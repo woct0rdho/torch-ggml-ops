@@ -268,7 +268,8 @@ def _validate_metadata(
         4,
     )
     expected_vgprs = allocate(expected_vgprs, 16 * solution.prefetch_local_read, 4)
-    expected_vgprs = allocate(expected_vgprs, 4 * decoder_rows, 4)
+    payload_registers = 4 if solution_key.problem_type.quant_data_type == "Q4_K" else 8
+    expected_vgprs = allocate(expected_vgprs, payload_registers * decoder_rows, 4)
     expected_vgprs = allocate(expected_vgprs, decoder_rows)
     expected_vgprs = allocate(expected_vgprs, 3 * decoder_rows)
     if solution.lds_swizzle_chunk_b:

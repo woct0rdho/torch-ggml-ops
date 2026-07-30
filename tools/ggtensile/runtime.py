@@ -85,9 +85,13 @@ class DenseBackwardModule:
             raise HIPRuntimeError("grad_output shape does not match ProblemSize")
         if tuple(grad_input.shape) != (size.m, size.n):
             raise HIPRuntimeError("grad_input shape does not match ProblemSize")
-        expected_weight_bytes = size.k * (size.n // 256) * 144
+        block_bytes = 144 if self.solution_key.problem_type.quant_data_type == "Q4_K" else 176
+        expected_weight_bytes = size.k * (size.n // 256) * block_bytes
         if packed_weight.numel() != expected_weight_bytes:
-            raise HIPRuntimeError("packed_weight size does not match Q4_K ProblemSize")
+            raise HIPRuntimeError(
+                "packed_weight size does not match "
+                f"{self.solution_key.problem_type.quant_data_type} ProblemSize"
+            )
         devices = {tensor.device for tensor in tensors}
         if len(devices) != 1:
             raise HIPRuntimeError("all launch tensors must be on the same device")

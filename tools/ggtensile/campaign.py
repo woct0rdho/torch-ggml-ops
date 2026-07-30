@@ -11,24 +11,36 @@ DEFAULT_SELECTED_SOLUTIONS = Path(__file__).with_name(
     "q4_k_selected_solutions.json"
 )
 
-_FAMILY_SPECS = {
-    "narrow": ((2048, 512), "blk.5.ffn_gate_shexp.weight", 70),
-    "shared_down": ((512, 2048), "blk.5.ffn_down_shexp.weight", 30),
-    "attention_output": ((4096, 2048), "blk.3.attn_output.weight", 10),
-    "query": ((2048, 8192), "blk.39.attn_q.weight", 1),
-}
 _EXPECTED_M = (2048, 8192, 32768)
-_VALIDATION = {
-    "QuantType": "Q4_K",
-    "ExactDispatch": True,
-    "RequireBitExactHip": True,
-    "RequireGradOutputMutation": True,
-    "RequirePackedWeightMutation": True,
+_CAMPAIGN_SPECS = {
+    "Q4_K": {
+        "families": {
+            "narrow": ((2048, 512), "blk.5.ffn_gate_shexp.weight", 70),
+            "shared_down": ((512, 2048), "blk.5.ffn_down_shexp.weight", 30),
+            "attention_output": ((4096, 2048), "blk.3.attn_output.weight", 10),
+            "query": ((2048, 8192), "blk.39.attn_q.weight", 1),
+        },
+        "block_bytes": 144,
+    },
+    "Q5_K": {
+        "families": {
+            "narrow": ((2048, 512), "blk.0.ffn_gate_shexp.weight", 21),
+            "shared_down": ((512, 2048), "blk.0.ffn_down_shexp.weight", 10),
+        },
+        "block_bytes": 176,
+    },
 }
+
+
+def _campaign_spec(quant_type: str) -> Mapping[str, object]:
+    try:
+        return _CAMPAIGN_SPECS[quant_type]
+    except KeyError as error:
+        raise CampaignError(f"unsupported campaign quant type {quant_type!r}") from error
 
 
 class CampaignError(ValueError):
-    """A dense Q4_K campaign input is malformed or internally inconsistent."""
+    """A dense MMQ campaign input is malformed or internally inconsistent."""
 
 
 def _mapping(value: object, name: str, keys: frozenset[str]) -> Mapping[str, object]:
@@ -56,6 +68,7 @@ def _integer(value: object, name: str) -> int:
 
 @dataclass(frozen=True)
 class CampaignEntry:
+    quant_data_type: str
     family: str
     problem_size: ProblemSize
     representative_tensor: str
@@ -80,7 +93,8 @@ class CampaignEntry:
     @property
     def expected_physical_weight_shape(self) -> tuple[int, int]:
         size = self.problem_size
-        return (size.k, size.n // 256 * 144)
+        spec = _campaign_spec(self.quant_data_type)
+        return (size.k, size.n // 256 * int(spec["block_bytes"]))
 
     def solution_key(self, problem_type: ProblemType, solution: Solution) -> SolutionKey:
         return SolutionKey(problem_type, self.problem_size, solution)
@@ -98,7 +112,10 @@ class CampaignInventory:
         families: tuple[str, ...] = (),
         sizes: tuple[ProblemSize, ...] = (),
     ) -> tuple[CampaignEntry, ...]:
-        unknown_families = sorted(set(families) - _FAMILY_SPECS.keys())
+        spec = _campaign_spec(self.problem_type.quant_data_type)
+        family_specs = spec["families"]
+        assert isinstance(family_specs, Mapping)
+        unknown_families = sorted(set(families) - family_specs.keys())
         if unknown_families:
             raise CampaignError(f"unknown families: {unknown_families}")
         inventory_sizes = {entry.problem_size for entry in self.entries}
@@ -165,14 +182,20 @@ def load_inventory(path: Path = DEFAULT_INVENTORY) -> CampaignInventory:
         problem_type = ProblemType.from_mapping(root["ProblemType"])
     except SchemaError as error:
         raise CampaignError(f"invalid inventory ProblemType: {error}") from error
-    if problem_type != ProblemType.dense_mmq_backward_q4_k():
-        raise CampaignError("inventory ProblemType is not dense backward Q4_K")
+    spec = _campaign_spec(problem_type.quant_data_type)
+    validation_expected = {
+        "QuantType": problem_type.quant_data_type,
+        "ExactDispatch": True,
+        "RequireBitExactHip": True,
+        "RequireGradOutputMutation": True,
+        "RequirePackedWeightMutation": True,
+    }
     validation = _mapping(
-        root["Validation"], "Validation", frozenset(_VALIDATION)
+        root["Validation"], "Validation", frozenset(validation_expected)
     )
-    if dict(validation) != _VALIDATION:
+    if dict(validation) != validation_expected:
         raise CampaignError(
-            f"Validation must be exactly {_VALIDATION}, got {dict(validation)}"
+            f"Validation must be exactly {validation_expected}, got {dict(validation)}"
         )
     raw_entries = root["Keys"]
     if type(raw_entries) is not list:
@@ -196,7 +219,9 @@ def load_inventory(path: Path = DEFAULT_INVENTORY) -> CampaignInventory:
             ),
         )
         family = _string(item["Family"], f"Keys[{index}].Family")
-        if family not in _FAMILY_SPECS:
+        family_specs = spec["families"]
+        assert isinstance(family_specs, Mapping)
+        if family not in family_specs:
             raise CampaignError(f"unknown family {family!r}")
         try:
             size = ProblemSize.from_mapping(item["ProblemSize"])
@@ -211,6 +236,7 @@ def load_inventory(path: Path = DEFAULT_INVENTORY) -> CampaignInventory:
         if status not in ("open", "selected"):
             raise CampaignError(f"invalid CurrentStatus {status!r}")
         entry = CampaignEntry(
+            quant_data_type=problem_type.quant_data_type,
             family=family,
             problem_size=size,
             representative_tensor=_string(
@@ -230,18 +256,22 @@ def load_inventory(path: Path = DEFAULT_INVENTORY) -> CampaignInventory:
             raise CampaignError(f"Keys[{index}].SelectedSolution must not be empty")
         entries.append(entry)
 
+    family_specs = spec["families"]
+    assert isinstance(family_specs, Mapping)
     expected_sizes = {
         ProblemSize(m, n, k)
-        for (n, k), _, _ in _FAMILY_SPECS.values()
+        for (n, k), _, _ in family_specs.values()
         for m in _EXPECTED_M
     }
     actual_sizes = [entry.problem_size for entry in entries]
     if len(actual_sizes) != len(set(actual_sizes)):
         raise CampaignError("inventory has duplicate problem sizes")
     if set(actual_sizes) != expected_sizes:
-        raise CampaignError("inventory does not contain the exact 12 production keys")
+        raise CampaignError(
+            f"inventory does not contain the exact {len(expected_sizes)} production keys"
+        )
     for entry in entries:
-        (n, k), tensor, calls = _FAMILY_SPECS[entry.family]
+        (n, k), tensor, calls = family_specs[entry.family]
         if (entry.problem_size.n, entry.problem_size.k) != (n, k):
             raise CampaignError(f"{entry.slug} does not match family {entry.family}")
         if entry.representative_tensor != tensor or entry.call_count != calls:

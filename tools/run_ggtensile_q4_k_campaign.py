@@ -54,7 +54,7 @@ def _add_selection_arguments(parser: argparse.ArgumentParser) -> None:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run serial immutable phases over exact dense Q4_K production keys"
+        description="Run serial immutable phases over exact dense MMQ production keys"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 

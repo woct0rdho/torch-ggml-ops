@@ -1,0 +1,76 @@
+{
+  "ProblemType": {
+    "OperationType": "DenseMMQBackward",
+    "QuantDataType": "Q5_K",
+    "DataTypeA": "BFloat16",
+    "DataTypeB": "Q5_K",
+    "DestDataType": "BFloat16",
+    "ComputeDataType": "Float",
+    "TransposeA": false,
+    "TransposeB": false
+  },
+  "ModelFile": "Qwen3.6-35B-A3B-APEX-I-Mini.gguf",
+  "Validation": {
+    "QuantType": "Q5_K",
+    "ExactDispatch": true,
+    "RequireBitExactHip": true,
+    "RequireGradOutputMutation": true,
+    "RequirePackedWeightMutation": true
+  },
+  "Keys": [
+    {
+      "Family": "narrow",
+      "ProblemSize": {"M": 2048, "N": 2048, "K": 512},
+      "RepresentativeTensor": "blk.0.ffn_gate_shexp.weight",
+      "CallCount": 21,
+      "HistoricalHipMedianMs": 0.208,
+      "CurrentStatus": "open",
+      "SelectedSolution": "retained_128x128_pipeline"
+    },
+    {
+      "Family": "narrow",
+      "ProblemSize": {"M": 8192, "N": 2048, "K": 512},
+      "RepresentativeTensor": "blk.0.ffn_gate_shexp.weight",
+      "CallCount": 21,
+      "HistoricalHipMedianMs": 0.778,
+      "CurrentStatus": "open",
+      "SelectedSolution": "retained_128x128_pipeline"
+    },
+    {
+      "Family": "narrow",
+      "ProblemSize": {"M": 32768, "N": 2048, "K": 512},
+      "RepresentativeTensor": "blk.0.ffn_gate_shexp.weight",
+      "CallCount": 21,
+      "HistoricalHipMedianMs": 3.019,
+      "CurrentStatus": "open",
+      "SelectedSolution": "retained_128x128_pipeline"
+    },
+    {
+      "Family": "shared_down",
+      "ProblemSize": {"M": 2048, "N": 512, "K": 2048},
+      "RepresentativeTensor": "blk.0.ffn_down_shexp.weight",
+      "CallCount": 10,
+      "HistoricalHipMedianMs": 0.239,
+      "CurrentStatus": "open",
+      "SelectedSolution": "retained_128x128_pipeline"
+    },
+    {
+      "Family": "shared_down",
+      "ProblemSize": {"M": 8192, "N": 512, "K": 2048},
+      "RepresentativeTensor": "blk.0.ffn_down_shexp.weight",
+      "CallCount": 10,
+      "HistoricalHipMedianMs": 1.392,
+      "CurrentStatus": "open",
+      "SelectedSolution": "retained_128x128_pipeline"
+    },
+    {
+      "Family": "shared_down",
+      "ProblemSize": {"M": 32768, "N": 512, "K": 2048},
+      "RepresentativeTensor": "blk.0.ffn_down_shexp.weight",
+      "CallCount": 10,
+      "HistoricalHipMedianMs": 5.606,
+      "CurrentStatus": "open",
+      "SelectedSolution": "retained_128x128_pipeline"
+    }
+  ]
+}

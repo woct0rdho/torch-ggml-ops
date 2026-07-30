@@ -82,17 +82,27 @@ class ProblemType:
     )
 
     @classmethod
-    def dense_mmq_backward_q4_k(cls) -> Self:
+    def dense_mmq_backward(cls, quant_data_type: str) -> Self:
+        if quant_data_type not in {"Q4_K", "Q5_K"}:
+            raise ValueError(f"unsupported dense MMQ backward quant type {quant_data_type!r}")
         return cls(
             operation_type="DenseMMQBackward",
-            quant_data_type="Q4_K",
+            quant_data_type=quant_data_type,
             data_type_a="BFloat16",
-            data_type_b="Q4_K",
+            data_type_b=quant_data_type,
             dest_data_type="BFloat16",
             compute_data_type="Float",
             transpose_a=False,
             transpose_b=False,
         )
+
+    @classmethod
+    def dense_mmq_backward_q4_k(cls) -> Self:
+        return cls.dense_mmq_backward("Q4_K")
+
+    @classmethod
+    def dense_mmq_backward_q5_k(cls) -> Self:
+        return cls.dense_mmq_backward("Q5_K")
 
     @classmethod
     def from_mapping(cls, value: object) -> Self:
@@ -385,8 +395,10 @@ class SolutionKey:
     @property
     def kernel_name(self) -> str:
         size = self.problem_size
+        quant_type = self.problem_type.quant_data_type.lower()
         return (
-            "torch_ggml_ops_ggtensile_gfx1151_v1_dense_bwd_q4_k_"
+            "torch_ggml_ops_ggtensile_gfx1151_v1_dense_bwd_"
+            f"{quant_type}_"
             f"m{size.m}_n{size.n}_k{size.k}_{self.hash[6:]}"
         )
 

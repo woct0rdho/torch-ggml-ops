@@ -74,6 +74,44 @@ def test_q4_k_campaign_inventory_is_exact_and_versionless() -> None:
     assert shared_down.expected_physical_weight_shape == (2048, 288)
 
 
+def test_q5_k_campaign_inventory_is_exact_and_quant_aware() -> None:
+    inventory = load_inventory(Path("tools/ggtensile/q5_k_dense_inventory.json"))
+    catalog = load_solution_catalog(Path("tools/ggtensile/q5_k_selected_solutions.json"))
+    assert inventory.problem_type == ProblemType.dense_mmq_backward_q5_k()
+    assert len(inventory.entries) == 6
+    assert {entry.family for entry in inventory.entries} == {"narrow", "shared_down"}
+    assert {entry.problem_size.m for entry in inventory.entries} == {
+        2048,
+        8192,
+        32768,
+    }
+    assert all(entry.quant_data_type == "Q5_K" for entry in inventory.entries)
+    assert all(
+        validate_solution(
+            entry.solution_key(inventory.problem_type, catalog[entry.selected_solution])
+        )
+        == ()
+        for entry in inventory.entries
+    )
+    narrow = next(entry for entry in inventory.entries if entry.family == "narrow")
+    shared_down = next(
+        entry for entry in inventory.entries if entry.family == "shared_down"
+    )
+    assert narrow.expected_physical_weight_shape == (512, 1408)
+    assert shared_down.expected_physical_weight_shape == (2048, 352)
+
+
+def test_quant_types_have_distinct_problem_identity() -> None:
+    q4 = ProblemType.dense_mmq_backward_q4_k()
+    q5 = ProblemType.dense_mmq_backward_q5_k()
+    assert q4 != q5
+    q4_key = SolutionKey(q4, ProblemSize(128, 2048, 512), Solution.pilot())
+    q5_key = SolutionKey(q5, ProblemSize(128, 2048, 512), Solution.pilot())
+    assert q4_key.hash != q5_key.hash
+    assert "dense_bwd_q4_k_" in q4_key.kernel_name
+    assert "dense_bwd_q5_k_" in q5_key.kernel_name
+
+
 def test_q4_k_campaign_inventory_rejects_schema_version(tmp_path: Path) -> None:
     inventory_path = tmp_path / "inventory.json"
     value = json.loads(
@@ -230,6 +268,36 @@ def test_build_and_inspect_pilot(tmp_path: Path) -> None:
     assert inspection.clause_count == 0
     assert inspection.delay_alu_count == 0
     assert inspection.buffer_gl0_inv_count == 0
+
+
+def test_build_and_inspect_q5_k_payload_backend(tmp_path: Path) -> None:
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q5_k(),
+        ProblemSize(128, 2048, 512),
+        Solution.pilot(),
+    )
+    toolchain = _toolchain()
+    assembly = tmp_path / "q5_k.s"
+    object_path = tmp_path / "q5_k.o"
+    code_object = tmp_path / "q5_k.hsaco"
+    source = KernelWriterAssembly(key, toolchain).write(assembly)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+
+    assert len(source) == 64
+    text = assembly.read_text()
+    assert "Build Q5_K payload" in text
+    assert "Decode Q5_K low nibbles and high payload bits into LDS." in text
+    assert "offset:48" in text
+    assert "0x01010101" in text
+    inspection = inspect_artifact(key, code_object, toolchain)
+    assert inspection.vgpr_count == 200
+    assert inspection.sgpr_count == 16
+    assert inspection.lds_num_bytes == 8192
+    assert inspection.wmma_count == 32
+    assert inspection.private_segment_bytes == 0
+    assert inspection.vgpr_spill_count == 0
+    assert inspection.sgpr_spill_count == 0
 
 
 def test_cli_generate_build_and_inspect_manifests(tmp_path: Path) -> None:

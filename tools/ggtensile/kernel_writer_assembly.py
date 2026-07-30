@@ -95,7 +95,7 @@ class _Assembly:
 
 
 class KernelWriterAssembly:
-    """Emit the exact gfx1151 Q4_K dense-backward pilot solution."""
+    """Emit an exact gfx1151 dense-MMQ backward solution."""
 
     def __init__(
         self,
@@ -160,7 +160,10 @@ class KernelWriterAssembly:
             totalAgprs=0,
             totalSgprs=self.registers.total_sgprs,
         )
-        description = "GGTensile Q4_K dense MMQ backward"
+        description = (
+            f"GGTensile {self.solution_key.problem_type.quant_data_type} "
+            "dense MMQ backward"
+        )
         if self.diagnostic_mode is not None:
             description += f" {self.diagnostic_mode.value} diagnostic"
         signature.addDescriptionTopic(description)
@@ -186,6 +189,18 @@ class KernelWriterAssembly:
             // (decoder_threads * solution.decoder_width)
         )
 
+    def _quant_type(self) -> str:
+        return self.solution_key.problem_type.quant_data_type
+
+    def _payload_register_count(self) -> int:
+        return 4 if self._quant_type() == "Q4_K" else 8
+
+    def _packed_block_bytes(self) -> int:
+        return 144 if self._quant_type() == "Q4_K" else 176
+
+    def _packed_load_count(self) -> int:
+        return (5 if self._quant_type() == "Q4_K" else 6) * self._decoder_rows()
+
     def _allocate_registers(self) -> RegisterLayout:
         from rocisa.enum import RegisterType
         from rocisa.register import RegisterPool
@@ -206,9 +221,17 @@ class KernelWriterAssembly:
             4,
             "ValuB",
         )
-        global_read_b = vgprs.checkOutAligned(4 * decoder_rows, 4, "GlobalReadB")
-        quant_dm = vgprs.checkOut(decoder_rows, "Q4K dm")
-        quant_scale = vgprs.checkOut(3 * decoder_rows, "Q4K scale/min")
+        global_read_b = vgprs.checkOutAligned(
+            self._payload_register_count() * decoder_rows,
+            4,
+            "GlobalReadB payload planes",
+        )
+        quant_dm = vgprs.checkOut(
+            decoder_rows, f"{self._quant_type()} d/m"
+        )
+        quant_scale = vgprs.checkOut(
+            3 * decoder_rows, f"{self._quant_type()} scale/min"
+        )
         lds_address = -1
         swizzle = self.solution_key.solution.lds_swizzle_chunk_b
         if swizzle:
@@ -285,7 +308,10 @@ class KernelWriterAssembly:
         n_shift = n_per_block.bit_length() - 1
         asm.comment("Static packed-row and input-half coordinates.")
         asm.inst(f"s_lshr_b32 s{r.block_offset}, s3, {tile_shift}")
-        asm.inst(f"s_mul_i32 s{r.block_offset}, s{r.block_offset}, 144")
+        asm.inst(
+            f"s_mul_i32 s{r.block_offset}, s{r.block_offset}, "
+            f"{self._packed_block_bytes()}"
+        )
         asm.inst(f"s_lshr_b32 s{r.input_half}, s3, {tile_shift - 1}")
         asm.inst(f"s_and_b32 s{r.input_half}, s{r.input_half}, 1")
         asm.inst(f"s_and_b32 s{r.scalar_temporary}, s3, {tiles_per_weight_block - 1}")
@@ -316,7 +342,9 @@ class KernelWriterAssembly:
                 asm.inst(f"s_cmp_lt_u32 s{r.scalar_temporary + 1}, 128")
                 asm.inst("s_cbranch_scc0 .LDecodeReady")
             schedule = self.solution_key.solution.schedule_iter_alg
-            self._emit_q4_k_global_reads(asm, wait_for_reads=schedule not in (4, 5))
+            self._emit_quant_global_reads(
+                asm, wait_for_reads=schedule not in (4, 5)
+            )
             if schedule in (4, 5):
                 self._emit_first_a_global_reads(asm)
                 a_load_count = (
@@ -326,7 +354,7 @@ class KernelWriterAssembly:
                 )
                 asm.inst(f"s_waitcnt vmcnt({a_load_count})")
             self._emit_packed_weight_lane_share(asm)
-            self._emit_q4_k_decode(asm)
+            self._emit_quant_decode(asm)
             if self.solution_key.solution.num_threads > 128:
                 asm.label(".LDecodeReady")
             asm.inst("s_waitcnt lgkmcnt(0)")
@@ -354,10 +382,10 @@ class KernelWriterAssembly:
         a_load_count = 2 * solution.matrix_instruction[5] * solution.prefetch_global_read
 
         asm.comment("Prime one decoded-B tile for the WMMA/A/LDS lower bound.")
-        self._emit_q4_k_global_reads(asm, wait_for_reads=False)
+        self._emit_quant_global_reads(asm, wait_for_reads=False)
         self._emit_first_a_global_reads(asm)
         asm.inst(f"s_waitcnt vmcnt({a_load_count})")
-        self._emit_q4_k_decode(asm, label_suffix="WmmaFloorPrime")
+        self._emit_quant_decode(asm, label_suffix="WmmaFloorPrime")
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
 
@@ -379,8 +407,8 @@ class KernelWriterAssembly:
         solution = self.solution_key.solution
         asm.comment("Measure packed Q4_K reads, decode, LDS stores, and synchronization.")
         asm.label(".LDecodeFloorLoop")
-        self._emit_q4_k_global_reads(asm)
-        self._emit_q4_k_decode(asm, label_suffix="DecodeFloor")
+        self._emit_quant_global_reads(asm)
+        self._emit_quant_decode(asm, label_suffix="DecodeFloor")
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
         asm.inst(
@@ -399,11 +427,11 @@ class KernelWriterAssembly:
         )
 
         asm.comment("Prime decoded B and both A fragments.")
-        self._emit_q4_k_global_reads(asm, wait_for_reads=False)
+        self._emit_quant_global_reads(asm, wait_for_reads=False)
         self._emit_first_a_global_reads(asm)
         asm.inst(f"s_waitcnt vmcnt({a_load_count})")
         self._emit_packed_weight_lane_share(asm)
-        self._emit_q4_k_decode(asm, label_suffix="Initial")
+        self._emit_quant_decode(asm, label_suffix="Initial")
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
 
@@ -412,7 +440,7 @@ class KernelWriterAssembly:
         asm.inst(f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, 32")
         asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
         asm.inst("s_cbranch_scc0 .LPackedNoPrefetch")
-        self._emit_q4_k_global_reads(asm, wait_for_reads=False)
+        self._emit_quant_global_reads(asm, wait_for_reads=False)
         asm.label(".LPackedNoPrefetch")
 
         self._emit_wmma(asm)
@@ -424,7 +452,7 @@ class KernelWriterAssembly:
         self._emit_first_a_global_reads(asm)
         asm.inst(f"s_waitcnt vmcnt({a_load_count})")
         self._emit_packed_weight_lane_share(asm)
-        self._emit_q4_k_decode(asm, label_suffix="Steady")
+        self._emit_quant_decode(asm, label_suffix="Steady")
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
         asm.inst("s_branch .LPackedDepthULoop")
@@ -435,13 +463,13 @@ class KernelWriterAssembly:
         size = self.solution_key.problem_size
         solution = self.solution_key.solution
         a_load_count = 2 * solution.matrix_instruction[5] * solution.prefetch_global_read
-        packed_load_count = 5 * self._decoder_rows()
+        packed_load_count = self._packed_load_count()
 
         asm.comment("Prime decoded B0 and current-tile A.")
-        self._emit_q4_k_global_reads(asm, wait_for_reads=False)
+        self._emit_quant_global_reads(asm, wait_for_reads=False)
         self._emit_first_a_global_reads(asm)
         asm.inst(f"s_waitcnt vmcnt({a_load_count})")
-        self._emit_q4_k_decode(asm, label_suffix="PipelinePrime")
+        self._emit_quant_decode(asm, label_suffix="PipelinePrime")
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
         self._emit_toggle_lds_write_buffer(asm)
@@ -453,7 +481,7 @@ class KernelWriterAssembly:
             )
 
             asm.comment("Issue next packed tile behind current-tile A.")
-            self._emit_q4_k_global_reads(asm, wait_for_reads=False)
+            self._emit_quant_global_reads(asm, wait_for_reads=False)
             asm.inst(f"s_waitcnt vmcnt({packed_load_count})")
 
             def after_wmma_pair(k_tile: int, n_tile: int) -> None:
@@ -461,11 +489,11 @@ class KernelWriterAssembly:
                 pair += n_tile // 2
                 if pair == 0:
                     asm.inst("s_waitcnt vmcnt(0)")
-                    self._emit_q4_k_decode_prepare(
+                    self._emit_quant_decode_prepare(
                         asm, label_suffix="PipelineSteady"
                     )
                     self._emit_pipeline_lds_read_addresses(asm, 0)
-                self._emit_q4_k_decode_chunk(asm, pair)
+                self._emit_quant_decode_chunk(asm, pair)
                 if pair == 7:
                     self._emit_next_a_half(asm, 0)
                     self._emit_next_a_half(asm, 1)
@@ -560,6 +588,22 @@ class KernelWriterAssembly:
         asm.inst(f"v_add_nc_u32 v{a + 6}, v{a + 6}, v{t}")
         asm.inst(f"v_and_b32 v{a + 7}, 2, v{r.serial}")
         asm.inst(f"v_lshlrev_b32 v{a + 7}, 1, v{a + 7}")
+        if self._quant_type() == "Q5_K":
+            asm.comment("Derive the Q5_K scale-group index for the high plane.")
+            if n_tiles == 8:
+                asm.inst(f"v_and_b32 v{t}, 1, s3")
+                asm.inst(f"v_lshlrev_b32 v{t}, 2, v{t}")
+                asm.inst(f"v_bfe_u32 v{t + 1}, v{r.serial}, 2, 1")
+                asm.inst(f"v_lshlrev_b32 v{t + 1}, 1, v{t + 1}")
+                asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
+                asm.inst(f"v_bfe_u32 v{t + 1}, v{r.serial}, 1, 1")
+                asm.inst(f"v_add_nc_u32 v{a + 7}, v{t}, v{t + 1}")
+            else:
+                asm.inst(f"v_and_b32 v{t}, {n_tiles - 1}, v{r.serial}")
+                asm.inst(f"v_lshrrev_b32 v{t}, 1, v{t}")
+                asm.inst(f"v_and_b32 v{t + 1}, {n_tiles - 1}, s3")
+                asm.inst(f"v_lshlrev_b32 v{t + 1}, 1, v{t + 1}")
+                asm.inst(f"v_add_nc_u32 v{a + 7}, v{t}, v{t + 1}")
         swizzle = self.solution_key.solution.lds_swizzle_chunk_b
         if swizzle:
             lds = r.lds_address
@@ -606,6 +650,17 @@ class KernelWriterAssembly:
                 row_stride_a,
                 a + 4 + m_tile,
             )
+
+    def _emit_quant_global_reads(
+        self,
+        asm: _Assembly,
+        *,
+        wait_for_reads: bool = True,
+    ) -> None:
+        if self._quant_type() == "Q4_K":
+            self._emit_q4_k_global_reads(asm, wait_for_reads=wait_for_reads)
+        else:
+            self._emit_q5_k_global_reads(asm, wait_for_reads=wait_for_reads)
 
     def _emit_q4_k_global_reads(
         self,
@@ -731,6 +786,145 @@ class KernelWriterAssembly:
         if wait_for_reads:
             asm.inst("s_waitcnt vmcnt(0)")
 
+    def _emit_q5_k_global_reads(
+        self,
+        asm: _Assembly,
+        *,
+        wait_for_reads: bool = True,
+    ) -> None:
+        r = self.registers
+        n_tiles = self.solution_key.solution.matrix_instruction[6]
+        decoder_rows = self._decoder_rows()
+        k_shift = n_tiles.bit_length() - 1
+        k_span = self.solution_key.solution.depth_u // decoder_rows
+        packed_row_bytes = self.solution_key.problem_size.n // 256 * 176
+        row_delta = k_span * packed_row_bytes
+        q_low = r.global_read_b
+        q_high = q_low + 4 * decoder_rows
+        dm = r.quant_dm
+        scale = r.quant_scale
+        a = r.address
+        t = r.temporary
+        loop = r.loop_counter
+        block = r.block_offset
+
+        asm.comment("Build Q5_K block addresses for decoder-owned output rows.")
+        asm.inst(f"v_lshrrev_b32 v{t}, {k_shift}, v{r.serial}")
+        asm.inst(f"v_add_nc_u32 v{t}, s{loop}, v{t}")
+        asm.inst(f"v_mul_lo_u32 v{t}, {packed_row_bytes}, v{t}")
+        asm.inst(f"v_add_nc_u32 v{t}, s{block}, v{t}")
+        asm.inst(f"v_mov_b32 v{a}, v{t}")
+        if decoder_rows == 2:
+            asm.inst(f"v_add_nc_u32 v{a + 1}, {row_delta}, v{a}")
+
+        asm.comment("Build Q5_K payload and scale-byte addresses.")
+        direct_quant_mapping = self.solution_key.solution.macro_tile1 == 128
+        if direct_quant_mapping:
+            asm.inst(f"v_and_b32 v{t}, 1, v{r.serial}")
+            asm.inst(f"v_lshlrev_b32 v{t}, 4, v{t}")
+            asm.inst(f"v_bfe_u32 v{t + 1}, v{r.serial}, 2, 1")
+            asm.inst(f"v_lshl_add_u32 v{t + 1}, v{t + 1}, 5, v{t}")
+            asm.inst(f"v_add_nc_u32 v{t + 1}, s{r.scalar_temporary}, v{t + 1}")
+        else:
+            asm.inst(f"v_and_b32 v{t}, {n_tiles - 1}, v{r.serial}")
+            asm.inst(f"v_lshlrev_b32 v{t}, 4, v{t}")
+            asm.inst(f"v_add_nc_u32 v{t}, s{r.scalar_temporary}, v{t}")
+            asm.inst(f"v_lshrrev_b32 v{t + 1}, 6, v{t}")
+            asm.inst(f"v_lshlrev_b32 v{t + 1}, 5, v{t + 1}")
+            asm.inst(f"v_and_b32 v{t + 2}, 31, v{t}")
+            asm.inst(f"v_add_nc_u32 v{t + 1}, v{t + 1}, v{t + 2}")
+
+        if decoder_rows > 2:
+            if direct_quant_mapping:
+                asm.inst(f"v_bfe_u32 v{t + 2}, v{r.serial}, 1, 2")
+            else:
+                asm.inst(f"v_lshrrev_b32 v{t + 2}, 5, v{t}")
+                asm.inst(f"v_and_b32 v{t + 2}, 3, v{t + 2}")
+            for row in range(decoder_rows):
+                block_address = a
+                if row:
+                    asm.inst(f"v_add_nc_u32 v{a + row}, {row * row_delta}, v{a}")
+                    block_address = a + row
+                asm.inst(f"v_add_nc_u32 v{t + 3}, v{block_address}, v{t}")
+                asm.inst(
+                    f"global_load_b128 v[{q_high + 4 * row}:{q_high + 4 * row + 3}], "
+                    f"v{t + 3}, s[{r.kernarg + 2}:{r.kernarg + 3}] offset:16"
+                )
+                asm.inst(f"v_add_nc_u32 v{t + 3}, v{block_address}, v{t + 1}")
+                asm.inst(
+                    f"global_load_b128 v[{q_low + 4 * row}:{q_low + 4 * row + 3}], "
+                    f"v{t + 3}, s[{r.kernarg + 2}:{r.kernarg + 3}] offset:48"
+                )
+                asm.inst(
+                    f"global_load_b32 v{dm + row}, "
+                    f"v{block_address}, s[{r.kernarg + 2}:{r.kernarg + 3}]"
+                )
+                asm.inst(f"v_add_nc_u32 v{t + 4}, v{block_address}, v{t + 2}")
+                for scale_offset in (4, 8, 12):
+                    scale_register = scale + 3 * row + scale_offset // 4 - 1
+                    asm.inst(
+                        f"global_load_d16_u8 v{scale_register}, "
+                        f"v{t + 4}, s[{r.kernarg + 2}:{r.kernarg + 3}] "
+                        f"offset:{scale_offset}"
+                    )
+            if wait_for_reads:
+                asm.inst("s_waitcnt vmcnt(0)")
+            return
+
+        for row in range(decoder_rows):
+            asm.inst(f"v_add_nc_u32 v{a + 2 + row}, v{a + row}, v{t + 1}")
+        if self.solution_key.solution.packed_weight_lane_share == 2:
+            asm.comment("Load Q5_K payload planes on one lane from each lane pair.")
+            asm.inst(f"v_and_b32 v{t + 2}, 2, v{r.serial}")
+            asm.inst(f"v_cmp_eq_u32_e32 vcc_lo, 0, v{t + 2}")
+            asm.inst(f"s_and_saveexec_b32 s{r.scalar_temporary + 1}, vcc_lo")
+        for row in range(decoder_rows):
+            high_offset = t if direct_quant_mapping else t + 2
+            asm.inst(
+                f"v_add_nc_u32 v{t + 3}, v{a + row}, v{high_offset}"
+            )
+            asm.inst(
+                f"global_load_b128 v[{q_high + 4 * row}:{q_high + 4 * row + 3}], "
+                f"v{t + 3}, s[{r.kernarg + 2}:{r.kernarg + 3}] offset:16"
+            )
+            asm.inst(
+                f"global_load_b128 v[{q_low + 4 * row}:{q_low + 4 * row + 3}], "
+                f"v{a + 2 + row}, s[{r.kernarg + 2}:{r.kernarg + 3}] offset:48"
+            )
+        if self.solution_key.solution.packed_weight_lane_share == 2:
+            asm.inst(f"s_mov_b32 exec_lo, s{r.scalar_temporary + 1}")
+
+        if direct_quant_mapping:
+            asm.inst(f"v_bfe_u32 v{t + 1}, v{r.serial}, 1, 2")
+        else:
+            asm.inst(f"v_lshrrev_b32 v{t + 1}, 5, v{t}")
+            asm.inst(f"v_and_b32 v{t + 1}, 3, v{t + 1}")
+        asm.inst(f"v_add_nc_u32 v{a + 2}, v{a}, v{t + 1}")
+        for row in range(decoder_rows):
+            asm.inst(
+                f"global_load_b32 v{dm + row}, v{a + row}, "
+                f"s[{r.kernarg + 2}:{r.kernarg + 3}]"
+            )
+        for row in range(decoder_rows):
+            address_pair = a + 2
+            if row:
+                asm.inst(f"v_add_nc_u32 v{a + 3}, {row * row_delta}, v{a + 2}")
+                address_pair = a + 3
+            asm.inst(
+                f"global_load_d16_u8 v{scale + 3 * row}, v{address_pair}, "
+                f"s[{r.kernarg + 2}:{r.kernarg + 3}] offset:4"
+            )
+            asm.inst(
+                f"global_load_d16_u8 v{scale + 3 * row + 1}, v{address_pair}, "
+                f"s[{r.kernarg + 2}:{r.kernarg + 3}] offset:8"
+            )
+            asm.inst(
+                f"global_load_d16_u8 v{scale + 3 * row + 2}, v{address_pair}, "
+                f"s[{r.kernarg + 2}:{r.kernarg + 3}] offset:12"
+            )
+        if wait_for_reads:
+            asm.inst("s_waitcnt vmcnt(0)")
+
     def _emit_packed_weight_lane_share(self, asm: _Assembly) -> None:
         solution = self.solution_key.solution
         if solution.packed_weight_lane_share == 1:
@@ -743,7 +937,10 @@ class KernelWriterAssembly:
         asm.comment("Replicate packed q bytes across low/high-nibble lane pairs.")
         asm.inst(f"v_and_b32 v{lane_pair}, 2, v{r.serial}")
         asm.inst(f"v_cmp_eq_u32_e32 vcc_lo, 0, v{lane_pair}")
-        for register in range(r.global_read_b, r.global_read_b + 4 * decoder_rows):
+        for register in range(
+            r.global_read_b,
+            r.global_read_b + self._payload_register_count() * decoder_rows,
+        ):
             asm.inst(
                 f"v_mov_b32_dpp v{shifted}, v{register} row_shr:2 "
                 "row_mask:0xf bank_mask:0xf"
@@ -778,6 +975,34 @@ class KernelWriterAssembly:
                     f"global_load_b128 v[{valu_a + 4}:{valu_a + 7}], "
                     f"v{pointer}, s[{r.kernarg}:{r.kernarg + 1}] offset:16"
                 )
+
+    def _emit_quant_decode(
+        self,
+        asm: _Assembly,
+        *,
+        label_suffix: str = "",
+    ) -> None:
+        if self._quant_type() == "Q4_K":
+            self._emit_q4_k_decode(asm, label_suffix=label_suffix)
+        else:
+            self._emit_q5_k_decode(asm, label_suffix=label_suffix)
+
+    def _emit_quant_decode_prepare(
+        self,
+        asm: _Assembly,
+        *,
+        label_suffix: str,
+    ) -> None:
+        if self._quant_type() == "Q4_K":
+            self._emit_q4_k_decode_prepare(asm, label_suffix=label_suffix)
+        else:
+            self._emit_q5_k_decode_prepare(asm, label_suffix=label_suffix)
+
+    def _emit_quant_decode_chunk(self, asm: _Assembly, chunk: int) -> None:
+        if self._quant_type() == "Q4_K":
+            self._emit_q4_k_decode_chunk(asm, chunk)
+        else:
+            self._emit_q5_k_decode_chunk(asm, chunk)
 
     def _emit_q4_k_decode(
         self,
@@ -869,6 +1094,109 @@ class KernelWriterAssembly:
             asm.inst(
                 f"v_cvt_f32_ubyte{element % 4}_e32 v{value}, v{packed}"
             )
+            asm.inst(f"v_fma_f32 v{value}, v{d_scaled}, v{value}, -v{min_scaled}")
+            self._emit_round_bf16(asm, value, rounding)
+            asm.inst(
+                f"ds_store_b16_d16_hi v{lds_address}, v{value} offset:{lds_offset}"
+            )
+
+    def _emit_q5_k_decode(self, asm: _Assembly, *, label_suffix: str = "") -> None:
+        self._emit_q5_k_decode_prepare(asm, label_suffix=label_suffix)
+        asm.comment("Decode Q5_K low nibbles and high payload bits into LDS.")
+        for chunk in range(4 * self._decoder_rows()):
+            self._emit_q5_k_decode_chunk(asm, chunk)
+
+    def _emit_q5_k_decode_prepare(
+        self,
+        asm: _Assembly,
+        *,
+        label_suffix: str,
+    ) -> None:
+        r = self.registers
+        decoder_rows = self._decoder_rows()
+        scale = r.quant_scale
+        t = r.temporary
+        asm.comment("Unpack Q5_K six-bit scale/min fields.")
+        scale_odd = f".LScaleOdd{label_suffix}"
+        scale_ready = f".LScaleReady{label_suffix}"
+        asm.inst(f"s_cmp_eq_u32 s{r.input_half}, 0")
+        asm.inst(f"s_cbranch_scc0 {scale_odd}")
+        for row in range(decoder_rows):
+            asm.inst(f"v_and_b32 v{scale + 3 * row}, 0x3f, v{scale + 3 * row}")
+            asm.inst(
+                f"v_and_b32 v{scale + 3 * row + 1}, 0x3f, "
+                f"v{scale + 3 * row + 1}"
+            )
+        asm.inst(f"s_branch {scale_ready}")
+        asm.label(scale_odd)
+        for row in range(decoder_rows):
+            lo = scale + 3 * row
+            minimum = lo + 1
+            high = lo + 2
+            asm.inst(f"v_lshrrev_b32 v{t}, 2, v{lo}")
+            asm.inst(f"v_and_b32 v{t}, 0x30, v{t}")
+            asm.inst(f"v_and_b32 v{lo}, 0x0f, v{high}")
+            asm.inst(f"v_or_b32 v{lo}, v{lo}, v{t}")
+            asm.inst(f"v_lshrrev_b32 v{t}, 2, v{minimum}")
+            asm.inst(f"v_and_b32 v{t}, 0x30, v{t}")
+            asm.inst(f"v_lshrrev_b32 v{minimum}, 4, v{high}")
+            asm.inst(f"v_or_b32 v{minimum}, v{minimum}, v{t}")
+        asm.label(scale_ready)
+
+        asm.comment("Convert and scale Q5_K d/dmin values in FP32.")
+        for row in range(decoder_rows):
+            dm = r.quant_dm + row
+            lo = scale + 3 * row
+            d_scaled = t + 1 + 2 * row
+            min_scaled = d_scaled + 1
+            asm.inst(f"v_lshrrev_b32 v{min_scaled}, 16, v{dm}")
+            asm.inst(f"v_cvt_f32_ubyte0_e32 v{lo}, v{lo}")
+            asm.inst(f"v_cvt_f32_ubyte0_e32 v{lo + 1}, v{lo + 1}")
+            asm.inst(
+                f"v_fma_mix_f32 v{d_scaled}, v{dm}, v{lo}, "
+                "neg(0) op_sel_hi:[1,0,0]"
+            )
+            asm.inst(
+                f"v_fma_mix_f32 v{min_scaled}, v{min_scaled}, v{lo + 1}, "
+                "neg(0) op_sel_hi:[1,0,0]"
+            )
+
+    def _emit_q5_k_decode_chunk(self, asm: _Assembly, chunk: int) -> None:
+        r = self.registers
+        decoder_rows = self._decoder_rows()
+        row = chunk // 4
+        first_element = 4 * (chunk % 4)
+        row_stride = 2 * self.solution_key.solution.depth_u
+        t = r.temporary
+        low = r.global_read_b + 4 * row + first_element // 4
+        high = r.global_read_b + 4 * decoder_rows + 4 * row + first_element // 4
+        low_shift = t
+        asm.inst(
+            f"v_and_b32 v{low_shift}, 1, v{r.address + 7}"
+        )
+        asm.inst(f"v_lshlrev_b32 v{low_shift}, 2, v{low_shift}")
+        asm.inst(f"v_lshrrev_b32 v{low}, v{low_shift}, v{low}")
+        asm.inst(f"v_and_b32 v{low}, 0x0f0f0f0f, v{low}")
+        asm.inst(f"v_lshrrev_b32 v{high}, v{r.address + 7}, v{high}")
+        asm.inst(f"v_and_b32 v{high}, 0x01010101, v{high}")
+        asm.inst(f"v_lshlrev_b32 v{high}, 4, v{high}")
+        asm.inst(f"v_or_b32 v{low}, v{low}, v{high}")
+        for element in range(first_element, first_element + 4):
+            value = t + 1 + 2 * decoder_rows
+            rounding = value + 1
+            d_scaled = t + 1 + 2 * row
+            min_scaled = d_scaled + 1
+            lds_offset = row_stride * element + 32 * row
+            lds_address = r.address + 6
+            swizzle = self.solution_key.solution.lds_swizzle_chunk_b
+            if swizzle:
+                residues = 32 // swizzle
+                residue = element % residues
+                lds_address = r.lds_address + residue
+                lds_offset = row_stride * element + 64 * (row // 2)
+                if row % 2:
+                    lds_offset += 32 if residue < residues // 2 else -32
+            asm.inst(f"v_cvt_f32_ubyte{element % 4}_e32 v{value}, v{low}")
             asm.inst(f"v_fma_f32 v{value}, v{d_scaled}, v{value}, -v{min_scaled}")
             self._emit_round_bf16(asm, value, rounding)
             asm.inst(
