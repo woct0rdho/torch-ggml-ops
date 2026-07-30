@@ -1147,10 +1147,11 @@ class KernelWriterAssembly:
         asm.inst(f"v_and_b32 v{t + 1}, {tiles_per_weight_block - 1}, s3")
         asm.inst(f"v_lshlrev_b32 v{t + 1}, {n_shift}, v{t + 1}")
         asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
-        asm.inst(f"v_lshrrev_b32 v{t + 1}, 3, v{t}")
-        asm.inst(f"v_lshlrev_b32 v{t + 1}, 2, v{t + 1}")
-        asm.inst(f"v_lshrrev_b32 v{t + 2}, 2, v{t}")
+        asm.inst(f"v_lshrrev_b32 v{t + 1}, 4, v{t}")
+        asm.inst(f"v_lshrrev_b32 v{t + 2}, 2, v{t + 1}")
         asm.inst(f"v_lshlrev_b32 v{t + 2}, 1, v{t + 2}")
+        asm.inst(f"v_lshrrev_b32 v{t + 1}, 3, v{t + 1}")
+        asm.inst(f"v_lshlrev_b32 v{t + 1}, 2, v{t + 1}")
         for row in range(decoder_rows):
             low = scale + 2 * row
             high = low + 1
