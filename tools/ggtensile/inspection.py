@@ -269,10 +269,13 @@ def _validate_metadata(
     quant_type = solution_key.problem_type.quant_data_type
     payload_registers = 4 if quant_type == "Q4_K" else 8
     expected_vgprs = allocate(expected_vgprs, payload_registers * decoder_rows, 4)
-    expected_vgprs = allocate(expected_vgprs, decoder_rows)
-    expected_vgprs = allocate(
-        expected_vgprs, (2 if quant_type == "Q3_K" else 3) * decoder_rows
-    )
+    if quant_type == "Q3_K" and solution.q3_k_metadata_vector_load:
+        expected_vgprs = allocate(expected_vgprs, 5 * decoder_rows)
+    else:
+        expected_vgprs = allocate(expected_vgprs, decoder_rows)
+        expected_vgprs = allocate(
+            expected_vgprs, (2 if quant_type == "Q3_K" else 3) * decoder_rows
+        )
     if solution.lds_swizzle_chunk_b:
         expected_vgprs = allocate(expected_vgprs, 32 // solution.lds_swizzle_chunk_b)
     expected_vgprs = allocate(expected_vgprs, 8, 2)

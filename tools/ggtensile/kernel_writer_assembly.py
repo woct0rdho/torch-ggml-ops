@@ -207,7 +207,7 @@ class KernelWriterAssembly:
             return 5 * self._decoder_rows()
         if self._quant_type() == "Q3_K":
             return (
-                3 if self.solution_key.solution.q3_k_metadata_vector_load else 5
+                4 if self.solution_key.solution.q3_k_metadata_vector_load else 5
             ) * self._decoder_rows()
         return (
             3 if self.solution_key.solution.q5_k_metadata_vector_load else 6
@@ -240,7 +240,7 @@ class KernelWriterAssembly:
         )
         if self._quant_type() == "Q3_K":
             if self.solution_key.solution.q3_k_metadata_vector_load:
-                quant_dm = vgprs.checkOut(4 * decoder_rows, "Q3_K metadata vector")
+                quant_dm = vgprs.checkOut(5 * decoder_rows, "Q3_K metadata vector")
                 quant_scale = quant_dm
             else:
                 quant_dm = vgprs.checkOut(decoder_rows, "Q3_K d")
@@ -762,9 +762,14 @@ class KernelWriterAssembly:
             )
             if self.solution_key.solution.q3_k_metadata_vector_load:
                 metadata = r.quant_dm + 4 * row
+                d_register = r.quant_dm + 4 * decoder_rows + row
                 asm.inst(
                     f"global_load_b128 v[{metadata}:{metadata + 3}], "
                     f"v{block_address}, s[{r.kernarg + 2}:{r.kernarg + 3}] offset:96"
+                )
+                asm.inst(
+                    f"global_load_d16_b16 v{d_register}, v{block_address}, "
+                    f"s[{r.kernarg + 2}:{r.kernarg + 3}] offset:108"
                 )
             else:
                 asm.inst(f"v_add_nc_u32 v{t + 6}, v{block_address}, v{t + 6}")
@@ -1172,8 +1177,11 @@ class KernelWriterAssembly:
             asm.inst(f"v_lshrrev_b32 v{t + 6}, 2, v{t + 1}")
             asm.inst(f"v_and_b32 v{t + 6}, 1, v{t + 6}")
             asm.inst(f"v_cmp_eq_u32_e32 vcc_lo, 1, v{t + 6}")
+            asm.inst(f"v_and_b32 v{t + 6}, 3, v{t + 1}")
+            asm.inst(f"v_lshlrev_b32 v{t + 6}, 3, v{t + 6}")
             asm.inst(f"v_lshrrev_b32 v{t + 2}, 2, v{t + 1}")
             asm.inst(f"v_lshlrev_b32 v{t + 2}, 1, v{t + 2}")
+            asm.inst(f"v_add_nc_u32 v{t + 2}, v{t + 2}, v{t + 6}")
             for row in range(decoder_rows):
                 metadata = r.quant_dm + 4 * row
                 low = metadata
@@ -1206,13 +1214,11 @@ class KernelWriterAssembly:
         for row in range(decoder_rows):
             if self.solution_key.solution.q3_k_metadata_vector_load:
                 low = r.quant_dm + 4 * row
-                dm = low + 3
+                dm = r.quant_dm + 4 * decoder_rows + row
             else:
                 low = scale + 2 * row
                 dm = r.quant_dm + row
             d_scaled = t + 3 + row if row < 2 else r.quant_dm + row
-            if self.solution_key.solution.q3_k_metadata_vector_load:
-                asm.inst(f"v_lshlrev_b32 v{dm}, 16, v{dm}")
             asm.inst(
                 f"v_fma_mix_f32 v{d_scaled}, v{dm}, v{low}, "
                 "neg(0) op_sel_hi:[1,0,0]"

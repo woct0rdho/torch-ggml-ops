@@ -407,12 +407,14 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
         )
     if solution_key.problem_type.quant_data_type != "Q3_K" and (
         solution_key.solution.q3_k_extraction != "packed"
+        or solution_key.solution.q3_k_metadata_vector_load
     ):
         _reject(
             reasons,
             "solution.q3.controls.inert",
             "Q3-specific controls are valid only for Q3_K",
             "Q3KExtraction",
+            "Q3KMetadataVectorLoad",
             source="ProblemType",
         )
     _validate_problem_size(

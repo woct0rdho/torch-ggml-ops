@@ -2,6 +2,7 @@
   "Solutions": {
     "initial_128x128_pipeline": {
       "Q3KExtraction": "packed",
+      "Q3KMetadataVectorLoad": false,
       "KernelLanguage": "Assembly",
       "ISA": [11, 5, 1],
       "WavefrontSize": 32,
