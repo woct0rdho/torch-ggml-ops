@@ -1176,7 +1176,7 @@ class KernelWriterAssembly:
         asm.inst(f"v_and_b32 v{t + 1}, 127, v{t}")
         asm.inst(f"v_lshrrev_b32 v{t + 1}, 5, v{t + 1}")
         asm.inst(f"v_lshlrev_b32 v{t + 1}, 1, v{t + 1}")
-        asm.inst(f"v_mov_b32 v{r.address + 5}, v{t + 1}")
+        asm.inst(f"v_mov_b32 v{r.address + 2}, v{t + 1}")
         asm.inst(f"v_lshrrev_b32 v{t}, 5, v{t}")
         asm.inst(f"v_mov_b32 v{r.address + 7}, v{t}")
 
@@ -1189,7 +1189,7 @@ class KernelWriterAssembly:
         t = r.temporary
         low = r.global_read_b + 4 * row + first_element // 4
         high = r.global_read_b + 4 * decoder_rows + 4 * row + first_element // 4
-        asm.inst(f"v_lshrrev_b32 v{low}, v{r.address + 5}, v{low}")
+        asm.inst(f"v_lshrrev_b32 v{low}, v{r.address + 2}, v{low}")
         asm.inst(f"v_and_b32 v{low}, 0x03030303, v{low}")
         asm.inst(f"v_lshrrev_b32 v{high}, v{r.address + 7}, v{high}")
         asm.inst(f"v_and_b32 v{high}, 0x01010101, v{high}")
