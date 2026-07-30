@@ -277,7 +277,11 @@ def _validate_metadata(
         expected_vgprs = allocate(expected_vgprs, 32 // solution.lds_swizzle_chunk_b)
     expected_vgprs = allocate(expected_vgprs, 8, 2)
     expected_vgprs = allocate(expected_vgprs, max(7, 3 + 2 * decoder_rows))
-    expected_vgprs = allocate(expected_vgprs, 1)
+    if quant_type == "Q3_K" and n_tiles == 4:
+        # RegisterPool reuses the single hole before the temporary range.
+        expected_vgprs -= 1
+    else:
+        expected_vgprs = allocate(expected_vgprs, 1)
     expected = {
         ".kernarg_segment_size": 40,
         ".kernarg_segment_align": 8,
