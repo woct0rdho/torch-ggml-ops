@@ -1173,31 +1173,23 @@ class KernelWriterAssembly:
         asm.inst(f"v_and_b32 v{t + 1}, {tiles_per_weight_block - 1}, s3")
         asm.inst(f"v_lshlrev_b32 v{t + 1}, {n_shift}, v{t + 1}")
         asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
+        asm.inst(f"v_and_b32 v{t + 1}, 127, v{t}")
+        asm.inst(f"v_lshrrev_b32 v{t + 1}, 5, v{t + 1}")
+        asm.inst(f"v_lshlrev_b32 v{t + 1}, 1, v{t + 1}")
+        asm.inst(f"v_mov_b32 v{r.address + 5}, v{t + 1}")
         asm.inst(f"v_lshrrev_b32 v{t}, 5, v{t}")
         asm.inst(f"v_mov_b32 v{r.address + 7}, v{t}")
 
     def _emit_q3_k_decode_chunk(self, asm: _Assembly, chunk: int) -> None:
         r = self.registers
         decoder_rows = self._decoder_rows()
-        n_tiles = self.solution_key.solution.matrix_instruction[6]
-        n_per_tile = self.solution_key.solution.macro_tile1
-        tiles_per_weight_block = 256 // n_per_tile
-        n_shift = n_per_tile.bit_length() - 1
         row = chunk // 4
         first_element = 4 * (chunk % 4)
         row_stride = 2 * self.solution_key.solution.depth_u
         t = r.temporary
         low = r.global_read_b + 4 * row + first_element // 4
         high = r.global_read_b + 4 * decoder_rows + 4 * row + first_element // 4
-        asm.inst(f"v_and_b32 v{t}, {n_tiles - 1}, v{r.serial}")
-        asm.inst(f"v_lshlrev_b32 v{t}, 4, v{t}")
-        asm.inst(f"v_and_b32 v{t + 1}, {tiles_per_weight_block - 1}, s3")
-        asm.inst(f"v_lshlrev_b32 v{t + 1}, {n_shift}, v{t + 1}")
-        asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
-        asm.inst(f"v_and_b32 v{t + 1}, 127, v{t}")
-        asm.inst(f"v_lshrrev_b32 v{t}, 5, v{t + 1}")
-        asm.inst(f"v_lshlrev_b32 v{t}, 1, v{t}")
-        asm.inst(f"v_lshrrev_b32 v{low}, v{t}, v{low}")
+        asm.inst(f"v_lshrrev_b32 v{low}, v{r.address + 5}, v{low}")
         asm.inst(f"v_and_b32 v{low}, 0x03030303, v{low}")
         asm.inst(f"v_lshrrev_b32 v{high}, v{r.address + 7}, v{high}")
         asm.inst(f"v_and_b32 v{high}, 0x01010101, v{high}")
