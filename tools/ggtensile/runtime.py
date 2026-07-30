@@ -85,9 +85,11 @@ class DenseBackwardModule:
             raise HIPRuntimeError("grad_output shape does not match ProblemSize")
         if tuple(grad_input.shape) != (size.m, size.n):
             raise HIPRuntimeError("grad_input shape does not match ProblemSize")
-        block_bytes = (
-            144 if self.solution_key.problem_type.quant_data_type == "Q4_K" else 176
-        )
+        block_bytes = {
+            "Q3_K": 110,
+            "Q4_K": 144,
+            "Q5_K": 176,
+        }[self.solution_key.problem_type.quant_data_type]
         expected_weight_bytes = size.k * (size.n // 256) * block_bytes
         if packed_weight.numel() != expected_weight_bytes:
             raise HIPRuntimeError(

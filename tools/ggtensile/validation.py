@@ -32,11 +32,11 @@ def _reject(
 def _validate_problem_type(
     problem_type: ProblemType, reasons: list[RejectReason]
 ) -> None:
-    if problem_type.quant_data_type not in {"Q4_K", "Q5_K"}:
+    if problem_type.quant_data_type not in {"Q3_K", "Q4_K", "Q5_K"}:
         _reject(
             reasons,
             "problem_type.quant_data_type.unsupported",
-            "dense MMQ backward supports only Q4_K and Q5_K",
+            "dense MMQ backward supports only Q3_K, Q4_K, and Q5_K",
             "QuantDataType",
             source="ProblemType",
         )
@@ -82,7 +82,9 @@ def _validate_problem_size(
                 source="ProblemSize",
             )
     allowed_n = (512, 2048, 4096)
-    if problem_type.quant_data_type == "Q5_K":
+    if problem_type.quant_data_type == "Q3_K":
+        allowed_n = (2048,)
+    elif problem_type.quant_data_type == "Q5_K":
         allowed_n = (512, 2048)
     if problem_size.n not in allowed_n:
         _reject(
@@ -380,6 +382,20 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             "solution.q5kextraction.q4_inert",
             "Q5KExtraction='scalar' is valid only for Q5_K",
             "Q5KExtraction",
+            source="ProblemType",
+        )
+    if solution_key.problem_type.quant_data_type != "Q5_K" and (
+        solution_key.solution.q5_k_extraction != "packed"
+        or solution_key.solution.q5_k_nibble_shift_hoist
+        or solution_key.solution.q5_k_metadata_vector_load
+    ):
+        _reject(
+            reasons,
+            "solution.q5.controls.inert",
+            "Q5-specific controls are valid only for Q5_K",
+            "Q5KExtraction",
+            "Q5KNibbleShiftHoist",
+            "Q5KMetadataVectorLoad",
             source="ProblemType",
         )
     _validate_problem_size(

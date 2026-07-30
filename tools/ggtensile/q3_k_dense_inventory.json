@@ -1,0 +1,76 @@
+{
+  "ProblemType": {
+    "OperationType": "DenseMMQBackward",
+    "QuantDataType": "Q3_K",
+    "DataTypeA": "BFloat16",
+    "DataTypeB": "Q3_K",
+    "DestDataType": "BFloat16",
+    "ComputeDataType": "Float",
+    "TransposeA": false,
+    "TransposeB": false
+  },
+  "ModelFile": "Qwen3.6-35B-A3B-APEX-I-Mini.gguf",
+  "Validation": {
+    "QuantType": "Q3_K",
+    "ExactDispatch": true,
+    "RequireBitExactHip": true,
+    "RequireGradOutputMutation": true,
+    "RequirePackedWeightMutation": true
+  },
+  "Keys": [
+    {
+      "Family": "narrow",
+      "ProblemSize": {"M": 2048, "N": 2048, "K": 512},
+      "RepresentativeTensor": "blk.3.attn_k.weight",
+      "CallCount": 9,
+      "HistoricalHipMedianMs": 1.0,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_pipeline"
+    },
+    {
+      "Family": "narrow",
+      "ProblemSize": {"M": 8192, "N": 2048, "K": 512},
+      "RepresentativeTensor": "blk.3.attn_k.weight",
+      "CallCount": 9,
+      "HistoricalHipMedianMs": 1.0,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_pipeline"
+    },
+    {
+      "Family": "narrow",
+      "ProblemSize": {"M": 32768, "N": 2048, "K": 512},
+      "RepresentativeTensor": "blk.3.attn_k.weight",
+      "CallCount": 9,
+      "HistoricalHipMedianMs": 1.0,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_pipeline"
+    },
+    {
+      "Family": "query",
+      "ProblemSize": {"M": 2048, "N": 2048, "K": 8192},
+      "RepresentativeTensor": "blk.3.attn_q.weight",
+      "CallCount": 9,
+      "HistoricalHipMedianMs": 1.0,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_pipeline"
+    },
+    {
+      "Family": "query",
+      "ProblemSize": {"M": 8192, "N": 2048, "K": 8192},
+      "RepresentativeTensor": "blk.3.attn_q.weight",
+      "CallCount": 9,
+      "HistoricalHipMedianMs": 1.0,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_pipeline"
+    },
+    {
+      "Family": "query",
+      "ProblemSize": {"M": 32768, "N": 2048, "K": 8192},
+      "RepresentativeTensor": "blk.3.attn_q.weight",
+      "CallCount": 9,
+      "HistoricalHipMedianMs": 1.0,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_pipeline"
+    }
+  ]
+}

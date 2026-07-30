@@ -11,6 +11,13 @@ DEFAULT_SELECTED_SOLUTIONS = Path(__file__).with_name("q4_k_selected_solutions.j
 
 _EXPECTED_M = (2048, 8192, 32768)
 _CAMPAIGN_SPECS = {
+    "Q3_K": {
+        "families": {
+            "narrow": ((2048, 512), "blk.3.attn_k.weight", 9),
+            "query": ((2048, 8192), "blk.3.attn_q.weight", 9),
+        },
+        "block_bytes": 110,
+    },
     "Q4_K": {
         "families": {
             "narrow": ((2048, 512), "blk.5.ffn_gate_shexp.weight", 70),

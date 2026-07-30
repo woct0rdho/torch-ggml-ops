@@ -83,7 +83,7 @@ class ProblemType:
 
     @classmethod
     def dense_mmq_backward(cls, quant_data_type: str) -> Self:
-        if quant_data_type not in {"Q4_K", "Q5_K"}:
+        if quant_data_type not in {"Q3_K", "Q4_K", "Q5_K"}:
             raise ValueError(
                 f"unsupported dense MMQ backward quant type {quant_data_type!r}"
             )
