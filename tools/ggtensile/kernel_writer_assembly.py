@@ -715,8 +715,8 @@ class KernelWriterAssembly:
         asm.inst(f"v_mul_lo_u32 v{t}, {packed_row_bytes}, v{t}")
         asm.inst(f"v_add_nc_u32 v{t}, s{block}, v{t}")
         asm.inst(f"v_mov_b32 v{a}, v{t}")
-        if decoder_rows == 2:
-            asm.inst(f"v_add_nc_u32 v{a + 1}, {row_delta}, v{a}")
+        for row in range(1, decoder_rows):
+            asm.inst(f"v_add_nc_u32 v{a + row}, {row * row_delta}, v{a}")
 
         asm.comment("Map each lane to a Q3_K 16-value group in the 256-value block.")
         asm.inst(f"v_and_b32 v{t}, {n_tiles - 1}, v{r.serial}")
@@ -1163,7 +1163,7 @@ class KernelWriterAssembly:
             asm.inst(f"v_cvt_f32_i32_e32 v{low}, v{low}")
         for row in range(decoder_rows):
             low = scale + 2 * row
-            d_scaled = t + 3 + row
+            d_scaled = t + 3 + row if row < 2 else r.quant_dm + row
             asm.inst(
                 f"v_fma_mix_f32 v{d_scaled}, v{r.quant_dm + row}, v{low}, "
                 "neg(0) op_sel_hi:[1,0,0]"
@@ -1206,7 +1206,7 @@ class KernelWriterAssembly:
         for element in range(first_element, first_element + 4):
             value = t + 5
             rounding = t + 6
-            d_scaled = t + 3 + row
+            d_scaled = t + 3 + row if row < 2 else r.quant_dm + row
             lds_offset = row_stride * element + 32 * row
             lds_address = r.address + 6
             swizzle = self.solution_key.solution.lds_swizzle_chunk_b
