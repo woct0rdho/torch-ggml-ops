@@ -1144,7 +1144,7 @@ class KernelWriterAssembly:
         for row in range(decoder_rows):
             low = scale + 2 * row
             high = low + 1
-            d_scaled = scale + 1 + 2 * row
+            d_scaled = scale + 2 + row
             asm.inst(f"v_bfe_u32 v{low}, v{low}, v{t + 1}, 4")
             asm.inst(f"v_bfe_u32 v{high}, v{high}, v{t + 2}, 2")
             asm.inst(f"v_lshlrev_b32 v{t}, 4, v{high}")
@@ -1158,7 +1158,7 @@ class KernelWriterAssembly:
         asm.inst(f"v_and_b32 v{t + 1}, 1, s3")
         asm.inst(f"v_lshlrev_b32 v{t + 1}, 2, v{t + 1}")
         asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
-        asm.inst(f"v_mov_b32 v{scale + 2}, v{t}")
+        asm.inst(f"v_mov_b32 v{r.address + 7}, v{t}")
 
     def _emit_q3_k_decode_chunk(self, asm: _Assembly, chunk: int) -> None:
         r = self.registers
@@ -1169,16 +1169,19 @@ class KernelWriterAssembly:
         t = r.temporary
         low = r.global_read_b + 4 * row + first_element // 4
         high = r.global_read_b + 4 * decoder_rows + 4 * row + first_element // 4
-        asm.inst(f"v_lshrrev_b32 v{low}, v{r.address + 7}, v{low}")
+        asm.inst(f"v_and_b32 v{t}, 7, v{r.serial}")
+        asm.inst(f"v_lshrrev_b32 v{t}, 1, v{t}")
+        asm.inst(f"v_lshlrev_b32 v{t}, 1, v{t}")
+        asm.inst(f"v_lshrrev_b32 v{low}, v{t}, v{low}")
         asm.inst(f"v_and_b32 v{low}, 0x03030303, v{low}")
-        asm.inst(f"v_lshrrev_b32 v{high}, v{r.quant_scale + 2}, v{high}")
+        asm.inst(f"v_lshrrev_b32 v{high}, v{r.address + 7}, v{high}")
         asm.inst(f"v_and_b32 v{high}, 0x01010101, v{high}")
         asm.inst(f"v_xor_b32 v{high}, 0x01010101, v{high}")
         asm.inst(f"v_lshlrev_b32 v{high}, 2, v{high}")
         for element in range(first_element, first_element + 4):
             value = t + 5
             rounding = t + 6
-            d_scaled = r.quant_scale + 1 + 2 * row
+            d_scaled = r.quant_scale + 2 + row
             lds_offset = row_stride * element + 32 * row
             lds_address = r.address + 6
             swizzle = self.solution_key.solution.lds_swizzle_chunk_b
