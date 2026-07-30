@@ -279,7 +279,7 @@ def _validate_metadata(
     expected_vgprs = allocate(expected_vgprs, max(7, 3 + 2 * decoder_rows))
     if quant_type == "Q3_K" and n_tiles == 4:
         # RegisterPool reuses the single hole before the temporary range.
-        expected_vgprs -= 1
+        pass
     else:
         expected_vgprs = allocate(expected_vgprs, 1)
     expected = {
