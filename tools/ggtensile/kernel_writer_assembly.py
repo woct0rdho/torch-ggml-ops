@@ -206,7 +206,9 @@ class KernelWriterAssembly:
         if self._quant_type() == "Q4_K":
             return 5 * self._decoder_rows()
         if self._quant_type() == "Q3_K":
-            return 5 * self._decoder_rows()
+            return (
+                3 if self.solution_key.solution.q3_k_metadata_vector_load else 5
+            ) * self._decoder_rows()
         return (
             3 if self.solution_key.solution.q5_k_metadata_vector_load else 6
         ) * self._decoder_rows()
@@ -237,8 +239,12 @@ class KernelWriterAssembly:
             "GlobalReadB payload planes",
         )
         if self._quant_type() == "Q3_K":
-            quant_dm = vgprs.checkOut(decoder_rows, "Q3_K d")
-            quant_scale = vgprs.checkOut(2 * decoder_rows, "Q3_K scales")
+            if self.solution_key.solution.q3_k_metadata_vector_load:
+                quant_dm = vgprs.checkOut(4 * decoder_rows, "Q3_K metadata vector")
+                quant_scale = quant_dm
+            else:
+                quant_dm = vgprs.checkOut(decoder_rows, "Q3_K d")
+                quant_scale = vgprs.checkOut(2 * decoder_rows, "Q3_K scales")
         elif (
             self._quant_type() == "Q5_K"
             and self.solution_key.solution.q5_k_metadata_vector_load
@@ -754,20 +760,27 @@ class KernelWriterAssembly:
                 f"global_load_b128 v[{q_low + 4 * row}:{q_low + 4 * row + 3}], "
                 f"v{t + 3}, s[{r.kernarg + 2}:{r.kernarg + 3}] offset:32"
             )
-            asm.inst(f"v_add_nc_u32 v{t + 6}, v{block_address}, v{t + 6}")
-            asm.inst(
-                f"global_load_d16_u8 v{r.quant_scale + 2 * row}, v{t + 6}, "
-                f"s[{r.kernarg + 2}:{r.kernarg + 3}] offset:96"
-            )
-            asm.inst(f"v_add_nc_u32 v{t + 5}, v{block_address}, v{t + 5}")
-            asm.inst(
-                f"global_load_d16_u8 v{r.quant_scale + 2 * row + 1}, v{t + 5}, "
-                f"s[{r.kernarg + 2}:{r.kernarg + 3}] offset:104"
-            )
-            asm.inst(
-                f"global_load_d16_b16 v{r.quant_dm + row}, v{block_address}, "
-                f"s[{r.kernarg + 2}:{r.kernarg + 3}] offset:108"
-            )
+            if self.solution_key.solution.q3_k_metadata_vector_load:
+                metadata = r.quant_dm + 4 * row
+                asm.inst(
+                    f"global_load_b128 v[{metadata}:{metadata + 3}], "
+                    f"v{block_address}, s[{r.kernarg + 2}:{r.kernarg + 3}] offset:96"
+                )
+            else:
+                asm.inst(f"v_add_nc_u32 v{t + 6}, v{block_address}, v{t + 6}")
+                asm.inst(
+                    f"global_load_d16_u8 v{r.quant_scale + 2 * row}, v{t + 6}, "
+                    f"s[{r.kernarg + 2}:{r.kernarg + 3}] offset:96"
+                )
+                asm.inst(f"v_add_nc_u32 v{t + 5}, v{block_address}, v{t + 5}")
+                asm.inst(
+                    f"global_load_d16_u8 v{r.quant_scale + 2 * row + 1}, v{t + 5}, "
+                    f"s[{r.kernarg + 2}:{r.kernarg + 3}] offset:104"
+                )
+                asm.inst(
+                    f"global_load_d16_b16 v{r.quant_dm + row}, v{block_address}, "
+                    f"s[{r.kernarg + 2}:{r.kernarg + 3}] offset:108"
+                )
         if wait_for_reads:
             asm.inst("s_waitcnt vmcnt(0)")
 
@@ -1148,24 +1161,60 @@ class KernelWriterAssembly:
         asm.inst(f"v_lshlrev_b32 v{t + 1}, {n_shift}, v{t + 1}")
         asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
         asm.inst(f"v_lshrrev_b32 v{t + 1}, 4, v{t}")
-        asm.inst(f"v_lshrrev_b32 v{t + 2}, 2, v{t + 1}")
-        asm.inst(f"v_lshlrev_b32 v{t + 2}, 1, v{t + 2}")
-        asm.inst(f"v_lshrrev_b32 v{t + 1}, 3, v{t + 1}")
-        asm.inst(f"v_lshlrev_b32 v{t + 1}, 2, v{t + 1}")
+        if self.solution_key.solution.q3_k_metadata_vector_load:
+            asm.comment("Select Q3_K scale bytes from the vector metadata load.")
+            asm.inst(f"v_and_b32 v{t + 2}, 7, v{t + 1}")
+            asm.inst(f"v_and_b32 v{t + 3}, 3, v{t + 2}")
+            asm.inst(f"v_lshlrev_b32 v{t + 3}, 3, v{t + 3}")
+            asm.inst(f"v_lshrrev_b32 v{t + 6}, 3, v{t + 1}")
+            asm.inst(f"v_lshlrev_b32 v{t + 6}, 2, v{t + 6}")
+            asm.inst(f"v_add_nc_u32 v{t + 3}, v{t + 3}, v{t + 6}")
+            asm.inst(f"v_lshrrev_b32 v{t + 6}, 2, v{t + 1}")
+            asm.inst(f"v_and_b32 v{t + 6}, 1, v{t + 6}")
+            asm.inst(f"v_cmp_eq_u32_e32 vcc_lo, 1, v{t + 6}")
+            asm.inst(f"v_lshrrev_b32 v{t + 2}, 2, v{t + 1}")
+            asm.inst(f"v_lshlrev_b32 v{t + 2}, 1, v{t + 2}")
+            for row in range(decoder_rows):
+                metadata = r.quant_dm + 4 * row
+                low = metadata
+                high = metadata + 1
+                asm.inst(f"v_bfe_u32 v{t + 4}, v{metadata}, v{t + 3}, 8")
+                asm.inst(f"v_bfe_u32 v{t + 5}, v{metadata + 1}, v{t + 3}, 8")
+                asm.inst(f"v_cndmask_b32 v{low}, v{t + 4}, v{t + 5}, vcc_lo")
+                asm.inst(f"v_lshrrev_b32 v{t + 6}, 3, v{t + 1}")
+                asm.inst(f"v_lshlrev_b32 v{t + 6}, 2, v{t + 6}")
+                asm.inst(f"v_bfe_u32 v{low}, v{low}, v{t + 6}, 4")
+                asm.inst(f"v_bfe_u32 v{high}, v{metadata + 2}, v{t + 2}, 2")
+                asm.inst(f"v_lshlrev_b32 v{t}, 4, v{high}")
+                asm.inst(f"v_or_b32 v{low}, v{low}, v{t}")
+                asm.inst(f"v_sub_nc_u32 v{low}, v{low}, 32")
+                asm.inst(f"v_cvt_f32_i32_e32 v{low}, v{low}")
+        else:
+            asm.inst(f"v_lshrrev_b32 v{t + 2}, 2, v{t + 1}")
+            asm.inst(f"v_lshlrev_b32 v{t + 2}, 1, v{t + 2}")
+            asm.inst(f"v_lshrrev_b32 v{t + 1}, 3, v{t + 1}")
+            asm.inst(f"v_lshlrev_b32 v{t + 1}, 2, v{t + 1}")
+            for row in range(decoder_rows):
+                low = scale + 2 * row
+                high = low + 1
+                asm.inst(f"v_bfe_u32 v{low}, v{low}, v{t + 1}, 4")
+                asm.inst(f"v_bfe_u32 v{high}, v{high}, v{t + 2}, 2")
+                asm.inst(f"v_lshlrev_b32 v{t}, 4, v{high}")
+                asm.inst(f"v_or_b32 v{low}, v{low}, v{t}")
+                asm.inst(f"v_sub_nc_u32 v{low}, v{low}, 32")
+                asm.inst(f"v_cvt_f32_i32_e32 v{low}, v{low}")
         for row in range(decoder_rows):
-            low = scale + 2 * row
-            high = low + 1
-            asm.inst(f"v_bfe_u32 v{low}, v{low}, v{t + 1}, 4")
-            asm.inst(f"v_bfe_u32 v{high}, v{high}, v{t + 2}, 2")
-            asm.inst(f"v_lshlrev_b32 v{t}, 4, v{high}")
-            asm.inst(f"v_or_b32 v{low}, v{low}, v{t}")
-            asm.inst(f"v_sub_nc_u32 v{low}, v{low}, 32")
-            asm.inst(f"v_cvt_f32_i32_e32 v{low}, v{low}")
-        for row in range(decoder_rows):
-            low = scale + 2 * row
+            if self.solution_key.solution.q3_k_metadata_vector_load:
+                low = r.quant_dm + 4 * row
+                dm = low + 3
+            else:
+                low = scale + 2 * row
+                dm = r.quant_dm + row
             d_scaled = t + 3 + row if row < 2 else r.quant_dm + row
+            if self.solution_key.solution.q3_k_metadata_vector_load:
+                asm.inst(f"v_lshlrev_b32 v{dm}, 16, v{dm}")
             asm.inst(
-                f"v_fma_mix_f32 v{d_scaled}, v{r.quant_dm + row}, v{low}, "
+                f"v_fma_mix_f32 v{d_scaled}, v{dm}, v{low}, "
                 "neg(0) op_sel_hi:[1,0,0]"
             )
         asm.inst(f"v_and_b32 v{t}, {n_tiles - 1}, v{r.serial}")
