@@ -1158,7 +1158,7 @@ class KernelWriterAssembly:
         asm.inst(f"v_and_b32 v{t + 1}, 1, s3")
         asm.inst(f"v_lshlrev_b32 v{t + 1}, 2, v{t + 1}")
         asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
-        asm.inst(f"v_mov_b32 v{scale}, v{t}")
+        asm.inst(f"v_mov_b32 v{scale + 2}, v{t}")
 
     def _emit_q3_k_decode_chunk(self, asm: _Assembly, chunk: int) -> None:
         r = self.registers
@@ -1171,7 +1171,7 @@ class KernelWriterAssembly:
         high = r.global_read_b + 4 * decoder_rows + 4 * row + first_element // 4
         asm.inst(f"v_lshrrev_b32 v{low}, v{r.address + 7}, v{low}")
         asm.inst(f"v_and_b32 v{low}, 0x03030303, v{low}")
-        asm.inst(f"v_lshrrev_b32 v{high}, v{r.quant_scale}, v{high}")
+        asm.inst(f"v_lshrrev_b32 v{high}, v{r.quant_scale + 2}, v{high}")
         asm.inst(f"v_and_b32 v{high}, 0x01010101, v{high}")
         asm.inst(f"v_xor_b32 v{high}, 0x01010101, v{high}")
         asm.inst(f"v_lshlrev_b32 v{high}, 2, v{high}")
