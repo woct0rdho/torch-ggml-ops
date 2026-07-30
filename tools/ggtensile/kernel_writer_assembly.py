@@ -1144,7 +1144,7 @@ class KernelWriterAssembly:
         for row in range(decoder_rows):
             low = scale + 2 * row
             high = low + 1
-            d_scaled = t + 3 + 2 * row
+            d_scaled = scale + 1 + 2 * row
             asm.inst(f"v_bfe_u32 v{low}, v{low}, v{t + 1}, 4")
             asm.inst(f"v_bfe_u32 v{high}, v{high}, v{t + 2}, 2")
             asm.inst(f"v_lshlrev_b32 v{t}, 4, v{high}")
@@ -1179,7 +1179,7 @@ class KernelWriterAssembly:
         for element in range(first_element, first_element + 4):
             value = t + 5
             rounding = t + 6
-            d_scaled = t + 3 + 2 * row
+            d_scaled = r.quant_scale + 1 + 2 * row
             lds_offset = row_stride * element + 32 * row
             lds_address = r.address + 6
             swizzle = self.solution_key.solution.lds_swizzle_chunk_b
