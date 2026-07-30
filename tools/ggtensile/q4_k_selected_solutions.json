@@ -1,6 +1,7 @@
 {
   "Solutions": {
     "retained_128x128_pipeline": {
+      "Q3KExtraction": "packed",
       "KernelLanguage": "Assembly",
       "ISA": [11, 5, 1],
       "WavefrontSize": 32,
@@ -33,6 +34,7 @@
       "Q5KMetadataVectorLoad": false
     },
     "attention_m2048_128x64": {
+      "Q3KExtraction": "packed",
       "KernelLanguage": "Assembly",
       "ISA": [11, 5, 1],
       "WavefrontSize": 32,
@@ -65,6 +67,7 @@
       "Q5KMetadataVectorLoad": false
     },
     "attention_m8192_128x64_sia5_priority": {
+      "Q3KExtraction": "packed",
       "KernelLanguage": "Assembly",
       "ISA": [11, 5, 1],
       "WavefrontSize": 32,

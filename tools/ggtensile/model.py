@@ -185,6 +185,7 @@ class Solution:
     prefetch_packed_weight: bool
     prefetch_packed_weight_next: bool
     packed_weight_lane_share: int
+    q3_k_extraction: str
     q5_k_extraction: str
     q5_k_nibble_shift_hoist: bool
     q5_k_metadata_vector_load: bool
@@ -218,6 +219,7 @@ class Solution:
             "PrefetchPackedWeight",
             "PrefetchPackedWeightNext",
             "PackedWeightLaneShare",
+            "Q3KExtraction",
             "Q5KExtraction",
             "Q5KNibbleShiftHoist",
             "Q5KMetadataVectorLoad",
@@ -254,6 +256,7 @@ class Solution:
             prefetch_packed_weight=True,
             prefetch_packed_weight_next=False,
             packed_weight_lane_share=1,
+            q3_k_extraction="packed",
             q5_k_extraction="packed",
             q5_k_nibble_shift_hoist=False,
             q5_k_metadata_vector_load=False,
@@ -312,6 +315,7 @@ class Solution:
             packed_weight_lane_share=_integer(
                 item["PackedWeightLaneShare"], "PackedWeightLaneShare"
             ),
+            q3_k_extraction=_string(item["Q3KExtraction"], "Q3KExtraction"),
             q5_k_extraction=_string(item["Q5KExtraction"], "Q5KExtraction"),
             q5_k_nibble_shift_hoist=_boolean(
                 item["Q5KNibbleShiftHoist"], "Q5KNibbleShiftHoist"
@@ -365,6 +369,7 @@ class Solution:
             "PrefetchPackedWeight": self.prefetch_packed_weight,
             "PrefetchPackedWeightNext": self.prefetch_packed_weight_next,
             "PackedWeightLaneShare": self.packed_weight_lane_share,
+            "Q3KExtraction": self.q3_k_extraction,
             "Q5KExtraction": self.q5_k_extraction,
             "Q5KNibbleShiftHoist": self.q5_k_nibble_shift_hoist,
             "Q5KMetadataVectorLoad": self.q5_k_metadata_vector_load,

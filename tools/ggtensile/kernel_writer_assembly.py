@@ -1153,8 +1153,10 @@ class KernelWriterAssembly:
         for row in range(decoder_rows):
             low = scale + 2 * row
             d_scaled = t + 3 + row
-            asm.inst(f"v_cvt_f32_f16 v{d_scaled}, v{r.quant_dm + row}")
-            asm.inst(f"v_mul_f32 v{d_scaled}, v{d_scaled}, v{low}")
+            asm.inst(
+                f"v_fma_mix_f32 v{d_scaled}, v{r.quant_dm + row}, v{low}, "
+                "neg(0) op_sel_hi:[1,0,0]"
+            )
         asm.inst(f"v_and_b32 v{t}, 7, v{r.serial}")
         asm.inst(f"v_lshrrev_b32 v{t}, 1, v{t}")
         asm.inst(f"v_and_b32 v{t + 1}, 1, s3")
@@ -1194,8 +1196,16 @@ class KernelWriterAssembly:
                 lds_offset = row_stride * element + 64 * (row // 2)
                 if row % 2:
                     lds_offset += 32 if residue < residues // 2 else -32
-            asm.inst(f"v_cvt_f32_ubyte{element % 4}_e32 v{rounding}, v{high}")
-            asm.inst(f"v_cvt_f32_ubyte{element % 4}_e32 v{value}, v{low}")
+            if self.solution_key.solution.q3_k_extraction == "scalar":
+                asm.inst(
+                    f"v_bfe_u32 v{rounding}, v{high}, {8 * (element % 4)}, 3"
+                )
+                asm.inst(f"v_cvt_f32_u32_e32 v{rounding}, v{rounding}")
+                asm.inst(f"v_bfe_u32 v{value}, v{low}, {8 * (element % 4)}, 2")
+                asm.inst(f"v_cvt_f32_u32_e32 v{value}, v{value}")
+            else:
+                asm.inst(f"v_cvt_f32_ubyte{element % 4}_e32 v{rounding}, v{high}")
+                asm.inst(f"v_cvt_f32_ubyte{element % 4}_e32 v{value}, v{low}")
             asm.inst(f"v_sub_f32 v{value}, v{value}, v{rounding}")
             asm.inst(f"v_mul_f32 v{value}, v{d_scaled}, v{value}")
             self._emit_round_bf16(asm, value, rounding)

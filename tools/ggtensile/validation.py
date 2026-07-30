@@ -235,6 +235,13 @@ def _validate_solution_parameters(
             "KernelWriterAssembly implements PackedWeightLaneShare=1 or 2",
             "PackedWeightLaneShare",
         )
+    if solution.q3_k_extraction not in ("packed", "scalar"):
+        _reject(
+            reasons,
+            "solution.q3kextraction.unimplemented",
+            "Q3KExtraction must be 'packed' or 'scalar'",
+            "Q3KExtraction",
+        )
     if solution.q5_k_extraction not in ("packed", "scalar"):
         _reject(
             reasons,
@@ -396,6 +403,16 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             "Q5KExtraction",
             "Q5KNibbleShiftHoist",
             "Q5KMetadataVectorLoad",
+            source="ProblemType",
+        )
+    if solution_key.problem_type.quant_data_type != "Q3_K" and (
+        solution_key.solution.q3_k_extraction != "packed"
+    ):
+        _reject(
+            reasons,
+            "solution.q3.controls.inert",
+            "Q3-specific controls are valid only for Q3_K",
+            "Q3KExtraction",
             source="ProblemType",
         )
     _validate_problem_size(

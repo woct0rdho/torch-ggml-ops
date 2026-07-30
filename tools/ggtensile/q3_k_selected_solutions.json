@@ -1,6 +1,7 @@
 {
   "Solutions": {
     "initial_128x128_pipeline": {
+      "Q3KExtraction": "packed",
       "KernelLanguage": "Assembly",
       "ISA": [11, 5, 1],
       "WavefrontSize": 32,

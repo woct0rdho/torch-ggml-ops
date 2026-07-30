@@ -1,4 +1,5 @@
 {
+  "Q3KExtraction": "packed",
   "KernelLanguage": "Assembly",
   "ISA": [11, 5, 1],
   "WavefrontSize": 32,
