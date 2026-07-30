@@ -27,7 +27,7 @@ from tools.ggtensile.runtime import DenseBackwardModule  # noqa: E402
 from tools.ggtensile.toolchain import Toolchain  # noqa: E402
 
 DEFAULT_MODEL = Path("/home/wd/models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf")
-DEFAULT_TENSOR = "blk.39.attn_q.weight"
+DEFAULT_TENSOR = "blk.0.ffn_gate_shexp.weight"
 BF16_WMMA_ROOFLINE_TFLOPS = 59.4
 
 
@@ -129,8 +129,11 @@ def main() -> None:
     tensor = next((item for item in reader.tensors if item.name == args.tensor), None)
     if tensor is None:
         raise KeyError(f"GGUF tensor not found: {args.tensor}")
-    if tensor.tensor_type.name != "Q4_K":
-        raise ValueError(f"expected Q4_K tensor, found {tensor.tensor_type.name}")
+    expected_quant = key.problem_type.quant_data_type
+    if tensor.tensor_type.name != expected_quant:
+        raise ValueError(
+            f"expected {expected_quant} tensor, found {tensor.tensor_type.name}"
+        )
     size = key.problem_size
     logical_shape = tuple(int(value) for value in reversed(tensor.shape))
     if logical_shape != (size.k, size.n):

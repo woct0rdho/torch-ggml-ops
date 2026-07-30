@@ -61,7 +61,7 @@
       "CallCount": 10,
       "HistoricalHipMedianMs": 1.392,
       "CurrentStatus": "open",
-      "SelectedSolution": "retained_128x128_pipeline"
+      "SelectedSolution": "retained_128x128_pipeline_no_hoist"
     },
     {
       "Family": "shared_down",

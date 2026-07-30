@@ -184,6 +184,7 @@ class Solution:
     prefetch_packed_weight_next: bool
     packed_weight_lane_share: int
     q5_k_extraction: str
+    q5_k_nibble_shift_hoist: bool
 
     _KEYS: ClassVar[frozenset[str]] = frozenset(
         {
@@ -215,6 +216,7 @@ class Solution:
             "PrefetchPackedWeightNext",
             "PackedWeightLaneShare",
             "Q5KExtraction",
+            "Q5KNibbleShiftHoist",
         }
     )
 
@@ -249,6 +251,7 @@ class Solution:
             prefetch_packed_weight_next=False,
             packed_weight_lane_share=1,
             q5_k_extraction="packed",
+            q5_k_nibble_shift_hoist=False,
         )
 
     @classmethod
@@ -305,6 +308,9 @@ class Solution:
                 item["PackedWeightLaneShare"], "PackedWeightLaneShare"
             ),
             q5_k_extraction=_string(item["Q5KExtraction"], "Q5KExtraction"),
+            q5_k_nibble_shift_hoist=_boolean(
+                item["Q5KNibbleShiftHoist"], "Q5KNibbleShiftHoist"
+            ),
         )
 
     @property
@@ -352,6 +358,7 @@ class Solution:
             "PrefetchPackedWeightNext": self.prefetch_packed_weight_next,
             "PackedWeightLaneShare": self.packed_weight_lane_share,
             "Q5KExtraction": self.q5_k_extraction,
+            "Q5KNibbleShiftHoist": self.q5_k_nibble_shift_hoist,
         }
 
 

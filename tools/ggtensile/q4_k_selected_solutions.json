@@ -28,7 +28,8 @@
       "PrefetchPackedWeight": true,
       "PrefetchPackedWeightNext": false,
       "PackedWeightLaneShare": 1,
-      "Q5KExtraction": "packed"
+      "Q5KExtraction": "packed",
+      "Q5KNibbleShiftHoist": false
     },
     "attention_m2048_128x64": {
       "KernelLanguage": "Assembly",
@@ -58,7 +59,8 @@
       "PrefetchPackedWeight": true,
       "PrefetchPackedWeightNext": false,
       "PackedWeightLaneShare": 1,
-      "Q5KExtraction": "packed"
+      "Q5KExtraction": "packed",
+      "Q5KNibbleShiftHoist": false
     },
     "attention_m8192_128x64_sia5_priority": {
       "KernelLanguage": "Assembly",
@@ -88,7 +90,8 @@
       "PrefetchPackedWeight": true,
       "PrefetchPackedWeightNext": false,
       "PackedWeightLaneShare": 1,
-      "Q5KExtraction": "packed"
+      "Q5KExtraction": "packed",
+      "Q5KNibbleShiftHoist": false
     }
   }
 }

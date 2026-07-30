@@ -493,6 +493,11 @@ class KernelWriterAssembly:
                         asm, label_suffix="PipelineSteady"
                     )
                     self._emit_pipeline_lds_read_addresses(asm, 0)
+                    if (
+                        self._quant_type() == "Q5_K"
+                        and solution.q5_k_nibble_shift_hoist
+                    ):
+                        self._emit_q5_k_nibble_shift(asm)
                 self._emit_quant_decode_chunk(asm, pair)
                 if pair == 7:
                     self._emit_next_a_half(asm, 0)
@@ -1065,6 +1070,9 @@ class KernelWriterAssembly:
                 f"v_fma_mix_f32 v{min_scaled}, v{min_scaled}, v{lo + 1}, "
                 "neg(0) op_sel_hi:[1,0,0]"
             )
+        asm.comment("Hoist the Q5_K low-payload nibble-half shift.")
+        asm.inst(f"v_and_b32 v{t}, 1, v{r.address + 7}")
+        asm.inst(f"v_lshlrev_b32 v{t}, 2, v{t}")
 
     def _emit_q4_k_decode_chunk(self, asm: _Assembly, chunk: int) -> None:
         r = self.registers
@@ -1102,9 +1110,18 @@ class KernelWriterAssembly:
 
     def _emit_q5_k_decode(self, asm: _Assembly, *, label_suffix: str = "") -> None:
         self._emit_q5_k_decode_prepare(asm, label_suffix=label_suffix)
+        if self.solution_key.solution.q5_k_nibble_shift_hoist:
+            self._emit_q5_k_nibble_shift(asm)
         asm.comment("Decode Q5_K low nibbles and high payload bits into LDS.")
         for chunk in range(4 * self._decoder_rows()):
             self._emit_q5_k_decode_chunk(asm, chunk)
+
+    def _emit_q5_k_nibble_shift(self, asm: _Assembly) -> None:
+        r = self.registers
+        t = r.temporary
+        asm.comment("Hoist the Q5_K low-payload nibble-half shift.")
+        asm.inst(f"v_and_b32 v{t}, 1, v{r.address + 7}")
+        asm.inst(f"v_lshlrev_b32 v{t}, 2, v{t}")
 
     def _emit_q5_k_decode_prepare(
         self,
@@ -1170,12 +1187,10 @@ class KernelWriterAssembly:
         t = r.temporary
         low = r.global_read_b + 4 * row + first_element // 4
         high = r.global_read_b + 4 * decoder_rows + 4 * row + first_element // 4
-        low_shift = t
-        asm.inst(
-            f"v_and_b32 v{low_shift}, 1, v{r.address + 7}"
-        )
-        asm.inst(f"v_lshlrev_b32 v{low_shift}, 2, v{low_shift}")
-        asm.inst(f"v_lshrrev_b32 v{low}, v{low_shift}, v{low}")
+        if not self.solution_key.solution.q5_k_nibble_shift_hoist:
+            asm.inst(f"v_and_b32 v{t}, 1, v{r.address + 7}")
+            asm.inst(f"v_lshlrev_b32 v{t}, 2, v{t}")
+        asm.inst(f"v_lshrrev_b32 v{low}, v{t}, v{low}")
         asm.inst(f"v_and_b32 v{low}, 0x0f0f0f0f, v{low}")
         asm.inst(f"v_lshrrev_b32 v{high}, v{r.address + 7}, v{high}")
         asm.inst(f"v_and_b32 v{high}, 0x01010101, v{high}")
