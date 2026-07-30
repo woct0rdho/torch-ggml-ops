@@ -1155,7 +1155,6 @@ class KernelWriterAssembly:
             asm.inst(f"v_mul_f32 v{d_scaled}, v{d_scaled}, v{low}")
         asm.inst(f"v_and_b32 v{t}, 7, v{r.serial}")
         asm.inst(f"v_lshrrev_b32 v{t}, 1, v{t}")
-        asm.inst(f"v_lshlrev_b32 v{t}, 2, v{t}")
         asm.inst(f"v_and_b32 v{t + 1}, 1, s3")
         asm.inst(f"v_lshlrev_b32 v{t + 1}, 2, v{t + 1}")
         asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
