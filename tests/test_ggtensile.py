@@ -113,7 +113,7 @@ def test_q6_k_campaign_inventory_covers_exact_lm_head_chunks() -> None:
     assert {entry.family for entry in inventory.entries} == {"lm_head"}
     assert {entry.problem_size.m for entry in inventory.entries} == {64, 128, 256}
     assert all(entry.quant_data_type == "Q6_K" for entry in inventory.entries)
-    assert all(entry.current_status == "open" for entry in inventory.entries)
+    assert all(entry.current_status == "selected" for entry in inventory.entries)
     assert {entry.selected_solution for entry in inventory.entries} == set(catalog)
     assert all(
         validate_solution(
@@ -211,6 +211,45 @@ def test_q3_k_packed_decoder_uses_wave32_vopd_scale_pairs() -> None:
     assert source.count("v_dual_mul_f32") >= 4
     assert "v_lshl_or_b32" in source
     assert "v_mul_f32" not in source
+
+
+def test_q6_k_packed_vopd_decoder_pairs_adjacent_values() -> None:
+    inventory = load_inventory(Path("tools/ggtensile/q6_k_dense_inventory.json"))
+    catalog = load_solution_catalog(
+        Path("tools/ggtensile/q6_k_selected_solutions.json")
+    )
+    entry = next(item for item in inventory.entries if item.problem_size.m == 64)
+    key = entry.solution_key(
+        inventory.problem_type, catalog[entry.selected_solution]
+    )
+    assert key.solution.q6_k_extraction == "packed_vopd"
+    assert validate_solution(key) == ()
+    source = KernelWriterAssembly(key, _toolchain()).source()
+    assert source.count("v_dual_sub_f32") >= 16
+    assert source.count("v_dual_mul_f32") >= 16
+    assert "v_lshl_or_b32" in source
+
+
+def test_q6_k_rejects_geometry_with_no_decoder_rows() -> None:
+    solution = replace(
+        Solution.pilot(),
+        matrix_instruction=(16, 16, 16, 1, 1, 1, 2, 4, 1),
+        macro_tile0=64,
+        macro_tile1=32,
+        depth_u=32,
+        prefetch_global_read=2,
+        schedule_iter_alg=4,
+        lds_swizzle_chunk_b=8,
+    )
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q6_k(),
+        ProblemSize(64, 2048, 248320),
+        solution,
+    )
+    assert any(
+        reason.rule_id == "problem_size.decoder_rows.empty"
+        for reason in validate_solution(key)
+    )
 
 
 def test_lds_row_padding_is_strict_and_quant_aware() -> None:

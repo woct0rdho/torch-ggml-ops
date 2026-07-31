@@ -112,6 +112,24 @@ def _validate_problem_size(
                 divisor_name,
                 source="ProblemSize",
             )
+    decoder_threads = min(solution.num_threads, 128)
+    if (
+        decoder_threads > 0
+        and solution.decoder_width > 0
+        and solution.depth_u * solution.macro_tile1
+        // (decoder_threads * solution.decoder_width)
+        == 0
+    ):
+        _reject(
+            reasons,
+            "problem_size.decoder_rows.empty",
+            "DepthU and MacroTile1 must provide at least one decoder row",
+            "DepthU",
+            "MacroTile1",
+            "DecoderWidth",
+            "WorkGroup",
+            source="ProblemSize",
+        )
     if solution.macro_tile0 > 0 and solution.work_group_mapping > 0:
         m_blocks = problem_size.m // solution.macro_tile0
         if m_blocks % solution.work_group_mapping:
@@ -267,11 +285,11 @@ def _validate_solution_parameters(
             "Q5KExtraction must be 'packed' or 'scalar'",
             "Q5KExtraction",
         )
-    if solution.q6_k_extraction not in ("packed", "scalar"):
+    if solution.q6_k_extraction not in ("packed", "packed_vopd", "scalar"):
         _reject(
             reasons,
             "solution.q6kextraction.unimplemented",
-            "Q6KExtraction must be 'packed' or 'scalar'",
+            "Q6KExtraction must be 'packed', 'packed_vopd', or 'scalar'",
             "Q6KExtraction",
         )
     if solution.q8_0_extraction not in ("packed", "packed_vopd", "scalar"):
@@ -295,7 +313,7 @@ def _validate_solution_parameters(
             "PrefetchGlobalRead",
             "PrefetchLocalRead",
         )
-    depth_u64_layout = solution.lds_swizzle_chunk_b == 8 or (
+    depth_u64_layout = solution.lds_swizzle_chunk_b in (8, 16) or (
         solution.lds_swizzle_chunk_b == 0 and solution.lds_pad_b in (8, 16, 24)
     )
     if solution.depth_u == 64 and (
@@ -325,6 +343,7 @@ def _validate_solution_parameters(
     ) not in (
         (32, 64, 64),
         (32, 128, 64),
+        (64, 32, 128),
         (64, 64, 128),
         (64, 128, 128),
         (128, 64, 128),
@@ -334,7 +353,7 @@ def _validate_solution_parameters(
         _reject(
             reasons,
             "solution.scheduleiteralg.geometry",
-            "ScheduleIterAlg=4 or 5 requires a 64x128, 128x64, or 128x128 four-wave geometry",
+            "ScheduleIterAlg=4 or 5 requires a supported compact or four-wave geometry",
             "ScheduleIterAlg",
             "MacroTile0",
             "MacroTile1",
@@ -352,6 +371,8 @@ def _validate_solution_parameters(
         ((16, 16, 16, 1, 1, 1, 4, 2, 1), 32, 64, 32, (32, 2, 1)),
         ((16, 16, 16, 1, 1, 1, 4, 2, 1), 32, 64, 64, (32, 2, 1)),
         ((16, 16, 16, 1, 1, 1, 8, 2, 1), 32, 128, 32, (32, 2, 1)),
+        ((16, 16, 16, 1, 1, 1, 2, 4, 1), 64, 32, 32, (32, 4, 1)),
+        ((16, 16, 16, 1, 1, 1, 2, 4, 1), 64, 32, 64, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 1, 4, 4, 1), 64, 64, 32, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 1, 4, 4, 1), 64, 64, 64, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 1, 8, 4, 1), 64, 128, 32, (32, 4, 1)),
@@ -374,7 +395,7 @@ def _validate_solution_parameters(
         _reject(
             reasons,
             "solution.geometry.unimplemented",
-            "KernelWriterAssembly implements the selected 32x64, 32x128, 64x64, 64x128, 128x64, 128x128, 256x64, and 256x128 DepthU32/64 geometries",
+            "KernelWriterAssembly implements the selected 32x64, 32x128, 64x32, 64x64, 64x128, 128x64, 128x128, 256x64, and 256x128 DepthU32/64 geometries",
             "MatrixInstruction",
             "MacroTile0",
             "MacroTile1",
@@ -450,12 +471,12 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
     if (
         solution_key.solution.depth_u == 64
         and solution_key.solution.lds_pad_b in (8, 16, 24)
-        and solution_key.problem_type.quant_data_type != "Q8_0"
+        and solution_key.problem_type.quant_data_type not in ("Q6_K", "Q8_0")
     ):
         _reject(
             reasons,
             "solution.depthu64.q8_pad8",
-            "DepthU64 with unswizzled row padding is implemented only for Q8_0",
+            "DepthU64 with unswizzled row padding is implemented only for Q6_K and Q8_0",
             "DepthU",
             "LdsPadB",
             source="ProblemType",

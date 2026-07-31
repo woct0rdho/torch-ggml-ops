@@ -28,8 +28,8 @@
       "RepresentativeTensor": "output.weight",
       "CallCount": 1,
       "HistoricalHipMedianMs": 5.357,
-      "CurrentStatus": "open",
-      "SelectedSolution": "initial_m64x64x32_xor8"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_m64x32x64_pad8_vopd"
     },
     {
       "Family": "lm_head",
@@ -41,8 +41,8 @@
       "RepresentativeTensor": "output.weight",
       "CallCount": 1,
       "HistoricalHipMedianMs": 9.084,
-      "CurrentStatus": "open",
-      "SelectedSolution": "initial_m128x64x32_xor8"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_m128x64x32_next_vopd"
     },
     {
       "Family": "lm_head",
@@ -54,8 +54,8 @@
       "RepresentativeTensor": "output.weight",
       "CallCount": 1,
       "HistoricalHipMedianMs": 11.726,
-      "CurrentStatus": "open",
-      "SelectedSolution": "initial_m128x64x32_xor8"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_m256x64x32_next_pad8_vopd"
     }
   ]
 }

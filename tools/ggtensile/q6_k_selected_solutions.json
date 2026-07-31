@@ -1,6 +1,6 @@
 {
   "Solutions": {
-    "initial_m64x64x32_xor8": {
+    "retained_m64x32x64_pad8_vopd": {
       "KernelLanguage": "Assembly",
       "ISA": [
         11,
@@ -20,28 +20,28 @@
         1,
         1,
         1,
-        4,
+        2,
         4,
         1
       ],
       "MacroTile0": 64,
-      "MacroTile1": 64,
-      "DepthU": 32,
+      "MacroTile1": 32,
+      "DepthU": 64,
       "GlobalReadVectorWidthA": 16,
       "GlobalReadVectorWidthB": 16,
       "LocalReadVectorWidth": 16,
       "PrefetchGlobalRead": 2,
       "PrefetchLocalRead": 1,
       "1LDSBuffer": 1,
-      "ScheduleIterAlg": 5,
+      "ScheduleIterAlg": 4,
       "StorePriorityOpt": true,
       "NumElementsPerBatchStore": 8,
       "StoreVectorWidth": 1,
       "WorkGroupMapping": 1,
       "TransposeLDS": 0,
-      "LdsPadB": 0,
+      "LdsPadB": 8,
       "LdsBlockSizePerPadB": 0,
-      "LdsSwizzleChunkB": 8,
+      "LdsSwizzleChunkB": 0,
       "DecoderWidth": 16,
       "PrefetchPackedWeight": true,
       "PrefetchPackedWeightNext": false,
@@ -50,10 +50,10 @@
       "Q5KExtraction": "packed",
       "Q5KNibbleShiftHoist": false,
       "Q5KMetadataVectorLoad": false,
-      "Q6KExtraction": "packed",
+      "Q6KExtraction": "packed_vopd",
       "Q8KExtraction": "packed"
     },
-    "initial_m128x64x32_xor8": {
+    "retained_m128x64x32_next_vopd": {
       "KernelLanguage": "Assembly",
       "ISA": [
         11,
@@ -86,7 +86,7 @@
       "PrefetchGlobalRead": 2,
       "PrefetchLocalRead": 1,
       "1LDSBuffer": 1,
-      "ScheduleIterAlg": 5,
+      "ScheduleIterAlg": 4,
       "StorePriorityOpt": true,
       "NumElementsPerBatchStore": 8,
       "StoreVectorWidth": 1,
@@ -97,13 +97,66 @@
       "LdsSwizzleChunkB": 8,
       "DecoderWidth": 16,
       "PrefetchPackedWeight": true,
-      "PrefetchPackedWeightNext": false,
+      "PrefetchPackedWeightNext": true,
       "PackedWeightLaneShare": 1,
       "Q3KExtraction": "packed",
       "Q5KExtraction": "packed",
       "Q5KNibbleShiftHoist": false,
       "Q5KMetadataVectorLoad": false,
-      "Q6KExtraction": "packed",
+      "Q6KExtraction": "packed_vopd",
+      "Q8KExtraction": "packed"
+    },
+    "retained_m256x64x32_next_pad8_vopd": {
+      "KernelLanguage": "Assembly",
+      "ISA": [
+        11,
+        5,
+        1
+      ],
+      "WavefrontSize": 32,
+      "WorkGroup": [
+        32,
+        4,
+        1
+      ],
+      "MatrixInstruction": [
+        16,
+        16,
+        16,
+        1,
+        1,
+        4,
+        4,
+        4,
+        1
+      ],
+      "MacroTile0": 256,
+      "MacroTile1": 64,
+      "DepthU": 32,
+      "GlobalReadVectorWidthA": 16,
+      "GlobalReadVectorWidthB": 16,
+      "LocalReadVectorWidth": 16,
+      "PrefetchGlobalRead": 2,
+      "PrefetchLocalRead": 1,
+      "1LDSBuffer": 1,
+      "ScheduleIterAlg": 4,
+      "StorePriorityOpt": true,
+      "NumElementsPerBatchStore": 8,
+      "StoreVectorWidth": 1,
+      "WorkGroupMapping": 1,
+      "TransposeLDS": 0,
+      "LdsPadB": 8,
+      "LdsBlockSizePerPadB": 0,
+      "LdsSwizzleChunkB": 0,
+      "DecoderWidth": 16,
+      "PrefetchPackedWeight": true,
+      "PrefetchPackedWeightNext": true,
+      "PackedWeightLaneShare": 1,
+      "Q3KExtraction": "packed",
+      "Q5KExtraction": "packed",
+      "Q5KNibbleShiftHoist": false,
+      "Q5KMetadataVectorLoad": false,
+      "Q6KExtraction": "packed_vopd",
       "Q8KExtraction": "packed"
     }
   }

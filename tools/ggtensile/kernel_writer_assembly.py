@@ -327,6 +327,9 @@ class KernelWriterAssembly:
             11
             if self._quant_type() == "Q3_K"
             and self.solution_key.solution.q3_k_extraction == "packed"
+            else 7 + 2 * decoder_rows
+            if self._quant_type() == "Q6_K"
+            and self.solution_key.solution.q6_k_extraction == "packed_vopd"
             else 7,
             (5 if self.solution_key.solution.q8_0_extraction == "packed_vopd" else 3)
             + 2 * decoder_rows,
@@ -526,6 +529,7 @@ class KernelWriterAssembly:
     def _emit_packed_weight_pipeline(self, asm: _Assembly) -> None:
         r = self.registers
         size = self.solution_key.problem_size
+        solution = self.solution_key.solution
         a_load_count = (
             2
             * self.solution_key.solution.matrix_instruction[5]
@@ -543,7 +547,10 @@ class KernelWriterAssembly:
 
         asm.label(".LPackedDepthULoop")
         asm.inst("s_waitcnt vmcnt(0)", "current A before next packed reads")
-        asm.inst(f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, 32")
+        asm.inst(
+            f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, "
+            f"{solution.depth_u}"
+        )
         asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
         asm.inst("s_cbranch_scc0 .LPackedNoPrefetch")
         self._emit_quant_global_reads(asm, wait_for_reads=False)
@@ -1424,31 +1431,86 @@ class KernelWriterAssembly:
         asm.inst(f"v_lshrrev_b32 v{high}, v{self._quant_shift_register()}, v{high}")
         asm.inst(f"v_and_b32 v{high}, 0x03030303, v{high}")
         asm.inst(f"v_lshl_or_b32 v{low}, v{high}, 4, v{low}")
-        for element in range(first_element, first_element + 4):
-            value = t + 1 + 2 * decoder_rows
-            rounding = value + 1
-            d_scaled = t + 1 + 2 * row
-            lds_offset = row_stride * element + 2 * k_span * row
-            lds_address = self._lds_address_register()
-            swizzle = self.solution_key.solution.lds_swizzle_chunk_b
-            if swizzle:
-                residues = 32 // swizzle
-                residue = element % residues
-                lds_address = r.lds_address + residue
-                lds_offset = row_stride * element + 64 * (row // 2)
-                if row % 2:
-                    lds_offset += 32 if residue < residues // 2 else -32
-            if self.solution_key.solution.q6_k_extraction == "scalar":
-                asm.inst(f"v_bfe_u32 v{value}, v{low}, {8 * (element % 4)}, 6")
-                asm.inst(f"v_cvt_f32_u32_e32 v{value}, v{value}")
-            else:
-                asm.inst(f"v_cvt_f32_ubyte{element % 4}_e32 v{value}, v{low}")
-            asm.inst(f"v_sub_f32 v{value}, v{value}, 32.0")
-            asm.inst(f"v_mul_f32 v{value}, v{d_scaled}, v{value}")
-            self._emit_round_bf16(asm, value, rounding)
-            asm.inst(
-                f"ds_store_b16_d16_hi v{lds_address}, v{value} offset:{lds_offset}"
+        extraction = self.solution_key.solution.q6_k_extraction
+        d_scaled = t + 1 + 2 * row
+        value = t + 1 + 2 * decoder_rows
+        if extraction == "packed_vopd":
+            second_value = value + 1
+            rounding = value + 2
+            alternate_d = value + 3
+            first_subtrahend = alternate_d + 1
+            second_subtrahend = alternate_d + 2
+            if first_element == 0:
+                asm.inst(f"v_mov_b32 v{alternate_d}, v{d_scaled}")
+                if row == 0:
+                    asm.inst(f"v_mov_b32 v{first_subtrahend}, 32.0")
+                    asm.inst(f"v_mov_b32 v{second_subtrahend}, 32.0")
+            elements = (
+                (first_element, value, first_element + 1, second_value),
+                (first_element + 2, value, first_element + 3, second_value),
             )
+        else:
+            rounding = value + 1
+            elements = tuple(
+                (element, value, None, None)
+                for element in range(first_element, first_element + 4)
+            )
+        for element, element_value, second_element, second_value in elements:
+            if extraction == "scalar":
+                asm.inst(
+                    f"v_bfe_u32 v{element_value}, v{low}, "
+                    f"{8 * (element % 4)}, 6"
+                )
+                asm.inst(
+                    f"v_cvt_f32_u32_e32 v{element_value}, v{element_value}"
+                )
+            else:
+                asm.inst(
+                    f"v_cvt_f32_ubyte{element % 4}_e32 v{element_value}, v{low}"
+                )
+            if second_element is None:
+                asm.inst(
+                    f"v_sub_f32 v{element_value}, v{element_value}, 32.0"
+                )
+                asm.inst(
+                    f"v_mul_f32 v{element_value}, v{d_scaled}, v{element_value}"
+                )
+            else:
+                asm.inst(
+                    f"v_cvt_f32_ubyte{second_element % 4}_e32 "
+                    f"v{second_value}, v{low}"
+                )
+                asm.inst(
+                    f"v_dual_sub_f32 v{element_value}, v{element_value}, "
+                    f"v{first_subtrahend} :: v_dual_sub_f32 v{second_value}, "
+                    f"v{second_value}, v{second_subtrahend}"
+                )
+                asm.inst(
+                    f"v_dual_mul_f32 v{element_value}, v{d_scaled}, "
+                    f"v{element_value} :: v_dual_mul_f32 v{second_value}, "
+                    f"v{alternate_d}, v{second_value}"
+                )
+            for output_element, output_value in (
+                (element, element_value),
+                (second_element, second_value),
+            ):
+                if output_element is None:
+                    continue
+                lds_offset = row_stride * output_element + 2 * k_span * row
+                lds_address = self._lds_address_register()
+                swizzle = self.solution_key.solution.lds_swizzle_chunk_b
+                if swizzle:
+                    residues = 32 // swizzle
+                    residue = output_element % residues
+                    lds_address = r.lds_address + residue
+                    lds_offset = row_stride * output_element + 64 * (row // 2)
+                    if row % 2:
+                        lds_offset += 32 if residue < residues // 2 else -32
+                self._emit_round_bf16(asm, output_value, rounding)
+                asm.inst(
+                    f"ds_store_b16_d16_hi v{lds_address}, v{output_value} "
+                    f"offset:{lds_offset}"
+                )
 
     def _emit_q8_0_decode(
         self,

@@ -85,7 +85,7 @@ Each quant type owns:
 - independent decoder fixtures and mutation coverage.
 - tuning fields that are strict, explicit, and inert for other quant types.
 
-Q6_K initially adds only controls backed by real alternate emitters. The first identity field is `Q6KExtraction`, with packed and scalar variants only when both paths exist. Further candidates such as scale broadcast, metadata vector loading, low/high-plane prefetch, or paired decode are added only with emitted-ISA and correctness tests.
+Q6_K adds only controls backed by real alternate emitters. `Q6KExtraction` now has `packed`, `packed_vopd`, and `scalar` variants. The retained `packed_vopd` path preserves the packed six-bit reconstruction and exact FP operand order while pairing adjacent subtracts and multiplies with legal gfx11 VOPD instructions. Further candidates such as scale broadcast or metadata vector loading are added only with emitted-ISA and correctness tests.
 
 ### Q6_K backend
 
@@ -138,6 +138,28 @@ Search M256 first, then transfer only measured mechanisms to M128/M64:
 
 Candidates pass correctness and resource inspection before timing. Nine-repeat screens narrow candidates; retained resource-bearing mechanisms require a stable gain above 2% in 25-repeat confirmation. Timing is authoritative.
 
+### Selected geometry and current evidence
+
+The retained exact catalog uses different Q6-owned tuning for each production M while sharing the same quant-neutral A/LDS/WMMA/store implementation:
+
+| M | Retained body | Resources | 25-repeat candidate/HIP |
+| ---: | --- | ---: | ---: |
+| 64 | `64x32x64`, unswizzled pad8, packed VOPD | 76 VGPR, 4608 B LDS | `5.1548 / 5.4340 ms = 0.9486x` |
+| 128 | `128x64x32`, next-packed-tile prefetch, packed VOPD | 144 VGPR, 4096 B LDS | `6.9694 / 9.2133 ms = 0.7564x` |
+| 256 | `256x64x32`, next-packed-tile prefetch, pad8, packed VOPD | 240 VGPR, 5120 B LDS | `10.0982 / 12.2847 ms = 0.8220x` |
+
+The equal-call weighted candidate/HIP ratio is `0.8251293552046594`. The resource-heavy M256 geometry is retained because its measured gain over the lower-resource `128x64` next-prefetch/VOPD body is far above the 2% resource-bearing threshold and gives a large margin over HIP.
+
+Closed large-margin neighborhoods include:
+
+- M64 `64x32x64` XOR8/XOR16, scalar extraction, packed VOPD, and pad8/pad16/pad24. Pad8 and pad24 tie; pad8 wins on smaller LDS.
+- M128/M256 scalar extraction, SIA/PGR/PLR/WGM variants, XOR8/XOR16, next-packed-tile prefetch, and packed VOPD.
+- M256 `64x64`, `128x64`, and `256x64` ownership. Wide `256x64` is retained only after next-prefetch, pad8, and VOPD establish a stable large gain.
+- VMEM clauses and `buffer_gl0_inv`; both were neutral or slower in 25-repeat or same-process controls.
+- DepthU64 two-decoder-row variants, which failed exact correctness for wider N ownership.
+- A proposed two-decoded-B `128x64` pipeline, rejected because exactly every fourth output column was invalid under reduced and production K tests. The existing strict gate remains `128x128x32` only.
+- DepthU64 next-packed-tile prefetch, rejected after an illegal-address correctness failure; the strict validator continues to forbid it.
+
 ### Phase 4: Lower bounds and final selection
 
 For each selected geometry, measure complete, WMMA/A/LDS-floor, and Q6-decode/LDS-floor artifacts under the same ABI and launch contract. Explain:
@@ -173,10 +195,10 @@ Update this section after every coherent implementation milestone before committ
 - [x] Strict Q6_K identity, tuning controls, inventory, packed-row accounting, and campaign validation. `Q6KExtraction` has packed/scalar emitters and is rejected as non-inert for other quant types; the inventory contains exactly M64/M128/M256 with physical shape `[248320,1680]`.
 - [x] Correct Q6_K assembly backend with independent decoder fixtures and resource inspection. The backend owns 210-byte blocks, low/high payload planes, signed scales, FP16 `d`, exact BF16 rounding, and quant-specific resource accounting while reusing the shared WMMA body.
 - [x] Fresh three-key HIP/GGTensile controls with reference and producer-mutation coverage. All keys are bit-exact to HIP under baseline, grad-output mutation, and packed-weight mutation; independent-reference error matches HIP. Initial candidate/HIP screening ratios are M64 `1.5409`, M128 `0.9926`, and M256 `1.1216`.
-- [ ] Large-margin M256 ownership, decoder, and LDS search.
-- [ ] M128 and M64 exact geometry closure.
-- [ ] Per-key selected catalog with every exact key faster than HIP.
+- [x] Large-margin M256 ownership, decoder, and LDS search. Retain wide `256x64x32` ownership with next-packed-tile prefetch, pad8, and packed VOPD; it confirms at `0.8220x` HIP. Narrow ownership, clauses, GL0 invalidation, lane sharing, DepthU64, and two-buffer variants were rejected by timing or correctness.
+- [x] M128 and M64 exact geometry closure. M128 retains `128x64x32` next-prefetch/VOPD at `0.7564x` HIP. M64 retains `64x32x64` pad8/VOPD at `0.9486x` HIP; pad16 loses and pad24 ties with more LDS.
+- [x] Per-key selected catalog with every exact key faster than HIP. The equal-call weighted 25-repeat ratio is `0.8251293552046594`.
 - [ ] Complete/WMMA/decode lower bounds and residual bottleneck explanation.
-- [ ] Independent assembly reproducibility and final serial 25-repeat confirmation.
+- [ ] Independent assembly reproducibility. Final serial 25-repeat confirmation is complete for all three keys with independent reference and producer-mutation coverage.
 - [ ] Recursive optimization-exhaustion review with no actionable mechanism remaining.
 - [ ] Public dispatch and artifact packaging, deferred.
