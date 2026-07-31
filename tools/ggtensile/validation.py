@@ -116,7 +116,8 @@ def _validate_problem_size(
     if (
         decoder_threads > 0
         and solution.decoder_width > 0
-        and solution.depth_u * solution.macro_tile1
+        and solution.depth_u
+        * solution.macro_tile1
         // (decoder_threads * solution.decoder_width)
         == 0
     ):
@@ -346,8 +347,10 @@ def _validate_solution_parameters(
         (64, 32, 128),
         (64, 64, 128),
         (64, 128, 128),
+        (128, 32, 128),
         (128, 64, 128),
         (128, 128, 128),
+        (256, 32, 128),
         (256, 64, 128),
     ):
         _reject(
@@ -376,10 +379,12 @@ def _validate_solution_parameters(
         ((16, 16, 16, 1, 1, 1, 4, 4, 1), 64, 64, 32, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 1, 4, 4, 1), 64, 64, 64, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 1, 8, 4, 1), 64, 128, 32, (32, 4, 1)),
+        ((16, 16, 16, 1, 1, 2, 2, 4, 1), 128, 32, 64, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 2, 4, 4, 1), 128, 64, 32, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 2, 4, 4, 1), 128, 64, 64, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 2, 8, 4, 1), 128, 128, 32, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 2, 8, 4, 1), 128, 128, 64, (32, 4, 1)),
+        ((16, 16, 16, 1, 1, 4, 2, 4, 1), 256, 32, 64, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 4, 4, 4, 1), 256, 64, 32, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 4, 4, 4, 1), 256, 64, 64, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 2, 8, 8, 1), 256, 128, 32, (32, 8, 1)),
@@ -395,7 +400,7 @@ def _validate_solution_parameters(
         _reject(
             reasons,
             "solution.geometry.unimplemented",
-            "KernelWriterAssembly implements the selected 32x64, 32x128, 64x32, 64x64, 64x128, 128x64, 128x128, 256x64, and 256x128 DepthU32/64 geometries",
+            "KernelWriterAssembly implements the selected 32x64, 32x128, 64x32, 64x64, 64x128, 128x32, 128x64, 128x128, 256x32, 256x64, and 256x128 DepthU32/64 geometries",
             "MatrixInstruction",
             "MacroTile0",
             "MacroTile1",
@@ -452,15 +457,12 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
     _validate_problem_type(solution_key.problem_type, reasons)
     _validate_solution_parameters(solution_key.solution, reasons)
     if (
-        (
-            solution_key.solution.num_threads == 64
-            or (
-                solution_key.solution.macro_tile0 == 64
-                and solution_key.solution.macro_tile1 == 64
-            )
+        solution_key.solution.num_threads == 64
+        or (
+            solution_key.solution.macro_tile0 == 64
+            and solution_key.solution.macro_tile1 == 64
         )
-        and solution_key.problem_type.quant_data_type not in ("Q6_K", "Q8_0")
-    ):
+    ) and solution_key.problem_type.quant_data_type not in ("Q6_K", "Q8_0"):
         _reject(
             reasons,
             "solution.work_group.small_m_quant",

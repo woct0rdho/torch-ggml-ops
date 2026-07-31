@@ -93,9 +93,7 @@ class DenseBackwardModule:
             "Q8_0": 34,
         }[self.solution_key.problem_type.quant_data_type]
         values_per_block = (
-            32
-            if self.solution_key.problem_type.quant_data_type == "Q8_0"
-            else 256
+            32 if self.solution_key.problem_type.quant_data_type == "Q8_0" else 256
         )
         expected_weight_bytes = size.k * (size.n // values_per_block) * block_bytes
         if packed_weight.numel() != expected_weight_bytes:

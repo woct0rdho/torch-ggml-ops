@@ -130,6 +130,13 @@ def test_q6_k_campaign_inventory_covers_exact_lm_head_chunks() -> None:
         entry.expected_physical_weight_shape == (248320, 1680)
         for entry in inventory.entries
     )
+    assert catalog["retained_m64x32x64_pad8_vopd"].q6_k_extraction == "packed_vopd"
+    assert catalog["retained_m128x32x64_pad8_vopd"].macro_tile1 == 32
+    assert catalog["retained_m128x32x64_pad8_vopd"].depth_u == 64
+    assert (
+        catalog["retained_m256x64x32_next_pad8_vopd"].prefetch_packed_weight_next
+        is True
+    )
 
 
 def test_q3_k_campaign_inventory_selects_exact_padded_geometries() -> None:
@@ -219,9 +226,7 @@ def test_q6_k_packed_vopd_decoder_pairs_adjacent_values() -> None:
         Path("tools/ggtensile/q6_k_selected_solutions.json")
     )
     entry = next(item for item in inventory.entries if item.problem_size.m == 64)
-    key = entry.solution_key(
-        inventory.problem_type, catalog[entry.selected_solution]
-    )
+    key = entry.solution_key(inventory.problem_type, catalog[entry.selected_solution])
     assert key.solution.q6_k_extraction == "packed_vopd"
     assert validate_solution(key) == ()
     source = KernelWriterAssembly(key, _toolchain()).source()

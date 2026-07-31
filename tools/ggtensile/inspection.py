@@ -299,7 +299,11 @@ def _validate_metadata(
             else 7 + 2 * decoder_rows
             if quant_type == "Q6_K" and solution.q6_k_extraction == "packed_vopd"
             else 7,
-            (5 if quant_type == "Q8_0" and solution.q8_0_extraction == "packed_vopd" else 3)
+            (
+                5
+                if quant_type == "Q8_0" and solution.q8_0_extraction == "packed_vopd"
+                else 3
+            )
             + 2 * decoder_rows,
         ),
     )

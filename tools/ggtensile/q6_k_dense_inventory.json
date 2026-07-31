@@ -42,7 +42,7 @@
       "CallCount": 1,
       "HistoricalHipMedianMs": 9.084,
       "CurrentStatus": "selected",
-      "SelectedSolution": "retained_m128x64x32_next_vopd"
+      "SelectedSolution": "retained_m128x32x64_pad8_vopd"
     },
     {
       "Family": "lm_head",
