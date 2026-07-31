@@ -152,7 +152,7 @@ The latest artifact is `/tmp/grouped_mmq_fwd_qwen_aiter_tuned_9.json`. It contai
 | Down Q4_K | `1.611/2.851` | `5.920/6.217` | `23.674/24.526` | 12/12 |
 | Down Q5_K | `1.793/2.862` | `6.012/6.201` | `23.486/24.363` | 12/12 |
 
-Qwen packed arithmetic matches dense packed MMQ exactly at all 84 pair/single checks. Independent BF16-reference NRMSE is `0.00597-0.01653` across the matrix, consistent with the quantization-specific envelopes. Q3_K gate/up and Q4_K/Q5_K down win all 36 points. IQ2_S gate/up wins B1/B4 and loses all four B16 points. IQ2_S down wins only B1 uniform.
+The historical acceptance artifact matched dense packed MMQ exactly at all 84 Qwen pair/single checks. Current IQ2_S correctness coverage instead uses grouped single/pair consistency and an independently dequantized BF16 reference; dense IQ2_S is retained only as reference code. Independent BF16-reference NRMSE is `0.00597-0.01653` across the matrix, consistent with the quantization-specific envelopes. Q3_K gate/up and Q4_K/Q5_K down win all 36 points. IQ2_S gate/up wins B1/B4 and loses all four B16 points. IQ2_S down wins only B1 uniform.
 
 Across the four distributions, checkpoint-weighted packed/reference speedup ranges are:
 

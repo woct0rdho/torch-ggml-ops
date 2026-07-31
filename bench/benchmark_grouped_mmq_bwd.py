@@ -50,7 +50,7 @@ from mmq_benchmark_common import (
 import torch_ggml_ops  # noqa: F401 Register native operators before torch.ops use.
 
 DEFAULT_OUTPUT = Path("/tmp/torch_ggml_ops_grouped_mmq_bwd_benchmark.json")
-DENSE_BACKWARD_QUANT_TYPES = frozenset({"Q3_K", "Q4_K", "Q5_K", "Q6_K", "IQ2_S"})
+DENSE_PACKED_REFERENCE_QUANT_TYPES = frozenset({"Q3_K", "Q4_K", "Q5_K", "Q6_K"})
 
 
 def aiter_grouped_pair(
@@ -144,7 +144,7 @@ def dense_correctness_reference(
     selected_logical: tuple[torch.Tensor, ...],
     distribution: RouteDistribution,
 ) -> tuple[torch.Tensor, str]:
-    dense_packed_supported = case.quant_type in DENSE_BACKWARD_QUANT_TYPES
+    dense_packed_supported = case.quant_type in DENSE_PACKED_REFERENCE_QUANT_TYPES
     dense_parts = tuple(
         dense_grouped_grad_input_reference(
             grad_output,

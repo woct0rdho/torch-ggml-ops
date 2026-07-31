@@ -452,13 +452,14 @@ Architecture transfer rules:
 
 Included:
 - BF16 cotangents and BF16 input gradients.
-- Packed GGUF Q3_K, Q4_K, Q5_K, Q6_K, IQ2_S, and Q8_0 compatibility.
+- Packed GGUF Q3_K, Q4_K, Q5_K, Q6_K, and Q8_0 production compatibility.
 - Qwen's 160 ordinary projections and Q6_K head.
 - DeepSeek's 301 ordinary Q8_0 calls and Q8_0 head.
 - Sequence length 2,048 at physical batches 1, 4, and 16.
 - Direct packed-weight execution with static host-visible dispatch.
 
 Excluded:
+- Production dense IQ2_S expert weights; they are covered by grouped/routed backward, documented in `docs/grouped_mmq_bwd_optimization.md`.
 - Grouped/routed expert backward, documented in `docs/grouped_mmq_bwd_optimization.md`.
 - GatedDeltaNet layout permutations.
 - LoRA GEMMs and residual accumulation.
@@ -477,7 +478,7 @@ PyTorch: 2.12.0+rocm7.15.0a20260701
 HIP: 7.14.60850
 ```
 
-The reference is `torch.mm` with the same BF16 cotangent and the authoritative GGUF weight independently dequantized to BF16. Correctness requirements include independent GGUF references, exact one-hot row decode where applicable, direct grad-input comparison, autograd, exact-tile guards, and row-boundary coverage.
+The reference is `torch.mm` with the same BF16 cotangent and the authoritative production GGUF weight independently dequantized to BF16. The existing HIP dense IQ2_S implementation remains available as decoder and dispatch reference code, but IQ2_S is intentionally absent from the dense production test inventory. Correctness requirements include independent GGUF references, exact one-hot row decode where applicable, direct grad-input comparison, autograd, exact-tile guards, and row-boundary coverage.
 
 Qwen ordinary workload:
 

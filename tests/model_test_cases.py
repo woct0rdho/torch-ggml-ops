@@ -45,9 +45,6 @@ class DenseMMQTestCase:
 
 
 QWEN_DENSE_MMQ_TEST_CASES = (
-    DenseMMQTestCase(
-        QWEN_MODEL, "iq2_s", "blk.10.ffn_gate_exps.weight", "IQ2_S", 37, 2048
-    ),
     DenseMMQTestCase(QWEN_MODEL, "q3_k", "blk.3.attn_q.weight", "Q3_K", 37, 2048),
     DenseMMQTestCase(QWEN_MODEL, "q4_k", "blk.0.attn_gate.weight", "Q4_K", 37, 2048),
     DenseMMQTestCase(QWEN_MODEL, "q5_k", "blk.4.attn_qkv.weight", "Q5_K", 37, 2048),

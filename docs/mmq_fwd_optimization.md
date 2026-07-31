@@ -183,7 +183,7 @@ A prepared-activation or pair/multi-projection API must:
 - preserve output and autograd behavior.
 - avoid a hidden pointer/version/stream cache.
 
-Q4_K/Q5_K use the scale-plus-sum workspace layout. Q3_K/Q6_K/IQ2_S use scale-only. A model layer may need one workspace per layout, but never duplicate preparation for the same input/layout.
+Q4_K/Q5_K use the scale-plus-sum workspace layout. Production dense Q3_K/Q6_K use scale-only; the retained reference-only dense IQ2_S path uses the same layout. A model layer may need one workspace per production layout, but never duplicate preparation for the same input/layout.
 
 This repository does not own the model scheduler or prepared-activation lifetime, so ordinary single-call `mmq` remains allocation-owning.
 
@@ -421,13 +421,14 @@ Architecture lessons retained for future work:
 Included:
 - BF16 activations and outputs.
 - internal Q8_1 activation quantization.
-- packed GGUF Q3_K/Q4_K/Q5_K/Q6_K/IQ2_S/Q8_0 compatibility.
+- packed GGUF Q3_K/Q4_K/Q5_K/Q6_K/Q8_0 production compatibility.
 - 160 ordinary Qwen projections and the packed Q6_K head.
 - 301 ordinary DeepSeek Q8_0 projections and the packed Q8_0 head.
 - sequence length 2048 at physical batches 1, 4, and 16.
 - direct packed-weight execution without logical weight materialization.
 
 Excluded:
+- production dense IQ2_S expert weights; their model execution and correctness coverage belong to grouped MMQ. The existing HIP dense IQ2_S path remains reference code.
 - grouped/routed/fixed-group multiplication and scheduling.
 - GatedDeltaNet layout permutations.
 - LoRA GEMMs and residual accumulation.

@@ -28,18 +28,18 @@ Broader architectures, edge handling, operation types, data types, quant formats
 The required format inventory comes from the workload and compatibility contracts recorded in the HIP optimization logs, not from every quant type accepted by a generic operator or represented in the kernel bundle.
 
 Dense MMQ uses:
-- Qwen: `Q3_K`, `Q4_K`, `Q5_K`, `Q6_K`, and `IQ2_S`.
+- Qwen: `Q3_K`, `Q4_K`, `Q5_K`, and `Q6_K`.
 - DeepSeek: `Q8_0`.
-- Dense union: `Q3_K`, `Q4_K`, `Q5_K`, `Q6_K`, `IQ2_S`, and `Q8_0`.
+- Dense union: `Q3_K`, `Q4_K`, `Q5_K`, `Q6_K`, and `Q8_0`.
 
-The ordinary Qwen projections and language-model head use `Q3_K`, `Q4_K`, `Q5_K`, and `Q6_K`; DeepSeek ordinary projections and its language-model head use `Q8_0`. Qwen `IQ2_S` expert weights also exercise dense MMQ as single-expert controls and decoder references even though their production routed execution uses grouped MMQ. Therefore `IQ2_S` remains part of the required dense-MMQ format inventory rather than being omitted as grouped-only.
+The ordinary Qwen projections and language-model head use `Q3_K`, `Q4_K`, `Q5_K`, and `Q6_K`; DeepSeek ordinary projections and its language-model head use `Q8_0`. Qwen `IQ2_S` tensors are expert weights and belong only to grouped production coverage. Dense IQ2_S tests and correctness-oracle use are intentionally excluded. The existing HIP dense IQ2_S path remains as reference code, not as a production inventory or GGTensile campaign requirement.
 
 Grouped MMQ uses:
 - Qwen: `Q3_K`, `Q4_K`, `Q5_K`, and `IQ2_S`.
 - DeepSeek: `Q2_K`, `IQ2_XXS`, and fixed-group `Q8_0`.
 - Grouped union: `Q2_K`, `Q3_K`, `Q4_K`, `Q5_K`, `IQ2_XXS`, `IQ2_S`, and `Q8_0`.
 
-`Q6_K` has no current grouped production workload. `Q2_K` and `IQ2_XXS` have no current required dense campaign; their production ownership is routed grouped MMQ. Fixed-group `Q8_0` is a distinct grouped operation and must not be inferred from dense `Q8_0` coverage.
+`Q6_K` has no current grouped production workload. `Q2_K`, `IQ2_XXS`, and `IQ2_S` have no current required dense campaign; their relevant production ownership is grouped MMQ. Fixed-group `Q8_0` is a distinct grouped operation and must not be inferred from dense `Q8_0` coverage.
 
 These inventories describe formats that need workload coverage. They do not imply that one generated decoder, geometry, or artifact is valid across dense, paired routed, single routed, row-task, and fixed-group ownership.
 
@@ -208,7 +208,7 @@ This review remains the permanent final step of every experiment. A later implem
 
 Experiment-specific problem definitions, ABI details, production inventories, selected solutions, resources, timing, correctness, rejected mechanisms, debugging history, evidence paths, and completion state belong in experiment logs.
 
-Completed dense-backward campaign records cover [Q3_K](experiment_ggtensile_mmq_bwd_q3_k.md), [Q4_K](experiment_ggtensile_mmq_bwd_q4_k.md), [Q5_K](experiment_ggtensile_mmq_bwd_q5_k.md), [Q6_K](experiment_ggtensile_mmq_bwd_q6_k.md), and [Q8_0](experiment_ggtensile_mmq_bwd_q8_0.md). Each document is authoritative only for its own exact keys and must not be generalized to another operation, quant format, shape family, or architecture without measurement. `IQ2_S` is the remaining required dense-backward format.
+Completed dense-backward campaign records cover [Q3_K](experiment_ggtensile_mmq_bwd_q3_k.md), [Q4_K](experiment_ggtensile_mmq_bwd_q4_k.md), [Q5_K](experiment_ggtensile_mmq_bwd_q5_k.md), [Q6_K](experiment_ggtensile_mmq_bwd_q6_k.md), and [Q8_0](experiment_ggtensile_mmq_bwd_q8_0.md). Each document is authoritative only for its own exact keys and must not be generalized to another operation, quant format, shape family, or architecture without measurement. These five campaigns cover the required dense-backward format inventory.
 
 ## Integration And Expansion
 
@@ -216,9 +216,9 @@ Each artifact uses a separate exact-problem symbol and does not replace an exist
 
 Public runtime integration remains deferred until a useful production set is covered, per-key selection is complete, artifact packaging and identity are stable, and complete end-to-end workloads pass correctness and weighted performance validation. Experimental force controls are not public dispatch policy.
 
-Dense-backward GGTensile coverage is complete for `Q3_K`, `Q4_K`, `Q5_K`, `Q6_K`, and `Q8_0`. The remaining required dense format is `IQ2_S`; its indexed/codebook decoder requires format-owned data movement, codebook access, sign and scale reconstruction, resource accounting, correctness fixtures, and exact-shape tuning. Completion of the ordinary dense and language-model-head inventories does not remove that dense decoder/control obligation.
+Dense-backward GGTensile format coverage is complete for the required `Q3_K`, `Q4_K`, `Q5_K`, `Q6_K`, and `Q8_0` inventory. IQ2_S decoder development belongs to grouped GGTensile, where codebook access, sign and scale reconstruction, paired and single ownership, routing, row tasks, resource accounting, and correctness fixtures can be validated under the production contract.
 
-Dense forward is considered only after all six required dense formats pass complete Qwen and DeepSeek validation and weighted benchmarks. Grouped GGTensile remains deferred until dense assembly demonstrates durable advantages and the grouped ownership contract is designed explicitly. Its eventual format scope is the seven-format grouped union above, including grouped-only `Q2_K` and `IQ2_XXS` plus fixed-group `Q8_0`; dense coverage of an overlapping format does not count as grouped coverage.
+The dense-backward format prerequisite for considering dense forward is satisfied, though dense forward still requires its own explicit project and workload validation. Grouped GGTensile remains deferred until dense assembly demonstrates durable advantages and the grouped ownership contract is designed explicitly. Its eventual format scope is the seven-format grouped union above, including grouped-only `Q2_K`, `IQ2_XXS`, and `IQ2_S` plus fixed-group `Q8_0`; dense coverage of an overlapping format does not count as grouped coverage.
 
 Prepared weights, compact alternate layouts, BF16 shadows, paired projections, persistent workgroups, split reduction, GSU, and Stream-K require explicit model-visible ownership, lifetime, invalidation, memory accounting, fixup, ABI, and fallback design. They are separate projects, not hidden extensions of a single-kernel tuning campaign.
 

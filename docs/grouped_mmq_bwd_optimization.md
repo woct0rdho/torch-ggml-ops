@@ -195,7 +195,8 @@ The table contains target-specific B1/B4/B16 configurations for both Qwen and De
 For fused pairs, AITER runs two GMM calls and adds two BF16 outputs. It is the production performance reference but not a bitwise numerical oracle because the packed pair accumulates both projections in FP32 and rounds once.
 
 Correctness references:
-- Qwen supported types use the independent dense packed path.
+- Qwen Q3_K, Q4_K, and Q5_K may use the independent dense packed path.
+- Qwen IQ2_S uses independently dequantized BF16 weights plus grouped single/pair consistency; dense IQ2_S is not a current correctness oracle.
 - DeepSeek Q2_K and IQ2_XXS use independently dequantized BF16 weights.
 - Fixed Q8_0 uses independent GGUF decode and BF16 BMM in `[tokens, 8, K]` layout.
 
@@ -499,7 +500,7 @@ The historical generic baseline won 0/60 points and was `2.39-6.07x` slower than
 
 The old kernel used eight waves, N16/K16 ownership, one accumulator per wave, scalar decode, and serial 128-row chunks. It was spill-free at 46-52 VGPRs for singles and 58-89 VGPRs for pairs. Profiling showed very low LDS stalls and high Q4_K L2 hit rate, ruling out spills and LDS banking as first-order causes.
 
-A one-expert 1,024-row diagnostic showed dense packed speedups of `5.08x` for Q3_K pair, `4.15x` for Q4_K, and `1.95x` for IQ2_S. At 64 rows, grouped and dense Q4_K/IQ2_S were approximately equal. This established that small and large groups needed different bodies and that metadata overhead was not the large-group bottleneck.
+A historical one-expert 1,024-row diagnostic showed dense packed speedups of `5.08x` for Q3_K pair, `4.15x` for Q4_K, and `1.95x` for IQ2_S. At 64 rows, grouped and dense Q4_K/IQ2_S were approximately equal. This established that small and large groups needed different bodies and that metadata overhead was not the large-group bottleneck. Dense IQ2_S remains reference code for interpreting this historical result, but current correctness coverage uses the grouped contract and independent dequantization.
 
 Artifacts:
 
@@ -590,7 +591,7 @@ Artifacts:
 
 ### Qwen representation controls
 
-The remaining Q4_K/IQ2_S deficit appears in dense shared-down controls as well as grouped kernels:
+Comparable Q4_K/Q5_K down deficits appear in historical dense shared-down controls as well as grouped kernels. IQ2_S diagnosis now remains within grouped kernels and independent dequantized references:
 
 ```text
 Q4_K dense shared-down: 5.148 ms packed versus 4.223 ms BF16
