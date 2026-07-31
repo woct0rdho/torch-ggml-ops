@@ -291,7 +291,7 @@ def _validate_metadata(
         ),
     )
     if (quant_type == "Q3_K" and n_tiles == 4) or (
-        quant_type == "Q8_0" and n_tiles == 4
+        quant_type == "Q8_0" and n_tiles == 4 and decoder_rows % 2 == 1
     ):
         # RegisterPool reuses the single hole before the temporary range.
         pass

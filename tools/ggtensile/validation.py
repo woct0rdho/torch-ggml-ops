@@ -311,6 +311,8 @@ def _validate_solution_parameters(
         solution.macro_tile1,
         solution.num_threads,
     ) not in (
+        (32, 64, 64),
+        (32, 128, 64),
         (64, 128, 128),
         (128, 64, 128),
         (128, 128, 128),
@@ -334,6 +336,8 @@ def _validate_solution_parameters(
         )
 
     allowed_geometries = {
+        ((16, 16, 16, 1, 1, 1, 4, 2, 1), 32, 64, 32, (32, 2, 1)),
+        ((16, 16, 16, 1, 1, 1, 8, 2, 1), 32, 128, 32, (32, 2, 1)),
         ((16, 16, 16, 1, 1, 1, 8, 4, 1), 64, 128, 32, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 2, 4, 4, 1), 128, 64, 32, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 2, 8, 4, 1), 128, 128, 32, (32, 4, 1)),
@@ -352,7 +356,7 @@ def _validate_solution_parameters(
         _reject(
             reasons,
             "solution.geometry.unimplemented",
-            "KernelWriterAssembly implements only 64x128x32, 128x64x32, 128x128x32, 128x128x64, 256x64x32, and 256x128x32 geometry",
+            "KernelWriterAssembly implements only 32x64x32, 32x128x32, 64x128x32, 128x64x32, 128x128x32, 128x128x64, 256x64x32, and 256x128x32 geometry",
             "MatrixInstruction",
             "MacroTile0",
             "MacroTile1",
@@ -376,11 +380,11 @@ def _validate_solution_parameters(
                 "MacroTile1",
                 source="SolutionStructs",
             )
-    if solution.num_threads not in (128, 256):
+    if solution.num_threads not in (64, 128, 256):
         _reject(
             reasons,
             "solution.work_group.num_threads",
-            "KernelWriterAssembly requires NumThreads=128 or 256",
+            "KernelWriterAssembly requires NumThreads=64, 128, or 256",
             "WorkGroup",
             source="SolutionStructs",
         )
@@ -408,6 +412,17 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
     reasons: list[RejectReason] = []
     _validate_problem_type(solution_key.problem_type, reasons)
     _validate_solution_parameters(solution_key.solution, reasons)
+    if (
+        solution_key.solution.num_threads == 64
+        and solution_key.problem_type.quant_data_type != "Q8_0"
+    ):
+        _reject(
+            reasons,
+            "solution.work_group.q8_small_m",
+            "64-thread small-M geometry is implemented only for Q8_0",
+            "WorkGroup",
+            source="ProblemType",
+        )
     if (
         solution_key.problem_type.quant_data_type == "Q8_0"
         and solution_key.solution.packed_weight_lane_share != 1

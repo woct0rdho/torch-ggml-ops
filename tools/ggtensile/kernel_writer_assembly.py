@@ -1301,6 +1301,7 @@ class KernelWriterAssembly:
         row = chunk // 4
         first_element = 4 * (chunk % 4)
         row_stride = self._lds_row_stride_bytes()
+        k_span = self.solution_key.solution.depth_u // decoder_rows
         t = r.temporary
         packed = r.global_read_b + 4 * row + first_element // 4
         d_scaled = t + 1 + 2 * row
@@ -1314,7 +1315,7 @@ class KernelWriterAssembly:
             )
             asm.inst(f"v_cvt_f32_i32_e32 v{value}, v{value}")
             asm.inst(f"v_mul_f32 v{value}, v{d_scaled}, v{value}")
-            lds_offset = row_stride * element + 32 * row
+            lds_offset = row_stride * element + 2 * k_span * row
             swizzle = self.solution_key.solution.lds_swizzle_chunk_b
             if swizzle:
                 residues = 32 // swizzle

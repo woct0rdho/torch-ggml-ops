@@ -513,6 +513,49 @@ def test_build_and_inspect_q8_0_compact_geometry(tmp_path: Path) -> None:
     assert inspection.sgpr_spill_count == 0
 
 
+def test_build_and_inspect_q8_0_two_wave_m32_geometry(tmp_path: Path) -> None:
+    solution = replace(
+        Solution.pilot(),
+        work_group=(32, 2, 1),
+        matrix_instruction=(16, 16, 16, 1, 1, 1, 4, 2, 1),
+        macro_tile0=32,
+        macro_tile1=64,
+        prefetch_global_read=2,
+        schedule_iter_alg=5,
+        lds_pad_b=8,
+    )
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q8_0(),
+        ProblemSize(32, 4096, 129280),
+        solution,
+    )
+    assert validate_solution(key) == ()
+    assert validate_solution(
+        SolutionKey(
+            ProblemType.dense_mmq_backward_q4_k(),
+            ProblemSize(32, 4096, 129280),
+            solution,
+        )
+    )
+    toolchain = _toolchain()
+    assembly = tmp_path / "q8_0_m32.s"
+    object_path = tmp_path / "q8_0_m32.o"
+    code_object = tmp_path / "q8_0_m32.hsaco"
+    KernelWriterAssembly(key, toolchain).write(assembly)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+
+    inspection = inspect_artifact(key, code_object, toolchain)
+    assert inspection.max_flat_workgroup_size == 64
+    assert inspection.vgpr_count == 90
+    assert inspection.sgpr_count == 16
+    assert inspection.lds_num_bytes == 5120
+    assert inspection.wmma_count == 8
+    assert inspection.private_segment_bytes == 0
+    assert inspection.vgpr_spill_count == 0
+    assert inspection.sgpr_spill_count == 0
+
+
 def test_cli_generate_build_and_inspect_manifests(tmp_path: Path) -> None:
     solution_path = tmp_path / "requested.json"
     solution_path.write_text(json.dumps(_pilot_key().to_mapping()))
