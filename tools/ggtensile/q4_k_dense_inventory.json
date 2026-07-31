@@ -25,7 +25,7 @@
       "CallCount": 70,
       "HistoricalHipMedianMs": 0.230,
       "CurrentStatus": "selected",
-      "SelectedSolution": "retained_128x128_pipeline"
+      "SelectedSolution": "retained_256x64_pad8_sia5_wgm2"
     },
     {
       "Family": "narrow",
@@ -34,7 +34,7 @@
       "CallCount": 70,
       "HistoricalHipMedianMs": 0.775,
       "CurrentStatus": "selected",
-      "SelectedSolution": "retained_128x128_pipeline"
+      "SelectedSolution": "retained_256x64_pad8_sia5"
     },
     {
       "Family": "narrow",
@@ -43,7 +43,7 @@
       "CallCount": 70,
       "HistoricalHipMedianMs": 2.988,
       "CurrentStatus": "selected",
-      "SelectedSolution": "retained_128x128_pipeline"
+      "SelectedSolution": "retained_256x64_pad8_sia5"
     },
     {
       "Family": "shared_down",
@@ -79,7 +79,7 @@
       "CallCount": 10,
       "HistoricalHipMedianMs": 1.339,
       "CurrentStatus": "selected",
-      "SelectedSolution": "attention_m2048_128x64"
+      "SelectedSolution": "retained_256x64_pad8_sia5"
     },
     {
       "Family": "attention_output",
@@ -88,7 +88,7 @@
       "CallCount": 10,
       "HistoricalHipMedianMs": 5.912,
       "CurrentStatus": "selected",
-      "SelectedSolution": "attention_m8192_128x64_sia5_priority"
+      "SelectedSolution": "retained_128x64_pad8_sia5"
     },
     {
       "Family": "attention_output",
@@ -97,7 +97,7 @@
       "CallCount": 10,
       "HistoricalHipMedianMs": 23.803,
       "CurrentStatus": "selected",
-      "SelectedSolution": "retained_128x128_pipeline"
+      "SelectedSolution": "retained_128x64_pad8_sia5"
     },
     {
       "Family": "query",
@@ -115,7 +115,7 @@
       "CallCount": 1,
       "HistoricalHipMedianMs": 12.567,
       "CurrentStatus": "selected",
-      "SelectedSolution": "retained_128x128_pipeline"
+      "SelectedSolution": "retained_128x64_pad8_sia5"
     },
     {
       "Family": "query",

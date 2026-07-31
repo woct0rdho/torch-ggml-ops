@@ -24,8 +24,8 @@
       "RepresentativeTensor": "blk.3.attn_k.weight",
       "CallCount": 9,
       "HistoricalHipMedianMs": 1.0,
-      "CurrentStatus": "open",
-      "SelectedSolution": "retained_128x128_one_buffer_sia5"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_256x64_pad8_sia5_wgm2"
     },
     {
       "Family": "narrow",
@@ -34,7 +34,7 @@
       "CallCount": 9,
       "HistoricalHipMedianMs": 1.0,
       "CurrentStatus": "selected",
-      "SelectedSolution": "retained_128x128_one_buffer_sia5"
+      "SelectedSolution": "retained_256x64_pad8_sia5"
     },
     {
       "Family": "narrow",
@@ -42,8 +42,8 @@
       "RepresentativeTensor": "blk.3.attn_k.weight",
       "CallCount": 9,
       "HistoricalHipMedianMs": 1.0,
-      "CurrentStatus": "open",
-      "SelectedSolution": "retained_128x128_one_buffer_sia5"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_256x64_pad8_sia5"
     },
     {
       "Family": "query",
@@ -52,7 +52,7 @@
       "CallCount": 9,
       "HistoricalHipMedianMs": 1.0,
       "CurrentStatus": "selected",
-      "SelectedSolution": "retained_128x128_one_buffer_sia5"
+      "SelectedSolution": "retained_128x64_pad8_sia5"
     },
     {
       "Family": "query",
@@ -61,7 +61,7 @@
       "CallCount": 9,
       "HistoricalHipMedianMs": 1.0,
       "CurrentStatus": "selected",
-      "SelectedSolution": "retained_128x128_one_buffer_sia5"
+      "SelectedSolution": "retained_128x64_pad8_sia5"
     },
     {
       "Family": "query",
@@ -70,7 +70,7 @@
       "CallCount": 9,
       "HistoricalHipMedianMs": 1.0,
       "CurrentStatus": "selected",
-      "SelectedSolution": "retained_128x128_one_buffer_sia5"
+      "SelectedSolution": "retained_128x128_pad8_sia5"
     }
   ]
 }

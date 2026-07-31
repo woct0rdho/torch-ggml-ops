@@ -86,6 +86,8 @@ def test_q5_k_campaign_inventory_is_exact_and_quant_aware() -> None:
         32768,
     }
     assert all(entry.quant_data_type == "Q5_K" for entry in inventory.entries)
+    assert all(entry.current_status == "selected" for entry in inventory.entries)
+    assert {entry.selected_solution for entry in inventory.entries} == set(catalog)
     assert all(
         validate_solution(
             entry.solution_key(inventory.problem_type, catalog[entry.selected_solution])
@@ -99,6 +101,26 @@ def test_q5_k_campaign_inventory_is_exact_and_quant_aware() -> None:
     )
     assert narrow.expected_physical_weight_shape == (512, 1408)
     assert shared_down.expected_physical_weight_shape == (2048, 352)
+
+
+def test_q3_k_campaign_inventory_selects_exact_padded_geometries() -> None:
+    inventory = load_inventory(Path("tools/ggtensile/q3_k_dense_inventory.json"))
+    catalog = load_solution_catalog(
+        Path("tools/ggtensile/q3_k_selected_solutions.json")
+    )
+    assert inventory.problem_type == ProblemType.dense_mmq_backward("Q3_K")
+    assert len(inventory.entries) == 6
+    assert all(entry.current_status == "selected" for entry in inventory.entries)
+    assert {entry.selected_solution for entry in inventory.entries} == set(catalog)
+    assert all(
+        validate_solution(
+            entry.solution_key(inventory.problem_type, catalog[entry.selected_solution])
+        )
+        == ()
+        for entry in inventory.entries
+    )
+    narrow = next(entry for entry in inventory.entries if entry.family == "narrow")
+    assert narrow.expected_physical_weight_shape == (512, 880)
 
 
 def test_q3_k_packed_decoder_uses_wave32_vopd_scale_pairs() -> None:
@@ -120,6 +142,23 @@ def test_q3_k_packed_decoder_uses_wave32_vopd_scale_pairs() -> None:
     assert source.count("v_dual_mul_f32") >= 4
     assert "v_lshl_or_b32" in source
     assert "v_mul_f32" not in source
+
+
+def test_lds_row_padding_is_strict_and_quant_aware() -> None:
+    padded = replace(Solution.pilot(), lds_pad_b=8, lds_swizzle_chunk_b=0)
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward("Q3_K"),
+        ProblemSize(2048, 2048, 512),
+        padded,
+    )
+    assert padded.lds_num_bytes == 10240
+    assert validate_solution(key) == ()
+
+    conflicting = replace(padded, lds_swizzle_chunk_b=8)
+    reasons = validate_solution(
+        SolutionKey(key.problem_type, key.problem_size, conflicting)
+    )
+    assert any(reason.rule_id == "solution.ldspadb.swizzle" for reason in reasons)
 
 
 def test_quant_types_have_distinct_problem_identity() -> None:
@@ -829,18 +868,14 @@ def test_writer_maps_grouped_m_launch_coordinates() -> None:
     assert "s_add_u32 s2, s4, s2" in source
 
 
-def test_writer_builds_256x64_geometry(tmp_path: Path) -> None:
-    pilot = Solution.pilot()
-    geometry = replace(
-        pilot,
-        matrix_instruction=(16, 16, 16, 1, 1, 4, 4, 4, 1),
-        macro_tile0=256,
-        macro_tile1=64,
-        lds_swizzle_chunk_b=8,
+def test_writer_builds_q3_k_padded_256x64_geometry(tmp_path: Path) -> None:
+    catalog = load_solution_catalog(
+        Path("tools/ggtensile/q3_k_selected_solutions.json")
     )
+    geometry = catalog["retained_256x64_pad8_sia5"]
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
-        ProblemSize(32768, 2048, 8192),
+        ProblemType.dense_mmq_backward("Q3_K"),
+        ProblemSize(2048, 2048, 512),
         geometry,
     )
     assert validate_solution(key) == ()
@@ -854,52 +889,34 @@ def test_writer_builds_256x64_geometry(tmp_path: Path) -> None:
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
 
-    assert (
-        "Precompute A row coordinates shared by every DepthU iteration." not in source
-    )
+    assert "Precompute A row coordinates shared by every DepthU iteration." in source
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
     assert source.count("ds_store_b16_d16_hi") == 16
     assert source.count("ds_load_b128") == 16
     inspection = inspect_artifact(key, code_object, toolchain)
-    assert inspection.vgpr_count == 204
+    assert inspection.vgpr_count == 243
     assert inspection.sgpr_count == 16
-    assert inspection.lds_num_bytes == 4096
+    assert inspection.lds_num_bytes == 5120
 
 
-def test_writer_builds_256x128_cooperative_decode_geometry(
-    tmp_path: Path,
-) -> None:
+def test_validation_rejects_unsupported_256x128_sia5_geometry() -> None:
     pilot = Solution.pilot()
     geometry = replace(
         pilot,
         work_group=(32, 8, 1),
         matrix_instruction=(16, 16, 16, 1, 1, 2, 8, 8, 1),
         macro_tile0=256,
+        schedule_iter_alg=5,
     )
     key = SolutionKey(
         ProblemType.dense_mmq_backward_q4_k(),
         ProblemSize(32768, 2048, 8192),
         geometry,
     )
-    assert validate_solution(key) == ()
-
-    toolchain = _toolchain()
-    assembly = tmp_path / "cooperative_decode.s"
-    object_path = tmp_path / "cooperative_decode.o"
-    code_object = tmp_path / "cooperative_decode.hsaco"
-    source = KernelWriterAssembly(key, toolchain).source()
-    assembly.write_text(source)
-    toolchain.assemble(assembly, object_path)
-    toolchain.link(object_path, code_object)
-
-    assert "Only the first four waves cooperatively decode B." in source
-    assert "s_cbranch_scc0 .LDecodeReady" in source
-    assert source.count("v_wmma_f32_16x16x16_bf16") == 32
-    inspection = inspect_artifact(key, code_object, toolchain)
-    assert inspection.vgpr_count == 192
-    assert inspection.sgpr_count == 16
-    assert inspection.max_flat_workgroup_size == 256
-    assert inspection.lds_num_bytes == 8192
+    reasons = validate_solution(key)
+    assert any(
+        reason.rule_id == "solution.scheduleiteralg.geometry" for reason in reasons
+    )
 
 
 def test_writer_builds_true_decoded_b_pipeline(tmp_path: Path) -> None:

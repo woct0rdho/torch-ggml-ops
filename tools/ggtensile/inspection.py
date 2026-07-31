@@ -275,7 +275,15 @@ def _validate_metadata(
     )
     if solution.lds_swizzle_chunk_b:
         expected_vgprs = allocate(expected_vgprs, 32 // solution.lds_swizzle_chunk_b)
-    expected_vgprs = allocate(expected_vgprs, 8, 2)
+    extended_a_state = solution.schedule_iter_alg in (4, 5) and (
+        solution.matrix_instruction[5] > 2
+    )
+    address_registers = 8
+    if extended_a_state:
+        address_registers = 6 + solution.matrix_instruction[5]
+        if quant_type == "Q3_K":
+            address_registers += 2
+    expected_vgprs = allocate(expected_vgprs, address_registers, 2)
     expected_vgprs = allocate(
         expected_vgprs,
         max(

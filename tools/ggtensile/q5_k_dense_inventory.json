@@ -24,8 +24,8 @@
       "RepresentativeTensor": "blk.0.ffn_gate_shexp.weight",
       "CallCount": 21,
       "HistoricalHipMedianMs": 0.208,
-      "CurrentStatus": "open",
-      "SelectedSolution": "retained_128x128_pipeline"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_256x64_pad8_sia5_wgm2"
     },
     {
       "Family": "narrow",
@@ -33,8 +33,8 @@
       "RepresentativeTensor": "blk.0.ffn_gate_shexp.weight",
       "CallCount": 21,
       "HistoricalHipMedianMs": 0.778,
-      "CurrentStatus": "open",
-      "SelectedSolution": "retained_128x128_pipeline"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_256x64_pad8_sia5"
     },
     {
       "Family": "narrow",
@@ -42,8 +42,8 @@
       "RepresentativeTensor": "blk.0.ffn_gate_shexp.weight",
       "CallCount": 21,
       "HistoricalHipMedianMs": 3.019,
-      "CurrentStatus": "open",
-      "SelectedSolution": "retained_128x128_pipeline"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_256x64_pad8_sia5"
     },
     {
       "Family": "shared_down",
@@ -51,7 +51,7 @@
       "RepresentativeTensor": "blk.0.ffn_down_shexp.weight",
       "CallCount": 10,
       "HistoricalHipMedianMs": 0.239,
-      "CurrentStatus": "open",
+      "CurrentStatus": "selected",
       "SelectedSolution": "retained_128x128_pipeline"
     },
     {
@@ -60,7 +60,7 @@
       "RepresentativeTensor": "blk.0.ffn_down_shexp.weight",
       "CallCount": 10,
       "HistoricalHipMedianMs": 1.392,
-      "CurrentStatus": "open",
+      "CurrentStatus": "selected",
       "SelectedSolution": "retained_128x128_pipeline_no_hoist"
     },
     {
@@ -69,7 +69,7 @@
       "RepresentativeTensor": "blk.0.ffn_down_shexp.weight",
       "CallCount": 10,
       "HistoricalHipMedianMs": 5.606,
-      "CurrentStatus": "open",
+      "CurrentStatus": "selected",
       "SelectedSolution": "retained_128x128_pipeline"
     }
   ]

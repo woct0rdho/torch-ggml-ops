@@ -136,7 +136,6 @@ def _validate_solution_parameters(
         ("num_elements_per_batch_store", "NumElementsPerBatchStore"),
         ("store_vector_width", "StoreVectorWidth"),
         ("transpose_lds", "TransposeLDS"),
-        ("lds_pad_b", "LdsPadB"),
         ("lds_block_size_per_pad_b", "LdsBlockSizePerPadB"),
         ("decoder_width", "DecoderWidth"),
         ("prefetch_packed_weight", "PrefetchPackedWeight"),
@@ -155,6 +154,21 @@ def _validate_solution_parameters(
             reasons,
             "solution.ldsswizzlechunkb.unimplemented",
             "KernelWriterAssembly implements only LdsSwizzleChunkB=0, 4, 8, or 16",
+            "LdsSwizzleChunkB",
+        )
+    if solution.lds_pad_b not in (0, 8, 16, 24):
+        _reject(
+            reasons,
+            "solution.ldspadb.unimplemented",
+            "KernelWriterAssembly implements only LdsPadB=0, 8, 16, or 24",
+            "LdsPadB",
+        )
+    if solution.lds_pad_b and solution.lds_swizzle_chunk_b:
+        _reject(
+            reasons,
+            "solution.ldspadb.swizzle",
+            "LdsPadB requires an unswizzled LDS layout",
+            "LdsPadB",
             "LdsSwizzleChunkB",
         )
     if solution.one_lds_buffer not in (0, 1):
@@ -287,7 +301,12 @@ def _validate_solution_parameters(
         solution.macro_tile0,
         solution.macro_tile1,
         solution.num_threads,
-    ) not in ((64, 128, 128), (128, 64, 128), (128, 128, 128)):
+    ) not in (
+        (64, 128, 128),
+        (128, 64, 128),
+        (128, 128, 128),
+        (256, 64, 128),
+    ):
         _reject(
             reasons,
             "solution.scheduleiteralg.geometry",
@@ -358,7 +377,7 @@ def _validate_solution_parameters(
         )
     expected_lds = (
         2
-        * solution.depth_u
+        * (solution.depth_u + solution.lds_pad_b)
         * solution.macro_tile1
         * (2 if solution.one_lds_buffer == 0 else 1)
     )

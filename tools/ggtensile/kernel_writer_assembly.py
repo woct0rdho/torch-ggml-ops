@@ -198,11 +198,55 @@ class KernelWriterAssembly:
             self._quant_type() == "Q3_K"
             and self.solution_key.solution.q3_k_extraction == "packed"
             and self._decoder_rows() <= 2
-            and not (size.n == 2048 and size.k == 512 and size.m != 8192)
+            and not (
+                size.n == 2048
+                and size.k == 512
+                and (
+                    (
+                        size.m != 8192
+                        and self.solution_key.solution.macro_tile1 != 64
+                    )
+                    or (
+                        size.m == 8192
+                        and self.solution_key.solution.macro_tile1 == 64
+                    )
+                )
+            )
         )
 
     def _payload_register_count(self) -> int:
         return 4 if self._quant_type() == "Q4_K" else 8
+
+    def _uses_extended_a_pointer_state(self) -> bool:
+        solution = self.solution_key.solution
+        return (
+            solution.schedule_iter_alg in (4, 5)
+            and solution.matrix_instruction[5] > 2
+        )
+
+    def _lds_address_register(self) -> int:
+        if self._uses_extended_a_pointer_state():
+            return (
+                self.registers.address
+                + 4
+                + self.solution_key.solution.matrix_instruction[5]
+            )
+        return self.registers.address + 6
+
+    def _quant_shift_register(self) -> int:
+        return self._lds_address_register() + 1
+
+    def _q3_low_shift_register(self) -> int:
+        if not self._uses_extended_a_pointer_state():
+            return self.registers.address + 2
+        return self._quant_shift_register() + 1
+
+    def _address_register_count(self) -> int:
+        if not self._uses_extended_a_pointer_state():
+            return 8
+        state_registers = 6 + self.solution_key.solution.matrix_instruction[5]
+        q3_extra = 2 * int(self._quant_type() == "Q3_K")
+        return state_registers + q3_extra
 
     def _packed_block_bytes(self) -> int:
         return {
@@ -219,6 +263,10 @@ class KernelWriterAssembly:
         return (
             3 if self.solution_key.solution.q5_k_metadata_vector_load else 6
         ) * self._decoder_rows()
+
+    def _lds_row_stride_bytes(self) -> int:
+        solution = self.solution_key.solution
+        return 2 * (solution.depth_u + solution.lds_pad_b)
 
     def _allocate_registers(self) -> RegisterLayout:
         from rocisa.enum import RegisterType
@@ -263,7 +311,8 @@ class KernelWriterAssembly:
         swizzle = self.solution_key.solution.lds_swizzle_chunk_b
         if swizzle:
             lds_address = vgprs.checkOut(32 // swizzle, "swizzled LDS addresses")
-        address = vgprs.checkOutAligned(8, 2, "addresses")
+        address_count = self._address_register_count()
+        address = vgprs.checkOutAligned(address_count, 2, "addresses")
         temporary_count = max(
             11
             if self._quant_type() == "Q3_K"
@@ -293,7 +342,11 @@ class KernelWriterAssembly:
             address=address,
             temporary=temporary,
             serial=serial,
-            total_vgprs=max(serial + 1, temporary + temporary_count),
+            total_vgprs=max(
+                serial + 1,
+                temporary + temporary_count,
+                address + address_count,
+            ),
             kernarg=kernarg,
             loop_counter=loop_counter,
             block_offset=block_offset,
@@ -581,22 +634,21 @@ class KernelWriterAssembly:
             asm.inst(f"v_xor_b32 v{register}, {buffer_bytes}, v{register}")
 
     def _emit_swap_lds_buffers(self, asm: _Assembly) -> None:
-        r = self.registers
         buffer_bytes = self.solution_key.solution.lds_num_bytes // 2
-        asm.inst(f"v_xor_b32 v{r.address + 6}, {buffer_bytes}, v{r.address + 6}")
+        lds_address = self._lds_address_register()
+        asm.inst(f"v_xor_b32 v{lds_address}, {buffer_bytes}, v{lds_address}")
         self._emit_toggle_lds_write_buffer(asm)
 
     def _emit_pipeline_lds_read_addresses(self, asm: _Assembly, k_tile: int) -> None:
         r = self.registers
-        row_stride = 2 * self.solution_key.solution.depth_u
+        row_stride = self._lds_row_stride_bytes()
         first = r.quant_dm
         second = first + 1
         temporary = r.quant_scale
+        lds_address = self._lds_address_register()
         asm.inst(f"v_and_b32 v{temporary}, 15, v{r.serial}")
-        asm.inst(
-            f"v_lshlrev_b32 v{temporary}, {row_stride.bit_length() - 1}, v{temporary}"
-        )
-        asm.inst(f"v_add_nc_u32 v{temporary}, v{r.address + 6}, v{temporary}")
+        self._emit_scale_u32(asm, temporary, row_stride, temporary)
+        asm.inst(f"v_add_nc_u32 v{temporary}, v{lds_address}, v{temporary}")
         asm.inst(f"v_and_b32 v{temporary + 1}, 3, v{r.serial}")
         asm.inst(f"v_lshlrev_b32 v{temporary + 1}, 4, v{temporary + 1}")
         asm.inst(f"v_add_nc_u32 v{first}, v{temporary}, v{temporary + 1}")
@@ -610,21 +662,23 @@ class KernelWriterAssembly:
         t = r.temporary
         n_tiles = self.solution_key.solution.matrix_instruction[6]
         k_shift = n_tiles.bit_length() - 1
-        row_stride = 2 * self.solution_key.solution.depth_u
+        row_stride = self._lds_row_stride_bytes()
         segment_stride = 16 * row_stride
-        asm.comment("v[address+6] is the LDS row base; +7 is quant shift state.")
-        asm.inst(f"v_and_b32 v{a + 6}, {n_tiles - 1}, v{r.serial}")
-        asm.inst(f"v_lshlrev_b32 v{a + 6}, {segment_stride.bit_length() - 1}, v{a + 6}")
+        lds_address = self._lds_address_register()
+        quant_shift = self._quant_shift_register()
+        asm.comment("State registers after the A row pointers hold LDS and quant state.")
+        asm.inst(f"v_and_b32 v{lds_address}, {n_tiles - 1}, v{r.serial}")
+        self._emit_scale_u32(asm, lds_address, segment_stride, lds_address)
         asm.inst(f"v_lshrrev_b32 v{t}, {k_shift}, v{r.serial}")
         asm.inst(f"v_lshlrev_b32 v{t}, 1, v{t}")
-        asm.inst(f"v_add_nc_u32 v{a + 6}, v{a + 6}, v{t}")
+        asm.inst(f"v_add_nc_u32 v{lds_address}, v{lds_address}, v{t}")
         if self._quant_type() == "Q3_K":
-            asm.inst(f"v_and_b32 v{a + 7}, 7, v{r.serial}")
-            asm.inst(f"v_lshrrev_b32 v{a + 7}, 1, v{a + 7}")
-            asm.inst(f"v_lshlrev_b32 v{a + 7}, 1, v{a + 7}")
+            asm.inst(f"v_and_b32 v{quant_shift}, 7, v{r.serial}")
+            asm.inst(f"v_lshrrev_b32 v{quant_shift}, 1, v{quant_shift}")
+            asm.inst(f"v_lshlrev_b32 v{quant_shift}, 1, v{quant_shift}")
         else:
-            asm.inst(f"v_and_b32 v{a + 7}, 2, v{r.serial}")
-            asm.inst(f"v_lshlrev_b32 v{a + 7}, 1, v{a + 7}")
+            asm.inst(f"v_and_b32 v{quant_shift}, 2, v{r.serial}")
+            asm.inst(f"v_lshlrev_b32 v{quant_shift}, 1, v{quant_shift}")
         if self._quant_type() == "Q5_K":
             asm.comment("Derive the Q5_K scale-group index for the high plane.")
             if n_tiles == 8:
@@ -634,13 +688,13 @@ class KernelWriterAssembly:
                 asm.inst(f"v_lshlrev_b32 v{t + 1}, 1, v{t + 1}")
                 asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
                 asm.inst(f"v_bfe_u32 v{t + 1}, v{r.serial}, 1, 1")
-                asm.inst(f"v_add_nc_u32 v{a + 7}, v{t}, v{t + 1}")
+                asm.inst(f"v_add_nc_u32 v{quant_shift}, v{t}, v{t + 1}")
             else:
                 asm.inst(f"v_and_b32 v{t}, {n_tiles - 1}, v{r.serial}")
                 asm.inst(f"v_lshrrev_b32 v{t}, 1, v{t}")
                 asm.inst(f"v_and_b32 v{t + 1}, {n_tiles - 1}, s3")
                 asm.inst(f"v_lshlrev_b32 v{t + 1}, 1, v{t + 1}")
-                asm.inst(f"v_add_nc_u32 v{a + 7}, v{t}, v{t + 1}")
+                asm.inst(f"v_add_nc_u32 v{quant_shift}, v{t}, v{t + 1}")
         swizzle = self.solution_key.solution.lds_swizzle_chunk_b
         if swizzle:
             lds = r.lds_address
@@ -654,7 +708,7 @@ class KernelWriterAssembly:
                 f"v_lshrrev_b32 v{t}, {k_shift + swizzle.bit_length() - 1}, v{r.serial}"
             )
             asm.inst(f"v_lshlrev_b32 v{t + 1}, {swizzle_shift}, v{t}")
-            asm.inst(f"v_sub_nc_u32 v{t + 1}, v{a + 6}, v{t + 1}")
+            asm.inst(f"v_sub_nc_u32 v{t + 1}, v{lds_address}, v{t + 1}")
             for residue in range(residues):
                 asm.inst(f"v_xor_b32 v{lds + residue}, {residue}, v{t}")
                 asm.inst(
@@ -663,7 +717,7 @@ class KernelWriterAssembly:
                 asm.inst(f"v_add_nc_u32 v{lds + residue}, v{t + 1}, v{lds + residue}")
             if self.solution_key.solution.one_lds_buffer == 0:
                 asm.comment("Initialize the decoded-B read buffer to LDS0.")
-                asm.inst(f"v_mov_b32 v{a + 6}, 0")
+                asm.inst(f"v_mov_b32 v{lds_address}, 0")
 
         solution = self.solution_key.solution
         if solution.schedule_iter_alg not in (4, 5):
@@ -677,8 +731,10 @@ class KernelWriterAssembly:
         asm.inst(f"v_add_nc_u32 v{a + 4}, v{t}, v{t + 1}")
         asm.inst(f"v_lshlrev_b32 v{t + 2}, {solution.macro_tile0.bit_length() - 1}, s2")
         asm.inst(f"v_add_nc_u32 v{a + 4}, v{a + 4}, v{t + 2}")
-        if m_tiles == 2:
-            asm.inst(f"v_add_nc_u32 v{a + 5}, 16, v{a + 4}")
+        for m_tile in range(1, m_tiles):
+            asm.inst(
+                f"v_add_nc_u32 v{a + 4 + m_tile}, {16 * m_tile}, v{a + 4}"
+            )
         row_stride_a = 2 * self.solution_key.problem_size.k
         for m_tile in range(m_tiles):
             self._emit_scale_u32(
@@ -1156,6 +1212,7 @@ class KernelWriterAssembly:
         n_shift = n_per_tile.bit_length() - 1
         scale = r.quant_scale
         t = r.temporary
+        quant_shift = self._quant_shift_register()
         asm.comment("Reconstruct Q3_K signed scale and d in FP32.")
         asm.inst(f"v_and_b32 v{t}, {n_tiles - 1}, v{r.serial}")
         asm.inst(f"v_lshlrev_b32 v{t}, 4, v{t}")
@@ -1199,9 +1256,9 @@ class KernelWriterAssembly:
         asm.inst(f"v_and_b32 v{t + 1}, 127, v{t}")
         asm.inst(f"v_lshrrev_b32 v{t + 1}, 5, v{t + 1}")
         asm.inst(f"v_lshlrev_b32 v{t + 1}, 1, v{t + 1}")
-        asm.inst(f"v_mov_b32 v{r.address + 2}, v{t + 1}")
+        asm.inst(f"v_mov_b32 v{self._q3_low_shift_register()}, v{t + 1}")
         asm.inst(f"v_lshrrev_b32 v{t}, 5, v{t}")
-        asm.inst(f"v_mov_b32 v{r.address + 7}, v{t}")
+        asm.inst(f"v_mov_b32 v{quant_shift}, v{t}")
         if self.solution_key.solution.q3_k_extraction == "packed":
             asm.inst(f"v_mov_b32 v{t + 2}, 4.0")
             if self._q3_k_full_vopd_decode():
@@ -1212,13 +1269,13 @@ class KernelWriterAssembly:
         decoder_rows = self._decoder_rows()
         row = chunk // 4
         first_element = 4 * (chunk % 4)
-        row_stride = 2 * self.solution_key.solution.depth_u
+        row_stride = self._lds_row_stride_bytes()
         t = r.temporary
         low = r.global_read_b + 4 * row + first_element // 4
         high = r.global_read_b + 4 * decoder_rows + 4 * row + first_element // 4
-        asm.inst(f"v_lshrrev_b32 v{low}, v{r.address + 2}, v{low}")
+        asm.inst(f"v_lshrrev_b32 v{low}, v{self._q3_low_shift_register()}, v{low}")
         asm.inst(f"v_and_b32 v{low}, 0x03030303, v{low}")
-        asm.inst(f"v_lshrrev_b32 v{high}, v{r.address + 7}, v{high}")
+        asm.inst(f"v_lshrrev_b32 v{high}, v{self._quant_shift_register()}, v{high}")
         asm.inst(f"v_and_b32 v{high}, 0x01010101, v{high}")
         if self.solution_key.solution.q3_k_extraction == "packed":
             asm.inst(f"v_lshl_or_b32 v{low}, v{high}, 2, v{low}")
@@ -1228,7 +1285,7 @@ class KernelWriterAssembly:
 
         def emit_lds_store(element: int, value: int, rounding: int) -> None:
             lds_offset = row_stride * element + 32 * row
-            lds_address = r.address + 6
+            lds_address = self._lds_address_register()
             swizzle = self.solution_key.solution.lds_swizzle_chunk_b
             if swizzle:
                 residues = 32 // swizzle
@@ -1356,7 +1413,7 @@ class KernelWriterAssembly:
                 "neg(0) op_sel_hi:[1,0,0]"
             )
         asm.comment("Hoist the Q5_K low-payload nibble-half shift.")
-        asm.inst(f"v_and_b32 v{t}, 1, v{r.address + 7}")
+        asm.inst(f"v_and_b32 v{t}, 1, v{self._quant_shift_register()}")
         asm.inst(f"v_lshlrev_b32 v{t}, 2, v{t}")
 
     def _emit_q4_k_decode_chunk(self, asm: _Assembly, chunk: int) -> None:
@@ -1364,10 +1421,10 @@ class KernelWriterAssembly:
         decoder_rows = self._decoder_rows()
         row = chunk // 4
         first_element = 4 * (chunk % 4)
-        row_stride = 2 * self.solution_key.solution.depth_u
+        row_stride = self._lds_row_stride_bytes()
         t = r.temporary
         packed = r.global_read_b + 4 * row + first_element // 4
-        asm.inst(f"v_lshrrev_b32 v{packed}, v{r.address + 7}, v{packed}")
+        asm.inst(f"v_lshrrev_b32 v{packed}, v{self._quant_shift_register()}, v{packed}")
         asm.inst(f"v_and_b32 v{packed}, 0x0f0f0f0f, v{packed}")
         for element in range(first_element, first_element + 4):
             value = t + 1 + 2 * decoder_rows
@@ -1375,7 +1432,7 @@ class KernelWriterAssembly:
             d_scaled = t + 1 + 2 * row
             min_scaled = d_scaled + 1
             lds_offset = row_stride * element + 32 * row
-            lds_address = r.address + 6
+            lds_address = self._lds_address_register()
             swizzle = self.solution_key.solution.lds_swizzle_chunk_b
             if swizzle:
                 residues = 32 // swizzle
@@ -1403,7 +1460,7 @@ class KernelWriterAssembly:
         r = self.registers
         t = r.temporary
         asm.comment("Hoist the Q5_K low-payload nibble-half shift.")
-        asm.inst(f"v_and_b32 v{t}, 1, v{r.address + 7}")
+        asm.inst(f"v_and_b32 v{t}, 1, v{self._quant_shift_register()}")
         asm.inst(f"v_lshlrev_b32 v{t}, 2, v{t}")
 
     def _emit_q5_k_decode_prepare(
@@ -1486,16 +1543,16 @@ class KernelWriterAssembly:
         decoder_rows = self._decoder_rows()
         row = chunk // 4
         first_element = 4 * (chunk % 4)
-        row_stride = 2 * self.solution_key.solution.depth_u
+        row_stride = self._lds_row_stride_bytes()
         t = r.temporary
         low = r.global_read_b + 4 * row + first_element // 4
         high = r.global_read_b + 4 * decoder_rows + 4 * row + first_element // 4
         if not self.solution_key.solution.q5_k_nibble_shift_hoist:
-            asm.inst(f"v_and_b32 v{t}, 1, v{r.address + 7}")
+            asm.inst(f"v_and_b32 v{t}, 1, v{self._quant_shift_register()}")
             asm.inst(f"v_lshlrev_b32 v{t}, 2, v{t}")
         asm.inst(f"v_lshrrev_b32 v{low}, v{t}, v{low}")
         asm.inst(f"v_and_b32 v{low}, 0x0f0f0f0f, v{low}")
-        asm.inst(f"v_lshrrev_b32 v{high}, v{r.address + 7}, v{high}")
+        asm.inst(f"v_lshrrev_b32 v{high}, v{self._quant_shift_register()}, v{high}")
         asm.inst(f"v_and_b32 v{high}, 0x01010101, v{high}")
         asm.inst(f"v_lshl_or_b32 v{low}, v{high}, 4, v{low}")
         for element in range(first_element, first_element + 4):
@@ -1504,7 +1561,7 @@ class KernelWriterAssembly:
             d_scaled = t + 1 + 2 * row
             min_scaled = d_scaled + 1
             lds_offset = row_stride * element + 32 * row
-            lds_address = r.address + 6
+            lds_address = self._lds_address_register()
             swizzle = self.solution_key.solution.lds_swizzle_chunk_b
             if swizzle:
                 residues = 32 // swizzle
@@ -1654,7 +1711,7 @@ class KernelWriterAssembly:
                             r.quant_dm,
                             r.quant_dm + 1,
                             0,
-                            2 * solution.depth_u,
+                            self._lds_row_stride_bytes(),
                         )
                     load_count = self._emit_lds_pair(
                         asm,
@@ -1719,7 +1776,7 @@ class KernelWriterAssembly:
     ) -> tuple[int, tuple[int, ...], int, int, int, int]:
         r = self.registers
         solution = self.solution_key.solution
-        row_stride = 2 * solution.depth_u
+        row_stride = self._lds_row_stride_bytes()
         if pipeline and k_tile:
             self._emit_pipeline_lds_read_addresses(asm, k_tile)
             return (
@@ -1733,9 +1790,11 @@ class KernelWriterAssembly:
 
         t = r.temporary
         asm.inst(f"v_and_b32 v{t}, 15, v{r.serial}")
-        asm.inst(f"v_lshlrev_b32 v{t}, {row_stride.bit_length() - 1}, v{t}")
+        self._emit_scale_u32(asm, t, row_stride, t)
         if pipeline:
-            asm.inst(f"v_add_nc_u32 v{t}, v{r.address + 6}, v{t}")
+            asm.inst(
+                f"v_add_nc_u32 v{t}, v{self._lds_address_register()}, v{t}"
+            )
         swizzle = solution.lds_swizzle_chunk_b
         chunk_addresses: tuple[int, ...] = ()
         if swizzle == 4:
