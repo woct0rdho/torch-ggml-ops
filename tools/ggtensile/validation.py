@@ -286,18 +286,21 @@ def _validate_solution_parameters(
             "PrefetchGlobalRead",
             "PrefetchLocalRead",
         )
+    depth_u64_layout = solution.lds_swizzle_chunk_b == 8 or (
+        solution.lds_swizzle_chunk_b == 0 and solution.lds_pad_b == 8
+    )
     if solution.depth_u == 64 and (
         solution.schedule_iter_alg != 4
         or solution.prefetch_global_read != 2
         or solution.prefetch_local_read != 1
-        or solution.lds_swizzle_chunk_b != 8
+        or not depth_u64_layout
         or solution.packed_weight_lane_share != 1
         or solution.prefetch_packed_weight_next
     ):
         _reject(
             reasons,
             "solution.depthu64.schedule",
-            "DepthU=64 requires SIA4, PGR2, PLR1, XOR-8, and independent current-tile packed reads",
+            "DepthU=64 requires SIA4, PGR2, PLR1, XOR-8 or pad8, and independent current-tile packed reads",
             "DepthU",
             "ScheduleIterAlg",
             "PrefetchGlobalRead",
@@ -313,6 +316,7 @@ def _validate_solution_parameters(
     ) not in (
         (32, 64, 64),
         (32, 128, 64),
+        (64, 64, 128),
         (64, 128, 128),
         (128, 64, 128),
         (128, 128, 128),
@@ -337,12 +341,17 @@ def _validate_solution_parameters(
 
     allowed_geometries = {
         ((16, 16, 16, 1, 1, 1, 4, 2, 1), 32, 64, 32, (32, 2, 1)),
+        ((16, 16, 16, 1, 1, 1, 4, 2, 1), 32, 64, 64, (32, 2, 1)),
         ((16, 16, 16, 1, 1, 1, 8, 2, 1), 32, 128, 32, (32, 2, 1)),
+        ((16, 16, 16, 1, 1, 1, 4, 4, 1), 64, 64, 32, (32, 4, 1)),
+        ((16, 16, 16, 1, 1, 1, 4, 4, 1), 64, 64, 64, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 1, 8, 4, 1), 64, 128, 32, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 2, 4, 4, 1), 128, 64, 32, (32, 4, 1)),
+        ((16, 16, 16, 1, 1, 2, 4, 4, 1), 128, 64, 64, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 2, 8, 4, 1), 128, 128, 32, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 2, 8, 4, 1), 128, 128, 64, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 4, 4, 4, 1), 256, 64, 32, (32, 4, 1)),
+        ((16, 16, 16, 1, 1, 4, 4, 4, 1), 256, 64, 64, (32, 4, 1)),
         ((16, 16, 16, 1, 1, 2, 8, 8, 1), 256, 128, 32, (32, 8, 1)),
     }
     geometry = (
@@ -356,7 +365,7 @@ def _validate_solution_parameters(
         _reject(
             reasons,
             "solution.geometry.unimplemented",
-            "KernelWriterAssembly implements only 32x64x32, 32x128x32, 64x128x32, 128x64x32, 128x128x32, 128x128x64, 256x64x32, and 256x128x32 geometry",
+            "KernelWriterAssembly implements the selected 32x64, 32x128, 64x64, 64x128, 128x64, 128x128, 256x64, and 256x128 DepthU32/64 geometries",
             "MatrixInstruction",
             "MacroTile0",
             "MacroTile1",
@@ -413,14 +422,33 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
     _validate_problem_type(solution_key.problem_type, reasons)
     _validate_solution_parameters(solution_key.solution, reasons)
     if (
-        solution_key.solution.num_threads == 64
+        (
+            solution_key.solution.num_threads == 64
+            or (
+                solution_key.solution.macro_tile0 == 64
+                and solution_key.solution.macro_tile1 == 64
+            )
+        )
         and solution_key.problem_type.quant_data_type != "Q8_0"
     ):
         _reject(
             reasons,
             "solution.work_group.q8_small_m",
-            "64-thread small-M geometry is implemented only for Q8_0",
+            "small-M 32x64, 32x128, and 64x64 geometries are implemented only for Q8_0",
             "WorkGroup",
+            source="ProblemType",
+        )
+    if (
+        solution_key.solution.depth_u == 64
+        and solution_key.solution.lds_pad_b == 8
+        and solution_key.problem_type.quant_data_type != "Q8_0"
+    ):
+        _reject(
+            reasons,
+            "solution.depthu64.q8_pad8",
+            "DepthU64 with unswizzled pad8 is implemented only for Q8_0",
+            "DepthU",
+            "LdsPadB",
             source="ProblemType",
         )
     if (

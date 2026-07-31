@@ -513,6 +513,49 @@ def test_build_and_inspect_q8_0_compact_geometry(tmp_path: Path) -> None:
     assert inspection.sgpr_spill_count == 0
 
 
+def test_build_and_inspect_q8_0_depth_u64_compact_geometry(tmp_path: Path) -> None:
+    solution = replace(
+        Solution.pilot(),
+        matrix_instruction=(16, 16, 16, 1, 1, 1, 4, 4, 1),
+        macro_tile0=64,
+        macro_tile1=64,
+        depth_u=64,
+        prefetch_global_read=2,
+        schedule_iter_alg=4,
+        lds_pad_b=8,
+    )
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q8_0(),
+        ProblemSize(64, 4096, 129280),
+        solution,
+    )
+    assert validate_solution(key) == ()
+    q4_reasons = validate_solution(
+        SolutionKey(
+            ProblemType.dense_mmq_backward_q4_k(),
+            ProblemSize(64, 4096, 129280),
+            solution,
+        )
+    )
+    assert any(reason.rule_id == "solution.depthu64.q8_pad8" for reason in q4_reasons)
+    toolchain = _toolchain()
+    assembly = tmp_path / "q8_0_m64_depth_u64.s"
+    object_path = tmp_path / "q8_0_m64_depth_u64.o"
+    code_object = tmp_path / "q8_0_m64_depth_u64.hsaco"
+    KernelWriterAssembly(key, toolchain).write(assembly)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+
+    inspection = inspect_artifact(key, code_object, toolchain)
+    assert inspection.vgpr_count == 90
+    assert inspection.sgpr_count == 16
+    assert inspection.lds_num_bytes == 9216
+    assert inspection.wmma_count == 16
+    assert inspection.private_segment_bytes == 0
+    assert inspection.vgpr_spill_count == 0
+    assert inspection.sgpr_spill_count == 0
+
+
 def test_build_and_inspect_q8_0_two_wave_m32_geometry(tmp_path: Path) -> None:
     solution = replace(
         Solution.pilot(),
