@@ -118,6 +118,7 @@ def test_q3_k_packed_decoder_uses_wave32_vopd_scale_pairs() -> None:
     assert "v_dual_mul_f32" in source
     assert "v_dual_sub_f32" in source
     assert source.count("v_dual_mul_f32") >= 4
+    assert "v_lshl_or_b32" in source
     assert "v_mul_f32" not in source
 
 

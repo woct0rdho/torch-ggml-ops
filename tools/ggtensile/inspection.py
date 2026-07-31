@@ -279,9 +279,7 @@ def _validate_metadata(
     expected_vgprs = allocate(
         expected_vgprs,
         max(
-            11
-            if quant_type == "Q3_K" and solution.q3_k_extraction == "packed"
-            else 7,
+            11 if quant_type == "Q3_K" and solution.q3_k_extraction == "packed" else 7,
             3 + 2 * decoder_rows,
         ),
     )
