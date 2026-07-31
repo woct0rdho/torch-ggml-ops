@@ -50,6 +50,7 @@
       "Q5KExtraction": "packed",
       "Q5KNibbleShiftHoist": false,
       "Q5KMetadataVectorLoad": false,
+      "Q6KExtraction": "packed",
       "Q8KExtraction": "packed"
     },
     "retained_128x128_pad8_sia4_next_scalar": {
@@ -102,6 +103,7 @@
       "Q5KExtraction": "packed",
       "Q5KNibbleShiftHoist": false,
       "Q5KMetadataVectorLoad": false,
+      "Q6KExtraction": "packed",
       "Q8KExtraction": "scalar"
     },
     "retained_128x128_depth64_xor8_sia4_packed": {
@@ -154,6 +156,7 @@
       "Q5KExtraction": "packed",
       "Q5KNibbleShiftHoist": false,
       "Q5KMetadataVectorLoad": false,
+      "Q6KExtraction": "packed",
       "Q8KExtraction": "packed"
     },
     "retained_256x64_pad8_sia5_packed": {
@@ -206,6 +209,7 @@
       "Q5KExtraction": "packed",
       "Q5KNibbleShiftHoist": false,
       "Q5KMetadataVectorLoad": false,
+      "Q6KExtraction": "packed",
       "Q8KExtraction": "packed"
     },
     "retained_128x64_pad8_sia5_packed": {
@@ -258,6 +262,7 @@
       "Q5KExtraction": "packed",
       "Q5KNibbleShiftHoist": false,
       "Q5KMetadataVectorLoad": false,
+      "Q6KExtraction": "packed",
       "Q8KExtraction": "packed"
     },
     "retained_lm_m512_256x64_pad8_next": {
@@ -310,6 +315,7 @@
       "Q5KExtraction": "packed",
       "Q5KNibbleShiftHoist": false,
       "Q5KMetadataVectorLoad": false,
+      "Q6KExtraction": "packed",
       "Q8KExtraction": "packed"
     },
     "retained_lm_m32_depth64_pad8_vopd": {
@@ -362,6 +368,7 @@
       "Q5KExtraction": "packed",
       "Q5KNibbleShiftHoist": false,
       "Q5KMetadataVectorLoad": false,
+      "Q6KExtraction": "packed",
       "Q8KExtraction": "packed_vopd"
     },
     "retained_lm_m64_depth64_pad8_vopd": {
@@ -414,6 +421,7 @@
       "Q5KExtraction": "packed",
       "Q5KNibbleShiftHoist": false,
       "Q5KMetadataVectorLoad": false,
+      "Q6KExtraction": "packed",
       "Q8KExtraction": "packed_vopd"
     },
     "retained_lm_m128_depth64_pad8_vopd": {
@@ -466,6 +474,7 @@
       "Q5KExtraction": "packed",
       "Q5KNibbleShiftHoist": false,
       "Q5KMetadataVectorLoad": false,
+      "Q6KExtraction": "packed",
       "Q8KExtraction": "packed_vopd"
     }
   }

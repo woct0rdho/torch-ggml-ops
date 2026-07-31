@@ -1,0 +1,61 @@
+{
+  "ProblemType": {
+    "OperationType": "DenseMMQBackward",
+    "QuantDataType": "Q6_K",
+    "DataTypeA": "BFloat16",
+    "DataTypeB": "Q6_K",
+    "DestDataType": "BFloat16",
+    "ComputeDataType": "Float",
+    "TransposeA": false,
+    "TransposeB": false
+  },
+  "ModelFile": "Qwen3.6-35B-A3B-APEX-I-Mini.gguf",
+  "Validation": {
+    "QuantType": "Q6_K",
+    "ExactDispatch": true,
+    "RequireBitExactHip": true,
+    "RequireGradOutputMutation": true,
+    "RequirePackedWeightMutation": true
+  },
+  "Keys": [
+    {
+      "Family": "lm_head",
+      "ProblemSize": {
+        "M": 64,
+        "N": 2048,
+        "K": 248320
+      },
+      "RepresentativeTensor": "output.weight",
+      "CallCount": 1,
+      "HistoricalHipMedianMs": 5.357,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_m64x64x32_xor8"
+    },
+    {
+      "Family": "lm_head",
+      "ProblemSize": {
+        "M": 128,
+        "N": 2048,
+        "K": 248320
+      },
+      "RepresentativeTensor": "output.weight",
+      "CallCount": 1,
+      "HistoricalHipMedianMs": 9.084,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_m128x64x32_xor8"
+    },
+    {
+      "Family": "lm_head",
+      "ProblemSize": {
+        "M": 256,
+        "N": 2048,
+        "K": 248320
+      },
+      "RepresentativeTensor": "output.weight",
+      "CallCount": 1,
+      "HistoricalHipMedianMs": 11.726,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_m128x64x32_xor8"
+    }
+  ]
+}

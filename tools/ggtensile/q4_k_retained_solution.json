@@ -30,5 +30,6 @@
   "Q5KExtraction": "packed",
   "Q5KNibbleShiftHoist": false,
   "Q5KMetadataVectorLoad": false,
+  "Q6KExtraction": "packed",
   "Q8KExtraction": "packed"
 }

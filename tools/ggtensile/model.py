@@ -83,7 +83,7 @@ class ProblemType:
 
     @classmethod
     def dense_mmq_backward(cls, quant_data_type: str) -> Self:
-        if quant_data_type not in {"Q3_K", "Q4_K", "Q5_K", "Q8_0"}:
+        if quant_data_type not in {"Q3_K", "Q4_K", "Q5_K", "Q6_K", "Q8_0"}:
             raise ValueError(
                 f"unsupported dense MMQ backward quant type {quant_data_type!r}"
             )
@@ -105,6 +105,10 @@ class ProblemType:
     @classmethod
     def dense_mmq_backward_q5_k(cls) -> Self:
         return cls.dense_mmq_backward("Q5_K")
+
+    @classmethod
+    def dense_mmq_backward_q6_k(cls) -> Self:
+        return cls.dense_mmq_backward("Q6_K")
 
     @classmethod
     def dense_mmq_backward_q8_0(cls) -> Self:
@@ -193,6 +197,7 @@ class Solution:
     q5_k_extraction: str
     q5_k_nibble_shift_hoist: bool
     q5_k_metadata_vector_load: bool
+    q6_k_extraction: str
     q8_0_extraction: str
 
     _KEYS: ClassVar[frozenset[str]] = frozenset(
@@ -228,6 +233,7 @@ class Solution:
             "Q5KExtraction",
             "Q5KNibbleShiftHoist",
             "Q5KMetadataVectorLoad",
+            "Q6KExtraction",
             "Q8KExtraction",
         }
     )
@@ -266,6 +272,7 @@ class Solution:
             q5_k_extraction="packed",
             q5_k_nibble_shift_hoist=False,
             q5_k_metadata_vector_load=False,
+            q6_k_extraction="packed",
             q8_0_extraction="packed",
         )
 
@@ -330,6 +337,7 @@ class Solution:
             q5_k_metadata_vector_load=_boolean(
                 item["Q5KMetadataVectorLoad"], "Q5KMetadataVectorLoad"
             ),
+            q6_k_extraction=_string(item["Q6KExtraction"], "Q6KExtraction"),
             q8_0_extraction=_string(item["Q8KExtraction"], "Q8KExtraction"),
         )
 
@@ -381,6 +389,7 @@ class Solution:
             "Q5KExtraction": self.q5_k_extraction,
             "Q5KNibbleShiftHoist": self.q5_k_nibble_shift_hoist,
             "Q5KMetadataVectorLoad": self.q5_k_metadata_vector_load,
+            "Q6KExtraction": self.q6_k_extraction,
             "Q8KExtraction": self.q8_0_extraction,
         }
 

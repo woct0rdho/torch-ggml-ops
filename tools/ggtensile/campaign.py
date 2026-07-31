@@ -34,6 +34,15 @@ _CAMPAIGN_SPECS = {
         },
         "block_bytes": 176,
     },
+    "Q6_K": {
+        "families": {
+            "lm_head": ((2048, 248320), "output.weight", 1),
+        },
+        "m_values": {
+            "lm_head": (64, 128, 256),
+        },
+        "block_bytes": 210,
+    },
     "Q8_0": {
         "families": {
             "attention_q_a": ((4096, 1024), "blk.0.attn_q_a.weight", 43),

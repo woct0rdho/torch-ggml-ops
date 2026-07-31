@@ -32,6 +32,7 @@
       "Q5KExtraction": "packed",
       "Q5KNibbleShiftHoist": false,
       "Q5KMetadataVectorLoad": false,
+      "Q6KExtraction": "packed",
       "Q8KExtraction": "packed"
     },
     "retained_128x64_pad8_sia5": {
@@ -66,6 +67,7 @@
       "Q5KExtraction": "packed",
       "Q5KNibbleShiftHoist": false,
       "Q5KMetadataVectorLoad": false,
+      "Q6KExtraction": "packed",
       "Q8KExtraction": "packed"
     },
     "retained_256x64_pad8_sia5": {
@@ -100,6 +102,7 @@
       "Q5KExtraction": "packed",
       "Q5KNibbleShiftHoist": false,
       "Q5KMetadataVectorLoad": false,
+      "Q6KExtraction": "packed",
       "Q8KExtraction": "packed"
     },
     "retained_256x64_pad8_sia5_wgm2": {
@@ -134,6 +137,7 @@
       "Q5KExtraction": "packed",
       "Q5KNibbleShiftHoist": false,
       "Q5KMetadataVectorLoad": false,
+      "Q6KExtraction": "packed",
       "Q8KExtraction": "packed"
     }
   }

@@ -103,6 +103,35 @@ def test_q5_k_campaign_inventory_is_exact_and_quant_aware() -> None:
     assert shared_down.expected_physical_weight_shape == (2048, 352)
 
 
+def test_q6_k_campaign_inventory_covers_exact_lm_head_chunks() -> None:
+    inventory = load_inventory(Path("tools/ggtensile/q6_k_dense_inventory.json"))
+    catalog = load_solution_catalog(
+        Path("tools/ggtensile/q6_k_selected_solutions.json")
+    )
+    assert inventory.problem_type == ProblemType.dense_mmq_backward_q6_k()
+    assert len(inventory.entries) == 3
+    assert {entry.family for entry in inventory.entries} == {"lm_head"}
+    assert {entry.problem_size.m for entry in inventory.entries} == {64, 128, 256}
+    assert all(entry.quant_data_type == "Q6_K" for entry in inventory.entries)
+    assert all(entry.current_status == "open" for entry in inventory.entries)
+    assert {entry.selected_solution for entry in inventory.entries} == set(catalog)
+    assert all(
+        validate_solution(
+            entry.solution_key(inventory.problem_type, catalog[entry.selected_solution])
+        )
+        == ()
+        for entry in inventory.entries
+    )
+    assert all(
+        entry.expected_logical_weight_shape == (248320, 2048)
+        for entry in inventory.entries
+    )
+    assert all(
+        entry.expected_physical_weight_shape == (248320, 1680)
+        for entry in inventory.entries
+    )
+
+
 def test_q3_k_campaign_inventory_selects_exact_padded_geometries() -> None:
     inventory = load_inventory(Path("tools/ggtensile/q3_k_dense_inventory.json"))
     catalog = load_solution_catalog(
@@ -204,14 +233,17 @@ def test_lds_row_padding_is_strict_and_quant_aware() -> None:
 def test_quant_types_have_distinct_problem_identity() -> None:
     q4 = ProblemType.dense_mmq_backward_q4_k()
     q5 = ProblemType.dense_mmq_backward_q5_k()
+    q6 = ProblemType.dense_mmq_backward_q6_k()
     q8 = ProblemType.dense_mmq_backward_q8_0()
-    assert len({q4, q5, q8}) == 3
+    assert len({q4, q5, q6, q8}) == 4
     q4_key = SolutionKey(q4, ProblemSize(128, 2048, 512), Solution.pilot())
     q5_key = SolutionKey(q5, ProblemSize(128, 2048, 512), Solution.pilot())
+    q6_key = SolutionKey(q6, ProblemSize(128, 2048, 248320), Solution.pilot())
     q8_key = SolutionKey(q8, ProblemSize(128, 4096, 1024), Solution.pilot())
-    assert len({q4_key.hash, q5_key.hash, q8_key.hash}) == 3
+    assert len({q4_key.hash, q5_key.hash, q6_key.hash, q8_key.hash}) == 4
     assert "dense_bwd_q4_k_" in q4_key.kernel_name
     assert "dense_bwd_q5_k_" in q5_key.kernel_name
+    assert "dense_bwd_q6_k_" in q6_key.kernel_name
     assert "dense_bwd_q8_0_" in q8_key.kernel_name
     q5_scalar = SolutionKey(
         q5,
@@ -509,6 +541,44 @@ def test_build_and_inspect_q8_0_compact_geometry(tmp_path: Path) -> None:
     assert inspection.sgpr_count == 16
     assert inspection.lds_num_bytes == 5120
     assert inspection.wmma_count == 32
+    assert inspection.private_segment_bytes == 0
+    assert inspection.vgpr_spill_count == 0
+    assert inspection.sgpr_spill_count == 0
+
+
+def test_build_and_inspect_q6_k_backend(tmp_path: Path) -> None:
+    solution = replace(
+        Solution.pilot(),
+        matrix_instruction=(16, 16, 16, 1, 1, 2, 4, 4, 1),
+        macro_tile0=128,
+        macro_tile1=64,
+        prefetch_global_read=2,
+        schedule_iter_alg=5,
+        lds_swizzle_chunk_b=8,
+    )
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q6_k(),
+        ProblemSize(128, 2048, 248320),
+        solution,
+    )
+    assert validate_solution(key) == ()
+    toolchain = _toolchain()
+    assembly = tmp_path / "q6_k_m128.s"
+    object_path = tmp_path / "q6_k_m128.o"
+    code_object = tmp_path / "q6_k_m128.hsaco"
+    KernelWriterAssembly(key, toolchain).write(assembly)
+    source = assembly.read_text()
+    assert "Build Q6_K block addresses" in source
+    assert "global_load_b128" in source
+    assert "v_lshl_or_b32" in source
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+
+    inspection = inspect_artifact(key, code_object, toolchain)
+    assert inspection.vgpr_count == 142
+    assert inspection.sgpr_count == 16
+    assert inspection.lds_num_bytes == 4096
+    assert inspection.wmma_count == 16
     assert inspection.private_segment_bytes == 0
     assert inspection.vgpr_spill_count == 0
     assert inspection.sgpr_spill_count == 0

@@ -89,9 +89,14 @@ class DenseBackwardModule:
             "Q3_K": 110,
             "Q4_K": 144,
             "Q5_K": 176,
+            "Q6_K": 210,
             "Q8_0": 34,
         }[self.solution_key.problem_type.quant_data_type]
-        values_per_block = 32 if self.solution_key.problem_type.quant_data_type == "Q8_0" else 256
+        values_per_block = (
+            32
+            if self.solution_key.problem_type.quant_data_type == "Q8_0"
+            else 256
+        )
         expected_weight_bytes = size.k * (size.n // values_per_block) * block_bytes
         if packed_weight.numel() != expected_weight_bytes:
             raise HIPRuntimeError(
