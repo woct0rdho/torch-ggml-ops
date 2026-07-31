@@ -11,7 +11,6 @@ The campaign is complete only after every exact production key that is retained 
 ## Contract
 
 Target only:
-
 - gfx1151, wave32, WMMA V1, and the existing 40-byte dense-backward kernarg ABI.
 - BF16 grad-output and grad-input, FP32 WMMA accumulation, and packed GGUF Q8_0 weights.
 - In-kernel Q8_0 decode from the authoritative packed tensor.
@@ -65,12 +64,11 @@ The ordinary shapes and call counts are sourced from `tests/deepseek_dense_cases
 Use the existing HIP Q8_0 kernels as both correctness and performance controls. Establish fresh same-process controls before selecting any GGTensile solution. Do not compare timing from prior source-built bundles directly with the new catalog.
 
 Prioritize large margins in this order:
-
-1. Q-B `(N,K)=(1024,32768)` and attention output B `(8192,4096)`, which have the largest long-batch kernel costs.
-2. Shared gate/up `(4096,2048)`, which has twice the projection call count.
-3. Shared down `(2048,4096)` and Q-A `(4096,1024)`.
-4. KV `(4096,512)`.
-5. LM-head M512/M256, then M128/M64/M32 for chunk fallback and capacity coverage.
+- Q-B `(N,K)=(1024,32768)` and attention output B `(8192,4096)`, which have the largest long-batch kernel costs.
+- Shared gate/up `(4096,2048)`, which has twice the projection call count.
+- Shared down `(2048,4096)` and Q-A `(4096,1024)`.
+- KV `(4096,512)`.
+- LM-head M512/M256, then M128/M64/M32 for chunk fallback and capacity coverage.
 
 The first screening matrix should include all six ordinary families at M2048, M8192, and M32768. Use exact rows as the primary timing axis and retain call-weighted totals for model priority. Complete-loss timing must remain a separate selector from isolated LM-head timing.
 
@@ -79,13 +77,12 @@ The first screening matrix should include all six ordinary families at M2048, M8
 ### Quant-neutral shared body
 
 Reuse the existing writer layers only where the Q8_0 tile contract matches:
-
-- exact workgroup flattening and launch mapping;
-- A global addressing, row-tile traversal, and optional row-state lifetime management;
-- WMMA accumulator allocation, issue order, and FP32-to-BF16 output conversion;
-- LDS barriers, wait dependencies, local-read ownership, and final stores;
-- diagnostic floor generation and static resource inspection;
-- strict source hashing, immutable generation/build/inspect/correctness/screen/confirmation phases;
+- exact workgroup flattening and launch mapping.
+- A global addressing, row-tile traversal, and optional row-state lifetime management.
+- WMMA accumulator allocation, issue order, and FP32-to-BF16 output conversion.
+- LDS barriers, wait dependencies, local-read ownership, and final stores.
+- diagnostic floor generation and static resource inspection.
+- strict source hashing, immutable generation/build/inspect/correctness/screen/confirmation phases.
 - resource rejection for private storage, spills, scratch, calls, and dynamic stack.
 
 Q8_0 must not be forced through K-family decode helpers. The writer should have a quant specification or backend that owns block bytes, payload width, scale placement, vector load shape, decode arithmetic, decoder rows, packed-row addressing, and LDS-facing value layout.
@@ -93,14 +90,13 @@ Q8_0 must not be forced through K-family decode helpers. The writer should have 
 ### Q8_0 backend boundary
 
 The Q8_0 backend must define:
-
-- 32-value block and 34-byte packed-row layout;
-- scalar `d` loading and byte payload loading;
-- exact signed int8 reconstruction and scale application;
-- metadata and payload register lifetimes;
-- packed load width and coalescing strategy;
-- Q8_0-specific LDS layout and row padding;
-- exact reduced-K behavior for block-aligned and partial campaign fixtures;
+- 32-value block and 34-byte packed-row layout.
+- scalar `d` loading and byte payload loading.
+- exact signed int8 reconstruction and scale application.
+- metadata and payload register lifetimes.
+- packed load width and coalescing strategy.
+- Q8_0-specific LDS layout and row padding.
+- exact reduced-K behavior for block-aligned and partial campaign fixtures.
 - an independent reference decoder for correctness.
 
 Q8_0-specific solution identity fields should be added only for real alternate emitters. Candidate controls include packed payload load width, scale load strategy, row padding, packed payload/scale ordering, decoder-row ownership, and Q8-specific schedule or traversal. A field is invalid unless it changes emitted ISA or ownership and has correctness coverage.
@@ -135,27 +131,25 @@ Reuse the proven `128x128x32` WMMA body only as the initial Q8 control. The Q8 d
 Start from the current Q8 HIP assembly and a generated GGTensile control. Measure complete solutions, not isolated instruction fragments.
 
 Search in this order:
-
-1. Q8 decoder load coalescing and scale/payload ordering.
-2. Q8 LDS row padding and unswizzled versus existing swizzled layouts.
-3. One versus two decoded-B buffers, only after lower bounds identify overlap potential.
-4. `128x64`, `256x64`, and other geometries only when accumulator/register/resource estimates justify them.
-5. Exact M traversal and WGM1/2/4/8 for high-cost long-row families.
-6. DepthU, packed payload sharing, PGR/PLR, SIA, store priority, and Q8-specific address lifetime changes.
-7. LM-head chunk geometry and active-wave ownership after ordinary families are competitive.
+- Q8 decoder load coalescing and scale/payload ordering.
+- Q8 LDS row padding and unswizzled versus existing swizzled layouts.
+- One versus two decoded-B buffers, only after lower bounds identify overlap potential.
+- `128x64`, `256x64`, and other geometries only when accumulator/register/resource estimates justify them.
+- Exact M traversal and WGM1/2/4/8 for high-cost long-row families.
+- DepthU, packed payload sharing, PGR/PLR, SIA, store priority, and Q8-specific address lifetime changes.
+- LM-head chunk geometry and active-wave ownership after ordinary families are competitive.
 
 Each candidate must pass correctness and inspection before timing. Use serial warmed rotating controls. Screening uses nine repeats; final confirmation uses 25 repeats. Timing is authoritative. Static instruction reductions are explanatory unless they produce a stable measured gain.
 
 ### Phase 4: Selection and confirmation
 
 Retain an exact candidate only when:
-
-- it is bit-exact against HIP for the exact key;
-- independent-reference behavior is understood;
-- grad-output and packed-weight mutation checks pass;
-- independent source generation is byte-identical;
-- resource and ABI gates pass;
-- every resource-bearing mechanism beats its exact assembly control by more than 2% in a stable 25-repeat bracket;
+- it is bit-exact against HIP for the exact key.
+- independent-reference behavior is understood.
+- grad-output and packed-weight mutation checks pass.
+- independent source generation is byte-identical.
+- resource and ABI gates pass.
+- every resource-bearing mechanism beats its exact assembly control by more than 2% in a stable 25-repeat bracket.
 - no exact key using the same retained solution suffers a stable material regression.
 
 Every selected exact Q8 key must beat HIP. HIP fallback is acceptable only for unmatched keys or while a campaign key remains unselected; it is not an acceptable final result for an exact selected key.
@@ -163,12 +157,11 @@ Every selected exact Q8 key must beat HIP. HIP fallback is acceptable only for u
 ### Phase 5: Lower bounds and bottlenecks
 
 For each major family, measure complete, WMMA/A/LDS-floor, and decode/LDS-floor artifacts with the same ABI and launch contract. Explain the remaining gap using:
-
-- WMMA throughput and accumulator occupancy;
-- Q8 payload and scale traffic;
-- decode VALU issue pressure;
-- LDS bank conflicts and synchronization;
-- active waves, VGPR allocation, and launch geometry;
+- WMMA throughput and accumulator occupancy.
+- Q8 payload and scale traffic.
+- decode VALU issue pressure.
+- LDS bank conflicts and synchronization.
+- active waves, VGPR allocation, and launch geometry.
 - model call count and complete-loss amortization.
 
 ## Recursive Optimization-Exhaustion Review
@@ -176,10 +169,9 @@ For each major family, measure complete, WMMA/A/LDS-floor, and decode/LDS-floor 
 The campaign cannot stop after a single successful Q8 implementation. Before completion, reread this plan, the Q8 HIP and GGTensile logs, Q3/Q4/Q5 experiment records, CK and TensileLite notes, normalized disassembly, profiler/counter evidence, lower bounds, inventories, rejected candidates, correctness reports, and gfx1151 ISA/LLVM definitions.
 
 Classify every remaining idea as:
-
-- retained and measured;
-- rejected by correctness, resource, timing, or reproducibility evidence;
-- contract-incompatible or explicitly deferred with a prerequisite; or
+- retained and measured.
+- rejected by correctness, resource, timing, or reproducibility evidence.
+- contract-incompatible or explicitly deferred with a prerequisite. or
 - actionable and requiring another implementation and measurement cycle.
 
 A plan or implementation change creates a new premise and invalidates the previous stopping condition. The review must be the final step of the campaign and cannot pass in the same iteration that discovers an actionable mechanism.
@@ -189,18 +181,17 @@ The campaign is exhausted only when every valid large-margin mechanism has been 
 ## Completion Record
 
 This section is updated after every coherent implementation milestone. Code milestones are committed; documentation-only updates remain uncommitted unless explicitly requested.
-
-- [x] Q8_0 exact inventory and strict quant identity. The versionless inventory contains 18 ordinary and five LM-head keys, uses 34-byte/32-value physical-row accounting, and keeps `Q8KExtraction` inert for other quant types.
-- [x] Initial Q8_0 backend and shared WMMA-body boundary. The backend has quant-specific packed reads, FP16 scale conversion, signed-int8 extraction, LDS writes, resource accounting, and inspection while reusing the quant-neutral WMMA body across ordinary, compact, and small-M geometries.
-- [x] Fresh HIP/GGTensile controls and independent packed decoder fixtures. K32/K64 one-hot fixtures are exact across complete rows, and all 23 production keys pass HIP, independent-reference, grad-output mutation, and packed-weight mutation checks.
-- [x] Ordinary 18-key correctness and mutation coverage. Every selected key passed exact HIP comparison, independent reference, full grad-output mutation, and packed-weight mutation.
-- [x] LM-head five-key correctness and chunk fallback coverage. M32 `32x64`, M64 `64x64`, M128 `128x64`, and M256/M512 `256x64` controls pass independent reference/mutation checks and final confirmation.
-- [ ] Large-margin decoder, LDS, ownership, and geometry search. Ordinary screening has established `LdsPadB=8` as the dominant reusable mechanism, retained `256x64` for attention output/Q-A/KV, found a Q-B-only DepthU64 branch, and rejected broad WGM2, pad16/24, XOR4/8/16 one-buffer layouts, `64x128`, `256x128`, two decoded-B buffers, broad scalar loads, PLR2, and broad next-packed prefetch. Smaller per-key closure and LM-head geometry remain open.
-- [x] Per-key selection with every retained key faster than HIP. The ordinary and LM-head catalogs are selected and confirmed; every one of 23 exact keys beats HIP.
-- [x] Lower-bound and bottleneck explanation. Representative complete/WMMA-A-LDS/decode-LDS floors were measured for Q-A, Q-B, output-B, shared gate/up, shared-down, and LM M512.
-- [x] Independent reproducibility and final 25-repeat confirmation. Current ordinary roots are byte-identical across 18 keys; the LM roots are byte-identical across five keys; ordinary and LM confirmation phases use 25 serial repeats.
-- [ ] Recursive optimization-exhaustion review with no actionable mechanism remaining. The review is intentionally deferred until the final layout neighborhood and any newly actionable lower-bound idea are tested.
-- [ ] Public runtime dispatch, deferred.
+- Q8_0 exact inventory and strict quant identity. The versionless inventory contains 18 ordinary and five LM-head keys, uses 34-byte/32-value physical-row accounting, and keeps `Q8KExtraction` inert for other quant types.
+- Initial Q8_0 backend and shared WMMA-body boundary. The backend has quant-specific packed reads, FP16 scale conversion, signed-int8 extraction, LDS writes, resource accounting, and inspection while reusing the quant-neutral WMMA body across ordinary, compact, and small-M geometries.
+- Fresh HIP/GGTensile controls and independent packed decoder fixtures. K32/K64 one-hot fixtures are exact across complete rows, and all 23 production keys pass HIP, independent-reference, grad-output mutation, and packed-weight mutation checks.
+- Ordinary 18-key correctness and mutation coverage. Every selected key passed exact HIP comparison, independent reference, full grad-output mutation, and packed-weight mutation.
+- LM-head five-key correctness and chunk fallback coverage. M32 `32x64`, M64 `64x64`, M128 `128x64`, and M256/M512 `256x64` controls pass independent reference/mutation checks and final confirmation; M32/M64/M128 use the retained packed-VOPD decoder.
+- Large-margin decoder, LDS, ownership, and geometry search. Ordinary screening established `LdsPadB=8` as the dominant reusable mechanism, retained `256x64` for attention output/Q-A/KV, found a Q-B-only DepthU64 branch, and rejected broad WGM2, pad16/24, XOR4/8/16 one-buffer layouts, `64x128`, `256x128`, two decoded-B buffers, broad scalar loads, PLR2, broad next-packed prefetch, and non-qualifying LM pad/XOR neighborhoods. Packed VOPD was then tested as the remaining decode arithmetic mechanism and retained only for LM M32/M64/M128.
+- Per-key selection with every retained key faster than HIP. The ordinary and LM-head catalogs are selected and confirmed; every one of 23 exact keys beats HIP.
+- Lower-bound and bottleneck explanation. Representative complete/WMMA-A-LDS/decode-LDS floors were measured for Q-A, Q-B, output-B, shared gate/up, shared-down, and LM M512.
+- Independent reproducibility and final 25-repeat confirmation. Two independent complete Q8 catalog roots produced byte-identical assembly and matching resources for all 23 keys; ordinary and LM confirmation phases use serial 25-repeat controls, including the final five-key LM catalog.
+- Recursive optimization-exhaustion review with no actionable mechanism remaining. The final layout neighborhood and the actionable packed-VOPD decode mechanism were tested under the exact-key gates; remaining valid mechanisms are either outside contract or fail timing/resource thresholds.
+- Public runtime dispatch, deferred.
 
 ### Ordinary screening record
 
@@ -212,13 +203,13 @@ Q8 scalar `global_load_b32` extraction was neutral for most families but improve
 
 The two decoded-B buffer path was extended to the Q8 XOR8 store layout and passed exact HIP, independent-reference, grad-output mutation, and packed-weight mutation checks. It was timing-neutral on the discriminator keys and is rejected. Pad16/24, XOR4/8/16 one-buffer layouts, PLR2, SIA3, `64x128`, and `256x128` also lost. Next-tile packed prefetch remains only a possible exact-key small mechanism because its broad effects were neutral or unfavorable.
 
-The selected ordinary catalog uses compact padded `256x64` for Q-A, KV, attention output, and the M2048 shared projections; padded `128x64` for M8192/M32768 shared gate/up and shared-down; DepthU64/XOR8 for Q-B M8192; padded scalar next-prefetch for Q-B M2048; and padded packed `128x128` for Q-B M32768. Final serial 25-repeat candidate/HIP ratios range from `0.5169531577037376` to `0.8682106182049584`. The call-weighted ordinary ratio is `0.6892668262402388`. A second independent root generated byte-identical assembly and matching resource tuples for all 18 selected artifacts.
+The selected ordinary catalog uses compact padded `256x64` for Q-A, KV, attention output, and the M2048 shared projections; padded `128x64` for M8192/M32768 shared gate/up and shared-down; DepthU64/XOR8 for Q-B M8192; padded scalar next-prefetch for Q-B M2048; and padded packed `128x128` for Q-B M32768. Final serial 25-repeat candidate/HIP ratios range from `0.5171043280166684` to `0.8874412389598483`; the call-weighted ordinary ratio is `0.6879975522199318`. The complete final catalog was independently rebuilt with byte-identical assembly and matching resource tuples for all 23 selected keys.
 
 ### LM-head screening record
 
 The first representable LM-head controls all beat HIP: padded `64x128` measured `5.873 ms` at M64 (`0.836x` HIP), padded `128x64` measured `6.032 ms` at M128 (`0.789x`), and padded `256x64` measured `9.519/18.784 ms` at M256/M512 (`0.928/0.858x`). Wider `128x128` and `256x128` bodies were slower.
 
-M32 required a true two-wave exact geometry rather than a partial 64-row tile. Q8-specific 64-thread `32x64` and `32x128` bodies were added with generalized decoder-row spacing and strict rejection for other quant types. Both pass independent reference and producer mutation checks. `32x64` measured `4.787 ms` versus `8.259 ms` HIP (`0.5796040876830744x`); `32x128` measured `0.908x` HIP and is rejected. The initial M32 control uses 90 VGPR, 16 SGPR, and 5 KiB LDS with no private storage or spills.
+M32 required a true two-wave exact geometry rather than a partial 64-row tile. Q8-specific 64-thread `32x64` and `32x128` bodies were added with generalized decoder-row spacing and strict rejection for other quant types. Both pass independent reference and producer mutation checks. The retained packed body with DepthU64/pad8 measured `4.237 ms` versus `8.240 ms` HIP (`0.5142x`) in final confirmation. Packed VOPD decode reduced M32/M64/M128 screening latency by `3.55%`/`2.90%`/`3.57%`; the retained bodies use 106/92/140 VGPR respectively, 16 SGPR, 9 KiB LDS, and no private storage or spills. `32x128`, alternate pad16/24, and XOR8 remain rejected.
 
 ### Lower bounds and residual bottleneck
 
@@ -231,6 +222,8 @@ M32 required a true two-wave exact geometry rather than a partial 64-row tile. Q
 | Shared-down M32768 | 18.728 ms | 12.373 ms | 5.743 ms | 0.967x |
 | LM M512 | 17.401 ms | 13.185 ms | 5.967 ms | 1.101x |
 
-The ordinary floors sum to within 2-5% of complete timing, so the residual is not an unhidden large scheduling gap: decode VALU/VMEM and WMMA/LDS synchronization are the two dominant components, with their overlap already close to the measured complete path. Q-B has the largest decode fraction and is the only ordinary key where DepthU64 remains beneficial. LM M512 has a floor sum above complete because its two isolated floors double-count work that overlaps in the complete next-prefetch body; its residual bottleneck is packed Q8 payload/scale traffic plus WMMA occupancy under the two-M-tile launch, not a missing correctness mechanism.
+The ordinary floors sum to within 2-5% of complete timing, so the residual is not an unhidden large scheduling gap: decode VALU/VMEM and WMMA/LDS synchronization are the two dominant components, with their overlap already close to the measured complete path. Q-B has the largest decode fraction and is the only ordinary key where DepthU64 remains beneficial. LM M512 has a floor sum above complete because its two isolated floors double-count work that overlaps in the complete next-prefetch body; its residual bottleneck is packed Q8 payload/scale traffic plus WMMA occupancy under the two-M-tile launch, not a missing correctness mechanism. Packed VOPD removes a measurable portion of the decoder multiply issue cost only on the small LM ownership bodies; it does not expose a second broad bottleneck that clears the resource-bearing threshold.
 
-Adding the HIP-analogous `64x64` ownership reduced M64 from `5.873` to `4.487 ms` (`0.6308024774361413x` HIP). Q8-specific unswizzled pad8 DepthU64 was then generalized to compact geometries and passed all five LM correctness screens. It improves M32/M64/M128 by about 8.0%/4.7%/2.8%, measuring `4.405/4.275/5.863 ms`, but regresses M256/M512. The tentative selection therefore uses DepthU64 through M128 and DepthU32 at M256/M512. Packed extraction wins every LM key; scalar extraction is rejected. M512 alone retains next-tile packed prefetch after a `18.784` to `18.057 ms` screen improvement; SIA4 without prefetch, PGR1, store-priority removal, and WGM2 lose.
+Adding the HIP-analogous `64x64` ownership reduced M64 from `5.873` to `4.487 ms` (`0.6308024774361413x` HIP). Q8-specific unswizzled pad8 DepthU64 was then generalized to compact geometries and passed all five LM correctness screens. Packed VOPD decode was tested against the retained packed decoder: M32/M64/M128 screened at `4.248/4.151/5.654 ms`, versus `4.405/4.275/5.863 ms`, and final confirmation measured `4.237/4.141/5.726 ms` with HIP ratios `0.5142/0.5823/0.7475`. M256 improved only `1.44%` with extra VGPRs and was rejected by the resource-bearing threshold; M512 regressed `2.62%`. Alternate pad16/24 and XOR8 lost on every LM geometry. The final LM choices therefore use packed VOPD at M32/M64/M128, DepthU32 packed at M256, and DepthU32 packed with next-tile prefetch at M512. Scalar extraction, SIA4 without prefetch, PGR1, store-priority removal, and WGM2 lose.
+
+The promoted final LM confirmation is fully serial and uses the selected packed-VOPD/packed mix: M32 `4.237 ms` (`0.5142x` HIP), M64 `4.141 ms` (`0.5823x`), M128 `5.726 ms` (`0.7475x`), M256 `9.518 ms` (`0.9273x`), and M512 `17.921 ms` (`0.8138x`). Its five-key aggregate candidate/HIP ratio is `0.7512901204186552`; all five keys remain faster than HIP.

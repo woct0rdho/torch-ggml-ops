@@ -263,7 +263,7 @@
       "CallCount": 1,
       "HistoricalHipMedianMs": 8.297,
       "CurrentStatus": "selected",
-      "SelectedSolution": "retained_lm_m32_32x64_depth64_pad8"
+      "SelectedSolution": "retained_lm_m32_depth64_pad8_vopd"
     },
     {
       "Family": "lm_head",
@@ -276,7 +276,7 @@
       "CallCount": 1,
       "HistoricalHipMedianMs": 7.459,
       "CurrentStatus": "selected",
-      "SelectedSolution": "retained_lm_m64_64x64_depth64_pad8"
+      "SelectedSolution": "retained_lm_m64_depth64_pad8_vopd"
     },
     {
       "Family": "lm_head",
@@ -289,7 +289,7 @@
       "CallCount": 1,
       "HistoricalHipMedianMs": 7.569,
       "CurrentStatus": "selected",
-      "SelectedSolution": "retained_lm_m128_128x64_depth64_pad8"
+      "SelectedSolution": "retained_lm_m128_depth64_pad8_vopd"
     },
     {
       "Family": "lm_head",

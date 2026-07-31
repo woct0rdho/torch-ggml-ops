@@ -24,16 +24,16 @@ The dense Q4_K campaign contains only 12 production shapes: the Cartesian produc
 - `(4096,2048)`: attention output, 10 model calls.
 - `(2048,8192)`: attention query/query gate, one model call.
 
-All 12 production shapes now have exact selected solutions. Ten use the retained `128x128` true two-buffer pipeline; attention-output M2048 uses one-buffer `128x64`, and attention-output M8192 uses one-buffer `128x64` with SIA5/store priority. The catalog-driven runner prepares, checks, and confirms the complete matrix. Grouped MMQ is explicitly outside this campaign.
+All 12 production shapes now have exact selected solutions. Shared-down and query M2048/M32768 retain the `128x128` true two-buffer pipeline. Narrow uses padded one-buffer `256x64`; attention-output M2048 also uses padded `256x64`; attention-output M8192/M32768 and query M8192 use padded one-buffer `128x64`. The catalog-driven runner prepares, checks, and confirms the complete matrix. Grouped MMQ is explicitly outside this campaign.
 
-The packaged-HIP values below are historical planning controls. Selected values come from the final byte-normalized 25-repeat matrix and must not be mixed with another process or build when making a new decision.
+The packaged-HIP values below are historical planning controls. Selected values come from the final padded exact-key 25-repeat matrix and must not be mixed with another process or build when making a new decision.
 
 | Family `(N,K)` | Calls | Historical HIP ms at M2048/M8192/M32768 | Final selected ms at M2048/M8192/M32768 | Decision |
 | --- | ---: | ---: | ---: | --- |
-| Narrow `(2048,512)` | 70 | `0.230/0.775/2.988` | `0.165/0.622/2.504` | `128x128` two-buffer pipeline at all M |
-| Shared down `(512,2048)` | 30 | `0.261/1.537/5.266` | `0.197/1.166/3.425` | `128x128` two-buffer pipeline at all M |
-| Attention output `(4096,2048)` | 10 | `1.339/5.912/23.803` | `1.177/4.764/18.740` | `128x64` one-buffer at M2048/M8192; M8192 adds SIA5/store priority; M32768 uses `128x128` two-buffer |
-| Query `(2048,8192)` | 1 | `3.376/12.567/48.613` | `2.415/9.739/38.116` | `128x128` two-buffer pipeline at all M |
+| Narrow `(2048,512)` | 70 | `0.230/0.775/2.988` | `0.145/0.566/2.097` | Padded `256x64`; WGM2 at M2048 and WGM1 otherwise |
+| Shared down `(512,2048)` | 30 | `0.261/1.537/5.266` | `0.202/1.166/3.379` | `128x128` two-buffer pipeline at all M |
+| Attention output `(4096,2048)` | 10 | `1.339/5.912/23.803` | `0.993/4.746/18.918` | Padded `256x64` at M2048; padded `128x64` otherwise |
+| Query `(2048,8192)` | 1 | `3.376/12.567/48.613` | `2.422/9.831/37.768` | Padded `128x64` at M8192; two-buffer pipeline otherwise |
 
 Weighted optimization priority used fresh `call_count * HIP_median_ms`, not call count alone. Narrow led by calls, attention output led aggregate latency at larger M, shared down showed the strongest HIP underperformance, and query remained last unless a long-K mechanism transferred directly.
 
@@ -54,7 +54,17 @@ The manual search followed the measurement discipline from `~/ComfyUI-FeatherOps
 
 ROCm rocm-libraries PR 9385 supplied additional gfx1151 mechanism evidence: correct sub-dword WMMA local reads, capping local-read buffers by actual loop reuse, placing long-lived values before transient address registers, and tuning interactions rather than one universal configuration. The campaign applied those principles where they matched fused decode instead of copying general-GEMM paths.
 
-## Latest Result
+## Current Padded-LDS Result
+
+A cross-format review reopened geometries that had been rejected before unswizzled LDS row padding and PGR2/SIA5 were available together. The padded `256x64` path improves all three narrow keys by 13-17% versus the prior selected assembly. It also improves attention-output M2048 by about 14%. Padded `128x64` improves attention-output M8192/M32768 by about 3% and query M8192 by about 4%; the other query and shared-down keys reject the new ownership geometries.
+
+The authoritative 25-repeat mixed-catalog confirmation has a call-weighted candidate/HIP ratio of `0.73463x`, improving the prior `0.77978x` catalog. Exact candidate/HIP ratios in M2048/M8192/M32768 order are narrow `0.6166/0.6920/0.6788`, shared-down `0.7723/0.7936/0.6576`, attention-output `0.7138/0.7950/0.8173`, and query `0.6802/0.7707/0.7916`. Every exact key beats HIP.
+
+The selected `256x64` artifacts use 234 VGPRs, 16 SGPRs, 5 KiB LDS, 32 static WMMAs, 149 VMEM instructions, and 32 LDS instructions. Selected `128x64` artifacts use 136 VGPRs, 16 SGPRs, 5 KiB LDS, 16 WMMAs, 77 VMEM instructions, and 32 LDS instructions. Retained two-buffer artifacts use 212 VGPRs, 16 SGPRs, and 16 KiB LDS. All have zero private bytes and spills. Independent final roots are byte-identical for all 12 assemblies with matching resource tuples.
+
+The changed-premise review also tested padded `128x128`, `128x64`, and `256x64` on shared-down and query; WGM1/2/4/8; pad 8/16/24; SIA4/SIA5; and store-priority variants. Shared-down remains 8-49% slower than its selected assembly under padded one-buffer ownership. Q4 `256x64` SIA4 regresses the exact M2048 WGM2 control by 2.6%, while WGM1 differences remain below the resource-bearing gate. No additional in-contract Q4 mechanism remains actionable.
+
+## Prior Byte-Normalized Result
 
 ### Selected solution
 
@@ -112,7 +122,7 @@ Independent source generation is byte-reproducible, and both artifacts pass the 
 - `tools/benchmark_ggtensile.py` provides warmed rotating HIP, candidate, and assembly-control timing; full-output comparison; independent BF16-reference comparison; and producer-handoff checks.
 - Artifact inspection records ABI and hard resources plus static VALU issues and operations, VOPD pairs, VMEM, LDS, waits, barriers, clauses, dependency delays, and L0 invalidations.
 - `tools/benchmark_ggtensile_lower_bounds.py` generates, builds, inspects, and rotates exact `wmma_floor` and `decode_floor` diagnostic artifacts while leaving production `Solution` and dispatch contracts unchanged.
-- `tools/ggtensile/q4_k_dense_inventory.json` records the exact 12 keys, representative tensors, call counts, historical HIP controls, validation contract, and selected-solution references without a schema version. `tools/ggtensile/q4_k_selected_solutions.json` contains the three complete selected solution mappings. `tools/run_ggtensile_q4_k_campaign.py` runs immutable prepare, correctness, nine-repeat screen, and 25-repeat confirmation phases serially and reports call-weighted totals.
+- `tools/ggtensile/q4_k_dense_inventory.json` records the exact 12 keys, representative tensors, call counts, historical HIP controls, validation contract, and selected-solution references without a schema version. `tools/ggtensile/q4_k_selected_solutions.json` contains the four complete selected solution mappings. `tools/run_ggtensile_q4_k_campaign.py` runs immutable prepare, correctness, nine-repeat screen, and 25-repeat confirmation phases serially and reports call-weighted totals.
 
 ### Campaign search space and control taxonomy
 
@@ -179,10 +189,10 @@ Attention-output M32768 measures 18.686 ms complete, 12.008 ms for the WMMA/A/LD
 
 ### Family-level decisions
 
-- Narrow K512 retains the `128x128` two-buffer pipeline at all three M values. One buffer, half tiles, WGM alternatives, body unroll, and wider high-M ownership failed their gates; exact-trip and instruction lowerings carried the useful short-K gains.
-- Shared-down N512/K2048 retains the same pipeline. `256x64` regressed weighted family latency by 101%, and `256x128` by 47%; reduced packed-B duplication did not repay one-buffer scheduling and eight-wave residency.
-- Attention-output N4096/K2048 is the only family with selected half-tile ownership. M2048 and M8192 use one-buffer `128x64`; M8192 additionally selects SIA5 plus store priority. M32768 retains two-buffer `128x128`. XOR-8 and WGM1 remain selected for the N64 geometry.
-- Query K8192 retains the true two-buffer pipeline and WGM1 at all M values. Lower bounds show useful overlap already, so only a materially different mechanism with a plausible multi-percent path can reopen it.
+- Narrow K512 selects padded `256x64` at all M values. M2048 uses WGM2; M8192 and M32768 use WGM1.
+- Shared-down N512/K2048 retains the `128x128` two-buffer pipeline. Padded `256x64`, `128x64`, and `128x128` one-buffer alternatives remain materially slower.
+- Attention-output N4096/K2048 selects padded `256x64` at M2048 and padded `128x64` at M8192/M32768, all with SIA5/store priority.
+- Query K8192 selects padded `128x64` only at M8192. M2048 and M32768 retain the true two-buffer pipeline; other padded geometries regress or remain below the gate.
 
 Traversal was treated as exact-shape behavior. The complete Q4_K WGM2/WGM4/WGM8 matrices regressed weighted latency by 1.45%/5.22%/16.27% against WGM1. The two sub-gate M2048 alternate wins decayed at larger mappings and did not justify per-key exceptions.
 
@@ -200,7 +210,7 @@ Any new resource-bearing mechanism must remain bit-exact, reproducible, resource
 
 ### Twelve-shape dense Q4_K campaign
 
-The dense Q4_K 12-key optimization campaign and its repeated optimization-exhaustion review are complete. The selected-solution catalog, exact validation, final correctness, and byte-normalized weighted 25-repeat matrix are the current controls. Further Q4_K work requires a newly actionable large-margin direction with a changed premise; ordinary local tuning is closed.
+The dense Q4_K 12-key optimization campaign and its repeated optimization-exhaustion review are complete. The selected-solution catalog, exact validation, final correctness, and padded exact-key weighted 25-repeat matrix are the current controls. Further Q4_K work requires a newly actionable large-margin direction with a changed premise; ordinary local tuning is closed.
 
 Quant-family expansion and public runtime dispatch remain governed by [ggtensile_plan.md](ggtensile_plan.md). Public integration remains deferred until dispatch engineering, complete end-to-end Qwen/DeepSeek validation, and broader dense multi-quant coverage are complete; exact-kernel campaign completion does not by itself authorize runtime exposure.
 
@@ -212,7 +222,7 @@ Prepared weights, BF16 shadows, external decode workspaces, GSU, Stream-K, and p
 - Added the serial immutable runner for generation, build, inspection, correctness, screening, and confirmation without overlapping GPU phases.
 - Applied exact-shape lowering. Dead kernarg dimensions, fixed-trip branches, row-stride shifts, final-NOP removal, and byte-normalized decode were retained; body unroll and resource-growing induction were rejected.
 - Established retained-pipeline, one-buffer, traversal, geometry, schedule, and lower-bound controls for every materially different family.
-- Optimized all exact keys by weighted priority and recorded three selected solution mappings covering ten `128x128` pipeline keys and two attention `128x64` keys.
+- Optimized all exact keys by weighted priority and recorded four selected mappings covering the retained two-buffer path plus padded `128x64` and WGM1/WGM2 `256x64` paths.
 - Reconfirmed every finalist. The final byte-normalized catalog passed all 12 exact keys, both producer mutations, independent rebuilds, strict inspection, and the weighted 25-repeat matrix.
 - Repeated the complete optimization-exhaustion review from the final retained state. It found no new actionable in-contract mechanism.
 
@@ -220,7 +230,7 @@ The campaign stopping condition is met. A future change that creates a credible 
 
 ### Final exhaustion classification
 
-The permanent review was rerun from the retained byte-normalized, no-final-NOP state and found no new actionable in-contract mechanism. Directly measured geometry, traversal, one/two-buffer ownership, schedules, waits, metadata width, packed sharing, addressing, epilogue priority, and fixed-trip unroll remain closed. Paired BF16 LDS stores require cross-lane packing and EXEC work; a `128x256` tile requires cross-wave A sharing already closed by lower-bound evidence; gfx1151 has neither useful temporal cache hints nor a bit-exact packed FP32-to-BF16 RNE instruction. Persistent workgroups, split K, and prepared representations expand the launch, fixup, workspace, or model-ownership contract. Any future actionable idea must be executed and followed by another complete review before this stopping condition can be claimed again.
+The permanent review was rerun from the padded exact-key catalog after the byte-normalized, no-final-NOP control was reopened, and found no further actionable in-contract mechanism. Directly measured geometry, traversal, one/two-buffer ownership, schedules, waits, metadata width, packed sharing, addressing, epilogue priority, and fixed-trip unroll remain closed. Paired BF16 LDS stores require cross-lane packing and EXEC work; a `128x256` tile requires cross-wave A sharing already closed by lower-bound evidence; gfx1151 has neither useful temporal cache hints nor a bit-exact packed FP32-to-BF16 RNE instruction. Persistent workgroups, split K, and prepared representations expand the launch, fixup, workspace, or model-ownership contract. Any future actionable idea must be executed and followed by another complete review before this stopping condition can be claimed again.
 
 ## Rejected And Closed Experiments
 
@@ -231,7 +241,7 @@ The permanent review was rerun from the retained byte-normalized, no-final-NOP s
 
 ### Geometry and ownership
 
-- `256x64x32`: bit-exact at 208 VGPRs and 4 KiB LDS, but 66.597 ms versus 45.300 ms, a 47.0% regression. Halving decoded-B work did not repay doubled A traffic.
+- Unpadded `256x64x32`: bit-exact at 208 VGPRs and 4 KiB LDS, but 66.597 ms versus 45.300 ms, a 47.0% regression. The later padded/PGR2/SIA5 path is a distinct retained solution on narrow and attention M2048.
 - `256x128x32`: bit-exact at 200 VGPRs and 8 KiB LDS, but 50.469 ms versus 46.021 ms, a 9.66% regression. Eight-wave scheduling and residency outweighed reduced decode.
 - `64x128x32`: bit-exact at 136 VGPRs and 8 KiB LDS, but 69.308 ms versus 41.129 ms, a 68.5% regression. More workgroups duplicated packed decode.
 - `128x64x32`: bit-exact at 144 VGPRs and 4 KiB LDS, but 46.317 ms versus 41.245 ms, a 12.3% regression. More N workgroups duplicated A traffic.
@@ -246,16 +256,16 @@ The permanent review was rerun from the retained byte-normalized, no-final-NOP s
 - Two-value dependency-batched decode was bit-exact and resource-identical and improved both 25-repeat controls by about 0.78%; four-value batches regressed K8192 by 0.62% and K512 by 1.57%. Both were rejected under the larger-margin requirement.
 - Moving next-A0 loads to their first-half death point measured 39.618 ms versus 39.278 ms on K8192 and 2.5146 ms versus 2.5299 ms on K512. The mixed 0.87% regression and 0.61% gain was rejected.
 - A-load `s_clause 3` pairs measured gains of only 0.035% on K8192 and 0.29% on K512. Added SALU and constrained arbitration were not justified.
-- The complete one-buffer matrix is slower than the retained two-buffer pipeline on all 12 keys. Nine-repeat three-way screens regress individual keys by 3.49-24.65% and weighted latency by 8.97%, despite reducing LDS from 16 KiB to 8 KiB. Lost fused decode/WMMA overlap dominates at every production M/N/K.
+- The original unpadded `128x128` one-buffer matrix is slower than the retained two-buffer pipeline on all 12 keys. Nine-repeat three-way screens regress individual keys by 3.49-24.65% and weighted latency by 8.97%. This historical result does not cover the later padded compact geometries.
 - Complete WGM2/WGM4/WGM8 matrices regress weighted latency by 1.45%/5.22%/16.27% against WGM1. WGM1 wins 10 keys; the only alternate wins are sub-gate M2048 results of 1.61% for narrow WGM2 and 0.54% for attention-output WGM2, and both decay at larger mappings. WGM1 remains the traversal seed.
 - Four-wave half-tile geometry scans reject `64x128` and retain `128x128` for ten keys. One-buffer `128x64` is selected for attention-output M2048 and M8192: fresh 25-repeat brackets measure 1.1909 versus 1.2700 ms, a 6.23% gain, and 4.9407 versus 5.0825 ms, a 2.79% gain. The selected artifacts use 140 VGPRs, 16 SGPRs, and 4 KiB LDS. Attention-output M32768 regressed in the screen and retains two-buffer `128x128`.
-- A current focused `256x64` scan first exposed and then validated a stale SIA2/3 A-coordinate bug. After correction, all six narrow/attention keys are bit-exact, but narrow regresses by 4.69-49.84%, attention M8192/M32768 regress by over 24%, and attention M2048 gains only 0.94% versus retained `128x128`, which is slower than selected `128x64`. `256x64` remains rejected.
+- The earlier unpadded focused `256x64` scan exposed and fixed a stale SIA2/3 A-coordinate bug but regressed most keys. The later padded/PGR2/SIA5 scan supersedes that rejection and is retained on narrow plus attention M2048.
 - Shared-down high-M ownership is decisively rejected. `256x64` regresses weighted family latency by 101%; eight-wave `256x128` regresses by 47%, with only M2048 near neutral at a 2.57% regression. Halving repeated B decode does not repay one-buffer scheduling and residency losses.
 - Eight-wave `256x128` also regresses narrow by 16-30% and attention output by 9-39%. A larger workgroup without a new cross-wave sharing mechanism is closed across the production families.
 - True two-buffer `64x128` and `128x64` pipelines were implemented and passed reduced K32/K64/K96 plus all 12 exact production checks. Their complete screens regressed weighted latency by 71.95% and 4.39%; two-buffer `128x64` also lost by roughly 4-6% to the selected one-buffer attention artifacts. The alternate pipeline emitters were removed and the strict solution surface remains narrow.
-- Selected N64 attention geometry retains XOR-8 on every M. XOR-4 regresses weighted attention latency by 3.57%, while unpadded and XOR-16 regress by about 20%.
-- Selected N64 attention geometry also retains WGM1. WGM2/WGM4/WGM8 regress weighted M2048/M8192 latency by 3.30%/10.81%/37.47%; M2048's best alternate gain is only 0.15%.
-- Attention-output M8192 further selects SIA5 plus store priority. It confirms 4.8913 versus 5.0526 ms, a 3.19% gain over SIA4/no-priority, then confirms another 2.24% directly against store-priority-only at about 4.8884 ms. M2048 retains SIA4/no-priority because its individual changes were below 0.9%.
+- The historical N64 attention geometry selected XOR-8. The changed-premise scan selects unswizzled `LdsPadB=8`; unpadded, XOR-4, and XOR-16 controls remain rejected.
+- Selected padded N64 attention geometry retains WGM1. WGM2/WGM4/WGM8 remain regressions; narrow M2048 is the separate exact WGM2 exception on `256x64`.
+- Attention-output M8192's SIA5/store-priority result transferred to the padded compact paths. All three selected attention artifacts now use SIA5/store priority; Q4 SIA4 retesting on padded `256x64` did not clear the gate.
 - Store priority on the complete two-buffer matrix is neutral or worse on 11 keys. Query M2048's only 2.01% screen signal confirms at 2.4509 versus 2.4869 ms, just 1.45%, and is rejected.
 - Duff-style exact-trip body unroll factors 2/4/8 and complete K512 factor 15 or K8192 factor 16 were bit-exact and resource-clean, but grew source from about 54 KiB to 69-278 KiB and code objects from 13.8 KiB to 16.4-53.5 KiB. Nine-repeat K512 screens gained at most 0.97%; K8192 screens ranged from neutral to 0.63% slower. None reached the 2% resource-bearing gate, so no factor advanced or remains in the writer.
 

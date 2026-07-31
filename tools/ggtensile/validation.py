@@ -265,11 +265,11 @@ def _validate_solution_parameters(
             "Q5KExtraction must be 'packed' or 'scalar'",
             "Q5KExtraction",
         )
-    if solution.q8_0_extraction not in ("packed", "scalar"):
+    if solution.q8_0_extraction not in ("packed", "packed_vopd", "scalar"):
         _reject(
             reasons,
             "solution.q8kextraction.unimplemented",
-            "Q8KExtraction must be 'packed' or 'scalar'",
+            "Q8KExtraction must be 'packed', 'packed_vopd', or 'scalar'",
             "Q8KExtraction",
         )
     if solution.prefetch_packed_weight_next and (
@@ -287,7 +287,7 @@ def _validate_solution_parameters(
             "PrefetchLocalRead",
         )
     depth_u64_layout = solution.lds_swizzle_chunk_b == 8 or (
-        solution.lds_swizzle_chunk_b == 0 and solution.lds_pad_b == 8
+        solution.lds_swizzle_chunk_b == 0 and solution.lds_pad_b in (8, 16, 24)
     )
     if solution.depth_u == 64 and (
         solution.schedule_iter_alg != 4
@@ -300,7 +300,7 @@ def _validate_solution_parameters(
         _reject(
             reasons,
             "solution.depthu64.schedule",
-            "DepthU=64 requires SIA4, PGR2, PLR1, XOR-8 or pad8, and independent current-tile packed reads",
+            "DepthU=64 requires SIA4, PGR2, PLR1, XOR-8 or Q8 row padding, and independent current-tile packed reads",
             "DepthU",
             "ScheduleIterAlg",
             "PrefetchGlobalRead",
@@ -440,13 +440,13 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
         )
     if (
         solution_key.solution.depth_u == 64
-        and solution_key.solution.lds_pad_b == 8
+        and solution_key.solution.lds_pad_b in (8, 16, 24)
         and solution_key.problem_type.quant_data_type != "Q8_0"
     ):
         _reject(
             reasons,
             "solution.depthu64.q8_pad8",
-            "DepthU64 with unswizzled pad8 is implemented only for Q8_0",
+            "DepthU64 with unswizzled row padding is implemented only for Q8_0",
             "DepthU",
             "LdsPadB",
             source="ProblemType",
@@ -479,7 +479,7 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
         _reject(
             reasons,
             "solution.q8.controls.inert",
-            "Q8KExtraction='scalar' is valid only for Q8_0",
+            "Q8KExtraction='packed_vopd' or 'scalar' is valid only for Q8_0",
             "Q8KExtraction",
             source="ProblemType",
         )

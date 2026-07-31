@@ -287,7 +287,8 @@ def _validate_metadata(
         expected_vgprs,
         max(
             11 if quant_type == "Q3_K" and solution.q3_k_extraction == "packed" else 7,
-            3 + 2 * decoder_rows,
+            (5 if quant_type == "Q8_0" and solution.q8_0_extraction == "packed_vopd" else 3)
+            + 2 * decoder_rows,
         ),
     )
     if (quant_type == "Q3_K" and n_tiles == 4) or (

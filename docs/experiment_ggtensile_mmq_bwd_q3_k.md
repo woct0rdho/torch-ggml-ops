@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This experiment extends GGTensile dense MMQ backward to Q3_K on gfx1151, wave32, and WMMA V1. It covers the six exact production keys in the current Qwen workload and keeps HIP as the correctness, performance, and runtime fallback.
+This experiment extends GGTensile dense MMQ backward to Q3_K on gfx1151, wave32, and WMMA V1. It covers the six exact production keys in the current Qwen workload. HIP remains the correctness and performance oracle and the runtime fallback for unmatched keys; every selected exact production key now beats HIP.
 
 The generic lifecycle, strict identity rules, phase separation, validation policy, retention gates, and public-integration roadmap remain in [ggtensile_plan.md](ggtensile_plan.md). The completed Q4_K and Q5_K campaigns are architectural references only; no Q4_K or Q5_K tuning result transfers to Q3_K without measurement.
 
@@ -96,7 +96,7 @@ Retain only exact-shape-correct, reproducible, resource-clean candidates:
 - resource-bearing mechanisms require a stable gain above 2%.
 - unconditional instruction/resource reductions may remain when neutral-to-favorable.
 
-Select per exact key, then evaluate the six-key weighted result using call counts. HIP remains fallback for every unmatched or slower key.
+Select per exact key, then evaluate the six-key weighted result using call counts. HIP remains fallback for every unmatched key; a GGTensile solution is selected only after it beats HIP on its exact key.
 
 ### Lower Bounds and Bottlenecks
 
@@ -114,57 +114,47 @@ A plan edit or implementation change creates a new premise and invalidates the p
 
 ## Campaign Evidence
 
-The initial two-buffer `128x128x32` Q3 path was correct but left a large opportunity in the one-buffer ownership experiment. The retained emitter uses one LDS buffer, packed extraction, the fused Q3 signed-scale multiply, SIA5 scheduling, and store priority. The final guarded VOPD artifacts are resource-clean at 222 VGPRs, 16 SGPRs, 8 KiB LDS, zero private bytes and spills, 32 static WMMAs, 146 VMEM instructions, and 64 LDS instructions. After merging the original Q3 high mask with the low payload using `v_lshl_or_b32`, the retained full-pair path uses 693 static VALU issues and 55 VOPD pairs; the two HIP-fallback narrow keys use the partial-pair path at 707 static VALU issues and 38 VOPD pairs. Relative to the initial two-buffer control, the retained path removes one LDS buffer and reduces static VALU issues from 1102 to 693. The four extra logical temporaries remain within the same 224-VGPR allocation granule as the prior 218-register declaration.
+The initial `128x128x32` one-buffer Q3 path was correct and fast, but the short-K campaign exposed a missing layout mechanism. HIP's narrow kernel uses an unswizzled decoded-B LDS tile with eight rows of padding. Adding real `LdsPadB=8` support, then reducing the narrow geometry to `256x64x32`, lowered decoder rows, LDS traffic, and accumulator pressure while preserving packed in-kernel decode. The four-M-tile emitter also required separate A-row, LDS, quant-shift, and Q3 low-shift state; aliasing the cached low shift with the third A pointer caused the first `256x64` correctness failure and was fixed before timing.
 
-The bounded optimization results were:
+The retained Q3 emitters use one LDS buffer, packed extraction, fused signed-scale multiplication, SIA5/store priority, decode-shift hoisting, Q3 VOPD pairing where the exact geometry is favorable, and `v_lshl_or_b32` to merge the original high mask with the low payload. All selected artifacts use `LdsPadB=8`, unswizzled B LDS, zero private storage and spills, and pass the hard ABI/resource gates.
 
 | Mechanism | Result | Decision |
 | --- | ---: | --- |
-| One-buffer decoded-B ownership | `0.9869x` versus the two-buffer control | Retain as the production candidate |
-| Fused Q3 signed-scale multiply | `0.9984x` versus the prior one-buffer emitter | Retain |
-| SIA5 plus store priority | `0.9973x` versus the fused default | Retain in the combined candidate |
-| Low/high decode-shift hoist | `0.9953x` versus the fused default | Retain as an unconditional instruction reduction |
-| Packed Q3 scale VOPD pairs | 16 fewer standalone scale/decode issues; 25-repeat weighted ratio `0.8661x` versus HIP | Retain as the partial-pair baseline |
-| Full Q3 subtract/multiply VOPD pairing | 15 fewer static VALU issues after one dual row-scale copy; guarded weighted ratio `0.8667x` versus HIP | Retain for narrow M8192 and all query keys; use partial pairing for narrow M2048/M32768 |
-| Q3 original-mask payload merge | 30 fewer static VALU issues on full-pair keys and 31 on partial-pair keys; 25-repeat weighted ratio `0.8615x` versus HIP | Retain for all six exact keys; reduced K32/K64/K96/K512 checks remain correct |
-| HIP-like post-decode A placement | `1.1806x` versus the VOPD control | Reject; lost B-decode/A-load overlap |
-| VOPD-era WGM2/WGM4/WGM8 | Weighted ratios `1.0077x`/`1.0265x`/`1.0496x` versus the VOPD control | Reject |
-| VOPD-era PGR1 and SIA4 | Weighted ratios `1.0289x`/`1.0064x` versus the VOPD control | Reject |
-| 128x64 macro tile | `0.9752x` versus HIP, weighted | Reject |
-| M64 macro tile | `1.6449x` versus HIP, narrow | Reject |
-| DepthU64 | `0.9163x` versus HIP, weighted | Reject |
-| PGR1 | `1.0466x` versus HIP, narrow | Reject |
-| Scalar extraction | `0.9559x` versus the packed path | Reject |
-| LDS swizzle chunks 4 and 16 | `0.9065x` and `1.0737x` versus HIP | Reject |
-| Q3 vector metadata load | Failed reduced one-hot coverage for the second block half | Remove; no invalid alternate remains |
+| Padded `256x64x32`, WGM2 | Q3 narrow M2048 screen `0.8783x` versus HIP; 25-repeat final `0.8831x` | Select for narrow M2048 |
+| Padded `256x64x32`, WGM1 | Q3 narrow M8192/M32768 final `0.7874x`/`0.8073x` versus HIP | Select for narrow M8192 and M32768 |
+| Padded `128x64x32`, WGM1 | Query M2048/M8192 screen gains of about 5%/9% versus prior selected paths | Select for query M2048 and M8192 |
+| Padded `128x128x32`, WGM1 | Query M32768 confirmation `0.9733x` versus the unpadded assembly control | Select for query M32768 |
+| Padded `256x64` for Q4/Q5 shared-down | Q4/Q5 weighted candidate/control `1.4262x`/`1.4577x` | Reject; shared-down remains two-buffer bound |
+| SIA4/store-priority alternatives | Q3, Q4, and Q5 screens were neutral or regressing; Q5's apparent M2048 win became `1.0178x` at 25 repeats | Reject |
+| WGM4/WGM8, PGR1, scalar extraction, alternate swizzles, metadata vector loads | Earlier correctness or timing gates failed | Reject |
 
-The reduced-trip fixtures use `K=32`, `64`, `96`, and `512` with sliced packed rows. Candidate/HIP and candidate/independent BF16 reference mismatches were zero at `K=32`, `64`, and `96`; the `K=512` candidate also matched HIP exactly. The production six-key correctness phase passed HIP comparison, independent reference checks, grad-output mutation, and packed-weight mutation. The small independent-reference difference at the full production depth is identical between HIP and GGTensile and is attributable to BF16 matmul accumulation order, not packed decode.
+The final six-key 25-repeat confirmation is exact-key selected as follows:
 
-Serial lower-bound measurements on the two-buffer control at `M=32768` were:
+| Family | M | Geometry/schedule | Candidate/HIP |
+| --- | ---: | --- | ---: |
+| Narrow | 2048 | `256x64`, WGM2, padded, SIA5 | `0.8831x` |
+| Narrow | 8192 | `256x64`, WGM1, padded, SIA5 | `0.7874x` |
+| Narrow | 32768 | `256x64`, WGM1, padded, SIA5 | `0.8073x` |
+| Query | 2048 | `128x64`, WGM1, padded, SIA5 | `0.7958x` |
+| Query | 8192 | `128x64`, WGM1, padded, SIA5 | `0.8013x` |
+| Query | 32768 | `128x128`, WGM1, padded, SIA5 | `0.8291x` |
+
+The final Q3 call-weighted candidate/HIP latency ratio is `0.8210x` in the authoritative confirmation. The final selected resource classes are 243 VGPR/5 KiB LDS for narrow `256x64`, 143 VGPR/5 KiB LDS for query `128x64`, and 218 VGPR/10 KiB LDS for query M32768 `128x128`; each has 16 SGPR, zero private bytes, zero spills, and the expected static WMMA/VMEM/LDS structure. The two independent final roots produce byte-identical assembly and matching resource tuples for all six keys.
+
+The final correctness phase passed HIP comparison, independent references, complete `grad_output` mutation, and packed-weight mutation on all six exact keys. Reduced-K checks against the final padded `256x64` geometry matched HIP and the independent reference at K32/K64/K96; at K512 candidate and HIP matched each other, while both shared the known 511-element BF16 accumulation-order difference from the independent reference.
+
+Serial lower-bound measurements on the earlier two-buffer control at M32768 remain useful for bottleneck diagnosis:
 
 | Family | Complete | WMMA/A/LDS floor | Decode/LDS floor | Floor sum |
 | --- | ---: | ---: | ---: | ---: |
-| Narrow, `K=512` | `2.618 ms` | `1.621 ms` | `1.166 ms` | `106.4%` |
-| Query, `K=8192` | `46.780 ms` | `26.666 ms` | `21.019 ms` | `101.9%` |
+| Narrow, K512 | `2.618 ms` | `1.621 ms` | `1.166 ms` | `106.4%` |
+| Query, K8192 | `46.780 ms` | `26.666 ms` | `21.019 ms` | `101.9%` |
 
-Both families are close to overlapped floors. The narrow path is sensitive to launch and short-trip scheduling overhead; the long query path is primarily an overlap-limited WMMA/decode/LDS pipeline. No remaining resource-bearing mechanism met the required stable gain threshold.
-
-The final 25-repeat confirmation selected the combined candidate only for exact keys that beat HIP:
-
-| Family | M | Candidate/HIP | Action |
-| --- | ---: | ---: | --- |
-| Narrow | 2048 | `1.0820x` | HIP fallback; partial VOPD plus payload merge |
-| Narrow | 8192 | `0.9546x` | Retain GGTensile; full VOPD plus payload merge |
-| Narrow | 32768 | `1.0032x` | HIP fallback; partial VOPD plus payload merge |
-| Query | 2048 | `0.8373x` | Retain GGTensile; full VOPD plus payload merge |
-| Query | 8192 | `0.8600x` | Retain GGTensile; full VOPD plus payload merge |
-| Query | 32768 | `0.8534x` | Retain GGTensile; full VOPD plus payload merge |
-
-Using HIP for the two slower narrow keys, the raw six-key call-weighted candidate/HIP latency ratio is `0.8615`; the retained per-key fallback policy remains unchanged. The merged guarded source is byte-reproducible under independent generation/build roots, with matching resource tuples and strict inspection. Public runtime dispatch remains deferred; the selected catalog is campaign evidence and does not change the current public dispatch boundary.
+The short-K gap was therefore primarily layout, decoder-row, and launch/overlap sensitivity rather than code size. The long query gap remains an overlapped WMMA/decode/LDS pipeline. The final pass also reviewed the HIP and GGTensile logs, CK/TensileLite mechanism notes, normalized disassembly, rocprofiler results, and gfx1151 LLVM/ISA constraints. No remaining in-contract mechanism has a measured path to a stable gain above the resource-bearing threshold. Persistent workgroups, split-K, prepared weights, external decode storage, grouped MMQ, and public runtime dispatch remain outside this campaign or explicitly deferred.
 
 ## Recursive Optimization-Exhaustion Review
 
-The final review rechecked the Q3 plan, Q4/Q5 evidence, dense and grouped MMQ paths, current assembly emitters, inventories, rejection results, lower bounds, mutation checks, and the gfx1151 ISA/toolchain constraints. The actionable in-contract ideas were the one-buffer pipeline, fused signed-scale multiply, SIA5/store priority, decode-shift hoist, partial packed Q3 scale VOPD pairing, full subtract/multiply Q3 VOPD pairing, and original-mask payload merging with `v_lshl_or_b32`; each was implemented, correctness-checked, timed, and either retained or rejected per exact key. Full pairing is guarded by exact production shape because the two narrow HIP-fallback keys regressed in the 25-repeat branch comparison, while payload merging is retained across all six keys after a neutral-to-favorable confirmation. The follow-up HIP-like A placement, WGM, PGR1, and SIA4 scans are closed by fresh post-VOPD timing. Macro-tile changes, deeper reduction trips, scalar extraction, swizzle changes, and vector metadata loading are closed by measurement or correctness. Persistent workgroups, split-K, prepared weights, external decode storage, grouped MMQ, and public dispatch remain contract-incompatible or explicitly deferred. A fresh final pass found no new valid actionable mechanism, so this review closes the Q3 campaign.
+The padded LDS and compact-geometry rewrite invalidated the earlier HIP-fallback conclusion for narrow M2048 and M32768, so those exact keys were regenerated, correctness-checked, screened, confirmed, and independently reproduced rather than retaining the historical fallback. The follow-up checks covered padded `128x128`, padded `128x64`, padded `256x64`, WGM1/2/4/8, SIA4/SIA5, store priority, address-state allocation for four M tiles, and Q3 reduced-K behavior. Large-margin layout and geometry opportunities are exhausted. Remaining timing is bounded by fused WMMA/decode/LDS overlap and short-K launch/occupancy behavior; smaller instruction-count changes did not clear the stable timing gate. A fresh final pass finds no new valid actionable mechanism, so this review closes the Q3 campaign.
 
 ## Completion Record
 
@@ -172,8 +162,7 @@ Documentation-only plan updates remain uncommitted unless explicitly requested.
 - Six exact Q3_K production shapes identified from the current Qwen inventory.
 - Strict Q3_K ProblemType, solution identity, and multi-quant backend support.
 - Q3_K reduced-trip, one-hot, HIP, independent-reference, and producer-mutation correctness.
-- Large-margin-first bounded optimization and exact-key selection.
-- Lower-bound diagnosis for narrow and query families.
-- Final six-key confirmation and reproducibility rebuild.
+- Padded LDS support, compact `256x64` short-K geometry, four-M-tile address-state separation, and exact-key selection.
+- Final six-key confirmation and independent reproducibility rebuild.
 - Recursive final optimization-exhaustion review with no actionable mechanism remaining.
-- Public runtime dispatch. Deferred until broader dense quant coverage and complete workload validation.
+- Public runtime dispatch deferred until broader dense quant coverage and complete workload validation.
