@@ -276,7 +276,15 @@ def _validate_metadata(
     if solution.lds_swizzle_chunk_b:
         expected_vgprs = allocate(expected_vgprs, 32 // solution.lds_swizzle_chunk_b)
     expected_vgprs = allocate(expected_vgprs, 8, 2)
-    expected_vgprs = allocate(expected_vgprs, max(7, 3 + 2 * decoder_rows))
+    expected_vgprs = allocate(
+        expected_vgprs,
+        max(
+            11
+            if quant_type == "Q3_K" and solution.q3_k_extraction == "packed"
+            else 7,
+            3 + 2 * decoder_rows,
+        ),
+    )
     if quant_type == "Q3_K" and n_tiles == 4:
         # RegisterPool reuses the single hole before the temporary range.
         pass

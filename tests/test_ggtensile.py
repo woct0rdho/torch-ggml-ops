@@ -101,6 +101,26 @@ def test_q5_k_campaign_inventory_is_exact_and_quant_aware() -> None:
     assert shared_down.expected_physical_weight_shape == (2048, 352)
 
 
+def test_q3_k_packed_decoder_uses_wave32_vopd_scale_pairs() -> None:
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward("Q3_K"),
+        ProblemSize(8192, 2048, 512),
+        replace(
+            Solution.pilot(),
+            one_lds_buffer=1,
+            schedule_iter_alg=5,
+            store_priority_opt=True,
+            q3_k_extraction="packed",
+        ),
+    )
+    assert validate_solution(key) == ()
+    source = KernelWriterAssembly(key, _toolchain()).source()
+    assert "v_dual_mul_f32" in source
+    assert "v_dual_sub_f32" in source
+    assert source.count("v_dual_mul_f32") >= 4
+    assert "v_mul_f32" not in source
+
+
 def test_quant_types_have_distinct_problem_identity() -> None:
     q4 = ProblemType.dense_mmq_backward_q4_k()
     q5 = ProblemType.dense_mmq_backward_q5_k()

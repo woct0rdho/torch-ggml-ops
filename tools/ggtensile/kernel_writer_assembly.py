@@ -192,6 +192,15 @@ class KernelWriterAssembly:
     def _quant_type(self) -> str:
         return self.solution_key.problem_type.quant_data_type
 
+    def _q3_k_full_vopd_decode(self) -> bool:
+        size = self.solution_key.problem_size
+        return (
+            self._quant_type() == "Q3_K"
+            and self.solution_key.solution.q3_k_extraction == "packed"
+            and self._decoder_rows() <= 2
+            and not (size.n == 2048 and size.k == 512 and size.m != 8192)
+        )
+
     def _payload_register_count(self) -> int:
         return 4 if self._quant_type() == "Q4_K" else 8
 
@@ -255,7 +264,13 @@ class KernelWriterAssembly:
         if swizzle:
             lds_address = vgprs.checkOut(32 // swizzle, "swizzled LDS addresses")
         address = vgprs.checkOutAligned(8, 2, "addresses")
-        temporary_count = max(7, 3 + 2 * decoder_rows)
+        temporary_count = max(
+            11
+            if self._quant_type() == "Q3_K"
+            and self.solution_key.solution.q3_k_extraction == "packed"
+            else 7,
+            3 + 2 * decoder_rows,
+        )
         temporary = vgprs.checkOut(temporary_count, "temporaries")
         serial = vgprs.checkOut(1, "Serial")
 
@@ -1168,6 +1183,14 @@ class KernelWriterAssembly:
                 f"v_fma_mix_f32 v{d_scaled}, v{r.quant_dm + row}, v{low}, "
                 "neg(0) op_sel_hi:[1,0,0]"
             )
+        if self._q3_k_full_vopd_decode():
+            if decoder_rows == 1:
+                asm.inst(f"v_mov_b32 v{t + 9}, v{t + 3}")
+            elif decoder_rows == 2:
+                asm.inst(
+                    f"v_dual_mov_b32 v{t + 9}, v{t + 3} :: "
+                    f"v_dual_mov_b32 v{t + 10}, v{t + 4}"
+                )
         asm.inst(f"v_and_b32 v{t}, {n_tiles - 1}, v{r.serial}")
         asm.inst(f"v_lshlrev_b32 v{t}, 4, v{t}")
         asm.inst(f"v_and_b32 v{t + 1}, {tiles_per_weight_block - 1}, s3")
@@ -1195,10 +1218,7 @@ class KernelWriterAssembly:
         asm.inst(f"v_and_b32 v{high}, 0x01010101, v{high}")
         asm.inst(f"v_xor_b32 v{high}, 0x01010101, v{high}")
         asm.inst(f"v_lshlrev_b32 v{high}, 2, v{high}")
-        for element in range(first_element, first_element + 4):
-            value = t + 5
-            rounding = t + 6
-            d_scaled = t + 3 + row if row < 2 else r.quant_dm + row
+        def emit_lds_store(element: int, value: int, rounding: int) -> None:
             lds_offset = row_stride * element + 32 * row
             lds_address = r.address + 6
             swizzle = self.solution_key.solution.lds_swizzle_chunk_b
@@ -1209,22 +1229,75 @@ class KernelWriterAssembly:
                 lds_offset = row_stride * element + 64 * (row // 2)
                 if row % 2:
                     lds_offset += 32 if residue < residues // 2 else -32
-            if self.solution_key.solution.q3_k_extraction == "scalar":
+            self._emit_round_bf16(asm, value, rounding)
+            asm.inst(
+                f"ds_store_b16_d16_hi v{lds_address}, v{value} offset:{lds_offset}"
+            )
+
+        if self.solution_key.solution.q3_k_extraction == "scalar":
+            for element in range(first_element, first_element + 4):
+                value = t + 5
+                rounding = t + 6
+                d_scaled = t + 3 + row if row < 2 else r.quant_dm + row
                 asm.inst(
                     f"v_bfe_u32 v{rounding}, v{high}, {8 * (element % 4)}, 3"
                 )
                 asm.inst(f"v_cvt_f32_u32_e32 v{rounding}, v{rounding}")
                 asm.inst(f"v_bfe_u32 v{value}, v{low}, {8 * (element % 4)}, 2")
                 asm.inst(f"v_cvt_f32_u32_e32 v{value}, v{value}")
-            else:
-                asm.inst(f"v_cvt_f32_ubyte{element % 4}_e32 v{rounding}, v{high}")
-                asm.inst(f"v_cvt_f32_ubyte{element % 4}_e32 v{value}, v{low}")
-            asm.inst(f"v_sub_f32 v{value}, v{value}, v{rounding}")
-            asm.inst(f"v_mul_f32 v{value}, v{d_scaled}, v{value}")
-            self._emit_round_bf16(asm, value, rounding)
+                asm.inst(f"v_sub_f32 v{value}, v{value}, v{rounding}")
+                asm.inst(f"v_mul_f32 v{value}, v{d_scaled}, v{value}")
+                emit_lds_store(element, value, rounding)
+            return
+
+        d_scaled = t + 3 + row if row < 2 else r.quant_dm + row
+        d_scaled_copy = t + 9 + row
+        first = first_element
+        second = first_element + 1
+        third = first_element + 2
+        fourth = first_element + 3
+        q0 = t + 5
+        q1 = t + 8
+        full_vopd = self._q3_k_full_vopd_decode()
+        q1_low = q1 if full_vopd else (q1 if d_scaled % 2 else t + 7)
+        q_high = t + 1 if full_vopd else t + 10
+        rounding = t + 6
+
+        def emit_pair(first_element: int, second_element: int) -> None:
             asm.inst(
-                f"ds_store_b16_d16_hi v{lds_address}, v{value} offset:{lds_offset}"
+                f"v_cvt_f32_ubyte{first_element % 4}_e32 v{q0}, v{low}"
             )
+            asm.inst(
+                f"v_cvt_f32_ubyte{first_element % 4}_e32 v{rounding}, v{high}"
+            )
+            if not full_vopd:
+                asm.inst(f"v_sub_f32 v{q0}, v{q0}, v{rounding}")
+            asm.inst(
+                f"v_cvt_f32_ubyte{second_element % 4}_e32 v{q1_low}, v{low}"
+            )
+            asm.inst(
+                f"v_cvt_f32_ubyte{second_element % 4}_e32 v{q_high}, v{high}"
+            )
+            if full_vopd:
+                asm.inst(
+                    f"v_dual_sub_f32 v{q0}, v{q0}, v{rounding} :: "
+                    f"v_dual_sub_f32 v{q1}, v{q1_low}, v{q_high}"
+                )
+                asm.inst(
+                    f"v_dual_mul_f32 v{q0}, v{d_scaled}, v{q0} :: "
+                    f"v_dual_mul_f32 v{q1}, v{d_scaled_copy}, v{q1}"
+                )
+            else:
+                asm.inst(
+                    f"v_dual_mul_f32 v{q0}, v{d_scaled}, v{q0} :: "
+                    f"v_dual_sub_f32 v{q1}, v{q1_low}, v{q_high}"
+                )
+                asm.inst(f"v_mul_f32 v{q1}, v{d_scaled}, v{q1}")
+            emit_lds_store(first_element, q0, rounding)
+            emit_lds_store(second_element, q1, rounding)
+
+        emit_pair(first, second)
+        emit_pair(third, fourth)
 
     def _emit_q4_k_decode(
         self,
