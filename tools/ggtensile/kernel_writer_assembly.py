@@ -810,8 +810,8 @@ class KernelWriterAssembly:
         asm.inst(f"v_and_b32 v{t + 2}, 1, v{t}")
         asm.inst(f"v_lshlrev_b32 v{t + 2}, 4, v{t + 2}")
         asm.inst(f"v_add_nc_u32 v{t + 2}, 2, v{t + 2}")
+        payload_address = t + 3
         for row in range(decoder_rows):
-            payload_address = a + 2 + row
             asm.inst(f"v_add_nc_u32 v{a + row}, v{a + row}, v{t + 1}")
             asm.inst(
                 f"v_add_nc_u32 v{payload_address}, v{a + row}, v{t + 2}"
@@ -1315,6 +1315,14 @@ class KernelWriterAssembly:
             asm.inst(f"v_cvt_f32_i32_e32 v{value}, v{value}")
             asm.inst(f"v_mul_f32 v{value}, v{d_scaled}, v{value}")
             lds_offset = row_stride * element + 32 * row
+            swizzle = self.solution_key.solution.lds_swizzle_chunk_b
+            if swizzle:
+                residues = 32 // swizzle
+                residue = element % residues
+                lds_address = r.lds_address + residue
+                lds_offset = row_stride * element + 64 * (row // 2)
+                if row % 2:
+                    lds_offset += 32 if residue < residues // 2 else -32
             self._emit_round_bf16(asm, value, rounding)
             asm.inst(
                 f"ds_store_b16_d16_hi v{lds_address}, v{value} "

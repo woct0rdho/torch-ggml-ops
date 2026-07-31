@@ -195,9 +195,19 @@ This section is updated after every coherent implementation milestone. Code mile
 - [ ] Fresh HIP/GGTensile controls and independent packed decoder fixtures. A K32 one-hot fixture is exact across a complete 4096-column row, and Q-A M2048 is bit-exact to HIP under grad-output and packed-weight mutation, but the remaining exact controls and signed-extreme fixtures are still open.
 - [ ] Ordinary 18-key correctness and mutation coverage.
 - [ ] LM-head five-key correctness and chunk fallback coverage.
-- [ ] Large-margin decoder, LDS, ownership, and geometry search.
+- [ ] Large-margin decoder, LDS, ownership, and geometry search. Ordinary screening has established `LdsPadB=8` as the dominant reusable mechanism, retained `256x64` for attention output/Q-A/KV, found a Q-B-only DepthU64 branch, and rejected broad WGM2, pad16/24, XOR4/8/16 one-buffer layouts, `64x128`, `256x128`, two decoded-B buffers, broad scalar loads, PLR2, and broad next-packed prefetch. Smaller per-key closure and LM-head geometry remain open.
 - [ ] Per-key selection with every retained key faster than HIP.
 - [ ] Lower-bound and bottleneck explanation.
 - [ ] Independent reproducibility and final 25-repeat confirmation.
 - [ ] Recursive optimization-exhaustion review with no actionable mechanism remaining.
 - [ ] Public runtime dispatch, deferred.
+
+### Ordinary screening record
+
+The first fresh 18-key `128x128x32` control measured a call-weighted candidate/HIP ratio of `1.0329126789987204`; it was not competitive at several M2048/M8192 keys. Unswizzled eight-BF16 row padding then reduced representative long-row candidate latency by roughly 15-25%. PGR2/SIA5 plus pad8 produced candidate/HIP ratios from about `0.66` to `0.95` across the ordinary matrix and made every screened exact key faster than HIP.
+
+Geometry is quant- and shape-specific. Padded `256x64` reduced attention-output M2048/M8192/M32768 from `5.041/19.522/75.521 ms` to `4.234/16.776/65.925 ms`; it also improved Q-A and KV, but regressed Q-B. Padded `128x64` is preferred over `256x64` for long-row shared gate/up and shared-down. Broad WGM2 regressed compact bodies.
+
+Q8 scalar `global_load_b32` extraction was neutral for most families but improved Q-B M8192 by about 5% versus packed `global_load_b128`. A corrected Q8 DepthU64/XOR8 control measured `22.285 ms` and `0.702x` HIP at Q-B M8192, versus `24.113 ms` for the padded DepthU32 packed control, but regressed output-B. The initial DepthU64 failure exposed overlapping Q8 block-base, payload-pointer, and persistent-A state; a reusable temporary payload pointer fixed the ownership without increasing resources. The corrected body uses 220 VGPR, 16 SGPR, and 16 KiB LDS with no spills or private storage.
+
+The two decoded-B buffer path was extended to the Q8 XOR8 store layout and passed exact HIP, independent-reference, grad-output mutation, and packed-weight mutation checks. It was timing-neutral on the discriminator keys and is rejected. Pad16/24, XOR4/8/16 one-buffer layouts, PLR2, SIA3, `64x128`, and `256x128` also lost. Next-tile packed prefetch remains only a possible exact-key small mechanism because its broad effects were neutral or unfavorable.
