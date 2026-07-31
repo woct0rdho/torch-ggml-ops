@@ -1,0 +1,203 @@
+# GGTensile Dense MMQ Backward Q8_0 Plan
+
+## Purpose
+
+Extend the strict gfx1151 GGTensile dense MMQ backward campaign to the production Q8_0 weight shapes used by the DeepSeek dense workload. The campaign must improve the complete fused packed-weight backward kernel, not a predecoded or prepared-weight surrogate.
+
+Q8_0 is a separate quantization campaign from Q3_K, Q4_K, and Q5_K. It may reuse quant-neutral WMMA, A-address, LDS, synchronization, store, inspection, and campaign infrastructure only when the emitted code and identity remain quant-aware. Q8_0 has its own byte/block decoder and must receive its own tuning knobs, correctness fixtures, inventory, catalog, and resource evidence.
+
+The campaign is complete only after every exact production key that is retained for GGTensile is faster than the HIP control, all exact keys have independent correctness and mutation coverage, and a recursive optimization-exhaustion review finds no new valid in-contract mechanism. The final review must explain the remaining bottleneck with lower-bound, resource, timing, or counter evidence.
+
+## Contract
+
+Target only:
+
+- gfx1151, wave32, WMMA V1, and the existing 40-byte dense-backward kernarg ABI.
+- BF16 grad-output and grad-input, FP32 WMMA accumulation, and packed GGUF Q8_0 weights.
+- In-kernel Q8_0 decode from the authoritative packed tensor.
+- Exact `ProblemType` plus exact `ProblemSize` identity for each generated kernel.
+- Complete fused-kernel timing, including global packed reads, Q8_0 decode, LDS staging, WMMA, synchronization, and BF16 stores.
+
+Do not introduce prepared weights, BF16 shadows, external decode workspaces, split-K, persistent workgroups, grouped MMQ, hidden caches, or model-owned paired backward APIs. Unsupported shapes must fail closed to HIP or the existing generic path; an exact campaign artifact must not silently repair a mismatched shape.
+
+Dense backward coordinates are:
+
+```text
+M = rows
+N = in_features
+K = out_features
+
+grad_input[M,N] = grad_output[M,K] @ dequant(weight[K,N])
+```
+
+Q8_0 uses 32-value blocks with 34 packed bytes. For an exact key, the logical weight shape is `[K,N]` and the packed shape is `[K, (N/32)*34]`.
+
+## Exact Production Scope
+
+The ordinary DeepSeek workload has six `(N,K)` families crossed with `M={2048,8192,32768}`. This produces 18 ordinary exact keys:
+
+| Family | `(N,K)` | Packed weight shape `[K,bytes]` | Calls |
+| --- | ---: | ---: | ---: |
+| Attention Q-A | `(4096,1024)` | `[1024,4352]` | 43 |
+| Attention Q-B | `(1024,32768)` | `[32768,1088]` | 43 |
+| Attention KV | `(4096,512)` | `[512,4352]` | 43 |
+| Attention output B | `(8192,4096)` | `[4096,8704]` | 43 |
+| Shared gate/up | `(4096,2048)` | `[2048,4352]` | 86 combined |
+| Shared down | `(2048,4096)` | `[4096,2176]` | 43 |
+
+The Q8_0 language-model head adds five exact chunk keys:
+
+```text
+(M,N,K) =
+(32,4096,129280)
+(64,4096,129280)
+(128,4096,129280)
+(256,4096,129280)
+(512,4096,129280)
+```
+
+The complete campaign scope is therefore 23 exact keys. M512 is the primary complete-loss chunk; M256 is the lower-memory alternative; M32/M64/M128 remain required for chunk fallback, capacity behavior, and correctness coverage.
+
+The ordinary shapes and call counts are sourced from `tests/deepseek_dense_cases.py` and `bench/mmq_benchmark_common.py`. Existing dispatch evidence and historical HIP measurements are recorded in `docs/mmq_bwd_optimization.md`.
+
+## Baseline And Priorities
+
+Use the existing HIP Q8_0 kernels as both correctness and performance controls. Establish fresh same-process controls before selecting any GGTensile solution. Do not compare timing from prior source-built bundles directly with the new catalog.
+
+Prioritize large margins in this order:
+
+1. Q-B `(N,K)=(1024,32768)` and attention output B `(8192,4096)`, which have the largest long-batch kernel costs.
+2. Shared gate/up `(4096,2048)`, which has twice the projection call count.
+3. Shared down `(2048,4096)` and Q-A `(4096,1024)`.
+4. KV `(4096,512)`.
+5. LM-head M512/M256, then M128/M64/M32 for chunk fallback and capacity coverage.
+
+The first screening matrix should include all six ordinary families at M2048, M8192, and M32768. Use exact rows as the primary timing axis and retain call-weighted totals for model priority. Complete-loss timing must remain a separate selector from isolated LM-head timing.
+
+## GGTensile Architecture
+
+### Quant-neutral shared body
+
+Reuse the existing writer layers only where the Q8_0 tile contract matches:
+
+- exact workgroup flattening and launch mapping;
+- A global addressing, row-tile traversal, and optional row-state lifetime management;
+- WMMA accumulator allocation, issue order, and FP32-to-BF16 output conversion;
+- LDS barriers, wait dependencies, local-read ownership, and final stores;
+- diagnostic floor generation and static resource inspection;
+- strict source hashing, immutable generation/build/inspect/correctness/screen/confirmation phases;
+- resource rejection for private storage, spills, scratch, calls, and dynamic stack.
+
+Q8_0 must not be forced through K-family decode helpers. The writer should have a quant specification or backend that owns block bytes, payload width, scale placement, vector load shape, decode arithmetic, decoder rows, packed-row addressing, and LDS-facing value layout.
+
+### Q8_0 backend boundary
+
+The Q8_0 backend must define:
+
+- 32-value block and 34-byte packed-row layout;
+- scalar `d` loading and byte payload loading;
+- exact signed int8 reconstruction and scale application;
+- metadata and payload register lifetimes;
+- packed load width and coalescing strategy;
+- Q8_0-specific LDS layout and row padding;
+- exact reduced-K behavior for block-aligned and partial campaign fixtures;
+- an independent reference decoder for correctness.
+
+Q8_0-specific solution identity fields should be added only for real alternate emitters. Candidate controls include packed payload load width, scale load strategy, row padding, packed payload/scale ordering, decoder-row ownership, and Q8-specific schedule or traversal. A field is invalid unless it changes emitted ISA or ownership and has correctness coverage.
+
+Existing Q3_K/Q4_K/Q5_K controls must remain strict and inert for Q8_0. Q8_0 artifacts must have distinct `ProblemType`, solution identity, symbols, packed-row accounting, and catalogs.
+
+### Possible reuse boundary
+
+Reuse the proven `128x128x32` WMMA body only as the initial Q8 control. The Q8 decoder may make a different `MacroTile1`, LDS stride, or `DepthU` necessary. A common writer helper is acceptable when it takes a quant backend contract and emits identical quant-neutral code around a quant-specific decode block. Copying Q4/Q5 byte logic or adding Q8 behavior through unchecked conditionals is not acceptable.
+
+## Campaign Phases
+
+### Phase 1: Inventory and control
+
+- Add a versionless Q8_0 inventory for the 23 exact keys, representative tensors, call counts, packed shapes, and historical HIP controls.
+- Add a Q8_0 selected-solution catalog with strict identity validation.
+- Extend campaign loading and physical packed-row accounting from fixed K-family tables to an explicit Q8_0 specification.
+- Generate a fresh Q8_0 control before optimization.
+- Add reduced-K and one-hot packed fixtures that exercise `d`, every payload byte, signed extremes, block boundaries, and row boundaries.
+
+### Phase 2: Backend and correctness
+
+- Add strict Q8_0 `ProblemType` construction and validation.
+- Implement packed Q8_0 decode with no dense shadow or external workspace.
+- Validate exact HIP equality for all ordinary keys and LM-head chunks.
+- Require independent dequantized BF16 reference checks wherever accumulation-order differences are understood.
+- Rewrite the complete grad-output and packed-weight tensors and repeat candidate/HIP comparisons.
+- Reject any solution with private storage, spills, scratch, calls, dynamic stack, invalid ABI, or source/resource mismatch.
+
+### Phase 3: Large-margin search
+
+Start from the current Q8 HIP assembly and a generated GGTensile control. Measure complete solutions, not isolated instruction fragments.
+
+Search in this order:
+
+1. Q8 decoder load coalescing and scale/payload ordering.
+2. Q8 LDS row padding and unswizzled versus existing swizzled layouts.
+3. One versus two decoded-B buffers, only after lower bounds identify overlap potential.
+4. `128x64`, `256x64`, and other geometries only when accumulator/register/resource estimates justify them.
+5. Exact M traversal and WGM1/2/4/8 for high-cost long-row families.
+6. DepthU, packed payload sharing, PGR/PLR, SIA, store priority, and Q8-specific address lifetime changes.
+7. LM-head chunk geometry and active-wave ownership after ordinary families are competitive.
+
+Each candidate must pass correctness and inspection before timing. Use serial warmed rotating controls. Screening uses nine repeats; final confirmation uses 25 repeats. Timing is authoritative. Static instruction reductions are explanatory unless they produce a stable measured gain.
+
+### Phase 4: Selection and confirmation
+
+Retain an exact candidate only when:
+
+- it is bit-exact against HIP for the exact key;
+- independent-reference behavior is understood;
+- grad-output and packed-weight mutation checks pass;
+- independent source generation is byte-identical;
+- resource and ABI gates pass;
+- every resource-bearing mechanism beats its exact assembly control by more than 2% in a stable 25-repeat bracket;
+- no exact key using the same retained solution suffers a stable material regression.
+
+Every selected exact Q8 key must beat HIP. HIP fallback is acceptable only for unmatched keys or while a campaign key remains unselected; it is not an acceptable final result for an exact selected key.
+
+### Phase 5: Lower bounds and bottlenecks
+
+For each major family, measure complete, WMMA/A/LDS-floor, and decode/LDS-floor artifacts with the same ABI and launch contract. Explain the remaining gap using:
+
+- WMMA throughput and accumulator occupancy;
+- Q8 payload and scale traffic;
+- decode VALU issue pressure;
+- LDS bank conflicts and synchronization;
+- active waves, VGPR allocation, and launch geometry;
+- model call count and complete-loss amortization.
+
+## Recursive Optimization-Exhaustion Review
+
+The campaign cannot stop after a single successful Q8 implementation. Before completion, reread this plan, the Q8 HIP and GGTensile logs, Q3/Q4/Q5 experiment records, CK and TensileLite notes, normalized disassembly, profiler/counter evidence, lower bounds, inventories, rejected candidates, correctness reports, and gfx1151 ISA/LLVM definitions.
+
+Classify every remaining idea as:
+
+- retained and measured;
+- rejected by correctness, resource, timing, or reproducibility evidence;
+- contract-incompatible or explicitly deferred with a prerequisite; or
+- actionable and requiring another implementation and measurement cycle.
+
+A plan or implementation change creates a new premise and invalidates the previous stopping condition. The review must be the final step of the campaign and cannot pass in the same iteration that discovers an actionable mechanism.
+
+The campaign is exhausted only when every valid large-margin mechanism has been implemented or rejected, smaller plausible mechanisms have been tested after the large margins close, all 23 exact keys have final evidence, and the remaining bottleneck is explained quantitatively. Public runtime dispatch remains deferred until broader dense multi-quant coverage, artifact packaging, dispatch engineering, and complete Qwen/DeepSeek workload validation are complete.
+
+## Completion Record
+
+This section is updated after every coherent implementation milestone. Code milestones are committed; documentation-only updates remain uncommitted unless explicitly requested.
+
+- [x] Q8_0 exact inventory and strict quant identity. The versionless inventory contains 18 ordinary and five LM-head keys, uses 34-byte/32-value physical-row accounting, and keeps `Q8KExtraction` inert for other quant types.
+- [x] Initial Q8_0 backend and shared WMMA-body boundary. The first backend has quant-specific packed reads, FP16 scale conversion, signed-int8 extraction, LDS writes, resource accounting, and inspection while reusing the quant-neutral `128x128x32` WMMA body.
+- [ ] Fresh HIP/GGTensile controls and independent packed decoder fixtures. A K32 one-hot fixture is exact across a complete 4096-column row, and Q-A M2048 is bit-exact to HIP under grad-output and packed-weight mutation, but the remaining exact controls and signed-extreme fixtures are still open.
+- [ ] Ordinary 18-key correctness and mutation coverage.
+- [ ] LM-head five-key correctness and chunk fallback coverage.
+- [ ] Large-margin decoder, LDS, ownership, and geometry search.
+- [ ] Per-key selection with every retained key faster than HIP.
+- [ ] Lower-bound and bottleneck explanation.
+- [ ] Independent reproducibility and final 25-repeat confirmation.
+- [ ] Recursive optimization-exhaustion review with no actionable mechanism remaining.
+- [ ] Public runtime dispatch, deferred.

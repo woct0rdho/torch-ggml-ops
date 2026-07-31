@@ -1,0 +1,321 @@
+{
+  "ProblemType": {
+    "OperationType": "DenseMMQBackward",
+    "QuantDataType": "Q8_0",
+    "DataTypeA": "BFloat16",
+    "DataTypeB": "Q8_0",
+    "DestDataType": "BFloat16",
+    "ComputeDataType": "Float",
+    "TransposeA": false,
+    "TransposeB": false
+  },
+  "ModelFile": "DeepSeek-V4-Flash-IQ2XXS.gguf",
+  "Validation": {
+    "QuantType": "Q8_0",
+    "ExactDispatch": true,
+    "RequireBitExactHip": true,
+    "RequireGradOutputMutation": true,
+    "RequirePackedWeightMutation": true
+  },
+  "Keys": [
+    {
+      "Family": "attention_q_a",
+      "ProblemSize": {
+        "M": 2048,
+        "N": 4096,
+        "K": 1024
+      },
+      "RepresentativeTensor": "blk.0.attn_q_a.weight",
+      "CallCount": 43,
+      "HistoricalHipMedianMs": 0.827,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    },
+    {
+      "Family": "attention_q_a",
+      "ProblemSize": {
+        "M": 8192,
+        "N": 4096,
+        "K": 1024
+      },
+      "RepresentativeTensor": "blk.0.attn_q_a.weight",
+      "CallCount": 43,
+      "HistoricalHipMedianMs": 2.597,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    },
+    {
+      "Family": "attention_q_a",
+      "ProblemSize": {
+        "M": 32768,
+        "N": 4096,
+        "K": 1024
+      },
+      "RepresentativeTensor": "blk.0.attn_q_a.weight",
+      "CallCount": 43,
+      "HistoricalHipMedianMs": 13.277,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    },
+    {
+      "Family": "attention_q_b",
+      "ProblemSize": {
+        "M": 2048,
+        "N": 1024,
+        "K": 32768
+      },
+      "RepresentativeTensor": "blk.0.attn_q_b.weight",
+      "CallCount": 43,
+      "HistoricalHipMedianMs": 7.088,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    },
+    {
+      "Family": "attention_q_b",
+      "ProblemSize": {
+        "M": 8192,
+        "N": 1024,
+        "K": 32768
+      },
+      "RepresentativeTensor": "blk.0.attn_q_b.weight",
+      "CallCount": 43,
+      "HistoricalHipMedianMs": 32.056,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    },
+    {
+      "Family": "attention_q_b",
+      "ProblemSize": {
+        "M": 32768,
+        "N": 1024,
+        "K": 32768
+      },
+      "RepresentativeTensor": "blk.0.attn_q_b.weight",
+      "CallCount": 43,
+      "HistoricalHipMedianMs": 115.233,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    },
+    {
+      "Family": "attention_kv",
+      "ProblemSize": {
+        "M": 2048,
+        "N": 4096,
+        "K": 512
+      },
+      "RepresentativeTensor": "blk.0.attn_kv.weight",
+      "CallCount": 43,
+      "HistoricalHipMedianMs": 0.346,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    },
+    {
+      "Family": "attention_kv",
+      "ProblemSize": {
+        "M": 8192,
+        "N": 4096,
+        "K": 512
+      },
+      "RepresentativeTensor": "blk.0.attn_kv.weight",
+      "CallCount": 43,
+      "HistoricalHipMedianMs": 1.321,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    },
+    {
+      "Family": "attention_kv",
+      "ProblemSize": {
+        "M": 32768,
+        "N": 4096,
+        "K": 512
+      },
+      "RepresentativeTensor": "blk.0.attn_kv.weight",
+      "CallCount": 43,
+      "HistoricalHipMedianMs": 5.221,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    },
+    {
+      "Family": "attention_output_b",
+      "ProblemSize": {
+        "M": 2048,
+        "N": 8192,
+        "K": 4096
+      },
+      "RepresentativeTensor": "blk.0.attn_output_b.weight",
+      "CallCount": 43,
+      "HistoricalHipMedianMs": 5.42,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    },
+    {
+      "Family": "attention_output_b",
+      "ProblemSize": {
+        "M": 8192,
+        "N": 8192,
+        "K": 4096
+      },
+      "RepresentativeTensor": "blk.0.attn_output_b.weight",
+      "CallCount": 43,
+      "HistoricalHipMedianMs": 26.521,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    },
+    {
+      "Family": "attention_output_b",
+      "ProblemSize": {
+        "M": 32768,
+        "N": 8192,
+        "K": 4096
+      },
+      "RepresentativeTensor": "blk.0.attn_output_b.weight",
+      "CallCount": 43,
+      "HistoricalHipMedianMs": 107.038,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    },
+    {
+      "Family": "shared_gate_up",
+      "ProblemSize": {
+        "M": 2048,
+        "N": 4096,
+        "K": 2048
+      },
+      "RepresentativeTensor": "blk.0.ffn_gate_shexp.weight",
+      "CallCount": 86,
+      "HistoricalHipMedianMs": 1.513,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    },
+    {
+      "Family": "shared_gate_up",
+      "ProblemSize": {
+        "M": 8192,
+        "N": 4096,
+        "K": 2048
+      },
+      "RepresentativeTensor": "blk.0.ffn_gate_shexp.weight",
+      "CallCount": 86,
+      "HistoricalHipMedianMs": 5.654,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    },
+    {
+      "Family": "shared_gate_up",
+      "ProblemSize": {
+        "M": 32768,
+        "N": 4096,
+        "K": 2048
+      },
+      "RepresentativeTensor": "blk.0.ffn_gate_shexp.weight",
+      "CallCount": 86,
+      "HistoricalHipMedianMs": 27.626,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    },
+    {
+      "Family": "shared_down",
+      "ProblemSize": {
+        "M": 2048,
+        "N": 2048,
+        "K": 4096
+      },
+      "RepresentativeTensor": "blk.0.ffn_down_shexp.weight",
+      "CallCount": 43,
+      "HistoricalHipMedianMs": 1.546,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    },
+    {
+      "Family": "shared_down",
+      "ProblemSize": {
+        "M": 8192,
+        "N": 2048,
+        "K": 4096
+      },
+      "RepresentativeTensor": "blk.0.ffn_down_shexp.weight",
+      "CallCount": 43,
+      "HistoricalHipMedianMs": 7.024,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    },
+    {
+      "Family": "shared_down",
+      "ProblemSize": {
+        "M": 32768,
+        "N": 2048,
+        "K": 4096
+      },
+      "RepresentativeTensor": "blk.0.ffn_down_shexp.weight",
+      "CallCount": 43,
+      "HistoricalHipMedianMs": 27.569,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    },
+    {
+      "Family": "lm_head",
+      "ProblemSize": {
+        "M": 32,
+        "N": 4096,
+        "K": 129280
+      },
+      "RepresentativeTensor": "output.weight",
+      "CallCount": 1,
+      "HistoricalHipMedianMs": 8.297,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    },
+    {
+      "Family": "lm_head",
+      "ProblemSize": {
+        "M": 64,
+        "N": 4096,
+        "K": 129280
+      },
+      "RepresentativeTensor": "output.weight",
+      "CallCount": 1,
+      "HistoricalHipMedianMs": 7.459,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    },
+    {
+      "Family": "lm_head",
+      "ProblemSize": {
+        "M": 128,
+        "N": 4096,
+        "K": 129280
+      },
+      "RepresentativeTensor": "output.weight",
+      "CallCount": 1,
+      "HistoricalHipMedianMs": 7.569,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    },
+    {
+      "Family": "lm_head",
+      "ProblemSize": {
+        "M": 256,
+        "N": 4096,
+        "K": 129280
+      },
+      "RepresentativeTensor": "output.weight",
+      "CallCount": 1,
+      "HistoricalHipMedianMs": 10.386,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    },
+    {
+      "Family": "lm_head",
+      "ProblemSize": {
+        "M": 512,
+        "N": 4096,
+        "K": 129280
+      },
+      "RepresentativeTensor": "output.weight",
+      "CallCount": 1,
+      "HistoricalHipMedianMs": 23.206,
+      "CurrentStatus": "open",
+      "SelectedSolution": "initial_128x128_one_buffer"
+    }
+  ]
+}

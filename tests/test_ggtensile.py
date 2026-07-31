@@ -123,6 +123,43 @@ def test_q3_k_campaign_inventory_selects_exact_padded_geometries() -> None:
     assert narrow.expected_physical_weight_shape == (512, 880)
 
 
+def test_q8_0_campaign_inventory_covers_ordinary_and_lm_head_keys() -> None:
+    inventory = load_inventory(Path("tools/ggtensile/q8_0_dense_inventory.json"))
+    catalog = load_solution_catalog(
+        Path("tools/ggtensile/q8_0_selected_solutions.json")
+    )
+    assert inventory.problem_type == ProblemType.dense_mmq_backward_q8_0()
+    assert len(inventory.entries) == 23
+    assert {entry.problem_size.m for entry in inventory.entries} == {
+        32,
+        64,
+        128,
+        256,
+        512,
+        2048,
+        8192,
+        32768,
+    }
+    ordinary = tuple(entry for entry in inventory.entries if entry.family != "lm_head")
+    lm_head = tuple(entry for entry in inventory.entries if entry.family == "lm_head")
+    assert len(ordinary) == 18
+    assert len(lm_head) == 5
+    assert {
+        sum(entry.call_count for entry in ordinary if entry.problem_size.m == m)
+        for m in (2048, 8192, 32768)
+    } == {301}
+    assert all(
+        validate_solution(
+            entry.solution_key(inventory.problem_type, catalog[entry.selected_solution])
+        )
+        == ()
+        for entry in ordinary
+    )
+    q_a = next(entry for entry in ordinary if entry.family == "attention_q_a")
+    assert q_a.expected_physical_weight_shape == (1024, 4352)
+    assert lm_head[0].expected_physical_weight_shape == (129280, 4352)
+
+
 def test_q3_k_packed_decoder_uses_wave32_vopd_scale_pairs() -> None:
     key = SolutionKey(
         ProblemType.dense_mmq_backward("Q3_K"),
@@ -164,12 +201,15 @@ def test_lds_row_padding_is_strict_and_quant_aware() -> None:
 def test_quant_types_have_distinct_problem_identity() -> None:
     q4 = ProblemType.dense_mmq_backward_q4_k()
     q5 = ProblemType.dense_mmq_backward_q5_k()
-    assert q4 != q5
+    q8 = ProblemType.dense_mmq_backward_q8_0()
+    assert len({q4, q5, q8}) == 3
     q4_key = SolutionKey(q4, ProblemSize(128, 2048, 512), Solution.pilot())
     q5_key = SolutionKey(q5, ProblemSize(128, 2048, 512), Solution.pilot())
-    assert q4_key.hash != q5_key.hash
+    q8_key = SolutionKey(q8, ProblemSize(128, 4096, 1024), Solution.pilot())
+    assert len({q4_key.hash, q5_key.hash, q8_key.hash}) == 3
     assert "dense_bwd_q4_k_" in q4_key.kernel_name
     assert "dense_bwd_q5_k_" in q5_key.kernel_name
+    assert "dense_bwd_q8_0_" in q8_key.kernel_name
     q5_scalar = SolutionKey(
         q5,
         ProblemSize(128, 2048, 512),
@@ -362,6 +402,36 @@ def test_build_and_inspect_q5_k_payload_backend(tmp_path: Path) -> None:
     assert "v_lshl_or_b32" in text
     inspection = inspect_artifact(key, code_object, toolchain)
     assert inspection.vgpr_count == 200
+    assert inspection.sgpr_count == 16
+    assert inspection.lds_num_bytes == 8192
+    assert inspection.wmma_count == 32
+    assert inspection.private_segment_bytes == 0
+    assert inspection.vgpr_spill_count == 0
+    assert inspection.sgpr_spill_count == 0
+
+
+def test_build_and_inspect_q8_0_payload_backend(tmp_path: Path) -> None:
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q8_0(),
+        ProblemSize(128, 4096, 1024),
+        Solution.pilot(),
+    )
+    toolchain = _toolchain()
+    assembly = tmp_path / "q8_0.s"
+    object_path = tmp_path / "q8_0.o"
+    code_object = tmp_path / "q8_0.hsaco"
+    KernelWriterAssembly(key, toolchain).write(assembly)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+
+    text = assembly.read_text()
+    assert "Build Q8_0 block addresses" in text
+    assert "Decode Q8_0 signed int8 payload and scale" in text
+    assert "global_load_d16_b16" in text
+    assert "global_load_b128" in text
+    assert "v_cvt_f32_i32" in text
+    inspection = inspect_artifact(key, code_object, toolchain)
+    assert inspection.vgpr_count == 186
     assert inspection.sgpr_count == 16
     assert inspection.lds_num_bytes == 8192
     assert inspection.wmma_count == 32

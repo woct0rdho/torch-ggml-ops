@@ -34,6 +34,22 @@ _CAMPAIGN_SPECS = {
         },
         "block_bytes": 176,
     },
+    "Q8_0": {
+        "families": {
+            "attention_q_a": ((4096, 1024), "blk.0.attn_q_a.weight", 43),
+            "attention_q_b": ((1024, 32768), "blk.0.attn_q_b.weight", 43),
+            "attention_kv": ((4096, 512), "blk.0.attn_kv.weight", 43),
+            "attention_output_b": ((8192, 4096), "blk.0.attn_output_b.weight", 43),
+            "shared_gate_up": ((4096, 2048), "blk.0.ffn_gate_shexp.weight", 86),
+            "shared_down": ((2048, 4096), "blk.0.ffn_down_shexp.weight", 43),
+            "lm_head": ((4096, 129280), "output.weight", 1),
+        },
+        "m_values": {
+            "lm_head": (32, 64, 128, 256, 512),
+        },
+        "block_values": 32,
+        "block_bytes": 34,
+    },
 }
 
 
@@ -101,7 +117,8 @@ class CampaignEntry:
     def expected_physical_weight_shape(self) -> tuple[int, int]:
         size = self.problem_size
         spec = _campaign_spec(self.quant_data_type)
-        return (size.k, size.n // 256 * int(spec["block_bytes"]))
+        block_values = int(spec.get("block_values", 256))
+        return (size.k, size.n // block_values * int(spec["block_bytes"]))
 
     def solution_key(
         self, problem_type: ProblemType, solution: Solution
@@ -269,10 +286,12 @@ def load_inventory(path: Path = DEFAULT_INVENTORY) -> CampaignInventory:
 
     family_specs = spec["families"]
     assert isinstance(family_specs, Mapping)
+    m_values = spec.get("m_values", {})
+    assert isinstance(m_values, Mapping)
     expected_sizes = {
         ProblemSize(m, n, k)
-        for (n, k), _, _ in family_specs.values()
-        for m in _EXPECTED_M
+        for family, ((n, k), _, _) in family_specs.items()
+        for m in m_values.get(family, _EXPECTED_M)
     }
     actual_sizes = [entry.problem_size for entry in entries]
     if len(actual_sizes) != len(set(actual_sizes)):

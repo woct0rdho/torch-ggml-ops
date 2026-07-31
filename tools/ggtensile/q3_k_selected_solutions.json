@@ -31,7 +31,8 @@
       "PackedWeightLaneShare": 1,
       "Q5KExtraction": "packed",
       "Q5KNibbleShiftHoist": false,
-      "Q5KMetadataVectorLoad": false
+      "Q5KMetadataVectorLoad": false,
+      "Q8KExtraction": "packed"
     },
     "retained_256x64_pad8_sia5": {
       "Q3KExtraction": "packed",
@@ -64,7 +65,8 @@
       "PackedWeightLaneShare": 1,
       "Q5KExtraction": "packed",
       "Q5KNibbleShiftHoist": false,
-      "Q5KMetadataVectorLoad": false
+      "Q5KMetadataVectorLoad": false,
+      "Q8KExtraction": "packed"
     },
     "retained_256x64_pad8_sia5_wgm2": {
       "Q3KExtraction": "packed",
@@ -97,7 +99,8 @@
       "PackedWeightLaneShare": 1,
       "Q5KExtraction": "packed",
       "Q5KNibbleShiftHoist": false,
-      "Q5KMetadataVectorLoad": false
+      "Q5KMetadataVectorLoad": false,
+      "Q8KExtraction": "packed"
     },
     "retained_128x128_pad8_sia5": {
       "Q3KExtraction": "packed",
@@ -130,7 +133,8 @@
       "PackedWeightLaneShare": 1,
       "Q5KExtraction": "packed",
       "Q5KNibbleShiftHoist": false,
-      "Q5KMetadataVectorLoad": false
+      "Q5KMetadataVectorLoad": false,
+      "Q8KExtraction": "packed"
     }
   }
 }

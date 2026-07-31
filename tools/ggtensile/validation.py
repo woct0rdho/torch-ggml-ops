@@ -32,11 +32,11 @@ def _reject(
 def _validate_problem_type(
     problem_type: ProblemType, reasons: list[RejectReason]
 ) -> None:
-    if problem_type.quant_data_type not in {"Q3_K", "Q4_K", "Q5_K"}:
+    if problem_type.quant_data_type not in {"Q3_K", "Q4_K", "Q5_K", "Q8_0"}:
         _reject(
             reasons,
             "problem_type.quant_data_type.unsupported",
-            "dense MMQ backward supports only Q3_K, Q4_K, and Q5_K",
+            "dense MMQ backward supports only Q3_K, Q4_K, Q5_K, and Q8_0",
             "QuantDataType",
             source="ProblemType",
         )
@@ -86,6 +86,8 @@ def _validate_problem_size(
         allowed_n = (2048,)
     elif problem_type.quant_data_type == "Q5_K":
         allowed_n = (512, 2048)
+    elif problem_type.quant_data_type == "Q8_0":
+        allowed_n = (1024, 2048, 4096, 8192)
     if problem_size.n not in allowed_n:
         _reject(
             reasons,
@@ -263,6 +265,13 @@ def _validate_solution_parameters(
             "Q5KExtraction must be 'packed' or 'scalar'",
             "Q5KExtraction",
         )
+    if solution.q8_0_extraction not in ("packed", "scalar"):
+        _reject(
+            reasons,
+            "solution.q8kextraction.unimplemented",
+            "Q8KExtraction must be 'packed' or 'scalar'",
+            "Q8KExtraction",
+        )
     if solution.prefetch_packed_weight_next and (
         solution.schedule_iter_alg != 4
         or solution.prefetch_global_read != 2
@@ -400,6 +409,17 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
     _validate_problem_type(solution_key.problem_type, reasons)
     _validate_solution_parameters(solution_key.solution, reasons)
     if (
+        solution_key.problem_type.quant_data_type == "Q8_0"
+        and solution_key.solution.packed_weight_lane_share != 1
+    ):
+        _reject(
+            reasons,
+            "solution.q8.packedweightlaneshare",
+            "Q8_0 currently requires independent packed payload loads",
+            "PackedWeightLaneShare",
+            source="ProblemType",
+        )
+    if (
         solution_key.problem_type.quant_data_type == "Q4_K"
         and solution_key.solution.q5_k_extraction != "packed"
     ):
@@ -408,6 +428,16 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             "solution.q5kextraction.q4_inert",
             "Q5KExtraction='scalar' is valid only for Q5_K",
             "Q5KExtraction",
+            source="ProblemType",
+        )
+    if solution_key.problem_type.quant_data_type != "Q8_0" and (
+        solution_key.solution.q8_0_extraction != "packed"
+    ):
+        _reject(
+            reasons,
+            "solution.q8.controls.inert",
+            "Q8KExtraction='scalar' is valid only for Q8_0",
+            "Q8KExtraction",
             source="ProblemType",
         )
     if solution_key.problem_type.quant_data_type != "Q5_K" and (
