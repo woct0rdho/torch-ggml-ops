@@ -14,8 +14,8 @@ The local kernel pass is complete for the current Qwen and DeepSeek packed repre
 Current source-of-record matrices use the target-specific tuned AITER configurations:
 
 ```text
-/tmp/grouped_mmq_fwd_qwen_aiter_tuned_9.json
-/tmp/grouped_mmq_fwd_ds4_aiter_tuned_9.json
+~/tmp/torch-ggml-ops/grouped_mmq_fwd_qwen_aiter_tuned_9.json
+~/tmp/torch-ggml-ops/grouped_mmq_fwd_ds4_aiter_tuned_9.json
 ```
 
 They use warmup 3, 9 sequential repeats, correctness rows 256, and the consolidated MMQ bundle.
@@ -130,19 +130,19 @@ The current matrices can be reproduced with:
 PYTHONPATH=. python bench/benchmark_grouped_mmq_fwd.py \\
   --model ~/models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf \\
   --model-family qwen --warmup 3 --repeats 9 --correctness-rows 256 \\
-  --output /tmp/grouped_mmq_fwd_qwen_aiter_tuned_9.json
+  --output ~/tmp/torch-ggml-ops/grouped_mmq_fwd_qwen_aiter_tuned_9.json
 
 PYTHONPATH=. python bench/benchmark_grouped_mmq_fwd.py \\
   --model ~/models/ds4/DeepSeek-V4-Flash-IQ2XXS.gguf \\
   --model-family deepseek --warmup 3 --repeats 9 --correctness-rows 256 \\
-  --output /tmp/grouped_mmq_fwd_ds4_aiter_tuned_9.json
+  --output ~/tmp/torch-ggml-ops/grouped_mmq_fwd_ds4_aiter_tuned_9.json
 ```
 
 ## Latest evaluation
 
 ### Qwen
 
-The latest artifact is `/tmp/grouped_mmq_fwd_qwen_aiter_tuned_9.json`. It contains 60 points from five cases, three physical batches, and four distributions. The table below shows uniform routing for compact comparison. The win count covers all four distributions.
+The latest artifact is `~/tmp/torch-ggml-ops/grouped_mmq_fwd_qwen_aiter_tuned_9.json`. It contains 60 points from five cases, three physical batches, and four distributions. The table below shows uniform routing for compact comparison. The win count covers all four distributions.
 
 | Case | Batch 1 packed/reference ms | Batch 4 packed/reference ms | Batch 16 packed/reference ms | Wins |
 |---|---:|---:|---:|---:|
@@ -166,7 +166,7 @@ The estimate covers checkpoint projection-call counts and two checkpointed execu
 
 ### DeepSeek-V4-Flash
 
-The latest artifact is `/tmp/grouped_mmq_fwd_ds4_aiter_tuned_9.json`. It contains 27 points: three fixed output-A points, 12 routed gate/up points, and 12 routed down points. The table shows uniform routing for the routed cases.
+The latest artifact is `~/tmp/torch-ggml-ops/grouped_mmq_fwd_ds4_aiter_tuned_9.json`. It contains 27 points: three fixed output-A points, 12 routed gate/up points, and 12 routed down points. The table shows uniform routing for the routed cases.
 
 | Case | Batch 1 packed/reference ms | Batch 4 packed/reference ms | Batch 16 packed/reference ms | Wins |
 |---|---:|---:|---:|---:|
@@ -179,8 +179,8 @@ All 39 fixed and paired projection checks are exact against dense packed MMQ. In
 The earlier isolated accepted DeepSeek artifact and same-build Qwen control remain useful for code-object provenance:
 
 ```text
-/tmp/grouped_mmq_fwd_ds4_final_isolated_full.json
-/tmp/grouped_mmq_fwd_qwen_post_ds4_isolated_final.json
+~/tmp/torch-ggml-ops/grouped_mmq_fwd_ds4_final_isolated_full.json
+~/tmp/torch-ggml-ops/grouped_mmq_fwd_qwen_post_ds4_isolated_final.json
 ```
 
 They are superseded as current source-of-record timing by the tuned-reference artifacts above.
@@ -238,7 +238,7 @@ The entries below are ordered by experiment rather than by the current implement
 
 ### Baseline diagnosis
 
-The original grouped path used runtime shape state and a J128 serial row loop. Its historical artifact was `/tmp/grouped_mmq_fwd_baseline_full.json`. The original grouped Q4_K/Q5_K code reached 256 VGPRs with 512-520 private bytes per thread and 127-129 reported VGPR spills. The corresponding dense bodies were spill-free. Historical profiling showed:
+The original grouped path used runtime shape state and a J128 serial row loop. Its historical artifact was `~/tmp/torch-ggml-ops/grouped_mmq_fwd_baseline_full.json`. The original grouped Q4_K/Q5_K code reached 256 VGPRs with 512-520 private bytes per thread and 127-129 reported VGPR spills. The corresponding dense bodies were spill-free. Historical profiling showed:
 - gate/up Q3_K batch 1: 0.829 ms Q8_1 quantization and 10.767 ms for two grouped projections.
 - gate/up Q3_K batch 16: 7.894 ms quantization and 122.445 ms for two grouped projections.
 - down Q4_K batch 4: 0.916 ms quantization and 21.964 ms grouped arithmetic.
@@ -256,7 +256,7 @@ G1 combined:
 - no output-row fallback in exact production bodies.
 - fixed production K traversal while retaining J128 fallback kernels for other shapes.
 
-The focused artifact was `/tmp/grouped_step1_j64_fixed.json`. Representative improvements over the historical baseline were:
+The focused artifact was `~/tmp/torch-ggml-ops/grouped_step1_j64_fixed.json`. Representative improvements over the historical baseline were:
 
 | Point | Baseline ms | G1 ms | Speedup |
 |---|---:|---:|---:|
@@ -311,7 +311,7 @@ The gain established row decomposition and per-load tail control as first-order 
 
 Status: rejected and reverted.
 
-The preceding barrier already ends the decoded-weight and activation LDS lifetime. Removing the post-write barrier produced only noise-level movement, from 0.975x to 1.004x, in `/tmp/grouped_step5_no_write_barrier.json`. The barrier remains for the simpler synchronization structure.
+The preceding barrier already ends the decoded-weight and activation LDS lifetime. Removing the post-write barrier produced only noise-level movement, from 0.975x to 1.004x, in `~/tmp/torch-ggml-ops/grouped_step5_no_write_barrier.json`. The barrier remains for the simpler synchronization structure.
 
 ### G6: compile-time two-block down unroll
 
@@ -369,7 +369,7 @@ Status: retained for fixed two-block down.
 
 G11 recognizes that a valid partial Q8_1 row tile is one contiguous integer span. The down tail computes `(j_max + 1) * q8_block_ints` once and uses one `l < valid_activation_ints` predicate, eliminating row division, remainder, source-row reconstruction, and nested row bounds.
 
-The 15-repeat artifact `/tmp/grouped_step11b_down_contiguous_tails_15.json` showed 1-6% improvements across selected Q4_K, Q5_K, and IQ2_S tails, including 5-6% on Qwen batch-1 nonuniform IQ2_S down. The gate/up version was neutral and was not retained.
+The 15-repeat artifact `~/tmp/torch-ggml-ops/grouped_step11b_down_contiguous_tails_15.json` showed 1-6% improvements across selected Q4_K, Q5_K, and IQ2_S tails, including 5-6% on Qwen batch-1 nonuniform IQ2_S down. The gate/up version was neutral and was not retained.
 
 ### G12: Qwen IQ2_S dot-loop unroll
 
@@ -392,8 +392,8 @@ Status: historical packaging checkpoint.
 G14 preserved Qwen code-object order and linked the DeepSeek specializations around it. It produced reproducible enough measurements for handoff but made translation-unit and link order part of the observed performance. The associated artifacts were:
 
 ```text
-/tmp/grouped_mmq_fwd_ds4_last_version_baseline.json
-/tmp/grouped_mmq_fwd_qwen_last_version_baseline.json
+~/tmp/torch-ggml-ops/grouped_mmq_fwd_ds4_last_version_baseline.json
+~/tmp/torch-ggml-ops/grouped_mmq_fwd_qwen_last_version_baseline.json
 ```
 
 A 25-repeat control showed that unchanged Qwen kernels moved by more than 1% under layout changes. This is why later performance claims use isolated HSACO entries and bracketed controls rather than a monolithic code-object layout.
@@ -409,8 +409,8 @@ The standalone bundle exposed a repeatable Qwen Q5_K batch-1 nonuniform opportun
 The old standalone matrices were:
 
 ```text
-/tmp/grouped_mmq_fwd_ds4_kernel_bundle_final.json
-/tmp/grouped_mmq_fwd_qwen_kernel_bundle_final.json
+~/tmp/torch-ggml-ops/grouped_mmq_fwd_ds4_kernel_bundle_final.json
+~/tmp/torch-ggml-ops/grouped_mmq_fwd_qwen_kernel_bundle_final.json
 ```
 
 They established the current Qwen/DeepSeek shape-specific direction but are superseded for aggregate timing by the latest tuned-reference artifacts at the top of this document.
@@ -423,7 +423,7 @@ The DeepSeek work was executed as D0-D4 after the Qwen G-series pass. These entr
 
 Status: complete.
 
-The same-session baseline artifacts were `/tmp/grouped_mmq_fwd_ds4_baseline_full.json` and `/tmp/grouped_mmq_fwd_qwen_pre_ds4_control.json`, from source checkpoint `aa3ebd4`. The generic routed kernels used J128 and crossed the resource cliff:
+The same-session baseline artifacts were `~/tmp/torch-ggml-ops/grouped_mmq_fwd_ds4_baseline_full.json` and `~/tmp/torch-ggml-ops/grouped_mmq_fwd_qwen_pre_ds4_control.json`, from source checkpoint `aa3ebd4`. The generic routed kernels used J128 and crossed the resource cliff:
 
 | Family | Batch-1 packed/reference ms | Batch-4 packed/reference ms | Batch-16 packed/reference ms | Baseline resource signal |
 |---|---:|---:|---:|---|

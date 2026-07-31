@@ -15,9 +15,9 @@ Against their generic controls, exact specialization improved the complete DeepS
 No broad local tile, workgroup, unroll, prefetch, buffering, or LDS-layout sweep remains open. The remaining opportunities require model-owned activation reuse, a prepared Q6 representation, or a narrowly scoped arithmetic experiment that changes Q6 floating-point operation order.
 
 Final source-of-record artifacts:
-- DeepSeek: `/tmp/mmq_fwd_ds4_p2_stride76_25.json`.
-- Qwen: `/tmp/mmq_fwd_qwen_p4_exact_25.json`.
-- Qwen complete packed loss: `/tmp/mmq_fwd_qwen_complete_loss_final_25.json`.
+- DeepSeek: `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_stride76_25.json`.
+- Qwen: `~/tmp/torch-ggml-ops/mmq_fwd_qwen_p4_exact_25.json`.
+- Qwen complete packed loss: `~/tmp/torch-ggml-ops/mmq_fwd_qwen_complete_loss_final_25.json`.
 
 ## Latest results
 
@@ -174,7 +174,7 @@ The DeepSeek call graph confirms two same-input families:
 - attention Q-A and KV consume the same attention `cur`.
 - shared gate and up are parallel branches over the same `build_ffn` input.
 
-All use the D4 Q8_1 layout. Profiling in `/tmp/mmq_fwd_final_components.txt` attributes about `7.5%` of shared-gate B1 and `29.7%` of KV B16 call time to quantization. Qwen narrow Q3_K B16 spends about `24.4%` in quantization.
+All use the D4 Q8_1 layout. Profiling in `~/tmp/torch-ggml-ops/mmq_fwd_final_components.txt` attributes about `7.5%` of shared-gate B1 and `29.7%` of KV B16 call time to quantization. Qwen narrow Q3_K B16 spends about `24.4%` in quantization.
 
 A prepared-activation or pair/multi-projection API must:
 - quantize once per required Q8_1 metadata layout.
@@ -199,7 +199,7 @@ A transient BF16 stage is rejected. The optimistic control allocated and copied 
 | Persistent BF16 GEMM reference | 13.555 ms |
 | Optimistic transient BF16 floor | 22.302 ms |
 
-The transient floor loses by `44.21%`, requires a 1,017,118,720-byte workspace, and reaches about 1.145 GB incremental peak allocation. Artifact: `/tmp/mmq_fwd_qwen_q6_transient_floor_25.json`.
+The transient floor loses by `44.21%`, requires a 1,017,118,720-byte workspace, and reaches about 1.145 GB incremental peak allocation. Artifact: `~/tmp/torch-ggml-ops/mmq_fwd_qwen_q6_transient_floor_25.json`.
 
 The packed LM-head weight is 417,177,600 bytes. A lossless prepared integer-plus-scale layout needs at least 508,559,360 int8 value bytes plus per-16-value and block scales, approximately 519-546 MiB depending on alignment. It must be model-owned and specify preparation cost, lifetime, invalidation, device placement, memory budget, and forward/backward reuse. A hidden persistent BF16 shadow is not acceptable.
 
@@ -229,7 +229,7 @@ Each thread processes four BF16 values per loop iteration. The block loops only 
 
 On narrow Q4_K M32768, traced quantizer time fell from `5,105.979 us` to `886.928 us`, while multiplication remained roughly `2,565.848 us` versus `2,645.314 us`. Combined traced time fell from about 7.67 to 3.53 ms. This established activation scheduling, not multiplication, as the first-order narrow bottleneck.
 
-The pre-exact Qwen source `/tmp/mmq_fwd_final_full.json` recorded the retained effects of the quantizer and initial geometry:
+The pre-exact Qwen source `~/tmp/torch-ggml-ops/mmq_fwd_final_full.json` recorded the retained effects of the quantizer and initial geometry:
 - query Q3_K improved about 5-8% across batches.
 - narrow Q4_K improved about 2.1-2.2x at B4/B16.
 - attention-output Q4_K improved about 1.28-1.34x.
@@ -247,11 +247,11 @@ The initial nine-repeat before/after comparison measured `-0.23%` geometric move
 Approximately 3.2% movements in attention-query Q3_K B4 and attention-output Q4_K B4, and a `-1.5%` narrow Q5_K B1 movement, occurred without a HIP-semantic change. They are code-object placement variance, not optimization evidence.
 
 Artifacts:
-- `/tmp/mmq_fwd_pre_bundle.json`.
-- `/tmp/mmq_fwd_post_bundle.json`.
-- `/tmp/mmq_fwd_embedded_pre_control_25.json`.
-- `/tmp/mmq_fwd_bundle_control_25.json`.
-- `/tmp/mmq_fwd_embedded_post_control_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_pre_bundle.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_post_bundle.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_embedded_pre_control_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_bundle_control_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_embedded_post_control_25.json`.
 
 ### D0: DeepSeek baseline and decomposition
 
@@ -262,9 +262,9 @@ The first accepted DeepSeek matrix established:
 - Qwen narrow Q3_K B16 spent `23.8%` in quantization, while Q6_K M256 spent below `0.1%`.
 
 Artifacts:
-- `/tmp/mmq_fwd_ds4_plan_baseline_9.json`.
-- `/tmp/mmq_fwd_qwen_plan_control_9.json`.
-- `/tmp/mmq_fwd_p0_components.txt`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_plan_baseline_9.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_qwen_plan_control_9.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_p0_components.txt`.
 
 The first forward/backward baselines had accidentally run concurrently and were discarded. All retained measurements are sequential.
 
@@ -287,11 +287,11 @@ Against the generic bracket midpoint:
 - checkpoint-weighted latency improved by `14.64-25.36%`, depending on provisional LM chunk.
 
 Artifacts:
-- `/tmp/mmq_fwd_ds4_p1_generic_before_25.json`.
-- `/tmp/mmq_fwd_ds4_p1_exact_25.json`.
-- `/tmp/mmq_fwd_ds4_p1_generic_after_25.json`.
-- `/tmp/mmq_fwd_ds4_p1_exact_bracket_25.txt`.
-- `/tmp/mmq_fwd_qwen_p1_control_9.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p1_generic_before_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p1_exact_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p1_generic_after_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p1_exact_bracket_25.txt`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_qwen_p1_control_9.json`.
 
 A detached pre-change build produced byte-identical Qwen quantizer/Q3_K/Q4_K/Q5_K/Q6_K HSACOs and a byte-identical generic Q8_0 fallback, confirming no Qwen device-code change during this phase.
 
@@ -306,12 +306,12 @@ Ordinary J64 was rejected for every K class:
 J128 packed-weight reuse outweighs J64's lower VGPR/LDS footprint on every full tile. J64 remains only where M32/M64 would otherwise be padded.
 
 Artifacts:
-- `/tmp/mmq_fwd_ds4_p2_k4096_j64_25.json`.
-- `/tmp/mmq_fwd_ds4_p2_k4096_j128_25.json`.
-- `/tmp/mmq_fwd_ds4_p2_k4096_j64_control_25.txt`.
-- `/tmp/mmq_fwd_ds4_p2_other_j64_25.json`.
-- `/tmp/mmq_fwd_ds4_p2_other_j128_25.json`.
-- `/tmp/mmq_fwd_ds4_p2_other_j64_control_25.txt`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_k4096_j64_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_k4096_j128_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_k4096_j64_control_25.txt`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_other_j64_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_other_j128_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_other_j64_control_25.txt`.
 
 K-loop unrolling was closed from normalized ISA. Every exact K body has the same 1,453-instruction loop body. Each 256-value iteration has only three scalar loop-control instructions around hundreds of load, WMMA, conversion, and FMA instructions. Duplicating the body would increase instruction-cache pressure without removing meaningful control work.
 
@@ -323,16 +323,16 @@ Activation-half double buffering loaded both Q8_1 halves before compute and redu
 The extra LDS did not create occupancy, and loading both halves up front disrupted the accepted load/compute cadence.
 
 Artifacts:
-- `/tmp/mmq_fwd_ds4_p2_prefetch_y_25.json`.
-- `/tmp/mmq_fwd_ds4_p2_prefetch_baseline_25.json`.
-- `/tmp/mmq_fwd_ds4_p2_prefetch_y_control_25.txt`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_prefetch_y_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_prefetch_baseline_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_prefetch_y_control_25.txt`.
 
 The accepted stride-76 Q8 body measured `7.73%` LDS bank conflict, about `7.5%` ALU stalled by LDS, 128-cycle derived LDS latency, about 11.6 active waves/CU, and about 66% L2 hit rate. Stride 77 reduced the conflict metric to `5.12%` but doubled ALU stalled by LDS to about `14.3%`. It regressed every point by `3.83-12.86%`, or `8.58%` geometrically. The accepted `+4` Q8 row padding remains.
 
 Artifacts:
-- `/tmp/mmq_fwd_ds4_p2_stride77_25.json`.
-- `/tmp/mmq_fwd_ds4_p2_stride76_25.json`.
-- `/tmp/mmq_fwd_ds4_p2_stride77_control_25.txt`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_stride77_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_stride76_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_stride77_control_25.txt`.
 
 ### Q1: exact Qwen bodies
 
@@ -351,10 +351,10 @@ Every point improved against its generic midpoint:
 - checkpoint-weighted latency: `3.86-5.10%`.
 
 Artifacts:
-- `/tmp/mmq_fwd_qwen_p4_generic_before_25.json`.
-- `/tmp/mmq_fwd_qwen_p4_exact_25.json`.
-- `/tmp/mmq_fwd_qwen_p4_generic_after_25.json`.
-- `/tmp/mmq_fwd_qwen_p4_exact_bracket_25.txt`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_qwen_p4_generic_before_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_qwen_p4_exact_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_qwen_p4_generic_after_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_qwen_p4_exact_bracket_25.txt`.
 
 Exact specialization closed runtime bounds/K state as explanations for Q6 M256. Its residual gap is packed Q6 arithmetic/representation, not geometry.
 
@@ -499,53 +499,53 @@ The downstream complete-loss harness independently validated the final Qwen M64/
 ## Artifact index
 
 Latest acceptance:
-- `/tmp/mmq_fwd_ds4_p2_stride76_25.json`.
-- `/tmp/mmq_fwd_qwen_p4_exact_25.json`.
-- `/tmp/mmq_fwd_qwen_complete_loss_final_25.json`.
-- `/tmp/mmq_fwd_final_components.txt`.
-- `/tmp/mmq_fwd_qwen_q6_transient_floor_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_stride76_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_qwen_p4_exact_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_qwen_complete_loss_final_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_final_components.txt`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_qwen_q6_transient_floor_25.json`.
 
 Historical retained baselines:
-- `/tmp/mmq_fwd_baseline_primary_sequential.json`.
-- `/tmp/mmq_fwd_final_full.json`.
-- `/tmp/mmq_fwd_ds4_plan_baseline_9.json`.
-- `/tmp/mmq_fwd_qwen_plan_control_9.json`.
-- `/tmp/mmq_fwd_p0_components.txt`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_baseline_primary_sequential.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_final_full.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_plan_baseline_9.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_qwen_plan_control_9.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_p0_components.txt`.
 
 DeepSeek exact-body controls:
-- `/tmp/mmq_fwd_ds4_p1_generic_before_25.json`.
-- `/tmp/mmq_fwd_ds4_p1_exact_25.json`.
-- `/tmp/mmq_fwd_ds4_p1_generic_after_25.json`.
-- `/tmp/mmq_fwd_ds4_p1_exact_bracket_25.txt`.
-- `/tmp/mmq_fwd_qwen_p1_control_9.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p1_generic_before_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p1_exact_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p1_generic_after_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p1_exact_bracket_25.txt`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_qwen_p1_control_9.json`.
 
 DeepSeek rejected local controls:
-- `/tmp/mmq_fwd_ds4_p2_k4096_j64_25.json`.
-- `/tmp/mmq_fwd_ds4_p2_k4096_j128_25.json`.
-- `/tmp/mmq_fwd_ds4_p2_k4096_j64_control_25.txt`.
-- `/tmp/mmq_fwd_ds4_p2_other_j64_25.json`.
-- `/tmp/mmq_fwd_ds4_p2_other_j128_25.json`.
-- `/tmp/mmq_fwd_ds4_p2_other_j64_control_25.txt`.
-- `/tmp/mmq_fwd_ds4_p2_prefetch_y_25.json`.
-- `/tmp/mmq_fwd_ds4_p2_prefetch_baseline_25.json`.
-- `/tmp/mmq_fwd_ds4_p2_prefetch_y_control_25.txt`.
-- `/tmp/mmq_fwd_ds4_p2_stride77_25.json`.
-- `/tmp/mmq_fwd_ds4_p2_stride77_control_25.txt`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_k4096_j64_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_k4096_j128_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_k4096_j64_control_25.txt`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_other_j64_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_other_j128_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_other_j64_control_25.txt`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_prefetch_y_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_prefetch_baseline_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_prefetch_y_control_25.txt`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_stride77_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_stride77_control_25.txt`.
 
 Qwen exact-body controls:
-- `/tmp/mmq_fwd_qwen_p4_generic_before_25.json`.
-- `/tmp/mmq_fwd_qwen_p4_exact_25.json`.
-- `/tmp/mmq_fwd_qwen_p4_generic_after_25.json`.
-- `/tmp/mmq_fwd_qwen_p4_exact_bracket_25.txt`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_qwen_p4_generic_before_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_qwen_p4_exact_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_qwen_p4_generic_after_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_qwen_p4_exact_bracket_25.txt`.
 
 Bundle controls:
-- `/tmp/mmq_fwd_pre_bundle.json`.
-- `/tmp/mmq_fwd_post_bundle.json`.
-- `/tmp/mmq_fwd_embedded_pre_control_25.json`.
-- `/tmp/mmq_fwd_bundle_control_25.json`.
-- `/tmp/mmq_fwd_embedded_post_control_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_pre_bundle.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_post_bundle.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_embedded_pre_control_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_bundle_control_25.json`.
+- `~/tmp/torch-ggml-ops/mmq_fwd_embedded_post_control_25.json`.
 
-The `/tmp` artifacts are measurement provenance, not repository inputs.
+The `~/tmp/torch-ggml-ops` artifacts are measurement provenance, not repository inputs.
 
 ## Tool notes
 

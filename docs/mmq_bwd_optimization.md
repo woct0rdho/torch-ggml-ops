@@ -17,16 +17,16 @@ Repository-local Qwen work closed after QB1. DeepSeek work closed after DB8. No 
 Source-of-record artifacts:
 
 ```text
-Qwen ordinary matrix:       /tmp/mmq_bwd_qwen_qb1_final_narrow_q5_25.json
-Qwen post-DB8 control:      /tmp/mmq_bwd_qwen_post_db8_control_9.json
-Qwen complete loss:         /tmp/mmq_bwd_qwen_db6_complete_loss_control_25.json
-DeepSeek ordinary matrix:   /tmp/mmq_bwd_ds4_db8_final_25.json
-DeepSeek complete loss B1:  /tmp/mmq_bwd_ds4_db6_complete_loss_b1_25.json
-DeepSeek complete loss B4:  /tmp/mmq_bwd_ds4_db6_complete_loss_b4_25.json
-DeepSeek M512 B16 capacity: /tmp/mmq_bwd_ds4_db6_complete_loss_b16_m512_capacity_3.json
+Qwen ordinary matrix:       ~/tmp/torch-ggml-ops/mmq_bwd_qwen_qb1_final_narrow_q5_25.json
+Qwen post-DB8 control:      ~/tmp/torch-ggml-ops/mmq_bwd_qwen_post_db8_control_9.json
+Qwen complete loss:         ~/tmp/torch-ggml-ops/mmq_bwd_qwen_db6_complete_loss_control_25.json
+DeepSeek ordinary matrix:   ~/tmp/torch-ggml-ops/mmq_bwd_ds4_db8_final_25.json
+DeepSeek complete loss B1:  ~/tmp/torch-ggml-ops/mmq_bwd_ds4_db6_complete_loss_b1_25.json
+DeepSeek complete loss B4:  ~/tmp/torch-ggml-ops/mmq_bwd_ds4_db6_complete_loss_b4_25.json
+DeepSeek M512 B16 capacity: ~/tmp/torch-ggml-ops/mmq_bwd_ds4_db6_complete_loss_b16_m512_capacity_3.json
 ```
 
-The `/tmp` paths are measurement provenance, not repository inputs.
+The `~/tmp/torch-ggml-ops` paths are measurement provenance, not repository inputs.
 
 ## Latest results
 
@@ -522,14 +522,14 @@ Benchmark examples:
 PYTHONPATH=. python bench/benchmark_mmq_bwd.py \
   --model /path/to/model.gguf --model-family qwen-or-deepseek \
   --batches 1,4,16 --warmup 3 --repeats 9 \
-  --output /tmp/mmq_bwd_report.json
+  --output ~/tmp/torch-ggml-ops/mmq_bwd_report.json
 
 PYTHONPATH=. python bench/benchmark_mmq_complete_loss.py \
   --model /path/to/model.gguf --model-family deepseek \
   --batches 1 --chunks 32,64,128,256,512 \
   --loss-module-root /path/to/production/loss/module \
   --warmup 3 --repeats 25 \
-  --output /tmp/mmq_bwd_complete_loss.json
+  --output ~/tmp/torch-ggml-ops/mmq_bwd_complete_loss.json
 ```
 
 Build and validation:
@@ -558,128 +558,128 @@ The DeepSeek tests cover independent one-hot decode, random direct grad-input, a
 ### Latest acceptance
 
 ```text
-/tmp/mmq_bwd_qwen_qb1_final_narrow_q5_25.json
-/tmp/mmq_bwd_qwen_post_db8_control_9.json
-/tmp/mmq_bwd_qwen_db6_complete_loss_control_25.json
-/tmp/mmq_bwd_ds4_db8_final_25.json
-/tmp/mmq_bwd_ds4_db6_complete_loss_b1_25.json
-/tmp/mmq_bwd_ds4_db6_complete_loss_b4_25.json
-/tmp/mmq_bwd_ds4_db6_complete_loss_b16_m512_capacity_3.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_qb1_final_narrow_q5_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_post_db8_control_9.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_db6_complete_loss_control_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_db8_final_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_db6_complete_loss_b1_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_db6_complete_loss_b4_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_db6_complete_loss_b16_m512_capacity_3.json
 ```
 
 ### Qwen historical and QB1 controls
 
 ```text
-/tmp/mmq_bwd_baseline_primary_sequential.json
-/tmp/mmq_bwd_final_full_v3.json
-/tmp/mmq_bwd_qwen_qb0_folded_25.json
-/tmp/mmq_bwd_qwen_qb1_q3_selected_before_25.json
-/tmp/mmq_bwd_qwen_qb1_q3_scalar_25.json
-/tmp/mmq_bwd_qwen_qb1_q3_no_prefetch_25.json
-/tmp/mmq_bwd_qwen_qb1_q3_no_swizzle_25.json
-/tmp/mmq_bwd_qwen_qb1_q3_selected_after_25.json
-/tmp/mmq_bwd_qwen_qb1_q5_narrow_selected_before_25.json
-/tmp/mmq_bwd_qwen_qb1_q5_narrow_scalar_25.json
-/tmp/mmq_bwd_qwen_qb1_q5_narrow_selected_after_25.json
-/tmp/mmq_bwd_qwen_qb1_q6_m256_packed_before_25.json
-/tmp/mmq_bwd_qwen_qb1_q6_m256_scalar_25.json
-/tmp/mmq_bwd_qwen_qb1_q6_m256_packed_after_25.json
-/tmp/mmq_bwd_qwen_qb1_q5_shared_swizzle4_before_25.json
-/tmp/mmq_bwd_qwen_qb1_q5_shared_swizzle8_25.json
-/tmp/mmq_bwd_qwen_qb1_q5_shared_swizzle4_after_25.json
-/tmp/mmq_bwd_qwen_qb1_final_25.json
-/tmp/mmq_bwd_ds4_qb1_control_9.json
+~/tmp/torch-ggml-ops/mmq_bwd_baseline_primary_sequential.json
+~/tmp/torch-ggml-ops/mmq_bwd_final_full_v3.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_qb0_folded_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_qb1_q3_selected_before_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_qb1_q3_scalar_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_qb1_q3_no_prefetch_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_qb1_q3_no_swizzle_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_qb1_q3_selected_after_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_qb1_q5_narrow_selected_before_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_qb1_q5_narrow_scalar_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_qb1_q5_narrow_selected_after_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_qb1_q6_m256_packed_before_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_qb1_q6_m256_scalar_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_qb1_q6_m256_packed_after_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_qb1_q5_shared_swizzle4_before_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_qb1_q5_shared_swizzle8_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_qb1_q5_shared_swizzle4_after_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_qb1_final_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_qb1_control_9.json
 ```
 
 ### DeepSeek DB0-DB4 controls
 
 ```text
-/tmp/mmq_bwd_ds4_q8_correctness.json
-/tmp/mmq_bwd_ds4_p0_baseline_9.json
-/tmp/mmq_bwd_qwen_pre_ds4_control_9.json
-/tmp/mmq_bwd_ds4_p1_exact_9.json
-/tmp/mmq_bwd_ds4_p1_generic_before_25.json
-/tmp/mmq_bwd_ds4_p1_exact_25.json
-/tmp/mmq_bwd_ds4_p1_generic_after_25.json
-/tmp/mmq_bwd_qwen_post_ds4_p1_control_9.json
-/tmp/mmq_bwd_ds4_p2_corrected_g1_9.json
-/tmp/mmq_bwd_ds4_p2_corrected_g3_9.json
-/tmp/mmq_bwd_ds4_p2_g0_after_25.json
-/tmp/mmq_bwd_ds4_p2_corrected_selected_25.json
-/tmp/mmq_bwd_ds4_p2_corrected_g0_after_25.json
-/tmp/mmq_bwd_ds4_p3_qa_prefetch_control_before_25.json
-/tmp/mmq_bwd_ds4_p3_qa_prefetch_candidate_25.json
-/tmp/mmq_bwd_ds4_p3_qa_prefetch_control_after_25.json
-/tmp/mmq_bwd_ds4_p3_padding_selected_control_before_25.json
-/tmp/mmq_bwd_ds4_p3_padding_selected_candidate_25.json
-/tmp/mmq_bwd_ds4_p3_padding_selected_control_after_25.json
-/tmp/mmq_bwd_ds4_p3_final_9.json
-/tmp/mmq_bwd_qwen_post_ds4_p3_control_9.json
-/tmp/mmq_bwd_ds4_p4_lm_g1_9.json
-/tmp/mmq_bwd_ds4_p4_lm_g2_9.json
-/tmp/mmq_bwd_ds4_p4_lm_g3_9.json
-/tmp/mmq_bwd_ds4_p4_control_before_25.json
-/tmp/mmq_bwd_ds4_p4_selected_25.json
-/tmp/mmq_bwd_ds4_p4_control_after_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_q8_correctness.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p0_baseline_9.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_pre_ds4_control_9.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p1_exact_9.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p1_generic_before_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p1_exact_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p1_generic_after_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_post_ds4_p1_control_9.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p2_corrected_g1_9.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p2_corrected_g3_9.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p2_g0_after_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p2_corrected_selected_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p2_corrected_g0_after_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p3_qa_prefetch_control_before_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p3_qa_prefetch_candidate_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p3_qa_prefetch_control_after_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p3_padding_selected_control_before_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p3_padding_selected_candidate_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p3_padding_selected_control_after_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p3_final_9.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_post_ds4_p3_control_9.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p4_lm_g1_9.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p4_lm_g2_9.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p4_lm_g3_9.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p4_control_before_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p4_selected_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_p4_control_after_25.json
 ```
 
 ### DeepSeek DB6-DB8 controls
 
 ```text
-/tmp/mmq_bwd_ds4_db6_complete_loss_b1_screen_9.json
-/tmp/mmq_bwd_ds4_db6_final_25.json
-/tmp/mmq_bwd_ds4_group_m_qb_m2_screen_9.json
-/tmp/mmq_bwd_ds4_group_m_qb_m4_screen_9.json
-/tmp/mmq_bwd_ds4_group_m_output_m2_screen_9.json
-/tmp/mmq_bwd_ds4_group_m_output_m4_screen_9.json
-/tmp/mmq_bwd_ds4_group_m_qb_control_before_25.json
-/tmp/mmq_bwd_ds4_group_m_qb_m2_candidate_25.json
-/tmp/mmq_bwd_ds4_group_m_qb_control_after_25.json
-/tmp/mmq_bwd_ds4_group_m_output_control_before_25.json
-/tmp/mmq_bwd_ds4_group_m_output_m2_candidate_25.json
-/tmp/mmq_bwd_ds4_group_m_output_control_after_25.json
-/tmp/mmq_bwd_ds4_group_m_m2_before_25.json
-/tmp/mmq_bwd_ds4_group_m_m1_candidate_25.json
-/tmp/mmq_bwd_ds4_group_m_m2_after_25.json
-/tmp/mmq_bwd_ds4_group_m_final_25.json
-/tmp/mmq_bwd_qwen_post_group_m_control_9.json
-/tmp/mmq_bwd_ds4_db8_group_m_control_screen_9.json
-/tmp/mmq_bwd_ds4_db8_group_m_candidate_screen_9.json
-/tmp/mmq_bwd_ds4_db8_group_m_control_before_25.json
-/tmp/mmq_bwd_ds4_db8_group_m_m2_candidate_25.json
-/tmp/mmq_bwd_ds4_db8_group_m_control_after_25.json
-/tmp/mmq_bwd_ds4_db8_group_m_m1_screen_9.json
-/tmp/mmq_bwd_ds4_db8_qb_m2_control_before_25.json
-/tmp/mmq_bwd_ds4_db8_qb_m1_candidate_25.json
-/tmp/mmq_bwd_ds4_db8_qb_m2_control_after_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_db6_complete_loss_b1_screen_9.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_db6_final_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_group_m_qb_m2_screen_9.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_group_m_qb_m4_screen_9.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_group_m_output_m2_screen_9.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_group_m_output_m4_screen_9.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_group_m_qb_control_before_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_group_m_qb_m2_candidate_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_group_m_qb_control_after_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_group_m_output_control_before_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_group_m_output_m2_candidate_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_group_m_output_control_after_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_group_m_m2_before_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_group_m_m1_candidate_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_group_m_m2_after_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_group_m_final_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_qwen_post_group_m_control_9.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_db8_group_m_control_screen_9.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_db8_group_m_candidate_screen_9.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_db8_group_m_control_before_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_db8_group_m_m2_candidate_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_db8_group_m_control_after_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_db8_group_m_m1_screen_9.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_db8_qb_m2_control_before_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_db8_qb_m1_candidate_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_ds4_db8_qb_m2_control_after_25.json
 ```
 
 ### Profiler and packaging evidence
 
 ```text
-/tmp/rocprof-mmq-bwd-db2-qa
-/tmp/rocprof-mmq-bwd-db2-qb
-/tmp/rocprof-mmq-bwd-db2-output
-/tmp/rocprof-mmq-bwd-db3-qa-padding8
-/tmp/rocprof-mmq-bwd-group-m-qb-control
-/tmp/rocprof-mmq-bwd-group-m-qb-m2
-/tmp/rocprof-mmq-bwd-group-m-output-control
-/tmp/rocprof-mmq-bwd-group-m-output-m2
-/tmp/rocprof-mmq-bwd-db8-qa-control
-/tmp/rocprof-mmq-bwd-db8-qa-m2
-/tmp/rocprof-mmq-bwd-db8-qb-control
-/tmp/rocprof-mmq-bwd-db8-qb-m1
-/tmp/rocprof-mmq-bwd-db8-kv-control
-/tmp/rocprof-mmq-bwd-db8-kv-m2
-/tmp/rocprof-mmq-bwd-db8-shared-gate-control
-/tmp/rocprof-mmq-bwd-db8-shared-gate-m2
-/tmp/rocprof-mmq-bwd-db8-shared-down-control
-/tmp/rocprof-mmq-bwd-db8-shared-down-m2
-/tmp/mmq_bwd_pre_bundle.json
-/tmp/mmq_bwd_post_bundle.json
-/tmp/mmq_bwd_embedded_pre_control_25.json
-/tmp/mmq_bwd_bundle_control_25.json
-/tmp/mmq_bwd_embedded_post_control_25.json
+~/tmp/torch-ggml-ops/rocprof-mmq-bwd-db2-qa
+~/tmp/torch-ggml-ops/rocprof-mmq-bwd-db2-qb
+~/tmp/torch-ggml-ops/rocprof-mmq-bwd-db2-output
+~/tmp/torch-ggml-ops/rocprof-mmq-bwd-db3-qa-padding8
+~/tmp/torch-ggml-ops/rocprof-mmq-bwd-group-m-qb-control
+~/tmp/torch-ggml-ops/rocprof-mmq-bwd-group-m-qb-m2
+~/tmp/torch-ggml-ops/rocprof-mmq-bwd-group-m-output-control
+~/tmp/torch-ggml-ops/rocprof-mmq-bwd-group-m-output-m2
+~/tmp/torch-ggml-ops/rocprof-mmq-bwd-db8-qa-control
+~/tmp/torch-ggml-ops/rocprof-mmq-bwd-db8-qa-m2
+~/tmp/torch-ggml-ops/rocprof-mmq-bwd-db8-qb-control
+~/tmp/torch-ggml-ops/rocprof-mmq-bwd-db8-qb-m1
+~/tmp/torch-ggml-ops/rocprof-mmq-bwd-db8-kv-control
+~/tmp/torch-ggml-ops/rocprof-mmq-bwd-db8-kv-m2
+~/tmp/torch-ggml-ops/rocprof-mmq-bwd-db8-shared-gate-control
+~/tmp/torch-ggml-ops/rocprof-mmq-bwd-db8-shared-gate-m2
+~/tmp/torch-ggml-ops/rocprof-mmq-bwd-db8-shared-down-control
+~/tmp/torch-ggml-ops/rocprof-mmq-bwd-db8-shared-down-m2
+~/tmp/torch-ggml-ops/mmq_bwd_pre_bundle.json
+~/tmp/torch-ggml-ops/mmq_bwd_post_bundle.json
+~/tmp/torch-ggml-ops/mmq_bwd_embedded_pre_control_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_bundle_control_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_embedded_post_control_25.json
 ```
 
 ## Tool notes

@@ -7,8 +7,8 @@ Grouped MMQ backward is production-tuned for the current Qwen and DeepSeek GGUF 
 Current source-of-record artifacts use the target-specific tuned AITER configurations:
 
 ```text
-Qwen:     /tmp/grouped_mmq_bwd_qwen_aiter_tuned_9.json
-DeepSeek: /tmp/grouped_mmq_bwd_ds4_aiter_tuned_9.json
+Qwen:     ~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_aiter_tuned_9.json
+DeepSeek: ~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_aiter_tuned_9.json
 ```
 
 Latest outcome:
@@ -224,7 +224,7 @@ PYTHONPATH=. python bench/benchmark_grouped_mmq_bwd.py \
   --batches 1,4,16 \
   --distributions uniform,skewed,sparse,boundary \
   --warmup 3 --repeats 9 \
-  --output /tmp/grouped_mmq_bwd_qwen_aiter_tuned_9.json
+  --output ~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_aiter_tuned_9.json
 
 PYTHONPATH=. python bench/benchmark_grouped_mmq_bwd.py \
   --model ~/models/ds4/DeepSeek-V4-Flash-IQ2XXS.gguf \
@@ -232,7 +232,7 @@ PYTHONPATH=. python bench/benchmark_grouped_mmq_bwd.py \
   --batches 1,4,16 \
   --distributions uniform,skewed,sparse,boundary \
   --warmup 3 --repeats 9 \
-  --output /tmp/grouped_mmq_bwd_ds4_aiter_tuned_9.json
+  --output ~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_aiter_tuned_9.json
 ```
 
 ## Production implementation
@@ -404,10 +404,10 @@ Generic resources were spill-free: Q2_K used 46 VGPRs/24 SGPRs/512-byte LDS, IQ2
 Artifacts:
 
 ```text
-/tmp/grouped_mmq_bwd_ds4_baseline_b1_b4.json
-/tmp/grouped_mmq_bwd_qwen_pre_ds4_control.json
-/tmp/grouped_mmq_bwd_ds4_fixed_harness_check.json
-/tmp/grouped_mmq_bwd_ds4_routed_harness_check.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_baseline_b1_b4.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_pre_ds4_control.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_fixed_harness_check.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_routed_harness_check.json
 ```
 
 ### DeepSeek P2: fixed Q8_0
@@ -427,14 +427,14 @@ The retained M256/N64/K32 width16 unswizzled body provides `8.09x`, `8.33x`, and
 Artifacts:
 
 ```text
-/tmp/grouped_mmq_bwd_ds4_q80_m64_full.json
-/tmp/grouped_mmq_bwd_ds4_q80_m128_full.json
-/tmp/grouped_mmq_bwd_ds4_q80_m256_full.json
-/tmp/grouped_mmq_bwd_ds4_q80_m256_control_25.json
-/tmp/grouped_mmq_bwd_ds4_q80_m128_control_25.json
-/tmp/grouped_mmq_bwd_ds4_q80_m256_w32_full.json
-/tmp/grouped_mmq_bwd_ds4_q80_m256_s4_full.json
-/tmp/grouped_mmq_bwd_ds4_q80_generic_control_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q80_m64_full.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q80_m128_full.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q80_m256_full.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q80_m256_control_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q80_m128_control_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q80_m256_w32_full.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q80_m256_s4_full.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q80_generic_control_25.json
 ```
 
 ### DeepSeek P3: IQ2_XXS pair
@@ -452,12 +452,12 @@ Layout controls:
 Artifacts:
 
 ```text
-/tmp/grouped_mmq_bwd_ds4_tiled_focus.json
-/tmp/grouped_mmq_bwd_ds4_iq2xxs_width32_focus.json
-/tmp/grouped_mmq_bwd_ds4_iq2xxs_swizzle4_full.json
-/tmp/grouped_mmq_bwd_ds4_iq2xxs_swizzle16_focus.json
-/tmp/grouped_mmq_bwd_ds4_iq2xxs_tail_predicate_baseline_25.json
-/tmp/grouped_mmq_bwd_ds4_iq2xxs_tail_predicate_candidate_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_tiled_focus.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_iq2xxs_width32_focus.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_iq2xxs_swizzle4_full.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_iq2xxs_swizzle16_focus.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_iq2xxs_tail_predicate_baseline_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_iq2xxs_tail_predicate_candidate_25.json
 ```
 
 ### DeepSeek P4: Q2_K down
@@ -478,12 +478,12 @@ Q2_K row tasks were not added. N64 already launches 32 N workgroups per expert a
 Artifacts:
 
 ```text
-/tmp/grouped_mmq_bwd_ds4_q2k_u2_dispatch_control_25.json
-/tmp/grouped_mmq_bwd_ds4_q2k_u1_dispatch_control_25.json
-/tmp/grouped_mmq_bwd_ds4_q2k_tail_predicate_baseline_25.json
-/tmp/grouped_mmq_bwd_ds4_q2k_tail_predicate_candidate_25.json
-/tmp/grouped_mmq_bwd_ds4_q2k_n128_candidate_valid_b16_25.json
-/tmp/grouped_mmq_bwd_ds4_q2k_n64_bracket_b16_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q2k_u2_dispatch_control_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q2k_u1_dispatch_control_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q2k_tail_predicate_baseline_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q2k_tail_predicate_candidate_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q2k_n128_candidate_valid_b16_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q2k_n64_bracket_b16_25.json
 ```
 
 ### Qwen GB0: baseline and diagnosis
@@ -505,11 +505,11 @@ A historical one-expert 1,024-row diagnostic showed dense packed speedups of `5.
 Artifacts:
 
 ```text
-/tmp/grouped_mmq_bwd_baseline_full.json
-/tmp/grouped_mmq_bwd_one_expert.txt
-/tmp/rocprof_grouped_bwd_baseline_gate_b16_packed
-/tmp/rocprof_grouped_bwd_baseline_down_q4_b4_packed
-/tmp/rocprof_grouped_bwd_baseline_down_iq2_b4_sparse_packed
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_baseline_full.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_one_expert.txt
+~/tmp/torch-ggml-ops/rocprof_grouped_bwd_baseline_gate_b16_packed
+~/tmp/torch-ggml-ops/rocprof_grouped_bwd_baseline_down_q4_b4_packed
+~/tmp/torch-ggml-ops/rocprof_grouped_bwd_baseline_down_iq2_b4_sparse_packed
 ```
 
 ### Qwen GB1-GB3: tiled Q4_K, fused Q3_K, and small bodies
@@ -523,12 +523,12 @@ GB3 introduced exact M64/N64/K32 S1 bodies. Universal M128 S2 was rejected becau
 Artifacts:
 
 ```text
-/tmp/grouped_mmq_bwd_step1_q4_matrix.json
-/tmp/grouped_mmq_bwd_step2_q3_pair_matrix.json
-/tmp/grouped_mmq_bwd_step3_s1.json
-/tmp/grouped_mmq_bwd_step3_s2.json
-/tmp/grouped_mmq_bwd_q4_sparse_s2_25.json
-/tmp/grouped_mmq_bwd_q4_sparse_s1_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step1_q4_matrix.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step2_q3_pair_matrix.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step3_s1.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step3_s2.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_q4_sparse_s2_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_q4_sparse_s1_25.json
 ```
 
 ### Qwen GB4-GB6: row tasks, Q5_K, and IQ2_S
@@ -556,14 +556,14 @@ The project-owned IQ2_S decoder reconstructs sixteen aligned values from two gri
 Artifacts:
 
 ```text
-/tmp/grouped_mmq_bwd_step4_row_tasks_mmajor.json
-/tmp/grouped_mmq_bwd_step4_row_tasks_nmajor.json
-/tmp/grouped_mmq_bwd_step4_persistent1024.json
-/tmp/grouped_mmq_bwd_step7_split_tasks.json
-/tmp/grouped_mmq_bwd_step5_q5_prefetch.json
-/tmp/grouped_mmq_bwd_q5_sparse_s2_25.json
-/tmp/grouped_mmq_bwd_step6_iq2.json
-/tmp/grouped_mmq_bwd_step6_iq2_n64_reuse.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step4_row_tasks_mmajor.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step4_row_tasks_nmajor.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step4_persistent1024.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step7_split_tasks.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step5_q5_prefetch.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_q5_sparse_s2_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step6_iq2.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step6_iq2_n64_reuse.json
 ```
 
 ### Qwen GB7 and final local controls: pair geometry, layouts, and tails
@@ -579,14 +579,14 @@ Final inactive-M row-task controls retained Q4_K and Q5_K and rejected IQ2_S, as
 Artifacts:
 
 ```text
-/tmp/grouped_mmq_bwd_step7_iq2_swizzle4.json
-/tmp/grouped_mmq_bwd_step7_iq2_pair_n64.json
-/tmp/grouped_mmq_bwd_step7_q3_pair_n64.json
-/tmp/grouped_mmq_bwd_step7_iq2_width8.json
-/tmp/grouped_mmq_bwd_qwen_q5_swizzle8_rowtask_control_25.json
-/tmp/grouped_mmq_bwd_qwen_q5_swizzle4_rowtask_control_25.json
-/tmp/grouped_mmq_bwd_qwen_rowtask_tail_predicate_control_false_25.json
-/tmp/grouped_mmq_bwd_qwen_rowtask_tail_predicate_control_true_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step7_iq2_swizzle4.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step7_iq2_pair_n64.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step7_q3_pair_n64.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step7_iq2_width8.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_q5_swizzle8_rowtask_control_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_q5_swizzle4_rowtask_control_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_rowtask_tail_predicate_control_false_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_rowtask_tail_predicate_control_true_25.json
 ```
 
 ### Qwen representation controls
@@ -612,10 +612,10 @@ The transient BF16 and persistent shadow controls were rejected for the latency 
 Artifacts:
 
 ```text
-/tmp/mmq_bwd_grouped_final_dense_control.json
-/tmp/grouped_mmq_bwd_qwen_transient_bf16_floor.json
-/tmp/rocprof_grouped_bwd_final_down_q4_b4
-/tmp/rocprof_grouped_bwd_final_down_iq2_b4
+~/tmp/torch-ggml-ops/mmq_bwd_grouped_final_dense_control.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_transient_bf16_floor.json
+~/tmp/torch-ggml-ops/rocprof_grouped_bwd_final_down_q4_b4
+~/tmp/torch-ggml-ops/rocprof_grouped_bwd_final_down_iq2_b4
 ```
 
 ## Rejected and closed experiments
@@ -724,73 +724,73 @@ The current bundle has 32 grouped-backward entries:
 ### Latest acceptance
 
 ```text
-/tmp/grouped_mmq_bwd_qwen_aiter_tuned_9.json
-/tmp/grouped_mmq_bwd_ds4_aiter_tuned_9.json
-/tmp/grouped_mmq_bwd_qwen_rowtask_tail_predicate_control_false_25.json
-/tmp/grouped_mmq_bwd_qwen_rowtask_tail_predicate_control_true_25.json
-/tmp/grouped_mmq_bwd_ds4_iq2xxs_tail_predicate_baseline_25.json
-/tmp/grouped_mmq_bwd_ds4_iq2xxs_tail_predicate_candidate_25.json
-/tmp/grouped_mmq_bwd_ds4_q2k_tail_predicate_baseline_25.json
-/tmp/grouped_mmq_bwd_ds4_q2k_tail_predicate_candidate_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_aiter_tuned_9.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_aiter_tuned_9.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_rowtask_tail_predicate_control_false_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_rowtask_tail_predicate_control_true_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_iq2xxs_tail_predicate_baseline_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_iq2xxs_tail_predicate_candidate_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q2k_tail_predicate_baseline_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q2k_tail_predicate_candidate_25.json
 ```
 
 ### DeepSeek retained and rejected controls
 
 ```text
-/tmp/grouped_bwd_bf16_c_control_accuracy.json
-/tmp/grouped_bwd_bf16_c_candidate_accuracy.json
-/tmp/grouped_bwd_bf16_c_k32_9.json
-/tmp/grouped_bwd_bf16_c_k64_9.json
-/tmp/grouped_bwd_fp16_c_scaled_9.json
-/tmp/grouped_bwd_fp16_c_no_scale_floor_9.json
-/tmp/grouped_mmq_bwd_ds4_baseline_b1_b4.json
-/tmp/grouped_mmq_bwd_ds4_q80_m256_control_25.json
-/tmp/grouped_mmq_bwd_ds4_q80_m128_control_25.json
-/tmp/grouped_mmq_bwd_ds4_q80_generic_control_25.json
-/tmp/grouped_mmq_bwd_ds4_iq2xxs_swizzle4_full.json
-/tmp/grouped_mmq_bwd_ds4_iq2xxs_swizzle16_focus.json
-/tmp/grouped_mmq_bwd_ds4_q2k_u2_dispatch_control_25.json
-/tmp/grouped_mmq_bwd_ds4_q2k_u1_dispatch_control_25.json
-/tmp/grouped_mmq_bwd_ds4_q2k_n128_candidate_valid_b16_25.json
-/tmp/grouped_mmq_bwd_ds4_q2k_n64_bracket_b16_25.json
+~/tmp/torch-ggml-ops/grouped_bwd_bf16_c_control_accuracy.json
+~/tmp/torch-ggml-ops/grouped_bwd_bf16_c_candidate_accuracy.json
+~/tmp/torch-ggml-ops/grouped_bwd_bf16_c_k32_9.json
+~/tmp/torch-ggml-ops/grouped_bwd_bf16_c_k64_9.json
+~/tmp/torch-ggml-ops/grouped_bwd_fp16_c_scaled_9.json
+~/tmp/torch-ggml-ops/grouped_bwd_fp16_c_no_scale_floor_9.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_baseline_b1_b4.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q80_m256_control_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q80_m128_control_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q80_generic_control_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_iq2xxs_swizzle4_full.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_iq2xxs_swizzle16_focus.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q2k_u2_dispatch_control_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q2k_u1_dispatch_control_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q2k_n128_candidate_valid_b16_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q2k_n64_bracket_b16_25.json
 ```
 
 ### Qwen historical and retained controls
 
 ```text
-/tmp/grouped_mmq_bwd_baseline_full.json
-/tmp/grouped_mmq_bwd_final_full.json
-/tmp/grouped_mmq_bwd_one_expert.txt
-/tmp/grouped_mmq_bwd_step1_q4_matrix.json
-/tmp/grouped_mmq_bwd_step2_q3_pair_matrix.json
-/tmp/grouped_mmq_bwd_step3_s1.json
-/tmp/grouped_mmq_bwd_step4_row_tasks_mmajor.json
-/tmp/grouped_mmq_bwd_step5_q5_prefetch.json
-/tmp/grouped_mmq_bwd_step6_iq2.json
-/tmp/grouped_mmq_bwd_step7_iq2_pair_n64.json
-/tmp/grouped_mmq_bwd_step7_q3_pair_n64.json
-/tmp/grouped_mmq_bwd_qwen_q5_swizzle8_rowtask_control_25.json
-/tmp/grouped_mmq_bwd_qwen_q5_swizzle4_rowtask_control_25.json
-/tmp/mmq_bwd_grouped_final_dense_control.json
-/tmp/grouped_mmq_bwd_qwen_transient_bf16_floor.json
-/tmp/grouped_mmq_bwd_qwen_short_identical_control_a_25.json
-/tmp/grouped_mmq_bwd_qwen_short_identical_control_b_25.json
-/tmp/grouped_bwd_final_readobj.txt
-/tmp/grouped_bwd_final_disasm.txt
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_baseline_full.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_final_full.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_one_expert.txt
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step1_q4_matrix.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step2_q3_pair_matrix.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step3_s1.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step4_row_tasks_mmajor.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step5_q5_prefetch.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step6_iq2.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step7_iq2_pair_n64.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step7_q3_pair_n64.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_q5_swizzle8_rowtask_control_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_q5_swizzle4_rowtask_control_25.json
+~/tmp/torch-ggml-ops/mmq_bwd_grouped_final_dense_control.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_transient_bf16_floor.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_short_identical_control_a_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_short_identical_control_b_25.json
+~/tmp/torch-ggml-ops/grouped_bwd_final_readobj.txt
+~/tmp/torch-ggml-ops/grouped_bwd_final_disasm.txt
 ```
 
 ### Rejected Qwen controls
 
 ```text
-/tmp/grouped_mmq_bwd_step3_s2.json
-/tmp/grouped_mmq_bwd_q5_sparse_s2_25.json
-/tmp/grouped_mmq_bwd_step6_iq2_n64_reuse.json
-/tmp/grouped_mmq_bwd_step4_row_tasks_nmajor.json
-/tmp/grouped_mmq_bwd_step4_persistent1024.json
-/tmp/grouped_mmq_bwd_step7_split_tasks.json
-/tmp/grouped_mmq_bwd_step7_iq2_width8.json
-/tmp/grouped_mmq_bwd_step7_iq2_swizzle0.json
-/tmp/grouped_mmq_bwd_step7_iq2_swizzle4.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step3_s2.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_q5_sparse_s2_25.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step6_iq2_n64_reuse.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step4_row_tasks_nmajor.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step4_persistent1024.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step7_split_tasks.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step7_iq2_width8.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step7_iq2_swizzle0.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_step7_iq2_swizzle4.json
 ```
 
 Related documents:

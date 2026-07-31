@@ -152,9 +152,10 @@ Closed large-margin neighborhoods include:
 - M128 `128x64x32` next-prefetch and `128x32x64` compact ownership. Compact pad8 is retained after direct 25-repeat control timing; it is both faster and smaller.
 - M256 `64x64`, `128x64`, `256x32`, and `256x64` ownership. Wide `256x64` is retained only after next-prefetch, pad8, and VOPD establish a stable large gain. The `256x32x64` occupancy candidate was correct but 32-43% slower than HIP.
 - VMEM clauses and `buffer_gl0_inv`; both were neutral or slower in 25-repeat or same-process controls.
-- DepthU64 two-decoder-row variants, which failed exact correctness for wider N ownership.
-- A proposed two-decoded-B `128x64` pipeline, rejected because exactly every fourth output column was invalid under reduced and production K tests. The existing strict gate remains `128x128x32` only.
-- DepthU64 next-packed-tile prefetch, rejected after an illegal-address correctness failure; the strict validator continues to forbid it.
+- DepthU64 two-decoder-row variants historically failed exact correctness for wider N ownership. The swizzled decoded-LDS placement now derives its transform from the logical K offset, and the formerly failing M64 and M256 N64-ownership production repros pass HIP, independent reference, and both producer mutations. They require renewed serial timing before selection.
+- The proposed two-decoded-B `128x64` pipeline historically produced invalid columns. The geometry-derived final handoff and Q6 temporary/address-state fixes now pass the M128 and M256 production repros. The validator accepts the corrected Q4_K/Q6_K N64 pipeline, but the selected catalog remains unchanged pending timing.
+- DepthU64 next-packed-tile prefetch historically faulted after current A pointers were overwritten too early. Packed reads are now delayed until the second current-A half is consumed, and the exact M64 production repro passes all correctness and mutation checks. It is valid again but unselected pending timing.
+- Q6 lane sharing historically replicated both payload planes even though only the 2-bit high plane is shared by lane pairs. The specialized emitter now loads unique low planes per lane, owner-loads only high planes, and passes the M256 production repro. It also requires renewed timing before any catalog change.
 
 ### Phase 4: Lower bounds and final selection
 
@@ -170,6 +171,25 @@ Every selected key must beat HIP, pass independent rebuild reproducibility, and 
 
 ## Recursive Optimization-Exhaustion Review
 
+### Renewed executable work
+
+The Q6 repairs reopen four candidate mechanisms for timing: high-plane-only lane sharing, compact DepthU64 ownership at M64, wide DepthU64 ownership at M256, and DepthU64 next-packed prefetch at M64. The corrected M128 and M256 decoded-B pipeline artifacts are also retimed as a separate ownership bracket. Each screen is serial against the selected exact-key control and HIP; only stable resource-bearing gains above 2% advance to 25-repeat confirmation and possible catalog selection.
+
+Metadata owner-load plus wave-local DPP broadcast is retained as a Q4-targeted first emitter experiment and cannot be assumed to help Q6's signed scale path. Combined padded-stride plus logical-K XOR placement requires supported LDS-counter evidence and a new occupancy-safe emitter. A genuinely new exact-N software pipeline is a separate structural campaign, not another DepthU or WGM repetition. Exact-shape literal/fixed-trip work is low priority, and model-owned integer-plus-scale preparation, prepared weights, and external decode storage remain outside this direct-packed contract.
+
+Fresh nine-repeat execution closes all repaired Q6 candidates against the current selected exact-key assemblies. Every candidate remained bit-exact to HIP, matched HIP's independent-reference error, and passed both producer mutations.
+
+| Candidate | M | Candidate ms | Selected control ms | Candidate/control | Decision |
+| --- | ---: | ---: | ---: | ---: | --- |
+| High-plane-only lane sharing | 256 | `12.8034` | `9.8869` | `1.29498x` | Reject |
+| Wider DepthU64 ownership | 64 | `7.0339` | `5.1141` | `1.37538x` | Reject |
+| Wider DepthU64 ownership | 256 | `12.1769` | `9.9054` | `1.22932x` | Reject |
+| DepthU64 next-packed prefetch | 64 | `5.3565` | `5.1167` | `1.04688x` | Reject |
+| Two-buffer N64 pipeline | 128 | `9.6587` | `6.6179` | `1.45949x` | Reject |
+| Two-buffer N64 pipeline | 256 | `14.5063` | `9.8659` | `1.47034x` | Reject |
+
+No candidate clears the greater-than-2% resource-bearing gate, none advances to confirmation, and the selected catalog remains unchanged.
+
 Before declaring completion, reread this plan, Q6 HIP source and normalized ISA, all Q6 GGTensile artifacts and timing reports, Q3/Q4/Q5/Q8 experiment records, lower bounds, resource reports, rejected candidates, `rdna35-isa-markdown`, AMD LLVM definitions/tests, and relevant CK/TensileLite notes.
 
 Classify every remaining idea as:
@@ -182,6 +202,8 @@ If the review identifies an actionable idea, implement and measure it, update th
 
 The campaign is exhausted only when no valid in-contract optimization idea remains, all three keys beat HIP with final evidence, and the residual bottleneck is quantitatively explained. Public runtime dispatch and artifact packaging remain deferred until the multi-quant integration project explicitly takes ownership.
 
+The renewed recursive pass finds no actionable Q6 mechanism. All repaired ownership and pipeline paths are now measured timing rejections, the selected lower bounds still explain M64 as decode-heavy and M256 as WMMA/accumulator limited, and the Q4-only metadata and LDS premises do not transfer without exact Q6 evidence. The selected catalog and prior production confirmation remain authoritative.
+
 ## Completion Record
 
 Update this section after every coherent implementation milestone before committing code. Documentation-only evidence updates do not require their own commit.
@@ -193,5 +215,5 @@ Update this section after every coherent implementation milestone before committ
 - Per-key selected catalog with every exact key faster than HIP. The equal-call weighted 25-repeat ratio is `0.8159412939177061`.
 - Complete/WMMA/decode lower bounds and residual bottleneck explanation. M64 complete/WMMA/decode are `5.230/2.659/3.283 ms`; M128 `6.631/3.776/3.291 ms`; M256 `9.721/7.166/5.573 ms`. The floor sums are `1.136x`, `1.066x`, and `1.311x` complete respectively, showing overlap in the pipelined M256 body and balanced compact M128 halves. M256 remains WMMA/accumulator limited; M64 remains decode-heavy; M128 has no isolated dominant half.
 - Independent assembly reproducibility. Three independent builds are byte-identical with identical resources: M64 `76 VGPR/4608 B`, M128 `108 VGPR/4608 B`, M256 `240 VGPR/5120 B`, with no private storage or spills. Final serial 25-repeat confirmation is complete for all three keys with independent reference and producer-mutation coverage.
-- Recursive optimization-exhaustion review with no actionable mechanism remaining. The final review rechecked geometry/ownership, packed versus scalar and VOPD decode, padding/XOR layouts, clauses, GL0 invalidation, lane sharing, DepthU, prefetch, SIA/PGR/PLR/WGM, two-buffer correctness, lower-bound overlap, and occupancy-oriented M256 `256x32` ownership. Remaining alternatives were rejected by contract, correctness, resources, or serial timing.
+- Repaired-path retiming and renewed exhaustion. High-plane lane sharing, wider DepthU64 M64/M256 ownership, DepthU64 next-packed prefetch, and M128/M256 N64 pipelines pass exact correctness and mutation gates but regress selected controls by `4.7%` to `47.0%`; all are timing rejections and the selected catalog remains unchanged.
 - Public dispatch and artifact packaging, deferred.

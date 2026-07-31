@@ -204,6 +204,19 @@ Classify every inferred idea as duplicate or closed, contract-incompatible, unsu
 
 This review remains the permanent final step of every experiment. A later implementation or plan change that creates a new premise invalidates the stopping condition until the review is repeated.
 
+## Renewed Optimization Campaign
+
+The current multi-quant review identified a bounded set of executable in-contract work. It is ordered by evidence and must be completed serially:
+
+1. Retime every repaired Q5_K and Q6_K path that was previously rejected only because the emitter was incorrect. Correctness, independent-reference comparison, both producer mutations, resource inspection, and reproducible assembly are prerequisites; renewed nine-repeat screening and 25-repeat confirmation decide whether any catalog entry changes.
+2. Prototype Q4_K metadata owner-load plus wave-local DPP broadcast on `M32768,N2048,K8192`, then `M8192,N2048,K8192`. The emitter must load only metadata owners, broadcast the values needed by all consumer lanes, preserve the exact Q4 scale/minimum arithmetic and operand ordering, and pass reduced-trip plus producer-mutation tests before timing. A stable gain above 2% is required because this is a resource-bearing cross-lane mechanism.
+3. Profile the long Q4/Q5/Q6 keys before attempting a combined unswizzled row padding plus logical-K XOR placement. That layout is actionable only when counters show residual LDS bank/conflict or locality pressure, occupancy remains unchanged or viable, and a complete alternate emitter can be validated. It is not an unconditional layout sweep.
+4. Consider an exact-N, assembly-guided single-buffer software-pipeline family only as a separate structural campaign. Repeating the already closed `128x128x64` or current schedule neighborhoods does not satisfy this premise; admission requires a new schedule, reduced-trip correctness, resource inspection, and a fresh lower-bound comparison.
+
+Exact-shape literal and trip-count specialization remains a low-priority instruction-level probe and is admitted only after the preceding mechanisms fail to explain the residual gap. Model-owned lossless integer-plus-scale preparation, prepared weights, dense shadows, and transient decode workspaces remain outside this project and are documented as deferred representation work, not implementation targets.
+
+Execution of this renewed campaign is complete. Repaired Q5/Q6 candidates were correct but lost to the current selected assemblies. The Q4 metadata owner-load/DPP emitter was correct and resource-clean but regressed both screened long-query controls, so the candidate-only field and emitter were removed. Fresh Q4 profiling showed high nominal LDS bank-conflict percentage but only about `0.13%` ALU stalled by LDS, so the combined layout prerequisite did not pass. The exact-N single-buffer software pipeline was not admitted: the selected two-buffer path already beats the ordinary one-buffer control, existing floors demonstrate useful overlap, and no occupancy or LDS-stall evidence supports the extra synchronization. Exact-shape source inspection found dimensions, packed strides, and loop bounds already specialized as immediates. No selected catalog or generated production assembly changed.
+
 ## Experiment Records
 
 Experiment-specific problem definitions, ABI details, production inventories, selected solutions, resources, timing, correctness, rejected mechanisms, debugging history, evidence paths, and completion state belong in experiment logs.

@@ -201,13 +201,17 @@ def _validate_solution_parameters(
             "KernelWriterAssembly implements only 1LDSBuffer=0 or 1",
             "1LDSBuffer",
         )
+    pipeline_schedule = (
+        solution.schedule_iter_alg == 3
+        and solution.prefetch_global_read == 1
+        and solution.depth_u == 32
+    ) or (solution.schedule_iter_alg in (4, 5) and solution.prefetch_global_read == 2)
     if solution.one_lds_buffer == 0 and (
         solution.macro_tile0 != 128
-        or solution.macro_tile1 != 128
-        or solution.depth_u != 32
+        or solution.macro_tile1 not in (64, 128)
+        or solution.depth_u not in (32, 64)
         or solution.num_threads != 128
-        or solution.schedule_iter_alg not in (4, 5)
-        or solution.prefetch_global_read != 2
+        or not pipeline_schedule
         or solution.prefetch_local_read != 1
         or solution.lds_swizzle_chunk_b != 8
         or solution.packed_weight_lane_share != 1
@@ -216,7 +220,7 @@ def _validate_solution_parameters(
         _reject(
             reasons,
             "solution.1ldsbuffer.pipeline",
-            "1LDSBuffer=0 requires 128x128x32, SIA4, PGR2, PLR1, XOR-8, and independent packed reads",
+            "1LDSBuffer=0 requires supported 128x64/128x128 ownership, SIA3/PGR1 or SIA4-5/PGR2, PLR1, XOR-8, and independent packed reads",
             "1LDSBuffer",
             "MacroTile0",
             "MacroTile1",
@@ -323,12 +327,11 @@ def _validate_solution_parameters(
         or solution.prefetch_local_read != 1
         or not depth_u64_layout
         or solution.packed_weight_lane_share != 1
-        or solution.prefetch_packed_weight_next
     ):
         _reject(
             reasons,
             "solution.depthu64.schedule",
-            "DepthU=64 requires SIA4, PGR2, PLR1, XOR-8 or Q8 row padding, and independent current-tile packed reads",
+            "DepthU=64 requires SIA4, PGR2, PLR1, XOR-8 or row padding, and independent packed reads",
             "DepthU",
             "ScheduleIterAlg",
             "PrefetchGlobalRead",
@@ -492,6 +495,58 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             "solution.q8.packedweightlaneshare",
             "Q8_0 currently requires independent packed payload loads",
             "PackedWeightLaneShare",
+            source="ProblemType",
+        )
+    if (
+        solution_key.solution.one_lds_buffer == 0
+        and solution_key.solution.macro_tile1 == 64
+        and solution_key.problem_type.quant_data_type not in ("Q4_K", "Q6_K")
+    ):
+        _reject(
+            reasons,
+            "solution.pipeline.n64.quant",
+            "128x64 decoded-B pipelining is implemented only for Q4_K and Q6_K",
+            "1LDSBuffer",
+            "MacroTile1",
+            source="ProblemType",
+        )
+    if (
+        solution_key.solution.one_lds_buffer == 0
+        and solution_key.solution.schedule_iter_alg == 3
+        and solution_key.problem_type.quant_data_type != "Q5_K"
+    ):
+        _reject(
+            reasons,
+            "solution.pipeline.sia3.quant",
+            "SIA3 decoded-B pipelining is implemented only for Q5_K",
+            "1LDSBuffer",
+            "ScheduleIterAlg",
+            source="ProblemType",
+        )
+    if (
+        solution_key.solution.one_lds_buffer == 0
+        and solution_key.solution.depth_u == 64
+        and solution_key.problem_type.quant_data_type != "Q5_K"
+    ):
+        _reject(
+            reasons,
+            "solution.pipeline.depthu64.quant",
+            "DepthU64 decoded-B pipelining is implemented only for Q5_K",
+            "1LDSBuffer",
+            "DepthU",
+            source="ProblemType",
+        )
+    if (
+        solution_key.solution.depth_u == 64
+        and solution_key.solution.prefetch_packed_weight_next
+        and solution_key.problem_type.quant_data_type != "Q6_K"
+    ):
+        _reject(
+            reasons,
+            "solution.depthu64.prefetchpacked.quant",
+            "DepthU64 next-packed-tile prefetch is implemented only for Q6_K",
+            "DepthU",
+            "PrefetchPackedWeightNext",
             source="ProblemType",
         )
     if (

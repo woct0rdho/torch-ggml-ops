@@ -200,6 +200,22 @@ Scheduling followed selected ownership and LDS layout. The campaign named placem
 
 ## Revisit And Completion Policy
 
+### Renewed executable work
+
+The cross-repository review reopened one in-contract Q4 premise and two conditional follow-ups. The first experiment is Q4 metadata owner-load plus wave-local DPP broadcast, targeted at the long query keys `M32768,N2048,K8192` and `M8192,N2048,K8192`, where repeated per-lane metadata loads remain visible in the decoder path. The candidate must use a strict solution field, emit a real owner-load and DPP path, preserve exact Q4 scale/minimum reconstruction, and pass reduced-trip, independent-reference, grad-output mutation, and packed-weight mutation checks. It advances only after resource inspection and a stable greater-than-2% gain against a warmed rotating assembly control.
+
+Before any combined padding-plus-logical-K-XOR layout is emitted, supported raw counters must establish residual LDS conflict or locality pressure on a target long key without an occupancy loss. The existing padded and swizzled layouts are controls, not evidence for combining them. An exact-N software-pipeline proposal is a separate structural campaign and is not satisfied by repeating the closed `128x128x64` neighborhood. Literal and fixed-trip specialization remain low-priority probes. Representation-level integer-plus-scale preparation is outside this Q4 campaign and remains deferred.
+
+The repaired Q5 and Q6 paths are retimed in their own experiment records; their results do not transfer to Q4 without exact-format measurement.
+
+The metadata-broadcast experiment is complete and rejected. A strict Q4-only prototype loaded one 16-byte metadata header on one lane per eight-lane block, restored EXEC, broadcast four dwords with DPP8, and selected the exact lane-owned scale-byte triplet. Both long query keys were bit-exact to HIP, matched HIP's independent-reference error, passed both producer mutations, and remained resource-clean. On M32768 it preserved `212 VGPR/16 KiB LDS`, reduced static VMEM from 164 to 152, and increased VALU issues from 865 to 895. The nine-repeat screen measured candidate/control ratios of `1.00468x` at M8192 and `1.00926x` at M32768, so the mechanism failed the greater-than-2% gate and its solution field and emitter were removed.
+
+The LDS prerequisite profile also closes the combined padding-plus-logical-K-XOR follow-up for this iteration. On the selected M32768 query control, five profiled dispatches reported a constant `68.75%` `LDSBankConflict`, median `0.13068%` `ALUStalledByLDS`, median `241.664` `LdsLatency`, and median `27.8267` `MeanOccupancyPerActiveCU`. The conflict ratio is high, but it is not producing a first-order LDS stall and prior XOR/padding controls already show that conflict percentage alone does not select a winner. No combined-layout emitter is admitted without a new counter premise.
+
+The exact-N single-buffer software-pipeline family also fails its admission gate. The retained two-buffer path already measures 3.69% faster than the ordinary one-buffer control on K8192, while complete/WMMA/decode lower bounds of `37.868/24.149/16.842 ms` show that the retained schedule overlaps work rather than merely paying for a second LDS buffer. A half-buffer overwrite schedule would require additional handoff barriers, but the fresh profile shows no occupancy or LDS-stall premise that could plausibly repay them. Repeating `128x128x64` remains closed, and no new schedule is emitted without a concrete greater-than-2% gain path.
+
+The final exact-shape source audit found the packed 144-byte block size, 1152-byte physical row stride, 8192 reduction extent, peeled 8160 loop bound, LDS offsets, and launch divisors already encoded as immediates. Only the three pointer kernargs are loaded. This creates no new literal or frontend specialization candidate beyond the exact-trip, row-shift, and unroll work already measured. A fresh recursive review therefore finds no actionable in-contract Q4 mechanism.
+
 ### Revisit policy for the measured pair
 
 There is no currently open sub-percent tuning neighborhood. Clauses, dependency batching, early A0 movement, packed-next-only prefetch, lane sharing, local-read double buffering, store priority, and ordinary geometry changes have measured neutral or negative results. Reopening one requires a materially different resource or scheduling regime.
@@ -225,6 +241,7 @@ Prepared weights, BF16 shadows, external decode workspaces, GSU, Stream-K, and p
 - Optimized all exact keys by weighted priority and recorded four selected mappings covering the retained two-buffer path plus padded `128x64` and WGM1/WGM2 `256x64` paths.
 - Reconfirmed every finalist. The final byte-normalized catalog passed all 12 exact keys, both producer mutations, independent rebuilds, strict inspection, and the weighted 25-repeat matrix.
 - Repeated the complete optimization-exhaustion review from the final retained state. It found no new actionable in-contract mechanism.
+- Executed the renewed metadata-broadcast screen, LDS prerequisite profile, exact-N pipeline admission review, and exact-shape source audit; all were rejected or closed without changing selected assembly.
 
 The campaign stopping condition is met. A future change that creates a credible new premise must execute that experiment and repeat step 7 before exhaustion can be claimed again.
 
@@ -296,37 +313,37 @@ The permanent review was rerun from the padded exact-key catalog after the byte-
 
 ## Evidence Locations
 
-- Initial K8192 baseline: `/tmp/ggtensile-m32768-n2048-k8192-baseline/benchmark.json`.
-- Retained K8192 pipeline: `/tmp/ggtensile-m32768-n2048-k8192-true-pipeline/`.
-- Retained K512 pipeline: `/tmp/ggtensile-m32768-n2048-k512-true-pipeline/`.
-- Current one-buffer and pipeline profiles: `/tmp/ggtensile-profile-current-one-buffer/` and `/tmp/ggtensile-profile-true-pipeline/`.
-- K8192 and K512 lower bounds: `/tmp/ggtensile-m32768-n2048-k8192-lower-bounds/` and `/tmp/ggtensile-m32768-n2048-k512-lower-bounds/`.
-- Attention-output M32768 lower bounds: `/tmp/ggtensile-m32768-n4096-k2048-lower-bounds-a/`.
-- Dead-kernarg lowering and serial 25-repeat brackets: `/tmp/ggtensile-m32768-n2048-k8192-dead-kernargs-a/` and `/tmp/ggtensile-m32768-n2048-k512-dead-kernargs-a/`.
-- Exact-trip branch lowering and serial 25-repeat brackets: `/tmp/ggtensile-m32768-n2048-k8192-postcheck-loop-a/` and `/tmp/ggtensile-m32768-n2048-k512-postcheck-loop-a/`.
-- Power-of-two row-stride lowering and serial brackets: `/tmp/ggtensile-m32768-n2048-k{512,8192}-row-shifts-a/`.
-- Rejected persistent packed-row artifacts: `/tmp/ggtensile-m32768-n2048-k{512,8192}-persistent-packed-row-a/`.
-- Rejected packed shift-add artifacts: `/tmp/ggtensile-m32768-n2048-k{512,8192}-packed-shift-add-a/`.
-- Rejected wide-metadata artifacts: `/tmp/ggtensile-m32768-n2048-k{512,8192}-wide-metadata-a/`.
-- Retained no-final-NOP catalog and complete correctness: `/tmp/ggtensile-q4-k-no-final-nop-a/`.
-- Retained byte-normalized focused controls: `/tmp/ggtensile-q4-k-byte-nibbles-a/`.
-- Final byte-normalized 12-key catalog, correctness, and confirmation: `/tmp/ggtensile-q4-k-byte-nibbles-final-a/`.
-- Shared-down M8192 isolated recheck: `/tmp/ggtensile-q4-k-byte-nibbles-shared-down-m8192-recheck-a/`.
-- Rejected explicit VGPR-deallocation tail: `/tmp/ggtensile-q4-k-dealloc-vgprs-a/`.
-- Rejected body-unroll artifacts use `/tmp/ggtensile-m32768-n2048-k{512,8192}-unroll{factor}-a/`, with factor-specific generate, inspect, correctness, and nine-repeat timing evidence.
-- Exact production-N coverage artifacts: `/tmp/ggtensile-m2048-n512-k2048-production-n-a/` and `/tmp/ggtensile-m2048-n4096-k2048-production-n-a/`.
-- Complete retained-pipeline prepare, correctness, and nine-repeat screen: `/tmp/ggtensile-q4-k-retained-matrix-a/`.
-- Catalog-driven final prepare, correctness, and 25-repeat matrix: `/tmp/ggtensile-q4-k-selected-catalog-final-a/`.
-- Rejected complete one-buffer correctness and three-way screen: `/tmp/ggtensile-q4-k-one-buffer-matrix-a/`.
-- Rejected complete traversal matrices: `/tmp/ggtensile-q4-k-wgm{2,4,8}-matrix-a/`.
-- Geometry matrices and attention-output confirmations: `/tmp/ggtensile-q4-k-geometry-{64x128,128x64}-matrix-a/`.
-- Corrected and rejected focused `256x64` matrix: `/tmp/ggtensile-q4-k-geometry-256x64-focused-fixed-a/`; exact `256x128` and SIA3/PLR2 checks are under `/tmp/ggtensile-q4-k-{geometry-256x128,sia3-plr2}-fixed-check-a/`.
-- Rejected shared-down high-M ownership matrices: `/tmp/ggtensile-q4-k-geometry-{256x64,256x128}-shared-down-a/`.
-- Rejected narrow/attention eight-wave ownership: `/tmp/ggtensile-q4-k-geometry-256x128-narrow-attention-a/`.
-- Rejected two-buffer half-tile matrices: `/tmp/ggtensile-q4-k-pipeline-{64x128,128x64}-matrix-a/`; reduced trip checks use `/tmp/ggtensile-pipeline-{64x128,128x64}-debug-k{32,64,96}/`.
-- Rejected N64 LDS layouts: `/tmp/ggtensile-q4-k-geometry-128x64-xor{0,4,16}-attention-a/`.
-- Rejected N64 traversal: `/tmp/ggtensile-q4-k-geometry-128x64-wgm{2,4,8}-attention-a/`.
-- N64 schedule screens and M8192 confirmations: `/tmp/ggtensile-q4-k-geometry-128x64-{sia5,store-priority,sia5-store-priority}-attention-a/`; the direct finalist bracket is `/tmp/ggtensile-q4-k-geometry-128x64-sia5-store-priority-final-a/`.
-- Rejected complete two-buffer store-priority matrix and query M2048 confirmation: `/tmp/ggtensile-q4-k-retained-store-priority-matrix-a/`.
+- Initial K8192 baseline: `~/tmp/torch-ggml-ops/ggtensile-m32768-n2048-k8192-baseline/benchmark.json`.
+- Retained K8192 pipeline: `~/tmp/torch-ggml-ops/ggtensile-m32768-n2048-k8192-true-pipeline/`.
+- Retained K512 pipeline: `~/tmp/torch-ggml-ops/ggtensile-m32768-n2048-k512-true-pipeline/`.
+- Current one-buffer and pipeline profiles: `~/tmp/torch-ggml-ops/ggtensile-profile-current-one-buffer/` and `~/tmp/torch-ggml-ops/ggtensile-profile-true-pipeline/`.
+- K8192 and K512 lower bounds: `~/tmp/torch-ggml-ops/ggtensile-m32768-n2048-k8192-lower-bounds/` and `~/tmp/torch-ggml-ops/ggtensile-m32768-n2048-k512-lower-bounds/`.
+- Attention-output M32768 lower bounds: `~/tmp/torch-ggml-ops/ggtensile-m32768-n4096-k2048-lower-bounds-a/`.
+- Dead-kernarg lowering and serial 25-repeat brackets: `~/tmp/torch-ggml-ops/ggtensile-m32768-n2048-k8192-dead-kernargs-a/` and `~/tmp/torch-ggml-ops/ggtensile-m32768-n2048-k512-dead-kernargs-a/`.
+- Exact-trip branch lowering and serial 25-repeat brackets: `~/tmp/torch-ggml-ops/ggtensile-m32768-n2048-k8192-postcheck-loop-a/` and `~/tmp/torch-ggml-ops/ggtensile-m32768-n2048-k512-postcheck-loop-a/`.
+- Power-of-two row-stride lowering and serial brackets: `~/tmp/torch-ggml-ops/ggtensile-m32768-n2048-k{512,8192}-row-shifts-a/`.
+- Rejected persistent packed-row artifacts: `~/tmp/torch-ggml-ops/ggtensile-m32768-n2048-k{512,8192}-persistent-packed-row-a/`.
+- Rejected packed shift-add artifacts: `~/tmp/torch-ggml-ops/ggtensile-m32768-n2048-k{512,8192}-packed-shift-add-a/`.
+- Rejected wide-metadata artifacts: `~/tmp/torch-ggml-ops/ggtensile-m32768-n2048-k{512,8192}-wide-metadata-a/`.
+- Retained no-final-NOP catalog and complete correctness: `~/tmp/torch-ggml-ops/ggtensile-q4-k-no-final-nop-a/`.
+- Retained byte-normalized focused controls: `~/tmp/torch-ggml-ops/ggtensile-q4-k-byte-nibbles-a/`.
+- Final byte-normalized 12-key catalog, correctness, and confirmation: `~/tmp/torch-ggml-ops/ggtensile-q4-k-byte-nibbles-final-a/`.
+- Shared-down M8192 isolated recheck: `~/tmp/torch-ggml-ops/ggtensile-q4-k-byte-nibbles-shared-down-m8192-recheck-a/`.
+- Rejected explicit VGPR-deallocation tail: `~/tmp/torch-ggml-ops/ggtensile-q4-k-dealloc-vgprs-a/`.
+- Rejected body-unroll artifacts use `~/tmp/torch-ggml-ops/ggtensile-m32768-n2048-k{512,8192}-unroll{factor}-a/`, with factor-specific generate, inspect, correctness, and nine-repeat timing evidence.
+- Exact production-N coverage artifacts: `~/tmp/torch-ggml-ops/ggtensile-m2048-n512-k2048-production-n-a/` and `~/tmp/torch-ggml-ops/ggtensile-m2048-n4096-k2048-production-n-a/`.
+- Complete retained-pipeline prepare, correctness, and nine-repeat screen: `~/tmp/torch-ggml-ops/ggtensile-q4-k-retained-matrix-a/`.
+- Catalog-driven final prepare, correctness, and 25-repeat matrix: `~/tmp/torch-ggml-ops/ggtensile-q4-k-selected-catalog-final-a/`.
+- Rejected complete one-buffer correctness and three-way screen: `~/tmp/torch-ggml-ops/ggtensile-q4-k-one-buffer-matrix-a/`.
+- Rejected complete traversal matrices: `~/tmp/torch-ggml-ops/ggtensile-q4-k-wgm{2,4,8}-matrix-a/`.
+- Geometry matrices and attention-output confirmations: `~/tmp/torch-ggml-ops/ggtensile-q4-k-geometry-{64x128,128x64}-matrix-a/`.
+- Corrected and rejected focused `256x64` matrix: `~/tmp/torch-ggml-ops/ggtensile-q4-k-geometry-256x64-focused-fixed-a/`; exact `256x128` and SIA3/PLR2 checks are under `~/tmp/torch-ggml-ops/ggtensile-q4-k-{geometry-256x128,sia3-plr2}-fixed-check-a/`.
+- Rejected shared-down high-M ownership matrices: `~/tmp/torch-ggml-ops/ggtensile-q4-k-geometry-{256x64,256x128}-shared-down-a/`.
+- Rejected narrow/attention eight-wave ownership: `~/tmp/torch-ggml-ops/ggtensile-q4-k-geometry-256x128-narrow-attention-a/`.
+- Rejected two-buffer half-tile matrices: `~/tmp/torch-ggml-ops/ggtensile-q4-k-pipeline-{64x128,128x64}-matrix-a/`; reduced trip checks use `~/tmp/torch-ggml-ops/ggtensile-pipeline-{64x128,128x64}-debug-k{32,64,96}/`.
+- Rejected N64 LDS layouts: `~/tmp/torch-ggml-ops/ggtensile-q4-k-geometry-128x64-xor{0,4,16}-attention-a/`.
+- Rejected N64 traversal: `~/tmp/torch-ggml-ops/ggtensile-q4-k-geometry-128x64-wgm{2,4,8}-attention-a/`.
+- N64 schedule screens and M8192 confirmations: `~/tmp/torch-ggml-ops/ggtensile-q4-k-geometry-128x64-{sia5,store-priority,sia5-store-priority}-attention-a/`; the direct finalist bracket is `~/tmp/torch-ggml-ops/ggtensile-q4-k-geometry-128x64-sia5-store-priority-final-a/`.
+- Rejected complete two-buffer store-priority matrix and query M2048 confirmation: `~/tmp/torch-ggml-ops/ggtensile-q4-k-retained-store-priority-matrix-a/`.
 
 The original K8192 baseline was 122.90 ms versus HIP at 47.61 ms. It remains useful as the start of the trajectory, but it is not a current performance control.
