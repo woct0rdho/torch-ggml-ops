@@ -109,8 +109,6 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     key = SolutionKey.from_json_file(args.solution_key)
-    if key.solution.one_lds_buffer != 0:
-        raise ValueError("lower bounds require the selected two-buffer solution")
     toolchain = Toolchain.discover()
     complete_inspection = inspect_artifact(key, args.complete_code_object, toolchain)
     artifacts = {}

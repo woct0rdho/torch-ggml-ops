@@ -191,15 +191,15 @@ The campaign is exhausted only when every valid large-margin mechanism has been 
 This section is updated after every coherent implementation milestone. Code milestones are committed; documentation-only updates remain uncommitted unless explicitly requested.
 
 - [x] Q8_0 exact inventory and strict quant identity. The versionless inventory contains 18 ordinary and five LM-head keys, uses 34-byte/32-value physical-row accounting, and keeps `Q8KExtraction` inert for other quant types.
-- [x] Initial Q8_0 backend and shared WMMA-body boundary. The first backend has quant-specific packed reads, FP16 scale conversion, signed-int8 extraction, LDS writes, resource accounting, and inspection while reusing the quant-neutral `128x128x32` WMMA body.
-- [ ] Fresh HIP/GGTensile controls and independent packed decoder fixtures. A K32 one-hot fixture is exact across a complete 4096-column row, and Q-A M2048 is bit-exact to HIP under grad-output and packed-weight mutation, but the remaining exact controls and signed-extreme fixtures are still open.
+- [x] Initial Q8_0 backend and shared WMMA-body boundary. The backend has quant-specific packed reads, FP16 scale conversion, signed-int8 extraction, LDS writes, resource accounting, and inspection while reusing the quant-neutral WMMA body across ordinary, compact, and small-M geometries.
+- [x] Fresh HIP/GGTensile controls and independent packed decoder fixtures. K32/K64 one-hot fixtures are exact across complete rows, and all 23 production keys pass HIP, independent-reference, grad-output mutation, and packed-weight mutation checks.
 - [x] Ordinary 18-key correctness and mutation coverage. Every selected key passed exact HIP comparison, independent reference, full grad-output mutation, and packed-weight mutation.
-- [ ] LM-head five-key correctness and chunk fallback coverage. M32 `32x64`, M64 `64x128`, M128 `128x64`, and M256/M512 `256x64` controls are faster than HIP; final per-key correctness/confirmation and neighborhood closure remain open.
+- [x] LM-head five-key correctness and chunk fallback coverage. M32 `32x64`, M64 `64x64`, M128 `128x64`, and M256/M512 `256x64` controls pass independent reference/mutation checks and final confirmation.
 - [ ] Large-margin decoder, LDS, ownership, and geometry search. Ordinary screening has established `LdsPadB=8` as the dominant reusable mechanism, retained `256x64` for attention output/Q-A/KV, found a Q-B-only DepthU64 branch, and rejected broad WGM2, pad16/24, XOR4/8/16 one-buffer layouts, `64x128`, `256x128`, two decoded-B buffers, broad scalar loads, PLR2, and broad next-packed prefetch. Smaller per-key closure and LM-head geometry remain open.
-- [ ] Per-key selection with every retained key faster than HIP. The ordinary 18-key catalog is selected and confirmed; LM-head selection remains open.
-- [ ] Lower-bound and bottleneck explanation.
-- [ ] Independent reproducibility and final 25-repeat confirmation.
-- [ ] Recursive optimization-exhaustion review with no actionable mechanism remaining.
+- [x] Per-key selection with every retained key faster than HIP. The ordinary and LM-head catalogs are selected and confirmed; every one of 23 exact keys beats HIP.
+- [x] Lower-bound and bottleneck explanation. Representative complete/WMMA-A-LDS/decode-LDS floors were measured for Q-A, Q-B, output-B, shared gate/up, shared-down, and LM M512.
+- [x] Independent reproducibility and final 25-repeat confirmation. Current ordinary roots are byte-identical across 18 keys; the LM roots are byte-identical across five keys; ordinary and LM confirmation phases use 25 serial repeats.
+- [ ] Recursive optimization-exhaustion review with no actionable mechanism remaining. The review is intentionally deferred until the final layout neighborhood and any newly actionable lower-bound idea are tested.
 - [ ] Public runtime dispatch, deferred.
 
 ### Ordinary screening record
@@ -219,5 +219,18 @@ The selected ordinary catalog uses compact padded `256x64` for Q-A, KV, attentio
 The first representable LM-head controls all beat HIP: padded `64x128` measured `5.873 ms` at M64 (`0.836x` HIP), padded `128x64` measured `6.032 ms` at M128 (`0.789x`), and padded `256x64` measured `9.519/18.784 ms` at M256/M512 (`0.928/0.858x`). Wider `128x128` and `256x128` bodies were slower.
 
 M32 required a true two-wave exact geometry rather than a partial 64-row tile. Q8-specific 64-thread `32x64` and `32x128` bodies were added with generalized decoder-row spacing and strict rejection for other quant types. Both pass independent reference and producer mutation checks. `32x64` measured `4.787 ms` versus `8.259 ms` HIP (`0.5796040876830744x`); `32x128` measured `0.908x` HIP and is rejected. The initial M32 control uses 90 VGPR, 16 SGPR, and 5 KiB LDS with no private storage or spills.
+
+### Lower bounds and residual bottleneck
+
+| Representative key | Complete | WMMA/A/LDS floor | Decode/LDS floor | Floor sum / complete |
+| --- | ---: | ---: | ---: | ---: |
+| Q-A M32768 | 8.208 ms | 6.260 ms | 1.746 ms | 0.975x |
+| Q-B M8192 | 22.329 ms | 12.504 ms | 8.717 ms | 0.950x |
+| Output-B M32768 | 65.968 ms | 49.257 ms | 15.346 ms | 0.979x |
+| Shared gate/up M32768 | 18.261 ms | 12.330 ms | 5.684 ms | 0.986x |
+| Shared-down M32768 | 18.728 ms | 12.373 ms | 5.743 ms | 0.967x |
+| LM M512 | 17.401 ms | 13.185 ms | 5.967 ms | 1.101x |
+
+The ordinary floors sum to within 2-5% of complete timing, so the residual is not an unhidden large scheduling gap: decode VALU/VMEM and WMMA/LDS synchronization are the two dominant components, with their overlap already close to the measured complete path. Q-B has the largest decode fraction and is the only ordinary key where DepthU64 remains beneficial. LM M512 has a floor sum above complete because its two isolated floors double-count work that overlaps in the complete next-prefetch body; its residual bottleneck is packed Q8 payload/scale traffic plus WMMA occupancy under the two-M-tile launch, not a missing correctness mechanism.
 
 Adding the HIP-analogous `64x64` ownership reduced M64 from `5.873` to `4.487 ms` (`0.6308024774361413x` HIP). Q8-specific unswizzled pad8 DepthU64 was then generalized to compact geometries and passed all five LM correctness screens. It improves M32/M64/M128 by about 8.0%/4.7%/2.8%, measuring `4.405/4.275/5.863 ms`, but regresses M256/M512. The tentative selection therefore uses DepthU64 through M128 and DepthU32 at M256/M512. Packed extraction wins every LM key; scalar extraction is rejected. M512 alone retains next-tile packed prefetch after a `18.784` to `18.057 ms` screen improvement; SIA4 without prefetch, PGR1, store-priority removal, and WGM2 lose.

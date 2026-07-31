@@ -113,8 +113,6 @@ class KernelWriterAssembly:
         self.solution_key = solution_key
         self.toolchain = toolchain
         self.diagnostic_mode = diagnostic_mode
-        if diagnostic_mode is not None and solution_key.solution.one_lds_buffer != 0:
-            raise KernelWriterError("lower-bound diagnostics require 1LDSBuffer=0")
         self.registers = self._allocate_registers()
 
     def write(self, output: Path) -> str:
@@ -494,7 +492,7 @@ class KernelWriterAssembly:
 
         asm.label(".LWmmaFloorLoop")
         asm.inst("s_waitcnt vmcnt(0)")
-        self._emit_wmma(asm, pipeline=True)
+        self._emit_wmma(asm, pipeline=solution.one_lds_buffer == 0)
         asm.inst(f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, {solution.depth_u}")
         asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
         asm.inst("s_cbranch_scc0 .LWmmaFloorDone")

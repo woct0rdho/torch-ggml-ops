@@ -149,13 +149,14 @@ def test_q8_0_campaign_inventory_covers_ordinary_and_lm_head_keys() -> None:
         for m in (2048, 8192, 32768)
     } == {301}
     assert all(entry.current_status == "selected" for entry in ordinary)
-    assert all(entry.current_status == "open" for entry in lm_head)
+    assert all(entry.current_status == "selected" for entry in lm_head)
+    assert {entry.selected_solution for entry in inventory.entries} == set(catalog)
     assert all(
         validate_solution(
             entry.solution_key(inventory.problem_type, catalog[entry.selected_solution])
         )
         == ()
-        for entry in ordinary
+        for entry in inventory.entries
     )
     q_a = next(entry for entry in ordinary if entry.family == "attention_q_a")
     assert q_a.expected_physical_weight_shape == (1024, 4352)
@@ -1273,6 +1274,45 @@ def test_writer_builds_lower_bound_diagnostics(
     )
     assert inspection.vgpr_count == 212
     assert inspection.lds_num_bytes == 16384
+    assert inspection.wmma_count == wmma_count
+    assert inspection.barrier_count == 1
+
+
+@pytest.mark.parametrize(
+    ("mode", "wmma_count"),
+    ((DiagnosticMode.WMMA_FLOOR, 32), (DiagnosticMode.DECODE_FLOOR, 0)),
+)
+def test_q8_one_buffer_lower_bound_diagnostics(
+    tmp_path: Path,
+    mode: DiagnosticMode,
+    wmma_count: int,
+) -> None:
+    key = SolutionKey(
+        ProblemType.dense_mmq_backward_q8_0(),
+        ProblemSize(128, 4096, 1024),
+        replace(
+            Solution.pilot(),
+            prefetch_global_read=2,
+            schedule_iter_alg=5,
+            lds_pad_b=8,
+        ),
+    )
+    toolchain = _toolchain()
+    assembly = tmp_path / f"q8_{mode.value}.s"
+    object_path = tmp_path / f"q8_{mode.value}.o"
+    code_object = tmp_path / f"q8_{mode.value}.hsaco"
+    KernelWriterAssembly(key, toolchain, diagnostic_mode=mode).write(assembly)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+    inspection = inspect_artifact(
+        key,
+        code_object,
+        toolchain,
+        expected_wmma_count=wmma_count,
+        expected_barrier_count=1,
+    )
+    assert inspection.vgpr_count == 202
+    assert inspection.lds_num_bytes == 10240
     assert inspection.wmma_count == wmma_count
     assert inspection.barrier_count == 1
 

@@ -262,8 +262,8 @@
       "RepresentativeTensor": "output.weight",
       "CallCount": 1,
       "HistoricalHipMedianMs": 8.297,
-      "CurrentStatus": "open",
-      "SelectedSolution": "initial_128x128_one_buffer"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_lm_m32_32x64_depth64_pad8"
     },
     {
       "Family": "lm_head",
@@ -275,8 +275,8 @@
       "RepresentativeTensor": "output.weight",
       "CallCount": 1,
       "HistoricalHipMedianMs": 7.459,
-      "CurrentStatus": "open",
-      "SelectedSolution": "initial_128x128_one_buffer"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_lm_m64_64x64_depth64_pad8"
     },
     {
       "Family": "lm_head",
@@ -288,8 +288,8 @@
       "RepresentativeTensor": "output.weight",
       "CallCount": 1,
       "HistoricalHipMedianMs": 7.569,
-      "CurrentStatus": "open",
-      "SelectedSolution": "initial_128x128_one_buffer"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_lm_m128_128x64_depth64_pad8"
     },
     {
       "Family": "lm_head",
@@ -301,8 +301,8 @@
       "RepresentativeTensor": "output.weight",
       "CallCount": 1,
       "HistoricalHipMedianMs": 10.386,
-      "CurrentStatus": "open",
-      "SelectedSolution": "initial_128x128_one_buffer"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_256x64_pad8_sia5_packed"
     },
     {
       "Family": "lm_head",
@@ -314,8 +314,8 @@
       "RepresentativeTensor": "output.weight",
       "CallCount": 1,
       "HistoricalHipMedianMs": 23.206,
-      "CurrentStatus": "open",
-      "SelectedSolution": "initial_128x128_one_buffer"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_lm_m512_256x64_pad8_next"
     }
   ]
 }
