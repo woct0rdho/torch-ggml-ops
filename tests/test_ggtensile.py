@@ -148,6 +148,8 @@ def test_q8_0_campaign_inventory_covers_ordinary_and_lm_head_keys() -> None:
         sum(entry.call_count for entry in ordinary if entry.problem_size.m == m)
         for m in (2048, 8192, 32768)
     } == {301}
+    assert all(entry.current_status == "selected" for entry in ordinary)
+    assert all(entry.current_status == "open" for entry in lm_head)
     assert all(
         validate_solution(
             entry.solution_key(inventory.problem_type, catalog[entry.selected_solution])
