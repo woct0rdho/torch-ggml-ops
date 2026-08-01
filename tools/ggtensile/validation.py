@@ -96,18 +96,22 @@ def _validate_forward_solution(
     wave_batch = DenseForwardSolution.q4_k_wave_batch4()
     hip_staged = DenseForwardSolution.q4_k_hip_staged()
     hip_decoded_staged = DenseForwardSolution.q4_k_hip_decoded_staged()
+    hip_decoded_staged_retained = (
+        DenseForwardSolution.q4_k_hip_decoded_staged_retained()
+    )
     implemented = (
         pilot,
         wave_reuse,
         wave_batch,
         hip_staged,
         hip_decoded_staged,
+        hip_decoded_staged_retained,
     )
     if solution not in implemented:
         _reject(
             reasons,
             "solution.forward.control.unimplemented",
-            "forward implements only the direct, wave-reuse, four-tile-wave-batch, raw staged, and decoded staged controls",
+            "forward implements only the direct, wave-reuse, four-tile-wave-batch, raw staged, decoded staged, and retained decoded-staged controls",
             "Solution",
         )
         return

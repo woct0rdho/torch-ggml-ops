@@ -114,6 +114,9 @@ def test_forward_solution_identity_contains_every_dataclass_field() -> None:
         ("packed_weight_block_bytes", 136),
         ("operand_source", "LDS"),
         ("weight_decode", "Prepared"),
+        ("lds_address_hoist", "All"),
+        ("activation_addressing", "MadU32"),
+        ("metadata_conversion", "PackedFloat16"),
         ("scale_arithmetic", "FP32"),
         ("output_store", "BFloat16Truncate"),
         ("signed_weight", False),
@@ -232,6 +235,20 @@ def test_forward_writer_emits_hip_decoded_staged_control() -> None:
     assert "s_clause" not in source
 
 
+def test_forward_writer_emits_retained_decoded_staged_control() -> None:
+    key = _key(solution=DenseForwardSolution.q4_k_hip_decoded_staged_retained())
+    source = DenseForwardKernelWriterAssembly(key, _toolchain()).source()
+    assert source.count("v_wmma_i32_16x16x16_iu8") == 32
+    assert source.count("s_barrier") == 4
+    assert source.count("v_cvt_f16_u16_e32") == 16
+    assert source.count("v_mad_u32_u24 v80, 144, v237, s15") == 2
+    assert source.count("s_clause 7") == 8
+    assert source.count("v_mul_lo_u32 v232, 1024") == 1
+    assert source.count("v_add_nc_u32 v232, 16384, v232") == 7
+    assert "v_add_nc_u32 v229, s14, v234" in source
+    assert "v_add_nc_u32 v80, s14, v232" in source
+
+
 def test_forward_runtime_uses_exact_candidate_and_hip_launch_geometry() -> None:
     direct = DenseForwardModule.__new__(DenseForwardModule)
     direct.solution_key = _key(solution=DenseForwardSolution.q4_k_wave_reuse())
@@ -250,6 +267,13 @@ def test_forward_runtime_uses_exact_candidate_and_hip_launch_geometry() -> None:
         (DenseForwardSolution.q4_k_hip_staged(), 128, 239, 4, 26_624),
         (
             DenseForwardSolution.q4_k_hip_decoded_staged(),
+            32,
+            239,
+            4,
+            38_400,
+        ),
+        (
+            DenseForwardSolution.q4_k_hip_decoded_staged_retained(),
             32,
             239,
             4,

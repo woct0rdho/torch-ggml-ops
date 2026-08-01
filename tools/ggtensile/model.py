@@ -424,6 +424,9 @@ class DenseForwardSolution:
     packed_weight_block_bytes: int
     operand_source: str
     weight_decode: str
+    lds_address_hoist: str
+    activation_addressing: str
+    metadata_conversion: str
     scale_arithmetic: str
     output_store: str
     signed_weight: bool
@@ -445,6 +448,9 @@ class DenseForwardSolution:
             "PackedWeightBlockBytes",
             "OperandSource",
             "WeightDecode",
+            "LdsAddressHoist",
+            "ActivationAddressing",
+            "MetadataConversion",
             "ScaleArithmetic",
             "OutputStore",
             "SignedWeight",
@@ -469,6 +475,9 @@ class DenseForwardSolution:
             packed_weight_block_bytes=144,
             operand_source="Global",
             weight_decode="DirectNibble",
+            lds_address_hoist="None",
+            activation_addressing="MultiplyAdd",
+            metadata_conversion="Float32ThenFloat16",
             scale_arithmetic="FP16",
             output_store="BFloat16RNE",
             signed_weight=True,
@@ -492,6 +501,9 @@ class DenseForwardSolution:
             packed_weight_block_bytes=144,
             operand_source="GlobalWaveReuse",
             weight_decode="DirectNibble",
+            lds_address_hoist="None",
+            activation_addressing="MultiplyAdd",
+            metadata_conversion="Float32ThenFloat16",
             scale_arithmetic="FP16",
             output_store="BFloat16RNE",
             signed_weight=True,
@@ -510,6 +522,16 @@ class DenseForwardSolution:
     @classmethod
     def q4_k_hip_decoded_staged(cls) -> Self:
         return replace(cls.q4_k_wave_reuse(), operand_source="HipDecodedStagedBatch8")
+
+    @classmethod
+    def q4_k_hip_decoded_staged_retained(cls) -> Self:
+        return replace(
+            cls.q4_k_hip_decoded_staged(),
+            lds_address_hoist="WeightMetadata",
+            activation_addressing="MadU24",
+            metadata_conversion="DirectFloat16Unsigned16",
+            output_store="BFloat16RNEClauseBatch8IncrementRows",
+        )
 
     @classmethod
     def from_mapping(cls, value: object) -> Self:
@@ -534,6 +556,15 @@ class DenseForwardSolution:
             ),
             operand_source=_string(item["OperandSource"], "OperandSource"),
             weight_decode=_string(item["WeightDecode"], "WeightDecode"),
+            lds_address_hoist=_string(
+                item["LdsAddressHoist"], "LdsAddressHoist"
+            ),
+            activation_addressing=_string(
+                item["ActivationAddressing"], "ActivationAddressing"
+            ),
+            metadata_conversion=_string(
+                item["MetadataConversion"], "MetadataConversion"
+            ),
             scale_arithmetic=_string(item["ScaleArithmetic"], "ScaleArithmetic"),
             output_store=_string(item["OutputStore"], "OutputStore"),
             signed_weight=_boolean(item["SignedWeight"], "SignedWeight"),
@@ -568,6 +599,9 @@ class DenseForwardSolution:
             "PackedWeightBlockBytes": self.packed_weight_block_bytes,
             "OperandSource": self.operand_source,
             "WeightDecode": self.weight_decode,
+            "LdsAddressHoist": self.lds_address_hoist,
+            "ActivationAddressing": self.activation_addressing,
+            "MetadataConversion": self.metadata_conversion,
             "ScaleArithmetic": self.scale_arithmetic,
             "OutputStore": self.output_store,
             "SignedWeight": self.signed_weight,
