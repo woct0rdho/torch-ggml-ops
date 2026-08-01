@@ -235,6 +235,115 @@ class DenseForwardKernelWriterAssembly:
         asm.lines.append(f".size {name}, .L{name}_end - {name}")
         return asm.text()
 
+    def _emit_hip_stage_decoded_weights(
+        self,
+        asm: _Assembly,
+        *,
+        row_stride: int,
+        serial: int,
+        wave: int,
+        temporary: int,
+        lds_address: int,
+        auxiliary: int,
+        metadata_address: int,
+        staging_base: int,
+    ) -> None:
+        weight_lds_base = 18_944
+        weight_lds_stride = 304
+
+        asm.comment("Cooperatively decode Q4_K nibbles into HIP's padded LDS rows.")
+        asm.inst(f"v_lshrrev_b32 v{temporary}, 3, v{serial}")
+        asm.inst(f"v_lshlrev_b32 v{metadata_address}, 6, s2")
+        asm.inst(f"v_add_nc_u32 v{temporary}, v{metadata_address}, v{temporary}")
+        asm.inst(f"v_mul_lo_u32 v{temporary}, {row_stride}, v{temporary}")
+        asm.inst(f"v_add_nc_u32 v{temporary}, s{self.SCALAR_TEMPORARY}, v{temporary}")
+        asm.inst(f"v_and_b32 v{auxiliary}, 7, v{serial}")
+        asm.inst(f"v_lshlrev_b32 v{metadata_address}, 4, v{auxiliary}")
+        asm.inst(f"v_add_nc_u32 v{temporary}, 16, v{temporary}")
+        asm.inst(f"v_add_nc_u32 v{temporary}, v{metadata_address}, v{temporary}")
+
+        asm.inst(f"v_lshrrev_b32 v{lds_address}, 3, v{serial}")
+        asm.inst(f"v_mul_lo_u32 v{lds_address}, {weight_lds_stride}, v{lds_address}")
+        asm.inst(f"v_lshrrev_b32 v{metadata_address}, 1, v{auxiliary}")
+        asm.inst(f"v_lshlrev_b32 v{metadata_address}, 6, v{metadata_address}")
+        asm.inst(f"v_and_b32 v{auxiliary}, 1, v{auxiliary}")
+        asm.inst(f"v_lshlrev_b32 v{auxiliary}, 4, v{auxiliary}")
+        asm.inst(
+            f"v_add3_u32 v{lds_address}, v{metadata_address}, "
+            f"v{auxiliary}, v{lds_address}"
+        )
+        asm.inst(f"v_add_nc_u32 v{lds_address}, {weight_lds_base}, v{lds_address}")
+
+        metadata_base = staging_base + 32
+        asm.inst(f"v_readfirstlane_b32 s12, v{wave}")
+        asm.inst("s_cmp_lt_u32 s12, 2")
+        asm.inst("s_cbranch_scc0 .LForwardQ4KDecodedMetadataLoadDone")
+        asm.inst(f"v_lshlrev_b32 v{metadata_address}, 6, s2")
+        asm.inst(f"v_add_nc_u32 v{metadata_address}, v{serial}, v{metadata_address}")
+        asm.inst(f"v_mul_lo_u32 v{metadata_address}, {row_stride}, v{metadata_address}")
+        asm.inst(
+            f"v_add_nc_u32 v{metadata_address}, s{self.SCALAR_TEMPORARY}, "
+            f"v{metadata_address}"
+        )
+        asm.inst(
+            f"global_load_b128 v[{metadata_base}:{metadata_base + 3}], "
+            f"v{metadata_address}, s[{self.KERNARG}:{self.KERNARG + 1}]"
+        )
+        asm.label(".LForwardQ4KDecodedMetadataLoadDone")
+
+        for row_slice in range(4):
+            raw_base = staging_base + 8 * row_slice
+            asm.inst(
+                f"global_load_b128 v[{raw_base}:{raw_base + 3}], "
+                f"v{temporary}, s[{self.KERNARG}:{self.KERNARG + 1}]"
+            )
+            if row_slice != 3:
+                asm.inst(f"v_add_nc_u32 v{temporary}, {16 * row_stride}, v{temporary}")
+        for row_slice in range(4):
+            raw_base = staging_base + 8 * row_slice
+            asm.inst(f"s_waitcnt vmcnt({3 - row_slice})")
+            for item in range(4):
+                low = raw_base + item
+                high = raw_base + 4 + item
+                asm.inst(f"v_lshrrev_b32 v{high}, 4, v{low}")
+                asm.inst(f"v_and_b32 v{low}, 0x0f0f0f0f, v{low}")
+                asm.inst(f"v_and_b32 v{high}, 0x0f0f0f0f, v{high}")
+            asm.inst(f"ds_write_b128 v{lds_address}, v[{raw_base}:{raw_base + 3}]")
+            asm.inst(
+                f"ds_write_b128 v{lds_address}, "
+                f"v[{raw_base + 4}:{raw_base + 7}] offset:32"
+            )
+            if row_slice != 3:
+                asm.inst(
+                    f"v_add_nc_u32 v{lds_address}, "
+                    f"{16 * weight_lds_stride}, v{lds_address}"
+                )
+
+        asm.comment("Compute each packed Q4_K scale/min pair once per weight row.")
+        asm.inst("s_cmp_lt_u32 s12, 2")
+        asm.inst("s_cbranch_scc0 .LForwardQ4KDecodedMetadataDone")
+        asm.inst(f"v_mul_lo_u32 v{lds_address}, {weight_lds_stride}, v{serial}")
+        asm.inst(
+            f"v_add_nc_u32 v{lds_address}, {weight_lds_base + 256}, v{lds_address}"
+        )
+        for group in range(8):
+            self._emit_scale_and_minimum(
+                asm,
+                group,
+                metadata_base,
+                scale=72,
+                minimum=73,
+                temporary=74,
+            )
+            asm.inst("v_cvt_f32_u32 v75, v72")
+            asm.inst("v_cvt_f32_u32 v76, v73")
+            asm.inst("v_cvt_f16_f32_e32 v77.l, v75")
+            asm.inst("v_cvt_f16_f32_e32 v77.h, v76")
+            asm.inst("v_pk_mul_f16 v77, 0xbc003c00, v77")
+            asm.inst(f"v_pk_mul_f16 v77, v{metadata_base}, v77")
+            asm.inst(f"ds_write_b32 v{lds_address}, v77 offset:{4 * group}")
+        asm.label(".LForwardQ4KDecodedMetadataDone")
+
     def _uses_wave_reuse(self) -> bool:
         return self.solution_key.solution.operand_source in (
             "GlobalWaveReuse",
@@ -245,7 +354,13 @@ class DenseForwardKernelWriterAssembly:
         return self.solution_key.solution.operand_source == "GlobalWaveBatch4"
 
     def _uses_hip_staged(self) -> bool:
-        return self.solution_key.solution.operand_source == "HipStagedBatch8"
+        return self.solution_key.solution.operand_source in (
+            "HipStagedBatch8",
+            "HipDecodedStagedBatch8",
+        )
+
+    def _uses_hip_decoded_staged(self) -> bool:
+        return self.solution_key.solution.operand_source == "HipDecodedStagedBatch8"
 
     def _total_vgprs(self) -> int:
         if self._uses_hip_staged():
@@ -259,8 +374,10 @@ class DenseForwardKernelWriterAssembly:
         asm = _Assembly()
         size = self.solution_key.problem_size
         name = self.solution_key.kernel_name
+        decoded = self._uses_hip_decoded_staged()
         row_stride = size.k // 256 * 144
         activation_plane_stride = size.m * 144
+        activation_lds_base = 512 if decoded else 8192
         sum_base = 8
         weight_q = 72
         metadata = 80
@@ -311,63 +428,80 @@ class DenseForwardKernelWriterAssembly:
         asm.inst(f"s_mov_b32 s{self.SCALAR_TEMPORARY}, 0")
 
         asm.label(".LForwardQ4KHipStagedBlockLoop")
-        asm.comment("Load the eight per-result Q4_K metadata records.")
-        asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{serial}")
-        asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
-        asm.inst(f"v_add_nc_u32 v{temporary}, v{wave_column_base}, v{temporary}")
-        asm.inst(f"v_mul_lo_u32 v{metadata_address}, {row_stride}, v{temporary}")
-        asm.inst(
-            f"v_add_nc_u32 v{metadata_address}, s{self.SCALAR_TEMPORARY}, "
-            f"v{metadata_address}"
-        )
-        for element in range(8):
-            asm.inst(
-                f"global_load_b128 v[{metadata + 4 * element}:"
-                f"{metadata + 4 * element + 3}], v{metadata_address}, "
-                f"s[{self.KERNARG}:{self.KERNARG + 1}]"
+        if decoded:
+            self._emit_hip_stage_decoded_weights(
+                asm,
+                row_stride=row_stride,
+                serial=serial,
+                wave=wave,
+                temporary=temporary,
+                lds_address=lds_address,
+                auxiliary=auxiliary,
+                metadata_address=metadata_address,
+                staging_base=c_base,
             )
-            if element != 7:
+        else:
+            asm.comment("Load the eight per-result Q4_K metadata records.")
+            asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{serial}")
+            asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
+            asm.inst(f"v_add_nc_u32 v{temporary}, v{wave_column_base}, v{temporary}")
+            asm.inst(f"v_mul_lo_u32 v{metadata_address}, {row_stride}, v{temporary}")
+            asm.inst(
+                f"v_add_nc_u32 v{metadata_address}, s{self.SCALAR_TEMPORARY}, "
+                f"v{metadata_address}"
+            )
+            for element in range(8):
                 asm.inst(
-                    f"v_add_nc_u32 v{metadata_address}, {2 * row_stride}, "
-                    f"v{metadata_address}"
+                    f"global_load_b128 v[{metadata + 4 * element}:"
+                    f"{metadata + 4 * element + 3}], v{metadata_address}, "
+                    f"s[{self.KERNARG}:{self.KERNARG + 1}]"
                 )
+                if element != 7:
+                    asm.inst(
+                        f"v_add_nc_u32 v{metadata_address}, {2 * row_stride}, "
+                        f"v{metadata_address}"
+                    )
 
-        asm.comment("Cooperatively stage the raw packed Q4_K payload.")
-        asm.inst(f"v_lshrrev_b32 v{temporary}, 3, v{serial}")
-        asm.inst(f"v_lshlrev_b32 v{metadata_address}, 6, s2")
-        asm.inst(f"v_add_nc_u32 v{temporary}, v{metadata_address}, v{temporary}")
-        asm.inst(f"v_mul_lo_u32 v{temporary}, {row_stride}, v{temporary}")
-        asm.inst(f"v_add_nc_u32 v{temporary}, s{self.SCALAR_TEMPORARY}, v{temporary}")
-        asm.inst(f"v_and_b32 v{auxiliary}, 7, v{serial}")
-        asm.inst(f"v_lshlrev_b32 v{auxiliary}, 4, v{auxiliary}")
-        asm.inst(f"v_add_nc_u32 v{temporary}, 16, v{temporary}")
-        asm.inst(f"v_add_nc_u32 v{temporary}, v{auxiliary}, v{temporary}")
-        asm.inst(f"v_lshrrev_b32 v{lds_address}, 3, v{serial}")
-        asm.inst(f"v_lshlrev_b32 v{lds_address}, 7, v{lds_address}")
-        asm.inst(f"v_add_nc_u32 v{lds_address}, v{auxiliary}, v{lds_address}")
-        for pair in range(2):
-            first = c_base
-            second = c_base + 4
+            asm.comment("Cooperatively stage the raw packed Q4_K payload.")
+            asm.inst(f"v_lshrrev_b32 v{temporary}, 3, v{serial}")
+            asm.inst(f"v_lshlrev_b32 v{metadata_address}, 6, s2")
+            asm.inst(f"v_add_nc_u32 v{temporary}, v{metadata_address}, v{temporary}")
+            asm.inst(f"v_mul_lo_u32 v{temporary}, {row_stride}, v{temporary}")
             asm.inst(
-                f"global_load_b128 v[{first}:{first + 3}], v{temporary}, "
-                f"s[{self.KERNARG}:{self.KERNARG + 1}]"
+                f"v_add_nc_u32 v{temporary}, s{self.SCALAR_TEMPORARY}, v{temporary}"
             )
-            asm.inst(f"v_add_nc_u32 v{temporary}, {16 * row_stride}, v{temporary}")
-            asm.inst(
-                f"global_load_b128 v[{second}:{second + 3}], v{temporary}, "
-                f"s[{self.KERNARG}:{self.KERNARG + 1}]"
-            )
-            asm.inst("s_waitcnt vmcnt(0)")
-            asm.inst(
-                f"ds_write_b128 v{lds_address}, v[{first}:{first + 3}] "
-                f"offset:{pair * 4096}"
-            )
-            asm.inst(
-                f"ds_write_b128 v{lds_address}, v[{second}:{second + 3}] "
-                f"offset:{pair * 4096 + 2048}"
-            )
-            if pair == 0:
+            asm.inst(f"v_and_b32 v{auxiliary}, 7, v{serial}")
+            asm.inst(f"v_lshlrev_b32 v{auxiliary}, 4, v{auxiliary}")
+            asm.inst(f"v_add_nc_u32 v{temporary}, 16, v{temporary}")
+            asm.inst(f"v_add_nc_u32 v{temporary}, v{auxiliary}, v{temporary}")
+            asm.inst(f"v_lshrrev_b32 v{lds_address}, 3, v{serial}")
+            asm.inst(f"v_lshlrev_b32 v{lds_address}, 7, v{lds_address}")
+            asm.inst(f"v_add_nc_u32 v{lds_address}, v{auxiliary}, v{lds_address}")
+            for pair in range(2):
+                first = c_base
+                second = c_base + 4
+                asm.inst(
+                    f"global_load_b128 v[{first}:{first + 3}], v{temporary}, "
+                    f"s[{self.KERNARG}:{self.KERNARG + 1}]"
+                )
                 asm.inst(f"v_add_nc_u32 v{temporary}, {16 * row_stride}, v{temporary}")
+                asm.inst(
+                    f"global_load_b128 v[{second}:{second + 3}], v{temporary}, "
+                    f"s[{self.KERNARG}:{self.KERNARG + 1}]"
+                )
+                asm.inst("s_waitcnt vmcnt(0)")
+                asm.inst(
+                    f"ds_write_b128 v{lds_address}, v[{first}:{first + 3}] "
+                    f"offset:{pair * 4096}"
+                )
+                asm.inst(
+                    f"ds_write_b128 v{lds_address}, v[{second}:{second + 3}] "
+                    f"offset:{pair * 4096 + 2048}"
+                )
+                if pair == 0:
+                    asm.inst(
+                        f"v_add_nc_u32 v{temporary}, {16 * row_stride}, v{temporary}"
+                    )
 
         self._emit_hip_stage_activation(
             asm,
@@ -377,11 +511,12 @@ class DenseForwardKernelWriterAssembly:
             lds_address=lds_address,
             activation_plane_stride=activation_plane_stride,
             staging_base=c_base,
+            lds_base=activation_lds_base,
         )
-        for group in range(4):
-            self._emit_hip_staged_group(
+        if decoded:
+            self._emit_hip_decoded_group_loop(
                 asm,
-                group,
+                group_base=0,
                 weight_q=weight_q,
                 metadata=metadata,
                 c_base=c_base,
@@ -394,7 +529,28 @@ class DenseForwardKernelWriterAssembly:
                 lane=lane,
                 temporary=temporary,
                 lds_address=lds_address,
+                serial=serial,
             )
+        else:
+            for group in range(4):
+                self._emit_hip_staged_group(
+                    asm,
+                    group,
+                    weight_q=weight_q,
+                    metadata=metadata,
+                    c_base=c_base,
+                    low_activation_last=low_activation_last,
+                    high_activation_base=high_activation_base,
+                    activation_ds_base=activation_ds_base,
+                    scaled_dm_base=scaled_dm_base,
+                    sum_base=sum_base,
+                    wave=wave,
+                    lane=lane,
+                    temporary=temporary,
+                    lds_address=lds_address,
+                    serial=serial,
+                    decoded=False,
+                )
         asm.inst("s_barrier")
 
         self._emit_hip_stage_activation(
@@ -405,11 +561,12 @@ class DenseForwardKernelWriterAssembly:
             lds_address=lds_address,
             activation_plane_stride=activation_plane_stride,
             staging_base=c_base,
+            lds_base=activation_lds_base,
         )
-        for group in range(4, 8):
-            self._emit_hip_staged_group(
+        if decoded:
+            self._emit_hip_decoded_group_loop(
                 asm,
-                group,
+                group_base=4,
                 weight_q=weight_q,
                 metadata=metadata,
                 c_base=c_base,
@@ -422,7 +579,28 @@ class DenseForwardKernelWriterAssembly:
                 lane=lane,
                 temporary=temporary,
                 lds_address=lds_address,
+                serial=serial,
             )
+        else:
+            for group in range(4, 8):
+                self._emit_hip_staged_group(
+                    asm,
+                    group,
+                    weight_q=weight_q,
+                    metadata=metadata,
+                    c_base=c_base,
+                    low_activation_last=low_activation_last,
+                    high_activation_base=high_activation_base,
+                    activation_ds_base=activation_ds_base,
+                    scaled_dm_base=scaled_dm_base,
+                    sum_base=sum_base,
+                    wave=wave,
+                    lane=lane,
+                    temporary=temporary,
+                    lds_address=lds_address,
+                    serial=serial,
+                    decoded=False,
+                )
         asm.inst("s_barrier")
         asm.inst(f"s_add_u32 s{self.SCALAR_TEMPORARY}, s{self.SCALAR_TEMPORARY}, 144")
         asm.inst(f"s_add_u32 s{self.LOOP_COUNTER}, s{self.LOOP_COUNTER}, 1")
@@ -469,6 +647,7 @@ class DenseForwardKernelWriterAssembly:
         lds_address: int,
         activation_plane_stride: int,
         staging_base: int,
+        lds_base: int,
     ) -> None:
         asm.comment("Cooperatively stage one contiguous 128-row DS4 plane.")
         for chunk in range(5):
@@ -485,13 +664,14 @@ class DenseForwardKernelWriterAssembly:
                     f"s[{self.KERNARG + 2}:{self.KERNARG + 3}] "
                     f"offset:{512 * item}"
                 )
-        asm.inst("s_waitcnt vmcnt(0)")
         asm.inst(f"v_lshlrev_b32 v{lds_address}, 2, v{serial}")
-        asm.inst(f"v_add_nc_u32 v{lds_address}, 8192, v{lds_address}")
-        for item in range(36):
+        asm.inst(f"v_add_nc_u32 v{lds_address}, {lds_base}, v{lds_address}")
+        for item in range(0, 36, 2):
+            asm.inst(f"s_waitcnt vmcnt({34 - item})")
             asm.inst(
-                f"ds_write_b32 v{lds_address}, v{staging_base + item} "
-                f"offset:{512 * item}"
+                f"ds_write2st64_b32 v{lds_address}, v{staging_base + item}, "
+                f"v{staging_base + item + 1} offset0:{2 * item} "
+                f"offset1:{2 * (item + 1)}"
             )
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
@@ -517,14 +697,22 @@ class DenseForwardKernelWriterAssembly:
         lane: int,
         temporary: int,
         lds_address: int,
+        serial: int,
+        decoded: bool,
     ) -> None:
-        q_offset = 32 * (group // 2)
+        q_offset = 32 * group if decoded else 32 * (group // 2)
         activation_q_offset = 16 + 32 * (group % 4)
         activation_ds_offset = 4 * (group % 4)
         asm.comment(f"HIP-shaped staged Q4_K group {group}.")
-        asm.inst(f"v_lshlrev_b32 v{temporary}, 11, v{wave}")
-        asm.inst(f"v_lshlrev_b32 v{lds_address}, 7, v{lane}")
-        asm.inst(f"v_add_nc_u32 v{lds_address}, v{temporary}, v{lds_address}")
+        if decoded:
+            asm.inst(f"v_lshlrev_b32 v{temporary}, 4, v{wave}")
+            asm.inst(f"v_add_nc_u32 v{temporary}, v{lane}, v{temporary}")
+            asm.inst(f"v_mul_lo_u32 v{lds_address}, 304, v{temporary}")
+            asm.inst(f"v_add_nc_u32 v{lds_address}, 18944, v{lds_address}")
+        else:
+            asm.inst(f"v_lshlrev_b32 v{temporary}, 11, v{wave}")
+            asm.inst(f"v_lshlrev_b32 v{lds_address}, 7, v{lane}")
+            asm.inst(f"v_add_nc_u32 v{lds_address}, v{temporary}, v{lds_address}")
         asm.inst(
             f"ds_read_b128 v[{weight_q}:{weight_q + 3}], v{lds_address} "
             f"offset:{q_offset}"
@@ -534,7 +722,9 @@ class DenseForwardKernelWriterAssembly:
             f"offset:{q_offset + 16}"
         )
         asm.inst(f"v_mul_lo_u32 v{lds_address}, 144, v{lane}")
-        asm.inst(f"v_add_nc_u32 v{lds_address}, 8192, v{lds_address}")
+        asm.inst(
+            f"v_add_nc_u32 v{lds_address}, {512 if decoded else 8192}, v{lds_address}"
+        )
         for tile in range(8):
             low_activation = (
                 c_base + 8 * (tile + 1) if tile < 7 else low_activation_last
@@ -555,29 +745,167 @@ class DenseForwardKernelWriterAssembly:
                 f"offset:{tile_offset + activation_ds_offset}"
             )
         asm.inst("s_waitcnt lgkmcnt(0)")
-        for register in range(weight_q, weight_q + 8):
-            if group & 1:
-                asm.inst(f"v_lshrrev_b32 v{register}, 4, v{register}")
-            asm.inst(f"v_and_b32 v{register}, 0x0f0f0f0f, v{register}")
-        for element in range(8):
-            element_metadata = metadata + 4 * element
-            self._emit_scale_and_minimum(
-                asm,
-                group,
-                element_metadata,
-                scale=112,
-                minimum=113,
-                temporary=117,
+        if decoded:
+            asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{serial}")
+            asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
+            asm.inst(f"v_lshlrev_b32 v{metadata}, 4, v{wave}")
+            asm.inst(f"v_add_nc_u32 v{metadata}, v{temporary}, v{metadata}")
+            asm.inst(f"v_mul_lo_u32 v{metadata}, 304, v{metadata}")
+            asm.inst(
+                f"v_add_nc_u32 v{metadata}, {18944 + 256 + 4 * group}, v{metadata}"
             )
-            asm.inst("v_cvt_f32_u32 v114, v112")
-            asm.inst("v_cvt_f32_u32 v115, v113")
-            asm.inst("v_cvt_f16_f32_e32 v116.l, v114")
-            asm.inst("v_cvt_f16_f32_e32 v116.h, v115")
-            asm.inst("v_pk_mul_f16 v116, 0xbc003c00, v116")
-            asm.inst(f"v_pk_mul_f16 v116, v{element_metadata}, v116")
-            asm.inst(f"v_mov_b32 v{scaled_dm_base + element}, v116")
+            for element in range(8):
+                asm.inst(
+                    f"ds_read_b32 v{scaled_dm_base + element}, v{metadata} "
+                    f"offset:{608 * element}"
+                )
+            asm.inst("s_waitcnt lgkmcnt(0)")
+        else:
+            for register in range(weight_q, weight_q + 8):
+                if group & 1:
+                    asm.inst(f"v_lshrrev_b32 v{register}, 4, v{register}")
+                asm.inst(f"v_and_b32 v{register}, 0x0f0f0f0f, v{register}")
+            for element in range(8):
+                element_metadata = metadata + 4 * element
+                self._emit_scale_and_minimum(
+                    asm,
+                    group,
+                    element_metadata,
+                    scale=112,
+                    minimum=113,
+                    temporary=117,
+                )
+                asm.inst("v_cvt_f32_u32 v114, v112")
+                asm.inst("v_cvt_f32_u32 v115, v113")
+                asm.inst("v_cvt_f16_f32_e32 v116.l, v114")
+                asm.inst("v_cvt_f16_f32_e32 v116.h, v115")
+                asm.inst("v_pk_mul_f16 v116, 0xbc003c00, v116")
+                asm.inst(f"v_pk_mul_f16 v116, v{element_metadata}, v116")
+                asm.inst(f"v_mov_b32 v{scaled_dm_base + element}, v116")
+        self._emit_hip_staged_accumulate(
+            asm,
+            weight_q=weight_q,
+            c_base=c_base,
+            low_activation_last=low_activation_last,
+            high_activation_base=high_activation_base,
+            activation_ds_base=activation_ds_base,
+            scaled_dm_base=scaled_dm_base,
+            sum_base=sum_base,
+            overlap_lds=False,
+        )
+
+    def _emit_hip_decoded_group_loop(
+        self,
+        asm: _Assembly,
+        *,
+        group_base: int,
+        weight_q: int,
+        metadata: int,
+        c_base: int,
+        low_activation_last: int,
+        high_activation_base: int,
+        activation_ds_base: int,
+        scaled_dm_base: int,
+        sum_base: int,
+        wave: int,
+        lane: int,
+        temporary: int,
+        lds_address: int,
+        serial: int,
+    ) -> None:
+        label = f".LForwardQ4KDecodedGroupLoop{group_base}"
+        asm.comment(f"Roll decoded Q4_K groups {group_base} through {group_base + 3}.")
+        asm.inst("s_mov_b32 s13, 0")
+        asm.label(label)
+
+        asm.inst(f"v_lshlrev_b32 v{temporary}, 4, v{wave}")
+        asm.inst(f"v_add_nc_u32 v{temporary}, v{lane}, v{temporary}")
+        asm.inst(f"v_mul_lo_u32 v{lds_address}, 304, v{temporary}")
+        asm.inst(
+            f"v_add_nc_u32 v{lds_address}, {18944 + 32 * group_base}, v{lds_address}"
+        )
+        asm.inst("s_lshl_b32 s14, s13, 5")
+        asm.inst(f"v_add_nc_u32 v{lds_address}, s14, v{lds_address}")
+        asm.inst(f"ds_read_b128 v[{weight_q}:{weight_q + 3}], v{lds_address}")
+        asm.inst(
+            f"ds_read_b128 v[{weight_q + 4}:{weight_q + 7}], v{lds_address} offset:16"
+        )
+
+        asm.inst(f"v_mul_lo_u32 v{metadata}, 144, v{lane}")
+        asm.inst(f"v_add_nc_u32 v{metadata}, 512, v{metadata}")
+        asm.inst(f"v_add_nc_u32 v{lds_address}, s14, v{metadata}")
+        for tile in range(8):
+            low_activation = (
+                c_base + 8 * (tile + 1) if tile < 7 else low_activation_last
+            )
+            high_activation = high_activation_base + 4 * tile
+            tile_offset = 16 * tile * 144
+            asm.inst(
+                f"ds_read_b128 v[{low_activation}:{low_activation + 3}], "
+                f"v{lds_address} offset:{tile_offset + 16}"
+            )
+            asm.inst(
+                f"ds_read_b128 v[{high_activation}:{high_activation + 3}], "
+                f"v{lds_address} offset:{tile_offset + 32}"
+            )
+        asm.inst("s_lshl_b32 s14, s13, 2")
+        asm.inst(f"v_add_nc_u32 v{metadata}, s14, v{metadata}")
+        for tile in range(0, 8, 2):
+            asm.inst(
+                f"ds_read2st64_b32 v[{activation_ds_base + tile}:"
+                f"{activation_ds_base + tile + 1}], v{metadata} "
+                f"offset0:{9 * tile} offset1:{9 * (tile + 1)}"
+            )
+
+        asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{serial}")
+        asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
+        asm.inst(f"v_lshlrev_b32 v{metadata}, 4, v{wave}")
+        asm.inst(f"v_add_nc_u32 v{metadata}, v{temporary}, v{metadata}")
+        asm.inst(f"v_mul_lo_u32 v{metadata}, 304, v{metadata}")
+        asm.inst(
+            f"v_add_nc_u32 v{metadata}, {18944 + 256 + 4 * group_base}, v{metadata}"
+        )
+        asm.inst(f"v_add_nc_u32 v{metadata}, s14, v{metadata}")
+        for pair in range(1, 4):
+            asm.inst(f"v_add_nc_u32 v{metadata + pair}, {1216 * pair}, v{metadata}")
+        for element in range(0, 8, 2):
+            asm.inst(
+                f"ds_read2_b32 v[{scaled_dm_base + element}:"
+                f"{scaled_dm_base + element + 1}], "
+                f"v{metadata + element // 2} offset0:0 offset1:152"
+            )
+        self._emit_hip_staged_accumulate(
+            asm,
+            weight_q=weight_q,
+            c_base=c_base,
+            low_activation_last=low_activation_last,
+            high_activation_base=high_activation_base,
+            activation_ds_base=activation_ds_base,
+            scaled_dm_base=scaled_dm_base,
+            sum_base=sum_base,
+            overlap_lds=True,
+        )
+        asm.inst("s_add_u32 s13, s13, 1")
+        asm.inst("s_cmp_lt_u32 s13, 4")
+        asm.inst(f"s_cbranch_scc1 {label}")
+
+    def _emit_hip_staged_accumulate(
+        self,
+        asm: _Assembly,
+        *,
+        weight_q: int,
+        c_base: int,
+        low_activation_last: int,
+        high_activation_base: int,
+        activation_ds_base: int,
+        scaled_dm_base: int,
+        sum_base: int,
+        overlap_lds: bool,
+    ) -> None:
         clamp = " clamp" if self.solution_key.solution.wmma_clamp else ""
         for tile in range(8):
+            if overlap_lds:
+                asm.inst(f"s_waitcnt lgkmcnt({23 - 2 * tile})")
             c_fragment = c_base + 8 * tile
             low_activation = (
                 c_base + 8 * (tile + 1) if tile < 7 else low_activation_last
@@ -589,6 +917,8 @@ class DenseForwardKernelWriterAssembly:
                 f"v[{self.C}:{self.C + 7}] neg_lo:[1,1,0]{clamp}"
             )
         for tile in range(8):
+            if overlap_lds and tile == 7:
+                asm.inst("s_waitcnt lgkmcnt(8)")
             c_fragment = c_base + 8 * tile
             high_activation = high_activation_base + 4 * tile
             asm.inst(
@@ -597,6 +927,9 @@ class DenseForwardKernelWriterAssembly:
                 f"v[{high_activation}:{high_activation + 3}], "
                 f"v[{c_fragment}:{c_fragment + 7}] neg_lo:[1,1,0]{clamp}"
             )
+        if overlap_lds:
+            asm.inst("s_waitcnt lgkmcnt(0)")
+
         product_base = low_activation_last
         for tile_start in (0, 4):
             for local_tile in range(4):

@@ -217,6 +217,21 @@ def test_forward_writer_emits_hip_shaped_staged_control() -> None:
     assert "v_fmac_f32_e32" not in source
 
 
+def test_forward_writer_emits_hip_decoded_staged_control() -> None:
+    key = _key(solution=DenseForwardSolution.q4_k_hip_decoded_staged())
+    source = DenseForwardKernelWriterAssembly(key, _toolchain()).source()
+    assert source.count("v_wmma_i32_16x16x16_iu8") == 32
+    assert source.count("s_barrier") == 4
+    assert "Cooperatively decode Q4_K nibbles into HIP's padded LDS rows." in source
+    assert "Compute each packed Q4_K scale/min pair once per weight row." in source
+    assert "Roll decoded Q4_K groups 0 through 3." in source
+    assert "Roll decoded Q4_K groups 4 through 7." in source
+    assert "ds_write2st64_b32" in source
+    assert "ds_read2st64_b32" in source
+    assert source.count("v_dual_fmac_f32") == 128
+    assert "s_clause" not in source
+
+
 def test_forward_runtime_uses_exact_candidate_and_hip_launch_geometry() -> None:
     direct = DenseForwardModule.__new__(DenseForwardModule)
     direct.solution_key = _key(solution=DenseForwardSolution.q4_k_wave_reuse())
@@ -233,6 +248,13 @@ def test_forward_runtime_uses_exact_candidate_and_hip_launch_geometry() -> None:
         (DenseForwardSolution.q4_k_wave_reuse(), 128, 164, 0, 0),
         (DenseForwardSolution.q4_k_wave_batch4(), 128, 194, 0, 0),
         (DenseForwardSolution.q4_k_hip_staged(), 128, 239, 4, 26_624),
+        (
+            DenseForwardSolution.q4_k_hip_decoded_staged(),
+            32,
+            239,
+            4,
+            38_400,
+        ),
     ),
 )
 def test_forward_artifact_passes_strict_inspection(

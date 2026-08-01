@@ -149,7 +149,9 @@ def inspect_artifact(
     if expected_wmmas is None:
         if isinstance(solution, DenseForwardSolution):
             expected_wmmas = (
-                128
+                32
+                if solution.operand_source == "HipDecodedStagedBatch8"
+                else 128
                 if solution.operand_source
                 in (
                     "GlobalWaveReuse",
@@ -177,7 +179,12 @@ def inspect_artifact(
     expected_barriers = expected_barrier_count
     if expected_barriers is None:
         if isinstance(solution, DenseForwardSolution):
-            expected_barriers = 4 if solution.operand_source == "HipStagedBatch8" else 0
+            expected_barriers = (
+                4
+                if solution.operand_source
+                in ("HipStagedBatch8", "HipDecodedStagedBatch8")
+                else 0
+            )
         elif solution.one_lds_buffer == 0:
             expected_barriers = 1 + int(solution_key.problem_size.k > solution.depth_u)
         else:
@@ -402,7 +409,7 @@ def _validate_forward_metadata(
         ".wavefront_size": solution.wavefront_size,
         ".vgpr_count": (
             DenseForwardKernelWriterAssembly.TOTAL_VGPRS_HIP_STAGED
-            if solution.operand_source == "HipStagedBatch8"
+            if solution.operand_source in ("HipStagedBatch8", "HipDecodedStagedBatch8")
             else DenseForwardKernelWriterAssembly.TOTAL_VGPRS_BATCH
             if solution.operand_source == "GlobalWaveBatch4"
             else DenseForwardKernelWriterAssembly.TOTAL_VGPRS_REUSE

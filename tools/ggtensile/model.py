@@ -508,6 +508,10 @@ class DenseForwardSolution:
         return replace(cls.q4_k_wave_reuse(), operand_source="HipStagedBatch8")
 
     @classmethod
+    def q4_k_hip_decoded_staged(cls) -> Self:
+        return replace(cls.q4_k_wave_reuse(), operand_source="HipDecodedStagedBatch8")
+
+    @classmethod
     def from_mapping(cls, value: object) -> Self:
         item = _strict_mapping(value, name="Solution", keys=cls._KEYS)
         return cls(
@@ -543,6 +547,8 @@ class DenseForwardSolution:
 
     @property
     def lds_num_bytes(self) -> int:
+        if self.operand_source == "HipDecodedStagedBatch8":
+            return 38_400
         if self.operand_source == "HipStagedBatch8":
             return 18_432 + 8_192
         return 0
