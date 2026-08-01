@@ -151,7 +151,7 @@ def inspect_artifact(
         if isinstance(solution, DenseForwardSolution):
             expected_wmmas = (
                 128
-                if solution.operand_source == "GlobalWaveReuse"
+                if solution.operand_source in ("GlobalWaveReuse", "GlobalWaveBatch4")
                 else 16
             )
         else:
@@ -397,6 +397,9 @@ def _validate_forward_metadata(
         ".max_flat_workgroup_size": solution.num_threads,
         ".wavefront_size": solution.wavefront_size,
         ".vgpr_count": (
+            DenseForwardKernelWriterAssembly.TOTAL_VGPRS_BATCH
+            if solution.operand_source == "GlobalWaveBatch4"
+            else
             DenseForwardKernelWriterAssembly.TOTAL_VGPRS_REUSE
             if solution.operand_source == "GlobalWaveReuse"
             else DenseForwardKernelWriterAssembly.TOTAL_VGPRS

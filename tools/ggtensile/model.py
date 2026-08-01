@@ -1,6 +1,6 @@
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, ClassVar, Mapping, Self
 
@@ -498,6 +498,10 @@ class DenseForwardSolution:
             signed_activation=True,
             wmma_clamp=True,
         )
+
+    @classmethod
+    def q4_k_wave_batch4(cls) -> Self:
+        return replace(cls.q4_k_wave_reuse(), operand_source="GlobalWaveBatch4")
 
     @classmethod
     def from_mapping(cls, value: object) -> Self:

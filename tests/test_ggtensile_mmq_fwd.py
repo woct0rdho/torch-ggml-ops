@@ -191,6 +191,19 @@ def test_forward_writer_emits_flat_wave_reuse_control() -> None:
     assert "s_barrier" not in source
 
 
+def test_forward_writer_emits_wave_batch_control() -> None:
+    key = _key(solution=DenseForwardSolution.q4_k_wave_batch4())
+    source = DenseForwardKernelWriterAssembly(key, _toolchain()).source()
+    assert source.count("v_wmma_i32_16x16x16_iu8") == 128
+    assert "Batch Q4_K group 7 across four activation tiles at a time." in source
+    assert "v_wmma_i32_16x16x16_iu8 v[112:119]" in source
+    assert "v_wmma_i32_16x16x16_iu8 v[136:143]" in source
+    assert "v_mov_b32 v175, v2" in source
+    assert "v_mov_b32 v176, v2" not in source
+    assert "v_fma_mix_f32 v148" in source
+    assert "s_barrier" not in source
+
+
 def test_forward_runtime_uses_exact_candidate_and_hip_launch_geometry() -> None:
     direct = DenseForwardModule.__new__(DenseForwardModule)
     direct.solution_key = _key(solution=DenseForwardSolution.q4_k_wave_reuse())
@@ -205,6 +218,7 @@ def test_forward_runtime_uses_exact_candidate_and_hip_launch_geometry() -> None:
     (
         (DenseForwardSolution.q4_k_pilot(), 16, 88, 0, 0),
         (DenseForwardSolution.q4_k_wave_reuse(), 128, 164, 0, 0),
+        (DenseForwardSolution.q4_k_wave_batch4(), 128, 194, 0, 0),
     ),
 )
 def test_forward_artifact_passes_strict_inspection(
