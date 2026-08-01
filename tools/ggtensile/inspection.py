@@ -124,8 +124,7 @@ def inspect_artifact(
 
     mnemonics = tuple(instruction.split(None, 1)[0] for instruction in instructions)
     wmma_count = sum(
-        mnemonic
-        in {"v_wmma_f32_16x16x16_bf16", "v_wmma_i32_16x16x16_iu8"}
+        mnemonic in {"v_wmma_f32_16x16x16_bf16", "v_wmma_i32_16x16x16_iu8"}
         for mnemonic in mnemonics
     )
     barrier_count = mnemonics.count("s_barrier")
@@ -151,7 +150,12 @@ def inspect_artifact(
         if isinstance(solution, DenseForwardSolution):
             expected_wmmas = (
                 128
-                if solution.operand_source in ("GlobalWaveReuse", "GlobalWaveBatch4")
+                if solution.operand_source
+                in (
+                    "GlobalWaveReuse",
+                    "GlobalWaveBatch4",
+                    "HipStagedBatch8",
+                )
                 else 16
             )
         else:
@@ -173,7 +177,7 @@ def inspect_artifact(
     expected_barriers = expected_barrier_count
     if expected_barriers is None:
         if isinstance(solution, DenseForwardSolution):
-            expected_barriers = 0
+            expected_barriers = 4 if solution.operand_source == "HipStagedBatch8" else 0
         elif solution.one_lds_buffer == 0:
             expected_barriers = 1 + int(solution_key.problem_size.k > solution.depth_u)
         else:
@@ -397,10 +401,11 @@ def _validate_forward_metadata(
         ".max_flat_workgroup_size": solution.num_threads,
         ".wavefront_size": solution.wavefront_size,
         ".vgpr_count": (
-            DenseForwardKernelWriterAssembly.TOTAL_VGPRS_BATCH
+            DenseForwardKernelWriterAssembly.TOTAL_VGPRS_HIP_STAGED
+            if solution.operand_source == "HipStagedBatch8"
+            else DenseForwardKernelWriterAssembly.TOTAL_VGPRS_BATCH
             if solution.operand_source == "GlobalWaveBatch4"
-            else
-            DenseForwardKernelWriterAssembly.TOTAL_VGPRS_REUSE
+            else DenseForwardKernelWriterAssembly.TOTAL_VGPRS_REUSE
             if solution.operand_source == "GlobalWaveReuse"
             else DenseForwardKernelWriterAssembly.TOTAL_VGPRS
         ),

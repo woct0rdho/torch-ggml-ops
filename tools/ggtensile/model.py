@@ -504,6 +504,10 @@ class DenseForwardSolution:
         return replace(cls.q4_k_wave_reuse(), operand_source="GlobalWaveBatch4")
 
     @classmethod
+    def q4_k_hip_staged(cls) -> Self:
+        return replace(cls.q4_k_wave_reuse(), operand_source="HipStagedBatch8")
+
+    @classmethod
     def from_mapping(cls, value: object) -> Self:
         item = _strict_mapping(value, name="Solution", keys=cls._KEYS)
         return cls(
@@ -517,9 +521,7 @@ class DenseForwardSolution:
             macro_tile0=_integer(item["MacroTile0"], "MacroTile0"),
             macro_tile1=_integer(item["MacroTile1"], "MacroTile1"),
             depth_u=_integer(item["DepthU"], "DepthU"),
-            activation_layout=_string(
-                item["ActivationLayout"], "ActivationLayout"
-            ),
+            activation_layout=_string(item["ActivationLayout"], "ActivationLayout"),
             activation_block_bytes=_integer(
                 item["ActivationBlockBytes"], "ActivationBlockBytes"
             ),
@@ -528,14 +530,10 @@ class DenseForwardSolution:
             ),
             operand_source=_string(item["OperandSource"], "OperandSource"),
             weight_decode=_string(item["WeightDecode"], "WeightDecode"),
-            scale_arithmetic=_string(
-                item["ScaleArithmetic"], "ScaleArithmetic"
-            ),
+            scale_arithmetic=_string(item["ScaleArithmetic"], "ScaleArithmetic"),
             output_store=_string(item["OutputStore"], "OutputStore"),
             signed_weight=_boolean(item["SignedWeight"], "SignedWeight"),
-            signed_activation=_boolean(
-                item["SignedActivation"], "SignedActivation"
-            ),
+            signed_activation=_boolean(item["SignedActivation"], "SignedActivation"),
             wmma_clamp=_boolean(item["WmmaClamp"], "WmmaClamp"),
         )
 
@@ -545,6 +543,8 @@ class DenseForwardSolution:
 
     @property
     def lds_num_bytes(self) -> int:
+        if self.operand_source == "HipStagedBatch8":
+            return 18_432 + 8_192
         return 0
 
     def to_mapping(self) -> dict[str, object]:
@@ -623,7 +623,8 @@ class SolutionKey:
         size = self.problem_size
         quant_type = self.problem_type.quant_data_type.lower()
         operation = (
-            "dense_fwd" if self.problem_type.operation_type == "DenseMMQForward"
+            "dense_fwd"
+            if self.problem_type.operation_type == "DenseMMQForward"
             else "dense_bwd"
         )
         return (

@@ -204,6 +204,19 @@ def test_forward_writer_emits_wave_batch_control() -> None:
     assert "s_barrier" not in source
 
 
+def test_forward_writer_emits_hip_shaped_staged_control() -> None:
+    key = _key(solution=DenseForwardSolution.q4_k_hip_staged())
+    source = DenseForwardKernelWriterAssembly(key, _toolchain()).source()
+    assert source.count("v_wmma_i32_16x16x16_iu8") == 128
+    assert source.count("s_barrier") == 4
+    assert "Cooperatively stage the raw packed Q4_K payload." in source
+    assert "Cooperatively stage one contiguous 128-row DS4 plane." in source
+    assert "ds_write_b128" in source
+    assert "ds_read_b128" in source
+    assert source.count("v_dual_fmac_f32") == 512
+    assert "v_fmac_f32_e32" not in source
+
+
 def test_forward_runtime_uses_exact_candidate_and_hip_launch_geometry() -> None:
     direct = DenseForwardModule.__new__(DenseForwardModule)
     direct.solution_key = _key(solution=DenseForwardSolution.q4_k_wave_reuse())
@@ -219,6 +232,7 @@ def test_forward_runtime_uses_exact_candidate_and_hip_launch_geometry() -> None:
         (DenseForwardSolution.q4_k_pilot(), 16, 88, 0, 0),
         (DenseForwardSolution.q4_k_wave_reuse(), 128, 164, 0, 0),
         (DenseForwardSolution.q4_k_wave_batch4(), 128, 194, 0, 0),
+        (DenseForwardSolution.q4_k_hip_staged(), 128, 239, 4, 26_624),
     ),
 )
 def test_forward_artifact_passes_strict_inspection(
