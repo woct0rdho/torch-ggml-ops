@@ -9,7 +9,6 @@ This is a dense-forward multiply campaign. The existing HIP DS4 activation quant
 ## Contract
 
 Target only:
-
 - gfx1151, wave32, WMMA V1, and BF16 input/output activations.
 - Packed GGUF Q4_K weights with direct in-kernel packed decode; no prepared weights, dense shadows, external decode workspace, split-K, persistent workgroups, grouped MMQ, or online tuning.
 - The fixed HIP DS4 Q8_1 activation producer. The GGTensile multiply consumes its 144-byte Q8_1 blocks directly.
@@ -48,10 +47,9 @@ The initial order is narrow M32768, attention-output M32768, shared-down M32768,
 The installed HIP `quantize_bf16_q8_1_ds4` HSACO is the fixed DS4 producer control. For each 32-value group it computes absolute maximum, `d=amax/127`, signed-int8 nearest quantization, and the input sum needed by Q4_K zero-point correction. It is outside the GGTensile solution identity in this campaign.
 
 The forward benchmark has three explicit measurements:
-
-1. Fixed HIP quantizer plus HIP packed multiply: public HIP control.
-2. Fixed HIP quantizer plus GGTensile packed multiply: complete candidate.
-3. A prequantized-workspace bracket of HIP and GGTensile multiply bodies: diagnosis only.
+- Fixed HIP quantizer plus HIP packed multiply: public HIP control.
+- Fixed HIP quantizer plus GGTensile packed multiply: complete candidate.
+- A prequantized-workspace bracket of HIP and GGTensile multiply bodies: diagnosis only.
 
 The DS4 workspace produced for GGTensile must be byte-identical to the installed HIP producer. No alternate activation quantizer, clamp, rounding, reciprocal, reduction, metadata-layout, or workspace-lifetime change may be selected through this campaign.
 
@@ -60,7 +58,6 @@ The DS4 workspace produced for GGTensile must be byte-identical to the installed
 Forward identity and writer/runtime/inspection support must be separate from existing backward identity so that forward ABI, Q8_1 workspace layout, signed-int8 WMMA, and output scaling cannot be confused with BF16 backward decode.
 
 The Q4_K forward multiply owns:
-
 - exact global addressing for packed `[N,K/256*144]` weights and DS4 workspace `[K/128, M_padded]` blocks;
 - Q4_K payload, scale, and minimum extraction into LDS-facing int8 fragments;
 - DS4 Q8_1 payload and `(d,sum)` loads;
@@ -75,7 +72,6 @@ Forward tuning knobs are introduced only after they have real alternate emitters
 ## Correctness and Resource Gates
 
 Before timing a candidate:
-
 - inspect its symbol, exact forward ABI, gfx1151 metadata, LDS size, WMMA count, private segment, spills, scratch, calls, and dynamic stack;
 - compare multiplication output bit-exactly with the exact HIP multiply when identical integer-WMMA and output ordering are retained; reordered semantic candidates may differ when candidate-to-HIP normalized RMSE is at most `5e-4`, maximum absolute error is at most `0.015625`, and the independent-reference normalized RMSE remains at most `0.04`;
 - compare complete output against public HIP after input mutation and packed-weight mutation;
@@ -103,13 +99,12 @@ Any deliberate semantic experiment needs a separately named problem type, indepe
 ### Phase 3: Large-margin search
 
 Search high-weight M32768 keys first, then transfer only measured mechanisms:
-
-1. Exact M/N ownership and launch density.
-2. Q4_K global payload/metadata reads and DS4 global/LDS load layout.
-3. Int8 WMMA operand order, clamp necessity, integer accumulator placement, and scale/min correction scheduling.
-4. LDS padding/XOR layout, vector local reads, barriers, waits, and prefetch schedules.
-5. Bounded next-tile reads and overlap only when the prequantized lower bounds expose a real gap.
-6. Smaller M keys after large-M choices close.
+- Exact M/N ownership and launch density.
+- Q4_K global payload/metadata reads and DS4 global/LDS load layout.
+- Int8 WMMA operand order, clamp necessity, integer accumulator placement, and scale/min correction scheduling.
+- LDS padding/XOR layout, vector local reads, barriers, waits, and prefetch schedules.
+- Bounded next-tile reads and overlap only when the prequantized lower bounds expose a real gap.
+- Smaller M keys after large-M choices close.
 
 Candidates pass correctness and inspection before nine-repeat serial screens. A new resource-bearing mechanism requires a stable gain above 2% in a 25-repeat rotating assembly-control confirmation. Unconditional instruction or resource reductions may remain when neutral or favorable.
 
@@ -128,11 +123,11 @@ Classify every remaining idea as retained and measured; rejected by correctness,
 - [x] Forward identity, fixed-quantizer control runtime, inspection, and exact 12-key inventory.
 - [x] Correct Q4_K signed-int8 WMMA control for K512/K2048/K4096.
 - [x] High-weight M32768 ownership, LDS, and scheduling search.
-- [ ] Per-key catalog with all exact keys faster than HIP.
-- [ ] Complete and prequantized lower bounds with residual bottleneck explanation.
+- [ ] Per-key catalog with all exact keys faster than HIP; two shared-down keys are selected and ten keys remain open.
+- [x] Complete and prequantized lower bounds with residual bottleneck explanation.
 - [x] Independent rebuild reproducibility, mutation coverage, and 25-repeat confirmation.
 - [ ] Recursive optimization-exhaustion review with no actionable mechanism remaining.
-- [ ] Public dispatch and artifact packaging, deferred.
+- [x] Public dispatch and artifact packaging for the two selected exact keys; all other keys retain HIP fallback.
 
 ## Implementation Record
 
@@ -171,3 +166,17 @@ All 12 retained artifacts declare 239 VGPRs, 16 SGPRs, 38,400 bytes of LDS, zero
 Strict correctness was repeated on every key. Baseline, public complete call, input mutation, packed-weight mutation, and DS4-workspace mutation were bit-identical to HIP. Every mutation changed output, all outputs were finite, and independent GGUF-dequantized BF16-reference normalized RMSE ranged from `0.01320` to `0.01372`, below the `0.04` limit. Independent generation and build trees produced byte-identical assembly and code objects for all 12 keys.
 
 Supported K512 profiling rules out excess decode traffic, cache misses, and LDS conflicts as the residual cause. Retained GGTensile and HIP both report `11.739%` LDS-bank-conflict and approximately `80.5%` L2-hit rates. GGTensile executes 4,471 versus 5,211 VALU instructions per work item, 15% fewer total instructions, and 16% fewer flat loads, but reports about 70% more instruction-fetch waits and 14% more aggregate wait-any cycles. A bounded one-to-eight-NOP hot-loop phase scan was exact; its apparent `1.7%` short-screen gain collapsed to `0.3%` in 25-repeat rotation, so loop padding was rejected. The residual target is instruction issue/dependency scheduling, not additional memory reduction.
+
+Three diagnostic lower bounds were generated and measured independently for every production key. Store-only work is approximately `2-7%` of retained latency for K2048/K4096 and `24-27%` for K512. Decode/stage/store work is `44-57%`, while memoryless math/control/store work is `86-88%`. These floors are not additive, but they close raw global/LDS traffic reduction as the dominant residual opportunity and explain why K512 is much more sensitive to conversion/store overlap.
+
+Descriptor and mapping experiments did not generalize. gfx11 `.amdhsa_inst_pref_size` values 15, 31, 47, and 63 were exact; size 63 improved one K512 pilot by `4.2%`, but the all-key 25-repeat rotation was neutral on average and regressed shared-down. Flattened workgroup mapping and static M clusters 1, 2, 4, 8, and 16 were exact after correcting the launch contract. Cluster 1's initial `0.9787x` parent result became `0.9935x`, `0.9987x`, and `1.0015x` across K512 M2048/M8192/M32768, while larger clusters regressed sharply. Both mechanisms are rejected.
+
+Output-width and synchronization alternatives are closed for gfx1151. Cross-lane B32, B64, and B128 gather/pack schedules preserve the 64 required BF16 stores only by adding DS exchange and packing work; the strongest B128 form was about `7%` slower. gfx1151 has no native packed BF16 conversion, and VOPD cannot pair the dynamic BF16 conversion, integer extraction, or `v_fma_mix_f32` operations. Split `s_barrier_signal`/`s_barrier_wait` is gfx12-only. Activation-load clauses, moving 32 or all 36 activation requests before metadata conversion, packed-weight clauses, and activation wait-ladder repacking were exact but neutral or slower.
+
+Metadata extraction became the useful scheduling lever. Literal-bearing `v_perm_b32` reduced the static extraction count but regressed by about `0.5%`, consistent with measured instruction-fetch pressure. Width-8 dependency exposure improved the retained K512 family by approximately `0.6-1.1%`; fully exposing the 24 independent BFEs before eight combines was stronger on large M. Early placement after four packed-weight VMEM requests and partial-prefix variants improved the rotation-sensitive M2048 key but did not stably beat HIP. Upper-field byte prepacking removed seven instructions per K block, and B64/B128 metadata stores removed additional LDS issues, but their short wins did not displace independent extraction under 25-repeat confirmation. Scoped metadata, activation-stage, and epilogue priorities were retained only where exact-key timing justified them.
+
+Epilogue conversion/store scheduling was searched over `TilesAhead={1,2,4,8}` and `DependencyWidth={1,2,4,8}` with exact BF16 round-to-nearest-even operations, unchanged store count, and unchanged 239-VGPR allocation. No universal schedule won. For shared-down M8192, independent extraction with `TilesAhead=1`, dependency width 4, and priority 2 measured `0.98712x` HIP in a 25-repeat head-to-head against retained and competing width-8 schedules. For M32768, independent extraction with `TilesAhead=1`, dependency width 2, and priority 2 measured `0.98832x` HIP in the same comparison. Fresh strict-writer confirmation measured aggregate candidate/HIP medians `0.99585x` and `0.98603x`, with paired medians `0.98933x` and `0.98560x`, respectively.
+
+Those two shared-down keys are now the only selected forward entries. Their strict identity adds `MetadataSchedule`, `EpilogueTilesAhead`, `EpilogueDependencyWidth`, and `EpiloguePriority`; validation rejects independent extraction outside `(M,N,K)=(8192,2048,512)` and `(32768,2048,512)`. Generated instruction streams are identical to the measured experimental streams. Both artifacts declare 239 VGPRs, 16 SGPRs, 38,400 bytes LDS, zero private bytes/spills, 32 WMMAs, four barriers, and eight clauses. Full correctness is bit-identical to HIP for baseline and every mutation; independent-reference normalized RMSE is `0.0136748` and `0.0136804`. Fresh complete-call ratios are `0.99154x` and `0.98368x`, and independent generation/build trees are byte-identical. The other ten inventory keys remain open and use HIP fallback; transformed assembly is not packaged or selected.
+
+Public packaging reads the selected entries and strict solution mappings directly from the campaign inventory and catalog. The builder serially generates both assembly sources before compilation, assembles and links them with the gfx1151 toolchain, and rejects any code object that violates the exact 40-byte ABI, 128-thread wave32 geometry, 239-VGPR/16-SGPR allocation, 38,400-byte LDS allocation, or zero private/spill/stack contract. Existing kernel IDs remain unchanged; the two GGTensile IDs are appended to the generated table. The packaged sources and code objects are byte-identical to the independently validated artifacts. Public dispatch selects them only for exact Q4_K shared-down M8192 and M32768; a fresh-process artifact-open trace confirmed that M2048 resolves the existing HIP K512 artifact while the two selected calls resolve their strict GGTensile artifacts. Public independent-reference NRMSE was `0.0138111`, `0.0136459`, and `0.0136657` for M2048/M8192/M32768, respectively.

@@ -432,6 +432,10 @@ class DenseForwardSolution:
     signed_weight: bool
     signed_activation: bool
     wmma_clamp: bool
+    metadata_schedule: str = "Serialized"
+    epilogue_tiles_ahead: int = 8
+    epilogue_dependency_width: int = 1
+    epilogue_priority: int = 0
 
     _KEYS: ClassVar[frozenset[str]] = frozenset(
         {
@@ -454,6 +458,10 @@ class DenseForwardSolution:
             "ScaleArithmetic",
             "OutputStore",
             "SignedWeight",
+            "MetadataSchedule",
+            "EpilogueTilesAhead",
+            "EpilogueDependencyWidth",
+            "EpiloguePriority",
             "SignedActivation",
             "WmmaClamp",
         }
@@ -534,6 +542,44 @@ class DenseForwardSolution:
         )
 
     @classmethod
+    def q4_k_hip_decoded_staged_extraction(
+        cls,
+        *,
+        epilogue_tiles_ahead: int,
+        epilogue_dependency_width: int,
+        epilogue_priority: int,
+    ) -> Self:
+        if epilogue_tiles_ahead not in (1, 2, 4, 8):
+            raise ValueError("unsupported forward epilogue tiles-ahead")
+        if epilogue_dependency_width not in (1, 2, 4, 8):
+            raise ValueError("unsupported forward epilogue dependency width")
+        if epilogue_priority not in (0, 1, 2, 3):
+            raise ValueError("unsupported forward epilogue priority")
+        return replace(
+            cls.q4_k_hip_decoded_staged_retained(),
+            metadata_schedule="IndependentExtraction",
+            epilogue_tiles_ahead=epilogue_tiles_ahead,
+            epilogue_dependency_width=epilogue_dependency_width,
+            epilogue_priority=epilogue_priority,
+        )
+
+    @classmethod
+    def q4_k_hip_decoded_staged_shared_down_m8192(cls) -> Self:
+        return cls.q4_k_hip_decoded_staged_extraction(
+            epilogue_tiles_ahead=1,
+            epilogue_dependency_width=4,
+            epilogue_priority=2,
+        )
+
+    @classmethod
+    def q4_k_hip_decoded_staged_shared_down_m32768(cls) -> Self:
+        return cls.q4_k_hip_decoded_staged_extraction(
+            epilogue_tiles_ahead=1,
+            epilogue_dependency_width=2,
+            epilogue_priority=2,
+        )
+
+    @classmethod
     def from_mapping(cls, value: object) -> Self:
         item = _strict_mapping(value, name="Solution", keys=cls._KEYS)
         return cls(
@@ -570,6 +616,14 @@ class DenseForwardSolution:
             signed_weight=_boolean(item["SignedWeight"], "SignedWeight"),
             signed_activation=_boolean(item["SignedActivation"], "SignedActivation"),
             wmma_clamp=_boolean(item["WmmaClamp"], "WmmaClamp"),
+            metadata_schedule=_string(item["MetadataSchedule"], "MetadataSchedule"),
+            epilogue_tiles_ahead=_integer(
+                item["EpilogueTilesAhead"], "EpilogueTilesAhead"
+            ),
+            epilogue_dependency_width=_integer(
+                item["EpilogueDependencyWidth"], "EpilogueDependencyWidth"
+            ),
+            epilogue_priority=_integer(item["EpiloguePriority"], "EpiloguePriority"),
         )
 
     @property
@@ -607,6 +661,10 @@ class DenseForwardSolution:
             "SignedWeight": self.signed_weight,
             "SignedActivation": self.signed_activation,
             "WmmaClamp": self.wmma_clamp,
+            "MetadataSchedule": self.metadata_schedule,
+            "EpilogueTilesAhead": self.epilogue_tiles_ahead,
+            "EpilogueDependencyWidth": self.epilogue_dependency_width,
+            "EpiloguePriority": self.epilogue_priority,
         }
 
 

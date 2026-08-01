@@ -99,6 +99,12 @@ def _validate_forward_solution(
     hip_decoded_staged_retained = (
         DenseForwardSolution.q4_k_hip_decoded_staged_retained()
     )
+    hip_decoded_staged_shared_down_m8192 = (
+        DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m8192()
+    )
+    hip_decoded_staged_shared_down_m32768 = (
+        DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m32768()
+    )
     implemented = (
         pilot,
         wave_reuse,
@@ -106,6 +112,8 @@ def _validate_forward_solution(
         hip_staged,
         hip_decoded_staged,
         hip_decoded_staged_retained,
+        hip_decoded_staged_shared_down_m8192,
+        hip_decoded_staged_shared_down_m32768,
     )
     if solution not in implemented:
         _reject(
@@ -133,6 +141,28 @@ def _validate_forward_solution(
             "K",
             source="ProblemSize",
         )
+    if solution.metadata_schedule == "IndependentExtraction":
+        selected_by_size = {
+            (8192, 2048, 512): hip_decoded_staged_shared_down_m8192,
+            (32768, 2048, 512): hip_decoded_staged_shared_down_m32768,
+        }
+        expected = selected_by_size.get(
+            (problem_size.m, problem_size.n, problem_size.k)
+        )
+        if solution != expected:
+            _reject(
+                reasons,
+                "solution.forward.metadata_schedule.key",
+                "independent metadata extraction and epilogue scheduling require their measured exact shared-down key",
+                "MetadataSchedule",
+                "EpilogueTilesAhead",
+                "EpilogueDependencyWidth",
+                "EpiloguePriority",
+                "M",
+                "N",
+                "K",
+                source="SolutionStructs",
+            )
     for parameter, value, divisor in (
         ("M", problem_size.m, solution.macro_tile0),
         ("N", problem_size.n, solution.macro_tile1),

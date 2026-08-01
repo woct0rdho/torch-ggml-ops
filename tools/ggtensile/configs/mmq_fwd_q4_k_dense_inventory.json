@@ -64,8 +64,8 @@
       "RepresentativeTensor": "blk.5.ffn_down_shexp.weight",
       "CallCount": 30,
       "HistoricalHipMedianMs": 0.7110810279846191,
-      "CurrentStatus": "open",
-      "SelectedSolution": "pilot_direct_global"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_shared_down_m8192_extract_a1d4_p2"
     },
     {
       "Family": "shared_down",
@@ -73,8 +73,8 @@
       "RepresentativeTensor": "blk.5.ffn_down_shexp.weight",
       "CallCount": 30,
       "HistoricalHipMedianMs": 2.9796340465545654,
-      "CurrentStatus": "open",
-      "SelectedSolution": "pilot_direct_global"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "retained_shared_down_m32768_extract_a1d2_p2"
     },
     {
       "Family": "attention_output",

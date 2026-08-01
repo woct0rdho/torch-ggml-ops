@@ -326,29 +326,73 @@ class DenseForwardKernelWriterAssembly:
         asm.inst(
             f"v_add_nc_u32 v{lds_address}, {weight_lds_base + 256}, v{lds_address}"
         )
-        for group in range(8):
-            self._emit_scale_and_minimum(
-                asm,
-                group,
-                metadata_base,
-                scale=72,
-                minimum=73,
-                temporary=74,
-            )
-            if (
-                self.solution_key.solution.metadata_conversion
-                == "DirectFloat16Unsigned16"
-            ):
-                asm.inst("v_cvt_f16_u16_e32 v77.l, v72.l")
-                asm.inst("v_cvt_f16_u16_e32 v77.h, v73.l")
-            else:
-                asm.inst("v_cvt_f32_u32 v75, v72")
-                asm.inst("v_cvt_f32_u32 v76, v73")
-                asm.inst("v_cvt_f16_f32_e32 v77.l, v75")
-                asm.inst("v_cvt_f16_f32_e32 v77.h, v76")
-            asm.inst("v_pk_mul_f16 v77, 0xbc003c00, v77")
-            asm.inst(f"v_pk_mul_f16 v77, v{metadata_base}, v77")
-            asm.inst(f"ds_write_b32 v{lds_address}, v77 offset:{4 * group}")
+        if self.solution_key.solution.metadata_schedule == "IndependentExtraction":
+            # Expose the eight metadata fields before conversion so the
+            # conversion/product chains do not serialize on v72:v77.
+            for group in range(4):
+                bit = 8 * group
+                asm.inst(f"v_bfe_u32 v{72 + group}, v145, {bit}, 6")
+                asm.inst(f"v_bfe_u32 v{80 + group}, v146, {bit}, 6")
+            for packed in range(4):
+                group = 4 + packed
+                bit = 8 * packed
+                asm.inst(f"v_bfe_u32 v{72 + group}, v147, {bit}, 4")
+                asm.inst(f"v_bfe_u32 v{80 + group}, v147, {bit + 4}, 4")
+                asm.inst(f"v_bfe_u32 v{88 + packed}, v145, {bit + 6}, 2")
+                asm.inst(f"v_bfe_u32 v{92 + packed}, v146, {bit + 6}, 2")
+            for packed in range(4):
+                group = 4 + packed
+                asm.inst(
+                    f"v_lshl_or_b32 v{72 + group}, v{88 + packed}, 4, "
+                    f"v{72 + group}"
+                )
+                asm.inst(
+                    f"v_lshl_or_b32 v{80 + group}, v{92 + packed}, 4, "
+                    f"v{80 + group}"
+                )
+            for group in range(8):
+                asm.inst(
+                    f"v_cvt_f16_u16_e32 v{96 + group}.l, v{72 + group}.l"
+                )
+            for group in range(8):
+                asm.inst(
+                    f"v_cvt_f16_u16_e32 v{96 + group}.h, v{80 + group}.l"
+                )
+            for group in range(8):
+                asm.inst(f"v_pk_mul_f16 v{96 + group}, 0xbc003c00, v{96 + group}")
+            for group in range(8):
+                asm.inst(
+                    f"v_pk_mul_f16 v{96 + group}, v{metadata_base}, v{96 + group}"
+                )
+            for group in range(8):
+                asm.inst(
+                    f"ds_write_b32 v{lds_address}, v{96 + group} "
+                    f"offset:{4 * group}"
+                )
+        else:
+            for group in range(8):
+                self._emit_scale_and_minimum(
+                    asm,
+                    group,
+                    metadata_base,
+                    scale=72,
+                    minimum=73,
+                    temporary=74,
+                )
+                if (
+                    self.solution_key.solution.metadata_conversion
+                    == "DirectFloat16Unsigned16"
+                ):
+                    asm.inst("v_cvt_f16_u16_e32 v77.l, v72.l")
+                    asm.inst("v_cvt_f16_u16_e32 v77.h, v73.l")
+                else:
+                    asm.inst("v_cvt_f32_u32 v75, v72")
+                    asm.inst("v_cvt_f32_u32 v76, v73")
+                    asm.inst("v_cvt_f16_f32_e32 v77.l, v75")
+                    asm.inst("v_cvt_f16_f32_e32 v77.h, v76")
+                asm.inst("v_pk_mul_f16 v77, 0xbc003c00, v77")
+                asm.inst(f"v_pk_mul_f16 v77, v{metadata_base}, v77")
+                asm.inst(f"ds_write_b32 v{lds_address}, v77 offset:{4 * group}")
         asm.label(".LForwardQ4KDecodedMetadataDone")
 
     def _uses_wave_reuse(self) -> bool:
@@ -370,9 +414,13 @@ class DenseForwardKernelWriterAssembly:
         return self.solution_key.solution.operand_source == "HipDecodedStagedBatch8"
 
     def _uses_retained_decoded_schedule(self) -> bool:
+        solution = self.solution_key.solution
         return (
-            self.solution_key.solution
-            == DenseForwardSolution.q4_k_hip_decoded_staged_retained()
+            isinstance(solution, DenseForwardSolution)
+            and solution.operand_source == "HipDecodedStagedBatch8"
+            and solution.lds_address_hoist == "WeightMetadata"
+            and solution.activation_addressing == "MadU24"
+            and solution.metadata_conversion == "DirectFloat16Unsigned16"
         )
 
     def _total_vgprs(self) -> int:
@@ -648,35 +696,17 @@ class DenseForwardKernelWriterAssembly:
 
         asm.comment("Store the 128x64 row-major BF16 output tile.")
         if retained_decoded:
-            for total in range(sum_base, sum_base + 64):
-                asm.inst(f"v_bfe_u32 v{temporary}, v{total}, 16, 1")
-                asm.inst(f"v_add3_u32 v{total}, v{temporary}, v{total}, 0x7fff")
-            asm.inst(f"v_lshlrev_b32 v{temporary}, 7, s3")
-            asm.inst(f"v_add_nc_u32 v{auxiliary}, v{temporary}, v{lane}")
-            asm.inst(
-                f"v_mul_lo_u32 v{metadata_address}, {2 * size.n}, v{auxiliary}"
+            self._emit_hip_decoded_store(
+                asm,
+                size_n=size.n,
+                sum_base=sum_base,
+                temporary=temporary,
+                auxiliary=auxiliary,
+                metadata_address=metadata_address,
+                wave_column_base=wave_column_base,
+                lane=lane,
+                serial=serial,
             )
-            asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{serial}")
-            asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
-            asm.inst(f"v_add_nc_u32 v{temporary}, v{wave_column_base}, v{temporary}")
-            asm.inst(f"v_lshlrev_b32 v{temporary}, 1, v{temporary}")
-            asm.inst(
-                f"v_add_nc_u32 v{metadata_address}, v{metadata_address}, v{temporary}"
-            )
-            for tile in range(8):
-                if tile:
-                    asm.inst(
-                        f"v_add_nc_u32 v{metadata_address}, {32 * size.n}, "
-                        f"v{metadata_address}"
-                    )
-                asm.inst("s_clause 7")
-                for element in range(8):
-                    total = sum_base + tile * 8 + element
-                    offset = f" offset:{4 * element}" if element else ""
-                    asm.inst(
-                        f"global_store_d16_hi_b16 v{metadata_address}, v{total}, "
-                        f"s[{self.KERNARG + 4}:{self.KERNARG + 5}]{offset}"
-                    )
         else:
             asm.inst(f"v_lshlrev_b32 v{temporary}, 7, s3")
             asm.inst(f"v_add_nc_u32 v{auxiliary}, v{temporary}, v{lane}")
@@ -714,6 +744,152 @@ class DenseForwardKernelWriterAssembly:
         asm.lines.append(f".L{name}_end:")
         asm.lines.append(f".size {name}, .L{name}_end - {name}")
         return asm.text()
+
+    def _emit_hip_decoded_store(
+        self,
+        asm: _Assembly,
+        *,
+        size_n: int,
+        sum_base: int,
+        temporary: int,
+        auxiliary: int,
+        metadata_address: int,
+        wave_column_base: int,
+        lane: int,
+        serial: int,
+    ) -> None:
+        solution = self.solution_key.solution
+        assert isinstance(solution, DenseForwardSolution)
+        scheduled = (
+            solution.epilogue_tiles_ahead != 8
+            or solution.epilogue_dependency_width != 1
+            or solution.epilogue_priority != 0
+        )
+
+        if not scheduled:
+            for total in range(sum_base, sum_base + 64):
+                asm.inst(f"v_bfe_u32 v{temporary}, v{total}, 16, 1")
+                asm.inst(f"v_add3_u32 v{total}, v{temporary}, v{total}, 0x7fff")
+            self._emit_hip_decoded_store_address(
+                asm,
+                size_n=size_n,
+                temporary=temporary,
+                auxiliary=auxiliary,
+                metadata_address=metadata_address,
+                wave_column_base=wave_column_base,
+                lane=lane,
+                serial=serial,
+            )
+            for tile in range(8):
+                if tile:
+                    asm.inst(
+                        f"v_add_nc_u32 v{metadata_address}, {32 * size_n}, "
+                        f"v{metadata_address}"
+                    )
+                self._emit_hip_decoded_store_tile(
+                    asm,
+                    tile=tile,
+                    sum_base=sum_base,
+                    metadata_address=metadata_address,
+                )
+            return
+
+        if solution.epilogue_priority:
+            asm.inst(f"s_setprio {solution.epilogue_priority}")
+        self._emit_hip_decoded_store_address(
+            asm,
+            size_n=size_n,
+            temporary=temporary,
+            auxiliary=auxiliary,
+            metadata_address=metadata_address,
+            wave_column_base=wave_column_base,
+            lane=lane,
+            serial=serial,
+        )
+
+        tiles_ahead = solution.epilogue_tiles_ahead
+        dependency_width = solution.epilogue_dependency_width
+        for first_tile in range(0, 8, tiles_ahead):
+            tile_count = min(tiles_ahead, 8 - first_tile)
+            first_element = 8 * first_tile
+            element_count = 8 * tile_count
+            for batch in range(
+                first_element,
+                first_element + element_count,
+                dependency_width,
+            ):
+                batch_count = min(
+                    dependency_width,
+                    first_element + element_count - batch,
+                )
+                if batch_count == 1:
+                    total = sum_base + batch
+                    asm.inst(f"v_bfe_u32 v{temporary}, v{total}, 16, 1")
+                    asm.inst(
+                        f"v_add3_u32 v{total}, v{temporary}, v{total}, 0x7fff"
+                    )
+                    continue
+                for item in range(batch_count):
+                    total = sum_base + batch + item
+                    asm.inst(f"v_bfe_u32 v{72 + item}, v{total}, 16, 1")
+                for item in range(batch_count):
+                    total = sum_base + batch + item
+                    asm.inst(
+                        f"v_add3_u32 v{total}, v{72 + item}, v{total}, 0x7fff"
+                    )
+            for relative_tile in range(tile_count):
+                tile = first_tile + relative_tile
+                if tile:
+                    asm.inst(
+                        f"v_add_nc_u32 v{metadata_address}, {32 * size_n}, "
+                        f"v{metadata_address}"
+                    )
+                self._emit_hip_decoded_store_tile(
+                    asm,
+                    tile=tile,
+                    sum_base=sum_base,
+                    metadata_address=metadata_address,
+                )
+
+    def _emit_hip_decoded_store_address(
+        self,
+        asm: _Assembly,
+        *,
+        size_n: int,
+        temporary: int,
+        auxiliary: int,
+        metadata_address: int,
+        wave_column_base: int,
+        lane: int,
+        serial: int,
+    ) -> None:
+        asm.inst(f"v_lshlrev_b32 v{temporary}, 7, s3")
+        asm.inst(f"v_add_nc_u32 v{auxiliary}, v{temporary}, v{lane}")
+        asm.inst(f"v_mul_lo_u32 v{metadata_address}, {2 * size_n}, v{auxiliary}")
+        asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{serial}")
+        asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
+        asm.inst(f"v_add_nc_u32 v{temporary}, v{wave_column_base}, v{temporary}")
+        asm.inst(f"v_lshlrev_b32 v{temporary}, 1, v{temporary}")
+        asm.inst(
+            f"v_add_nc_u32 v{metadata_address}, v{metadata_address}, v{temporary}"
+        )
+
+    def _emit_hip_decoded_store_tile(
+        self,
+        asm: _Assembly,
+        *,
+        tile: int,
+        sum_base: int,
+        metadata_address: int,
+    ) -> None:
+        asm.inst("s_clause 7")
+        for element in range(8):
+            total = sum_base + tile * 8 + element
+            offset = f" offset:{4 * element}" if element else ""
+            asm.inst(
+                f"global_store_d16_hi_b16 v{metadata_address}, v{total}, "
+                f"s[{self.KERNARG + 4}:{self.KERNARG + 5}]{offset}"
+            )
 
     def _emit_hip_stage_activation(
         self,

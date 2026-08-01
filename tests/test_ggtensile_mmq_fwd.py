@@ -61,8 +61,13 @@ def test_forward_inventory_is_exact_open_and_versionless() -> None:
         8192,
         32768,
     }
-    assert all(entry.current_status == "open" for entry in inventory.entries)
-    assert set(catalog) == {"pilot_direct_global"}
+    assert sum(entry.current_status == "selected" for entry in inventory.entries) == 2
+    assert sum(entry.current_status == "open" for entry in inventory.entries) == 10
+    assert set(catalog) == {
+        "pilot_direct_global",
+        "retained_shared_down_m8192_extract_a1d4_p2",
+        "retained_shared_down_m32768_extract_a1d2_p2",
+    }
     assert all(
         validate_solution(
             entry.solution_key(
@@ -122,6 +127,10 @@ def test_forward_solution_identity_contains_every_dataclass_field() -> None:
         ("signed_weight", False),
         ("signed_activation", False),
         ("wmma_clamp", False),
+        ("metadata_schedule", "EarlyWeightOverlap"),
+        ("epilogue_tiles_ahead", 2),
+        ("epilogue_dependency_width", 2),
+        ("epilogue_priority", 1),
     ),
 )
 def test_forward_validation_rejects_unimplemented_mechanisms(
@@ -249,6 +258,71 @@ def test_forward_writer_emits_retained_decoded_staged_control() -> None:
     assert "v_add_nc_u32 v80, s14, v232" in source
 
 
+@pytest.mark.parametrize(
+    ("size", "solution", "dependency_width"),
+    (
+        (
+            ProblemSize(8192, 2048, 512),
+            DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m8192(),
+            4,
+        ),
+        (
+            ProblemSize(32768, 2048, 512),
+            DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m32768(),
+            2,
+        ),
+    ),
+)
+def test_forward_writer_emits_selected_shared_down_extraction(
+    size: ProblemSize,
+    solution: DenseForwardSolution,
+    dependency_width: int,
+) -> None:
+    key = _key(size=size, solution=solution)
+    assert validate_solution(key) == ()
+    source = DenseForwardKernelWriterAssembly(key, _toolchain()).source()
+    assert source.count("v_cvt_f16_u16_e32") == 16
+    assert source.count("ds_write_b32 v229, v9") == 4
+    assert source.count("ds_write_b32 v229, v10") == 4
+    assert source.count("s_clause 7") == 8
+    assert source.count("s_setprio 2") == 1
+    assert "s_setprio 0" not in source
+    assert source.index("v_mul_lo_u32 v232, 4096, v230") < source.index(
+        "v_bfe_u32 v72, v8, 16, 1"
+    )
+    assert source.index("v_bfe_u32 v72, v8, 16, 1") < source.index(
+        f"v_bfe_u32 v{72 + dependency_width - 1}, "
+        f"v{8 + dependency_width - 1}, 16, 1"
+    )
+
+
+@pytest.mark.parametrize(
+    ("size", "solution"),
+    (
+        (
+            ProblemSize(2048, 2048, 512),
+            DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m8192(),
+        ),
+        (
+            ProblemSize(32768, 2048, 512),
+            DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m8192(),
+        ),
+        (
+            ProblemSize(8192, 2048, 512),
+            DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m32768(),
+        ),
+    ),
+)
+def test_forward_extraction_rejects_unmeasured_exact_key(
+    size: ProblemSize,
+    solution: DenseForwardSolution,
+) -> None:
+    key = _key(size=size, solution=solution)
+    assert {reason.rule_id for reason in validate_solution(key)} >= {
+        "solution.forward.metadata_schedule.key"
+    }
+
+
 def test_forward_runtime_uses_exact_candidate_and_hip_launch_geometry() -> None:
     direct = DenseForwardModule.__new__(DenseForwardModule)
     direct.solution_key = _key(solution=DenseForwardSolution.q4_k_wave_reuse())
@@ -303,6 +377,44 @@ def test_forward_artifact_passes_strict_inspection(
     assert inspection.vgpr_count == vgpr_count
     assert inspection.sgpr_count == 16
     assert inspection.lds_num_bytes == lds_num_bytes
+    assert inspection.private_segment_bytes == 0
+    assert inspection.vgpr_spill_count == 0
+    assert inspection.sgpr_spill_count == 0
+
+
+@pytest.mark.parametrize(
+    ("size", "solution"),
+    (
+        (
+            ProblemSize(8192, 2048, 512),
+            DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m8192(),
+        ),
+        (
+            ProblemSize(32768, 2048, 512),
+            DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m32768(),
+        ),
+    ),
+)
+def test_selected_forward_artifact_passes_strict_inspection(
+    tmp_path: Path,
+    size: ProblemSize,
+    solution: DenseForwardSolution,
+) -> None:
+    key = _key(size=size, solution=solution)
+    toolchain = _toolchain()
+    assembly = tmp_path / "kernel.s"
+    object_path = tmp_path / "kernel.o"
+    code_object = tmp_path / "kernel.hsaco"
+    DenseForwardKernelWriterAssembly(key, toolchain).write(assembly)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+    inspection = inspect_artifact(key, code_object, toolchain)
+    assert inspection.wmma_count == 32
+    assert inspection.barrier_count == 4
+    assert inspection.clause_count == 8
+    assert inspection.vgpr_count == 239
+    assert inspection.sgpr_count == 16
+    assert inspection.lds_num_bytes == 38_400
     assert inspection.private_segment_bytes == 0
     assert inspection.vgpr_spill_count == 0
     assert inspection.sgpr_spill_count == 0
