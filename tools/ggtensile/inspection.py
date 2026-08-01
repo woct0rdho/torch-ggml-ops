@@ -84,10 +84,10 @@ _EXPECTED_FORWARD_ARGS = (
     ("packed_weight", 0, 8, "global_buffer", "struct"),
     ("activations", 8, 8, "global_buffer", "struct"),
     ("output", 16, 8, "global_buffer", "bf16"),
-    ("rows", 24, 4, "by_value", "u32"),
-    ("rows_padded", 28, 4, "by_value", "u32"),
-    ("in_features", 32, 4, "by_value", "u32"),
-    ("out_features", 36, 4, "by_value", "u32"),
+    ("nrows_weight", 24, 4, "by_value", "u32"),
+    ("nrows_activation", 28, 4, "by_value", "u32"),
+    ("nrows_activation_padded", 32, 4, "by_value", "u32"),
+    ("blocks_per_weight_row", 36, 4, "by_value", "u32"),
 )
 
 
@@ -149,7 +149,9 @@ def inspect_artifact(
     expected_wmmas = expected_wmma_count
     if expected_wmmas is None:
         if isinstance(solution, DenseForwardSolution):
-            expected_wmmas = 16
+            expected_wmmas = (
+                128 if solution.operand_source == "GlobalWaveReuse" else 16
+            )
         else:
             expected_wmmas = (
                 solution.matrix_instruction[5]
@@ -392,7 +394,11 @@ def _validate_forward_metadata(
         ".private_segment_fixed_size": 0,
         ".max_flat_workgroup_size": solution.num_threads,
         ".wavefront_size": solution.wavefront_size,
-        ".vgpr_count": DenseForwardKernelWriterAssembly.TOTAL_VGPRS,
+        ".vgpr_count": (
+            DenseForwardKernelWriterAssembly.TOTAL_VGPRS_REUSE
+            if solution.operand_source == "GlobalWaveReuse"
+            else DenseForwardKernelWriterAssembly.TOTAL_VGPRS
+        ),
         ".sgpr_count": DenseForwardKernelWriterAssembly.TOTAL_SGPRS,
         ".vgpr_spill_count": 0,
         ".sgpr_spill_count": 0,

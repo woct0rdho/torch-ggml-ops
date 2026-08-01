@@ -18,6 +18,7 @@ from tools.ggtensile.model import (
     SchemaError,
     SolutionKey,
 )
+from tools.ggtensile.runtime import DenseForwardModule, FixedHipDenseForwardModule
 from tools.ggtensile.toolchain import Toolchain, ToolchainError
 from tools.ggtensile.validation import validate_solution
 
@@ -178,8 +179,39 @@ def test_forward_writer_emits_direct_ds4_q4_k_control(tmp_path: Path) -> None:
     assert "ds_" not in source
 
 
-def test_forward_artifact_passes_strict_inspection(tmp_path: Path) -> None:
-    key = _key()
+def test_forward_writer_emits_flat_wave_reuse_control() -> None:
+    key = _key(solution=DenseForwardSolution.q4_k_wave_reuse())
+    source = DenseForwardKernelWriterAssembly(key, _toolchain()).source()
+    assert source.count("v_wmma_i32_16x16x16_iu8") == 128
+    assert "v_lshrrev_b32 v159, 5, v157" in source
+    assert "Reused Q4_K group 7 across eight activation tiles." in source
+    assert "global_store_d16_hi_b16" in source
+    assert "s_barrier" not in source
+
+
+def test_forward_runtime_uses_exact_candidate_and_hip_launch_geometry() -> None:
+    direct = DenseForwardModule.__new__(DenseForwardModule)
+    direct.solution_key = _key(solution=DenseForwardSolution.q4_k_wave_reuse())
+    assert direct._launch_configuration() == ((8, 16, 1), (128, 1, 1), 0)
+    hip = FixedHipDenseForwardModule.__new__(FixedHipDenseForwardModule)
+    hip.solution_key = direct.solution_key
+    assert hip._launch_configuration() == ((8, 16, 1), (32, 4, 1), 38_400)
+
+
+@pytest.mark.parametrize(
+    ("solution", "wmma_count", "vgpr_count"),
+    (
+        (DenseForwardSolution.q4_k_pilot(), 16, 88),
+        (DenseForwardSolution.q4_k_wave_reuse(), 128, 164),
+    ),
+)
+def test_forward_artifact_passes_strict_inspection(
+    tmp_path: Path,
+    solution: DenseForwardSolution,
+    wmma_count: int,
+    vgpr_count: int,
+) -> None:
+    key = _key(solution=solution)
     toolchain = _toolchain()
     assembly = tmp_path / "kernel.s"
     object_path = tmp_path / "kernel.o"
@@ -188,9 +220,9 @@ def test_forward_artifact_passes_strict_inspection(tmp_path: Path) -> None:
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
     inspection = inspect_artifact(key, code_object, toolchain)
-    assert inspection.wmma_count == 16
+    assert inspection.wmma_count == wmma_count
     assert inspection.barrier_count == 0
-    assert inspection.vgpr_count == 88
+    assert inspection.vgpr_count == vgpr_count
     assert inspection.sgpr_count == 16
     assert inspection.lds_num_bytes == 0
     assert inspection.private_segment_bytes == 0

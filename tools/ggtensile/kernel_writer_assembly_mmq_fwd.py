@@ -34,6 +34,7 @@ class DenseForwardKernelWriterAssembly:
     """Emit the strict one-wave Q4_K/Q8_1_DS4 forward control."""
 
     TOTAL_VGPRS = 88
+    TOTAL_VGPRS_REUSE = 164
     TOTAL_SGPRS = 16
 
     C = 0
@@ -108,7 +109,7 @@ class DenseForwardKernelWriterAssembly:
             sgprWorkGroup=(1, 1, 0),
             vgprWorkItem=0,
             flatWorkGroupSize=solution.num_threads,
-            totalVgprs=self.TOTAL_VGPRS,
+            totalVgprs=self._total_vgprs(),
             totalAgprs=0,
             totalSgprs=self.TOTAL_SGPRS,
         )
@@ -118,10 +119,10 @@ class DenseForwardKernelWriterAssembly:
         signature.addArg("packed_weight", SVK.SIG_GLOBALBUFFER, "struct", "generic")
         signature.addArg("activations", SVK.SIG_GLOBALBUFFER, "struct", "generic")
         signature.addArg("output", SVK.SIG_GLOBALBUFFER, "bf16", "generic")
-        signature.addArg("rows", SVK.SIG_VALUE, "u32")
-        signature.addArg("rows_padded", SVK.SIG_VALUE, "u32")
-        signature.addArg("in_features", SVK.SIG_VALUE, "u32")
-        signature.addArg("out_features", SVK.SIG_VALUE, "u32")
+        signature.addArg("nrows_weight", SVK.SIG_VALUE, "u32")
+        signature.addArg("nrows_activation", SVK.SIG_VALUE, "u32")
+        signature.addArg("nrows_activation_padded", SVK.SIG_VALUE, "u32")
+        signature.addArg("blocks_per_weight_row", SVK.SIG_VALUE, "u32")
 
         module = code.Module("GGTensileForwardKernel")
         module.add(signature)
@@ -129,6 +130,8 @@ class DenseForwardKernelWriterAssembly:
         return str(module)
 
     def _body(self) -> str:
+        if self._uses_wave_reuse():
+            return self._body_wave_reuse()
         asm = _Assembly()
         size = self.solution_key.problem_size
         name = self.solution_key.kernel_name
@@ -233,6 +236,290 @@ class DenseForwardKernelWriterAssembly:
         asm.lines.append(f".size {name}, .L{name}_end - {name}")
         return asm.text()
 
+    def _uses_wave_reuse(self) -> bool:
+        return self.solution_key.solution.operand_source == "GlobalWaveReuse"
+
+    def _total_vgprs(self) -> int:
+        return self.TOTAL_VGPRS_REUSE if self._uses_wave_reuse() else self.TOTAL_VGPRS
+
+    def _body_wave_reuse(self) -> str:
+        """Reuse one Q4_K weight tile across eight activation-row tiles per wave."""
+        asm = _Assembly()
+        size = self.solution_key.problem_size
+        name = self.solution_key.kernel_name
+        row_stride = size.k // 256 * 144
+        activation_plane_stride = size.m * 144
+        activation_block_stride = 2 * activation_plane_stride
+        sum_base = 8
+        weight_q = 72
+        activation_q = 80
+        metadata = 88
+        result_addresses = 136
+        weight_q_address = 144
+        activation_address_0 = 145
+        activation_address_1 = 146
+        output_address = 147
+        scale = 0
+        minimum = 1
+        scaled_dm = 2
+        activation_ds = 151
+        weight_d = 3
+        weight_min = 4
+        activation_d = 154
+        activation_sum = 155
+        temporary = 156
+        serial = 157
+        output_column = 158
+        wave_column_base = 159
+        activation_row = 160
+        lane = 161
+
+        asm.comment("Load the exact packed-weight, DS4-workspace, and output pointers.")
+        asm.inst(f"s_load_dwordx2 s[{self.KERNARG}:{self.KERNARG + 1}], s[0:1], 0x0")
+        asm.inst(
+            f"s_load_dwordx2 s[{self.KERNARG + 2}:{self.KERNARG + 3}], s[0:1], 0x8"
+        )
+        asm.inst(
+            f"s_load_dwordx2 s[{self.KERNARG + 4}:{self.KERNARG + 5}], s[0:1], 0x10"
+        )
+        asm.inst("s_waitcnt lgkmcnt(0)")
+        asm.inst(f"v_mov_b32 v{serial}, v0")
+        asm.inst(f"v_and_b32 v{lane}, 15, v{serial}")
+        asm.inst(f"v_lshrrev_b32 v{wave_column_base}, 5, v{serial}")
+        asm.inst(f"v_lshlrev_b32 v{wave_column_base}, 4, v{wave_column_base}")
+        asm.inst(f"v_lshlrev_b32 v{temporary}, 6, s2")
+        asm.inst(
+            f"v_add_nc_u32 v{wave_column_base}, v{temporary}, "
+            f"v{wave_column_base}"
+        )
+        asm.inst(
+            f"v_add_nc_u32 v{output_column}, v{wave_column_base}, v{lane}"
+        )
+        asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{serial}")
+        asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
+        asm.inst(
+            f"v_add_nc_u32 v{temporary}, v{wave_column_base}, v{temporary}"
+        )
+        asm.inst(
+            f"v_mul_lo_u32 v{result_addresses}, {row_stride}, v{temporary}"
+        )
+        for element in range(1, 8):
+            asm.inst(
+                f"v_add_nc_u32 v{result_addresses + element}, "
+                f"{2 * element * row_stride}, v{result_addresses}"
+            )
+        asm.inst(f"v_mul_lo_u32 v{weight_q_address}, {row_stride}, v{output_column}")
+        asm.inst(f"v_lshlrev_b32 v{temporary}, 7, s3")
+        asm.inst(f"v_add_nc_u32 v{activation_row}, v{temporary}, v{lane}")
+        asm.inst(f"v_mul_lo_u32 v{activation_address_0}, 144, v{activation_row}")
+        asm.inst(
+            f"v_add_nc_u32 v{activation_address_1}, {activation_plane_stride}, "
+            f"v{activation_address_0}"
+        )
+        for register in range(sum_base, sum_base + 64):
+            asm.inst(f"v_mov_b32 v{register}, 0")
+        asm.inst(f"s_mov_b32 s{self.LOOP_COUNTER}, 0")
+
+        asm.label(".LForwardQ4KWaveReuseBlockLoop")
+        for element in range(8):
+            asm.inst(
+                f"global_load_b128 v[{metadata + 4 * element}:{metadata + 4 * element + 3}], "
+                f"v{result_addresses + element}, s[{self.KERNARG}:{self.KERNARG + 1}]"
+            )
+        asm.inst("s_waitcnt vmcnt(0)")
+        for group in range(8):
+            self._emit_wave_reuse_group(
+                asm,
+                group,
+                weight_q,
+                activation_q,
+                metadata,
+                activation_address_0,
+                activation_address_1,
+                weight_q_address,
+                sum_base,
+                scale,
+                minimum,
+                scaled_dm,
+                activation_ds,
+                weight_d,
+                weight_min,
+                activation_d,
+                activation_sum,
+                temporary,
+            )
+        for element in range(8):
+            asm.inst(
+                f"v_add_nc_u32 v{result_addresses + element}, 144, "
+                f"v{result_addresses + element}"
+            )
+        asm.inst(f"v_add_nc_u32 v{weight_q_address}, 144, v{weight_q_address}")
+        asm.inst(
+            f"v_add_nc_u32 v{activation_address_0}, {activation_block_stride}, "
+            f"v{activation_address_0}"
+        )
+        asm.inst(
+            f"v_add_nc_u32 v{activation_address_1}, {activation_block_stride}, "
+            f"v{activation_address_1}"
+        )
+        asm.inst(f"s_add_u32 s{self.LOOP_COUNTER}, s{self.LOOP_COUNTER}, 1")
+        asm.inst(f"s_cmp_lt_u32 s{self.LOOP_COUNTER}, {size.k // 256}")
+        asm.inst("s_cbranch_scc1 .LForwardQ4KWaveReuseBlockLoop")
+
+        asm.comment("Store eight reused activation-row tiles as row-major BF16 output.")
+        for tile in range(8):
+            asm.inst(
+                f"v_add_nc_u32 v{temporary}, {16 * tile}, v{activation_row}"
+            )
+            asm.inst(
+                f"v_mul_lo_u32 v{output_address}, {2 * size.n}, v{temporary}"
+            )
+            asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{serial}")
+            asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
+            asm.inst(
+                f"v_add_nc_u32 v{temporary}, v{wave_column_base}, v{temporary}"
+            )
+            asm.inst(f"v_lshlrev_b32 v{temporary}, 1, v{temporary}")
+            asm.inst(
+                f"v_add_nc_u32 v{output_address}, v{output_address}, v{temporary}"
+            )
+            for element in range(8):
+                total = sum_base + tile * 8 + element
+                asm.inst(f"v_bfe_u32 v{temporary}, v{total}, 16, 1")
+                asm.inst(
+                    f"v_add3_u32 v{total}, v{temporary}, v{total}, 0x7fff"
+                )
+                asm.inst(
+                    f"global_store_d16_hi_b16 v{output_address}, v{total}, "
+                    f"s[{self.KERNARG + 4}:{self.KERNARG + 5}]"
+                )
+                if element != 7:
+                    asm.inst(f"v_add_nc_u32 v{output_address}, 4, v{output_address}")
+        asm.inst("s_endpgm")
+        asm.lines.append(f".L{name}_end:")
+        asm.lines.append(f".size {name}, .L{name}_end - {name}")
+        return asm.text()
+
+    def _emit_wave_reuse_group(
+        self,
+        asm: _Assembly,
+        group: int,
+        weight_q: int,
+        activation_q: int,
+        metadata: int,
+        activation_address_0: int,
+        activation_address_1: int,
+        weight_q_address: int,
+        sum_base: int,
+        scale: int,
+        minimum: int,
+        scaled_dm: int,
+        activation_ds: int,
+        weight_d: int,
+        weight_min: int,
+        activation_d: int,
+        activation_sum: int,
+        temporary: int,
+    ) -> None:
+        weight_q_offset = 16 + 32 * (group // 2)
+        activation_q_offset = 16 + 32 * (group % 4)
+        activation_ds_offset = 4 * (group % 4)
+        activation_address = (
+            activation_address_0 if group < 4 else activation_address_1
+        )
+        asm.comment(f"Reused Q4_K group {group} across eight activation tiles.")
+        asm.inst(
+            f"global_load_b128 v[{weight_q}:{weight_q + 3}], v{weight_q_address}, "
+            f"s[{self.KERNARG}:{self.KERNARG + 1}] offset:{weight_q_offset}"
+        )
+        asm.inst(
+            f"global_load_b128 v[{weight_q + 4}:{weight_q + 7}], v{weight_q_address}, "
+            f"s[{self.KERNARG}:{self.KERNARG + 1}] offset:{weight_q_offset + 16}"
+        )
+        asm.inst("s_waitcnt vmcnt(0)")
+        for register in range(weight_q, weight_q + 8):
+            if group & 1:
+                asm.inst(f"v_lshrrev_b32 v{register}, 4, v{register}")
+            asm.inst(f"v_and_b32 v{register}, 0x0f0f0f0f, v{register}")
+
+        for element in range(8):
+            element_metadata = metadata + 4 * element
+            self._emit_scale_and_minimum(
+                asm,
+                group,
+                element_metadata,
+                scale=scale,
+                minimum=minimum,
+                temporary=weight_d,
+            )
+            asm.inst(f"v_cvt_f32_u32 v{weight_d}, v{scale}")
+            asm.inst(f"v_cvt_f32_u32 v{weight_min}, v{minimum}")
+            asm.inst(f"v_cvt_f16_f32_e32 v{scaled_dm}.l, v{weight_d}")
+            asm.inst(f"v_cvt_f16_f32_e32 v{scaled_dm}.h, v{weight_min}")
+            asm.inst(
+                f"v_pk_mul_f16 v{scaled_dm}, 0xbc003c00, v{scaled_dm}"
+            )
+            asm.inst(
+                f"v_pk_mul_f16 v{scaled_dm}, v{element_metadata}, v{scaled_dm}"
+            )
+            asm.inst(f"v_cvt_f32_f16 v{120 + element}, v{scaled_dm}")
+            asm.inst(f"v_cvt_f32_f16 v{128 + element}, v{scaled_dm}.h")
+
+        for tile in range(8):
+            tile_address = temporary
+            tile_offset = 16 * tile * 144
+            asm.inst(
+                f"v_add_nc_u32 v{tile_address}, {tile_offset}, "
+                f"v{activation_address}"
+            )
+            asm.inst(
+                f"global_load_b128 v[{activation_q}:{activation_q + 3}], "
+                f"v{tile_address}, s[{self.KERNARG + 2}:{self.KERNARG + 3}] "
+                f"offset:{activation_q_offset}"
+            )
+            asm.inst(
+                f"global_load_b128 v[{activation_q + 4}:{activation_q + 7}], "
+                f"v{tile_address}, s[{self.KERNARG + 2}:{self.KERNARG + 3}] "
+                f"offset:{activation_q_offset + 16}"
+            )
+            asm.inst(
+                f"global_load_b32 v{activation_ds}, v{tile_address}, "
+                f"s[{self.KERNARG + 2}:{self.KERNARG + 3}] "
+                f"offset:{activation_ds_offset}"
+            )
+            asm.inst("s_waitcnt vmcnt(0)")
+            for register in range(self.C, self.C + 8):
+                asm.inst(f"v_mov_b32 v{register}, 0")
+            clamp = " clamp" if self.solution_key.solution.wmma_clamp else ""
+            asm.inst(
+                f"v_wmma_i32_16x16x16_iu8 v[{self.C}:{self.C + 7}], "
+                f"v[{weight_q}:{weight_q + 3}], v[{activation_q}:{activation_q + 3}], "
+                f"v[{self.C}:{self.C + 7}] neg_lo:[1,1,0]{clamp}"
+            )
+            asm.inst(
+                f"v_wmma_i32_16x16x16_iu8 v[{self.C}:{self.C + 7}], "
+                f"v[{weight_q + 4}:{weight_q + 7}], "
+                f"v[{activation_q + 4}:{activation_q + 7}], "
+                f"v[{self.C}:{self.C + 7}] neg_lo:[1,1,0]{clamp}"
+            )
+            asm.inst(f"v_cvt_f32_f16 v{activation_d}, v{activation_ds}")
+            asm.inst(
+                f"v_cvt_f32_f16 v{activation_sum}, v{activation_ds}.h"
+            )
+            for element in range(8):
+                total = sum_base + tile * 8 + element
+                asm.inst(f"v_cvt_f32_i32 v{temporary}, v{self.C + element}")
+                asm.inst(
+                    f"v_mul_f32 v{temporary}, v{120 + element}, v{temporary}"
+                )
+                asm.inst(
+                    f"v_fma_f32 v{total}, v{temporary}, v{activation_d}, v{total}"
+                )
+                asm.inst(
+                    f"v_fma_f32 v{total}, v{128 + element}, "
+                    f"v{activation_sum}, v{total}"
+                )
+
     def _emit_group(self, asm: _Assembly, group: int) -> None:
         weight_q_offset = 16 + 32 * (group // 2)
         activation_q_offset = 16 + 32 * (group % 4)
@@ -291,26 +578,35 @@ class DenseForwardKernelWriterAssembly:
         self._emit_scaled_accumulate(asm, group)
 
     def _emit_scale_and_minimum(
-        self, asm: _Assembly, group: int, metadata: int
+        self,
+        asm: _Assembly,
+        group: int,
+        metadata: int,
+        *,
+        scale: int | None = None,
+        minimum: int | None = None,
+        temporary: int | None = None,
     ) -> None:
+        scale = self.SCALE if scale is None else scale
+        minimum = self.MINIMUM if minimum is None else minimum
+        temporary = self.TEMPORARY if temporary is None else temporary
         if group < 4:
             bit = 8 * group
-            asm.inst(f"v_bfe_u32 v{self.SCALE}, v{metadata + 1}, {bit}, 6")
-            asm.inst(f"v_bfe_u32 v{self.MINIMUM}, v{metadata + 2}, {bit}, 6")
+            asm.inst(f"v_bfe_u32 v{scale}, v{metadata + 1}, {bit}, 6")
+            asm.inst(f"v_bfe_u32 v{minimum}, v{metadata + 2}, {bit}, 6")
             return
 
         index = group - 4
         bit = 8 * index
-        asm.inst(f"v_bfe_u32 v{self.SCALE}, v{metadata + 3}, {bit}, 4")
-        asm.inst(f"v_bfe_u32 v{self.TEMPORARY}, v{metadata + 1}, {bit + 6}, 2")
+        asm.inst(f"v_bfe_u32 v{scale}, v{metadata + 3}, {bit}, 4")
+        asm.inst(f"v_bfe_u32 v{temporary}, v{metadata + 1}, {bit + 6}, 2")
         asm.inst(
-            f"v_lshl_or_b32 v{self.SCALE}, v{self.TEMPORARY}, 4, v{self.SCALE}"
+            f"v_lshl_or_b32 v{scale}, v{temporary}, 4, v{scale}"
         )
-        asm.inst(f"v_bfe_u32 v{self.MINIMUM}, v{metadata + 3}, {bit + 4}, 4")
-        asm.inst(f"v_bfe_u32 v{self.TEMPORARY}, v{metadata + 2}, {bit + 6}, 2")
+        asm.inst(f"v_bfe_u32 v{minimum}, v{metadata + 3}, {bit + 4}, 4")
+        asm.inst(f"v_bfe_u32 v{temporary}, v{metadata + 2}, {bit + 6}, 2")
         asm.inst(
-            f"v_lshl_or_b32 v{self.MINIMUM}, v{self.TEMPORARY}, 4, "
-            f"v{self.MINIMUM}"
+            f"v_lshl_or_b32 v{minimum}, v{temporary}, 4, v{minimum}"
         )
 
     def _emit_scaled_accumulate(self, asm: _Assembly, group: int) -> None:

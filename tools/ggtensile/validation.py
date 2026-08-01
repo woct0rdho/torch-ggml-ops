@@ -92,33 +92,16 @@ def _validate_forward_solution(
         )
         return
     pilot = DenseForwardSolution.q4_k_pilot()
-    for attribute, parameter in (
-        ("kernel_language", "KernelLanguage"),
-        ("isa", "ISA"),
-        ("wavefront_size", "WavefrontSize"),
-        ("work_group", "WorkGroup"),
-        ("matrix_instruction", "MatrixInstruction"),
-        ("macro_tile0", "MacroTile0"),
-        ("macro_tile1", "MacroTile1"),
-        ("depth_u", "DepthU"),
-        ("activation_layout", "ActivationLayout"),
-        ("activation_block_bytes", "ActivationBlockBytes"),
-        ("packed_weight_block_bytes", "PackedWeightBlockBytes"),
-        ("operand_source", "OperandSource"),
-        ("weight_decode", "WeightDecode"),
-        ("scale_arithmetic", "ScaleArithmetic"),
-        ("output_store", "OutputStore"),
-        ("signed_weight", "SignedWeight"),
-        ("signed_activation", "SignedActivation"),
-        ("wmma_clamp", "WmmaClamp"),
-    ):
-        if getattr(solution, attribute) != getattr(pilot, attribute):
-            _reject(
-                reasons,
-                f"solution.forward.{parameter.lower()}.unimplemented",
-                f"forward control implements only {parameter}={getattr(pilot, attribute)!r}",
-                parameter,
-            )
+    wave_reuse = DenseForwardSolution.q4_k_wave_reuse()
+    implemented = (pilot, wave_reuse)
+    if solution not in implemented:
+        _reject(
+            reasons,
+            "solution.forward.control.unimplemented",
+            "forward implements only the direct pilot and wave-reuse controls",
+            "Solution",
+        )
+        return
     allowed_pairs = {(512, 2048), (2048, 512), (2048, 4096), (8192, 2048)}
     if problem_size.m not in (2048, 8192, 32768):
         _reject(

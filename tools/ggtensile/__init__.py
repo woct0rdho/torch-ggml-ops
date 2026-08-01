@@ -13,6 +13,7 @@ from .runtime import (
     DenseBackwardModule,
     DenseForwardModule,
     FixedDS4QuantizerModule,
+    FixedHipDenseForwardModule,
     HIPRuntimeError,
 )
 from .validation import RejectReason, validate_solution
@@ -23,6 +24,7 @@ __all__ = [
     "DenseForwardModule",
     "DenseForwardSolution",
     "FixedDS4QuantizerModule",
+    "FixedHipDenseForwardModule",
     "HIPRuntimeError",
     "InspectionError",
     "KernelArtifact",

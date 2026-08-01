@@ -477,6 +477,29 @@ class DenseForwardSolution:
         )
 
     @classmethod
+    def q4_k_wave_reuse(cls) -> Self:
+        return cls(
+            kernel_language="Assembly",
+            isa=(11, 5, 1),
+            wavefront_size=32,
+            work_group=(128, 1, 1),
+            matrix_instruction=(16, 16, 16, 1, 1, 1, 4, 4, 1),
+            macro_tile0=128,
+            macro_tile1=64,
+            depth_u=32,
+            activation_layout="Q8_1_DS4",
+            activation_block_bytes=144,
+            packed_weight_block_bytes=144,
+            operand_source="GlobalWaveReuse",
+            weight_decode="DirectNibble",
+            scale_arithmetic="FP16",
+            output_store="BFloat16RNE",
+            signed_weight=True,
+            signed_activation=True,
+            wmma_clamp=True,
+        )
+
+    @classmethod
     def from_mapping(cls, value: object) -> Self:
         item = _strict_mapping(value, name="Solution", keys=cls._KEYS)
         return cls(

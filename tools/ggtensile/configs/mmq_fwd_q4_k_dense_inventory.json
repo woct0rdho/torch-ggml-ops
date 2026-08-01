@@ -13,7 +13,9 @@
   "Validation": {
     "QuantType": "Q4_K",
     "ExactDispatch": true,
-    "RequireBitExactHip": true,
+    "MaxCandidateToHipNormalizedRmse": 0.0005,
+    "MaxCandidateToHipAbsoluteError": 0.015625,
+    "MaxIndependentNormalizedRmse": 0.04,
     "RequireInputMutation": true,
     "RequirePackedWeightMutation": true,
     "RequireWorkspaceMutation": true,

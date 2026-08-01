@@ -25,6 +25,8 @@ class DenseBackwardModule:
         solution_key: SolutionKey,
         code_object: Path,
         hip_library: Path | None = None,
+        *,
+        kernel_name: str | None = None,
     ) -> None:
         reasons = validate_solution(solution_key)
         if reasons:
@@ -49,7 +51,7 @@ class DenseBackwardModule:
                 self._lib.hipModuleGetFunction(
                     ctypes.byref(self._function),
                     self._module,
-                    solution_key.kernel_name.encode(),
+                    (kernel_name or solution_key.kernel_name).encode(),
                 ),
                 "hipModuleGetFunction",
             )
@@ -200,10 +202,17 @@ class DenseForwardModule(DenseBackwardModule):
         solution_key: SolutionKey,
         code_object: Path,
         hip_library: Path | None = None,
+        *,
+        kernel_name: str | None = None,
     ) -> None:
         if not isinstance(solution_key.solution, DenseForwardSolution):
             raise HIPRuntimeError("dense forward requires DenseForwardSolution")
-        super().__init__(solution_key, code_object, hip_library)
+        super().__init__(
+            solution_key,
+            code_object,
+            hip_library,
+            kernel_name=kernel_name,
+        )
 
     def launch(
         self,
@@ -247,10 +256,10 @@ class DenseForwardModule(DenseBackwardModule):
             ctypes.c_uint64(packed_weight.data_ptr()),
             ctypes.c_uint64(activations.data_ptr()),
             ctypes.c_uint64(output.data_ptr()),
-            ctypes.c_uint32(size.m),
-            ctypes.c_uint32(size.m),
-            ctypes.c_uint32(size.k),
             ctypes.c_uint32(size.n),
+            ctypes.c_uint32(size.m),
+            ctypes.c_uint32(size.m),
+            ctypes.c_uint32(size.k // 256),
         )
         parameters = (ctypes.c_void_p * len(arguments))(
             *(
@@ -258,21 +267,60 @@ class DenseForwardModule(DenseBackwardModule):
                 for argument in arguments
             )
         )
-        solution = self.solution_key.solution
+        grid, block, shared_memory = self._launch_configuration()
         self._check(
             self._lib.hipModuleLaunchKernel(
                 self._function,
-                size.n // solution.macro_tile1,
-                size.m // solution.macro_tile0,
-                1,
-                *solution.work_group,
-                0,
+                *grid,
+                *block,
+                shared_memory,
                 ctypes.c_void_p(stream),
                 parameters,
                 None,
             ),
             "hipModuleLaunchKernel",
         )
+
+    def _launch_configuration(
+        self,
+    ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
+        size = self.solution_key.problem_size
+        solution = self.solution_key.solution
+        return (
+            (size.n // solution.macro_tile1, size.m // solution.macro_tile0, 1),
+            solution.work_group,
+            0,
+        )
+
+
+class FixedHipDenseForwardModule(DenseForwardModule):
+    """Direct prequantized launcher for the installed HIP Q4_K multiply."""
+
+    def __init__(
+        self,
+        solution_key: SolutionKey,
+        code_object: Path | None = None,
+        hip_library: Path | None = None,
+    ) -> None:
+        k = solution_key.problem_size.k
+        if k not in (512, 2048, 4096):
+            raise HIPRuntimeError("installed Q4_K control requires K=512, 2048, or 4096")
+        symbol = (
+            "torch_ggml_ops_mmq_gfx1151_v1_dense_fwd_q4_k_"
+            f"k{k}_j128_full"
+        )
+        super().__init__(
+            solution_key,
+            code_object or _find_installed_kernel(symbol),
+            hip_library,
+            kernel_name=symbol,
+        )
+
+    def _launch_configuration(
+        self,
+    ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
+        size = self.solution_key.problem_size
+        return ((size.n // 64, size.m // 128, 1), (32, 4, 1), 38_400)
 
 
 class FixedDS4QuantizerModule(DenseBackwardModule):
@@ -285,7 +333,7 @@ class FixedDS4QuantizerModule(DenseBackwardModule):
         code_object: Path | None = None,
         hip_library: Path | None = None,
     ) -> None:
-        selected = code_object or _find_ds4_code_object()
+        selected = code_object or _find_installed_kernel(self.SYMBOL)
         if not selected.is_file():
             raise HIPRuntimeError(f"code object does not exist: {selected}")
         self.solution_key = None
@@ -402,25 +450,26 @@ def _find_hip_library() -> Path:
     raise HIPRuntimeError("cannot find libamdhip64.so; set GGTENSILE_HIP_LIBRARY")
 
 
-def _find_ds4_code_object() -> Path:
-    override = os.environ.get("GGTENSILE_DS4_CODE_OBJECT")
+def _find_installed_kernel(symbol: str) -> Path:
+    override_name = (
+        "GGTENSILE_DS4_CODE_OBJECT"
+        if symbol == FixedDS4QuantizerModule.SYMBOL
+        else "GGTENSILE_HIP_FORWARD_CODE_OBJECT"
+    )
+    override = os.environ.get(override_name)
     if override:
         candidate = Path(override)
         if candidate.is_file():
             return candidate
-        raise HIPRuntimeError(
-            f"GGTENSILE_DS4_CODE_OBJECT does not exist: {candidate}"
-        )
-    purelib = Path(sysconfig.get_paths()["purelib"])
-    candidate = (
-        purelib
-        / "torch_ggml_ops"
-        / "kernels"
-        / "gfx1151"
-        / f"{FixedDS4QuantizerModule.SYMBOL}.hsaco"
+        raise HIPRuntimeError(f"{override_name} does not exist: {candidate}")
+    package_roots = (
+        Path(__file__).resolve().parents[2] / "torch_ggml_ops",
+        Path(sysconfig.get_paths()["purelib"]) / "torch_ggml_ops",
     )
-    if candidate.is_file():
-        return candidate
+    for package_root in package_roots:
+        candidate = package_root / "kernels" / "gfx1151" / f"{symbol}.hsaco"
+        if candidate.is_file():
+            return candidate
     raise HIPRuntimeError(
-        "cannot find the installed DS4 quantizer; set GGTENSILE_DS4_CODE_OBJECT"
+        f"cannot find installed kernel {symbol}; set {override_name}"
     )

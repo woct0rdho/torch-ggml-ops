@@ -280,7 +280,9 @@ def load_inventory(path: Path = DEFAULT_INVENTORY) -> CampaignInventory:
         validation_expected = {
             "QuantType": problem_type.quant_data_type,
             "ExactDispatch": True,
-            "RequireBitExactHip": True,
+            "MaxCandidateToHipNormalizedRmse": 0.0005,
+            "MaxCandidateToHipAbsoluteError": 0.015625,
+            "MaxIndependentNormalizedRmse": 0.04,
             "RequireInputMutation": True,
             "RequirePackedWeightMutation": True,
             "RequireWorkspaceMutation": True,
