@@ -18,7 +18,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.ggtensile.inspection import inspect_artifact  # noqa: E402
-from tools.ggtensile.kernel_writer_assembly import (  # noqa: E402
+from tools.ggtensile.kernel_writer_assembly_mmq_bwd import (  # noqa: E402
     DiagnosticMode,
     KernelWriterAssembly,
 )

@@ -3,7 +3,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from .model import SolutionKey
+from .kernel_writer_assembly_mmq_fwd import DenseForwardKernelWriterAssembly
+from .model import DenseForwardSolution, SolutionKey
 from .toolchain import Toolchain
 
 
@@ -69,7 +70,7 @@ class ArtifactInspection:
         }
 
 
-_EXPECTED_ARGS = (
+_EXPECTED_BACKWARD_ARGS = (
     ("grad_output", 0, 8, "global_buffer", "bf16"),
     ("packed_weight", 8, 8, "global_buffer", "struct"),
     ("grad_input", 16, 8, "global_buffer", "bf16"),
@@ -77,6 +78,16 @@ _EXPECTED_ARGS = (
     ("out_features", 28, 4, "by_value", "u32"),
     ("in_features", 32, 4, "by_value", "u32"),
     ("blocks_per_weight_row", 36, 4, "by_value", "u32"),
+)
+
+_EXPECTED_FORWARD_ARGS = (
+    ("packed_weight", 0, 8, "global_buffer", "struct"),
+    ("activations", 8, 8, "global_buffer", "struct"),
+    ("output", 16, 8, "global_buffer", "bf16"),
+    ("rows", 24, 4, "by_value", "u32"),
+    ("rows_padded", 28, 4, "by_value", "u32"),
+    ("in_features", 32, 4, "by_value", "u32"),
+    ("out_features", 36, 4, "by_value", "u32"),
 )
 
 
@@ -112,7 +123,11 @@ def inspect_artifact(
     _validate_metadata(kernel, solution_key, errors)
 
     mnemonics = tuple(instruction.split(None, 1)[0] for instruction in instructions)
-    wmma_count = mnemonics.count("v_wmma_f32_16x16x16_bf16")
+    wmma_count = sum(
+        mnemonic
+        in {"v_wmma_f32_16x16x16_bf16", "v_wmma_i32_16x16x16_iu8"}
+        for mnemonic in mnemonics
+    )
     barrier_count = mnemonics.count("s_barrier")
     vopd_count = sum(" :: " in instruction for instruction in instructions)
     valu_issue_count = sum(
@@ -133,14 +148,19 @@ def inspect_artifact(
     solution = solution_key.solution
     expected_wmmas = expected_wmma_count
     if expected_wmmas is None:
-        expected_wmmas = (
-            solution.matrix_instruction[5]
-            * solution.matrix_instruction[6]
-            * solution.depth_u
-            // 16
-        )
-        if solution.one_lds_buffer == 0:
-            expected_wmmas *= 1 + int(solution_key.problem_size.k > solution.depth_u)
+        if isinstance(solution, DenseForwardSolution):
+            expected_wmmas = 16
+        else:
+            expected_wmmas = (
+                solution.matrix_instruction[5]
+                * solution.matrix_instruction[6]
+                * solution.depth_u
+                // 16
+            )
+            if solution.one_lds_buffer == 0:
+                expected_wmmas *= 1 + int(
+                    solution_key.problem_size.k > solution.depth_u
+                )
     _require(
         wmma_count == expected_wmmas,
         f"expected {expected_wmmas} static WMMAs, found {wmma_count}",
@@ -148,7 +168,9 @@ def inspect_artifact(
     )
     expected_barriers = expected_barrier_count
     if expected_barriers is None:
-        if solution.one_lds_buffer == 0:
+        if isinstance(solution, DenseForwardSolution):
+            expected_barriers = 0
+        elif solution.one_lds_buffer == 0:
             expected_barriers = 1 + int(solution_key.problem_size.k > solution.depth_u)
         else:
             expected_barriers = 3 if solution.prefetch_packed_weight_next else 2
@@ -246,6 +268,9 @@ def _validate_metadata(
     errors: list[str],
 ) -> None:
     solution = solution_key.solution
+    if isinstance(solution, DenseForwardSolution):
+        _validate_forward_metadata(kernel, solution, errors)
+        return
     m_tiles = solution.matrix_instruction[5]
     decoder_threads = min(solution.num_threads, 128)
     decoder_rows = (
@@ -348,7 +373,57 @@ def _validate_metadata(
             for argument in arguments
             if isinstance(argument, Mapping)
         )
-    _require(actual_args == _EXPECTED_ARGS, "kernarg ABI does not match", errors)
+    _require(
+        actual_args == _EXPECTED_BACKWARD_ARGS,
+        "kernarg ABI does not match",
+        errors,
+    )
+
+
+def _validate_forward_metadata(
+    kernel: Mapping[str, Any],
+    solution: DenseForwardSolution,
+    errors: list[str],
+) -> None:
+    expected = {
+        ".kernarg_segment_size": 40,
+        ".kernarg_segment_align": 8,
+        ".group_segment_fixed_size": 0,
+        ".private_segment_fixed_size": 0,
+        ".max_flat_workgroup_size": solution.num_threads,
+        ".wavefront_size": solution.wavefront_size,
+        ".vgpr_count": DenseForwardKernelWriterAssembly.TOTAL_VGPRS,
+        ".sgpr_count": DenseForwardKernelWriterAssembly.TOTAL_SGPRS,
+        ".vgpr_spill_count": 0,
+        ".sgpr_spill_count": 0,
+    }
+    for field, value in expected.items():
+        actual = kernel.get(field)
+        _require(actual == value, f"{field} is {actual!r}, expected {value}", errors)
+    _require(
+        kernel.get(".uses_dynamic_stack", False) is False,
+        "dynamic stack is enabled",
+        errors,
+    )
+    arguments = kernel.get(".args")
+    actual_args = ()
+    if isinstance(arguments, list):
+        actual_args = tuple(
+            (
+                argument.get(".name"),
+                argument.get(".offset"),
+                argument.get(".size"),
+                argument.get(".value_kind"),
+                argument.get(".value_type"),
+            )
+            for argument in arguments
+            if isinstance(argument, Mapping)
+        )
+    _require(
+        actual_args == _EXPECTED_FORWARD_ARGS,
+        "forward kernarg ABI does not match",
+        errors,
+    )
 
 
 def _integer(mapping: Mapping[str, Any], key: str) -> int:

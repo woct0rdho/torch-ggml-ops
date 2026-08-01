@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from tools.ggtensile.campaign import load_inventory, load_solution_catalog
-from tools.ggtensile.kernel_writer_assembly import (
+from tools.ggtensile.kernel_writer_assembly_mmq_bwd import (
     DiagnosticMode,
     KernelWriterAssembly,
     KernelWriterError,
@@ -50,8 +50,8 @@ def test_writer_emits_every_selected_production_kernel() -> None:
     )
     emitted: set[str] = set()
     for inventory_name, catalog_name in catalogs:
-        inventory = load_inventory(Path("tools/ggtensile") / inventory_name)
-        catalog = load_solution_catalog(Path("tools/ggtensile") / catalog_name)
+        inventory = load_inventory(Path("tools/ggtensile/configs") / inventory_name)
+        catalog = load_solution_catalog(Path("tools/ggtensile/configs") / catalog_name)
         for entry in inventory.entries:
             key = entry.solution_key(
                 inventory.problem_type,

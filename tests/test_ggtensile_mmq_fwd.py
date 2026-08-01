@@ -1,0 +1,220 @@
+import builtins
+import json
+from dataclasses import fields, replace
+from pathlib import Path
+
+import pytest
+
+from tools.ggtensile.campaign import load_inventory, load_solution_catalog
+from tools.ggtensile.inspection import inspect_artifact
+from tools.ggtensile.kernel_writer_assembly_mmq_fwd import (
+    DenseForwardKernelWriterAssembly,
+    ForwardKernelWriterError,
+)
+from tools.ggtensile.model import (
+    DenseForwardSolution,
+    ProblemSize,
+    ProblemType,
+    SchemaError,
+    SolutionKey,
+)
+from tools.ggtensile.toolchain import Toolchain, ToolchainError
+from tools.ggtensile.validation import validate_solution
+
+_CONFIG_DIR = Path("tools/ggtensile/configs")
+_INVENTORY = _CONFIG_DIR / "mmq_fwd_q4_k_dense_inventory.json"
+_CATALOG = _CONFIG_DIR / "mmq_fwd_q4_k_open_solutions.json"
+
+
+def _toolchain() -> Toolchain:
+    try:
+        return Toolchain.discover()
+    except ToolchainError as error:
+        pytest.skip(str(error))
+
+
+def _key(
+    size: ProblemSize = ProblemSize(2048, 512, 2048),
+    solution: DenseForwardSolution | None = None,
+) -> SolutionKey:
+    return SolutionKey(
+        ProblemType.dense_mmq_forward_q4_k(),
+        size,
+        solution or DenseForwardSolution.q4_k_pilot(),
+    )
+
+
+def test_forward_inventory_is_exact_open_and_versionless() -> None:
+    inventory = load_inventory(_INVENTORY)
+    catalog = load_solution_catalog(_CATALOG, problem_type=inventory.problem_type)
+    assert inventory.problem_type == ProblemType.dense_mmq_forward_q4_k()
+    assert len(inventory.entries) == 12
+    assert {entry.family for entry in inventory.entries} == {
+        "narrow",
+        "shared_down",
+        "attention_output",
+        "query",
+    }
+    assert {entry.problem_size.m for entry in inventory.entries} == {
+        2048,
+        8192,
+        32768,
+    }
+    assert all(entry.current_status == "open" for entry in inventory.entries)
+    assert set(catalog) == {"pilot_direct_global"}
+    assert all(
+        validate_solution(
+            entry.solution_key(
+                inventory.problem_type,
+                catalog[entry.selected_solution],
+            )
+        )
+        == ()
+        for entry in inventory.entries
+    )
+    narrow = inventory.entries[0]
+    assert narrow.expected_logical_weight_shape == (512, 2048)
+    assert narrow.expected_physical_weight_shape == (512, 1152)
+    raw = json.loads(_INVENTORY.read_text(encoding="utf-8"))
+    assert "Version" not in raw and "SchemaVersion" not in raw
+
+
+def test_forward_solution_key_is_strict_and_round_trips() -> None:
+    key = _key()
+    assert SolutionKey.from_mapping(key.to_mapping()) == key
+    assert "dense_fwd_q4_k" in key.kernel_name
+    mapping = key.to_mapping()
+    solution = dict(mapping["Solution"])
+    solution["Unknown"] = 1
+    mapping["Solution"] = solution
+    with pytest.raises(SchemaError, match="invalid Solution"):
+        SolutionKey.from_mapping(mapping)
+
+
+def test_forward_solution_identity_contains_every_dataclass_field() -> None:
+    mapping = DenseForwardSolution.q4_k_pilot().to_mapping()
+    assert len(mapping) == len(fields(DenseForwardSolution))
+    assert DenseForwardSolution.from_mapping(mapping).to_mapping() == mapping
+
+
+@pytest.mark.parametrize(
+    ("attribute", "value"),
+    (
+        ("kernel_language", "Source"),
+        ("isa", (11, 0, 0)),
+        ("wavefront_size", 64),
+        ("work_group", (64, 1, 1)),
+        ("matrix_instruction", (16, 16, 16, 1, 1, 2, 1, 1, 1)),
+        ("macro_tile0", 32),
+        ("macro_tile1", 32),
+        ("depth_u", 64),
+        ("activation_layout", "Q8_1_D4"),
+        ("activation_block_bytes", 136),
+        ("packed_weight_block_bytes", 136),
+        ("operand_source", "LDS"),
+        ("weight_decode", "Prepared"),
+        ("scale_arithmetic", "FP32"),
+        ("output_store", "BFloat16Truncate"),
+        ("signed_weight", False),
+        ("signed_activation", False),
+        ("wmma_clamp", False),
+    ),
+)
+def test_forward_validation_rejects_unimplemented_mechanisms(
+    attribute: str, value: object
+) -> None:
+    solution = replace(DenseForwardSolution.q4_k_pilot(), **{attribute: value})
+    assert validate_solution(_key(solution=solution))
+
+
+@pytest.mark.parametrize(
+    "size",
+    (
+        ProblemSize(128, 512, 2048),
+        ProblemSize(2048, 1024, 2048),
+        ProblemSize(2048, 512, 2304),
+    ),
+)
+def test_forward_validation_rejects_nonproduction_sizes(size: ProblemSize) -> None:
+    assert validate_solution(_key(size=size))
+
+
+def test_forward_validation_rejects_mismatched_problem_type() -> None:
+    problem_type = ProblemType(
+        operation_type="DenseMMQForward",
+        quant_data_type="Q5_K",
+        data_type_a="Q8_1_DS4",
+        data_type_b="Q5_K",
+        dest_data_type="BFloat16",
+        compute_data_type="Float",
+        transpose_a=False,
+        transpose_b=True,
+    )
+    key = SolutionKey(
+        problem_type,
+        ProblemSize(2048, 512, 2048),
+        DenseForwardSolution.q4_k_pilot(),
+    )
+    assert {reason.rule_id for reason in validate_solution(key)} >= {
+        "problem_type.forward.unsupported"
+    }
+
+
+def test_forward_writer_emits_direct_ds4_q4_k_control(tmp_path: Path) -> None:
+    key = _key()
+    writer = DenseForwardKernelWriterAssembly(key, _toolchain())
+    source = writer.source()
+    assembly = tmp_path / "kernel.s"
+    digest = writer.write(assembly)
+    assert len(digest) == 64
+    assert assembly.read_text(encoding="utf-8") == source
+    assert source.count("v_wmma_i32_16x16x16_iu8") == 16
+    assert source.count("neg_lo:[1,1,0] clamp") == 16
+    assert "offset:112" in source
+    assert "offset:128" in source
+    assert "Reproduce Q4_K FP16 scale/min construction" in source
+    assert "global_store_d16_hi_b16" in source
+    assert "s_barrier" not in source
+    assert "ds_" not in source
+
+
+def test_forward_artifact_passes_strict_inspection(tmp_path: Path) -> None:
+    key = _key()
+    toolchain = _toolchain()
+    assembly = tmp_path / "kernel.s"
+    object_path = tmp_path / "kernel.o"
+    code_object = tmp_path / "kernel.hsaco"
+    DenseForwardKernelWriterAssembly(key, toolchain).write(assembly)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+    inspection = inspect_artifact(key, code_object, toolchain)
+    assert inspection.wmma_count == 16
+    assert inspection.barrier_count == 0
+    assert inspection.vgpr_count == 88
+    assert inspection.sgpr_count == 16
+    assert inspection.lds_num_bytes == 0
+    assert inspection.private_segment_bytes == 0
+    assert inspection.vgpr_spill_count == 0
+    assert inspection.sgpr_spill_count == 0
+
+
+def test_forward_writer_rejects_invalid_solution() -> None:
+    key = _key(solution=replace(DenseForwardSolution.q4_k_pilot(), wmma_clamp=False))
+    with pytest.raises(ForwardKernelWriterError, match="solution rejected"):
+        DenseForwardKernelWriterAssembly(key, _toolchain())
+
+
+def test_forward_writer_reports_missing_rocisa(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    writer = DenseForwardKernelWriterAssembly(_key(), _toolchain())
+    original_import = builtins.__import__
+
+    def reject_rocisa(name: str, *args: object, **kwargs: object):
+        if name == "rocisa" or name.startswith("rocisa."):
+            raise ImportError("missing rocisa")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", reject_rocisa)
+    with pytest.raises(ForwardKernelWriterError, match="rocisa is required"):
+        writer.source()

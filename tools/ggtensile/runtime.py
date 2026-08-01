@@ -6,7 +6,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import TYPE_CHECKING, Self
 
-from .model import SolutionKey
+from .model import DenseForwardSolution, SolutionKey
 from .validation import validate_solution
 
 if TYPE_CHECKING:
@@ -192,6 +192,198 @@ class DenseBackwardModule:
         self._lib.hipModuleUnload.restype = ctypes.c_int
 
 
+class DenseForwardModule(DenseBackwardModule):
+    """Direct launcher for an exact packed Q4_K/Q8_1_DS4 forward kernel."""
+
+    def __init__(
+        self,
+        solution_key: SolutionKey,
+        code_object: Path,
+        hip_library: Path | None = None,
+    ) -> None:
+        if not isinstance(solution_key.solution, DenseForwardSolution):
+            raise HIPRuntimeError("dense forward requires DenseForwardSolution")
+        super().__init__(solution_key, code_object, hip_library)
+
+    def launch(
+        self,
+        packed_weight: torch.Tensor,
+        activations: torch.Tensor,
+        output: torch.Tensor,
+        *,
+        stream: int,
+    ) -> None:
+        import torch
+
+        if not self._module or not self._function:
+            raise HIPRuntimeError("HIP module is closed")
+        size = self.solution_key.problem_size
+        tensors = (packed_weight, activations, output)
+        if any(not tensor.is_cuda for tensor in tensors):
+            raise HIPRuntimeError("all launch tensors must be on a HIP device")
+        if any(not tensor.is_contiguous() for tensor in tensors):
+            raise HIPRuntimeError("all launch tensors must be contiguous")
+        if packed_weight.dtype != torch.uint8:
+            raise HIPRuntimeError("packed_weight must be uint8")
+        if activations.dtype != torch.uint8:
+            raise HIPRuntimeError("activations must be the uint8 DS4 workspace")
+        if output.dtype != torch.bfloat16:
+            raise HIPRuntimeError("output must be BF16")
+        expected_weight_bytes = size.n * (size.k // 256) * 144
+        if packed_weight.numel() != expected_weight_bytes:
+            raise HIPRuntimeError("packed_weight size does not match ProblemSize")
+        expected_activation_shape = (size.k // 128, size.m, 144)
+        if tuple(activations.shape) != expected_activation_shape:
+            raise HIPRuntimeError(
+                "activations shape does not match the exact DS4 workspace contract"
+            )
+        if tuple(output.shape) != (size.m, size.n):
+            raise HIPRuntimeError("output shape does not match ProblemSize")
+        devices = {tensor.device for tensor in tensors}
+        if len(devices) != 1:
+            raise HIPRuntimeError("all launch tensors must be on the same device")
+
+        arguments = (
+            ctypes.c_uint64(packed_weight.data_ptr()),
+            ctypes.c_uint64(activations.data_ptr()),
+            ctypes.c_uint64(output.data_ptr()),
+            ctypes.c_uint32(size.m),
+            ctypes.c_uint32(size.m),
+            ctypes.c_uint32(size.k),
+            ctypes.c_uint32(size.n),
+        )
+        parameters = (ctypes.c_void_p * len(arguments))(
+            *(
+                ctypes.cast(ctypes.byref(argument), ctypes.c_void_p)
+                for argument in arguments
+            )
+        )
+        solution = self.solution_key.solution
+        self._check(
+            self._lib.hipModuleLaunchKernel(
+                self._function,
+                size.n // solution.macro_tile1,
+                size.m // solution.macro_tile0,
+                1,
+                *solution.work_group,
+                0,
+                ctypes.c_void_p(stream),
+                parameters,
+                None,
+            ),
+            "hipModuleLaunchKernel",
+        )
+
+
+class FixedDS4QuantizerModule(DenseBackwardModule):
+    """Direct launcher for the unchanged installed HIP DS4 producer."""
+
+    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_ds4"
+
+    def __init__(
+        self,
+        code_object: Path | None = None,
+        hip_library: Path | None = None,
+    ) -> None:
+        selected = code_object or _find_ds4_code_object()
+        if not selected.is_file():
+            raise HIPRuntimeError(f"code object does not exist: {selected}")
+        self.solution_key = None
+        self.code_object = selected
+        self._lib = ctypes.CDLL(str(hip_library or _find_hip_library()))
+        self._configure_api()
+        self._module = ctypes.c_void_p()
+        self._function = ctypes.c_void_p()
+        self._check(
+            self._lib.hipModuleLoad(
+                ctypes.byref(self._module), str(selected).encode()
+            ),
+            "hipModuleLoad",
+        )
+        try:
+            self._check(
+                self._lib.hipModuleGetFunction(
+                    ctypes.byref(self._function),
+                    self._module,
+                    self.SYMBOL.encode(),
+                ),
+                "hipModuleGetFunction",
+            )
+        except Exception:
+            self.close()
+            raise
+
+    def allocate(self, input_tensor: torch.Tensor) -> torch.Tensor:
+        import torch
+
+        if input_tensor.ndim != 2 or input_tensor.shape[1] % 128:
+            raise HIPRuntimeError("DS4 input must be [rows, K] with K divisible by 128")
+        rows, k = input_tensor.shape
+        return torch.empty(
+            (k // 128, rows, 144),
+            dtype=torch.uint8,
+            device=input_tensor.device,
+        )
+
+    def launch(
+        self,
+        input_tensor: torch.Tensor,
+        output: torch.Tensor,
+        *,
+        stream: int,
+    ) -> None:
+        import torch
+
+        if not self._module or not self._function:
+            raise HIPRuntimeError("HIP module is closed")
+        if not input_tensor.is_cuda or not output.is_cuda:
+            raise HIPRuntimeError("quantizer tensors must be on a HIP device")
+        if not input_tensor.is_contiguous() or not output.is_contiguous():
+            raise HIPRuntimeError("quantizer tensors must be contiguous")
+        if input_tensor.dtype != torch.bfloat16:
+            raise HIPRuntimeError("quantizer input must be BF16")
+        if output.dtype != torch.uint8:
+            raise HIPRuntimeError("quantizer output must be uint8")
+        if input_tensor.ndim != 2:
+            raise HIPRuntimeError("quantizer input must be two-dimensional")
+        rows, k = input_tensor.shape
+        expected_shape = (k // 128, rows, 144)
+        if k % 128 or tuple(output.shape) != expected_shape:
+            raise HIPRuntimeError("quantizer output does not match the DS4 contract")
+        if input_tensor.device != output.device:
+            raise HIPRuntimeError("quantizer tensors must be on the same device")
+
+        arguments = (
+            ctypes.c_uint64(input_tensor.data_ptr()),
+            ctypes.c_uint64(output.data_ptr()),
+            ctypes.c_int64(rows),
+            ctypes.c_int64(rows),
+            ctypes.c_int64(k),
+        )
+        parameters = (ctypes.c_void_p * len(arguments))(
+            *(
+                ctypes.cast(ctypes.byref(argument), ctypes.c_void_p)
+                for argument in arguments
+            )
+        )
+        self._check(
+            self._lib.hipModuleLaunchKernel(
+                self._function,
+                rows,
+                1,
+                1,
+                512,
+                1,
+                1,
+                0,
+                ctypes.c_void_p(stream),
+                parameters,
+                None,
+            ),
+            "hipModuleLaunchKernel",
+        )
+
+
 def _find_hip_library() -> Path:
     override = os.environ.get("GGTENSILE_HIP_LIBRARY")
     if override:
@@ -208,3 +400,27 @@ def _find_hip_library() -> Path:
         if candidate.is_file():
             return candidate
     raise HIPRuntimeError("cannot find libamdhip64.so; set GGTENSILE_HIP_LIBRARY")
+
+
+def _find_ds4_code_object() -> Path:
+    override = os.environ.get("GGTENSILE_DS4_CODE_OBJECT")
+    if override:
+        candidate = Path(override)
+        if candidate.is_file():
+            return candidate
+        raise HIPRuntimeError(
+            f"GGTENSILE_DS4_CODE_OBJECT does not exist: {candidate}"
+        )
+    purelib = Path(sysconfig.get_paths()["purelib"])
+    candidate = (
+        purelib
+        / "torch_ggml_ops"
+        / "kernels"
+        / "gfx1151"
+        / f"{FixedDS4QuantizerModule.SYMBOL}.hsaco"
+    )
+    if candidate.is_file():
+        return candidate
+    raise HIPRuntimeError(
+        "cannot find the installed DS4 quantizer; set GGTENSILE_DS4_CODE_OBJECT"
+    )

@@ -3,11 +3,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
-from .model import ProblemSize, ProblemType, SchemaError, Solution, SolutionKey
+from .model import (
+    DenseForwardSolution,
+    ProblemSize,
+    ProblemType,
+    SchemaError,
+    Solution,
+    SolutionKey,
+)
 
-DEFAULT_INVENTORY = Path(__file__).with_name("q4_k_dense_inventory.json")
-DEFAULT_RETAINED_SOLUTION = Path(__file__).with_name("q4_k_retained_solution.json")
-DEFAULT_SELECTED_SOLUTIONS = Path(__file__).with_name("q4_k_selected_solutions.json")
+CONFIG_DIR = Path(__file__).with_name("configs")
+DEFAULT_INVENTORY = CONFIG_DIR / "q4_k_dense_inventory.json"
+DEFAULT_RETAINED_SOLUTION = CONFIG_DIR / "q4_k_retained_solution.json"
+DEFAULT_SELECTED_SOLUTIONS = CONFIG_DIR / "q4_k_selected_solutions.json"
 
 _EXPECTED_M = (2048, 8192, 32768)
 _CAMPAIGN_SPECS = {
@@ -61,10 +69,27 @@ _CAMPAIGN_SPECS = {
     },
 }
 
+_FORWARD_CAMPAIGN_SPECS = {
+    "Q4_K": {
+        "families": {
+            "narrow": ((512, 2048), "blk.5.ffn_gate_shexp.weight", 70),
+            "shared_down": ((2048, 512), "blk.5.ffn_down_shexp.weight", 30),
+            "attention_output": ((2048, 4096), "blk.3.attn_output.weight", 10),
+            "query": ((8192, 2048), "blk.39.attn_q.weight", 1),
+        },
+        "block_bytes": 144,
+    }
+}
 
-def _campaign_spec(quant_type: str) -> Mapping[str, object]:
+
+def _campaign_spec(operation_type: str, quant_type: str) -> Mapping[str, object]:
+    specs = (
+        _FORWARD_CAMPAIGN_SPECS
+        if operation_type == "DenseMMQForward"
+        else _CAMPAIGN_SPECS
+    )
     try:
-        return _CAMPAIGN_SPECS[quant_type]
+        return specs[quant_type]
     except KeyError as error:
         raise CampaignError(
             f"unsupported campaign quant type {quant_type!r}"
@@ -100,6 +125,7 @@ def _integer(value: object, name: str) -> int:
 
 @dataclass(frozen=True)
 class CampaignEntry:
+    operation_type: str
     quant_data_type: str
     family: str
     problem_size: ProblemSize
@@ -120,17 +146,23 @@ class CampaignEntry:
 
     @property
     def expected_logical_weight_shape(self) -> tuple[int, int]:
+        if self.operation_type == "DenseMMQForward":
+            return (self.problem_size.n, self.problem_size.k)
         return (self.problem_size.k, self.problem_size.n)
 
     @property
     def expected_physical_weight_shape(self) -> tuple[int, int]:
         size = self.problem_size
-        spec = _campaign_spec(self.quant_data_type)
+        spec = _campaign_spec(self.operation_type, self.quant_data_type)
         block_values = int(spec.get("block_values", 256))
+        if self.operation_type == "DenseMMQForward":
+            return (size.n, size.k // block_values * int(spec["block_bytes"]))
         return (size.k, size.n // block_values * int(spec["block_bytes"]))
 
     def solution_key(
-        self, problem_type: ProblemType, solution: Solution
+        self,
+        problem_type: ProblemType,
+        solution: Solution | DenseForwardSolution,
     ) -> SolutionKey:
         return SolutionKey(problem_type, self.problem_size, solution)
 
@@ -147,7 +179,10 @@ class CampaignInventory:
         families: tuple[str, ...] = (),
         sizes: tuple[ProblemSize, ...] = (),
     ) -> tuple[CampaignEntry, ...]:
-        spec = _campaign_spec(self.problem_type.quant_data_type)
+        spec = _campaign_spec(
+            self.problem_type.operation_type,
+            self.problem_type.quant_data_type,
+        )
         family_specs = spec["families"]
         assert isinstance(family_specs, Mapping)
         unknown_families = sorted(set(families) - family_specs.keys())
@@ -179,16 +214,28 @@ def _load_json(path: Path, name: str) -> object:
         raise CampaignError(f"cannot read {name} {path}: {error}") from error
 
 
-def load_solution(path: Path = DEFAULT_RETAINED_SOLUTION) -> Solution:
+def load_solution(
+    path: Path = DEFAULT_RETAINED_SOLUTION,
+    *,
+    problem_type: ProblemType | None = None,
+) -> Solution | DenseForwardSolution:
+    solution_type = (
+        DenseForwardSolution
+        if problem_type is not None
+        and problem_type.operation_type == "DenseMMQForward"
+        else Solution
+    )
     try:
-        return Solution.from_mapping(_load_json(path, "solution"))
+        return solution_type.from_mapping(_load_json(path, "solution"))
     except SchemaError as error:
         raise CampaignError(f"invalid campaign solution: {error}") from error
 
 
 def load_solution_catalog(
     path: Path = DEFAULT_SELECTED_SOLUTIONS,
-) -> dict[str, Solution]:
+    *,
+    problem_type: ProblemType | None = None,
+) -> dict[str, Solution | DenseForwardSolution]:
     root = _mapping(
         _load_json(path, "solution catalog"),
         "solution catalog",
@@ -197,11 +244,17 @@ def load_solution_catalog(
     raw_solutions = root["Solutions"]
     if not isinstance(raw_solutions, Mapping) or not raw_solutions:
         raise CampaignError("Solutions must be a nonempty JSON object")
-    solutions: dict[str, Solution] = {}
+    solution_type = (
+        DenseForwardSolution
+        if problem_type is not None
+        and problem_type.operation_type == "DenseMMQForward"
+        else Solution
+    )
+    solutions: dict[str, Solution | DenseForwardSolution] = {}
     for name, value in raw_solutions.items():
         selected_name = _string(name, "solution catalog key")
         try:
-            solutions[selected_name] = Solution.from_mapping(value)
+            solutions[selected_name] = solution_type.from_mapping(value)
         except SchemaError as error:
             raise CampaignError(
                 f"invalid catalog solution {selected_name!r}: {error}"
@@ -219,14 +272,28 @@ def load_inventory(path: Path = DEFAULT_INVENTORY) -> CampaignInventory:
         problem_type = ProblemType.from_mapping(root["ProblemType"])
     except SchemaError as error:
         raise CampaignError(f"invalid inventory ProblemType: {error}") from error
-    spec = _campaign_spec(problem_type.quant_data_type)
-    validation_expected = {
-        "QuantType": problem_type.quant_data_type,
-        "ExactDispatch": True,
-        "RequireBitExactHip": True,
-        "RequireGradOutputMutation": True,
-        "RequirePackedWeightMutation": True,
-    }
+    spec = _campaign_spec(
+        problem_type.operation_type,
+        problem_type.quant_data_type,
+    )
+    if problem_type.operation_type == "DenseMMQForward":
+        validation_expected = {
+            "QuantType": problem_type.quant_data_type,
+            "ExactDispatch": True,
+            "RequireBitExactHip": True,
+            "RequireInputMutation": True,
+            "RequirePackedWeightMutation": True,
+            "RequireWorkspaceMutation": True,
+            "FixedActivationProducer": "HIP_Q8_1_DS4",
+        }
+    else:
+        validation_expected = {
+            "QuantType": problem_type.quant_data_type,
+            "ExactDispatch": True,
+            "RequireBitExactHip": True,
+            "RequireGradOutputMutation": True,
+            "RequirePackedWeightMutation": True,
+        }
     validation = _mapping(
         root["Validation"], "Validation", frozenset(validation_expected)
     )
@@ -273,6 +340,7 @@ def load_inventory(path: Path = DEFAULT_INVENTORY) -> CampaignInventory:
         if status not in ("open", "selected"):
             raise CampaignError(f"invalid CurrentStatus {status!r}")
         entry = CampaignEntry(
+            operation_type=problem_type.operation_type,
             quant_data_type=problem_type.quant_data_type,
             family=family,
             problem_size=size,

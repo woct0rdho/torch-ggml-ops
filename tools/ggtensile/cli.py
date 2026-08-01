@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .inspection import InspectionError, inspect_artifact
-from .kernel_writer_assembly import KernelWriterAssembly
+from .kernel_writer_assembly_mmq_bwd import KernelWriterAssembly
+from .kernel_writer_assembly_mmq_fwd import DenseForwardKernelWriterAssembly
 from .model import SchemaError, SolutionKey
 from .toolchain import Toolchain, ToolchainError
 from .validation import validate_solution
@@ -147,7 +148,12 @@ def _generate(solution_path: Path, output_dir: Path) -> int:
     if solution_output.exists() or assembly.exists():
         raise ManifestError("refusing to overwrite generated solution or assembly")
     toolchain = Toolchain.discover()
-    source = KernelWriterAssembly(key, toolchain).source()
+    writer_type = (
+        DenseForwardKernelWriterAssembly
+        if key.problem_type.operation_type == "DenseMMQForward"
+        else KernelWriterAssembly
+    )
+    source = writer_type(key, toolchain).source()
     _write_json_exclusive(solution_output, key.to_mapping())
     _write_text_exclusive(assembly, source)
     _write_json_exclusive(

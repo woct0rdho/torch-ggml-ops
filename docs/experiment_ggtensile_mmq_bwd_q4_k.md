@@ -122,7 +122,7 @@ Independent source generation is byte-reproducible, and both artifacts pass the 
 - `tools/benchmark_ggtensile.py` provides warmed rotating HIP, candidate, and assembly-control timing; full-output comparison; independent BF16-reference comparison; and producer-handoff checks.
 - Artifact inspection records ABI and hard resources plus static VALU issues and operations, VOPD pairs, VMEM, LDS, waits, barriers, clauses, dependency delays, and L0 invalidations.
 - `tools/benchmark_ggtensile_lower_bounds.py` generates, builds, inspects, and rotates exact `wmma_floor` and `decode_floor` diagnostic artifacts while leaving production `Solution` and dispatch contracts unchanged.
-- `tools/ggtensile/q4_k_dense_inventory.json` records the exact 12 keys, representative tensors, call counts, historical HIP controls, validation contract, and selected-solution references without a schema version. `tools/ggtensile/q4_k_selected_solutions.json` contains the four complete selected solution mappings. `tools/run_ggtensile_q4_k_campaign.py` runs immutable prepare, correctness, nine-repeat screen, and 25-repeat confirmation phases serially and reports call-weighted totals.
+- `tools/ggtensile/configs/q4_k_dense_inventory.json` records the exact 12 keys, representative tensors, call counts, historical HIP controls, validation contract, and selected-solution references without a schema version. `tools/ggtensile/configs/q4_k_selected_solutions.json` contains the four complete selected solution mappings. `tools/run_ggtensile_q4_k_campaign.py` runs immutable prepare, correctness, nine-repeat screen, and 25-repeat confirmation phases serially and reports call-weighted totals.
 
 ### Campaign search space and control taxonomy
 

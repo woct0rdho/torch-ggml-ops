@@ -1,6 +1,12 @@
 from dataclasses import dataclass
 
-from .model import ProblemSize, ProblemType, Solution, SolutionKey
+from .model import (
+    DenseForwardSolution,
+    ProblemSize,
+    ProblemType,
+    Solution,
+    SolutionKey,
+)
 
 
 @dataclass(frozen=True)
@@ -59,6 +65,90 @@ def _validate_problem_type(
                 f"dense MMQ backward requires {parameter}={getattr(expected, attribute)!r}",
                 parameter,
                 source="ProblemType",
+            )
+
+
+def _validate_forward_solution(
+    solution_key: SolutionKey, reasons: list[RejectReason]
+) -> None:
+    problem_type = solution_key.problem_type
+    problem_size = solution_key.problem_size
+    solution = solution_key.solution
+    if problem_type != ProblemType.dense_mmq_forward_q4_k():
+        _reject(
+            reasons,
+            "problem_type.forward.unsupported",
+            "dense MMQ forward requires the exact Q4_K/Q8_1_DS4 problem type",
+            "ProblemType",
+            source="ProblemType",
+        )
+    if not isinstance(solution, DenseForwardSolution):
+        _reject(
+            reasons,
+            "solution.forward.schema",
+            "dense MMQ forward requires DenseForwardSolution",
+            "Solution",
+            source="SolutionStructs",
+        )
+        return
+    pilot = DenseForwardSolution.q4_k_pilot()
+    for attribute, parameter in (
+        ("kernel_language", "KernelLanguage"),
+        ("isa", "ISA"),
+        ("wavefront_size", "WavefrontSize"),
+        ("work_group", "WorkGroup"),
+        ("matrix_instruction", "MatrixInstruction"),
+        ("macro_tile0", "MacroTile0"),
+        ("macro_tile1", "MacroTile1"),
+        ("depth_u", "DepthU"),
+        ("activation_layout", "ActivationLayout"),
+        ("activation_block_bytes", "ActivationBlockBytes"),
+        ("packed_weight_block_bytes", "PackedWeightBlockBytes"),
+        ("operand_source", "OperandSource"),
+        ("weight_decode", "WeightDecode"),
+        ("scale_arithmetic", "ScaleArithmetic"),
+        ("output_store", "OutputStore"),
+        ("signed_weight", "SignedWeight"),
+        ("signed_activation", "SignedActivation"),
+        ("wmma_clamp", "WmmaClamp"),
+    ):
+        if getattr(solution, attribute) != getattr(pilot, attribute):
+            _reject(
+                reasons,
+                f"solution.forward.{parameter.lower()}.unimplemented",
+                f"forward control implements only {parameter}={getattr(pilot, attribute)!r}",
+                parameter,
+            )
+    allowed_pairs = {(512, 2048), (2048, 512), (2048, 4096), (8192, 2048)}
+    if problem_size.m not in (2048, 8192, 32768):
+        _reject(
+            reasons,
+            "problem_size.m.forward_production",
+            "Q4_K forward requires M=2048, 8192, or 32768",
+            "M",
+            source="ProblemSize",
+        )
+    if (problem_size.n, problem_size.k) not in allowed_pairs:
+        _reject(
+            reasons,
+            "problem_size.nk.forward_production",
+            "Q4_K forward requires an exact production (N,K) pair",
+            "N",
+            "K",
+            source="ProblemSize",
+        )
+    for parameter, value, divisor in (
+        ("M", problem_size.m, solution.macro_tile0),
+        ("N", problem_size.n, solution.macro_tile1),
+        ("K", problem_size.k, 256),
+    ):
+        if value <= 0 or value % divisor:
+            _reject(
+                reasons,
+                f"problem_size.{parameter.lower()}.forward_tile_multiple",
+                f"{parameter} must be a positive multiple of {divisor}",
+                parameter,
+                source="ProblemSize",
             )
 
 
@@ -457,6 +547,18 @@ def _validate_solution_parameters(
 
 def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
     reasons: list[RejectReason] = []
+    if solution_key.problem_type.operation_type == "DenseMMQForward":
+        _validate_forward_solution(solution_key, reasons)
+        return tuple(reasons)
+    if not isinstance(solution_key.solution, Solution):
+        _reject(
+            reasons,
+            "solution.backward.schema",
+            "dense MMQ backward requires Solution",
+            "Solution",
+            source="SolutionStructs",
+        )
+        return tuple(reasons)
     _validate_problem_type(solution_key.problem_type, reasons)
     _validate_solution_parameters(solution_key.solution, reasons)
     if (

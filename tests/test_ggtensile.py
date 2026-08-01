@@ -12,7 +12,10 @@ from tools.ggtensile.campaign import (
 )
 from tools.ggtensile.cli import main as ggtensile_cli_main
 from tools.ggtensile.inspection import inspect_artifact
-from tools.ggtensile.kernel_writer_assembly import DiagnosticMode, KernelWriterAssembly
+from tools.ggtensile.kernel_writer_assembly_mmq_bwd import (
+    DiagnosticMode,
+    KernelWriterAssembly,
+)
 from tools.ggtensile.model import ProblemSize, ProblemType, Solution, SolutionKey
 from tools.ggtensile.toolchain import Toolchain, ToolchainError
 from tools.ggtensile.validation import validate_solution
@@ -73,9 +76,9 @@ def test_q4_k_campaign_inventory_is_exact_and_versionless() -> None:
 
 
 def test_q5_k_campaign_inventory_is_exact_and_quant_aware() -> None:
-    inventory = load_inventory(Path("tools/ggtensile/q5_k_dense_inventory.json"))
+    inventory = load_inventory(Path("tools/ggtensile/configs/q5_k_dense_inventory.json"))
     catalog = load_solution_catalog(
-        Path("tools/ggtensile/q5_k_selected_solutions.json")
+        Path("tools/ggtensile/configs/q5_k_selected_solutions.json")
     )
     assert inventory.problem_type == ProblemType.dense_mmq_backward_q5_k()
     assert len(inventory.entries) == 6
@@ -104,9 +107,9 @@ def test_q5_k_campaign_inventory_is_exact_and_quant_aware() -> None:
 
 
 def test_q6_k_campaign_inventory_covers_exact_lm_head_chunks() -> None:
-    inventory = load_inventory(Path("tools/ggtensile/q6_k_dense_inventory.json"))
+    inventory = load_inventory(Path("tools/ggtensile/configs/q6_k_dense_inventory.json"))
     catalog = load_solution_catalog(
-        Path("tools/ggtensile/q6_k_selected_solutions.json")
+        Path("tools/ggtensile/configs/q6_k_selected_solutions.json")
     )
     assert inventory.problem_type == ProblemType.dense_mmq_backward_q6_k()
     assert len(inventory.entries) == 3
@@ -140,9 +143,9 @@ def test_q6_k_campaign_inventory_covers_exact_lm_head_chunks() -> None:
 
 
 def test_q3_k_campaign_inventory_selects_exact_padded_geometries() -> None:
-    inventory = load_inventory(Path("tools/ggtensile/q3_k_dense_inventory.json"))
+    inventory = load_inventory(Path("tools/ggtensile/configs/q3_k_dense_inventory.json"))
     catalog = load_solution_catalog(
-        Path("tools/ggtensile/q3_k_selected_solutions.json")
+        Path("tools/ggtensile/configs/q3_k_selected_solutions.json")
     )
     assert inventory.problem_type == ProblemType.dense_mmq_backward("Q3_K")
     assert len(inventory.entries) == 6
@@ -160,9 +163,9 @@ def test_q3_k_campaign_inventory_selects_exact_padded_geometries() -> None:
 
 
 def test_q8_0_campaign_inventory_covers_ordinary_and_lm_head_keys() -> None:
-    inventory = load_inventory(Path("tools/ggtensile/q8_0_dense_inventory.json"))
+    inventory = load_inventory(Path("tools/ggtensile/configs/q8_0_dense_inventory.json"))
     catalog = load_solution_catalog(
-        Path("tools/ggtensile/q8_0_selected_solutions.json")
+        Path("tools/ggtensile/configs/q8_0_selected_solutions.json")
     )
     assert inventory.problem_type == ProblemType.dense_mmq_backward_q8_0()
     assert len(inventory.entries) == 23
@@ -221,9 +224,9 @@ def test_q3_k_packed_decoder_uses_wave32_vopd_scale_pairs() -> None:
 
 
 def test_q6_k_packed_vopd_decoder_pairs_adjacent_values() -> None:
-    inventory = load_inventory(Path("tools/ggtensile/q6_k_dense_inventory.json"))
+    inventory = load_inventory(Path("tools/ggtensile/configs/q6_k_dense_inventory.json"))
     catalog = load_solution_catalog(
-        Path("tools/ggtensile/q6_k_selected_solutions.json")
+        Path("tools/ggtensile/configs/q6_k_selected_solutions.json")
     )
     entry = next(item for item in inventory.entries if item.problem_size.m == 64)
     key = entry.solution_key(inventory.problem_type, catalog[entry.selected_solution])
@@ -306,7 +309,9 @@ def test_quant_types_have_distinct_problem_identity() -> None:
 
 def test_q4_k_campaign_inventory_rejects_schema_version(tmp_path: Path) -> None:
     inventory_path = tmp_path / "inventory.json"
-    value = json.loads(Path("tools/ggtensile/q4_k_dense_inventory.json").read_text())
+    value = json.loads(
+        Path("tools/ggtensile/configs/q4_k_dense_inventory.json").read_text()
+    )
     value["SchemaVersion"] = 1
     inventory_path.write_text(json.dumps(value))
     with pytest.raises(CampaignError, match="invalid inventory keys"):
@@ -1252,7 +1257,7 @@ def test_writer_maps_grouped_m_launch_coordinates() -> None:
 
 def test_writer_builds_q3_k_padded_256x64_geometry(tmp_path: Path) -> None:
     catalog = load_solution_catalog(
-        Path("tools/ggtensile/q3_k_selected_solutions.json")
+        Path("tools/ggtensile/configs/q3_k_selected_solutions.json")
     )
     geometry = catalog["retained_256x64_pad8_sia5"]
     key = SolutionKey(

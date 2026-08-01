@@ -115,6 +115,19 @@ class ProblemType:
         return cls.dense_mmq_backward("Q8_0")
 
     @classmethod
+    def dense_mmq_forward_q4_k(cls) -> Self:
+        return cls(
+            operation_type="DenseMMQForward",
+            quant_data_type="Q4_K",
+            data_type_a="Q8_1_DS4",
+            data_type_b="Q4_K",
+            dest_data_type="BFloat16",
+            compute_data_type="Float",
+            transpose_a=False,
+            transpose_b=True,
+        )
+
+    @classmethod
     def from_mapping(cls, value: object) -> Self:
         item = _strict_mapping(value, name="ProblemType", keys=cls._KEYS)
         return cls(
@@ -143,7 +156,7 @@ class ProblemType:
 
 @dataclass(frozen=True)
 class ProblemSize:
-    """Exact GEMM coordinates: M=rows, N=in_features, K=out_features."""
+    """Exact GEMM coordinates interpreted by the selected ProblemType."""
 
     m: int
     n: int
@@ -395,10 +408,146 @@ class Solution:
 
 
 @dataclass(frozen=True)
+class DenseForwardSolution:
+    """Strict Q4_K forward control; fields name only implemented mechanisms."""
+
+    kernel_language: str
+    isa: tuple[int, int, int]
+    wavefront_size: int
+    work_group: tuple[int, int, int]
+    matrix_instruction: tuple[int, ...]
+    macro_tile0: int
+    macro_tile1: int
+    depth_u: int
+    activation_layout: str
+    activation_block_bytes: int
+    packed_weight_block_bytes: int
+    operand_source: str
+    weight_decode: str
+    scale_arithmetic: str
+    output_store: str
+    signed_weight: bool
+    signed_activation: bool
+    wmma_clamp: bool
+
+    _KEYS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "KernelLanguage",
+            "ISA",
+            "WavefrontSize",
+            "WorkGroup",
+            "MatrixInstruction",
+            "MacroTile0",
+            "MacroTile1",
+            "DepthU",
+            "ActivationLayout",
+            "ActivationBlockBytes",
+            "PackedWeightBlockBytes",
+            "OperandSource",
+            "WeightDecode",
+            "ScaleArithmetic",
+            "OutputStore",
+            "SignedWeight",
+            "SignedActivation",
+            "WmmaClamp",
+        }
+    )
+
+    @classmethod
+    def q4_k_pilot(cls) -> Self:
+        return cls(
+            kernel_language="Assembly",
+            isa=(11, 5, 1),
+            wavefront_size=32,
+            work_group=(32, 1, 1),
+            matrix_instruction=(16, 16, 16, 1, 1, 1, 1, 1, 1),
+            macro_tile0=16,
+            macro_tile1=16,
+            depth_u=32,
+            activation_layout="Q8_1_DS4",
+            activation_block_bytes=144,
+            packed_weight_block_bytes=144,
+            operand_source="Global",
+            weight_decode="DirectNibble",
+            scale_arithmetic="FP16",
+            output_store="BFloat16RNE",
+            signed_weight=True,
+            signed_activation=True,
+            wmma_clamp=True,
+        )
+
+    @classmethod
+    def from_mapping(cls, value: object) -> Self:
+        item = _strict_mapping(value, name="Solution", keys=cls._KEYS)
+        return cls(
+            kernel_language=_string(item["KernelLanguage"], "KernelLanguage"),
+            isa=_integer_tuple(item["ISA"], "ISA", 3),
+            wavefront_size=_integer(item["WavefrontSize"], "WavefrontSize"),
+            work_group=_integer_tuple(item["WorkGroup"], "WorkGroup", 3),
+            matrix_instruction=_integer_tuple(
+                item["MatrixInstruction"], "MatrixInstruction", 9
+            ),
+            macro_tile0=_integer(item["MacroTile0"], "MacroTile0"),
+            macro_tile1=_integer(item["MacroTile1"], "MacroTile1"),
+            depth_u=_integer(item["DepthU"], "DepthU"),
+            activation_layout=_string(
+                item["ActivationLayout"], "ActivationLayout"
+            ),
+            activation_block_bytes=_integer(
+                item["ActivationBlockBytes"], "ActivationBlockBytes"
+            ),
+            packed_weight_block_bytes=_integer(
+                item["PackedWeightBlockBytes"], "PackedWeightBlockBytes"
+            ),
+            operand_source=_string(item["OperandSource"], "OperandSource"),
+            weight_decode=_string(item["WeightDecode"], "WeightDecode"),
+            scale_arithmetic=_string(
+                item["ScaleArithmetic"], "ScaleArithmetic"
+            ),
+            output_store=_string(item["OutputStore"], "OutputStore"),
+            signed_weight=_boolean(item["SignedWeight"], "SignedWeight"),
+            signed_activation=_boolean(
+                item["SignedActivation"], "SignedActivation"
+            ),
+            wmma_clamp=_boolean(item["WmmaClamp"], "WmmaClamp"),
+        )
+
+    @property
+    def num_threads(self) -> int:
+        return self.work_group[0] * self.work_group[1] * self.work_group[2]
+
+    @property
+    def lds_num_bytes(self) -> int:
+        return 0
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "KernelLanguage": self.kernel_language,
+            "ISA": list(self.isa),
+            "WavefrontSize": self.wavefront_size,
+            "WorkGroup": list(self.work_group),
+            "MatrixInstruction": list(self.matrix_instruction),
+            "MacroTile0": self.macro_tile0,
+            "MacroTile1": self.macro_tile1,
+            "DepthU": self.depth_u,
+            "ActivationLayout": self.activation_layout,
+            "ActivationBlockBytes": self.activation_block_bytes,
+            "PackedWeightBlockBytes": self.packed_weight_block_bytes,
+            "OperandSource": self.operand_source,
+            "WeightDecode": self.weight_decode,
+            "ScaleArithmetic": self.scale_arithmetic,
+            "OutputStore": self.output_store,
+            "SignedWeight": self.signed_weight,
+            "SignedActivation": self.signed_activation,
+            "WmmaClamp": self.wmma_clamp,
+        }
+
+
+@dataclass(frozen=True)
 class SolutionKey:
     problem_type: ProblemType
     problem_size: ProblemSize
-    solution: Solution
+    solution: Solution | DenseForwardSolution
 
     _KEYS: ClassVar[frozenset[str]] = frozenset(
         {"ProblemType", "ProblemSize", "Solution"}
@@ -407,10 +556,16 @@ class SolutionKey:
     @classmethod
     def from_mapping(cls, value: object) -> Self:
         item = _strict_mapping(value, name="SolutionKey", keys=cls._KEYS)
+        problem_type = ProblemType.from_mapping(item["ProblemType"])
+        solution_type = (
+            DenseForwardSolution
+            if problem_type.operation_type == "DenseMMQForward"
+            else Solution
+        )
         return cls(
-            problem_type=ProblemType.from_mapping(item["ProblemType"]),
+            problem_type=problem_type,
             problem_size=ProblemSize.from_mapping(item["ProblemSize"]),
-            solution=Solution.from_mapping(item["Solution"]),
+            solution=solution_type.from_mapping(item["Solution"]),
         )
 
     @classmethod
@@ -440,8 +595,12 @@ class SolutionKey:
     def kernel_name(self) -> str:
         size = self.problem_size
         quant_type = self.problem_type.quant_data_type.lower()
+        operation = (
+            "dense_fwd" if self.problem_type.operation_type == "DenseMMQForward"
+            else "dense_bwd"
+        )
         return (
-            "torch_ggml_ops_ggtensile_gfx1151_v1_dense_bwd_"
+            f"torch_ggml_ops_ggtensile_gfx1151_v1_{operation}_"
             f"{quant_type}_"
             f"m{size.m}_n{size.n}_k{size.k}_{self.hash[6:]}"
         )

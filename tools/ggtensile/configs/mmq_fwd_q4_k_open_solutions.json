@@ -1,0 +1,24 @@
+{
+  "Solutions": {
+    "pilot_direct_global": {
+      "KernelLanguage": "Assembly",
+      "ISA": [11, 5, 1],
+      "WavefrontSize": 32,
+      "WorkGroup": [32, 1, 1],
+      "MatrixInstruction": [16, 16, 16, 1, 1, 1, 1, 1, 1],
+      "MacroTile0": 16,
+      "MacroTile1": 16,
+      "DepthU": 32,
+      "ActivationLayout": "Q8_1_DS4",
+      "ActivationBlockBytes": 144,
+      "PackedWeightBlockBytes": 144,
+      "OperandSource": "Global",
+      "WeightDecode": "DirectNibble",
+      "ScaleArithmetic": "FP16",
+      "OutputStore": "BFloat16RNE",
+      "SignedWeight": true,
+      "SignedActivation": true,
+      "WmmaClamp": true
+    }
+  }
+}
