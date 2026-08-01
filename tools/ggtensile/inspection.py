@@ -150,7 +150,9 @@ def inspect_artifact(
     if expected_wmmas is None:
         if isinstance(solution, DenseForwardSolution):
             expected_wmmas = (
-                128 if solution.operand_source == "GlobalWaveReuse" else 16
+                128
+                if solution.operand_source == "GlobalWaveReuse"
+                else 16
             )
         else:
             expected_wmmas = (
@@ -390,7 +392,7 @@ def _validate_forward_metadata(
     expected = {
         ".kernarg_segment_size": 40,
         ".kernarg_segment_align": 8,
-        ".group_segment_fixed_size": 0,
+        ".group_segment_fixed_size": solution.lds_num_bytes,
         ".private_segment_fixed_size": 0,
         ".max_flat_workgroup_size": solution.num_threads,
         ".wavefront_size": solution.wavefront_size,

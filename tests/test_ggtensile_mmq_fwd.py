@@ -186,6 +186,8 @@ def test_forward_writer_emits_flat_wave_reuse_control() -> None:
     assert "v_lshrrev_b32 v159, 5, v157" in source
     assert "Reused Q4_K group 7 across eight activation tiles." in source
     assert "global_store_d16_hi_b16" in source
+    assert "v_fma_mix_f32" in source
+    assert "v_cvt_f32_f16 v120" not in source
     assert "s_barrier" not in source
 
 
@@ -199,10 +201,10 @@ def test_forward_runtime_uses_exact_candidate_and_hip_launch_geometry() -> None:
 
 
 @pytest.mark.parametrize(
-    ("solution", "wmma_count", "vgpr_count"),
+    ("solution", "wmma_count", "vgpr_count", "barrier_count", "lds_num_bytes"),
     (
-        (DenseForwardSolution.q4_k_pilot(), 16, 88),
-        (DenseForwardSolution.q4_k_wave_reuse(), 128, 164),
+        (DenseForwardSolution.q4_k_pilot(), 16, 88, 0, 0),
+        (DenseForwardSolution.q4_k_wave_reuse(), 128, 164, 0, 0),
     ),
 )
 def test_forward_artifact_passes_strict_inspection(
@@ -210,6 +212,8 @@ def test_forward_artifact_passes_strict_inspection(
     solution: DenseForwardSolution,
     wmma_count: int,
     vgpr_count: int,
+    barrier_count: int,
+    lds_num_bytes: int,
 ) -> None:
     key = _key(solution=solution)
     toolchain = _toolchain()
@@ -221,10 +225,10 @@ def test_forward_artifact_passes_strict_inspection(
     toolchain.link(object_path, code_object)
     inspection = inspect_artifact(key, code_object, toolchain)
     assert inspection.wmma_count == wmma_count
-    assert inspection.barrier_count == 0
+    assert inspection.barrier_count == barrier_count
     assert inspection.vgpr_count == vgpr_count
     assert inspection.sgpr_count == 16
-    assert inspection.lds_num_bytes == 0
+    assert inspection.lds_num_bytes == lds_num_bytes
     assert inspection.private_segment_bytes == 0
     assert inspection.vgpr_spill_count == 0
     assert inspection.sgpr_spill_count == 0

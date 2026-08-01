@@ -105,7 +105,7 @@ class DenseForwardKernelWriterAssembly:
             kernelName=self.solution_key.kernel_name,
             kernArgsVersion=0,
             codeObjectVersion="5",
-            groupSegmentSize=0,
+            groupSegmentSize=solution.lds_num_bytes,
             sgprWorkGroup=(1, 1, 0),
             vgprWorkItem=0,
             flatWorkGroupSize=solution.num_threads,
@@ -266,7 +266,6 @@ class DenseForwardKernelWriterAssembly:
         weight_d = 3
         weight_min = 4
         activation_d = 154
-        activation_sum = 155
         temporary = 156
         serial = 157
         output_column = 158
@@ -311,7 +310,8 @@ class DenseForwardKernelWriterAssembly:
         asm.inst(f"v_mul_lo_u32 v{weight_q_address}, {row_stride}, v{output_column}")
         asm.inst(f"v_lshlrev_b32 v{temporary}, 7, s3")
         asm.inst(f"v_add_nc_u32 v{activation_row}, v{temporary}, v{lane}")
-        asm.inst(f"v_mul_lo_u32 v{activation_address_0}, 144, v{activation_row}")
+        asm.inst(f"v_add_nc_u32 v{temporary}, v{temporary}, v{lane}")
+        asm.inst(f"v_mul_lo_u32 v{activation_address_0}, 144, v{temporary}")
         asm.inst(
             f"v_add_nc_u32 v{activation_address_1}, {activation_plane_stride}, "
             f"v{activation_address_0}"
@@ -345,7 +345,6 @@ class DenseForwardKernelWriterAssembly:
                 weight_d,
                 weight_min,
                 activation_d,
-                activation_sum,
                 temporary,
             )
         for element in range(8):
@@ -418,7 +417,6 @@ class DenseForwardKernelWriterAssembly:
         weight_d: int,
         weight_min: int,
         activation_d: int,
-        activation_sum: int,
         temporary: int,
     ) -> None:
         weight_q_offset = 16 + 32 * (group // 2)
@@ -462,8 +460,7 @@ class DenseForwardKernelWriterAssembly:
             asm.inst(
                 f"v_pk_mul_f16 v{scaled_dm}, v{element_metadata}, v{scaled_dm}"
             )
-            asm.inst(f"v_cvt_f32_f16 v{120 + element}, v{scaled_dm}")
-            asm.inst(f"v_cvt_f32_f16 v{128 + element}, v{scaled_dm}.h")
+            asm.inst(f"v_mov_b32 v{120 + element}, v{scaled_dm}")
 
         for tile in range(8):
             tile_address = temporary
@@ -493,7 +490,8 @@ class DenseForwardKernelWriterAssembly:
             clamp = " clamp" if self.solution_key.solution.wmma_clamp else ""
             asm.inst(
                 f"v_wmma_i32_16x16x16_iu8 v[{self.C}:{self.C + 7}], "
-                f"v[{weight_q}:{weight_q + 3}], v[{activation_q}:{activation_q + 3}], "
+                f"v[{weight_q}:{weight_q + 3}], "
+                f"v[{activation_q}:{activation_q + 3}], "
                 f"v[{self.C}:{self.C + 7}] neg_lo:[1,1,0]{clamp}"
             )
             asm.inst(
@@ -502,22 +500,20 @@ class DenseForwardKernelWriterAssembly:
                 f"v[{activation_q + 4}:{activation_q + 7}], "
                 f"v[{self.C}:{self.C + 7}] neg_lo:[1,1,0]{clamp}"
             )
-            asm.inst(f"v_cvt_f32_f16 v{activation_d}, v{activation_ds}")
-            asm.inst(
-                f"v_cvt_f32_f16 v{activation_sum}, v{activation_ds}.h"
-            )
             for element in range(8):
                 total = sum_base + tile * 8 + element
-                asm.inst(f"v_cvt_f32_i32 v{temporary}, v{self.C + element}")
                 asm.inst(
-                    f"v_mul_f32 v{temporary}, v{120 + element}, v{temporary}"
+                    f"v_fma_mix_f32 v{activation_d}, v{120 + element}, "
+                    f"v{activation_ds}, 0 op_sel_hi:[1,1,0]"
                 )
+                asm.inst(f"v_cvt_f32_i32 v{temporary}, v{self.C + element}")
                 asm.inst(
                     f"v_fma_f32 v{total}, v{temporary}, v{activation_d}, v{total}"
                 )
                 asm.inst(
-                    f"v_fma_f32 v{total}, v{128 + element}, "
-                    f"v{activation_sum}, v{total}"
+                    f"v_fma_mix_f32 v{total}, v{120 + element}, "
+                    f"v{activation_ds}, v{total} "
+                    f"op_sel:[1,1,0] op_sel_hi:[1,1,0]"
                 )
 
     def _emit_group(self, asm: _Assembly, group: int) -> None:
