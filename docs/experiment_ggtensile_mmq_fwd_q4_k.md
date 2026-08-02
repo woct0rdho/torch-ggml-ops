@@ -42,7 +42,7 @@ Each ordinary projection runs at physical batches 1, 4, and 16, yielding `M={204
 | Narrow K/V/shared gate/up | `(512,2048)` | `blk.5.ffn_gate_shexp.weight` | 70 | Independent extraction plus metadata-after-low confirmed on all M values |
 | Shared-expert down | `(2048,512)` | `blk.5.ffn_down_shexp.weight` | 30 | M2048 common composition; M8192/M32768 exact epilogue compositions |
 | Attention output | `(2048,4096)` | `blk.3.attn_output.weight` | 10 | Independent extraction plus metadata-after-low confirmed on all M values |
-| Attention query | `(8192,2048)` | `blk.39.attn_q.weight` | 1 | Independent extraction plus metadata-after-low confirmed on all M values |
+| Attention query | `(8192,2048)` | `blk.39.attn_q.weight` | 1 | Common composition on M2048/M8192; exact `a2d2-p2` epilogue on M32768 |
 
 All 12 keys now have generated strict independent-extraction-plus-metadata-after-low research identities. The two large shared-down keys additionally use their exact epilogue schedules. These are research selections, not permission to add or modify public API wiring in this phase; installed dispatch remains unchanged.
 
@@ -66,7 +66,7 @@ Fresh native independent-extraction-plus-metadata-after-low strict complete-call
 | Attention-output `(2048,4096)` | `0.9664/0.9687x` | `0.9748/0.9716x` | `0.9793/0.9782x` |
 | Query `(8192,2048)` | `0.9729/0.9706x` | `0.9744/0.9706x` | `0.9752/0.9755x` |
 
-Every common exact key now beats HIP in two strict complete-call rotations. The exact epilogue compositions remain better than the common identity on shared-down M8192/M32768, with strict complete ratios of `0.9688x` and `0.9653x` HIP.
+Every common exact key now beats HIP in two strict complete-call rotations. Exact epilogue compositions remain better than the common identity on shared-down M8192/M32768, with strict complete ratios of `0.9688x` and `0.9653x` HIP. Query M32768 `a2d2-p2` also confirms at `0.99387x` of the common complete call and `0.96816x` HIP.
 
 Large-margin work now prioritizes changed-premise decode/WMMA scheduling and family-specific epilogue composition. Attention-output and query have the largest absolute single-call bodies; narrow retains the largest call weighting. The weighted objective remains diagnostic and never authorizes retaining a slower exact key.
 
@@ -153,6 +153,8 @@ Phase-3 status: the changed-premise narrow `128x32` bracket was implemented with
 
 After a family-specific candidate clears confirmation, retime the other two M values before treating the mechanism as transferable.
 
+Phase-4 status: `a4d1/a2d2` epilogue composition is neutral on attention-output. Narrow M8192 `a4d1-p0` is `0.14-0.36%` faster multiply-only but exactly neutral in a direct complete-call rotation, so it is not selected. Query M32768 `a2d2-p2` confirms a `0.62-0.78%` multiply gain and `0.61-0.78%` complete gain over the common identity and is retained as an exact schedule.
+
 ## TensileLite Knob Mapping
 
 TensileLite concepts are research guidance and require real alternate emitters in the custom writer. They are not valid merely because a field exists in a YAML file.
@@ -215,10 +217,11 @@ This rule applies to kernel optimization only. Public API integration is not a c
 
 The current common research identity combines selective weight and metadata LDS-base hoists, short-lived `v_mad_u32_u24` activation addressing, independent scale/min extraction, metadata LDS reads between low/high WMMA batches, eight contiguous clause-backed output-store runs, and incremental output-row addressing. `DenseForwardSolution` represents it as `MetadataSchedule=IndependentExtractionMetadataAfterLowWmma` with the default `a8d1p0` epilogue; independent build roots produce byte-identical code objects.
 
-Independent metadata extraction and the new local-read schedule compose on both exact large shared-down keys:
+Independent metadata extraction and the new local-read schedule compose with three exact epilogues:
 
 - Shared-down M8192: independent extraction, `TilesAhead=1`, dependency width 4, priority 2, metadata-after-low. Two prequantized confirmations were `0.96829x` and `0.96845x` HIP; strict complete ratio was `0.96883x`.
 - Shared-down M32768: independent extraction, `TilesAhead=1`, dependency width 2, priority 2, metadata-after-low. Two prequantized confirmations were `0.96719x` and `0.96281x` HIP; strict complete ratio was `0.96535x`.
+- Query M32768: independent extraction, `TilesAhead=2`, dependency width 2, priority 2, metadata-after-low. Two prequantized confirmations were `0.96749x` and `0.96930x` HIP; the native direct complete rotation was `0.96816x` HIP and `0.99387x` of the common identity.
 
 All common and exact-epilogue compositions are bit-exact to HIP. The common identity improves its metadata-after-low parent by `0.57-1.60%` in both 25-repeat family confirmations. Strict independent-reference NRMSE remains approximately `0.0133-0.0138`; producer rebuilds are byte-identical; input, packed-weight, and workspace mutations all change outputs. Upper-field prepacking, B64/B128 metadata stores, early extraction, and other scoped priority variants remain measured evidence but do not displace the composed schedules.
 

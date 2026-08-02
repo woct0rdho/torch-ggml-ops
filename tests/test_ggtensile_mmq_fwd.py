@@ -69,6 +69,9 @@ def test_forward_inventory_is_exact_open_and_versionless() -> None:
         "retained_independent_extraction_metadata_after_low_wmma",
         "retained_shared_down_m8192_extract_a1d4_p2",
         "retained_shared_down_m32768_extract_a1d2_p2",
+        "composed_shared_down_m8192_extract_a1d4_p2",
+        "composed_shared_down_m32768_extract_a1d2_p2",
+        "composed_query_m32768_extract_a2d2_p2",
     }
     assert all(
         validate_solution(
@@ -349,6 +352,20 @@ def test_forward_writer_emits_selected_shared_down_extraction(
     )
 
 
+def test_forward_writer_emits_selected_query_m32768_epilogue() -> None:
+    size = ProblemSize(32768, 8192, 2048)
+    solution = DenseForwardSolution.q4_k_hip_decoded_staged_query_m32768_metadata_after_low_wmma()
+    key = _key(size=size, solution=solution)
+    assert validate_solution(key) == ()
+    source = DenseForwardKernelWriterAssembly(key, _toolchain()).source()
+    assert source.count("s_setprio 2") == 1
+    assert "s_setprio 0" not in source
+    assert source.count("s_clause 7") == 8
+    epilogue = source[source.index("// Store the 128x64 row-major BF16 output tile.") :]
+    assert epilogue.count("v_bfe_u32 v72,") == 32
+    assert epilogue.count("v_bfe_u32 v73,") == 32
+
+
 @pytest.mark.parametrize(
     ("size", "solution"),
     (
@@ -363,6 +380,10 @@ def test_forward_writer_emits_selected_shared_down_extraction(
         (
             ProblemSize(8192, 2048, 512),
             DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m32768(),
+        ),
+        (
+            ProblemSize(8192, 8192, 2048),
+            DenseForwardSolution.q4_k_hip_decoded_staged_query_m32768_metadata_after_low_wmma(),
         ),
     ),
 )

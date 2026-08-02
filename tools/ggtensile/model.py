@@ -625,6 +625,15 @@ class DenseForwardSolution:
         )
 
     @classmethod
+    def q4_k_hip_decoded_staged_query_m32768_metadata_after_low_wmma(cls) -> Self:
+        return cls.q4_k_hip_decoded_staged_extraction(
+            epilogue_tiles_ahead=2,
+            epilogue_dependency_width=2,
+            epilogue_priority=2,
+            metadata_after_low_wmma=True,
+        )
+
+    @classmethod
     def from_mapping(cls, value: object) -> Self:
         item = _strict_mapping(value, name="Solution", keys=cls._KEYS)
         return cls(
