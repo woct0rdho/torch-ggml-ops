@@ -549,6 +549,17 @@ class DenseForwardSolution:
         )
 
     @classmethod
+    def q4_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma(
+        cls,
+    ) -> Self:
+        return cls.q4_k_hip_decoded_staged_extraction(
+            epilogue_tiles_ahead=8,
+            epilogue_dependency_width=1,
+            epilogue_priority=0,
+            metadata_after_low_wmma=True,
+        )
+
+    @classmethod
     def q4_k_hip_decoded_staged_extraction(
         cls,
         *,

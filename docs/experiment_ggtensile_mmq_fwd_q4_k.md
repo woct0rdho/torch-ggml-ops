@@ -39,12 +39,12 @@ Each ordinary projection runs at physical batches 1, 4, and 16, yielding `M={204
 
 | Family | `(N,K)` | Representative tensor | Calls | Current research status |
 | --- | ---: | --- | ---: | --- |
-| Narrow K/V/shared gate/up | `(512,2048)` | `blk.5.ffn_gate_shexp.weight` | 70 | Metadata-after-low wins all multiply controls; M8192 complete-call reconfirmation open |
-| Shared-expert down | `(2048,512)` | `blk.5.ffn_down_shexp.weight` | 30 | M2048 metadata-after-low; M8192/M32768 composed extraction schedules |
-| Attention output | `(2048,4096)` | `blk.3.attn_output.weight` | 10 | Metadata-after-low confirmed on all three M values |
-| Attention query | `(8192,2048)` | `blk.39.attn_q.weight` | 1 | Metadata-after-low confirmed on all three M values |
+| Narrow K/V/shared gate/up | `(512,2048)` | `blk.5.ffn_gate_shexp.weight` | 70 | Independent extraction plus metadata-after-low confirmed on all M values |
+| Shared-expert down | `(2048,512)` | `blk.5.ffn_down_shexp.weight` | 30 | M2048 common composition; M8192/M32768 exact epilogue compositions |
+| Attention output | `(2048,4096)` | `blk.3.attn_output.weight` | 10 | Independent extraction plus metadata-after-low confirmed on all M values |
+| Attention query | `(8192,2048)` | `blk.39.attn_q.weight` | 1 | Independent extraction plus metadata-after-low confirmed on all M values |
 
-All 12 keys now have generated strict metadata-after-low research identities. The two large shared-down keys additionally compose their exact independent-extraction schedules with metadata-after-low. These are research selections, not permission to add or modify public API wiring in this phase; installed dispatch remains unchanged.
+All 12 keys now have generated strict independent-extraction-plus-metadata-after-low research identities. The two large shared-down keys additionally use their exact epilogue schedules. These are research selections, not permission to add or modify public API wiring in this phase; installed dispatch remains unchanged.
 
 ## Current Baseline and Priority
 
@@ -57,18 +57,18 @@ The retained complete-call 25-repeat snapshots provide the following candidate/H
 | Attention-output `(2048,4096)` | `1.0108x` | `1.0057x` | `0.9989x` |
 | Query `(8192,2048)` | `1.0038x` | `1.0075x` | `0.9973x` |
 
-Fresh native metadata-after-low strict complete-call rotations supersede that priority snapshot:
+Fresh native independent-extraction-plus-metadata-after-low strict complete-call rotations supersede that priority snapshot:
 
 | Family `(N,K)` | M=2048 A/B | M=8192 A/B | M=32768 A/B |
 |---|---:|---:|---:|
-| Narrow `(512,2048)` | `0.9983/0.9967x` | `0.9983/1.0064x` | `0.9895/0.9890x` |
-| Shared-down `(2048,512)` | `0.9959/0.9879x` | `0.9943/0.9944x` common | `0.9915/0.9912x` common |
-| Attention-output `(2048,4096)` | `0.9806/0.9795x` | `0.9847/0.9851x` | `0.9870/0.9853x` |
-| Query `(8192,2048)` | `0.9823/0.9822x` | `0.9827/0.9798x` | `0.9824/0.9832x` |
+| Narrow `(512,2048)` | `0.9972/0.9873x` | `0.9874/0.9892x` | `0.9807/0.9786x` |
+| Shared-down `(2048,512)` | `0.9884/0.9900x` | `0.9860/0.9864x` common | `0.9834/0.9813x` common |
+| Attention-output `(2048,4096)` | `0.9664/0.9687x` | `0.9748/0.9716x` | `0.9793/0.9782x` |
+| Query `(8192,2048)` | `0.9729/0.9706x` | `0.9744/0.9706x` | `0.9752/0.9755x` |
 
-The narrow M8192 multiply body was `0.9885-0.9888x` HIP in independent 25-repeat rotations, but one complete-call rotation regressed because the unchanged quantizer dominated the paired variance. It remains the only exact-key complete-call reconfirmation item. The composed shared-down M8192/M32768 schedules subsequently reached strict complete ratios of `0.9688x` and `0.9653x` HIP.
+Every common exact key now beats HIP in two strict complete-call rotations. The exact epilogue compositions remain better than the common identity on shared-down M8192/M32768, with strict complete ratios of `0.9688x` and `0.9653x` HIP.
 
-Large-margin work now prioritizes bounded next-block overlap for K2048/K4096 and changed-premise compact narrow geometry. Attention-output and query have the largest absolute single-call bodies; narrow retains the largest call weighting. The weighted objective remains diagnostic and never authorizes retaining a slower exact key.
+Large-margin work now prioritizes changed-premise decode/WMMA scheduling and family-specific epilogue composition. Attention-output and query have the largest absolute single-call bodies; narrow retains the largest call weighting. The weighted objective remains diagnostic and never authorizes retaining a slower exact key.
 
 ## Fixed Activation Producer
 
@@ -86,7 +86,9 @@ The produced DS4 workspace must be byte-identical for HIP and GGTensile. No alte
 
 The retained decoded-staged body uses a `128x64` tile with 128 threads, 239 VGPRs, 16 SGPRs, 38,400 bytes of LDS, 32 static WMMA instructions, four barriers, and eight output-store clauses. It has already passed strict correctness, input mutation, packed-weight mutation, DS4-workspace mutation, independent-reference checks, and byte-identical rebuild checks for all 12 keys.
 
-The native `MetadataAfterLowWmma` schedule defers eight independent metadata LDS reads until between the low- and high-half WMMA batches and changes the dependency-safe low wait ladder from `23,21,...,9` to `15,13,...,1`. It preserves all instruction/resource counts and arithmetic order. Across all 12 keys it improved the retained parent by approximately `2.1-5.0%`, rebuilt byte-identically, and passed strict complete-call correctness. Composing it with the two exact independent-extraction schedules adds a further `2.7-3.4%` prequantized gain without resource growth.
+The native `MetadataAfterLowWmma` schedule defers eight independent metadata LDS reads until between the low- and high-half WMMA batches and changes the dependency-safe low wait ladder from `23,21,...,9` to `15,13,...,1`. It preserves all instruction/resource counts and arithmetic order. Across all 12 keys it improved the retained parent by approximately `2.1-5.0%`.
+
+`IndependentExtractionMetadataAfterLowWmma` additionally exposes all Q4_K scale/min fields before conversion. The default `a8d1p0` form improves every metadata-after-low parent by another `0.57-1.60%`, rebuilds byte-identically, and passes two strict complete-call rotations on all 12 keys. Composing the same local-read schedule with the two exact shared-down epilogues adds `2.7-3.4%` over either mechanism alone without resource growth.
 
 Current profiling shows fewer VALU instructions and flat loads than HIP, but higher instruction-fetch waiting and aggregate wait-any cycles. Retained and HIP K512 controls have comparable LDS conflict and L2-hit rates. The residual target is issue/dependency balance and synchronization, not raw packed traffic.
 
@@ -114,7 +116,7 @@ Search the following resource-neutral or bounded-resource schedules first on nar
 
 The primary counters for this phase are `SQ_WAIT_IFETCH`, aggregate wait-any cycles, barrier cycles, VALU issue, LDS issue, and total elapsed time.
 
-Phase-1 status: metadata-read/WMMA interleaving is retained and generated natively. It is complete for all families and composes with both exact shared-down extraction parents. Rolled-loop-only and final-barrier-only variants are closed; any reopened loop reduction must bundle a new dependency or pipeline premise.
+Phase-1 status: metadata-read/WMMA interleaving is retained and generated natively. It is complete for all families and composes with both exact shared-down extraction parents. Dependency-safe after-2, after-4, and after-6 placements were all exact but `0.65-2.97%` slower than issuing metadata after all eight low WMMAs across narrow M8192, attention-output M8192, and query M32768. Rolled-loop-only and final-barrier-only variants are also closed; any reopened local-read or loop reduction must bundle a new dependency or pipeline premise.
 
 ### Phase 2: Operand-buffer pipelines
 
@@ -127,7 +129,7 @@ Test only buffer arrangements that fit the gfx1151 LDS and register contract:
 
 The expected winning shape is a generated software pipeline with fewer barriers and hidden next-block staging, not simply more preloaded data. K512 M2048 is still important because it has a large store/stage fraction, but K2048/K4096 receive priority for next-block overlap.
 
-Phase-2 status: both tested activation double-buffer forms are closed. Eager staging loses overlap and the bounded 248-VGPR prototype loses performance before correctness repair would matter. Continue only with decoded-weight or packed-next-block overlap that reuses registers freed by the metadata-after-low schedule; do not retry an unchanged second DS4 plane.
+Phase-2 status: both tested activation double-buffer forms are closed. Eager staging loses overlap and the bounded 248-VGPR prototype loses performance before correctness repair would matter. A resource-neutral group-7 prefetch reused dead `v112:v139` registers for the next packed payload, but was `0.13-0.28%` slower on narrow M8192, attention-output M8192, and query M32768; packed payload VMEM is already hidden well enough that duplicated address/branch issue loses. Continue only with decoded-weight overlap that also removes current decode work, or with a changed register/address premise; do not retry unchanged DS4 or payload-only prefetch.
 
 ### Phase 3: Geometry and ownership
 
@@ -139,6 +141,8 @@ Do not repeat rejected geometries without a changed implementation premise. Add 
 - WGM values `{1,2,4}` only after a new geometry wins; workgroup mapping and macro-tile shape must be measured together.
 
 For attention-output and query, retain `128x64` unless a structural pipeline produces a clear resource-neutral improvement. Do not trade the established four-wave ownership for a larger tile merely to reduce instruction count.
+
+Phase-3 status: the changed-premise narrow `128x32` bracket was implemented with 64 threads, 28,672-byte LDS, 32 decoded weight rows, and two activation staging passes. It was bit-exact and resource-clean but `21.6%` slower than `128x64` on priority narrow M8192; duplicated activation staging dominates, so unchanged `128x32` and conditional `64x32` are closed.
 
 ### Phase 4: Family-specific tuning
 
@@ -202,20 +206,20 @@ This rule applies to kernel optimization only. Public API integration is not a c
 - [x] Complete and prequantized lower bounds with residual bottleneck explanation.
 - [x] Two exact shared-down research schedules confirmed below HIP.
 - [x] Fresh paired controls and confirmation for all twelve exact keys.
-- [ ] Per-key research catalog with every exact key at or below HIP. Narrow M8192 complete-call reconfirmation remains.
+- [x] Per-key research identities with every exact key below HIP in two strict complete-call rotations.
 - [ ] Weighted complete-call optimization after all exact keys clear HIP.
 - [ ] Recursive optimization-exhaustion review with no actionable mechanism remaining.
 - [ ] Public dispatch and bundle integration. Deferred to a separate later phase.
 
 ## Current Research Record
 
-The current common research identity combines selective weight and metadata LDS-base hoists, short-lived `v_mad_u32_u24` activation addressing, direct bounded six-bit FP16 conversion, metadata LDS reads between low/high WMMA batches, eight contiguous clause-backed output-store runs, and incremental output-row addressing. `DenseForwardSolution` represents it as `MetadataSchedule=MetadataAfterLowWmma`; independent build roots produce byte-identical code objects.
+The current common research identity combines selective weight and metadata LDS-base hoists, short-lived `v_mad_u32_u24` activation addressing, independent scale/min extraction, metadata LDS reads between low/high WMMA batches, eight contiguous clause-backed output-store runs, and incremental output-row addressing. `DenseForwardSolution` represents it as `MetadataSchedule=IndependentExtractionMetadataAfterLowWmma` with the default `a8d1p0` epilogue; independent build roots produce byte-identical code objects.
 
 Independent metadata extraction and the new local-read schedule compose on both exact large shared-down keys:
 
 - Shared-down M8192: independent extraction, `TilesAhead=1`, dependency width 4, priority 2, metadata-after-low. Two prequantized confirmations were `0.96829x` and `0.96845x` HIP; strict complete ratio was `0.96883x`.
 - Shared-down M32768: independent extraction, `TilesAhead=1`, dependency width 2, priority 2, metadata-after-low. Two prequantized confirmations were `0.96719x` and `0.96281x` HIP; strict complete ratio was `0.96535x`.
 
-All common and composed candidates are bit-exact to HIP. Strict independent-reference NRMSE remains approximately `0.0133-0.0138`; producer rebuilds are byte-identical; input, packed-weight, and workspace mutations all change outputs. Metadata width-8 exposure, upper-field prepacking, B64/B128 metadata stores, early extraction, and other scoped priority variants remain measured evidence but do not displace the composed schedules.
+All common and exact-epilogue compositions are bit-exact to HIP. The common identity improves its metadata-after-low parent by `0.57-1.60%` in both 25-repeat family confirmations. Strict independent-reference NRMSE remains approximately `0.0133-0.0138`; producer rebuilds are byte-identical; input, packed-weight, and workspace mutations all change outputs. Upper-field prepacking, B64/B128 metadata stores, early extraction, and other scoped priority variants remain measured evidence but do not displace the composed schedules.
 
 Transformed assembly, lower-bound sources, rejected buffering prototypes, profiler output, and one-off timing screens remain diagnostic unless represented by a generated strict solution identity and revalidated through the gates above. Public dispatch and bundle integration remain untouched.

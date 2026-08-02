@@ -66,6 +66,7 @@ def test_forward_inventory_is_exact_open_and_versionless() -> None:
     assert set(catalog) == {
         "pilot_direct_global",
         "retained_metadata_after_low_wmma",
+        "retained_independent_extraction_metadata_after_low_wmma",
         "retained_shared_down_m8192_extract_a1d4_p2",
         "retained_shared_down_m32768_extract_a1d2_p2",
     }
@@ -280,6 +281,28 @@ def test_forward_writer_emits_metadata_after_low_wmma_schedule() -> None:
 
 
 @pytest.mark.parametrize(
+    "size",
+    (
+        ProblemSize(2048, 512, 2048),
+        ProblemSize(8192, 2048, 512),
+        ProblemSize(32768, 2048, 4096),
+        ProblemSize(32768, 8192, 2048),
+    ),
+)
+def test_forward_independent_extraction_metadata_after_low_is_production_wide(
+    size: ProblemSize,
+) -> None:
+    solution = DenseForwardSolution.q4_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma()
+    key = _key(size=size, solution=solution)
+    assert validate_solution(key) == ()
+    source = DenseForwardKernelWriterAssembly(key, _toolchain()).source()
+    assert source.count("v_cvt_f16_u16_e32") == 16
+    assert source.count("ds_write_b32 v229, v9") == 4
+    assert source.count("ds_write_b32 v229, v10") == 4
+    assert source.count("s_waitcnt lgkmcnt(15)") == 2
+
+
+@pytest.mark.parametrize(
     ("size", "solution", "dependency_width"),
     (
         (
@@ -385,6 +408,13 @@ def test_forward_runtime_uses_exact_candidate_and_hip_launch_geometry() -> None:
         ),
         (
             DenseForwardSolution.q4_k_hip_decoded_staged_metadata_after_low_wmma(),
+            32,
+            239,
+            4,
+            38_400,
+        ),
+        (
+            DenseForwardSolution.q4_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma(),
             32,
             239,
             4,

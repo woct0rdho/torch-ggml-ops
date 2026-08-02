@@ -102,6 +102,7 @@ def _validate_forward_solution(
     hip_decoded_staged_metadata_after_low_wmma = (
         DenseForwardSolution.q4_k_hip_decoded_staged_metadata_after_low_wmma()
     )
+    hip_decoded_staged_independent_extraction_metadata_after_low_wmma = DenseForwardSolution.q4_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma()
     hip_decoded_staged_shared_down_m8192 = (
         DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m8192()
     )
@@ -118,6 +119,7 @@ def _validate_forward_solution(
         hip_decoded_staged,
         hip_decoded_staged_retained,
         hip_decoded_staged_metadata_after_low_wmma,
+        hip_decoded_staged_independent_extraction_metadata_after_low_wmma,
         hip_decoded_staged_shared_down_m8192,
         hip_decoded_staged_shared_down_m32768,
         hip_decoded_staged_shared_down_m8192_metadata_after_low_wmma,
@@ -153,23 +155,29 @@ def _validate_forward_solution(
         "IndependentExtraction",
         "IndependentExtractionMetadataAfterLowWmma",
     ):
-        if solution.metadata_schedule == "IndependentExtraction":
-            selected_by_size = {
-                (8192, 2048, 512): hip_decoded_staged_shared_down_m8192,
-                (32768, 2048, 512): hip_decoded_staged_shared_down_m32768,
-            }
+        if (
+            solution
+            == hip_decoded_staged_independent_extraction_metadata_after_low_wmma
+        ):
+            expected = solution
         else:
-            selected_by_size = {
-                (8192, 2048, 512): (
-                    hip_decoded_staged_shared_down_m8192_metadata_after_low_wmma
-                ),
-                (32768, 2048, 512): (
-                    hip_decoded_staged_shared_down_m32768_metadata_after_low_wmma
-                ),
-            }
-        expected = selected_by_size.get(
-            (problem_size.m, problem_size.n, problem_size.k)
-        )
+            if solution.metadata_schedule == "IndependentExtraction":
+                selected_by_size = {
+                    (8192, 2048, 512): hip_decoded_staged_shared_down_m8192,
+                    (32768, 2048, 512): hip_decoded_staged_shared_down_m32768,
+                }
+            else:
+                selected_by_size = {
+                    (8192, 2048, 512): (
+                        hip_decoded_staged_shared_down_m8192_metadata_after_low_wmma
+                    ),
+                    (32768, 2048, 512): (
+                        hip_decoded_staged_shared_down_m32768_metadata_after_low_wmma
+                    ),
+                }
+            expected = selected_by_size.get(
+                (problem_size.m, problem_size.n, problem_size.k)
+            )
         if solution != expected:
             _reject(
                 reasons,
