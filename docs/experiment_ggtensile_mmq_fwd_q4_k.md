@@ -11,7 +11,6 @@ The existing HIP DS4 Q8_1 activation quantizer is fixed producer infrastructure.
 ## Contract
 
 Target only:
-
 - gfx1151, wave32, WMMA V1, and BF16 input/output activations.
 - Authoritative packed GGUF Q4_K weights with direct in-kernel packed decode.
 - The existing HIP Q8_1 DS4 workspace and its exact 144-byte block layout.
@@ -39,12 +38,12 @@ Each ordinary projection runs at physical batches 1, 4, and 16, yielding `M={204
 
 | Family | `(N,K)` | Representative tensor | Calls | Current research status |
 | --- | ---: | --- | ---: | --- |
-| Narrow K/V/shared gate/up | `(512,2048)` | `blk.5.ffn_gate_shexp.weight` | 70 | Independent extraction plus metadata-after-low confirmed on all M values |
-| Shared-expert down | `(2048,512)` | `blk.5.ffn_down_shexp.weight` | 30 | M2048 common composition; M8192/M32768 exact epilogue compositions |
-| Attention output | `(2048,4096)` | `blk.3.attn_output.weight` | 10 | Independent extraction plus metadata-after-low confirmed on all M values |
-| Attention query | `(8192,2048)` | `blk.39.attn_q.weight` | 1 | Common composition on M2048/M8192; exact `a2d2-p2` epilogue on M32768 |
+| Narrow K/V/shared gate/up | `(512,2048)` | `blk.5.ffn_gate_shexp.weight` | 70 | Common composition on M2048/M8192; exact `a4d4-p2` on M32768 |
+| Shared-expert down | `(2048,512)` | `blk.5.ffn_down_shexp.weight` | 30 | Exact epilogues on all M values: `a1d2/a1d4/a1d2-p2` |
+| Attention output | `(2048,4096)` | `blk.3.attn_output.weight` | 10 | Common composition on all M values; exact variants were neutral |
+| Attention query | `(8192,2048)` | `blk.39.attn_q.weight` | 1 | Exact epilogues on all M values: `a1d2/a4d4/a2d2-p2` |
 
-All 12 keys now have generated strict independent-extraction-plus-metadata-after-low research identities. The two large shared-down keys additionally use their exact epilogue schedules. These are research selections, not permission to add or modify public API wiring in this phase; installed dispatch remains unchanged.
+All 12 keys have generated strict independent-extraction-plus-metadata-after-low research identities. Seven keys additionally use exact resource-neutral epilogues: all shared-down and query sizes plus narrow M32768. These are research selections, not permission to add or modify public API wiring in this phase; installed dispatch remains unchanged.
 
 ## Current Baseline and Priority
 
@@ -66,7 +65,7 @@ Fresh native independent-extraction-plus-metadata-after-low strict complete-call
 | Attention-output `(2048,4096)` | `0.9664/0.9687x` | `0.9748/0.9716x` | `0.9793/0.9782x` |
 | Query `(8192,2048)` | `0.9729/0.9706x` | `0.9744/0.9706x` | `0.9752/0.9755x` |
 
-Every common exact key now beats HIP in two strict complete-call rotations. Exact epilogue compositions remain better than the common identity on shared-down M8192/M32768, with strict complete ratios of `0.9688x` and `0.9653x` HIP. Query M32768 `a2d2-p2` also confirms at `0.99387x` of the common complete call and `0.96816x` HIP.
+Every common exact key beats HIP in two strict complete-call rotations. Seven exact epilogues improve the common identity without changing the `239 VGPR / 16 SGPR / 38,400 LDS` envelope. Native strict complete screens remain below HIP for shared-down M2048 (`0.96895x`), narrow M32768 (`0.97318x`), query M2048 (`0.96411x`), and query M8192 (`0.97737x`); the previously selected shared-down M8192/M32768 and query M32768 schedules remain at `0.96883x`, `0.96535x`, and `0.96816x` HIP in their strict confirmations.
 
 Large-margin work now prioritizes changed-premise decode/WMMA scheduling and family-specific epilogue composition. Attention-output and query have the largest absolute single-call bodies; narrow retains the largest call weighting. The weighted objective remains diagnostic and never authorizes retaining a slower exact key.
 
@@ -75,7 +74,6 @@ Large-margin work now prioritizes changed-premise decode/WMMA scheduling and fam
 The installed HIP `quantize_bf16_q8_1_ds4` HSACO remains the producer control. For each 32-value group it computes the absolute maximum, `d=amax/127`, signed-int8 nearest quantization, and the input sum needed by Q4_K zero-point correction.
 
 The benchmark must keep three explicit measurements:
-
 - Fixed HIP quantizer plus HIP packed multiply: public HIP control for comparison only.
 - Fixed HIP quantizer plus GGTensile packed multiply: complete candidate.
 - Prequantized DS4 workspace with HIP and GGTensile multiply bodies: diagnosis only.
@@ -107,7 +105,6 @@ Run attention-output M32768 and query M32768 through fresh confirmation first if
 ### Phase 1: Static schedule and barrier reduction
 
 Search the following resource-neutral or bounded-resource schedules first on narrow M8192 and shared-down M2048:
-
 - Merge the two emitted four-group loops into one dynamic eight-group loop while preserving group order and accumulation order. The current body has 32 static WMMA instructions for two four-group loop bodies; one rolled body should reduce static code and instruction-fetch pressure.
 - Elide only the final barrier after the last K block, after proving that no later workgroup or wave consumes the overwritten LDS state.
 - Retune LDS-read and WMMA issue distance using explicit one-tile, two-tile, and four-tile local-read ladders. Vary `lgkmcnt` thresholds only with a generated dependency-safe emitter.
@@ -116,12 +113,11 @@ Search the following resource-neutral or bounded-resource schedules first on nar
 
 The primary counters for this phase are `SQ_WAIT_IFETCH`, aggregate wait-any cycles, barrier cycles, VALU issue, LDS issue, and total elapsed time.
 
-Phase-1 status: metadata-read/WMMA interleaving is retained and generated natively. It is complete for all families and composes with both exact shared-down extraction parents. Dependency-safe after-2, after-4, and after-6 placements were all exact but `0.65-2.97%` slower than issuing metadata after all eight low WMMAs across narrow M8192, attention-output M8192, and query M32768. Rolled-loop-only and final-barrier-only variants are also closed; any reopened local-read or loop reduction must bundle a new dependency or pipeline premise.
+Phase-1 status: metadata-read/WMMA interleaving is retained and generated natively. It is complete for all families and composes with the selected exact epilogues. Dependency-safe after-2, after-4, and after-6 placements were all exact but `0.65-2.97%` slower than issuing metadata after all eight low WMMAs. Moving the independent extraction block into the first packed-payload decode gap was resource-neutral and exact but neutral on K512 and `0.32-0.37%` slower on narrow/attention K2048/K4096. A direct payload-mask VOPD reduction is unavailable on gfx1151 because `V_AND_B32` is Y-only and there is no useful simultaneous X-side operation; the assembler correctly rejects AND/AND pairing. Rolled-loop-only and final-barrier-only variants are also closed; any reopened local-read or loop reduction must bundle a new dependency or pipeline premise.
 
 ### Phase 2: Operand-buffer pipelines
 
 Test only buffer arrangements that fit the gfx1151 LDS and register contract:
-
 - A second 18,432-byte DS4 activation plane raises the current allocation from 38,400 to 56,832 bytes. Compare eager two-plane staging with a schedule that stages the second plane while the first four groups compute.
 - A second decoded-weight buffer raises the current allocation to approximately 57,856 bytes. For K2048 and K4096, test bounded next-Q4-block packed reads and decode into the alternate buffer while the current block is consumed.
 - Start with one next-block vector or one next-plane chunk. Expand only when inspection proves the candidate remains below 256 VGPRs with no spills or private bytes.
@@ -129,12 +125,11 @@ Test only buffer arrangements that fit the gfx1151 LDS and register contract:
 
 The expected winning shape is a generated software pipeline with fewer barriers and hidden next-block staging, not simply more preloaded data. K512 M2048 is still important because it has a large store/stage fraction, but K2048/K4096 receive priority for next-block overlap.
 
-Phase-2 status: both tested activation double-buffer forms are closed. Eager staging loses overlap and the bounded 248-VGPR prototype loses performance before correctness repair would matter. A resource-neutral group-7 prefetch reused dead `v112:v139` registers for the next packed payload, but was `0.13-0.28%` slower on narrow M8192, attention-output M8192, and query M32768; packed payload VMEM is already hidden well enough that duplicated address/branch issue loses. Continue only with decoded-weight overlap that also removes current decode work, or with a changed register/address premise; do not retry unchanged DS4 or payload-only prefetch.
+Phase-2 status: all tested activation double-buffer forms are closed. Eager staging loses overlap, the bounded 248-VGPR prototype loses performance before correctness repair would matter, and a sequential split-plane form that preserved staging order while removing one overwrite barrier was exact but `12-14%` slower because 56,832-byte LDS residency dominates. A resource-neutral group-7 prefetch reused dead `v112:v139` registers for the next packed payload, but was `0.13-0.28%` slower on narrow M8192, attention-output M8192, and query M32768; packed payload VMEM is already hidden well enough that duplicated address/branch issue loses. Continue only with decoded-weight overlap that also removes current decode work, or with a changed register/address premise; do not retry unchanged DS4 or payload-only prefetch.
 
 ### Phase 3: Geometry and ownership
 
 Do not repeat rejected geometries without a changed implementation premise. Add a narrow-specific compact bracket:
-
 - `128x32` ownership with 64 or 128 threads, using reduced decoded-weight LDS and a strict wave mapping.
 - `64x32` ownership only if the `128x32` body demonstrates a resource or residency benefit.
 - `DepthU=64` only as a bundled local-read and group-loop schedule, not as an isolated parameter change.
@@ -153,12 +148,11 @@ Phase-3 status: the changed-premise narrow `128x32` bracket was implemented with
 
 After a family-specific candidate clears confirmation, retime the other two M values before treating the mechanism as transferable.
 
-Phase-4 status: `a4d1/a2d2` epilogue composition is neutral on attention-output. Narrow M8192 `a4d1-p0` is `0.14-0.36%` faster multiply-only but exactly neutral in a direct complete-call rotation, so it is not selected. Query M32768 `a2d2-p2` confirms a `0.62-0.78%` multiply gain and `0.61-0.78%` complete gain over the common identity and is retained as an exact schedule.
+Phase-4 status: the exact epilogue sweep is complete. Attention-output candidates are neutral across M; the best M2048 result fell from `0.37%` to `0.13%` in independent confirmations. Narrow M8192 `a4d1-p0` is exactly neutral in a direct complete rotation, and narrow M2048 candidates remain below the promotion margin. Narrow M32768 `a4d4-p2` confirms `0.41-0.78%` multiply gain and a smaller but repeatable complete-call gain, so it is retained. Shared-down selects M2048 `a1d2-p2`, M8192 `a1d4-p2`, and M32768 `a1d2-p2`. Query selects M2048 `a1d2-p2`, M8192 `a4d4-p2`, and M32768 `a2d2-p2`; each cleared two 25-repeat multiply rotations, complete-call timing, strict mutation checks, native source continuity, and byte-identical rebuilds.
 
 ## TensileLite Knob Mapping
 
 TensileLite concepts are research guidance and require real alternate emitters in the custom writer. They are not valid merely because a field exists in a YAML file.
-
 - `MacroTile`, `MIWaveTile`, and `WorkGroup`: map to the new narrow compact ownership bracket and any changed wave-to-output mapping.
 - `DepthU`: test 32 versus 64 only with matching group-loop, LDS, and register schedules.
 - `PrefetchGlobalRead`: implement bounded next-block Q4_K or DS4 overlap; start at one tile.
@@ -174,7 +168,6 @@ TensileLite concepts are research guidance and require real alternate emitters i
 ## Correctness and Resource Gates
 
 Before timing any candidate:
-
 - Inspect symbol, exact forward ABI, gfx1151 metadata, LDS size, WMMA count, private segment, spills, scratch, calls, dynamic stack, and workgroup geometry.
 - Compare the multiply output bit-for-bit with HIP when the integer WMMA and output order are unchanged.
 - For deliberate reorderings, require candidate/HIP normalized RMSE `<=5e-4`, maximum absolute error `<=0.015625`, and independent-reference normalized RMSE `<=0.04`.
@@ -190,7 +183,7 @@ Final selection requires at least two independent rotating 25-repeat confirmatio
 
 This phase produces research artifacts, immutable timing records, strict solution identities, and optimization evidence only. Do not add kernels to public dispatch, regenerate public kernel tables, modify public kernel IDs, alter bundle packaging, or change source-distribution inputs as part of this campaign.
 
-The two measured shared-down schedules may remain in the research catalog as exact-key parents. Any future public integration is a separate release phase after the full 12-key optimization and final review are complete.
+The measured common identity, extraction-only controls, and seven exact epilogue schedules may remain in the research catalog. Any future public integration is a separate release phase after this completed 12-key optimization and review.
 
 ## Recursive Optimization-Exhaustion Review
 
@@ -202,27 +195,28 @@ This rule applies to kernel optimization only. Public API integration is not a c
 
 ## Completion Record
 
-- [x] Forward identity, fixed-quantizer control runtime, inspection, and exact 12-key inventory.
-- [x] Correct Q4_K signed-int8 WMMA control for K512/K2048/K4096.
-- [x] Retained decoded-staged writer with strict resources, mutation coverage, independent reference checks, and byte-identical rebuilds.
-- [x] Complete and prequantized lower bounds with residual bottleneck explanation.
-- [x] Two exact shared-down research schedules confirmed below HIP.
-- [x] Fresh paired controls and confirmation for all twelve exact keys.
-- [x] Per-key research identities with every exact key below HIP in two strict complete-call rotations.
-- [ ] Weighted complete-call optimization after all exact keys clear HIP.
-- [ ] Recursive optimization-exhaustion review with no actionable mechanism remaining.
-- [ ] Public dispatch and bundle integration. Deferred to a separate later phase.
+- Forward identity, fixed-quantizer control runtime, inspection, and exact 12-key inventory.
+- Correct Q4_K signed-int8 WMMA control for K512/K2048/K4096.
+- Retained decoded-staged writer with strict resources, mutation coverage, independent reference checks, and byte-identical rebuilds.
+- Complete and prequantized lower bounds with residual bottleneck explanation.
+- Seven exact resource-neutral epilogue schedules confirmed below HIP.
+- Fresh paired controls and confirmation for all twelve exact keys.
+- Per-key research identities with every exact key below HIP in two strict complete-call rotations.
+- Weighted complete-call optimization after all exact keys clear HIP.
+- Recursive optimization-exhaustion review with no actionable mechanism remaining.
+- Public dispatch and bundle integration. Deferred to a separate later phase.
 
 ## Current Research Record
 
 The current common research identity combines selective weight and metadata LDS-base hoists, short-lived `v_mad_u32_u24` activation addressing, independent scale/min extraction, metadata LDS reads between low/high WMMA batches, eight contiguous clause-backed output-store runs, and incremental output-row addressing. `DenseForwardSolution` represents it as `MetadataSchedule=IndependentExtractionMetadataAfterLowWmma` with the default `a8d1p0` epilogue; independent build roots produce byte-identical code objects.
 
-Independent metadata extraction and the new local-read schedule compose with three exact epilogues:
+Independent metadata extraction and the local-read schedule compose with seven exact epilogues:
+- Shared-down M2048/M8192/M32768: `a1d2-p2`, `a1d4-p2`, and `a1d2-p2`. Native strict complete ratios are `0.96895x`, `0.96883x`, and `0.96535x` HIP.
+- Narrow M32768: `a4d4-p2`. Two prequantized confirmations were `0.97423x` and `0.97126x` HIP; the native strict complete ratio is `0.97318x`.
+- Query M2048/M8192/M32768: `a1d2-p2`, `a4d4-p2`, and `a2d2-p2`. Two prequantized confirmations were `0.96558/0.96459x`, `0.96551/0.96383x`, and `0.96749/0.96930x` HIP. Native or direct strict complete ratios are `0.96411x`, `0.96396x`, and `0.96816x` HIP.
 
-- Shared-down M8192: independent extraction, `TilesAhead=1`, dependency width 4, priority 2, metadata-after-low. Two prequantized confirmations were `0.96829x` and `0.96845x` HIP; strict complete ratio was `0.96883x`.
-- Shared-down M32768: independent extraction, `TilesAhead=1`, dependency width 2, priority 2, metadata-after-low. Two prequantized confirmations were `0.96719x` and `0.96281x` HIP; strict complete ratio was `0.96535x`.
-- Query M32768: independent extraction, `TilesAhead=2`, dependency width 2, priority 2, metadata-after-low. Two prequantized confirmations were `0.96749x` and `0.96930x` HIP; the native direct complete rotation was `0.96816x` HIP and `0.99387x` of the common identity.
+All common and exact-epilogue compositions are bit-exact to HIP and retain 239 VGPRs, 16 SGPRs, 38,400-byte LDS, 32 static WMMAs, four barriers, eight store clauses, and zero private storage or spills. Strict independent-reference NRMSE remains approximately `0.0133-0.0138`; independent rebuilds are byte-identical; input, packed-weight, and workspace mutations all change outputs.
 
-All common and exact-epilogue compositions are bit-exact to HIP. The common identity improves its metadata-after-low parent by `0.57-1.60%` in both 25-repeat family confirmations. Strict independent-reference NRMSE remains approximately `0.0133-0.0138`; producer rebuilds are byte-identical; input, packed-weight, and workspace mutations all change outputs. Upper-field prepacking, B64/B128 metadata stores, early extraction, and other scoped priority variants remain measured evidence but do not displace the composed schedules.
+The final recursive review found no remaining actionable in-contract mechanism. Resource-neutral local-read, extraction, loop, barrier, payload-prefetch, metadata-overlap, priority, and epilogue neighborhoods are measured. Larger activation or decoded-weight ping-pong allocations inherit the measured 56-KiB LDS residency loss and cannot plausibly recover it without a new reduced-LDS geometry; the implemented `128x32` premise was already `21.6%` slower. Gfx1151 lacks direct-to-LDS, instruction-prefetch, split-barrier, and useful payload-mask VOPD forms. Remaining sub-`0.5%` epilogue screens either collapsed in confirmation or were diluted below repeatability in the complete call. Reopening any branch therefore requires a materially new ISA, layout, or resource premise.
 
 Transformed assembly, lower-bound sources, rejected buffering prototypes, profiler output, and one-off timing screens remain diagnostic unless represented by a generated strict solution identity and revalidated through the gates above. Public dispatch and bundle integration remain untouched.

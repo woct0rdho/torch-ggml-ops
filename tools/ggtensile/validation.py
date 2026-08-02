@@ -109,8 +109,12 @@ def _validate_forward_solution(
     hip_decoded_staged_shared_down_m32768 = (
         DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m32768()
     )
+    hip_decoded_staged_shared_down_m2048_metadata_after_low_wmma = DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m2048_metadata_after_low_wmma()
     hip_decoded_staged_shared_down_m8192_metadata_after_low_wmma = DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m8192_metadata_after_low_wmma()
     hip_decoded_staged_shared_down_m32768_metadata_after_low_wmma = DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m32768_metadata_after_low_wmma()
+    hip_decoded_staged_narrow_m32768_metadata_after_low_wmma = DenseForwardSolution.q4_k_hip_decoded_staged_narrow_m32768_metadata_after_low_wmma()
+    hip_decoded_staged_query_m2048_metadata_after_low_wmma = DenseForwardSolution.q4_k_hip_decoded_staged_query_m2048_metadata_after_low_wmma()
+    hip_decoded_staged_query_m8192_metadata_after_low_wmma = DenseForwardSolution.q4_k_hip_decoded_staged_query_m8192_metadata_after_low_wmma()
     hip_decoded_staged_query_m32768_metadata_after_low_wmma = DenseForwardSolution.q4_k_hip_decoded_staged_query_m32768_metadata_after_low_wmma()
     implemented = (
         pilot,
@@ -123,8 +127,12 @@ def _validate_forward_solution(
         hip_decoded_staged_independent_extraction_metadata_after_low_wmma,
         hip_decoded_staged_shared_down_m8192,
         hip_decoded_staged_shared_down_m32768,
+        hip_decoded_staged_shared_down_m2048_metadata_after_low_wmma,
         hip_decoded_staged_shared_down_m8192_metadata_after_low_wmma,
         hip_decoded_staged_shared_down_m32768_metadata_after_low_wmma,
+        hip_decoded_staged_narrow_m32768_metadata_after_low_wmma,
+        hip_decoded_staged_query_m2048_metadata_after_low_wmma,
+        hip_decoded_staged_query_m8192_metadata_after_low_wmma,
         hip_decoded_staged_query_m32768_metadata_after_low_wmma,
     )
     if solution not in implemented:
@@ -170,11 +178,23 @@ def _validate_forward_solution(
                 }
             else:
                 selected_by_size = {
+                    (2048, 2048, 512): (
+                        hip_decoded_staged_shared_down_m2048_metadata_after_low_wmma
+                    ),
                     (8192, 2048, 512): (
                         hip_decoded_staged_shared_down_m8192_metadata_after_low_wmma
                     ),
                     (32768, 2048, 512): (
                         hip_decoded_staged_shared_down_m32768_metadata_after_low_wmma
+                    ),
+                    (32768, 512, 2048): (
+                        hip_decoded_staged_narrow_m32768_metadata_after_low_wmma
+                    ),
+                    (2048, 8192, 2048): (
+                        hip_decoded_staged_query_m2048_metadata_after_low_wmma
+                    ),
+                    (8192, 8192, 2048): (
+                        hip_decoded_staged_query_m8192_metadata_after_low_wmma
                     ),
                     (32768, 8192, 2048): (
                         hip_decoded_staged_query_m32768_metadata_after_low_wmma

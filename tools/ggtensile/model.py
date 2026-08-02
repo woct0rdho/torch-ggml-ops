@@ -603,6 +603,17 @@ class DenseForwardSolution:
         )
 
     @classmethod
+    def q4_k_hip_decoded_staged_shared_down_m2048_metadata_after_low_wmma(
+        cls,
+    ) -> Self:
+        return cls.q4_k_hip_decoded_staged_extraction(
+            epilogue_tiles_ahead=1,
+            epilogue_dependency_width=2,
+            epilogue_priority=2,
+            metadata_after_low_wmma=True,
+        )
+
+    @classmethod
     def q4_k_hip_decoded_staged_shared_down_m8192_metadata_after_low_wmma(
         cls,
     ) -> Self:
@@ -620,6 +631,33 @@ class DenseForwardSolution:
         return cls.q4_k_hip_decoded_staged_extraction(
             epilogue_tiles_ahead=1,
             epilogue_dependency_width=2,
+            epilogue_priority=2,
+            metadata_after_low_wmma=True,
+        )
+
+    @classmethod
+    def q4_k_hip_decoded_staged_narrow_m32768_metadata_after_low_wmma(cls) -> Self:
+        return cls.q4_k_hip_decoded_staged_extraction(
+            epilogue_tiles_ahead=4,
+            epilogue_dependency_width=4,
+            epilogue_priority=2,
+            metadata_after_low_wmma=True,
+        )
+
+    @classmethod
+    def q4_k_hip_decoded_staged_query_m2048_metadata_after_low_wmma(cls) -> Self:
+        return cls.q4_k_hip_decoded_staged_extraction(
+            epilogue_tiles_ahead=1,
+            epilogue_dependency_width=2,
+            epilogue_priority=2,
+            metadata_after_low_wmma=True,
+        )
+
+    @classmethod
+    def q4_k_hip_decoded_staged_query_m8192_metadata_after_low_wmma(cls) -> Self:
+        return cls.q4_k_hip_decoded_staged_extraction(
+            epilogue_tiles_ahead=4,
+            epilogue_dependency_width=4,
             epilogue_priority=2,
             metadata_after_low_wmma=True,
         )
