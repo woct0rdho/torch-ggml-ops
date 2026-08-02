@@ -74,11 +74,15 @@ def _validate_forward_solution(
     problem_type = solution_key.problem_type
     problem_size = solution_key.problem_size
     solution = solution_key.solution
-    if problem_type != ProblemType.dense_mmq_forward_q4_k():
+    supported_problem_types = {
+        ProblemType.dense_mmq_forward_q4_k(),
+        ProblemType.dense_mmq_forward_q5_k(),
+    }
+    if problem_type not in supported_problem_types:
         _reject(
             reasons,
             "problem_type.forward.unsupported",
-            "dense MMQ forward requires the exact Q4_K/Q8_1 problem type",
+            "dense MMQ forward requires an exact Q4_K/Q8_1 or Q5_K/Q8_1 problem type",
             "ProblemType",
             source="ProblemType",
         )
@@ -90,6 +94,51 @@ def _validate_forward_solution(
             "Solution",
             source="SolutionStructs",
         )
+        return
+    if problem_type == ProblemType.dense_mmq_forward_q5_k():
+        q5_retained = DenseForwardSolution.q5_k_hip_decoded_staged_retained()
+        q5_metadata_after_low = (
+            DenseForwardSolution.q5_k_hip_decoded_staged_metadata_after_low_wmma()
+        )
+        q5_independent = DenseForwardSolution.q5_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma()
+        if solution not in (q5_retained, q5_metadata_after_low, q5_independent):
+            _reject(
+                reasons,
+                "solution.forward.control.unimplemented",
+                "Q5_K forward implements only the retained decoded-staged controls",
+                "Solution",
+            )
+            return
+        if problem_size.m not in (2048, 8192, 32768):
+            _reject(
+                reasons,
+                "problem_size.m.forward_production",
+                "Q5_K forward requires M=2048, 8192, or 32768",
+                "M",
+                source="ProblemSize",
+            )
+        if (problem_size.n, problem_size.k) not in {(512, 2048), (2048, 512)}:
+            _reject(
+                reasons,
+                "problem_size.nk.forward_production",
+                "Q5_K forward requires an exact production (N,K) pair",
+                "N",
+                "K",
+                source="ProblemSize",
+            )
+        for parameter, value, divisor in (
+            ("M", problem_size.m, solution.macro_tile0),
+            ("N", problem_size.n, solution.macro_tile1),
+            ("K", problem_size.k, 256),
+        ):
+            if value <= 0 or value % divisor:
+                _reject(
+                    reasons,
+                    f"problem_size.{parameter.lower()}.forward_tile_multiple",
+                    f"{parameter} must be a positive multiple of {divisor}",
+                    parameter,
+                    source="ProblemSize",
+                )
         return
     pilot = DenseForwardSolution.q4_k_pilot()
     wave_reuse = DenseForwardSolution.q4_k_wave_reuse()

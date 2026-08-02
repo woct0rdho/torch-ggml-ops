@@ -130,17 +130,29 @@ class ProblemType:
         return cls.dense_mmq_backward("Q8_0")
 
     @classmethod
-    def dense_mmq_forward_q4_k(cls) -> Self:
+    def dense_mmq_forward(cls, quant_data_type: str) -> Self:
+        if quant_data_type not in {"Q4_K", "Q5_K"}:
+            raise ValueError(
+                f"unsupported dense MMQ forward quant type {quant_data_type!r}"
+            )
         return cls(
             operation_type="DenseMMQForward",
-            quant_data_type="Q4_K",
+            quant_data_type=quant_data_type,
             data_type_a="Q8_1",
-            data_type_b="Q4_K",
+            data_type_b=quant_data_type,
             dest_data_type="BFloat16",
             compute_data_type="Float",
             transpose_a=False,
             transpose_b=True,
         )
+
+    @classmethod
+    def dense_mmq_forward_q4_k(cls) -> Self:
+        return cls.dense_mmq_forward("Q4_K")
+
+    @classmethod
+    def dense_mmq_forward_q5_k(cls) -> Self:
+        return cls.dense_mmq_forward("Q5_K")
 
     @classmethod
     def from_mapping(cls, value: object) -> Self:
@@ -424,7 +436,7 @@ class Solution:
 
 @dataclass(frozen=True)
 class DenseForwardSolution:
-    """Strict Q4_K forward control; fields name only implemented mechanisms."""
+    """Strict dense forward control; fields name only implemented mechanisms."""
 
     kernel_language: str
     isa: tuple[int, int, int]
@@ -572,6 +584,30 @@ class DenseForwardSolution:
             epilogue_dependency_width=1,
             epilogue_priority=0,
             metadata_after_low_wmma=True,
+        )
+
+    @classmethod
+    def q5_k_hip_decoded_staged_retained(cls) -> Self:
+        return replace(
+            cls.q4_k_hip_decoded_staged_retained(),
+            packed_weight_block_bytes=176,
+            weight_decode="DirectNibbleHighBit",
+        )
+
+    @classmethod
+    def q5_k_hip_decoded_staged_metadata_after_low_wmma(cls) -> Self:
+        return replace(
+            cls.q5_k_hip_decoded_staged_retained(),
+            metadata_schedule="MetadataAfterLowWmma",
+        )
+
+    @classmethod
+    def q5_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma(
+        cls,
+    ) -> Self:
+        return replace(
+            cls.q5_k_hip_decoded_staged_retained(),
+            metadata_schedule="IndependentExtractionMetadataAfterLowWmma",
         )
 
     @classmethod

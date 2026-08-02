@@ -91,7 +91,14 @@ _FORWARD_CAMPAIGN_SPECS: dict[str, _CampaignSpec] = {
             "query": ((8192, 2048), "blk.39.attn_q.weight", 1),
         },
         "block_bytes": 144,
-    }
+    },
+    "Q5_K": {
+        "families": {
+            "narrow": ((512, 2048), "blk.0.ffn_gate_shexp.weight", 21),
+            "shared_down": ((2048, 512), "blk.0.ffn_down_shexp.weight", 10),
+        },
+        "block_bytes": 176,
+    },
 }
 
 

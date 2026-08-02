@@ -32,7 +32,7 @@ class _Assembly:
 
 
 class DenseForwardKernelWriterAssembly:
-    """Emit the strict one-wave Q4_K/Q8_1 F16_D4S4 forward control."""
+    """Emit strict packed K-quant/Q8_1 F16_D4S4 forward controls."""
 
     TOTAL_VGPRS = 88
     TOTAL_VGPRS_REUSE = 164
@@ -82,6 +82,18 @@ class DenseForwardKernelWriterAssembly:
         self.solution = solution_key.solution
         self.toolchain = toolchain
 
+    def _quant_type(self) -> str:
+        return self.solution_key.problem_type.quant_data_type
+
+    def _quant_label(self) -> str:
+        return self._quant_type().replace("_", "")
+
+    def _is_q5_k(self) -> bool:
+        return self._quant_type() == "Q5_K"
+
+    def _weight_block_bytes(self) -> int:
+        return self.solution.packed_weight_block_bytes
+
     def write(self, output: Path) -> str:
         source = self.source()
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -126,7 +138,8 @@ class DenseForwardKernelWriterAssembly:
             totalSgprs=self.TOTAL_SGPRS,
         )
         signature.addDescriptionTopic(
-            "GGTensile Q4_K dense MMQ forward, fixed Q8_1 F16_D4S4 producer"
+            f"GGTensile {self._quant_type()} dense MMQ forward, "
+            "fixed Q8_1 F16_D4S4 producer"
         )
         signature.addArg("packed_weight", SVK.SIG_GLOBALBUFFER, "struct", "generic")
         signature.addArg("activations", SVK.SIG_GLOBALBUFFER, "struct", "generic")
@@ -149,7 +162,7 @@ class DenseForwardKernelWriterAssembly:
         asm = _Assembly()
         size = self.solution_key.problem_size
         name = self.solution_key.kernel_name
-        row_stride = size.k // 256 * 144
+        row_stride = size.k // 256 * self._weight_block_bytes()
         activation_plane_stride = size.m * 144
         activation_block_stride = 2 * activation_plane_stride
 
@@ -208,8 +221,11 @@ class DenseForwardKernelWriterAssembly:
             asm.inst(f"v_mov_b32 v{register}, 0")
         asm.inst(f"s_mov_b32 s{self.LOOP_COUNTER}, 0")
 
-        asm.label(".LForwardQ4KBlockLoop")
-        asm.comment("Keep one Q4_K block's dm/scales live across its eight groups.")
+        quant_label = self._quant_label()
+        asm.label(f".LForward{quant_label}BlockLoop")
+        asm.comment(
+            f"Keep one {self._quant_type()} block's dm/scales live across its eight groups."
+        )
         for element in range(8):
             metadata = self.WEIGHT_METADATA + 4 * element
             asm.inst(
@@ -221,11 +237,13 @@ class DenseForwardKernelWriterAssembly:
             self._emit_group(asm, group)
         for element in range(8):
             asm.inst(
-                f"v_add_nc_u32 v{self.RESULT_WEIGHT_ADDRESS + element}, 144, "
+                f"v_add_nc_u32 v{self.RESULT_WEIGHT_ADDRESS + element}, "
+                f"{self._weight_block_bytes()}, "
                 f"v{self.RESULT_WEIGHT_ADDRESS + element}"
             )
         asm.inst(
-            f"v_add_nc_u32 v{self.WEIGHT_Q_ADDRESS}, 144, v{self.WEIGHT_Q_ADDRESS}"
+            f"v_add_nc_u32 v{self.WEIGHT_Q_ADDRESS}, "
+            f"{self._weight_block_bytes()}, v{self.WEIGHT_Q_ADDRESS}"
         )
         asm.inst(
             f"v_add_nc_u32 v{self.ACTIVATION_ADDRESS_0}, "
@@ -237,7 +255,7 @@ class DenseForwardKernelWriterAssembly:
         )
         asm.inst(f"s_add_u32 s{self.LOOP_COUNTER}, s{self.LOOP_COUNTER}, 1")
         asm.inst(f"s_cmp_lt_u32 s{self.LOOP_COUNTER}, {size.k // 256}")
-        asm.inst("s_cbranch_scc1 .LForwardQ4KBlockLoop")
+        asm.inst(f"s_cbranch_scc1 .LForward{quant_label}BlockLoop")
 
         self._emit_store(asm)
         asm.inst("s_endpgm")
@@ -260,16 +278,28 @@ class DenseForwardKernelWriterAssembly:
     ) -> None:
         weight_lds_base = 18_944
         weight_lds_stride = 304
+        quant_type = self._quant_type()
+        quant_label = self._quant_label()
+        q5_k = self._is_q5_k()
+        qh_address = auxiliary + 1
 
-        asm.comment("Cooperatively decode Q4_K nibbles into HIP's padded LDS rows.")
+        asm.comment(
+            f"Cooperatively decode {quant_type} payload into HIP's padded LDS rows."
+        )
         asm.inst(f"v_lshrrev_b32 v{temporary}, 3, v{serial}")
         asm.inst(f"v_lshlrev_b32 v{metadata_address}, 6, s2")
         asm.inst(f"v_add_nc_u32 v{temporary}, v{metadata_address}, v{temporary}")
         asm.inst(f"v_mul_lo_u32 v{temporary}, {row_stride}, v{temporary}")
         asm.inst(f"v_add_nc_u32 v{temporary}, s{self.SCALAR_TEMPORARY}, v{temporary}")
         asm.inst(f"v_and_b32 v{auxiliary}, 7, v{serial}")
+        if q5_k:
+            asm.comment("Build Q5_K high-bit and low-nibble payload addresses.")
+            asm.inst(f"v_and_b32 v{qh_address}, 1, v{auxiliary}")
+            asm.inst(f"v_lshlrev_b32 v{qh_address}, 4, v{qh_address}")
+            asm.inst(f"v_add_nc_u32 v{qh_address}, v{temporary}, v{qh_address}")
+            asm.inst(f"v_add_nc_u32 v{qh_address}, 16, v{qh_address}")
         asm.inst(f"v_lshlrev_b32 v{metadata_address}, 4, v{auxiliary}")
-        asm.inst(f"v_add_nc_u32 v{temporary}, 16, v{temporary}")
+        asm.inst(f"v_add_nc_u32 v{temporary}, {48 if q5_k else 16}, v{temporary}")
         asm.inst(f"v_add_nc_u32 v{temporary}, v{metadata_address}, v{temporary}")
 
         asm.inst(f"v_lshrrev_b32 v{lds_address}, 3, v{serial}")
@@ -287,7 +317,7 @@ class DenseForwardKernelWriterAssembly:
         metadata_base = staging_base + 32
         asm.inst(f"v_readfirstlane_b32 s12, v{wave}")
         asm.inst("s_cmp_lt_u32 s12, 2")
-        asm.inst("s_cbranch_scc0 .LForwardQ4KDecodedMetadataLoadDone")
+        asm.inst(f"s_cbranch_scc0 .LForward{quant_label}DecodedMetadataLoadDone")
         asm.inst(f"v_lshlrev_b32 v{metadata_address}, 6, s2")
         asm.inst(f"v_add_nc_u32 v{metadata_address}, v{serial}, v{metadata_address}")
         asm.inst(f"v_mul_lo_u32 v{metadata_address}, {row_stride}, v{metadata_address}")
@@ -299,25 +329,57 @@ class DenseForwardKernelWriterAssembly:
             f"global_load_b128 v[{metadata_base}:{metadata_base + 3}], "
             f"v{metadata_address}, s[{self.KERNARG}:{self.KERNARG + 1}]"
         )
-        asm.label(".LForwardQ4KDecodedMetadataLoadDone")
+        asm.label(f".LForward{quant_label}DecodedMetadataLoadDone")
 
+        if q5_k:
+            qh_base = staging_base + 36
+            for row_slice in range(4):
+                raw_base = staging_base + 8 * row_slice
+                row_qh_base = qh_base + 4 * row_slice
+                asm.inst(
+                    f"global_load_b128 v[{row_qh_base}:{row_qh_base + 3}], "
+                    f"v{qh_address}, s[{self.KERNARG}:{self.KERNARG + 1}]"
+                )
+                asm.inst(
+                    f"global_load_b128 v[{raw_base}:{raw_base + 3}], "
+                    f"v{temporary}, s[{self.KERNARG}:{self.KERNARG + 1}]"
+                )
+                if row_slice != 3:
+                    asm.inst(
+                        f"v_add_nc_u32 v{qh_address}, {16 * row_stride}, v{qh_address}"
+                    )
+                    asm.inst(
+                        f"v_add_nc_u32 v{temporary}, {16 * row_stride}, v{temporary}"
+                    )
+            asm.inst(f"v_and_b32 v{qh_address}, 6, v{serial}")
+        else:
+            for row_slice in range(4):
+                raw_base = staging_base + 8 * row_slice
+                asm.inst(
+                    f"global_load_b128 v[{raw_base}:{raw_base + 3}], "
+                    f"v{temporary}, s[{self.KERNARG}:{self.KERNARG + 1}]"
+                )
+                if row_slice != 3:
+                    asm.inst(
+                        f"v_add_nc_u32 v{temporary}, {16 * row_stride}, v{temporary}"
+                    )
         for row_slice in range(4):
             raw_base = staging_base + 8 * row_slice
-            asm.inst(
-                f"global_load_b128 v[{raw_base}:{raw_base + 3}], "
-                f"v{temporary}, s[{self.KERNARG}:{self.KERNARG + 1}]"
-            )
-            if row_slice != 3:
-                asm.inst(f"v_add_nc_u32 v{temporary}, {16 * row_stride}, v{temporary}")
-        for row_slice in range(4):
-            raw_base = staging_base + 8 * row_slice
-            asm.inst(f"s_waitcnt vmcnt({3 - row_slice})")
+            asm.inst(f"s_waitcnt vmcnt({6 - 2 * row_slice if q5_k else 3 - row_slice})")
             for item in range(4):
                 low = raw_base + item
                 high = raw_base + 4 + item
                 asm.inst(f"v_lshrrev_b32 v{high}, 4, v{low}")
                 asm.inst(f"v_and_b32 v{low}, 0x0f0f0f0f, v{low}")
                 asm.inst(f"v_and_b32 v{high}, 0x0f0f0f0f, v{high}")
+                if q5_k:
+                    qh = staging_base + 36 + 4 * row_slice + item
+                    asm.inst(f"v_lshrrev_b32 v{temporary}, v{qh_address}, v{qh}")
+                    asm.inst(f"v_and_b32 v{auxiliary}, 0x01010101, v{temporary}")
+                    asm.inst(f"v_lshl_or_b32 v{low}, v{auxiliary}, 4, v{low}")
+                    asm.inst(f"v_lshrrev_b32 v{temporary}, 1, v{temporary}")
+                    asm.inst(f"v_and_b32 v{auxiliary}, 0x01010101, v{temporary}")
+                    asm.inst(f"v_lshl_or_b32 v{high}, v{auxiliary}, 4, v{high}")
             asm.inst(f"ds_write_b128 v{lds_address}, v[{raw_base}:{raw_base + 3}]")
             asm.inst(
                 f"ds_write_b128 v{lds_address}, "
@@ -329,9 +391,11 @@ class DenseForwardKernelWriterAssembly:
                     f"{16 * weight_lds_stride}, v{lds_address}"
                 )
 
-        asm.comment("Compute each packed Q4_K scale/min pair once per weight row.")
+        asm.comment(
+            f"Compute each packed {quant_type} scale/min pair once per weight row."
+        )
         asm.inst("s_cmp_lt_u32 s12, 2")
-        asm.inst("s_cbranch_scc0 .LForwardQ4KDecodedMetadataDone")
+        asm.inst(f"s_cbranch_scc0 .LForward{quant_label}DecodedMetadataDone")
         asm.inst(f"v_mul_lo_u32 v{lds_address}, {weight_lds_stride}, v{serial}")
         asm.inst(
             f"v_add_nc_u32 v{lds_address}, {weight_lds_base + 256}, v{lds_address}"
@@ -394,7 +458,7 @@ class DenseForwardKernelWriterAssembly:
                 asm.inst("v_pk_mul_f16 v77, 0xbc003c00, v77")
                 asm.inst(f"v_pk_mul_f16 v77, v{metadata_base}, v77")
                 asm.inst(f"ds_write_b32 v{lds_address}, v77 offset:{4 * group}")
-        asm.label(".LForwardQ4KDecodedMetadataDone")
+        asm.label(f".LForward{quant_label}DecodedMetadataDone")
 
     def _uses_wave_reuse(self) -> bool:
         return self.solution.operand_source in (
@@ -437,7 +501,7 @@ class DenseForwardKernelWriterAssembly:
         size = self.solution_key.problem_size
         name = self.solution_key.kernel_name
         decoded = self._uses_hip_decoded_staged()
-        row_stride = size.k // 256 * 144
+        row_stride = size.k // 256 * self._weight_block_bytes()
         activation_plane_stride = size.m * 144
         activation_lds_base = 512 if decoded else 8192
         sum_base = 8
@@ -459,6 +523,7 @@ class DenseForwardKernelWriterAssembly:
         lane = 237
         serial = 238
         retained_decoded = self._uses_retained_decoded_schedule()
+        quant_label = self._quant_label()
 
         asm.comment(
             "Load the exact packed-weight, Q8_1 F16_D4S4 workspace, and output pointers."
@@ -500,7 +565,7 @@ class DenseForwardKernelWriterAssembly:
         if retained_decoded:
             asm.inst("s_mov_b32 s15, 512")
 
-        asm.label(".LForwardQ4KHipStagedBlockLoop")
+        asm.label(f".LForward{quant_label}HipStagedBlockLoop")
         if decoded:
             self._emit_hip_stage_decoded_weights(
                 asm,
@@ -689,10 +754,13 @@ class DenseForwardKernelWriterAssembly:
                     decoded=False,
                 )
         asm.inst("s_barrier")
-        asm.inst(f"s_add_u32 s{self.SCALAR_TEMPORARY}, s{self.SCALAR_TEMPORARY}, 144")
+        asm.inst(
+            f"s_add_u32 s{self.SCALAR_TEMPORARY}, s{self.SCALAR_TEMPORARY}, "
+            f"{self._weight_block_bytes()}"
+        )
         asm.inst(f"s_add_u32 s{self.LOOP_COUNTER}, s{self.LOOP_COUNTER}, 1")
         asm.inst(f"s_cmp_lt_u32 s{self.LOOP_COUNTER}, {size.k // 256}")
-        asm.inst("s_cbranch_scc1 .LForwardQ4KHipStagedBlockLoop")
+        asm.inst(f"s_cbranch_scc1 .LForward{quant_label}HipStagedBlockLoop")
 
         asm.comment("Store the 128x64 row-major BF16 output tile.")
         if retained_decoded:
@@ -1060,8 +1128,11 @@ class DenseForwardKernelWriterAssembly:
         weight_lds_base_address: int,
         metadata_lds_base_address: int,
     ) -> None:
-        label = f".LForwardQ4KDecodedGroupLoop{group_base}"
-        asm.comment(f"Roll decoded Q4_K groups {group_base} through {group_base + 3}.")
+        quant_type = self._quant_type()
+        label = f".LForward{self._quant_label()}DecodedGroupLoop{group_base}"
+        asm.comment(
+            f"Roll decoded {quant_type} groups {group_base} through {group_base + 3}."
+        )
         asm.inst("s_mov_b32 s13, 0")
         asm.label(label)
 
@@ -1270,7 +1341,7 @@ class DenseForwardKernelWriterAssembly:
         asm = _Assembly()
         size = self.solution_key.problem_size
         name = self.solution_key.kernel_name
-        row_stride = size.k // 256 * 144
+        row_stride = size.k // 256 * self._weight_block_bytes()
         activation_plane_stride = size.m * 144
         activation_block_stride = 2 * activation_plane_stride
         sum_base = 8

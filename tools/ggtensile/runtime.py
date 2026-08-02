@@ -216,7 +216,7 @@ class DenseBackwardModule(_SolutionHIPModule):
 
 
 class DenseForwardModule(_SolutionHIPModule):
-    """Direct launcher for an exact packed Q4_K/Q8_1 F16_D4S4 forward kernel."""
+    """Direct launcher for an exact packed K-quant/Q8_1 forward kernel."""
 
     def __init__(
         self,
@@ -259,7 +259,13 @@ class DenseForwardModule(_SolutionHIPModule):
             )
         if output.dtype != torch.bfloat16:
             raise HIPRuntimeError("output must be BF16")
-        expected_weight_bytes = size.n * (size.k // 256) * 144
+        block_bytes = {
+            "Q4_K": 144,
+            "Q5_K": 176,
+        }.get(self.solution_key.problem_type.quant_data_type)
+        if block_bytes is None:
+            raise HIPRuntimeError("unsupported dense-forward quant type")
+        expected_weight_bytes = size.n * (size.k // 256) * block_bytes
         if packed_weight.numel() != expected_weight_bytes:
             raise HIPRuntimeError("packed_weight size does not match ProblemSize")
         expected_activation_shape = (size.k // 128, size.m, 144)
@@ -316,7 +322,7 @@ class DenseForwardModule(_SolutionHIPModule):
 
 
 class FixedHipDenseForwardModule(DenseForwardModule):
-    """Direct prequantized launcher for the installed HIP Q4_K multiply."""
+    """Direct prequantized launcher for an installed exact HIP multiply."""
 
     def __init__(
         self,
@@ -324,12 +330,20 @@ class FixedHipDenseForwardModule(DenseForwardModule):
         code_object: Path | None = None,
         hip_library: Path | None = None,
     ) -> None:
+        quant_type = solution_key.problem_type.quant_data_type
         k = solution_key.problem_size.k
-        if k not in (512, 2048, 4096):
+        allowed_k = {
+            "Q4_K": (512, 2048, 4096),
+            "Q5_K": (512, 2048),
+        }.get(quant_type)
+        if allowed_k is None or k not in allowed_k:
             raise HIPRuntimeError(
-                "installed Q4_K control requires K=512, 2048, or 4096"
+                f"installed {quant_type} control does not support K={k}"
             )
-        symbol = f"torch_ggml_ops_mmq_gfx1151_v1_dense_fwd_q4_k_k{k}_j128_full"
+        symbol_quant = quant_type.lower()
+        symbol = (
+            f"torch_ggml_ops_mmq_gfx1151_v1_dense_fwd_{symbol_quant}_k{k}_j128_full"
+        )
         super().__init__(
             solution_key,
             code_object or _find_installed_kernel(symbol),

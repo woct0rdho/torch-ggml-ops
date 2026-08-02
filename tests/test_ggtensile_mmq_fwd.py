@@ -168,9 +168,9 @@ def test_forward_validation_rejects_nonproduction_sizes(size: ProblemSize) -> No
 def test_forward_validation_rejects_mismatched_problem_type() -> None:
     problem_type = ProblemType(
         operation_type="DenseMMQForward",
-        quant_data_type="Q5_K",
+        quant_data_type="Q6_K",
         data_type_a="Q8_1",
-        data_type_b="Q5_K",
+        data_type_b="Q6_K",
         dest_data_type="BFloat16",
         compute_data_type="Float",
         transpose_a=False,
@@ -247,7 +247,7 @@ def test_forward_writer_emits_hip_decoded_staged_control() -> None:
     source = DenseForwardKernelWriterAssembly(key, _toolchain()).source()
     assert source.count("v_wmma_i32_16x16x16_iu8") == 32
     assert source.count("s_barrier") == 4
-    assert "Cooperatively decode Q4_K nibbles into HIP's padded LDS rows." in source
+    assert "Cooperatively decode Q4_K payload into HIP's padded LDS rows." in source
     assert "Compute each packed Q4_K scale/min pair once per weight row." in source
     assert "Roll decoded Q4_K groups 0 through 3." in source
     assert "Roll decoded Q4_K groups 4 through 7." in source

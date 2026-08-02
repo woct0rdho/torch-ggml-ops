@@ -53,7 +53,7 @@ class Timing(TypedDict):
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Validate and benchmark one exact Q4_K GGTensile forward artifact"
+        description="Validate and benchmark one exact K-quant GGTensile forward artifact"
     )
     parser.add_argument("--solution-key", type=Path, required=True)
     parser.add_argument("--code-object", type=Path, required=True)
@@ -118,8 +118,11 @@ def _load_weight(
     tensor = next((item for item in reader.tensors if item.name == tensor_name), None)
     if tensor is None:
         raise KeyError(f"GGUF tensor not found: {tensor_name}")
-    if tensor.tensor_type.name != "Q4_K":
-        raise ValueError(f"expected Q4_K tensor, found {tensor.tensor_type.name}")
+    expected_quant_type = key.problem_type.quant_data_type
+    if tensor.tensor_type.name != expected_quant_type:
+        raise ValueError(
+            f"expected {expected_quant_type} tensor, found {tensor.tensor_type.name}"
+        )
     size = key.problem_size
     logical_shape = tuple(int(value) for value in reversed(tensor.shape))
     if logical_shape != (size.n, size.k):
