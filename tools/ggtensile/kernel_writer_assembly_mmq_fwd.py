@@ -1,6 +1,7 @@
 import contextlib
 import hashlib
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 from .model import DenseForwardSolution, SolutionKey
@@ -326,7 +327,10 @@ class DenseForwardKernelWriterAssembly:
         asm.inst(
             f"v_add_nc_u32 v{lds_address}, {weight_lds_base + 256}, v{lds_address}"
         )
-        if self.solution_key.solution.metadata_schedule == "IndependentExtraction":
+        if self.solution_key.solution.metadata_schedule in (
+            "IndependentExtraction",
+            "IndependentExtractionMetadataAfterLowWmma",
+        ):
             # Expose the eight metadata fields before conversion so the
             # conversion/product chains do not serialize on v72:v77.
             for group in range(4):
@@ -343,31 +347,22 @@ class DenseForwardKernelWriterAssembly:
             for packed in range(4):
                 group = 4 + packed
                 asm.inst(
-                    f"v_lshl_or_b32 v{72 + group}, v{88 + packed}, 4, "
-                    f"v{72 + group}"
+                    f"v_lshl_or_b32 v{72 + group}, v{88 + packed}, 4, v{72 + group}"
                 )
                 asm.inst(
-                    f"v_lshl_or_b32 v{80 + group}, v{92 + packed}, 4, "
-                    f"v{80 + group}"
+                    f"v_lshl_or_b32 v{80 + group}, v{92 + packed}, 4, v{80 + group}"
                 )
             for group in range(8):
-                asm.inst(
-                    f"v_cvt_f16_u16_e32 v{96 + group}.l, v{72 + group}.l"
-                )
+                asm.inst(f"v_cvt_f16_u16_e32 v{96 + group}.l, v{72 + group}.l")
             for group in range(8):
-                asm.inst(
-                    f"v_cvt_f16_u16_e32 v{96 + group}.h, v{80 + group}.l"
-                )
+                asm.inst(f"v_cvt_f16_u16_e32 v{96 + group}.h, v{80 + group}.l")
             for group in range(8):
                 asm.inst(f"v_pk_mul_f16 v{96 + group}, 0xbc003c00, v{96 + group}")
             for group in range(8):
-                asm.inst(
-                    f"v_pk_mul_f16 v{96 + group}, v{metadata_base}, v{96 + group}"
-                )
+                asm.inst(f"v_pk_mul_f16 v{96 + group}, v{metadata_base}, v{96 + group}")
             for group in range(8):
                 asm.inst(
-                    f"ds_write_b32 v{lds_address}, v{96 + group} "
-                    f"offset:{4 * group}"
+                    f"ds_write_b32 v{lds_address}, v{96 + group} offset:{4 * group}"
                 )
         else:
             for group in range(8):
@@ -476,9 +471,7 @@ class DenseForwardKernelWriterAssembly:
         asm.inst(f"v_add_nc_u32 v{wave_column_base}, v{temporary}, v{wave_column_base}")
         if retained_decoded:
             asm.inst(f"v_lshlrev_b32 v{output_column}, 4, v{wave}")
-            asm.inst(
-                f"v_add_nc_u32 v{output_column}, v{lane}, v{output_column}"
-            )
+            asm.inst(f"v_add_nc_u32 v{output_column}, v{lane}, v{output_column}")
             asm.inst(f"v_mul_lo_u32 v{output_column}, 304, v{output_column}")
             asm.inst(f"v_add_nc_u32 v{output_column}, 18944, v{output_column}")
         else:
@@ -580,8 +573,7 @@ class DenseForwardKernelWriterAssembly:
             asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
             asm.inst(f"v_lshlrev_b32 v{metadata_address}, 4, v{wave}")
             asm.inst(
-                f"v_add_nc_u32 v{metadata_address}, v{temporary}, "
-                f"v{metadata_address}"
+                f"v_add_nc_u32 v{metadata_address}, v{temporary}, v{metadata_address}"
             )
             asm.inst(f"v_mul_lo_u32 v{metadata_address}, 304, v{metadata_address}")
             asm.inst(f"v_add_nc_u32 v{metadata_address}, 19200, v{metadata_address}")
@@ -728,17 +720,14 @@ class DenseForwardKernelWriterAssembly:
                 for element in range(8):
                     total = sum_base + tile * 8 + element
                     asm.inst(f"v_bfe_u32 v{temporary}, v{total}, 16, 1")
-                    asm.inst(
-                        f"v_add3_u32 v{total}, v{temporary}, v{total}, 0x7fff"
-                    )
+                    asm.inst(f"v_add3_u32 v{total}, v{temporary}, v{total}, 0x7fff")
                     asm.inst(
                         f"global_store_d16_hi_b16 v{metadata_address}, v{total}, "
                         f"s[{self.KERNARG + 4}:{self.KERNARG + 5}]"
                     )
                     if element != 7:
                         asm.inst(
-                            f"v_add_nc_u32 v{metadata_address}, 4, "
-                            f"v{metadata_address}"
+                            f"v_add_nc_u32 v{metadata_address}, 4, v{metadata_address}"
                         )
         asm.inst("s_endpgm")
         asm.lines.append(f".L{name}_end:")
@@ -825,18 +814,14 @@ class DenseForwardKernelWriterAssembly:
                 if batch_count == 1:
                     total = sum_base + batch
                     asm.inst(f"v_bfe_u32 v{temporary}, v{total}, 16, 1")
-                    asm.inst(
-                        f"v_add3_u32 v{total}, v{temporary}, v{total}, 0x7fff"
-                    )
+                    asm.inst(f"v_add3_u32 v{total}, v{temporary}, v{total}, 0x7fff")
                     continue
                 for item in range(batch_count):
                     total = sum_base + batch + item
                     asm.inst(f"v_bfe_u32 v{72 + item}, v{total}, 16, 1")
                 for item in range(batch_count):
                     total = sum_base + batch + item
-                    asm.inst(
-                        f"v_add3_u32 v{total}, v{72 + item}, v{total}, 0x7fff"
-                    )
+                    asm.inst(f"v_add3_u32 v{total}, v{72 + item}, v{total}, 0x7fff")
             for relative_tile in range(tile_count):
                 tile = first_tile + relative_tile
                 if tile:
@@ -870,9 +855,7 @@ class DenseForwardKernelWriterAssembly:
         asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
         asm.inst(f"v_add_nc_u32 v{temporary}, v{wave_column_base}, v{temporary}")
         asm.inst(f"v_lshlrev_b32 v{temporary}, 1, v{temporary}")
-        asm.inst(
-            f"v_add_nc_u32 v{metadata_address}, v{metadata_address}, v{temporary}"
-        )
+        asm.inst(f"v_add_nc_u32 v{metadata_address}, v{metadata_address}, v{temporary}")
 
     def _emit_hip_decoded_store_tile(
         self,
@@ -1084,8 +1067,7 @@ class DenseForwardKernelWriterAssembly:
                 asm.inst(f"v_add_nc_u32 v{lds_address}, s14, v{lds_address}")
             else:
                 asm.inst(
-                    f"v_add_nc_u32 v{lds_address}, s14, "
-                    f"v{weight_lds_base_address}"
+                    f"v_add_nc_u32 v{lds_address}, s14, v{weight_lds_base_address}"
                 )
         else:
             asm.inst(f"v_lshlrev_b32 v{temporary}, 4, v{wave}")
@@ -1121,46 +1103,54 @@ class DenseForwardKernelWriterAssembly:
                 f"ds_read_b128 v[{high_activation}:{high_activation + 3}], "
                 f"v{lds_address} offset:{tile_offset + 32}"
             )
-        asm.inst("s_lshl_b32 s14, s13, 2")
-        asm.inst(f"v_add_nc_u32 v{metadata}, s14, v{metadata}")
-        for tile in range(0, 8, 2):
-            asm.inst(
-                f"ds_read2st64_b32 v[{activation_ds_base + tile}:"
-                f"{activation_ds_base + tile + 1}], v{metadata} "
-                f"offset0:{9 * tile} offset1:{9 * (tile + 1)}"
-            )
 
-        if self.solution_key.solution.lds_address_hoist == "WeightMetadata":
-            if group_base:
+        def emit_metadata_reads() -> None:
+            asm.inst("s_lshl_b32 s14, s13, 2")
+            asm.inst(f"v_add_nc_u32 v{metadata}, s14, v{metadata}")
+            for tile in range(0, 8, 2):
                 asm.inst(
-                    f"v_add_nc_u32 v{metadata}, {4 * group_base}, "
-                    f"v{metadata_lds_base_address}"
+                    f"ds_read2st64_b32 v[{activation_ds_base + tile}:"
+                    f"{activation_ds_base + tile + 1}], v{metadata} "
+                    f"offset0:{9 * tile} offset1:{9 * (tile + 1)}"
+                )
+
+            if self.solution_key.solution.lds_address_hoist == "WeightMetadata":
+                if group_base:
+                    asm.inst(
+                        f"v_add_nc_u32 v{metadata}, {4 * group_base}, "
+                        f"v{metadata_lds_base_address}"
+                    )
+                    asm.inst(f"v_add_nc_u32 v{metadata}, s14, v{metadata}")
+                else:
+                    asm.inst(
+                        f"v_add_nc_u32 v{metadata}, s14, v{metadata_lds_base_address}"
+                    )
+            else:
+                asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{serial}")
+                asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
+                asm.inst(f"v_lshlrev_b32 v{metadata}, 4, v{wave}")
+                asm.inst(f"v_add_nc_u32 v{metadata}, v{temporary}, v{metadata}")
+                asm.inst(f"v_mul_lo_u32 v{metadata}, 304, v{metadata}")
+                asm.inst(
+                    f"v_add_nc_u32 v{metadata}, {18944 + 256 + 4 * group_base}, "
+                    f"v{metadata}"
                 )
                 asm.inst(f"v_add_nc_u32 v{metadata}, s14, v{metadata}")
-            else:
+            for pair in range(1, 4):
+                asm.inst(f"v_add_nc_u32 v{metadata + pair}, {1216 * pair}, v{metadata}")
+            for element in range(0, 8, 2):
                 asm.inst(
-                    f"v_add_nc_u32 v{metadata}, s14, "
-                    f"v{metadata_lds_base_address}"
+                    f"ds_read2_b32 v[{scaled_dm_base + element}:"
+                    f"{scaled_dm_base + element + 1}], "
+                    f"v{metadata + element // 2} offset0:0 offset1:152"
                 )
-        else:
-            asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{serial}")
-            asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
-            asm.inst(f"v_lshlrev_b32 v{metadata}, 4, v{wave}")
-            asm.inst(f"v_add_nc_u32 v{metadata}, v{temporary}, v{metadata}")
-            asm.inst(f"v_mul_lo_u32 v{metadata}, 304, v{metadata}")
-            asm.inst(
-                f"v_add_nc_u32 v{metadata}, {18944 + 256 + 4 * group_base}, "
-                f"v{metadata}"
-            )
-            asm.inst(f"v_add_nc_u32 v{metadata}, s14, v{metadata}")
-        for pair in range(1, 4):
-            asm.inst(f"v_add_nc_u32 v{metadata + pair}, {1216 * pair}, v{metadata}")
-        for element in range(0, 8, 2):
-            asm.inst(
-                f"ds_read2_b32 v[{scaled_dm_base + element}:"
-                f"{scaled_dm_base + element + 1}], "
-                f"v{metadata + element // 2} offset0:0 offset1:152"
-            )
+
+        deferred_metadata = self.solution_key.solution.metadata_schedule in (
+            "MetadataAfterLowWmma",
+            "IndependentExtractionMetadataAfterLowWmma",
+        )
+        if not deferred_metadata:
+            emit_metadata_reads()
         self._emit_hip_staged_accumulate(
             asm,
             weight_q=weight_q,
@@ -1171,6 +1161,9 @@ class DenseForwardKernelWriterAssembly:
             scaled_dm_base=scaled_dm_base,
             sum_base=sum_base,
             overlap_lds=True,
+            deferred_metadata_emitter=(
+                emit_metadata_reads if deferred_metadata else None
+            ),
         )
         asm.inst("s_add_u32 s13, s13, 1")
         asm.inst("s_cmp_lt_u32 s13, 4")
@@ -1188,11 +1181,13 @@ class DenseForwardKernelWriterAssembly:
         scaled_dm_base: int,
         sum_base: int,
         overlap_lds: bool,
+        deferred_metadata_emitter: Callable[[], None] | None = None,
     ) -> None:
         clamp = " clamp" if self.solution_key.solution.wmma_clamp else ""
         for tile in range(8):
             if overlap_lds:
-                asm.inst(f"s_waitcnt lgkmcnt({23 - 2 * tile})")
+                first_wait = 15 if deferred_metadata_emitter is not None else 23
+                asm.inst(f"s_waitcnt lgkmcnt({first_wait - 2 * tile})")
             c_fragment = c_base + 8 * tile
             low_activation = (
                 c_base + 8 * (tile + 1) if tile < 7 else low_activation_last
@@ -1203,6 +1198,8 @@ class DenseForwardKernelWriterAssembly:
                 f"v[{low_activation}:{low_activation + 3}], "
                 f"v[{self.C}:{self.C + 7}] neg_lo:[1,1,0]{clamp}"
             )
+        if deferred_metadata_emitter is not None:
+            deferred_metadata_emitter()
         for tile in range(8):
             if overlap_lds and tile == 7:
                 asm.inst("s_waitcnt lgkmcnt(8)")

@@ -542,12 +542,20 @@ class DenseForwardSolution:
         )
 
     @classmethod
+    def q4_k_hip_decoded_staged_metadata_after_low_wmma(cls) -> Self:
+        return replace(
+            cls.q4_k_hip_decoded_staged_retained(),
+            metadata_schedule="MetadataAfterLowWmma",
+        )
+
+    @classmethod
     def q4_k_hip_decoded_staged_extraction(
         cls,
         *,
         epilogue_tiles_ahead: int,
         epilogue_dependency_width: int,
         epilogue_priority: int,
+        metadata_after_low_wmma: bool = False,
     ) -> Self:
         if epilogue_tiles_ahead not in (1, 2, 4, 8):
             raise ValueError("unsupported forward epilogue tiles-ahead")
@@ -557,7 +565,11 @@ class DenseForwardSolution:
             raise ValueError("unsupported forward epilogue priority")
         return replace(
             cls.q4_k_hip_decoded_staged_retained(),
-            metadata_schedule="IndependentExtraction",
+            metadata_schedule=(
+                "IndependentExtractionMetadataAfterLowWmma"
+                if metadata_after_low_wmma
+                else "IndependentExtraction"
+            ),
             epilogue_tiles_ahead=epilogue_tiles_ahead,
             epilogue_dependency_width=epilogue_dependency_width,
             epilogue_priority=epilogue_priority,
@@ -577,6 +589,28 @@ class DenseForwardSolution:
             epilogue_tiles_ahead=1,
             epilogue_dependency_width=2,
             epilogue_priority=2,
+        )
+
+    @classmethod
+    def q4_k_hip_decoded_staged_shared_down_m8192_metadata_after_low_wmma(
+        cls,
+    ) -> Self:
+        return cls.q4_k_hip_decoded_staged_extraction(
+            epilogue_tiles_ahead=1,
+            epilogue_dependency_width=4,
+            epilogue_priority=2,
+            metadata_after_low_wmma=True,
+        )
+
+    @classmethod
+    def q4_k_hip_decoded_staged_shared_down_m32768_metadata_after_low_wmma(
+        cls,
+    ) -> Self:
+        return cls.q4_k_hip_decoded_staged_extraction(
+            epilogue_tiles_ahead=1,
+            epilogue_dependency_width=2,
+            epilogue_priority=2,
+            metadata_after_low_wmma=True,
         )
 
     @classmethod
@@ -602,9 +636,7 @@ class DenseForwardSolution:
             ),
             operand_source=_string(item["OperandSource"], "OperandSource"),
             weight_decode=_string(item["WeightDecode"], "WeightDecode"),
-            lds_address_hoist=_string(
-                item["LdsAddressHoist"], "LdsAddressHoist"
-            ),
+            lds_address_hoist=_string(item["LdsAddressHoist"], "LdsAddressHoist"),
             activation_addressing=_string(
                 item["ActivationAddressing"], "ActivationAddressing"
             ),

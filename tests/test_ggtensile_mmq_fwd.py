@@ -65,6 +65,7 @@ def test_forward_inventory_is_exact_open_and_versionless() -> None:
     assert sum(entry.current_status == "open" for entry in inventory.entries) == 10
     assert set(catalog) == {
         "pilot_direct_global",
+        "retained_metadata_after_low_wmma",
         "retained_shared_down_m8192_extract_a1d4_p2",
         "retained_shared_down_m32768_extract_a1d2_p2",
     }
@@ -258,6 +259,26 @@ def test_forward_writer_emits_retained_decoded_staged_control() -> None:
     assert "v_add_nc_u32 v80, s14, v232" in source
 
 
+def test_forward_writer_emits_metadata_after_low_wmma_schedule() -> None:
+    solution = DenseForwardSolution.q4_k_hip_decoded_staged_metadata_after_low_wmma()
+    key = _key(solution=solution)
+    assert validate_solution(key) == ()
+    source = DenseForwardKernelWriterAssembly(key, _toolchain()).source()
+    assert source.count("s_waitcnt lgkmcnt(23)") == 0
+    assert source.count("s_waitcnt lgkmcnt(15)") == 2
+    assert source.count("s_waitcnt lgkmcnt(1)") == 2
+    first_loop = source[
+        source.index(".LForwardQ4KDecodedGroupLoop0:") : source.index(
+            ".LForwardQ4KDecodedGroupLoop4:"
+        )
+    ]
+    low_wmma = "v_wmma_i32_16x16x16_iu8 v[168:175], v[72:75], v[176:179], v[0:7]"
+    metadata_read = "s_lshl_b32 s14, s13, 2"
+    high_wmma = "v_wmma_i32_16x16x16_iu8 v[112:119], v[76:79]"
+    assert first_loop.index(low_wmma) < first_loop.index(metadata_read)
+    assert first_loop.index(metadata_read) < first_loop.index(high_wmma)
+
+
 @pytest.mark.parametrize(
     ("size", "solution", "dependency_width"),
     (
@@ -269,6 +290,16 @@ def test_forward_writer_emits_retained_decoded_staged_control() -> None:
         (
             ProblemSize(32768, 2048, 512),
             DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m32768(),
+            2,
+        ),
+        (
+            ProblemSize(8192, 2048, 512),
+            DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m8192_metadata_after_low_wmma(),
+            4,
+        ),
+        (
+            ProblemSize(32768, 2048, 512),
+            DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m32768_metadata_after_low_wmma(),
             2,
         ),
     ),
@@ -291,8 +322,7 @@ def test_forward_writer_emits_selected_shared_down_extraction(
         "v_bfe_u32 v72, v8, 16, 1"
     )
     assert source.index("v_bfe_u32 v72, v8, 16, 1") < source.index(
-        f"v_bfe_u32 v{72 + dependency_width - 1}, "
-        f"v{8 + dependency_width - 1}, 16, 1"
+        f"v_bfe_u32 v{72 + dependency_width - 1}, v{8 + dependency_width - 1}, 16, 1"
     )
 
 
@@ -348,6 +378,13 @@ def test_forward_runtime_uses_exact_candidate_and_hip_launch_geometry() -> None:
         ),
         (
             DenseForwardSolution.q4_k_hip_decoded_staged_retained(),
+            32,
+            239,
+            4,
+            38_400,
+        ),
+        (
+            DenseForwardSolution.q4_k_hip_decoded_staged_metadata_after_low_wmma(),
             32,
             239,
             4,
