@@ -76,7 +76,9 @@ def test_q4_k_campaign_inventory_is_exact_and_versionless() -> None:
 
 
 def test_q5_k_campaign_inventory_is_exact_and_quant_aware() -> None:
-    inventory = load_inventory(Path("tools/ggtensile/configs/q5_k_dense_inventory.json"))
+    inventory = load_inventory(
+        Path("tools/ggtensile/configs/q5_k_dense_inventory.json")
+    )
     catalog = load_solution_catalog(
         Path("tools/ggtensile/configs/q5_k_selected_solutions.json")
     )
@@ -107,7 +109,9 @@ def test_q5_k_campaign_inventory_is_exact_and_quant_aware() -> None:
 
 
 def test_q6_k_campaign_inventory_covers_exact_lm_head_chunks() -> None:
-    inventory = load_inventory(Path("tools/ggtensile/configs/q6_k_dense_inventory.json"))
+    inventory = load_inventory(
+        Path("tools/ggtensile/configs/q6_k_dense_inventory.json")
+    )
     catalog = load_solution_catalog(
         Path("tools/ggtensile/configs/q6_k_selected_solutions.json")
     )
@@ -133,17 +137,22 @@ def test_q6_k_campaign_inventory_covers_exact_lm_head_chunks() -> None:
         entry.expected_physical_weight_shape == (248320, 1680)
         for entry in inventory.entries
     )
-    assert catalog["retained_m64x32x64_pad8_vopd"].q6_k_extraction == "packed_vopd"
-    assert catalog["retained_m128x32x64_pad8_vopd"].macro_tile1 == 32
-    assert catalog["retained_m128x32x64_pad8_vopd"].depth_u == 64
-    assert (
-        catalog["retained_m256x64x32_next_pad8_vopd"].prefetch_packed_weight_next
-        is True
-    )
+    retained_m64 = catalog["retained_m64x32x64_pad8_vopd"]
+    retained_m128 = catalog["retained_m128x32x64_pad8_vopd"]
+    retained_m256 = catalog["retained_m256x64x32_next_pad8_vopd"]
+    assert isinstance(retained_m64, Solution)
+    assert isinstance(retained_m128, Solution)
+    assert isinstance(retained_m256, Solution)
+    assert retained_m64.q6_k_extraction == "packed_vopd"
+    assert retained_m128.macro_tile1 == 32
+    assert retained_m128.depth_u == 64
+    assert retained_m256.prefetch_packed_weight_next is True
 
 
 def test_q3_k_campaign_inventory_selects_exact_padded_geometries() -> None:
-    inventory = load_inventory(Path("tools/ggtensile/configs/q3_k_dense_inventory.json"))
+    inventory = load_inventory(
+        Path("tools/ggtensile/configs/q3_k_dense_inventory.json")
+    )
     catalog = load_solution_catalog(
         Path("tools/ggtensile/configs/q3_k_selected_solutions.json")
     )
@@ -163,7 +172,9 @@ def test_q3_k_campaign_inventory_selects_exact_padded_geometries() -> None:
 
 
 def test_q8_0_campaign_inventory_covers_ordinary_and_lm_head_keys() -> None:
-    inventory = load_inventory(Path("tools/ggtensile/configs/q8_0_dense_inventory.json"))
+    inventory = load_inventory(
+        Path("tools/ggtensile/configs/q8_0_dense_inventory.json")
+    )
     catalog = load_solution_catalog(
         Path("tools/ggtensile/configs/q8_0_selected_solutions.json")
     )
@@ -224,12 +235,15 @@ def test_q3_k_packed_decoder_uses_wave32_vopd_scale_pairs() -> None:
 
 
 def test_q6_k_packed_vopd_decoder_pairs_adjacent_values() -> None:
-    inventory = load_inventory(Path("tools/ggtensile/configs/q6_k_dense_inventory.json"))
+    inventory = load_inventory(
+        Path("tools/ggtensile/configs/q6_k_dense_inventory.json")
+    )
     catalog = load_solution_catalog(
         Path("tools/ggtensile/configs/q6_k_selected_solutions.json")
     )
     entry = next(item for item in inventory.entries if item.problem_size.m == 64)
     key = entry.solution_key(inventory.problem_type, catalog[entry.selected_solution])
+    assert isinstance(key.solution, Solution)
     assert key.solution.q6_k_extraction == "packed_vopd"
     assert validate_solution(key) == ()
     source = KernelWriterAssembly(key, _toolchain()).source()

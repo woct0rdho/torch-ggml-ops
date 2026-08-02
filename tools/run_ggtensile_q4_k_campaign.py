@@ -4,14 +4,14 @@ import argparse
 import json
 import subprocess
 import sys
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Mapping, Sequence
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tools.ggtensile.campaign import (  # noqa: E402
+from tools.ggtensile.campaign import (
     DEFAULT_INVENTORY,
     DEFAULT_RETAINED_SOLUTION,
     DEFAULT_SELECTED_SOLUTIONS,
@@ -22,9 +22,9 @@ from tools.ggtensile.campaign import (  # noqa: E402
     load_solution,
     load_solution_catalog,
 )
-from tools.ggtensile.cli import main as ggtensile_cli_main  # noqa: E402
-from tools.ggtensile.model import ProblemSize, Solution, SolutionKey  # noqa: E402
-from tools.ggtensile.validation import validate_solution  # noqa: E402
+from tools.ggtensile.cli import main as ggtensile_cli_main
+from tools.ggtensile.model import ProblemSize, Solution, SolutionKey
+from tools.ggtensile.validation import validate_solution
 
 BENCHMARK = REPO_ROOT / "tools" / "benchmark_ggtensile.py"
 DEFAULT_MODEL = Path.home() / "models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf"
@@ -119,7 +119,9 @@ def _prepare(
         source_mapping = {"SolutionCatalog": str(arguments.solution_catalog.resolve())}
     else:
         solution_path = arguments.solution or DEFAULT_RETAINED_SOLUTION
-        solution: Solution = load_solution(solution_path)
+        solution = load_solution(solution_path)
+        if not isinstance(solution, Solution):
+            raise CampaignError("dense backward campaign requires a backward solution")
         solutions = [solution] * len(entries)
         source_mapping = {"Solution": str(solution_path.resolve())}
     keys = [
@@ -184,14 +186,14 @@ def _prepare(
     return 0
 
 
-def _load_report(path: Path) -> Mapping[str, object]:
+def _load_report(path: Path) -> dict[str, object]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise CampaignError(f"cannot read benchmark report {path}: {error}") from error
-    if not isinstance(value, Mapping):
+    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
         raise CampaignError(f"benchmark report {path} is not a JSON object")
-    return value
+    return {str(key): item for key, item in value.items()}
 
 
 def _timing_median(report: Mapping[str, object], name: str) -> float:
@@ -199,15 +201,18 @@ def _timing_median(report: Mapping[str, object], name: str) -> float:
     if not isinstance(timing, Mapping):
         raise CampaignError(f"benchmark report lacks {name}")
     value = timing.get("median_ms")
-    if type(value) not in (int, float):
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
         raise CampaignError(f"benchmark report has invalid {name}.median_ms")
     return float(value)
 
 
 def _check_correctness(report: Mapping[str, object], *, has_control: bool) -> None:
-    correctness = report.get("Correctness")
-    if not isinstance(correctness, Mapping):
+    correctness_value = report.get("Correctness")
+    if not isinstance(correctness_value, dict) or not all(
+        isinstance(key, str) for key in correctness_value
+    ):
         raise CampaignError("benchmark report lacks Correctness")
+    correctness = {str(key): value for key, value in correctness_value.items()}
     required = {
         "candidate_vs_hip",
         "candidate_after_grad_output_update_vs_hip",
@@ -232,7 +237,9 @@ def _check_correctness(report: Mapping[str, object], *, has_control: bool) -> No
 
 
 def _run_benchmark(command: list[str], *, entry: CampaignEntry) -> None:
-    result = subprocess.run(command, cwd=REPO_ROOT, capture_output=True, text=True)
+    result = subprocess.run(
+        command, cwd=REPO_ROOT, capture_output=True, text=True, check=False
+    )
     if result.returncode:
         details = result.stderr.strip() or result.stdout.strip()
         raise CampaignError(

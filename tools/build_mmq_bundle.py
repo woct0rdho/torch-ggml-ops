@@ -1119,7 +1119,9 @@ def _compile_one(
         "-o",
         str(temporary),
     ]
-    result = subprocess.run(command, capture_output=True, text=True, env=env)
+    result = subprocess.run(
+        command, capture_output=True, text=True, env=env, check=False
+    )
     if result.returncode != 0:
         raise RuntimeError(
             f"failed to compile {spec.cpp_id}\ncommand: {' '.join(command)}\n"
@@ -1224,8 +1226,9 @@ def main() -> None:
     if args.jobs < 1:
         parser.error("--jobs must be positive")
 
+    discovered_hipcc = shutil.which("hipcc")
     hipcc_value = args.hipcc or (
-        Path(shutil.which("hipcc")) if shutil.which("hipcc") else None
+        Path(discovered_hipcc) if discovered_hipcc is not None else None
     )
     if hipcc_value is None or not hipcc_value.is_file():
         raise FileNotFoundError("hipcc is required to build the MMQ bundle")

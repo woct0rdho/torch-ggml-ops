@@ -118,7 +118,7 @@ def _find_sibling_tool(tool_dir: Path, name: str) -> Path:
 
 
 def _run(command: list[str]) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(command, capture_output=True, text=True)
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
     if result.returncode:
         raise ToolchainError(
             f"command failed ({result.returncode}): {' '.join(command)}\n"

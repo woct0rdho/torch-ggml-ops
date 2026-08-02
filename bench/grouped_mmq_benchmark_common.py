@@ -2,6 +2,7 @@ import argparse
 import statistics
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypedDict
 
 import gguf
 import numpy as np
@@ -452,7 +453,19 @@ def route_distributions(rows: int, batch: int) -> dict[str, RouteDistribution]:
     }
 
 
-def distribution_summary(distribution: RouteDistribution) -> dict:
+class GroupSummary(TypedDict):
+    active_experts: int
+    min_rows: int
+    max_rows: int
+    mean_rows: float
+    median_rows: float
+    stdev_rows: float
+    non_multiple_16_groups: int
+    non_multiple_64_groups: int
+    non_multiple_128_groups: int
+
+
+def distribution_summary(distribution: RouteDistribution) -> GroupSummary:
     sizes = distribution.group_sizes_cpu
     return {
         "active_experts": len(sizes),

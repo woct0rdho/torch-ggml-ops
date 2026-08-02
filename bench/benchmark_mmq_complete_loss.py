@@ -5,12 +5,14 @@ import importlib
 import statistics
 import sys
 from argparse import Namespace
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
+from typing import TypedDict
 
 import torch
 from mmq_benchmark_common import (
     DenseMMQCase,
+    SampleSummary,
     clear_cuda_cache,
     cuda_device_info,
     cuda_event_times_ms,
@@ -29,6 +31,19 @@ from mmq_benchmark_common import (
 )
 
 from tests.mmq_test_support import load_packed_tensor
+
+
+class ChunkCorrectness(TypedDict):
+    loss: float
+    loss_relative_to_first_chunk: float | None
+    grad_exact_to_first_chunk: bool
+    grad_cosine_to_first_chunk: float
+    grad_relative_l2_to_first_chunk: float | None
+
+
+class ChunkPhase(SampleSummary):
+    phase: int
+    chunk_size: int
 
 
 def parse_args() -> Namespace:
@@ -62,8 +77,8 @@ def load_loss_function(root: Path) -> Callable[..., tuple[torch.Tensor, ...]]:
 def measure_chunk_correctness(
     run: Callable[[int], tuple[torch.Tensor, ...]],
     chunks: tuple[int, ...],
-) -> dict[str, dict[str, float | bool]]:
-    correctness = {}
+) -> dict[str, ChunkCorrectness]:
+    correctness: dict[str, ChunkCorrectness] = {}
     reference_loss = None
     reference_grad = None
     for chunk_size in chunks:
@@ -123,8 +138,8 @@ def measure_chunk_phases(
     phase_order: tuple[int, ...],
     repeats: int,
     batch: int,
-) -> list[dict[str, object]]:
-    phases = []
+) -> list[ChunkPhase]:
+    phases: list[ChunkPhase] = []
     for phase_index, chunk_size in enumerate(phase_order):
         summary = summarize_samples(
             cuda_event_times_ms(
@@ -133,7 +148,11 @@ def measure_chunk_phases(
                 repeats=repeats,
             )
         )
-        phase = {"phase": phase_index, "chunk_size": chunk_size, **summary}
+        phase: ChunkPhase = {
+            "phase": phase_index,
+            "chunk_size": chunk_size,
+            **summary,
+        }
         phases.append(phase)
         print(
             f"B={batch} phase={phase_index} M={chunk_size} "
@@ -200,7 +219,7 @@ def benchmark_batch(
     by_chunk = {}
     for chunk_size in chunks:
         chunk_phases = [phase for phase in phases if phase["chunk_size"] == chunk_size]
-        phase_medians = [float(phase["median_ms"]) for phase in chunk_phases]
+        phase_medians = [phase["median_ms"] for phase in chunk_phases]
         by_chunk[str(chunk_size)] = {
             "bracket_median_ms": statistics.fmean(phase_medians),
             "phase_medians_ms": phase_medians,

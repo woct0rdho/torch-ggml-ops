@@ -1,5 +1,5 @@
-import contextlib
 import hashlib
+import os
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
@@ -79,6 +79,7 @@ class DenseForwardKernelWriterAssembly:
                 "forward writer requires DenseForwardSolution"
             )
         self.solution_key = solution_key
+        self.solution = solution_key.solution
         self.toolchain = toolchain
 
     def write(self, output: Path) -> str:
@@ -92,18 +93,24 @@ class DenseForwardKernelWriterAssembly:
     def source(self) -> str:
         try:
             import rocisa
-            from rocisa import code
-            from rocisa.enum import SignatureValueKind as SVK
+            from rocisa import code  # ty: ignore[unresolved-import]
+            from rocisa.enum import (  # ty: ignore[unresolved-import]
+                SignatureValueKind as SVK,
+            )
         except ImportError as error:
             raise ForwardKernelWriterError(
                 "rocisa is required to generate assembly"
             ) from error
 
-        solution = self.solution_key.solution
-        global_isa = rocisa.rocIsa.getInstance()
+        solution = self.solution
+        global_isa = rocisa.rocIsa.getInstance()  # ty: ignore[unresolved-attribute]
+        original_directory = Path.cwd()
         with tempfile.TemporaryDirectory(prefix="ggtensile-forward-rocisa-") as temp:
-            with contextlib.chdir(temp):
+            os.chdir(temp)
+            try:
                 global_isa.init(solution.isa, str(self.toolchain.assembler), False)
+            finally:
+                os.chdir(original_directory)
         global_isa.setKernel(solution.isa, solution.wavefront_size)
 
         signature = code.SignatureBase(
@@ -327,7 +334,7 @@ class DenseForwardKernelWriterAssembly:
         asm.inst(
             f"v_add_nc_u32 v{lds_address}, {weight_lds_base + 256}, v{lds_address}"
         )
-        if self.solution_key.solution.metadata_schedule in (
+        if self.solution.metadata_schedule in (
             "IndependentExtraction",
             "IndependentExtractionMetadataAfterLowWmma",
         ):
@@ -374,10 +381,7 @@ class DenseForwardKernelWriterAssembly:
                     minimum=73,
                     temporary=74,
                 )
-                if (
-                    self.solution_key.solution.metadata_conversion
-                    == "DirectFloat16Unsigned16"
-                ):
+                if self.solution.metadata_conversion == "DirectFloat16Unsigned16":
                     asm.inst("v_cvt_f16_u16_e32 v77.l, v72.l")
                     asm.inst("v_cvt_f16_u16_e32 v77.h, v73.l")
                 else:
@@ -391,25 +395,25 @@ class DenseForwardKernelWriterAssembly:
         asm.label(".LForwardQ4KDecodedMetadataDone")
 
     def _uses_wave_reuse(self) -> bool:
-        return self.solution_key.solution.operand_source in (
+        return self.solution.operand_source in (
             "GlobalWaveReuse",
             "GlobalWaveBatch4",
         )
 
     def _uses_wave_batch(self) -> bool:
-        return self.solution_key.solution.operand_source == "GlobalWaveBatch4"
+        return self.solution.operand_source == "GlobalWaveBatch4"
 
     def _uses_hip_staged(self) -> bool:
-        return self.solution_key.solution.operand_source in (
+        return self.solution.operand_source in (
             "HipStagedBatch8",
             "HipDecodedStagedBatch8",
         )
 
     def _uses_hip_decoded_staged(self) -> bool:
-        return self.solution_key.solution.operand_source == "HipDecodedStagedBatch8"
+        return self.solution.operand_source == "HipDecodedStagedBatch8"
 
     def _uses_retained_decoded_schedule(self) -> bool:
-        solution = self.solution_key.solution
+        solution = self.solution
         return (
             isinstance(solution, DenseForwardSolution)
             and solution.operand_source == "HipDecodedStagedBatch8"
@@ -747,7 +751,7 @@ class DenseForwardKernelWriterAssembly:
         lane: int,
         serial: int,
     ) -> None:
-        solution = self.solution_key.solution
+        solution = self.solution
         assert isinstance(solution, DenseForwardSolution)
         scheduled = (
             solution.epilogue_tiles_ahead != 8
@@ -1058,7 +1062,7 @@ class DenseForwardKernelWriterAssembly:
         asm.label(label)
 
         asm.inst("s_lshl_b32 s14, s13, 5")
-        if self.solution_key.solution.lds_address_hoist == "WeightMetadata":
+        if self.solution.lds_address_hoist == "WeightMetadata":
             if group_base:
                 asm.inst(
                     f"v_add_nc_u32 v{lds_address}, {32 * group_base}, "
@@ -1083,7 +1087,7 @@ class DenseForwardKernelWriterAssembly:
             f"ds_read_b128 v[{weight_q + 4}:{weight_q + 7}], v{lds_address} offset:16"
         )
 
-        if self.solution_key.solution.activation_addressing == "MadU24":
+        if self.solution.activation_addressing == "MadU24":
             asm.inst(f"v_mad_u32_u24 v{metadata}, 144, v{lane}, s15")
         else:
             asm.inst(f"v_mul_lo_u32 v{metadata}, 144, v{lane}")
@@ -1114,7 +1118,7 @@ class DenseForwardKernelWriterAssembly:
                     f"offset0:{9 * tile} offset1:{9 * (tile + 1)}"
                 )
 
-            if self.solution_key.solution.lds_address_hoist == "WeightMetadata":
+            if self.solution.lds_address_hoist == "WeightMetadata":
                 if group_base:
                     asm.inst(
                         f"v_add_nc_u32 v{metadata}, {4 * group_base}, "
@@ -1145,7 +1149,7 @@ class DenseForwardKernelWriterAssembly:
                     f"v{metadata + element // 2} offset0:0 offset1:152"
                 )
 
-        deferred_metadata = self.solution_key.solution.metadata_schedule in (
+        deferred_metadata = self.solution.metadata_schedule in (
             "MetadataAfterLowWmma",
             "IndependentExtractionMetadataAfterLowWmma",
         )
@@ -1183,7 +1187,7 @@ class DenseForwardKernelWriterAssembly:
         overlap_lds: bool,
         deferred_metadata_emitter: Callable[[], None] | None = None,
     ) -> None:
-        clamp = " clamp" if self.solution_key.solution.wmma_clamp else ""
+        clamp = " clamp" if self.solution.wmma_clamp else ""
         for tile in range(8):
             if overlap_lds:
                 first_wait = 15 if deferred_metadata_emitter is not None else 23
@@ -1463,7 +1467,7 @@ class DenseForwardKernelWriterAssembly:
             asm.inst(f"v_pk_mul_f16 v{scaled_dm}, v{element_metadata}, v{scaled_dm}")
             asm.inst(f"v_mov_b32 v{scaled_dm_base + element}, v{scaled_dm}")
 
-        clamp = " clamp" if self.solution_key.solution.wmma_clamp else ""
+        clamp = " clamp" if self.solution.wmma_clamp else ""
         for tile_start in (0, 4):
             for local_tile in range(4):
                 tile = tile_start + local_tile
@@ -1613,7 +1617,7 @@ class DenseForwardKernelWriterAssembly:
             asm.inst("s_waitcnt vmcnt(0)")
             for register in range(self.C, self.C + 8):
                 asm.inst(f"v_mov_b32 v{register}, 0")
-            clamp = " clamp" if self.solution_key.solution.wmma_clamp else ""
+            clamp = " clamp" if self.solution.wmma_clamp else ""
             asm.inst(
                 f"v_wmma_i32_16x16x16_iu8 v[{self.C}:{self.C + 7}], "
                 f"v[{weight_q}:{weight_q + 3}], "
@@ -1682,7 +1686,7 @@ class DenseForwardKernelWriterAssembly:
             asm.inst(f"v_and_b32 v{register}, 0x0f0f0f0f, v{register}")
         for register in range(self.C, self.C + 8):
             asm.inst(f"v_mov_b32 v{register}, 0")
-        clamp = " clamp" if self.solution_key.solution.wmma_clamp else ""
+        clamp = " clamp" if self.solution.wmma_clamp else ""
         asm.inst(
             f"v_wmma_i32_16x16x16_iu8 v[{self.C}:{self.C + 7}], "
             f"v[{self.WEIGHT_Q}:{self.WEIGHT_Q + 3}], "

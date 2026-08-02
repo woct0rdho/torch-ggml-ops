@@ -1,7 +1,9 @@
 import builtins
 import json
+from collections.abc import Mapping, Sequence
 from dataclasses import fields, replace
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -35,12 +37,12 @@ def _toolchain() -> Toolchain:
 
 
 def _key(
-    size: ProblemSize = ProblemSize(2048, 512, 2048),
+    size: ProblemSize | None = None,
     solution: DenseForwardSolution | None = None,
 ) -> SolutionKey:
     return SolutionKey(
         ProblemType.dense_mmq_forward_q4_k(),
-        size,
+        size or ProblemSize(2048, 512, 2048),
         solution or DenseForwardSolution.q4_k_pilot(),
     )
 
@@ -99,7 +101,9 @@ def test_forward_solution_key_is_strict_and_round_trips() -> None:
     assert SolutionKey.from_mapping(key.to_mapping()) == key
     assert "dense_fwd_q4_k" in key.kernel_name
     mapping = key.to_mapping()
-    solution = dict(mapping["Solution"])
+    solution_mapping = mapping["Solution"]
+    assert isinstance(solution_mapping, dict)
+    solution = dict(solution_mapping)
     solution["Unknown"] = 1
     mapping["Solution"] = solution
     with pytest.raises(SchemaError, match="invalid Solution"):
@@ -556,10 +560,16 @@ def test_forward_writer_reports_missing_rocisa(
     writer = DenseForwardKernelWriterAssembly(_key(), _toolchain())
     original_import = builtins.__import__
 
-    def reject_rocisa(name: str, *args: object, **kwargs: object):
+    def reject_rocisa(
+        name: str,
+        globals: Mapping[str, object] | None = None,
+        locals: Mapping[str, object] | None = None,
+        fromlist: Sequence[str] | None = (),
+        level: int = 0,
+    ) -> ModuleType:
         if name == "rocisa" or name.startswith("rocisa."):
             raise ImportError("missing rocisa")
-        return original_import(name, *args, **kwargs)
+        return original_import(name, globals, locals, fromlist, level)
 
     monkeypatch.setattr(builtins, "__import__", reject_rocisa)
     with pytest.raises(ForwardKernelWriterError, match="rocisa is required"):

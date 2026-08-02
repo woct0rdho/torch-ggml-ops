@@ -1,8 +1,11 @@
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, ClassVar, Mapping, Self
+from typing import ClassVar, Literal, overload
+
+from typing_extensions import Self
 
 
 class SchemaError(ValueError):
@@ -17,7 +20,12 @@ def _strict_mapping(
 ) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
         raise SchemaError(f"{name} must be a mapping")
-    actual = {str(key) for key in value}
+    normalized: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise SchemaError(f"{name} keys must be strings")
+        normalized[key] = item
+    actual = set(normalized)
     missing = sorted(keys - actual)
     unknown = sorted(actual - keys)
     if missing or unknown:
@@ -27,7 +35,7 @@ def _strict_mapping(
         if unknown:
             details.append(f"unknown {unknown}")
         raise SchemaError(f"invalid {name}: {', '.join(details)}")
-    return value
+    return normalized
 
 
 def _string(value: object, name: str) -> str:
@@ -48,13 +56,20 @@ def _boolean(value: object, name: str) -> bool:
     return value
 
 
+@overload
+def _integer_tuple(
+    value: object, name: str, length: Literal[3]
+) -> tuple[int, int, int]: ...
+
+
+@overload
+def _integer_tuple(value: object, name: str, length: int) -> tuple[int, ...]: ...
+
+
 def _integer_tuple(value: object, name: str, length: int) -> tuple[int, ...]:
-    if type(value) is not list or len(value) != length:
+    if not isinstance(value, list) or len(value) != length:
         raise SchemaError(f"{name} must be a {length}-element list")
-    for index, item in enumerate(value):
-        if type(item) is not int:
-            raise SchemaError(f"{name}[{index}] must be int, not {type(item).__name__}")
-    return tuple(value)
+    return tuple(_integer(item, f"{name}[{index}]") for index, item in enumerate(value))
 
 
 @dataclass(frozen=True)
@@ -834,7 +849,7 @@ class KernelArtifact:
     sgpr_count: int
     lds_num_bytes: int
 
-    def to_mapping(self) -> dict[str, Any]:
+    def to_mapping(self) -> dict[str, object]:
         return {
             "SolutionKey": self.solution_key.to_mapping(),
             "SolutionHash": self.solution_key.hash,

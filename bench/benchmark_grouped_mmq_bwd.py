@@ -15,6 +15,7 @@ layout conversion included.
 from argparse import Namespace
 from collections.abc import Callable
 from pathlib import Path
+from typing import TypedDict, cast
 
 import gguf
 import torch
@@ -22,6 +23,7 @@ from aiter.ops.triton.gmm import gmm
 from aiter_gmm_heuristics import gmm_config as aiter_gmm_config
 from grouped_mmq_benchmark_common import (
     GroupedMMQCase,
+    GroupSummary,
     RouteDistribution,
     RoutedWeights,
     bf16_fixed_grad_input_reference,
@@ -36,6 +38,8 @@ from grouped_mmq_benchmark_common import (
     truncate_distribution,
 )
 from mmq_benchmark_common import (
+    BenchmarkTiming,
+    ErrorMetrics,
     benchmark_callable,
     clear_cuda_cache,
     cuda_device_info,
@@ -46,11 +50,19 @@ from mmq_benchmark_common import (
     print_benchmark_header,
     write_json_report,
 )
+from typing_extensions import NotRequired
 
 import torch_ggml_ops  # noqa: F401 Register native operators before torch.ops use.
 
 DEFAULT_OUTPUT = Path("/tmp/torch_ggml_ops_grouped_mmq_bwd_benchmark.json")
 DENSE_PACKED_REFERENCE_QUANT_TYPES = frozenset({"Q3_K", "Q4_K", "Q5_K", "Q6_K"})
+
+
+class BackwardCorrectness(TypedDict):
+    rows: int
+    dense_reference_kind: NotRequired[str]
+    dense_reference: NotRequired[ErrorMetrics]
+    bf16_reference: ErrorMetrics
 
 
 def aiter_grouped_pair(
@@ -185,7 +197,7 @@ def correctness_metrics(
     weights: RoutedWeights,
     distribution: RouteDistribution,
     aiter_config: dict[str, int],
-) -> dict[str, object]:
+) -> BackwardCorrectness:
     checked_distribution = truncate_distribution(distribution, grad_outputs[0].shape[0])
     expert_indices, expert_offsets, group_sizes = make_route_tensors(
         checked_distribution
@@ -226,7 +238,7 @@ def fixed_correctness_metrics(
     grad_output: torch.Tensor,
     packed_weight: torch.Tensor,
     logical_weight: torch.Tensor,
-) -> dict[str, object]:
+) -> BackwardCorrectness:
     with torch.inference_mode():
         actual = torch.ops.torch_ggml_ops.fixed_grouped_mmq_grad_input.default(
             grad_output,
@@ -240,16 +252,19 @@ def fixed_correctness_metrics(
 
 
 def print_result(result: dict[str, object]) -> None:
-    packed = result["packed"]
-    reference = result["bf16_reference"]
-    correctness = result["correctness"]
+    packed = cast(BenchmarkTiming, result["packed"])
+    reference = cast(BenchmarkTiming, result["bf16_reference"])
+    correctness = cast(BackwardCorrectness, result["correctness"])
+    group_summary = cast(GroupSummary, result["group_summary"])
     reference_label = "BMM" if result["kind"] == "fixed" else "AITER"
     row_label = "M" if result["kind"] == "fixed" else "R"
     dense_metrics = correctness.get("dense_reference", correctness["bf16_reference"])
+    normalized_rmse = correctness["bf16_reference"]["normalized_rmse"]
+    assert normalized_rmse is not None
     print(
         f"{result['case']:<24} B={result['batch']:>2} "
         f"{result['distribution']:<8} {row_label}={result['rows']:>6} "
-        f"G={result['group_summary']['active_experts']:>3} "
+        f"G={group_summary['active_experts']:>3} "
         f"{result['quant_type']:<8} "
         f"PACKED={packed['median_ms']:>8.3f} ms "
         f"{packed['logical_tflops']:>6.2f} TF "
@@ -257,7 +272,7 @@ def print_result(result: dict[str, object]) -> None:
         f"{reference['logical_tflops']:>6.2f} TF "
         f"ratio={result['packed_to_reference_tflops_ratio']:>5.2f}x "
         f"diff={dense_metrics['different_bf16_elements']:>7} "
-        f"NRMSE={correctness['bf16_reference']['normalized_rmse']:.3e}",
+        f"NRMSE={normalized_rmse:.3e}",
         flush=True,
     )
 
@@ -409,7 +424,7 @@ def benchmark_transient_control(
     selected_logical: tuple[torch.Tensor, ...],
     group_sizes: torch.Tensor,
     aiter_config: dict[str, int],
-) -> dict[str, object] | None:
+) -> BenchmarkTiming | None:
     if not args.transient_bf16_control:
         return None
     return benchmark_callable(
@@ -436,11 +451,11 @@ def make_routed_result(
     distribution: RouteDistribution,
     top_k: int,
     aiter_config: dict[str, int],
-    packed: dict[str, object],
-    reference: dict[str, object],
-    transient: dict[str, object] | None,
+    packed: BenchmarkTiming,
+    reference: BenchmarkTiming,
+    transient: BenchmarkTiming | None,
     transient_workspace_bytes: int,
-    correctness: dict[str, object],
+    correctness: BackwardCorrectness,
 ) -> dict[str, object]:
     result = {
         **grouped_result_metadata(

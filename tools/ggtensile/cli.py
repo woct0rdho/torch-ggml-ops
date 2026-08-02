@@ -4,8 +4,9 @@ import json
 import shutil
 import sys
 import tempfile
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from .inspection import InspectionError, inspect_artifact
 from .kernel_writer_assembly_mmq_bwd import KernelWriterAssembly

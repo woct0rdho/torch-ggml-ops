@@ -56,8 +56,7 @@ def _repository_from_url(value: str) -> tuple[str, str] | None:
     else:
         return None
     path = path.strip("/")
-    if path.endswith(".git"):
-        path = path[:-4]
+    path = path.removesuffix(".git")
     if not host or not path:
         return None
     return host.lower(), path.lower()
@@ -72,7 +71,8 @@ def _canonical_master_ref(root: Path) -> str:
         ref = f"refs/remotes/{remote}/master"
         exists = (
             subprocess.run(
-                ["git", "-C", str(root), "show-ref", "--verify", "--quiet", ref]
+                ["git", "-C", str(root), "show-ref", "--verify", "--quiet", ref],
+                check=False,
             ).returncode
             == 0
         )
@@ -94,7 +94,8 @@ def _canonical_master_ref(root: Path) -> str:
                     "--is-ancestor",
                     other,
                     candidate,
-                ]
+                ],
+                check=False,
             ).returncode
             == 0
             for other in refs

@@ -7,6 +7,7 @@ import json
 import statistics
 import sys
 from pathlib import Path
+from typing import TypedDict
 
 import gguf
 import numpy as np
@@ -19,12 +20,32 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tools.ggtensile.model import SolutionKey  # noqa: E402
-from tools.ggtensile.runtime import DenseBackwardModule  # noqa: E402
+from tools.ggtensile.model import SolutionKey
+from tools.ggtensile.runtime import DenseBackwardModule
 
 DEFAULT_MODEL = Path.home() / "models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf"
 DEFAULT_TENSOR = "blk.39.attn_q.weight"
 BF16_WMMA_ROOFLINE_TFLOPS = 59.4
+
+
+class Metrics(TypedDict):
+    different_bf16_elements: int
+    elements: int
+    finite: bool
+    max_absolute_error: float | None
+    error_rms: float | None
+    reference_rms: float
+    normalized_rmse: float | None
+
+
+class TimingSummary(TypedDict):
+    samples_ms: list[float]
+    median_ms: float
+    mean_ms: float
+    min_ms: float
+    max_ms: float
+    median_tflops: float
+    wmma_roofline_fraction: float
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -57,7 +78,7 @@ def _event_time(function) -> tuple[float, torch.Tensor]:
     return float(start.elapsed_time(end)), output
 
 
-def _metrics(actual: torch.Tensor, expected: torch.Tensor) -> dict[str, object]:
+def _metrics(actual: torch.Tensor, expected: torch.Tensor) -> Metrics:
     difference = actual.float() - expected.float()
     finite = bool(torch.isfinite(difference).all())
     reference_rms = float(expected.float().square().mean().sqrt())
@@ -77,7 +98,7 @@ def _metrics(actual: torch.Tensor, expected: torch.Tensor) -> dict[str, object]:
     }
 
 
-def _timing_summary(samples_ms: list[float], logical_flops: int) -> dict[str, object]:
+def _timing_summary(samples_ms: list[float], logical_flops: int) -> TimingSummary:
     median_ms = statistics.median(samples_ms)
     median_tflops = logical_flops / (median_ms * 1.0e9)
     return {
@@ -191,7 +212,9 @@ def main() -> None:
         if assembly_control is not None:
             launch_assembly_control()
         torch.cuda.synchronize()
-        correctness = {"candidate_vs_hip": _metrics(candidate_output, control_output)}
+        correctness: dict[str, Metrics] = {
+            "candidate_vs_hip": _metrics(candidate_output, control_output)
+        }
         if assembly_control_output is not None:
             correctness["assembly_control_vs_hip"] = _metrics(
                 assembly_control_output, control_output

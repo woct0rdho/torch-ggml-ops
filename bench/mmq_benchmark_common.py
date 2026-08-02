@@ -4,10 +4,10 @@ import json
 import math
 import os
 import statistics
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Protocol, TypeVar
+from typing import Protocol, TypedDict, TypeVar, cast
 
 import gguf
 import torch
@@ -40,11 +40,46 @@ class DenseMMQCase:
 
 
 class _SelectableCase(Protocol):
-    name: str
-    priority: str
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def priority(self) -> str: ...
 
 
 _CaseT = TypeVar("_CaseT", bound=_SelectableCase)
+
+
+class SampleSummary(TypedDict):
+    samples_ms: list[float]
+    median_ms: float
+    min_ms: float
+    max_ms: float
+    mean_ms: float
+
+
+class TimingSummary(SampleSummary):
+    logical_tflops: float
+
+
+class BenchmarkTiming(TimingSummary):
+    incremental_peak_allocated_bytes: int
+    incremental_peak_reserved_bytes: int
+
+
+class PerformanceComparison(TypedDict):
+    packed_to_reference_tflops_ratio: float
+    estimated_packed_model_ms: float
+    estimated_reference_model_ms: float
+
+
+class ErrorMetrics(TypedDict):
+    reference_rms: float
+    error_rms: float
+    normalized_rmse: float | None
+    max_absolute_error: float
+    different_bf16_elements: int
+    elements: int
 
 
 # One real checkpoint tensor represents each (N, K, quant_type) combination
@@ -342,7 +377,7 @@ def incremental_peak_bytes(
     )
 
 
-def summarize_samples(values: list[float]) -> dict[str, object]:
+def summarize_samples(values: list[float]) -> SampleSummary:
     return {
         "samples_ms": values,
         "median_ms": statistics.median(values),
@@ -358,11 +393,13 @@ def summarize_timing(
     out_features: int,
     in_features: int,
     projections: int = 1,
-) -> dict[str, object]:
-    result = summarize_samples(times_ms)
+) -> TimingSummary:
+    summary = summarize_samples(times_ms)
     logical_flops = 2 * projections * rows * out_features * in_features
-    result["logical_tflops"] = logical_flops / (float(result["median_ms"]) * 1.0e9)
-    return result
+    return {
+        **summary,
+        "logical_tflops": logical_flops / (summary["median_ms"] * 1.0e9),
+    }
 
 
 def benchmark_callable(
@@ -374,7 +411,7 @@ def benchmark_callable(
     repeats: int,
     *,
     projections: int = 1,
-) -> dict[str, object]:
+) -> BenchmarkTiming:
     times = cuda_event_times_ms(function, warmup, repeats)
     allocated, reserved = incremental_peak_bytes(function)
     return {
@@ -391,10 +428,10 @@ def benchmark_callable(
 
 
 def performance_comparison(
-    packed: Mapping[str, object],
-    reference: Mapping[str, object],
+    packed: TimingSummary,
+    reference: TimingSummary,
     model_calls: int,
-) -> dict[str, object]:
+) -> PerformanceComparison:
     return {
         "packed_to_reference_tflops_ratio": (
             packed["logical_tflops"] / reference["logical_tflops"]
@@ -410,7 +447,7 @@ def relative_error(error: float, reference: float) -> float | None:
     return 0.0 if error == 0.0 else None
 
 
-def error_metrics(actual: torch.Tensor, expected: torch.Tensor) -> dict[str, object]:
+def error_metrics(actual: torch.Tensor, expected: torch.Tensor) -> ErrorMetrics:
     difference = actual.float() - expected.float()
     reference_rms = float(expected.float().square().mean().sqrt())
     error_rms = float(difference.square().mean().sqrt())
@@ -450,9 +487,11 @@ def print_benchmark_header(
 
 
 def print_dense_result(result: Mapping[str, object]) -> None:
-    packed = result["packed"]
-    reference = result["bf16_reference"]
-    correctness = result["correctness"]
+    packed = cast(BenchmarkTiming, result["packed"])
+    reference = cast(BenchmarkTiming, result["bf16_reference"])
+    correctness = cast(ErrorMetrics, result["correctness"])
+    normalized_rmse = correctness["normalized_rmse"]
+    assert normalized_rmse is not None
     print(
         f"{result['case']:<23} "
         f"B={result['batch']:>2} calls={result['model_calls']:>3} "
@@ -463,7 +502,7 @@ def print_dense_result(result: Mapping[str, object]) -> None:
         f"BF16={reference['median_ms']:>8.3f} ms "
         f"{reference['logical_tflops']:>6.2f} TF "
         f"ratio={result['packed_to_reference_tflops_ratio']:>5.2f}x "
-        f"NRMSE={correctness['normalized_rmse']:.3e}",
+        f"NRMSE={normalized_rmse:.3e}",
         flush=True,
     )
 

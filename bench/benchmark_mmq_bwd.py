@@ -17,6 +17,7 @@ from pathlib import Path
 import gguf
 import torch
 from mmq_benchmark_common import (
+    BenchmarkTiming,
     DenseMMQCase,
     benchmark_callable,
     clear_cuda_cache,
@@ -69,8 +70,8 @@ def benchmark_packed_rows(
     rows_to_measure: tuple[int, ...],
     packed_weight: torch.Tensor,
     quant_type: int,
-) -> dict[int, dict[str, object]]:
-    measurements = {}
+) -> dict[int, BenchmarkTiming]:
+    measurements: dict[int, BenchmarkTiming] = {}
     for row_index, rows in enumerate(rows_to_measure):
         grad_output = make_bf16_input(
             rows,
@@ -104,9 +105,9 @@ def benchmark_reference_rows(
     packed_weight: torch.Tensor,
     logical_weight: torch.Tensor,
     quant_type: int,
-) -> tuple[dict[int, dict[str, object]], dict[int, dict[str, object]]]:
-    reference_measurements = {}
-    correctness = {}
+) -> tuple[dict[int, BenchmarkTiming], dict[int, dict[str, object]]]:
+    reference_measurements: dict[int, BenchmarkTiming] = {}
+    correctness: dict[int, dict[str, object]] = {}
     for row_index, rows in enumerate(rows_to_measure):
         grad_output = make_bf16_input(
             rows,

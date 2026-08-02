@@ -19,6 +19,7 @@ from pathlib import Path
 import gguf
 import torch
 from mmq_benchmark_common import (
+    BenchmarkTiming,
     DenseMMQCase,
     benchmark_callable,
     clear_cuda_cache,
@@ -46,6 +47,11 @@ from tests.mmq_test_support import load_packed_tensor
 DEFAULT_OUTPUT = Path("/tmp/torch_ggml_ops_mmq_fwd_benchmark.json")
 
 
+class TransientTiming(BenchmarkTiming):
+    workspace_bytes: int
+    decode_compute_included: bool
+
+
 def correctness_metrics(
     input: torch.Tensor,
     packed_weight: torch.Tensor,
@@ -64,7 +70,7 @@ def benchmark_transient_bf16_floor(
     logical_weight: torch.Tensor,
     warmup: int,
     repeats: int,
-) -> dict[str, object]:
+) -> TransientTiming:
     def function() -> torch.Tensor:
         transient_weight = torch.empty_like(logical_weight)
         transient_weight.copy_(logical_weight)
@@ -91,8 +97,8 @@ def benchmark_packed_rows(
     rows_to_measure: tuple[int, ...],
     packed_weight: torch.Tensor,
     quant_type: int,
-) -> dict[int, dict[str, object]]:
-    measurements = {}
+) -> dict[int, BenchmarkTiming]:
+    measurements: dict[int, BenchmarkTiming] = {}
     for row_index, rows in enumerate(rows_to_measure):
         input = make_bf16_input(
             rows,
@@ -122,13 +128,13 @@ def benchmark_reference_rows(
     logical_weight: torch.Tensor,
     quant_type: int,
 ) -> tuple[
-    dict[int, dict[str, object]],
-    dict[int, dict[str, object]],
+    dict[int, BenchmarkTiming],
+    dict[int, TransientTiming],
     dict[int, dict[str, object]],
 ]:
-    reference_measurements = {}
-    transient_measurements = {}
-    correctness = {}
+    reference_measurements: dict[int, BenchmarkTiming] = {}
+    transient_measurements: dict[int, TransientTiming] = {}
+    correctness: dict[int, dict[str, object]] = {}
     transposed_weight = logical_weight.transpose(0, 1)
     for row_index, rows in enumerate(rows_to_measure):
         input = make_bf16_input(

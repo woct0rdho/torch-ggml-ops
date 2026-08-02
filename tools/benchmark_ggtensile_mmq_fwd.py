@@ -6,6 +6,7 @@ import json
 import statistics
 import sys
 from pathlib import Path
+from typing import TypedDict, cast
 
 import gguf
 import numpy as np
@@ -18,8 +19,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tools.ggtensile.model import SolutionKey  # noqa: E402
-from tools.ggtensile.runtime import (  # noqa: E402
+from tools.ggtensile.model import SolutionKey
+from tools.ggtensile.runtime import (
     DenseForwardModule,
     FixedDS4QuantizerModule,
     FixedHipDenseForwardModule,
@@ -29,6 +30,25 @@ DEFAULT_MODEL = Path.home() / "models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf"
 MAX_CANDIDATE_TO_HIP_NORMALIZED_RMSE = 5e-4
 MAX_CANDIDATE_TO_HIP_ABSOLUTE_ERROR = 0.015625
 MAX_INDEPENDENT_NORMALIZED_RMSE = 0.04
+
+
+class Metrics(TypedDict):
+    DifferentBf16Elements: int
+    Elements: int
+    Finite: bool
+    MaxAbsoluteError: float | None
+    ErrorRms: float | None
+    ReferenceRms: float
+    NormalizedRmse: float | None
+
+
+class Timing(TypedDict):
+    SamplesMs: list[float]
+    MedianMs: float
+    MeanMs: float
+    MinMs: float
+    MaxMs: float
+    LogicalTflops: float
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -57,7 +77,7 @@ def _event_time(function) -> float:
     return float(start.elapsed_time(end))
 
 
-def _metrics(actual: torch.Tensor, expected: torch.Tensor) -> dict[str, object]:
+def _metrics(actual: torch.Tensor, expected: torch.Tensor) -> Metrics:
     difference = actual.float() - expected.float()
     finite = bool(torch.isfinite(difference).all())
     reference_rms = float(expected.float().square().mean().sqrt())
@@ -77,7 +97,7 @@ def _metrics(actual: torch.Tensor, expected: torch.Tensor) -> dict[str, object]:
     }
 
 
-def _timing(samples: list[float], logical_flops: int) -> dict[str, object]:
+def _timing(samples: list[float], logical_flops: int) -> Timing:
     median_ms = statistics.median(samples)
     return {
         "SamplesMs": samples,
@@ -138,9 +158,7 @@ def main() -> None:
     with contextlib.ExitStack() as stack:
         quantizer = stack.enter_context(FixedDS4QuantizerModule())
         workspace = quantizer.allocate(input_tensor)
-        candidate = stack.enter_context(
-            DenseForwardModule(key, arguments.code_object)
-        )
+        candidate = stack.enter_context(DenseForwardModule(key, arguments.code_object))
         hip_multiply = stack.enter_context(FixedHipDenseForwardModule(key))
 
         def quantize() -> None:
@@ -192,9 +210,7 @@ def main() -> None:
         )
         torch.cuda.synchronize()
         baseline_candidate = candidate_output.clone()
-        correctness["CandidateVsHipMultiply"] = _metrics(
-            candidate_output, hip_output
-        )
+        correctness["CandidateVsHipMultiply"] = _metrics(candidate_output, hip_output)
         correctness["CandidateVsPublicComplete"] = _metrics(
             candidate_output, public_output
         )
@@ -291,9 +307,7 @@ def main() -> None:
                 samples[name].append(_event_time(timing_functions[name]))
 
     logical_flops = 2 * size.m * size.n * size.k
-    timing = {
-        name: _timing(values, logical_flops) for name, values in samples.items()
-    }
+    timing = {name: _timing(values, logical_flops) for name, values in samples.items()}
     report = {
         "SolutionKey": key.to_mapping(),
         "KernelName": key.kernel_name,
@@ -306,21 +320,17 @@ def main() -> None:
         "WorkspaceShape": [size.k // 128, size.m, 144],
         "LogicalFlops": logical_flops,
         "CorrectnessThresholds": {
-            "MaxCandidateToHipNormalizedRmse": (
-                MAX_CANDIDATE_TO_HIP_NORMALIZED_RMSE
-            ),
+            "MaxCandidateToHipNormalizedRmse": (MAX_CANDIDATE_TO_HIP_NORMALIZED_RMSE),
             "MaxCandidateToHipAbsoluteError": MAX_CANDIDATE_TO_HIP_ABSOLUTE_ERROR,
             "MaxIndependentNormalizedRmse": MAX_INDEPENDENT_NORMALIZED_RMSE,
         },
         "Correctness": correctness,
         "Timing": timing,
         "CompleteCandidateToHip": (
-            timing["GGTensileComplete"]["MedianMs"]
-            / timing["HipComplete"]["MedianMs"]
+            timing["GGTensileComplete"]["MedianMs"] / timing["HipComplete"]["MedianMs"]
         ),
         "MultiplyCandidateToHip": (
-            timing["GGTensileMultiply"]["MedianMs"]
-            / timing["HipMultiply"]["MedianMs"]
+            timing["GGTensileMultiply"]["MedianMs"] / timing["HipMultiply"]["MedianMs"]
         ),
     }
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
@@ -338,21 +348,28 @@ def main() -> None:
         "PackedWeightMutationVsHipMultiply",
         "WorkspaceMutationVsHipMultiply",
     )
+    hip_agreement = tuple(
+        cast(Metrics, correctness[name]) for name in hip_agreement_names
+    )
     if any(
-        not correctness[name]["Finite"]
-        or correctness[name]["NormalizedRmse"]
-        > MAX_CANDIDATE_TO_HIP_NORMALIZED_RMSE
-        or correctness[name]["MaxAbsoluteError"]
-        > MAX_CANDIDATE_TO_HIP_ABSOLUTE_ERROR
-        for name in hip_agreement_names
+        not metrics["Finite"]
+        or metrics["NormalizedRmse"] is None
+        or metrics["NormalizedRmse"] > MAX_CANDIDATE_TO_HIP_NORMALIZED_RMSE
+        or metrics["MaxAbsoluteError"] is None
+        or metrics["MaxAbsoluteError"] > MAX_CANDIDATE_TO_HIP_ABSOLUTE_ERROR
+        for metrics in hip_agreement
     ):
         raise SystemExit("candidate failed forward correctness tolerance")
-    if (
-        not arguments.skip_reference
-        and correctness["CandidateVsIndependentReference"]["NormalizedRmse"]
-        > MAX_INDEPENDENT_NORMALIZED_RMSE
-    ):
-        raise SystemExit("candidate failed independent-reference tolerance")
+    if not arguments.skip_reference:
+        independent_metrics = cast(
+            Metrics, correctness["CandidateVsIndependentReference"]
+        )
+        independent_nrmse = independent_metrics["NormalizedRmse"]
+        if (
+            independent_nrmse is None
+            or independent_nrmse > MAX_INDEPENDENT_NORMALIZED_RMSE
+        ):
+            raise SystemExit("candidate failed independent-reference tolerance")
     if correctness["ProducerRepeat"]["DifferentBytes"] != 0:
         raise SystemExit("fixed DS4 producer is not deterministic")
     if correctness["InputMutationChangedElements"] == 0:

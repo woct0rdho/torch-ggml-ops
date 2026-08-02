@@ -4,13 +4,12 @@ import os
 import sysconfig
 from pathlib import Path
 from types import TracebackType
-from typing import TYPE_CHECKING, Self
 
-from .model import DenseForwardSolution, SolutionKey
+import torch
+from typing_extensions import Self
+
+from .model import DenseForwardSolution, Solution, SolutionKey
 from .validation import validate_solution
-
-if TYPE_CHECKING:
-    import torch
 
 
 class HIPRuntimeError(RuntimeError):
@@ -123,6 +122,8 @@ class DenseBackwardModule:
             )
         )
         solution = self.solution_key.solution
+        if not isinstance(solution, Solution):
+            raise HIPRuntimeError("dense backward requires Solution")
         group_m = solution.work_group_mapping
         m_blocks = size.m // solution.macro_tile0
         self._check(
@@ -214,7 +215,7 @@ class DenseForwardModule(DenseBackwardModule):
             kernel_name=kernel_name,
         )
 
-    def launch(
+    def launch(  # ty: ignore[invalid-method-override]
         self,
         packed_weight: torch.Tensor,
         activations: torch.Tensor,
@@ -222,8 +223,6 @@ class DenseForwardModule(DenseBackwardModule):
         *,
         stream: int,
     ) -> None:
-        import torch
-
         if not self._module or not self._function:
             raise HIPRuntimeError("HIP module is closed")
         size = self.solution_key.problem_size
@@ -304,11 +303,10 @@ class FixedHipDenseForwardModule(DenseForwardModule):
     ) -> None:
         k = solution_key.problem_size.k
         if k not in (512, 2048, 4096):
-            raise HIPRuntimeError("installed Q4_K control requires K=512, 2048, or 4096")
-        symbol = (
-            "torch_ggml_ops_mmq_gfx1151_v1_dense_fwd_q4_k_"
-            f"k{k}_j128_full"
-        )
+            raise HIPRuntimeError(
+                "installed Q4_K control requires K=512, 2048, or 4096"
+            )
+        symbol = f"torch_ggml_ops_mmq_gfx1151_v1_dense_fwd_q4_k_k{k}_j128_full"
         super().__init__(
             solution_key,
             code_object or _find_installed_kernel(symbol),
@@ -343,9 +341,7 @@ class FixedDS4QuantizerModule(DenseBackwardModule):
         self._module = ctypes.c_void_p()
         self._function = ctypes.c_void_p()
         self._check(
-            self._lib.hipModuleLoad(
-                ctypes.byref(self._module), str(selected).encode()
-            ),
+            self._lib.hipModuleLoad(ctypes.byref(self._module), str(selected).encode()),
             "hipModuleLoad",
         )
         try:
@@ -373,7 +369,7 @@ class FixedDS4QuantizerModule(DenseBackwardModule):
             device=input_tensor.device,
         )
 
-    def launch(
+    def launch(  # ty: ignore[invalid-method-override]
         self,
         input_tensor: torch.Tensor,
         output: torch.Tensor,
@@ -470,6 +466,4 @@ def _find_installed_kernel(symbol: str) -> Path:
         candidate = package_root / "kernels" / "gfx1151" / f"{symbol}.hsaco"
         if candidate.is_file():
             return candidate
-    raise HIPRuntimeError(
-        f"cannot find installed kernel {symbol}; set {override_name}"
-    )
+    raise HIPRuntimeError(f"cannot find installed kernel {symbol}; set {override_name}")

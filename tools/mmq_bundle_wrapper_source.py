@@ -1,7 +1,7 @@
 """Render the concrete C++ entry points compiled into the gfx1151 MMQ bundle."""
 
 from dataclasses import dataclass
-from enum import IntEnum, StrEnum
+from enum import Enum, IntEnum
 
 
 class QuantType(IntEnum):
@@ -15,7 +15,7 @@ class QuantType(IntEnum):
     IQ2_S = 22
 
 
-class ForwardKind(StrEnum):
+class ForwardKind(str, Enum):
     QUANTIZE = "quantize"
     DENSE = "dense"
     GROUPED_SERIAL = "grouped_serial"
@@ -24,7 +24,7 @@ class ForwardKind(StrEnum):
     ROW_TASK_SETUP = "row_task_setup"
 
 
-class GroupedBackwardKind(StrEnum):
+class GroupedBackwardKind(str, Enum):
     GENERIC_SINGLE = "generic_single"
     GENERIC_PAIR = "generic_pair"
     Q4_SINGLE_M64 = "q4_single_m64"

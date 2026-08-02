@@ -1,7 +1,10 @@
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
+from typing import TypedDict
+
+from typing_extensions import NotRequired
 
 from .model import (
     DenseForwardSolution,
@@ -18,7 +21,17 @@ DEFAULT_RETAINED_SOLUTION = CONFIG_DIR / "q4_k_retained_solution.json"
 DEFAULT_SELECTED_SOLUTIONS = CONFIG_DIR / "q4_k_selected_solutions.json"
 
 _EXPECTED_M = (2048, 8192, 32768)
-_CAMPAIGN_SPECS = {
+_FamilySpec = tuple[tuple[int, int], str, int]
+
+
+class _CampaignSpec(TypedDict):
+    families: dict[str, _FamilySpec]
+    block_bytes: int
+    m_values: NotRequired[dict[str, tuple[int, ...]]]
+    block_values: NotRequired[int]
+
+
+_CAMPAIGN_SPECS: dict[str, _CampaignSpec] = {
     "Q3_K": {
         "families": {
             "narrow": ((2048, 512), "blk.3.attn_k.weight", 9),
@@ -69,7 +82,7 @@ _CAMPAIGN_SPECS = {
     },
 }
 
-_FORWARD_CAMPAIGN_SPECS = {
+_FORWARD_CAMPAIGN_SPECS: dict[str, _CampaignSpec] = {
     "Q4_K": {
         "families": {
             "narrow": ((512, 2048), "blk.5.ffn_gate_shexp.weight", 70),
@@ -82,7 +95,7 @@ _FORWARD_CAMPAIGN_SPECS = {
 }
 
 
-def _campaign_spec(operation_type: str, quant_type: str) -> Mapping[str, object]:
+def _campaign_spec(operation_type: str, quant_type: str) -> _CampaignSpec:
     specs = (
         _FORWARD_CAMPAIGN_SPECS
         if operation_type == "DenseMMQForward"
@@ -103,12 +116,17 @@ class CampaignError(ValueError):
 def _mapping(value: object, name: str, keys: frozenset[str]) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
         raise CampaignError(f"{name} must be a JSON object")
-    actual = {str(key) for key in value}
+    normalized: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise CampaignError(f"{name} keys must be strings")
+        normalized[key] = item
+    actual = set(normalized)
     if actual != keys:
         raise CampaignError(
             f"invalid {name} keys: expected {sorted(keys)}, got {sorted(actual)}"
         )
-    return value
+    return normalized
 
 
 def _string(value: object, name: str) -> str:
@@ -121,6 +139,12 @@ def _integer(value: object, name: str) -> int:
     if type(value) is not int:
         raise CampaignError(f"{name} must be an integer")
     return value
+
+
+def _positive_float(value: object, name: str) -> float:
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
+        raise CampaignError(f"{name} must be positive")
+    return float(value)
 
 
 @dataclass(frozen=True)
@@ -154,10 +178,10 @@ class CampaignEntry:
     def expected_physical_weight_shape(self) -> tuple[int, int]:
         size = self.problem_size
         spec = _campaign_spec(self.operation_type, self.quant_data_type)
-        block_values = int(spec.get("block_values", 256))
+        block_values = spec.get("block_values", 256)
         if self.operation_type == "DenseMMQForward":
-            return (size.n, size.k // block_values * int(spec["block_bytes"]))
-        return (size.k, size.n // block_values * int(spec["block_bytes"]))
+            return (size.n, size.k // block_values * spec["block_bytes"])
+        return (size.k, size.n // block_values * spec["block_bytes"])
 
     def solution_key(
         self,
@@ -184,7 +208,6 @@ class CampaignInventory:
             self.problem_type.quant_data_type,
         )
         family_specs = spec["families"]
-        assert isinstance(family_specs, Mapping)
         unknown_families = sorted(set(families) - family_specs.keys())
         if unknown_families:
             raise CampaignError(f"unknown families: {unknown_families}")
@@ -221,8 +244,7 @@ def load_solution(
 ) -> Solution | DenseForwardSolution:
     solution_type = (
         DenseForwardSolution
-        if problem_type is not None
-        and problem_type.operation_type == "DenseMMQForward"
+        if problem_type is not None and problem_type.operation_type == "DenseMMQForward"
         else Solution
     )
     try:
@@ -246,8 +268,7 @@ def load_solution_catalog(
         raise CampaignError("Solutions must be a nonempty JSON object")
     solution_type = (
         DenseForwardSolution
-        if problem_type is not None
-        and problem_type.operation_type == "DenseMMQForward"
+        if problem_type is not None and problem_type.operation_type == "DenseMMQForward"
         else Solution
     )
     solutions: dict[str, Solution | DenseForwardSolution] = {}
@@ -335,9 +356,10 @@ def load_inventory(path: Path = DEFAULT_INVENTORY) -> CampaignInventory:
             raise CampaignError(
                 f"invalid Keys[{index}].ProblemSize: {error}"
             ) from error
-        historical = item["HistoricalHipMedianMs"]
-        if type(historical) not in (int, float) or historical <= 0:
-            raise CampaignError(f"Keys[{index}].HistoricalHipMedianMs must be positive")
+        historical = _positive_float(
+            item["HistoricalHipMedianMs"],
+            f"Keys[{index}].HistoricalHipMedianMs",
+        )
         status = _string(item["CurrentStatus"], f"Keys[{index}].CurrentStatus")
         if status not in ("open", "selected"):
             raise CampaignError(f"invalid CurrentStatus {status!r}")
@@ -351,7 +373,7 @@ def load_inventory(path: Path = DEFAULT_INVENTORY) -> CampaignInventory:
                 f"Keys[{index}].RepresentativeTensor",
             ),
             call_count=_integer(item["CallCount"], f"Keys[{index}].CallCount"),
-            historical_hip_median_ms=float(historical),
+            historical_hip_median_ms=historical,
             current_status=status,
             selected_solution=_string(
                 item["SelectedSolution"], f"Keys[{index}].SelectedSolution"
@@ -364,9 +386,7 @@ def load_inventory(path: Path = DEFAULT_INVENTORY) -> CampaignInventory:
         entries.append(entry)
 
     family_specs = spec["families"]
-    assert isinstance(family_specs, Mapping)
     m_values = spec.get("m_values", {})
-    assert isinstance(m_values, Mapping)
     expected_sizes = {
         ProblemSize(m, n, k)
         for family, ((n, k), _, _) in family_specs.items()

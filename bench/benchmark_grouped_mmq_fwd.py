@@ -10,6 +10,7 @@ Fixed output-A uses fixed_grouped_mmq and a BF16 strided-batched GEMM reference.
 from argparse import Namespace
 from collections.abc import Callable
 from pathlib import Path
+from typing import TypedDict, cast
 
 import gguf
 import torch
@@ -17,6 +18,7 @@ from aiter.ops.triton.gmm import gmm
 from aiter_gmm_heuristics import gmm_config as aiter_gmm_config
 from grouped_mmq_benchmark_common import (
     GroupedMMQCase,
+    GroupSummary,
     RouteDistribution,
     RoutedWeights,
     bf16_fixed_mmq_reference,
@@ -31,6 +33,8 @@ from grouped_mmq_benchmark_common import (
     truncate_distribution,
 )
 from mmq_benchmark_common import (
+    BenchmarkTiming,
+    ErrorMetrics,
     benchmark_callable,
     clear_cuda_cache,
     cuda_device_info,
@@ -45,6 +49,12 @@ from mmq_benchmark_common import (
 import torch_ggml_ops
 
 DEFAULT_OUTPUT = Path("/tmp/torch_ggml_ops_grouped_mmq_fwd_benchmark.json")
+
+
+class ForwardCorrectness(TypedDict):
+    rows: int
+    packed_dense_reference: ErrorMetrics | list[ErrorMetrics]
+    bf16_reference: ErrorMetrics | list[ErrorMetrics]
 
 
 def dense_grouped_mmq_reference(
@@ -98,7 +108,7 @@ def fixed_correctness_metrics(
     logical_weight: torch.Tensor,
     quant_type: int,
     out_features: int,
-) -> dict[str, object]:
+) -> ForwardCorrectness:
     with torch.inference_mode():
         actual = torch_ggml_ops.fixed_grouped_mmq(input, packed_weight)
         packed_reference = dense_fixed_mmq_reference(
@@ -121,7 +131,7 @@ def correctness_metrics(
     weights: RoutedWeights,
     distribution: RouteDistribution,
     gmm_config: dict[str, int],
-) -> dict[str, object]:
+) -> ForwardCorrectness:
     checked_distribution = truncate_distribution(distribution, input.shape[0])
     expert_indices, expert_offsets, group_sizes = make_route_tensors(
         checked_distribution
@@ -154,6 +164,8 @@ def correctness_metrics(
         )
         bf16_reference = reference_function()
     if case.kind == "pair":
+        assert isinstance(actual, tuple)
+        assert isinstance(bf16_reference, tuple)
         return {
             "rows": input.shape[0],
             "packed_dense_reference": [
@@ -165,6 +177,8 @@ def correctness_metrics(
                 for index in range(2)
             ],
         }
+    assert isinstance(actual, torch.Tensor)
+    assert isinstance(bf16_reference, torch.Tensor)
     return {
         "rows": input.shape[0],
         "packed_dense_reference": error_metrics(actual, packed_reference[0]),
@@ -172,29 +186,34 @@ def correctness_metrics(
     }
 
 
-def max_normalized_rmse(correctness: dict[str, object]) -> float:
+def max_normalized_rmse(correctness: ForwardCorrectness) -> float:
     metrics = correctness["bf16_reference"]
     if isinstance(metrics, list):
-        return max(float(metric["normalized_rmse"]) for metric in metrics)
-    return float(metrics["normalized_rmse"])
+        values = [metric["normalized_rmse"] for metric in metrics]
+    else:
+        values = [metrics["normalized_rmse"]]
+    assert all(value is not None for value in values)
+    return max(value for value in values if value is not None)
 
 
 def print_result(result: dict[str, object]) -> None:
-    packed = result["packed"]
-    reference = result["bf16_reference"]
+    packed = cast(BenchmarkTiming, result["packed"])
+    reference = cast(BenchmarkTiming, result["bf16_reference"])
+    correctness = cast(ForwardCorrectness, result["correctness"])
+    group_summary = cast(GroupSummary, result["group_summary"])
     reference_label = "BMM" if result["kind"] == "fixed" else "AITER"
     row_label = "M" if result["kind"] == "fixed" else "R"
     print(
         f"{result['case']:<24} B={result['batch']:>2} "
         f"{result['distribution']:<8} {row_label}={result['rows']:>6} "
-        f"G={result['group_summary']['active_experts']:>3} "
+        f"G={group_summary['active_experts']:>3} "
         f"{result['quant_type']:<8} "
         f"PACKED={packed['median_ms']:>8.3f} ms "
         f"{packed['logical_tflops']:>6.2f} TF "
         f"{reference_label}={reference['median_ms']:>8.3f} ms "
         f"{reference['logical_tflops']:>6.2f} TF "
         f"ratio={result['packed_to_reference_tflops_ratio']:>5.2f}x "
-        f"NRMSE={max_normalized_rmse(result['correctness']):.3e}",
+        f"NRMSE={max_normalized_rmse(correctness):.3e}",
         flush=True,
     )
 

@@ -17,14 +17,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tools.ggtensile.inspection import inspect_artifact  # noqa: E402
-from tools.ggtensile.kernel_writer_assembly_mmq_bwd import (  # noqa: E402
+from tools.ggtensile.inspection import inspect_artifact
+from tools.ggtensile.kernel_writer_assembly_mmq_bwd import (
     DiagnosticMode,
     KernelWriterAssembly,
 )
-from tools.ggtensile.model import SolutionKey  # noqa: E402
-from tools.ggtensile.runtime import DenseBackwardModule  # noqa: E402
-from tools.ggtensile.toolchain import Toolchain  # noqa: E402
+from tools.ggtensile.model import SolutionKey
+from tools.ggtensile.runtime import DenseBackwardModule
+from tools.ggtensile.toolchain import Toolchain
 
 DEFAULT_MODEL = Path.home() / "models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf"
 DEFAULT_TENSOR = "blk.0.ffn_gate_shexp.weight"
@@ -111,7 +111,9 @@ def main() -> None:
     key = SolutionKey.from_json_file(args.solution_key)
     toolchain = Toolchain.discover()
     complete_inspection = inspect_artifact(key, args.complete_code_object, toolchain)
-    artifacts = {}
+    code_objects: dict[DiagnosticMode, Path] = {}
+    source_hashes: dict[DiagnosticMode, str] = {}
+    inspections: dict[DiagnosticMode, dict[str, object]] = {}
     for mode in DiagnosticMode:
         code_object, source_hash, inspection = _build_diagnostic(
             key,
@@ -119,9 +121,9 @@ def main() -> None:
             args.output_dir,
             mode,
         )
-        artifacts[mode] = code_object
-        artifacts[f"{mode.value}_source_hash"] = source_hash
-        artifacts[f"{mode.value}_inspection"] = inspection
+        code_objects[mode] = code_object
+        source_hashes[mode] = source_hash
+        inspections[mode] = inspection
 
     reader = gguf.GGUFReader(args.model)
     tensor = next((item for item in reader.tensors if item.name == args.tensor), None)
@@ -161,10 +163,10 @@ def main() -> None:
                 DenseBackwardModule(key, args.complete_code_object)
             ),
             "wmma_floor": stack.enter_context(
-                DenseBackwardModule(key, artifacts[DiagnosticMode.WMMA_FLOOR])
+                DenseBackwardModule(key, code_objects[DiagnosticMode.WMMA_FLOOR])
             ),
             "decode_floor": stack.enter_context(
-                DenseBackwardModule(key, artifacts[DiagnosticMode.DECODE_FLOOR])
+                DenseBackwardModule(key, code_objects[DiagnosticMode.DECODE_FLOOR])
             ),
         }
 
@@ -209,9 +211,9 @@ def main() -> None:
         "CompleteInspection": complete_inspection.to_mapping(),
         "Diagnostics": {
             mode.value: {
-                "CodeObject": str(artifacts[mode]),
-                "AssemblySHA256": artifacts[f"{mode.value}_source_hash"],
-                "Inspection": artifacts[f"{mode.value}_inspection"],
+                "CodeObject": str(code_objects[mode]),
+                "AssemblySHA256": source_hashes[mode],
+                "Inspection": inspections[mode],
             }
             for mode in DiagnosticMode
         },
