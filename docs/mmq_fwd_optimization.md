@@ -174,7 +174,7 @@ The DeepSeek call graph confirms two same-input families:
 - attention Q-A and KV consume the same attention `cur`.
 - shared gate and up are parallel branches over the same `build_ffn` input.
 
-All use the D4 Q8_1 layout. Profiling in `~/tmp/torch-ggml-ops/mmq_fwd_final_components.txt` attributes about `7.5%` of shared-gate B1 and `29.7%` of KV B16 call time to quantization. Qwen narrow Q3_K B16 spends about `24.4%` in quantization.
+All use the Q8_1 F32_D4 metadata layout. Profiling in `~/tmp/torch-ggml-ops/mmq_fwd_final_components.txt` attributes about `7.5%` of shared-gate B1 and `29.7%` of KV B16 call time to quantization. Qwen narrow Q3_K B16 spends about `24.4%` in quantization.
 
 A prepared-activation or pair/multi-projection API must:
 - quantize once per required Q8_1 metadata layout.
@@ -225,7 +225,7 @@ grid = [real rows, 1]
 block = 512 threads
 ```
 
-Each thread processes four BF16 values per loop iteration. The block loops only when K exceeds 2048. D4/DS4/D2S6 metadata, 32-value reductions, rounding, and workspace semantics are unchanged.
+Each thread processes four BF16 values per loop iteration. The block loops only when K exceeds 2048. F32_D4/F16_D4S4/F16_D2S6 metadata, 32-value reductions, rounding, and workspace semantics are unchanged.
 
 On narrow Q4_K M32768, traced quantizer time fell from `5,105.979 us` to `886.928 us`, while multiplication remained roughly `2,565.848 us` versus `2,645.314 us`. Combined traced time fell from about 7.67 to 3.53 ms. This established activation scheduling, not multiplication, as the first-order narrow bottleneck.
 
@@ -240,7 +240,7 @@ The retained general geometry remained I64/J128 with 128 threads. I128, global J
 
 ### B0: standalone bundle conversion
 
-Dense forward and its activation quantizers moved from the extension fatbinary into independent gfx1151 HSACOs. D4/DS4/D2S6 selection, J128 ordinary geometry, J64 small-row Q6 dispatch, and arithmetic semantics remained unchanged.
+Dense forward and its activation quantizers moved from the extension fatbinary into independent gfx1151 HSACOs. F32_D4/F16_D4S4/F16_D2S6 selection, J128 ordinary geometry, J64 small-row Q6 dispatch, and arithmetic semantics remained unchanged.
 
 The initial nine-repeat before/after comparison measured `-0.23%` geometric movement. A sequential embedded/bundle/embedded 25-repeat control measured the bundle at `+0.87%` geometrically, `+0.76%` by median point, and `+1.05%` by estimated model latency against the embedded midpoint. The two embedded controls drifted by `2.18%`.
 

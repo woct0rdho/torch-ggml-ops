@@ -307,7 +307,7 @@ def load_inventory(path: Path = DEFAULT_INVENTORY) -> CampaignInventory:
             "RequireInputMutation": True,
             "RequirePackedWeightMutation": True,
             "RequireWorkspaceMutation": True,
-            "FixedActivationProducer": "HIP_Q8_1_DS4",
+            "FixedActivationProducer": "HIP_Q8_1_F16_D4S4",
         }
     else:
         validation_expected = {

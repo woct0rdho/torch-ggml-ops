@@ -8,9 +8,9 @@
 namespace torch_ggml_ops::mmq_bundle {
 
 enum class MMQKernelId : std::uint16_t {
-    QuantizeQ81D4 = 0,
-    QuantizeQ81DS4 = 1,
-    QuantizeQ81D2S6 = 2,
+    QuantizeQ81F32D4 = 0,
+    QuantizeQ81F16D4S4 = 1,
+    QuantizeQ81F16D2S6 = 2,
     DenseFwdQ80J128 = 3,
     DenseFwdQ2KJ128 = 4,
     DenseFwdQ3KJ128 = 5,
@@ -191,9 +191,9 @@ enum class MMQKernelId : std::uint16_t {
 };
 
 inline constexpr std::array<const char *, 179> kMMQKernelSymbols{{
-    "torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_d4",
-    "torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_ds4",
-    "torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_d2s6",
+    "torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f32_d4",
+    "torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f16_d4s4",
+    "torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f16_d2s6",
     "torch_ggml_ops_mmq_gfx1151_v1_dense_fwd_q8_0_j128",
     "torch_ggml_ops_mmq_gfx1151_v1_dense_fwd_q2_k_j128",
     "torch_ggml_ops_mmq_gfx1151_v1_dense_fwd_q3_k_j128",

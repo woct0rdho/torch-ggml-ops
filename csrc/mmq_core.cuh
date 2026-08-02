@@ -22,9 +22,12 @@ static constexpr int MMQ_NWARPS = MMQ_NTHREADS / WARP_SIZE;
 
 struct block_q8_1_mmq {
     union {
-        float d4[4];
-        half2 ds4[4];
-        half d2s6[8];
+        float scales_f32[4];
+        half2 scale_sum_pairs_f16[4];
+        struct {
+            half scales[2];
+            half sums[6];
+        } scales2_sums6_f16;
     };
     int8_t qs[4 * QK8_1];
 };
@@ -104,10 +107,10 @@ static constexpr __device__ int ggml_cuda_mmq_get_I(ggml_type, int, bool) { retu
 static constexpr __device__ int ggml_cuda_mmq_get_sram_stride(ggml_type type, int, bool) { return mmq_sram_stride(type); }
 static constexpr __device__ int ggml_cuda_mmq_get_rows_per_warp(ggml_type, int, bool) { return 16; }
 
-enum mmq_q8_1_ds_layout {
-    MMQ_Q8_1_DS_LAYOUT_D4,
-    MMQ_Q8_1_DS_LAYOUT_DS4,
-    MMQ_Q8_1_DS_LAYOUT_D2S6,
+enum mmq_q8_1_metadata_layout {
+    MMQ_Q8_1_METADATA_F32_D4,
+    MMQ_Q8_1_METADATA_F16_D4S4,
+    MMQ_Q8_1_METADATA_F16_D2S6,
 };
 
 #include "vendor/llama_cpp/mmq-load-targets.cuh"
@@ -147,7 +150,7 @@ static __device__ __forceinline__ void mmq_vec_dot_target(
         const int * x, const int * y, float * sum, int k00) {
     if constexpr (type == GGML_TYPE_Q8_0 || type == GGML_TYPE_IQ2_XXS) {
         ggml_cuda_mmq_vec_dot_q8_0_q8_1_mma<
-            type, J, fallback, MMQ_Q8_1_DS_LAYOUT_D4>(x, y, sum, k00);
+            type, J, fallback, MMQ_Q8_1_METADATA_F32_D4>(x, y, sum, k00);
     } else if constexpr (type == GGML_TYPE_Q2_K) {
         if constexpr (rolled_q2_k) {
             ggml_cuda_mmq_vec_dot_q2_K_q8_1_mma_rolled<type, J, fallback>(
@@ -190,12 +193,13 @@ static __device__ __forceinline__ void mmq_write_back_bf16(
 }
 
 template <ggml_type type>
-static constexpr __host__ __device__ mmq_q8_1_ds_layout mmq_activation_layout() {
+static constexpr __host__ __device__ mmq_q8_1_metadata_layout
+mmq_activation_metadata_layout() {
     return type == GGML_TYPE_Q2_K
-        ? MMQ_Q8_1_DS_LAYOUT_D2S6
+        ? MMQ_Q8_1_METADATA_F16_D2S6
         : type == GGML_TYPE_Q4_K || type == GGML_TYPE_Q5_K
-            ? MMQ_Q8_1_DS_LAYOUT_DS4
-            : MMQ_Q8_1_DS_LAYOUT_D4;
+            ? MMQ_Q8_1_METADATA_F16_D4S4
+            : MMQ_Q8_1_METADATA_F32_D4;
 }
 
 template <ggml_type type>
@@ -205,11 +209,12 @@ static __device__ __forceinline__ void quantize_bf16_mmq_q8_1_body(
         int64_t rows,
         int64_t rows_padded,
         int64_t k) {
-    constexpr mmq_q8_1_ds_layout layout = mmq_activation_layout<type>();
+    constexpr mmq_q8_1_metadata_layout metadata_layout =
+        mmq_activation_metadata_layout<type>();
     constexpr int values_per_scale =
-        layout == MMQ_Q8_1_DS_LAYOUT_D2S6 ? 64 : 32;
+        metadata_layout == MMQ_Q8_1_METADATA_F16_D2S6 ? 64 : 32;
     constexpr int values_per_sum =
-        layout == MMQ_Q8_1_DS_LAYOUT_D2S6 ? 16 : 32;
+        metadata_layout == MMQ_Q8_1_METADATA_F16_D2S6 ? 16 : 32;
     const int64_t row = blockIdx.x;
 
     for (int64_t i0 = static_cast<int64_t>(threadIdx.x) * 4;
@@ -231,7 +236,7 @@ static __device__ __forceinline__ void quantize_bf16_mmq_q8_1_body(
         }
 
         float sum = xi.x + xi.y + xi.z + xi.w;
-        if constexpr (layout != MMQ_Q8_1_DS_LAYOUT_D4) {
+        if constexpr (metadata_layout != MMQ_Q8_1_METADATA_F32_D4) {
 #pragma unroll
             for (int offset = values_per_sum / 8; offset > 0; offset >>= 1) {
                 sum += __shfl_xor_sync(0xffffffff, sum, offset, WARP_SIZE);
@@ -251,18 +256,18 @@ static __device__ __forceinline__ void quantize_bf16_mmq_q8_1_body(
         block_q8_1_mmq & out = y[block_k * rows_padded + row];
         reinterpret_cast<char4 *>(out.qs)[iqs / 4] = q;
 
-        if constexpr (layout == MMQ_Q8_1_DS_LAYOUT_D2S6) {
+        if constexpr (metadata_layout == MMQ_Q8_1_METADATA_F16_D2S6) {
             if (iqs % 16 == 0 && iqs < 96) {
-                out.d2s6[2 + iqs / 16] = sum;
+                out.scales2_sums6_f16.sums[iqs / 16] = sum;
                 if (iqs % 64 == 0) {
-                    out.d2s6[iqs / 64] = d;
+                    out.scales2_sums6_f16.scales[iqs / 64] = d;
                 }
             }
         } else if (iqs % 32 == 0) {
-            if constexpr (layout == MMQ_Q8_1_DS_LAYOUT_DS4) {
-                out.ds4[iqs / 32] = make_half2(d, sum);
+            if constexpr (metadata_layout == MMQ_Q8_1_METADATA_F16_D4S4) {
+                out.scale_sum_pairs_f16[iqs / 32] = make_half2(d, sum);
             } else {
-                out.d4[iqs / 32] = d;
+                out.scales_f32[iqs / 32] = d;
             }
         }
     }

@@ -32,7 +32,7 @@ class _Assembly:
 
 
 class DenseForwardKernelWriterAssembly:
-    """Emit the strict one-wave Q4_K/Q8_1_DS4 forward control."""
+    """Emit the strict one-wave Q4_K/Q8_1 F16_D4S4 forward control."""
 
     TOTAL_VGPRS = 88
     TOTAL_VGPRS_REUSE = 164
@@ -53,7 +53,7 @@ class DenseForwardKernelWriterAssembly:
     SCALE = 76
     MINIMUM = 77
     SCALED_DM = 78
-    ACTIVATION_DS = 79
+    ACTIVATION_SCALE_SUM = 79
     WEIGHT_D = 80
     WEIGHT_MIN = 81
     ACTIVATION_D = 82
@@ -126,7 +126,7 @@ class DenseForwardKernelWriterAssembly:
             totalSgprs=self.TOTAL_SGPRS,
         )
         signature.addDescriptionTopic(
-            "GGTensile Q4_K dense MMQ forward, fixed Q8_1_DS4 producer"
+            "GGTensile Q4_K dense MMQ forward, fixed Q8_1 F16_D4S4 producer"
         )
         signature.addArg("packed_weight", SVK.SIG_GLOBALBUFFER, "struct", "generic")
         signature.addArg("activations", SVK.SIG_GLOBALBUFFER, "struct", "generic")
@@ -153,7 +153,9 @@ class DenseForwardKernelWriterAssembly:
         activation_plane_stride = size.m * 144
         activation_block_stride = 2 * activation_plane_stride
 
-        asm.comment("Load the exact packed-weight, DS4-workspace, and output pointers.")
+        asm.comment(
+            "Load the exact packed-weight, Q8_1 F16_D4S4 workspace, and output pointers."
+        )
         asm.inst(f"s_load_dwordx2 s[{self.KERNARG}:{self.KERNARG + 1}], s[0:1], 0x0")
         asm.inst(
             f"s_load_dwordx2 s[{self.KERNARG + 2}:{self.KERNARG + 3}], s[0:1], 0x8"
@@ -444,7 +446,7 @@ class DenseForwardKernelWriterAssembly:
         c_base = 112
         low_activation_last = 176
         high_activation_base = 180
-        activation_ds_base = 212
+        activation_scale_sum_base = 212
         scaled_dm_base = 220
         temporary = 228
         lds_address = 229
@@ -458,7 +460,9 @@ class DenseForwardKernelWriterAssembly:
         serial = 238
         retained_decoded = self._uses_retained_decoded_schedule()
 
-        asm.comment("Load the exact packed-weight, DS4-workspace, and output pointers.")
+        asm.comment(
+            "Load the exact packed-weight, Q8_1 F16_D4S4 workspace, and output pointers."
+        )
         asm.inst(f"s_load_dwordx2 s[{self.KERNARG}:{self.KERNARG + 1}], s[0:1], 0x0")
         asm.inst(
             f"s_load_dwordx2 s[{self.KERNARG + 2}:{self.KERNARG + 3}], s[0:1], 0x8"
@@ -601,7 +605,7 @@ class DenseForwardKernelWriterAssembly:
                 c_base=c_base,
                 low_activation_last=low_activation_last,
                 high_activation_base=high_activation_base,
-                activation_ds_base=activation_ds_base,
+                activation_scale_sum_base=activation_scale_sum_base,
                 scaled_dm_base=scaled_dm_base,
                 sum_base=sum_base,
                 wave=wave,
@@ -622,7 +626,7 @@ class DenseForwardKernelWriterAssembly:
                     c_base=c_base,
                     low_activation_last=low_activation_last,
                     high_activation_base=high_activation_base,
-                    activation_ds_base=activation_ds_base,
+                    activation_scale_sum_base=activation_scale_sum_base,
                     scaled_dm_base=scaled_dm_base,
                     sum_base=sum_base,
                     wave=wave,
@@ -653,7 +657,7 @@ class DenseForwardKernelWriterAssembly:
                 c_base=c_base,
                 low_activation_last=low_activation_last,
                 high_activation_base=high_activation_base,
-                activation_ds_base=activation_ds_base,
+                activation_scale_sum_base=activation_scale_sum_base,
                 scaled_dm_base=scaled_dm_base,
                 sum_base=sum_base,
                 wave=wave,
@@ -674,7 +678,7 @@ class DenseForwardKernelWriterAssembly:
                     c_base=c_base,
                     low_activation_last=low_activation_last,
                     high_activation_base=high_activation_base,
-                    activation_ds_base=activation_ds_base,
+                    activation_scale_sum_base=activation_scale_sum_base,
                     scaled_dm_base=scaled_dm_base,
                     sum_base=sum_base,
                     wave=wave,
@@ -890,7 +894,7 @@ class DenseForwardKernelWriterAssembly:
         staging_base: int,
         lds_base: int,
     ) -> None:
-        asm.comment("Cooperatively stage one contiguous 128-row DS4 plane.")
+        asm.comment("Cooperatively stage one contiguous 128-row Q8_1 F16_D4S4 plane.")
         for chunk in range(5):
             chunk_start = 8 * chunk
             chunk_count = min(8, 36 - chunk_start)
@@ -931,7 +935,7 @@ class DenseForwardKernelWriterAssembly:
         c_base: int,
         low_activation_last: int,
         high_activation_base: int,
-        activation_ds_base: int,
+        activation_scale_sum_base: int,
         scaled_dm_base: int,
         sum_base: int,
         wave: int,
@@ -943,7 +947,7 @@ class DenseForwardKernelWriterAssembly:
     ) -> None:
         q_offset = 32 * group if decoded else 32 * (group // 2)
         activation_q_offset = 16 + 32 * (group % 4)
-        activation_ds_offset = 4 * (group % 4)
+        activation_scale_sum_offset = 4 * (group % 4)
         asm.comment(f"HIP-shaped staged Q4_K group {group}.")
         if decoded:
             asm.inst(f"v_lshlrev_b32 v{temporary}, 4, v{wave}")
@@ -982,8 +986,8 @@ class DenseForwardKernelWriterAssembly:
                 f"offset:{tile_offset + activation_q_offset + 16}"
             )
             asm.inst(
-                f"ds_read_b32 v{activation_ds_base + tile}, v{lds_address} "
-                f"offset:{tile_offset + activation_ds_offset}"
+                f"ds_read_b32 v{activation_scale_sum_base + tile}, v{lds_address} "
+                f"offset:{tile_offset + activation_scale_sum_offset}"
             )
         asm.inst("s_waitcnt lgkmcnt(0)")
         if decoded:
@@ -1029,7 +1033,7 @@ class DenseForwardKernelWriterAssembly:
             c_base=c_base,
             low_activation_last=low_activation_last,
             high_activation_base=high_activation_base,
-            activation_ds_base=activation_ds_base,
+            activation_scale_sum_base=activation_scale_sum_base,
             scaled_dm_base=scaled_dm_base,
             sum_base=sum_base,
             overlap_lds=False,
@@ -1045,7 +1049,7 @@ class DenseForwardKernelWriterAssembly:
         c_base: int,
         low_activation_last: int,
         high_activation_base: int,
-        activation_ds_base: int,
+        activation_scale_sum_base: int,
         scaled_dm_base: int,
         sum_base: int,
         wave: int,
@@ -1113,8 +1117,8 @@ class DenseForwardKernelWriterAssembly:
             asm.inst(f"v_add_nc_u32 v{metadata}, s14, v{metadata}")
             for tile in range(0, 8, 2):
                 asm.inst(
-                    f"ds_read2st64_b32 v[{activation_ds_base + tile}:"
-                    f"{activation_ds_base + tile + 1}], v{metadata} "
+                    f"ds_read2st64_b32 v[{activation_scale_sum_base + tile}:"
+                    f"{activation_scale_sum_base + tile + 1}], v{metadata} "
                     f"offset0:{9 * tile} offset1:{9 * (tile + 1)}"
                 )
 
@@ -1161,7 +1165,7 @@ class DenseForwardKernelWriterAssembly:
             c_base=c_base,
             low_activation_last=low_activation_last,
             high_activation_base=high_activation_base,
-            activation_ds_base=activation_ds_base,
+            activation_scale_sum_base=activation_scale_sum_base,
             scaled_dm_base=scaled_dm_base,
             sum_base=sum_base,
             overlap_lds=True,
@@ -1181,7 +1185,7 @@ class DenseForwardKernelWriterAssembly:
         c_base: int,
         low_activation_last: int,
         high_activation_base: int,
-        activation_ds_base: int,
+        activation_scale_sum_base: int,
         scaled_dm_base: int,
         sum_base: int,
         overlap_lds: bool,
@@ -1222,12 +1226,12 @@ class DenseForwardKernelWriterAssembly:
         for tile_start in (0, 4):
             for local_tile in range(4):
                 tile = tile_start + local_tile
-                tile_ds = activation_ds_base + tile
+                tile_scale_sum = activation_scale_sum_base + tile
                 for element in range(8):
                     product = product_base + 8 * local_tile + element
                     asm.inst(
                         f"v_fma_mix_f32 v{product}, "
-                        f"v{scaled_dm_base + element}, v{tile_ds}, 0 "
+                        f"v{scaled_dm_base + element}, v{tile_scale_sum}, 0 "
                         f"op_sel_hi:[1,1,0]"
                     )
             for local_tile in range(4):
@@ -1252,12 +1256,12 @@ class DenseForwardKernelWriterAssembly:
                     )
             for local_tile in range(4):
                 tile = tile_start + local_tile
-                tile_ds = activation_ds_base + tile
+                tile_scale_sum = activation_scale_sum_base + tile
                 for element in range(8):
                     total = sum_base + tile * 8 + element
                     asm.inst(
                         f"v_fma_mix_f32 v{total}, "
-                        f"v{scaled_dm_base + element}, v{tile_ds}, v{total} "
+                        f"v{scaled_dm_base + element}, v{tile_scale_sum}, v{total} "
                         f"op_sel:[1,1,0] op_sel_hi:[1,1,0]"
                     )
 
@@ -1282,7 +1286,7 @@ class DenseForwardKernelWriterAssembly:
         scale = 0
         minimum = 1
         scaled_dm = 2
-        activation_ds = 151
+        activation_scale_sum = 151
         weight_d = 3
         weight_min = 4
         activation_d = 154
@@ -1293,7 +1297,9 @@ class DenseForwardKernelWriterAssembly:
         activation_row = 192 if batch else 160
         lane = 193 if batch else 161
 
-        asm.comment("Load the exact packed-weight, DS4-workspace, and output pointers.")
+        asm.comment(
+            "Load the exact packed-weight, Q8_1 F16_D4S4 workspace, and output pointers."
+        )
         asm.inst(f"s_load_dwordx2 s[{self.KERNARG}:{self.KERNARG + 1}], s[0:1], 0x0")
         asm.inst(
             f"s_load_dwordx2 s[{self.KERNARG + 2}:{self.KERNARG + 3}], s[0:1], 0x8"
@@ -1355,7 +1361,7 @@ class DenseForwardKernelWriterAssembly:
                 scale,
                 minimum,
                 scaled_dm,
-                activation_ds,
+                activation_scale_sum,
                 weight_d,
                 weight_min,
                 activation_d,
@@ -1417,20 +1423,20 @@ class DenseForwardKernelWriterAssembly:
         scale: int,
         minimum: int,
         scaled_dm: int,
-        activation_ds: int,
+        activation_scale_sum: int,
         weight_d: int,
         weight_min: int,
         activation_d: int,
         temporary: int,
     ) -> None:
-        del activation_q, activation_ds, activation_d
+        del activation_q, activation_scale_sum, activation_d
         weight_q_offset = 16 + 32 * (group // 2)
         activation_q_offset = 16 + 32 * (group % 4)
-        activation_ds_offset = 4 * (group % 4)
+        activation_scale_sum_offset = 4 * (group % 4)
         activation_address = activation_address_0 if group < 4 else activation_address_1
         c_base = 112
         high_activation_base = 148
-        activation_ds_base = 164
+        activation_scale_sum_base = 164
         scaled_dm_base = 168
         batch_activation_d = high_activation_base
 
@@ -1489,9 +1495,9 @@ class DenseForwardKernelWriterAssembly:
                     f"offset:{activation_q_offset + 16}"
                 )
                 asm.inst(
-                    f"global_load_b32 v{activation_ds_base + local_tile}, "
+                    f"global_load_b32 v{activation_scale_sum_base + local_tile}, "
                     f"v{temporary}, s[{self.KERNARG + 2}:{self.KERNARG + 3}] "
-                    f"offset:{activation_ds_offset}"
+                    f"offset:{activation_scale_sum_offset}"
                 )
             asm.inst("s_waitcnt vmcnt(0)")
             for register in range(self.C, self.C + 8):
@@ -1517,12 +1523,12 @@ class DenseForwardKernelWriterAssembly:
             for local_tile in range(4):
                 tile = tile_start + local_tile
                 c_fragment = c_base + 8 * local_tile
-                tile_ds = activation_ds_base + local_tile
+                tile_scale_sum = activation_scale_sum_base + local_tile
                 for element in range(8):
                     total = sum_base + tile * 8 + element
                     asm.inst(
                         f"v_fma_mix_f32 v{batch_activation_d}, "
-                        f"v{scaled_dm_base + element}, v{tile_ds}, 0 "
+                        f"v{scaled_dm_base + element}, v{tile_scale_sum}, 0 "
                         f"op_sel_hi:[1,1,0]"
                     )
                     asm.inst(f"v_cvt_f32_i32 v{temporary}, v{c_fragment + element}")
@@ -1532,7 +1538,7 @@ class DenseForwardKernelWriterAssembly:
                     )
                     asm.inst(
                         f"v_fma_mix_f32 v{total}, v{scaled_dm_base + element}, "
-                        f"v{tile_ds}, v{total} "
+                        f"v{tile_scale_sum}, v{total} "
                         f"op_sel:[1,1,0] op_sel_hi:[1,1,0]"
                     )
 
@@ -1550,7 +1556,7 @@ class DenseForwardKernelWriterAssembly:
         scale: int,
         minimum: int,
         scaled_dm: int,
-        activation_ds: int,
+        activation_scale_sum: int,
         weight_d: int,
         weight_min: int,
         activation_d: int,
@@ -1558,7 +1564,7 @@ class DenseForwardKernelWriterAssembly:
     ) -> None:
         weight_q_offset = 16 + 32 * (group // 2)
         activation_q_offset = 16 + 32 * (group % 4)
-        activation_ds_offset = 4 * (group % 4)
+        activation_scale_sum_offset = 4 * (group % 4)
         activation_address = activation_address_0 if group < 4 else activation_address_1
         asm.comment(f"Reused Q4_K group {group} across eight activation tiles.")
         asm.inst(
@@ -1610,9 +1616,9 @@ class DenseForwardKernelWriterAssembly:
                 f"offset:{activation_q_offset + 16}"
             )
             asm.inst(
-                f"global_load_b32 v{activation_ds}, v{tile_address}, "
+                f"global_load_b32 v{activation_scale_sum}, v{tile_address}, "
                 f"s[{self.KERNARG + 2}:{self.KERNARG + 3}] "
-                f"offset:{activation_ds_offset}"
+                f"offset:{activation_scale_sum_offset}"
             )
             asm.inst("s_waitcnt vmcnt(0)")
             for register in range(self.C, self.C + 8):
@@ -1634,25 +1640,27 @@ class DenseForwardKernelWriterAssembly:
                 total = sum_base + tile * 8 + element
                 asm.inst(
                     f"v_fma_mix_f32 v{activation_d}, v{120 + element}, "
-                    f"v{activation_ds}, 0 op_sel_hi:[1,1,0]"
+                    f"v{activation_scale_sum}, 0 op_sel_hi:[1,1,0]"
                 )
                 asm.inst(f"v_cvt_f32_i32 v{temporary}, v{self.C + element}")
                 asm.inst(f"v_fma_f32 v{total}, v{temporary}, v{activation_d}, v{total}")
                 asm.inst(
                     f"v_fma_mix_f32 v{total}, v{120 + element}, "
-                    f"v{activation_ds}, v{total} "
+                    f"v{activation_scale_sum}, v{total} "
                     f"op_sel:[1,1,0] op_sel_hi:[1,1,0]"
                 )
 
     def _emit_group(self, asm: _Assembly, group: int) -> None:
         weight_q_offset = 16 + 32 * (group // 2)
         activation_q_offset = 16 + 32 * (group % 4)
-        activation_ds_offset = 4 * (group % 4)
+        activation_scale_sum_offset = 4 * (group % 4)
         activation_address = (
             self.ACTIVATION_ADDRESS_0 if group < 4 else self.ACTIVATION_ADDRESS_1
         )
 
-        asm.comment(f"Q4_K group {group}: direct nibbles and fixed DS4 payload.")
+        asm.comment(
+            f"Q4_K group {group}: direct nibbles and fixed Q8_1 F16_D4S4 block."
+        )
         asm.inst(
             f"global_load_b128 v[{self.WEIGHT_Q}:{self.WEIGHT_Q + 3}], "
             f"v{self.WEIGHT_Q_ADDRESS}, s[{self.KERNARG}:{self.KERNARG + 1}] "
@@ -1674,9 +1682,9 @@ class DenseForwardKernelWriterAssembly:
             f"offset:{activation_q_offset + 16}"
         )
         asm.inst(
-            f"global_load_b32 v{self.ACTIVATION_DS}, v{activation_address}, "
+            f"global_load_b32 v{self.ACTIVATION_SCALE_SUM}, v{activation_address}, "
             f"s[{self.KERNARG + 2}:{self.KERNARG + 3}] "
-            f"offset:{activation_ds_offset}"
+            f"offset:{activation_scale_sum_offset}"
         )
         asm.inst("s_waitcnt vmcnt(0)")
 
@@ -1731,8 +1739,10 @@ class DenseForwardKernelWriterAssembly:
 
     def _emit_scaled_accumulate(self, asm: _Assembly, group: int) -> None:
         asm.comment("Reproduce Q4_K FP16 scale/min construction before FP32 sums.")
-        asm.inst(f"v_cvt_f32_f16 v{self.ACTIVATION_D}, v{self.ACTIVATION_DS}")
-        asm.inst(f"v_cvt_f32_f16 v{self.ACTIVATION_SUM}, v{self.ACTIVATION_DS}.h")
+        asm.inst(f"v_cvt_f32_f16 v{self.ACTIVATION_D}, v{self.ACTIVATION_SCALE_SUM}")
+        asm.inst(
+            f"v_cvt_f32_f16 v{self.ACTIVATION_SUM}, v{self.ACTIVATION_SCALE_SUM}.h"
+        )
         for element in range(8):
             metadata = self.WEIGHT_METADATA + 4 * element
             self._emit_scale_and_minimum(asm, group, metadata)

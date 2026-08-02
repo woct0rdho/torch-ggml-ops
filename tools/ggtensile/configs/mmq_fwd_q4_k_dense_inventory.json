@@ -2,7 +2,7 @@
   "ProblemType": {
     "OperationType": "DenseMMQForward",
     "QuantDataType": "Q4_K",
-    "DataTypeA": "Q8_1_DS4",
+    "DataTypeA": "Q8_1",
     "DataTypeB": "Q4_K",
     "DestDataType": "BFloat16",
     "ComputeDataType": "Float",
@@ -19,7 +19,7 @@
     "RequireInputMutation": true,
     "RequirePackedWeightMutation": true,
     "RequireWorkspaceMutation": true,
-    "FixedActivationProducer": "HIP_Q8_1_DS4"
+    "FixedActivationProducer": "HIP_Q8_1_F16_D4S4"
   },
   "Keys": [
     {

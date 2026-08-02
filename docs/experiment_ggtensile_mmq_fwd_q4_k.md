@@ -6,14 +6,14 @@ Continue the strict gfx1151 wave32 GGTensile assembly optimization campaign for 
 
 The campaign must stop only after a recursive review finds no new valid in-contract optimization mechanism. The final review rule remains mandatory even after all currently open keys reach HIP parity.
 
-The existing HIP DS4 Q8_1 activation quantizer is fixed producer infrastructure. It is launched before both the HIP and GGTensile multiply controls and is not a forward tuning knob.
+The existing HIP Q8_1 activation quantizer is fixed producer infrastructure. It is launched before both the HIP and GGTensile multiply controls and is not a forward tuning knob.
 
 ## Contract
 
 Target only:
 - gfx1151, wave32, WMMA V1, and BF16 input/output activations.
 - Authoritative packed GGUF Q4_K weights with direct in-kernel packed decode.
-- The existing HIP Q8_1 DS4 workspace and its exact 144-byte block layout.
+- The existing HIP Q8_1 workspace with F16_D4S4 metadata and its exact 144-byte block layout.
 - One exact forward `ProblemType` and one exact `ProblemSize` per research artifact.
 - Direct packed consumption with no prepared weights, dense shadows, external decode workspace, split-K, persistent workgroups, grouped MMQ, online tuning, or private storage.
 - Zero private bytes, spills, scratch instructions, calls, and dynamic stack.
@@ -30,7 +30,7 @@ K = in_features
 output[M,N] = input[M,K] @ dequant_q4_k(weight[N,K]).T
 ```
 
-Q4_K has 256 logical values per 144-byte packed block. The fixed DS4 producer emits Q8_1 blocks with 128 signed int8 values and four `(d,sum)` FP16 pairs. The producer may allocate a padded row stride for the selected tile, but only real rows are launched. Every candidate must use the exact producer stride and must never consume a padded row as a valid result.
+Q4_K has 256 logical values per 144-byte packed block. The fixed Q8_1 F16_D4S4 producer emits each 144-byte workspace block as four standard 32-value Q8_1 subblocks: 128 signed int8 values and four `(d,sum)` FP16 pairs in total. The producer may allocate a padded row stride for the selected tile, but only real rows are launched. Every candidate must use the exact producer stride and must never consume a padded row as a valid result.
 
 ## Exact Production Scope
 
@@ -71,18 +71,18 @@ Large-margin work now prioritizes changed-premise decode/WMMA scheduling and fam
 
 ## Fixed Activation Producer
 
-The installed HIP `quantize_bf16_q8_1_ds4` HSACO remains the producer control. For each 32-value group it computes the absolute maximum, `d=amax/127`, signed-int8 nearest quantization, and the input sum needed by Q4_K zero-point correction.
+The installed HIP `quantize_bf16_q8_1_f16_d4s4` HSACO remains the producer control. For each 32-value group it computes the absolute maximum, `d=amax/127`, signed-int8 nearest quantization, and the input sum needed by Q4_K zero-point correction.
 
 The benchmark must keep three explicit measurements:
 - Fixed HIP quantizer plus HIP packed multiply: public HIP control for comparison only.
 - Fixed HIP quantizer plus GGTensile packed multiply: complete candidate.
-- Prequantized DS4 workspace with HIP and GGTensile multiply bodies: diagnosis only.
+- Prequantized Q8_1 workspace with HIP and GGTensile multiply bodies: diagnosis only.
 
-The produced DS4 workspace must be byte-identical for HIP and GGTensile. No alternate rounding, clamp, reciprocal, reduction, metadata layout, workspace lifetime, or fused producer may be selected through this campaign.
+The produced Q8_1 workspace must be byte-identical for HIP and GGTensile. No alternate rounding, clamp, reciprocal, reduction, metadata layout, workspace lifetime, or fused producer may be selected through this campaign.
 
 ## Established Evidence
 
-The retained decoded-staged body uses a `128x64` tile with 128 threads, 239 VGPRs, 16 SGPRs, 38,400 bytes of LDS, 32 static WMMA instructions, four barriers, and eight output-store clauses. It has already passed strict correctness, input mutation, packed-weight mutation, DS4-workspace mutation, independent-reference checks, and byte-identical rebuild checks for all 12 keys.
+The retained decoded-staged body uses a `128x64` tile with 128 threads, 239 VGPRs, 16 SGPRs, 38,400 bytes of LDS, 32 static WMMA instructions, four barriers, and eight output-store clauses. It has already passed strict correctness, input mutation, packed-weight mutation, Q8_1-workspace mutation, independent-reference checks, and byte-identical rebuild checks for all 12 keys.
 
 The native `MetadataAfterLowWmma` schedule defers eight independent metadata LDS reads until between the low- and high-half WMMA batches and changes the dependency-safe low wait ladder from `23,21,...,9` to `15,13,...,1`. It preserves all instruction/resource counts and arithmetic order. Across all 12 keys it improved the retained parent by approximately `2.1-5.0%`.
 
@@ -118,14 +118,14 @@ Phase-1 status: metadata-read/WMMA interleaving is retained and generated native
 ### Phase 2: Operand-buffer pipelines
 
 Test only buffer arrangements that fit the gfx1151 LDS and register contract:
-- A second 18,432-byte DS4 activation plane raises the current allocation from 38,400 to 56,832 bytes. Compare eager two-plane staging with a schedule that stages the second plane while the first four groups compute.
+- A second 18,432-byte Q8_1 activation plane raises the current allocation from 38,400 to 56,832 bytes. Compare eager two-plane staging with a schedule that stages the second plane while the first four groups compute.
 - A second decoded-weight buffer raises the current allocation to approximately 57,856 bytes. For K2048 and K4096, test bounded next-Q4-block packed reads and decode into the alternate buffer while the current block is consumed.
 - Start with one next-block vector or one next-plane chunk. Expand only when inspection proves the candidate remains below 256 VGPRs with no spills or private bytes.
 - Treat PGR1-style overlap as the first candidate. Do not attempt PGR2 until a preceding schedule creates enough register lifetime headroom.
 
 The expected winning shape is a generated software pipeline with fewer barriers and hidden next-block staging, not simply more preloaded data. K512 M2048 is still important because it has a large store/stage fraction, but K2048/K4096 receive priority for next-block overlap.
 
-Phase-2 status: all tested activation double-buffer forms are closed. Eager staging loses overlap, the bounded 248-VGPR prototype loses performance before correctness repair would matter, and a sequential split-plane form that preserved staging order while removing one overwrite barrier was exact but `12-14%` slower because 56,832-byte LDS residency dominates. A resource-neutral group-7 prefetch reused dead `v112:v139` registers for the next packed payload, but was `0.13-0.28%` slower on narrow M8192, attention-output M8192, and query M32768; packed payload VMEM is already hidden well enough that duplicated address/branch issue loses. Continue only with decoded-weight overlap that also removes current decode work, or with a changed register/address premise; do not retry unchanged DS4 or payload-only prefetch.
+Phase-2 status: all tested activation double-buffer forms are closed. Eager staging loses overlap, the bounded 248-VGPR prototype loses performance before correctness repair would matter, and a sequential split-plane form that preserved staging order while removing one overwrite barrier was exact but `12-14%` slower because 56,832-byte LDS residency dominates. A resource-neutral group-7 prefetch reused dead `v112:v139` registers for the next packed payload, but was `0.13-0.28%` slower on narrow M8192, attention-output M8192, and query M32768; packed payload VMEM is already hidden well enough that duplicated address/branch issue loses. Continue only with decoded-weight overlap that also removes current decode work, or with a changed register/address premise; do not retry unchanged Q8_1 or payload-only prefetch.
 
 ### Phase 3: Geometry and ownership
 
@@ -155,7 +155,7 @@ Phase-4 status: the exact epilogue sweep is complete. Attention-output candidate
 TensileLite concepts are research guidance and require real alternate emitters in the custom writer. They are not valid merely because a field exists in a YAML file.
 - `MacroTile`, `MIWaveTile`, and `WorkGroup`: map to the new narrow compact ownership bracket and any changed wave-to-output mapping.
 - `DepthU`: test 32 versus 64 only with matching group-loop, LDS, and register schedules.
-- `PrefetchGlobalRead`: implement bounded next-block Q4_K or DS4 overlap; start at one tile.
+- `PrefetchGlobalRead`: implement bounded next-block Q4_K or Q8_1 overlap; start at one tile.
 - `PrefetchLocalRead` and `ScheduleIterAlg`: implement explicit LDS-read/WMMA dependency schedules and measure wait thresholds.
 - `1LDSBuffer`: model activation-only or weight-only ping-pong because a full double copy is too large for the current LDS allocation.
 - `StorePriorityOpt` and store scheduling: use only for exact epilogue candidates after the main-loop schedule is fixed.
@@ -171,7 +171,7 @@ Before timing any candidate:
 - Inspect symbol, exact forward ABI, gfx1151 metadata, LDS size, WMMA count, private segment, spills, scratch, calls, dynamic stack, and workgroup geometry.
 - Compare the multiply output bit-for-bit with HIP when the integer WMMA and output order are unchanged.
 - For deliberate reorderings, require candidate/HIP normalized RMSE `<=5e-4`, maximum absolute error `<=0.015625`, and independent-reference normalized RMSE `<=0.04`.
-- Run baseline, input mutation, packed-weight mutation, DS4-workspace mutation, finite-output checks, and independent GGUF-dequantized BF16 reference checks.
+- Run baseline, input mutation, packed-weight mutation, Q8_1-workspace mutation, finite-output checks, and independent GGUF-dequantized BF16 reference checks.
 - Preserve reduced-K, one-hot, zero, positive/negative maximum, scale/sum, packed payload, metadata, block-boundary, tile-boundary, and output row/column boundary fixtures.
 - Require no private bytes, spills, scratch instructions, calls, or dynamic stack. A candidate that changes the producer or consumes a prepared representation is rejected.
 

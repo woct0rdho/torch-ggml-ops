@@ -215,13 +215,13 @@ int grouped_backward_quant_index(std::int32_t quant_type) {
 
 MMQKernelId quantize_kernel(std::int32_t quant_type) {
     if (quant_type == kQuantQ2_K) {
-        return MMQKernelId::QuantizeQ81D2S6;
+        return MMQKernelId::QuantizeQ81F16D2S6;
     }
     if (quant_type == kQuantQ4_K || quant_type == kQuantQ5_K) {
-        return MMQKernelId::QuantizeQ81DS4;
+        return MMQKernelId::QuantizeQ81F16D4S4;
     }
     (void)forward_quant_index(quant_type);
-    return MMQKernelId::QuantizeQ81D4;
+    return MMQKernelId::QuantizeQ81F32D4;
 }
 
 struct DenseForwardSelection {

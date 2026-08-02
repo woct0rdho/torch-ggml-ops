@@ -127,7 +127,7 @@ def test_forward_solution_identity_contains_every_dataclass_field() -> None:
         ("macro_tile0", 32),
         ("macro_tile1", 32),
         ("depth_u", 64),
-        ("activation_layout", "Q8_1_D4"),
+        ("activation_layout", "F32_D4"),
         ("activation_block_bytes", 136),
         ("packed_weight_block_bytes", 136),
         ("operand_source", "LDS"),
@@ -169,7 +169,7 @@ def test_forward_validation_rejects_mismatched_problem_type() -> None:
     problem_type = ProblemType(
         operation_type="DenseMMQForward",
         quant_data_type="Q5_K",
-        data_type_a="Q8_1_DS4",
+        data_type_a="Q8_1",
         data_type_b="Q5_K",
         dest_data_type="BFloat16",
         compute_data_type="Float",
@@ -186,7 +186,7 @@ def test_forward_validation_rejects_mismatched_problem_type() -> None:
     }
 
 
-def test_forward_writer_emits_direct_ds4_q4_k_control(tmp_path: Path) -> None:
+def test_forward_writer_emits_direct_q8_1_f16_d4s4_q4_k_control(tmp_path: Path) -> None:
     key = _key()
     writer = DenseForwardKernelWriterAssembly(key, _toolchain())
     source = writer.source()
@@ -235,7 +235,7 @@ def test_forward_writer_emits_hip_shaped_staged_control() -> None:
     assert source.count("v_wmma_i32_16x16x16_iu8") == 128
     assert source.count("s_barrier") == 4
     assert "Cooperatively stage the raw packed Q4_K payload." in source
-    assert "Cooperatively stage one contiguous 128-row DS4 plane." in source
+    assert "Cooperatively stage one contiguous 128-row Q8_1 F16_D4S4 plane." in source
     assert "ds_write_b128" in source
     assert "ds_read_b128" in source
     assert source.count("v_dual_fmac_f32") == 512

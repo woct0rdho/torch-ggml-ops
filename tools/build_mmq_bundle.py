@@ -839,22 +839,22 @@ def _grouped_backward_specs() -> list[KernelSpec]:
 def kernel_specs() -> tuple[KernelSpec, ...]:
     specs: list[KernelSpec] = [
         _forward_spec(
-            "QuantizeQ81D4",
-            "quantize_bf16_q8_1_d4",
+            "QuantizeQ81F32D4",
+            "quantize_bf16_q8_1_f32_d4",
             ForwardKind.QUANTIZE,
             quant_type=QuantType.Q8_0,
             enforce_resource_gate=True,
         ),
         _forward_spec(
-            "QuantizeQ81DS4",
-            "quantize_bf16_q8_1_ds4",
+            "QuantizeQ81F16D4S4",
+            "quantize_bf16_q8_1_f16_d4s4",
             ForwardKind.QUANTIZE,
             quant_type=QuantType.Q4_K,
             enforce_resource_gate=True,
         ),
         _forward_spec(
-            "QuantizeQ81D2S6",
-            "quantize_bf16_q8_1_d2s6",
+            "QuantizeQ81F16D2S6",
+            "quantize_bf16_q8_1_f16_d2s6",
             ForwardKind.QUANTIZE,
             quant_type=QuantType.Q2_K,
             enforce_resource_gate=True,

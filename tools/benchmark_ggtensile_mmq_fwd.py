@@ -22,8 +22,8 @@ if str(REPO_ROOT) not in sys.path:
 from tools.ggtensile.model import SolutionKey
 from tools.ggtensile.runtime import (
     DenseForwardModule,
-    FixedDS4QuantizerModule,
     FixedHipDenseForwardModule,
+    FixedQ81F16D4S4QuantizerModule,
 )
 
 DEFAULT_MODEL = Path.home() / "models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf"
@@ -156,7 +156,7 @@ def main() -> None:
     quant_type = int(tensor.tensor_type)
 
     with contextlib.ExitStack() as stack:
-        quantizer = stack.enter_context(FixedDS4QuantizerModule())
+        quantizer = stack.enter_context(FixedQ81F16D4S4QuantizerModule())
         workspace = quantizer.allocate(input_tensor)
         candidate = stack.enter_context(DenseForwardModule(key, arguments.code_object))
         hip_multiply = stack.enter_context(FixedHipDenseForwardModule(key))
@@ -371,7 +371,7 @@ def main() -> None:
         ):
             raise SystemExit("candidate failed independent-reference tolerance")
     if correctness["ProducerRepeat"]["DifferentBytes"] != 0:
-        raise SystemExit("fixed DS4 producer is not deterministic")
+        raise SystemExit("fixed Q8_1 F16_D4S4 producer is not deterministic")
     if correctness["InputMutationChangedElements"] == 0:
         raise SystemExit("input mutation did not affect output")
     if correctness["PackedWeightMutationChangedElements"] == 0:

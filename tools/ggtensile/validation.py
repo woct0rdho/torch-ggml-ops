@@ -78,7 +78,7 @@ def _validate_forward_solution(
         _reject(
             reasons,
             "problem_type.forward.unsupported",
-            "dense MMQ forward requires the exact Q4_K/Q8_1_DS4 problem type",
+            "dense MMQ forward requires the exact Q4_K/Q8_1 problem type",
             "ProblemType",
             source="ProblemType",
         )

@@ -176,7 +176,7 @@ Start with one Q-A and one shared gate/up tensor while keeping G2 geometry and D
 
 DeepSeek shared gate/up are matching `(N,K)=(2048,4096)` projections over the same input and represent 43 pairs. Q-A `(1024,4096)` and KV `(512,4096)` also share an input but have unequal reductions and are lower priority.
 
-A pair API must be explicit, model-owned, current-stream correct, autograd-integrated, and memory-accounted. Two independent kernels plus `torch.add` remain the control. Retention requires complete model-level backward timing and a defined one-rounding reference. ds4's paired forward path is ownership evidence, not the required summed backward contract.
+A pair API must be explicit, model-owned, current-stream correct, autograd-integrated, and memory-accounted. Two independent kernels plus `torch.add` remain the control. Retention requires complete model-level backward timing and a defined one-rounding reference. DwarfStar's paired forward path is ownership evidence, not the required summed backward contract.
 
 ### Qwen shared-down representation
 
@@ -439,7 +439,7 @@ DB8 reduced weighted packed latency by `4.51%/18.85%/26.41%` from DB7 and closed
 | llama.cpp PR #22298 | Stream-K is inapplicable because this backward has no K split or fixup |
 | Composable Kernel PR #2663 | Prepared quant layouts are credible, but the published architectures and quant families differ |
 | hipBLASLt PR #539 | XCC remapping does not apply to single-XCC gfx1151. Locality is already covered by DB7/DB8 |
-| ds4 | Explicit model-owned Q8 preparation and paired projections are useful ownership evidence. Its static cache and forward pair are not this backward contract |
+| DwarfStar | Explicit model-owned Q8 preparation and paired projections are useful ownership evidence. Its static cache and forward pair are not this backward contract |
 
 Architecture transfer rules:
 - Treat RDNA3/RDNA4 results as mechanism evidence only. Do not assume gfx12 scheduler/cache behavior applies to gfx1151.

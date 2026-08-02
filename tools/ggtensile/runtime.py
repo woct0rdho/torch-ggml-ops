@@ -16,24 +16,17 @@ class HIPRuntimeError(RuntimeError):
     pass
 
 
-class DenseBackwardModule:
-    """Direct HIP module launcher for the fixed dense-backward kernarg ABI."""
+class _HIPModule:
+    """Shared HIP module lifetime and runtime API configuration."""
 
     def __init__(
         self,
-        solution_key: SolutionKey,
         code_object: Path,
-        hip_library: Path | None = None,
-        *,
-        kernel_name: str | None = None,
+        hip_library: Path | None,
+        kernel_name: str,
     ) -> None:
-        reasons = validate_solution(solution_key)
-        if reasons:
-            details = "; ".join(reason.rule_id for reason in reasons)
-            raise HIPRuntimeError(f"cannot launch rejected solution: {details}")
         if not code_object.is_file():
             raise HIPRuntimeError(f"code object does not exist: {code_object}")
-        self.solution_key = solution_key
         self.code_object = code_object
         self._lib = ctypes.CDLL(str(hip_library or _find_hip_library()))
         self._configure_api()
@@ -50,13 +43,93 @@ class DenseBackwardModule:
                 self._lib.hipModuleGetFunction(
                     ctypes.byref(self._function),
                     self._module,
-                    (kernel_name or solution_key.kernel_name).encode(),
+                    kernel_name.encode(),
                 ),
                 "hipModuleGetFunction",
             )
         except Exception:
             self.close()
             raise
+
+    def close(self) -> None:
+        if self._module:
+            self._check(self._lib.hipModuleUnload(self._module), "hipModuleUnload")
+            self._module = ctypes.c_void_p()
+            self._function = ctypes.c_void_p()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self,
+        exception_type: type[BaseException] | None,
+        exception: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.close()
+
+    def _check(self, status: int, operation: str) -> None:
+        if status:
+            message = self._lib.hipGetErrorString(status).decode()
+            raise HIPRuntimeError(f"{operation} failed ({status}): {message}")
+
+    def _configure_api(self) -> None:
+        self._lib.hipGetErrorString.argtypes = [ctypes.c_int]
+        self._lib.hipGetErrorString.restype = ctypes.c_char_p
+        self._lib.hipModuleLoad.argtypes = [
+            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.c_char_p,
+        ]
+        self._lib.hipModuleLoad.restype = ctypes.c_int
+        self._lib.hipModuleGetFunction.argtypes = [
+            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.c_void_p,
+            ctypes.c_char_p,
+        ]
+        self._lib.hipModuleGetFunction.restype = ctypes.c_int
+        self._lib.hipModuleLaunchKernel.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_uint,
+            ctypes.c_uint,
+            ctypes.c_uint,
+            ctypes.c_uint,
+            ctypes.c_uint,
+            ctypes.c_uint,
+            ctypes.c_uint,
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.c_void_p,
+        ]
+        self._lib.hipModuleLaunchKernel.restype = ctypes.c_int
+        self._lib.hipModuleUnload.argtypes = [ctypes.c_void_p]
+        self._lib.hipModuleUnload.restype = ctypes.c_int
+
+
+class _SolutionHIPModule(_HIPModule):
+    """HIP module whose artifact and symbol are described by a solution key."""
+
+    def __init__(
+        self,
+        solution_key: SolutionKey,
+        code_object: Path,
+        hip_library: Path | None = None,
+        *,
+        kernel_name: str | None = None,
+    ) -> None:
+        reasons = validate_solution(solution_key)
+        if reasons:
+            details = "; ".join(reason.rule_id for reason in reasons)
+            raise HIPRuntimeError(f"cannot launch rejected solution: {details}")
+        self.solution_key = solution_key
+        super().__init__(
+            code_object,
+            hip_library,
+            kernel_name or solution_key.kernel_name,
+        )
+
+
+class DenseBackwardModule(_SolutionHIPModule):
+    """Direct HIP module launcher for the fixed dense-backward kernarg ABI."""
 
     def launch(
         self,
@@ -141,62 +214,9 @@ class DenseBackwardModule:
             "hipModuleLaunchKernel",
         )
 
-    def close(self) -> None:
-        if self._module:
-            self._check(self._lib.hipModuleUnload(self._module), "hipModuleUnload")
-            self._module = ctypes.c_void_p()
-            self._function = ctypes.c_void_p()
 
-    def __enter__(self) -> Self:
-        return self
-
-    def __exit__(
-        self,
-        exception_type: type[BaseException] | None,
-        exception: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        self.close()
-
-    def _check(self, status: int, operation: str) -> None:
-        if status:
-            message = self._lib.hipGetErrorString(status).decode()
-            raise HIPRuntimeError(f"{operation} failed ({status}): {message}")
-
-    def _configure_api(self) -> None:
-        self._lib.hipGetErrorString.argtypes = [ctypes.c_int]
-        self._lib.hipGetErrorString.restype = ctypes.c_char_p
-        self._lib.hipModuleLoad.argtypes = [
-            ctypes.POINTER(ctypes.c_void_p),
-            ctypes.c_char_p,
-        ]
-        self._lib.hipModuleLoad.restype = ctypes.c_int
-        self._lib.hipModuleGetFunction.argtypes = [
-            ctypes.POINTER(ctypes.c_void_p),
-            ctypes.c_void_p,
-            ctypes.c_char_p,
-        ]
-        self._lib.hipModuleGetFunction.restype = ctypes.c_int
-        self._lib.hipModuleLaunchKernel.argtypes = [
-            ctypes.c_void_p,
-            ctypes.c_uint,
-            ctypes.c_uint,
-            ctypes.c_uint,
-            ctypes.c_uint,
-            ctypes.c_uint,
-            ctypes.c_uint,
-            ctypes.c_uint,
-            ctypes.c_void_p,
-            ctypes.POINTER(ctypes.c_void_p),
-            ctypes.c_void_p,
-        ]
-        self._lib.hipModuleLaunchKernel.restype = ctypes.c_int
-        self._lib.hipModuleUnload.argtypes = [ctypes.c_void_p]
-        self._lib.hipModuleUnload.restype = ctypes.c_int
-
-
-class DenseForwardModule(DenseBackwardModule):
-    """Direct launcher for an exact packed Q4_K/Q8_1_DS4 forward kernel."""
+class DenseForwardModule(_SolutionHIPModule):
+    """Direct launcher for an exact packed Q4_K/Q8_1 F16_D4S4 forward kernel."""
 
     def __init__(
         self,
@@ -215,7 +235,7 @@ class DenseForwardModule(DenseBackwardModule):
             kernel_name=kernel_name,
         )
 
-    def launch(  # ty: ignore[invalid-method-override]
+    def launch(
         self,
         packed_weight: torch.Tensor,
         activations: torch.Tensor,
@@ -234,7 +254,9 @@ class DenseForwardModule(DenseBackwardModule):
         if packed_weight.dtype != torch.uint8:
             raise HIPRuntimeError("packed_weight must be uint8")
         if activations.dtype != torch.uint8:
-            raise HIPRuntimeError("activations must be the uint8 DS4 workspace")
+            raise HIPRuntimeError(
+                "activations must be the uint8 Q8_1 F16_D4S4 workspace"
+            )
         if output.dtype != torch.bfloat16:
             raise HIPRuntimeError("output must be BF16")
         expected_weight_bytes = size.n * (size.k // 256) * 144
@@ -243,7 +265,8 @@ class DenseForwardModule(DenseBackwardModule):
         expected_activation_shape = (size.k // 128, size.m, 144)
         if tuple(activations.shape) != expected_activation_shape:
             raise HIPRuntimeError(
-                "activations shape does not match the exact DS4 workspace contract"
+                "activations shape does not match the exact Q8_1 F16_D4S4 "
+                "workspace contract"
             )
         if tuple(output.shape) != (size.m, size.n):
             raise HIPRuntimeError("output shape does not match ProblemSize")
@@ -321,10 +344,10 @@ class FixedHipDenseForwardModule(DenseForwardModule):
         return ((size.n // 64, size.m // 128, 1), (32, 4, 1), 38_400)
 
 
-class FixedDS4QuantizerModule(DenseBackwardModule):
-    """Direct launcher for the unchanged installed HIP DS4 producer."""
+class FixedQ81F16D4S4QuantizerModule(_HIPModule):
+    """Direct launcher for the installed HIP Q8_1 F16_D4S4 producer."""
 
-    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_ds4"
+    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f16_d4s4"
 
     def __init__(
         self,
@@ -332,36 +355,15 @@ class FixedDS4QuantizerModule(DenseBackwardModule):
         hip_library: Path | None = None,
     ) -> None:
         selected = code_object or _find_installed_kernel(self.SYMBOL)
-        if not selected.is_file():
-            raise HIPRuntimeError(f"code object does not exist: {selected}")
-        self.solution_key = None
-        self.code_object = selected
-        self._lib = ctypes.CDLL(str(hip_library or _find_hip_library()))
-        self._configure_api()
-        self._module = ctypes.c_void_p()
-        self._function = ctypes.c_void_p()
-        self._check(
-            self._lib.hipModuleLoad(ctypes.byref(self._module), str(selected).encode()),
-            "hipModuleLoad",
-        )
-        try:
-            self._check(
-                self._lib.hipModuleGetFunction(
-                    ctypes.byref(self._function),
-                    self._module,
-                    self.SYMBOL.encode(),
-                ),
-                "hipModuleGetFunction",
-            )
-        except Exception:
-            self.close()
-            raise
+        super().__init__(selected, hip_library, self.SYMBOL)
 
     def allocate(self, input_tensor: torch.Tensor) -> torch.Tensor:
         import torch
 
         if input_tensor.ndim != 2 or input_tensor.shape[1] % 128:
-            raise HIPRuntimeError("DS4 input must be [rows, K] with K divisible by 128")
+            raise HIPRuntimeError(
+                "quantizer input must be [rows, K] with K divisible by 128"
+            )
         rows, k = input_tensor.shape
         return torch.empty(
             (k // 128, rows, 144),
@@ -369,7 +371,7 @@ class FixedDS4QuantizerModule(DenseBackwardModule):
             device=input_tensor.device,
         )
 
-    def launch(  # ty: ignore[invalid-method-override]
+    def launch(
         self,
         input_tensor: torch.Tensor,
         output: torch.Tensor,
@@ -393,7 +395,9 @@ class FixedDS4QuantizerModule(DenseBackwardModule):
         rows, k = input_tensor.shape
         expected_shape = (k // 128, rows, 144)
         if k % 128 or tuple(output.shape) != expected_shape:
-            raise HIPRuntimeError("quantizer output does not match the DS4 contract")
+            raise HIPRuntimeError(
+                "quantizer output does not match the Q8_1 F16_D4S4 contract"
+            )
         if input_tensor.device != output.device:
             raise HIPRuntimeError("quantizer tensors must be on the same device")
 
@@ -448,8 +452,8 @@ def _find_hip_library() -> Path:
 
 def _find_installed_kernel(symbol: str) -> Path:
     override_name = (
-        "GGTENSILE_DS4_CODE_OBJECT"
-        if symbol == FixedDS4QuantizerModule.SYMBOL
+        "GGTENSILE_Q8_1_F16_D4S4_CODE_OBJECT"
+        if symbol == FixedQ81F16D4S4QuantizerModule.SYMBOL
         else "GGTENSILE_HIP_FORWARD_CODE_OBJECT"
     )
     override = os.environ.get(override_name)

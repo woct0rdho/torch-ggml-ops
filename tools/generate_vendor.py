@@ -229,11 +229,17 @@ def generate(root: Path) -> None:
             "// ---------------------------------------------------------------------------------------------",
         ),
     ]
+    dot_output = "\n".join(dot_parts)
+    # llama.cpp uses compact d/s layout names. The local 128-value MMQ workspace
+    # has several metadata storage types, so make their precision and counts explicit.
+    dot_output = dot_output.replace("mmq_q8_1_ds_layout", "mmq_q8_1_metadata_layout")
+    dot_output = dot_output.replace("ds_layout", "metadata_layout")
+    dot_output = dot_output.replace("MMQ_Q8_1_DS_LAYOUT_D4", "MMQ_Q8_1_METADATA_F32_D4")
     _write_generated(
         OUT / "mmq-vec-dot-targets.cuh",
         "#pragma once\n\nusing namespace ggml_cuda_mma;\n\n"
         "// Selectively vendored target-format int8-WMMA dot products.\n\n"
-        + "\n".join(dot_parts),
+        + dot_output,
     )
     _write_generated(
         OUT / "mmq-vec-dot-q2-k-rolled.cuh",

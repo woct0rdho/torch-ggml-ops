@@ -6,7 +6,7 @@ using namespace ggml_cuda_mma;
 
 // Selectively vendored target-format int8-WMMA dot products.
 
-template <ggml_type type, int J, bool fallback, mmq_q8_1_ds_layout ds_layout>
+template <ggml_type type, int J, bool fallback, mmq_q8_1_metadata_layout metadata_layout>
 static __device__ __forceinline__ void ggml_cuda_mmq_vec_dot_q8_0_q8_1_mma(
     const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int k00) {
 #if defined(AMD_MFMA_AVAILABLE) || defined(AMD_WMMA_AVAILABLE)
@@ -46,7 +46,7 @@ static __device__ __forceinline__ void ggml_cuda_mmq_vec_dot_q8_0_q8_1_mma(
 
             float dB;
             const int j = j0 + tile_C::get_j(0);
-            if (ds_layout == MMQ_Q8_1_DS_LAYOUT_D4) {
+            if (metadata_layout == MMQ_Q8_1_METADATA_F32_D4) {
                 dB = y_df[j*MMQ_TILE_Y_K + k01/QI8_1];
             } else {
                 dB = __low2float(y_ds[j*MMQ_TILE_Y_K + k01/QI8_1]);
@@ -124,7 +124,7 @@ static __device__ __forceinline__ void ggml_cuda_mmq_vec_dot_q8_0_q8_1_mma(
             for (int l = 0; l < tile_C::ne/2; ++l) {
                 const int j = j0 + tile_C::get_j(l);
 
-                if (ds_layout == MMQ_Q8_1_DS_LAYOUT_D4) {
+                if (metadata_layout == MMQ_Q8_1_METADATA_F32_D4) {
                     dB[l] =             y_df[j*MMQ_TILE_Y_K + k01/QI8_1];
                 } else {
                     dB[l] = __low2float(y_ds[j*MMQ_TILE_Y_K + k01/QI8_1]);
