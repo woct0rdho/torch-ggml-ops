@@ -567,6 +567,29 @@ def test_forward_runtime_uses_exact_candidate_launch_geometry() -> None:
     assert direct._launch_configuration() == ((8, 16, 1), (128, 1, 1), 0)
 
 
+@pytest.mark.parametrize(
+    ("m", "macro_tile0", "grid_y"),
+    ((64, 64, 1), (128, 128, 1), (256, 128, 2)),
+)
+def test_q6_hip_scheduled_runtime_uses_structured_exact_geometry(
+    m: int,
+    macro_tile0: int,
+    grid_y: int,
+) -> None:
+    module = ForwardModule.__new__(ForwardModule)
+    module.solution_key = _key(
+        "Q6_K",
+        ProblemSize(m, 248320, 2048),
+        ForwardSolution.q6_k_hip_scheduled(macro_tile0=macro_tile0),
+    )
+    assert validate_solution(module.solution_key) == ()
+    assert module._launch_configuration() == (
+        (3880, grid_y, 1),
+        (32, 4, 1),
+        0,
+    )
+
+
 @pytest.mark.parametrize("quant_type", ("Q4_K", "Q5_K"), ids=str.lower)
 def test_forward_runtime_uses_exact_hip_launch_geometry(quant_type: str) -> None:
     hip = FixedHipForwardModule.__new__(FixedHipForwardModule)
@@ -685,6 +708,45 @@ def test_forward_runtime_uses_exact_hip_launch_geometry(quant_type: str) -> None
             id="q4-selected-shared-down-m32768",
         ),
         pytest.param(_key("Q5_K"), 32, 239, 4, 38_400, 8, id="q5-selected"),
+        pytest.param(
+            _key(
+                "Q6_K",
+                ProblemSize(64, 248320, 2048),
+                ForwardSolution.q6_k_hip_scheduled(macro_tile0=64),
+            ),
+            8,
+            158,
+            4,
+            28_928,
+            13,
+            id="q6-hip-scheduled-m64",
+        ),
+        pytest.param(
+            _key(
+                "Q6_K",
+                ProblemSize(128, 248320, 2048),
+                ForwardSolution.q6_k_hip_scheduled(macro_tile0=128),
+            ),
+            16,
+            210,
+            4,
+            38_400,
+            19,
+            id="q6-hip-scheduled-m128",
+        ),
+        pytest.param(
+            _key(
+                "Q6_K",
+                ProblemSize(256, 248320, 2048),
+                ForwardSolution.q6_k_hip_scheduled(macro_tile0=128),
+            ),
+            16,
+            210,
+            4,
+            38_400,
+            19,
+            id="q6-hip-scheduled-m256",
+        ),
     ),
 )
 def test_forward_artifact_passes_strict_inspection(
@@ -710,7 +772,15 @@ def test_forward_artifact_passes_strict_inspection(
     assert inspection.lds_num_bytes == lds_num_bytes
     if clause_count is not None:
         assert inspection.clause_count == clause_count
-    assert_resource_clean(inspection)
+    assert_resource_clean(
+        inspection,
+        sgpr_count=(
+            27
+            if isinstance(key.solution, ForwardSolution)
+            and key.solution.operand_source == "Q6HipScheduled"
+            else 16
+        ),
+    )
 
 
 def test_forward_writer_rejects_invalid_solution() -> None:

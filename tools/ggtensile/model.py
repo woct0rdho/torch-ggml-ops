@@ -629,6 +629,17 @@ class ForwardSolution:
         )
 
     @classmethod
+    def q6_k_hip_scheduled(cls, *, macro_tile0: int) -> Self:
+        if macro_tile0 not in (64, 128):
+            raise ValueError("HIP-scheduled Q6_K forward implements M64 or M128")
+        return replace(
+            cls.q6_k_decoded_staged(macro_tile0=macro_tile0),
+            work_group=(32, 4, 1),
+            operand_source="Q6HipScheduled",
+            lds_address_hoist="HipSchedule",
+        )
+
+    @classmethod
     def q4_k_hip_decoded_staged_extraction(
         cls,
         *,
@@ -713,6 +724,8 @@ class ForwardSolution:
     def lds_num_bytes(self) -> int:
         if self.operand_source == "Q6DecodedStaged":
             return self.macro_tile0 * Q8_1_F32_D4_BLOCK_BYTES + 64 * 304
+        if self.operand_source == "Q6HipScheduled":
+            return 28_928 if self.macro_tile0 == 64 else 38_400
         if self.operand_source == "HipDecodedStagedBatch8":
             return 38_400
         if self.operand_source == "HipStagedBatch8":

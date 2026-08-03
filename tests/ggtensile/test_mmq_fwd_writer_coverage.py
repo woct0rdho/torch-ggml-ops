@@ -57,6 +57,42 @@ def test_writer_emits_q6_forward_controls(macro_tile0: int) -> None:
         assert "v_lshlrev_b32" in source
 
 
+@pytest.mark.parametrize(
+    ("m", "macro_tile0", "wmma_count", "delay_count"),
+    ((64, 64, 8, 0), (128, 128, 16, 70), (256, 128, 16, 70)),
+)
+def test_writer_emits_q6_hip_scheduled_controls(
+    m: int,
+    macro_tile0: int,
+    wmma_count: int,
+    delay_count: int,
+) -> None:
+    solution = ForwardSolution.q6_k_hip_scheduled(macro_tile0=macro_tile0)
+    key = SolutionKey(
+        ProblemType.mmq_forward("Q6_K"),
+        ProblemSize(m, 248320, 2048),
+        solution,
+    )
+    assert validate_solution(key) == ()
+    source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
+    assert "instruction body" in source
+    assert "project-owned HIP Q6_K" in source
+    assert not any(
+        line.strip().startswith(
+            ("DenseFwdQ6K", ".globl DenseFwdQ6K", ".type DenseFwdQ6K")
+        )
+        for line in source.splitlines()
+    )
+    assert source.count("v_wmma_i32_16x16x16_iu8") == wmma_count
+    assert (
+        sum(line.lstrip().startswith("s_delay_alu") for line in source.splitlines())
+        == delay_count
+    )
+    assert source.count("s_barrier") == 4
+    assert source.count("buffer_gl0_inv") == 4
+    assert source.count("s_sendmsg sendmsg(MSG_DEALLOC_VGPRS)") == 1
+
+
 def test_writer_emits_single_dependency_scheduled_epilogue() -> None:
     solution = ForwardSolution.q5_k_hip_decoded_staged_extraction(
         epilogue_tiles_ahead=1,

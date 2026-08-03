@@ -28,8 +28,8 @@
       "RepresentativeTensor": "output.weight",
       "CallCount": 1,
       "HistoricalHipMedianMs": 4.050399,
-      "CurrentStatus": "open",
-      "SelectedSolution": "decoded_staged_j64_control"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "hip_scheduled_j64_selected"
     },
     {
       "Family": "lm_head",
@@ -37,8 +37,8 @@
       "RepresentativeTensor": "output.weight",
       "CallCount": 1,
       "HistoricalHipMedianMs": 7.626017,
-      "CurrentStatus": "open",
-      "SelectedSolution": "decoded_staged_j128_control"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "hip_scheduled_j128_selected"
     },
     {
       "Family": "lm_head",
@@ -46,8 +46,8 @@
       "RepresentativeTensor": "output.weight",
       "CallCount": 1,
       "HistoricalHipMedianMs": 15.203156,
-      "CurrentStatus": "open",
-      "SelectedSolution": "decoded_staged_j256_control"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "hip_scheduled_j128_selected"
     }
   ]
 }

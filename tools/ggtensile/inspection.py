@@ -154,6 +154,8 @@ def inspect_artifact(
             expected_wmmas = (
                 min(solution.macro_tile0, 128) // 16
                 if solution.operand_source == "Q6DecodedStaged"
+                else solution.macro_tile0 // 8
+                if solution.operand_source == "Q6HipScheduled"
                 else 32
                 if solution.operand_source == "HipDecodedStagedBatch8"
                 else 128
@@ -186,7 +188,7 @@ def inspect_artifact(
         if isinstance(solution, ForwardSolution):
             expected_barriers = (
                 4
-                if solution.operand_source == "Q6DecodedStaged"
+                if solution.operand_source in ("Q6DecodedStaged", "Q6HipScheduled")
                 else 4
                 if solution.operand_source
                 in ("HipStagedBatch8", "HipDecodedStagedBatch8")
@@ -409,6 +411,12 @@ def _validate_forward_metadata(
         ".wavefront_size": solution.wavefront_size,
         ".vgpr_count": (
             (
+                ForwardKernelWriterAssembly.TOTAL_VGPRS_Q6_HIP_J64
+                if solution.macro_tile0 == 64
+                else ForwardKernelWriterAssembly.TOTAL_VGPRS_Q6_HIP_J128
+            )
+            if solution.operand_source == "Q6HipScheduled"
+            else (
                 ForwardKernelWriterAssembly.TOTAL_VGPRS_Q6_J64
                 if solution.macro_tile0 == 64
                 else ForwardKernelWriterAssembly.TOTAL_VGPRS_Q6_J128
@@ -422,7 +430,11 @@ def _validate_forward_metadata(
             if solution.operand_source == "GlobalWaveReuse"
             else ForwardKernelWriterAssembly.TOTAL_VGPRS
         ),
-        ".sgpr_count": ForwardKernelWriterAssembly.TOTAL_SGPRS,
+        ".sgpr_count": (
+            ForwardKernelWriterAssembly.TOTAL_SGPRS_HIP
+            if solution.operand_source == "Q6HipScheduled"
+            else ForwardKernelWriterAssembly.TOTAL_SGPRS
+        ),
         ".vgpr_spill_count": 0,
         ".sgpr_spill_count": 0,
     }

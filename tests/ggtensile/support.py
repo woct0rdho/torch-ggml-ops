@@ -196,12 +196,11 @@ MMQ_FWD_INVENTORY_CASES = (
         3,
         frozenset({"lm_head"}),
         frozenset({64, 128, 256}),
-        (("open", 3),),
+        (("selected", 3),),
         frozenset(
             {
-                "decoded_staged_j64_control",
-                "decoded_staged_j128_control",
-                "decoded_staged_j256_control",
+                "hip_scheduled_j64_selected",
+                "hip_scheduled_j128_selected",
             }
         ),
     ),

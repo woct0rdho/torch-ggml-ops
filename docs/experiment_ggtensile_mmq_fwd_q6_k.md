@@ -246,3 +246,61 @@ Both confirmations reject performance promotion for all three exact keys. The 32
 The measured bottleneck is the packed low/high Q6 decode, signed-scale application, and FP32 epilogue issue path; shared M256 staging removes duplicate weight staging but does not remove the per-output-row scale and arithmetic work. A 32-value-group rewrite was not retained because preserving exact per-group scale lifetimes and accumulation order would require a new register/epilogue regime rather than a bounded schedule edit.
 
 The controls are therefore correctness-qualified and cataloged, but not performance-promoted. `CurrentStatus` remains open for all three exact keys because none reaches HIP parity. The final recursive exhaustion review remains pending until the remaining representation premise is classified and any newly actionable optimization is resolved.
+
+### LDS issue controls and compact raw-payload representation
+
+An instruction-level control paired the Q8_1 FP32 activation-scale reads with `ds_read2st64_b32`, corrected the reordered-read waits, and then also paired each decoded low/high weight store with `ds_write2_b32`. All M64/M128/M256 outputs remained bit-exact to the decoded controls. The combined form reduced static LDS instructions from `73/99/83` to `55/79/71`, but its rotating nine-repeat medians were only `1.016x`, `1.003x`, and `0.998x` of the decoded-parent throughput. This is too small and shape-inconsistent to address the open HIP margins, so the candidate-only schema and lowering were removed. Artifacts remain under `paired-scale-reads/` and `paired-lds-issue/`.
+
+The separate compact regime staged one exact 224-byte row per weight row: 128 raw `ql` bytes, 64 raw `qh` bytes, 16 signed scale bytes, FP32-converted `d`, and padding. Consumer waves reconstructed their owned 16-value signed payload immediately before WMMA while preserving scale ownership and arithmetic order. Both admitted controls were bit-exact to the decoded parent over every BF16 output and had zero private bytes or spills:
+
+| M | VGPR | LDS | Static VMEM/LDS | Parent ms | Compact ms | Parent/compact |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 64 | 124 | 23,552 B | 76 / 48 | 4.628572 | 5.447662 | 0.849645x |
+| 128 | 208 | 32,768 B | 144 / 74 | 7.987497 | 8.688813 | 0.919286x |
+
+M64 crossed from four to five LDS-limited workgroups per WGP but regressed `17.7%`. M128 crossed from three to four workgroups but regressed `8.8%`. Repeating packed reconstruction in every consumer group dominates the cooperative staging and residency gains. M256 was not admitted: compact LDS remains at two workgroups per WGP, its consumer decode cost matches M128 per wave, and the M128 representation control failed the campaign's greater-than-2% transfer gate. The compact premise is therefore rejected, and its experimental model, validation, inspection, and writer surfaces were removed after preserving artifacts under `compact-raw/`.
+
+The later recursive exhaustion review remains pending. A full installed-HIP ownership and schedule transfer is newly actionable because a fixed-LDS assembly control is bit-exact and removes the large M64/M128 gap; this must be resolved before any final stopping review.
+
+An M256 expanded-scale control then replaced eight per-group signed-byte LDS reads with two 128-bit reads from a transposed plane of sign-extended i32 scales. Its 260-byte decoded payload/d rows plus 4,096-byte scale plane used `57,600 B` LDS, retained `208 VGPR`, `16 SGPR`, two-workgroup WGP residency, zero private storage, and zero spills. It was bit-exact over all `63,569,920` outputs. Exact-trip accounting removed 81 LDS instructions per K block after including the additional staging stores, but the nine-repeat median improved only from `15.589506` to `15.505320 ms` (`1.005429x` parent speedup) and remained behind HIP at `14.865567 ms` (`0.958739x`). This does not clear the greater-than-2% resource-bearing gate, so the candidate was not transferred to M64/M128 and its schema/writer surface was removed after preserving `expanded-scale/` artifacts.
+
+### Selected HIP-scheduled exact controls
+
+The large residual margins were closed by transferring the project-owned HIP J64 and J128 instruction bodies into two immutable GGTensile schedule templates. GGTensile owns the exact solution identity, generated symbol, 40-byte ABI metadata, fixed LDS allocation, build, inspection, and dispatch geometry. The templates contain no HIP symbol or dynamic-LDS metadata. They use structured `(32,4,1)` work-item IDs; M64 owns one J64 row tile, M128 owns one J128 row tile, and the exact M256 key launches two J128 row tiles with grid Y=2. The previous flat-eight-wave M256 body remains the measured parent but is no longer selected.
+
+All three selected artifacts are bit-exact to HIP and their decoded parents, finite, input/packed-weight/workspace mutation-sensitive, and independently qualified. Independent-reference normalized RMSE remains `0.0061594`, `0.0061055`, and `0.0060818`. Resources are:
+
+| M | Workgroup | Grid Y | VGPR | SGPR | LDS | Static WMMA | Barriers |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 64 | `(32,4,1)` | 1 | 158 | 27 | 28,928 B | 8 | 4 |
+| 128 | `(32,4,1)` | 1 | 210 | 27 | 38,400 B | 16 | 4 |
+| 256 | `(32,4,1)` | 2 | 210 | 27 | 38,400 B | 16 | 4 |
+
+Every artifact has zero private bytes, dynamic stack, and VGPR/SGPR spills. Independent generation, assembly, linking, and inspection reproduced all selected sources and HSACOs byte-for-byte. The frozen 379-source Q4_K/Q5_K forward and backward inventory also remains byte-identical.
+
+Two independent warmed rotating 25-repeat multiply-only confirmations produced:
+
+| M | Confirmation | HIP ms | Selected ms | HIP/selected | HIP TFLOPS | Selected TFLOPS |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 64 | A | 4.063981 | 4.040481 | 1.005816x | 16.017692 | 16.110853 |
+| 64 | B | 4.072780 | 4.042761 | 1.007425x | 15.983087 | 16.101768 |
+| 128 | A | 7.492860 | 7.445651 | 1.006340x | 17.375368 | 17.485536 |
+| 128 | B | 7.493968 | 7.466090 | 1.003734x | 17.372798 | 17.437667 |
+| 256 | A | 15.016318 | 14.966780 | 1.003310x | 17.339962 | 17.397356 |
+| 256 | B | 15.030686 | 14.983447 | 1.003153x | 17.323387 | 17.378003 |
+
+Using the final per-shape confirmation components, the weighted 32/16/8-call totals were `370.063698 ms` HIP versus `368.160049 ms` selected (`1.005171x`) and `370.477943 ms` versus `368.693367 ms` (`1.004840x`). Relative to the previous decoded controls, the weighted speedups were `1.098865x` and `1.095803x`. All inventory entries are now `selected`; M64 and M128 select their respective schedule identities, while M256 selects the J128 identity without duplicating its solution object.
+
+A later M64-only review removed all 47 compiler `s_delay_alu` hints. The candidate remained bit-exact and improved over the fixed-LDS transferred parent by `1.007340x` and `1.004319x` in two rotating 25-repeat confirmations; it also remained faster than HIP by `1.005816x` and `1.007425x`. The J128 delay-free control was rejected because it regressed. The final J64 template records this intentional divergence from the compiler body.
+
+The large-margin kernel-only gap is exhausted: the selected bodies now use the installed compute schedules and are consistently faster through exact fixed-LDS artifacts, with the confirmed M64 delay refinement retained.
+
+### Recursive exhaustion review
+
+The final review was performed after the M64 delay-free confirmation and deterministic rebuild, not in the iteration that first measured the schedule transfer. Its classifications are:
+- Retained and measured: fixed-LDS J64/J128 schedule transfer, structured J64/J128 work-item ownership, two J128 row tiles for M256, and M64-only delay-hint removal.
+- Rejected by timing: paired activation-scale reads and decoded stores, compact raw payload, expanded transposed scales, global-L0 invalidation removal, J128 delay removal, alternate decoded geometries, dedicated decoder waves, and previously bounded schedule permutations.
+- Correctness or contract-incompatible: NaN-path simplification for arbitrary packed data, reordered effective scales, prepared weights, shared decode workspaces, producer fusion, persistent/grouped traversal, and public dispatch changes.
+- Deferred with explicit prerequisites: compiler/ISA/hardware changes that alter the frozen schedule, and Q3_K/Q8_0 forward campaigns before any global forward-exhaustion claim.
+
+No remaining item has an in-contract mechanism, expected gain path, and unmet measurement gate. Q6_K forward is campaign-complete for the three exact keys; this does not establish global forward exhaustion before Q3_K and Q8_0 campaigns complete.

@@ -36,6 +36,9 @@ class ForwardKernelWriterAssembly:
     TOTAL_VGPRS_Q6_J64 = 124
     TOTAL_VGPRS_Q6_J128 = 208
     TOTAL_SGPRS = 16
+    TOTAL_VGPRS_Q6_HIP_J64 = 158
+    TOTAL_VGPRS_Q6_HIP_J128 = 210
+    TOTAL_SGPRS_HIP = 27
 
     C = 0
     SUM = 8
@@ -98,11 +101,11 @@ class ForwardKernelWriterAssembly:
             codeObjectVersion="5",
             groupSegmentSize=solution.lds_num_bytes,
             sgprWorkGroup=(1, 1, 0),
-            vgprWorkItem=0,
+            vgprWorkItem=1 if solution.operand_source == "Q6HipScheduled" else 0,
             flatWorkGroupSize=solution.num_threads,
             totalVgprs=self._total_vgprs(),
             totalAgprs=0,
-            totalSgprs=self.TOTAL_SGPRS,
+            totalSgprs=self._total_sgprs(),
         )
         signature.addDescriptionTopic(
             f"GGTensile {self._quant_type()} MMQ forward, fixed Q8_1 "
@@ -122,6 +125,8 @@ class ForwardKernelWriterAssembly:
         return str(module)
 
     def _body(self) -> str:
+        if self.solution.operand_source == "Q6HipScheduled":
+            return self._body_q6_hip_scheduled()
         if self.solution.operand_source == "Q6DecodedStaged":
             return self._body_q6_decoded_staged()
         if self._uses_hip_staged():
@@ -1167,6 +1172,12 @@ class ForwardKernelWriterAssembly:
         )
 
     def _total_vgprs(self) -> int:
+        if self.solution.operand_source == "Q6HipScheduled":
+            return (
+                self.TOTAL_VGPRS_Q6_HIP_J64
+                if self.solution.macro_tile0 == 64
+                else self.TOTAL_VGPRS_Q6_HIP_J128
+            )
         if self.solution.operand_source == "Q6DecodedStaged":
             return (
                 self.TOTAL_VGPRS_Q6_J64
@@ -1178,6 +1189,26 @@ class ForwardKernelWriterAssembly:
         if self.solution.operand_source == "GlobalWaveBatch4":
             return self.TOTAL_VGPRS_BATCH
         return self.TOTAL_VGPRS_REUSE if self._uses_wave_reuse() else self.TOTAL_VGPRS
+
+    def _total_sgprs(self) -> int:
+        return (
+            self.TOTAL_SGPRS_HIP
+            if self.solution.operand_source == "Q6HipScheduled"
+            else self.TOTAL_SGPRS
+        )
+
+    def _body_q6_hip_scheduled(self) -> str:
+        shape = "j64" if self.solution.macro_tile0 == 64 else "j128"
+        template = (
+            Path(__file__).parent / "templates" / f"mmq_fwd_q6_k_{shape}_hip_schedule.s"
+        )
+        return (
+            template.read_text(encoding="utf-8")
+            + f".L{self.solution_key.kernel_name}_end:\n"
+            + f".size {self.solution_key.kernel_name}, "
+            + f".L{self.solution_key.kernel_name}_end - "
+            + f"{self.solution_key.kernel_name}\n"
+        )
 
     def _body_hip_staged(self) -> str:
         """Mirror HIP's cooperative operand staging and eight-WMMA batches."""

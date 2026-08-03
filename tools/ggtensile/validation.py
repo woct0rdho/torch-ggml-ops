@@ -118,11 +118,14 @@ def _validate_forward_solution(
                 solution.macro_tile0 if solution.macro_tile0 in (64, 128, 256) else 64
             )
         expected = ForwardSolution.q6_k_decoded_staged(macro_tile0=expected_macro_tile0)
-        if solution != expected:
+        hip_scheduled = ForwardSolution.q6_k_hip_scheduled(
+            macro_tile0=128 if problem_size.m == 256 else expected_macro_tile0
+        )
+        if solution != expected and solution != hip_scheduled:
             _reject(
                 reasons,
                 "solution.forward.q6.control.unimplemented",
-                "Q6_K forward requires the exact decoded-staged J64/J128/J256 control",
+                "Q6_K forward requires an exact decoded-staged or HIP-scheduled control",
                 "Solution",
             )
             return
