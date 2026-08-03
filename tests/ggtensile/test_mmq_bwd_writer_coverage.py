@@ -10,7 +10,6 @@ from tests.ggtensile.support import (
     MMQ_BWD_INVENTORY_CASES,
     GGTensileInventoryCase,
     assert_writer_methods_have_complete_line_coverage,
-    ggtensile_toolchain,
     load_inventory_case,
     selected_solution_keys,
 )
@@ -28,6 +27,7 @@ from tools.ggtensile.model import (
     ProblemType,
     SolutionKey,
 )
+from tools.ggtensile.toolchain import Toolchain
 from tools.ggtensile.validation import validate_solution
 
 
@@ -41,17 +41,6 @@ def _key(
     )
 
 
-def _source(
-    key: SolutionKey, diagnostic_mode: BackwardDiagnosticMode | None = None
-) -> str:
-    assert validate_solution(key) == ()
-    return BackwardKernelWriterAssembly(
-        key,
-        ggtensile_toolchain(),
-        diagnostic_mode=diagnostic_mode,
-    ).source()
-
-
 @pytest.mark.parametrize(
     "case",
     MMQ_BWD_INVENTORY_CASES,
@@ -63,7 +52,7 @@ def test_writer_emits_every_selected_production_kernel(
     inventory, catalog = load_inventory_case(case)
     emitted: set[str] = set()
     for key in selected_solution_keys(inventory, catalog):
-        source = _source(key)
+        source = BackwardKernelWriterAssembly(key, Toolchain.discover()).source()
         assert f".globl {key.kernel_name}" in source
         emitted.add(key.hash)
     assert len(emitted) == case.entry_count
@@ -231,7 +220,7 @@ def _targeted_writer_keys() -> tuple[SolutionKey, ...]:
 
 @pytest.mark.parametrize("key", _targeted_writer_keys(), ids=lambda key: key.hash)
 def test_writer_emits_targeted_quant_and_pipeline_paths(key: SolutionKey) -> None:
-    source = _source(key)
+    source = BackwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert source.endswith(
         f".size {key.kernel_name}, .L{key.kernel_name}_end - {key.kernel_name}\n"
     )
@@ -239,7 +228,7 @@ def test_writer_emits_targeted_quant_and_pipeline_paths(key: SolutionKey) -> Non
 
 def test_writer_emits_repaired_q6_lane_share_and_depth64_layouts() -> None:
     share_key = _targeted_writer_keys()[9]
-    source = _source(share_key)
+    source = BackwardKernelWriterAssembly(share_key, Toolchain.discover()).source()
     assert source.count("v_mov_b32_dpp") == 4
     assert source.index("Load unique Q6_K low planes on every lane.") < source.index(
         "Load shared Q6_K high planes on lane-pair owners."
@@ -249,18 +238,22 @@ def test_writer_emits_repaired_q6_lane_share_and_depth64_layouts() -> None:
     ) < source.index("s_and_saveexec_b32")
 
     depth64_key = _targeted_writer_keys()[10]
-    writer = BackwardKernelWriterAssembly(depth64_key, ggtensile_toolchain())
+    writer = BackwardKernelWriterAssembly(depth64_key, Toolchain.discover())
     row_stride = 2 * depth64_key.solution.depth_u
     assert writer._decoded_lds_store_location(0, 1, 32)[1] == 64
     assert writer._decoded_lds_store_location(2, 1, 32)[1] == 2 * row_stride + 64
 
 
 def test_writer_emits_repaired_q5_sia3_and_depth64_pipeline_state() -> None:
-    sia3_source = _source(_targeted_writer_keys()[5])
+    sia3_source = BackwardKernelWriterAssembly(
+        _targeted_writer_keys()[5], Toolchain.discover()
+    ).source()
     assert "s_sub_u32 s5, s5, 32" in sia3_source
     assert "s_add_u32 s5, s5, 32" in sia3_source
 
-    depth64_source = _source(_targeted_writer_keys()[6])
+    depth64_source = BackwardKernelWriterAssembly(
+        _targeted_writer_keys()[6], Toolchain.discover()
+    ).source()
     assert (
         "Restore current-tile A pointers after next-B address setup." in depth64_source
     )
@@ -270,8 +263,16 @@ def test_writer_emits_repaired_q5_sia3_and_depth64_pipeline_state() -> None:
 
 def test_writer_emits_both_lower_bound_diagnostics() -> None:
     key = _key("Q4_K", (128, 2048, 512), BackwardSolution.pilot())
-    wmma = _source(key, BackwardDiagnosticMode.WMMA_FLOOR)
-    decode = _source(key, BackwardDiagnosticMode.DECODE_FLOOR)
+    wmma = BackwardKernelWriterAssembly(
+        key,
+        Toolchain.discover(),
+        diagnostic_mode=BackwardDiagnosticMode.WMMA_FLOOR,
+    ).source()
+    decode = BackwardKernelWriterAssembly(
+        key,
+        Toolchain.discover(),
+        diagnostic_mode=BackwardDiagnosticMode.DECODE_FLOOR,
+    ).source()
     assert ".LWmmaFloorLoop:" in wmma
     assert ".LDecodeFloorLoop:" in decode
 
@@ -279,7 +280,11 @@ def test_writer_emits_both_lower_bound_diagnostics() -> None:
 def test_writer_emits_non_direct_multirow_decode_floors() -> None:
     keys = _targeted_writer_keys()
     for key in (keys[16], keys[17]):
-        source = _source(key, BackwardDiagnosticMode.DECODE_FLOOR)
+        source = BackwardKernelWriterAssembly(
+            key,
+            Toolchain.discover(),
+            diagnostic_mode=BackwardDiagnosticMode.DECODE_FLOOR,
+        ).source()
         assert ".LDecodeFloorLoop:" in source
         assert source.count("global_load_d16_u8") >= 12
 
@@ -315,20 +320,20 @@ def test_writer_rejects_invalid_solution() -> None:
         replace(BackwardSolution.pilot(), depth_u=48),
     )
     with pytest.raises(BackwardKernelWriterError, match="solution rejected"):
-        BackwardKernelWriterAssembly(invalid, ggtensile_toolchain())
+        BackwardKernelWriterAssembly(invalid, Toolchain.discover())
 
 
 def test_writer_rejects_forward_solution_schema(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(128, 2048, 512),
         ForwardSolution.q4_k_pilot(),
     )
     monkeypatch.setattr(bwd_writer_module, "validate_solution", lambda _: ())
     with pytest.raises(BackwardKernelWriterError, match="requires BackwardSolution"):
-        BackwardKernelWriterAssembly(key, ggtensile_toolchain())
+        BackwardKernelWriterAssembly(key, Toolchain.discover())
 
 
 def test_writer_methods_have_complete_line_coverage() -> None:

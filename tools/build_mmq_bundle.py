@@ -61,10 +61,6 @@ class KernelSpec:
         return hashlib.sha256(self.symbol.encode()).hexdigest()[:16]
 
 
-def _quant_suffix(name: str) -> str:
-    return name.lower()
-
-
 def _forward_spec(
     cpp_id: str,
     suffix: str,
@@ -125,7 +121,7 @@ def _grouped_forward_specs() -> list[KernelSpec]:
     ]
     for quant_name, quant_type in QUANT_TYPES:
         label = quant_name.replace("_", "")
-        suffix = _quant_suffix(quant_name)
+        suffix = quant_name.lower()
         specs.append(
             _forward_spec(
                 f"GroupedFwdSerial{label}GenericJ128",
@@ -137,7 +133,7 @@ def _grouped_forward_specs() -> list[KernelSpec]:
         )
     for quant_name, quant_type in QUANT_TYPES:
         label = quant_name.replace("_", "")
-        suffix = _quant_suffix(quant_name)
+        suffix = quant_name.lower()
         specs.append(
             _forward_spec(
                 f"GroupedFwdSerial{label}N512K2048J64",
@@ -152,7 +148,7 @@ def _grouped_forward_specs() -> list[KernelSpec]:
         )
     for quant_name, quant_type in QUANT_TYPES:
         label = quant_name.replace("_", "")
-        suffix = _quant_suffix(quant_name)
+        suffix = quant_name.lower()
         specs.append(
             _forward_spec(
                 f"GroupedFwdSerial{label}N2048K512J64",
@@ -167,7 +163,7 @@ def _grouped_forward_specs() -> list[KernelSpec]:
         )
     for quant_name, quant_type in ROW_TASK_TYPES:
         label = quant_name.replace("_", "")
-        suffix = _quant_suffix(quant_name)
+        suffix = quant_name.lower()
         specs.append(
             _forward_spec(
                 f"GroupedFwdRowTask{label}N512K2048J64",
@@ -462,7 +458,7 @@ def _dense_backward_specs() -> list[KernelSpec]:
         specs.append(
             _dense_backward_spec(
                 f"DenseBwd{cpp_label}NT{nt}KI16G{group_m}",
-                f"dense_bwd_{_quant_suffix(label)}_nt{nt}_ki16_g{group_m}",
+                f"dense_bwd_{label.lower()}_nt{nt}_ki16_g{group_m}",
                 quant_type,
                 n_tiles,
                 16,
@@ -705,7 +701,7 @@ def _grouped_backward_specs() -> list[KernelSpec]:
         specs.append(
             _grouped_backward_spec(
                 f"GroupedBwdSingle{label}Generic",
-                f"grouped_bwd_single_{_quant_suffix(quant_name)}_generic",
+                f"grouped_bwd_single_{quant_name.lower()}_generic",
                 GroupedBackwardKind.GENERIC_SINGLE,
                 quant_type,
             )
@@ -715,7 +711,7 @@ def _grouped_backward_specs() -> list[KernelSpec]:
         specs.append(
             _grouped_backward_spec(
                 f"GroupedBwdPair{label}Generic",
-                f"grouped_bwd_pair_{_quant_suffix(quant_name)}_generic",
+                f"grouped_bwd_pair_{quant_name.lower()}_generic",
                 GroupedBackwardKind.GENERIC_PAIR,
                 quant_type,
             )
@@ -865,7 +861,7 @@ def kernel_specs() -> tuple[KernelSpec, ...]:
         specs.append(
             _forward_spec(
                 f"DenseFwd{label}J128",
-                f"dense_fwd_{_quant_suffix(quant_name)}_j128",
+                f"dense_fwd_{quant_name.lower()}_j128",
                 ForwardKind.DENSE,
                 quant_type=quant_type,
                 j=128,
@@ -918,7 +914,7 @@ def kernel_specs() -> tuple[KernelSpec, ...]:
         specs.append(
             _forward_spec(
                 f"DenseFwd{label}K{k}J{j}Full",
-                f"dense_fwd_{_quant_suffix(quant_type.name)}_k{k}_j{j}_full",
+                f"dense_fwd_{quant_type.name.lower()}_k{k}_j{j}_full",
                 ForwardKind.DENSE,
                 quant_type=quant_type,
                 j=j,
@@ -987,11 +983,6 @@ def _ccache_namespace(hipcc: Path, compiler_identity: str) -> str:
     digest.update(compiler_identity.encode())
     digest.update("\0".join(_common_args(hipcc)[1:]).encode())
     return f"torch-ggml-ops-mmq-{digest.hexdigest()[:16]}"
-
-
-def _generated_source(spec: KernelSpec, source_text: str) -> Path:
-    source_digest = hashlib.sha256(source_text.encode()).hexdigest()[:16]
-    return GENERATED_SOURCE_DIR / f"{spec.cpp_id}-{source_digest}.cu"
 
 
 def _build_input_digest(
@@ -1105,7 +1096,8 @@ def _compile_one(
 ) -> tuple[str, bytes]:
     temporary = output_dir / f"{spec.cpp_id}.hsaco"
     source_text = render_wrapper(spec.symbol, spec.config)
-    source = _generated_source(spec, source_text)
+    source_digest = hashlib.sha256(source_text.encode()).hexdigest()[:16]
+    source = GENERATED_SOURCE_DIR / f"{spec.cpp_id}-{source_digest}.cu"
     source.parent.mkdir(parents=True, exist_ok=True)
     if not source.is_file():
         source.write_text(source_text)

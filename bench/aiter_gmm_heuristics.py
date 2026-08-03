@@ -154,10 +154,6 @@ _PTGMM_TUNED_CONFIGS: dict[tuple[int, int, int], ConfigValues] = {
 }
 
 
-def _config(values: ConfigValues) -> dict[str, int]:
-    return dict(zip(_CONFIG_KEYS, values, strict=True))
-
-
 def gmm_config(m: int, k: int, n: int, transposed_rhs: bool) -> dict[str, int]:
     """Return an exact-target config and reject unmeasured shapes."""
 
@@ -169,7 +165,7 @@ def gmm_config(m: int, k: int, n: int, transposed_rhs: bool) -> dict[str, int]:
             "No tuned gfx1151 AITER GMM config for "
             f"M={m}, K={k}, N={n}, RHS layout={layout}."
         )
-    return _config(values)
+    return dict(zip(_CONFIG_KEYS, values, strict=True))
 
 
 def ptgmm_config(m: int, k: int, n: int) -> dict[str, int]:
@@ -181,4 +177,4 @@ def ptgmm_config(m: int, k: int, n: int) -> dict[str, int]:
         raise ValueError(
             f"No tuned gfx1151 AITER PTGMM config for M={m}, K={k}, N={n}."
         )
-    return _config(values)
+    return dict(zip(_CONFIG_KEYS, values, strict=True))

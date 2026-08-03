@@ -82,18 +82,6 @@ def _write_json_exclusive(path: Path, value: Mapping[str, object]) -> None:
         handle.write("\n")
 
 
-def _selected(
-    inventory: CampaignInventory, arguments: argparse.Namespace
-) -> tuple[CampaignEntry, ...]:
-    return inventory.selected(
-        families=tuple(arguments.family), sizes=tuple(arguments.key)
-    )
-
-
-def _artifact_dir(root: Path, entry: CampaignEntry) -> Path:
-    return root / entry.slug
-
-
 def _prepare(
     arguments: argparse.Namespace,
     inventory: CampaignInventory,
@@ -129,7 +117,7 @@ def _prepare(
         solutions = [solution] * len(entries)
         source_mapping = {"Solution": str(solution_path.resolve())}
     keys = [
-        entry.solution_key(inventory.problem_type, solution)
+        SolutionKey(inventory.problem_type, entry.problem_size, solution)
         for entry, solution in zip(entries, solutions, strict=True)
     ]
     rejected = [
@@ -143,7 +131,7 @@ def _prepare(
 
     prepared: list[dict[str, object]] = []
     for entry, key in zip(entries, keys, strict=True):
-        artifact = _artifact_dir(root, entry)
+        artifact = root / entry.slug
         request = artifact / "requested.json"
         _write_json_exclusive(request, key.to_mapping())
         phases = (
@@ -271,7 +259,7 @@ def _measure(
     weighted_candidate = 0.0
     weighted_control = 0.0
     for entry in entries:
-        artifact = _artifact_dir(root, entry)
+        artifact = root / entry.slug
         solution_path = artifact / "solution.json"
         code_object = artifact / "kernel.hsaco"
         inspect_manifest = artifact / "inspect.json"
@@ -302,7 +290,7 @@ def _measure(
         if not arguments.with_reference:
             command.append("--skip-reference")
         if control_root is not None:
-            control = _artifact_dir(control_root, entry)
+            control = control_root / entry.slug
             command.extend(
                 (
                     "--assembly-control-solution-key",
@@ -378,7 +366,9 @@ def _measure(
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     inventory = load_inventory(arguments.inventory)
-    entries = _selected(inventory, arguments)
+    entries = inventory.selected(
+        families=tuple(arguments.family), sizes=tuple(arguments.key)
+    )
     if arguments.command == "prepare":
         return _prepare(arguments, inventory, entries)
     return _measure(arguments, inventory, entries)

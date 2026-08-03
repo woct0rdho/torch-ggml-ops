@@ -28,9 +28,6 @@ class Toolchain:
             objdump=_find_sibling_tool(tool_dir, "llvm-objdump"),
         )
 
-    def identity(self) -> str:
-        return _run([str(self.assembler), "--version"]).stdout.strip()
-
     def assemble(self, source: Path, output: Path) -> None:
         output.parent.mkdir(parents=True, exist_ok=True)
         _run(

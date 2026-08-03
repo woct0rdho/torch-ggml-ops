@@ -90,8 +90,8 @@ def _validate_forward_solution(
     problem_size = solution_key.problem_size
     solution = solution_key.solution
     supported_problem_types = {
-        ProblemType.mmq_forward_q4_k(),
-        ProblemType.mmq_forward_q5_k(),
+        ProblemType.mmq_forward("Q4_K"),
+        ProblemType.mmq_forward("Q5_K"),
     }
     if problem_type not in supported_problem_types:
         _reject(
@@ -110,7 +110,7 @@ def _validate_forward_solution(
             source="SolutionStructs",
         )
         return
-    if problem_type == ProblemType.mmq_forward_q5_k():
+    if problem_type == ProblemType.mmq_forward("Q5_K"):
         q5_retained = ForwardSolution.q5_k_hip_decoded_staged_retained()
         q5_metadata_after_low = (
             ForwardSolution.q5_k_hip_decoded_staged_metadata_after_low_wmma()

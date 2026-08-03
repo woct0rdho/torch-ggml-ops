@@ -11,7 +11,6 @@ from .model import (
     ForwardSolution,
     ProblemSize,
     ProblemType,
-    SolutionKey,
 )
 
 _EXPECTED_M = (2048, 8192, 32768)
@@ -161,10 +160,6 @@ class CampaignEntry:
         return f"m{size.m}_n{size.n}_k{size.k}"
 
     @property
-    def weighted_historical_latency_ms(self) -> float:
-        return self.call_count * self.historical_hip_median_ms
-
-    @property
     def expected_logical_weight_shape(self) -> tuple[int, int]:
         if self.operation_type == "MMQForward":
             return (self.problem_size.n, self.problem_size.k)
@@ -178,13 +173,6 @@ class CampaignEntry:
         if self.operation_type == "MMQForward":
             return (size.n, size.k // block_values * spec["block_bytes"])
         return (size.k, size.n // block_values * spec["block_bytes"])
-
-    def solution_key(
-        self,
-        problem_type: ProblemType,
-        solution: BackwardSolution | ForwardSolution,
-    ) -> SolutionKey:
-        return SolutionKey(problem_type, self.problem_size, solution)
 
 
 @dataclass(frozen=True)
@@ -226,10 +214,6 @@ class CampaignInventory:
         return selected
 
 
-def _load_json(path: Path) -> object:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
 def load_solution(
     path: Path,
     *,
@@ -240,7 +224,7 @@ def load_solution(
         if problem_type.operation_type == "MMQForward"
         else BackwardSolution
     )
-    return solution_type.from_mapping(_load_json(path))
+    return solution_type.from_mapping(json.loads(path.read_text(encoding="utf-8")))
 
 
 def load_solution_catalog(
@@ -249,7 +233,7 @@ def load_solution_catalog(
     problem_type: ProblemType,
 ) -> dict[str, BackwardSolution | ForwardSolution]:
     root = _mapping(
-        _load_json(path),
+        json.loads(path.read_text(encoding="utf-8")),
         "solution catalog",
         frozenset({"Solutions"}),
     )
@@ -270,7 +254,7 @@ def load_solution_catalog(
 
 def load_inventory(path: Path) -> CampaignInventory:
     root = _mapping(
-        _load_json(path),
+        json.loads(path.read_text(encoding="utf-8")),
         "inventory",
         frozenset({"ProblemType", "ModelFile", "Validation", "Keys"}),
     )

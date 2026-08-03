@@ -11,7 +11,6 @@ from tests.ggtensile.support import (
     GGTensileInventoryCase,
     assert_resource_clean,
     build_and_inspect,
-    ggtensile_toolchain,
     load_inventory_case,
     selected_solution_keys,
 )
@@ -33,6 +32,7 @@ from tools.ggtensile.model import (
     ProblemType,
     SolutionKey,
 )
+from tools.ggtensile.toolchain import Toolchain
 from tools.ggtensile.validation import validate_solution
 from tools.run_ggtensile_mmq_bwd_campaign import main as campaign_main
 
@@ -43,7 +43,7 @@ _Q4_CATALOG = _BWD_INVENTORY_CASES["Q4_K"].catalog_path
 
 def _pilot_key() -> SolutionKey:
     return SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(128, 2048, 512),
         BackwardSolution.pilot(),
     )
@@ -55,10 +55,6 @@ def _selected_solution(quant_type: str, name: str) -> BackwardSolution:
     assert isinstance(solution, BackwardSolution)
     assert inventory.problem_type == ProblemType.mmq_backward(quant_type)
     return solution
-
-
-def _source(key: SolutionKey) -> str:
-    return BackwardKernelWriterAssembly(key, ggtensile_toolchain()).source()
 
 
 @pytest.mark.parametrize(
@@ -159,7 +155,7 @@ def test_q3_k_packed_decoder_uses_wave32_vopd_scale_pairs() -> None:
         ),
     )
     assert validate_solution(key) == ()
-    source = _source(key)
+    source = BackwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert "v_dual_mul_f32" in source
     assert "v_dual_sub_f32" in source
     assert source.count("v_dual_mul_f32") >= 4
@@ -170,11 +166,15 @@ def test_q3_k_packed_decoder_uses_wave32_vopd_scale_pairs() -> None:
 def test_q6_k_packed_vopd_decoder_pairs_adjacent_values() -> None:
     inventory, catalog = load_inventory_case(_BWD_INVENTORY_CASES["Q6_K"])
     entry = next(item for item in inventory.entries if item.problem_size.m == 64)
-    key = entry.solution_key(inventory.problem_type, catalog[entry.selected_solution])
+    key = SolutionKey(
+        inventory.problem_type,
+        entry.problem_size,
+        catalog[entry.selected_solution],
+    )
     assert isinstance(key.solution, BackwardSolution)
     assert key.solution.q6_k_extraction == "packed_vopd"
     assert validate_solution(key) == ()
-    source = _source(key)
+    source = BackwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert source.count("v_dual_sub_f32") >= 16
     assert source.count("v_dual_mul_f32") >= 16
     assert "v_lshl_or_b32" in source
@@ -192,7 +192,7 @@ def test_q6_k_rejects_geometry_with_no_decoder_rows() -> None:
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.mmq_backward_q6_k(),
+        ProblemType.mmq_backward("Q6_K"),
         ProblemSize(64, 2048, 248320),
         solution,
     )
@@ -240,8 +240,8 @@ def test_backward_quant_types_have_distinct_problem_and_solution_identity() -> N
     for quant_type, key in zip(sizes, keys, strict=True):
         assert f"mmq_bwd_{quant_type.lower()}_" in key.kernel_name
 
-    q4 = ProblemType.mmq_backward_q4_k()
-    q5 = ProblemType.mmq_backward_q5_k()
+    q4 = ProblemType.mmq_backward("Q4_K")
+    q5 = ProblemType.mmq_backward("Q5_K")
     q5_scalar = SolutionKey(
         q5,
         ProblemSize(128, 2048, 512),
@@ -295,7 +295,7 @@ def test_q4_k_campaign_prepare_accepts_explicit_solution(tmp_path: Path) -> None
     solution_path = tmp_path / "solution.json"
     solution = load_solution_catalog(
         _Q4_CATALOG,
-        problem_type=ProblemType.mmq_backward_q4_k(),
+        problem_type=ProblemType.mmq_backward("Q4_K"),
     )["retained_128x128_pipeline"]
     solution_path.write_text(json.dumps(solution.to_mapping()))
     root = tmp_path / "campaign"
@@ -332,19 +332,19 @@ def test_writer_specializes_production_q4_k_row_stride(
     n: int, packed_row_bytes: int
 ) -> None:
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(128, n, 512),
         BackwardSolution.pilot(),
     )
     assert validate_solution(key) == ()
-    writer = BackwardKernelWriterAssembly(key, ggtensile_toolchain())
+    writer = BackwardKernelWriterAssembly(key, Toolchain.discover())
     source = writer.source()
     temporary = writer.registers.temporary
     assert f"v_mul_lo_u32 v{temporary}, {packed_row_bytes}, v{temporary}" in source
 
 
 def test_writer_strength_reduces_power_of_two_row_strides() -> None:
-    toolchain = ggtensile_toolchain()
+    toolchain = Toolchain.discover()
     pipeline = replace(
         BackwardSolution.pilot(),
         one_lds_buffer=0,
@@ -354,7 +354,7 @@ def test_writer_strength_reduces_power_of_two_row_strides() -> None:
         store_priority_opt=False,
     )
     production_key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(128, 2048, 512),
         pipeline,
     )
@@ -371,7 +371,7 @@ def test_writer_strength_reduces_power_of_two_row_strides() -> None:
     )
 
     reduced_key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(128, 2048, 96),
         pipeline,
     )
@@ -385,7 +385,7 @@ def test_writer_strength_reduces_power_of_two_row_strides() -> None:
 
 def test_validation_rejects_nonproduction_n() -> None:
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(128, 1024, 512),
         BackwardSolution.pilot(),
     )
@@ -395,7 +395,7 @@ def test_validation_rejects_nonproduction_n() -> None:
 
 
 def test_writer_enables_and_flattens_packed_workitem_xy() -> None:
-    writer = BackwardKernelWriterAssembly(_pilot_key(), ggtensile_toolchain())
+    writer = BackwardKernelWriterAssembly(_pilot_key(), Toolchain.discover())
     source = writer.source()
     registers = writer.registers
     assert ".amdhsa_system_vgpr_workitem_id 1" in source
@@ -437,7 +437,7 @@ def test_writer_enables_and_flattens_packed_workitem_xy() -> None:
         ),
         pytest.param(
             SolutionKey(
-                ProblemType.mmq_backward_q5_k(),
+                ProblemType.mmq_backward("Q5_K"),
                 ProblemSize(128, 2048, 512),
                 BackwardSolution.pilot(),
             ),
@@ -455,7 +455,7 @@ def test_writer_enables_and_flattens_packed_workitem_xy() -> None:
         ),
         pytest.param(
             SolutionKey(
-                ProblemType.mmq_backward_q6_k(),
+                ProblemType.mmq_backward("Q6_K"),
                 ProblemSize(128, 2048, 248320),
                 replace(
                     BackwardSolution.pilot(),
@@ -475,7 +475,7 @@ def test_writer_enables_and_flattens_packed_workitem_xy() -> None:
         ),
         pytest.param(
             SolutionKey(
-                ProblemType.mmq_backward_q8_0(),
+                ProblemType.mmq_backward("Q8_0"),
                 ProblemSize(128, 4096, 1024),
                 BackwardSolution.pilot(),
             ),
@@ -502,7 +502,7 @@ def test_build_and_inspect_quant_backend(
     source_markers: tuple[str, ...],
 ) -> None:
     assert validate_solution(key) == ()
-    toolchain = ggtensile_toolchain()
+    toolchain = Toolchain.discover()
     artifact = build_and_inspect(
         key,
         BackwardKernelWriterAssembly(key, toolchain),
@@ -546,12 +546,12 @@ def test_build_and_inspect_q8_0_depth_u64_backend(tmp_path: Path) -> None:
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.mmq_backward_q8_0(),
+        ProblemType.mmq_backward("Q8_0"),
         ProblemSize(128, 4096, 1024),
         solution,
     )
     assert validate_solution(key) == ()
-    toolchain = ggtensile_toolchain()
+    toolchain = Toolchain.discover()
     artifact = build_and_inspect(
         key,
         BackwardKernelWriterAssembly(key, toolchain),
@@ -581,12 +581,12 @@ def test_build_and_inspect_q8_0_compact_geometry(tmp_path: Path) -> None:
         lds_pad_b=8,
     )
     key = SolutionKey(
-        ProblemType.mmq_backward_q8_0(),
+        ProblemType.mmq_backward("Q8_0"),
         ProblemSize(2048, 4096, 1024),
         solution,
     )
     assert validate_solution(key) == ()
-    toolchain = ggtensile_toolchain()
+    toolchain = Toolchain.discover()
     artifact = build_and_inspect(
         key,
         BackwardKernelWriterAssembly(key, toolchain),
@@ -613,20 +613,20 @@ def test_build_and_inspect_q8_0_depth_u64_compact_geometry(tmp_path: Path) -> No
         lds_pad_b=8,
     )
     key = SolutionKey(
-        ProblemType.mmq_backward_q8_0(),
+        ProblemType.mmq_backward("Q8_0"),
         ProblemSize(64, 4096, 129280),
         solution,
     )
     assert validate_solution(key) == ()
     q4_reasons = validate_solution(
         SolutionKey(
-            ProblemType.mmq_backward_q4_k(),
+            ProblemType.mmq_backward("Q4_K"),
             ProblemSize(64, 4096, 129280),
             solution,
         )
     )
     assert any(reason.rule_id == "solution.depthu64.q8_pad8" for reason in q4_reasons)
-    toolchain = ggtensile_toolchain()
+    toolchain = Toolchain.discover()
     artifact = build_and_inspect(
         key,
         BackwardKernelWriterAssembly(key, toolchain),
@@ -653,19 +653,19 @@ def test_build_and_inspect_q8_0_two_wave_m32_geometry(tmp_path: Path) -> None:
         lds_pad_b=8,
     )
     key = SolutionKey(
-        ProblemType.mmq_backward_q8_0(),
+        ProblemType.mmq_backward("Q8_0"),
         ProblemSize(32, 4096, 129280),
         solution,
     )
     assert validate_solution(key) == ()
     assert validate_solution(
         SolutionKey(
-            ProblemType.mmq_backward_q4_k(),
+            ProblemType.mmq_backward("Q4_K"),
             ProblemSize(32, 4096, 129280),
             solution,
         )
     )
-    toolchain = ggtensile_toolchain()
+    toolchain = Toolchain.discover()
     artifact = build_and_inspect(
         key,
         BackwardKernelWriterAssembly(key, toolchain),
@@ -695,12 +695,12 @@ def test_build_and_inspect_q8_0_packed_vopd_decode(tmp_path: Path) -> None:
         q8_0_extraction="packed_vopd",
     )
     key = SolutionKey(
-        ProblemType.mmq_backward_q8_0(),
+        ProblemType.mmq_backward("Q8_0"),
         ProblemSize(32, 4096, 129280),
         solution,
     )
     assert validate_solution(key) == ()
-    toolchain = ggtensile_toolchain()
+    toolchain = Toolchain.discover()
     artifact = build_and_inspect(
         key,
         BackwardKernelWriterAssembly(key, toolchain),
@@ -789,7 +789,7 @@ def test_cli_generate_build_and_inspect_manifests(tmp_path: Path) -> None:
 
 def test_cli_records_rejected_solution_manifest(tmp_path: Path) -> None:
     rejected = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(32768, 2048, 8192),
         replace(BackwardSolution.pilot(), depth_u=16),
     )
@@ -819,13 +819,13 @@ def test_writer_emits_distinct_xor8_lds_layout() -> None:
     pilot = BackwardSolution.pilot()
     swizzled = replace(pilot, lds_swizzle_chunk_b=8)
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(128, 2048, 512),
         swizzled,
     )
     assert validate_solution(key) == ()
 
-    source = _source(key)
+    source = BackwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert "Precompute XOR-8 LDS store bases" in source
     assert "v_xor_b32" in source
     assert source.count("ds_load_b128") == 32
@@ -836,13 +836,13 @@ def test_writer_emits_distinct_xor16_lds_layout() -> None:
     pilot = BackwardSolution.pilot()
     swizzled = replace(pilot, lds_swizzle_chunk_b=16)
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(128, 2048, 512),
         swizzled,
     )
     assert validate_solution(key) == ()
 
-    source = _source(key)
+    source = BackwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert "Precompute XOR-16 LDS store bases" in source
     assert source.count("ds_load_b128") == 32
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
@@ -852,13 +852,13 @@ def test_writer_emits_distinct_xor4_lds_layout() -> None:
     pilot = BackwardSolution.pilot()
     swizzled = replace(pilot, lds_swizzle_chunk_b=4, schedule_iter_alg=3)
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(128, 2048, 512),
         swizzled,
     )
     assert validate_solution(key) == ()
 
-    source = _source(key)
+    source = BackwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert "Precompute XOR-4 LDS store bases" in source
     assert source.count("ds_load_b64") == 64
     assert source.count("ds_load_b128") == 0
@@ -870,13 +870,13 @@ def test_writer_emits_sia3_partial_wait_schedule() -> None:
     pilot = BackwardSolution.pilot()
     scheduled = replace(pilot, schedule_iter_alg=3)
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(128, 2048, 512),
         scheduled,
     )
     assert validate_solution(key) == ()
 
-    source = _source(key)
+    source = BackwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert source.count("s_waitcnt vmcnt(2) lgkmcnt(2)") == 2
     assert source.count("s_waitcnt lgkmcnt(2)") == 6
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
@@ -890,13 +890,13 @@ def test_writer_overlaps_first_a_half_with_decode(tmp_path: Path) -> None:
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(32768, 2048, 8192),
         scheduled,
     )
     assert validate_solution(key) == ()
 
-    toolchain = ggtensile_toolchain()
+    toolchain = Toolchain.discover()
     assembly = tmp_path / "schedule4.s"
     object_path = tmp_path / "schedule4.o"
     code_object = tmp_path / "schedule4.hsaco"
@@ -929,13 +929,13 @@ def test_writer_prefetches_both_a_halves(tmp_path: Path) -> None:
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(32768, 2048, 8192),
         prefetched,
     )
     assert validate_solution(key) == ()
 
-    toolchain = ggtensile_toolchain()
+    toolchain = Toolchain.discover()
     assembly = tmp_path / "prefetch_global_read.s"
     object_path = tmp_path / "prefetch_global_read.o"
     code_object = tmp_path / "prefetch_global_read.hsaco"
@@ -965,13 +965,13 @@ def test_writer_shares_packed_weight_across_nibble_lanes(
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(32768, 2048, 8192),
         shared,
     )
     assert validate_solution(key) == ()
 
-    toolchain = ggtensile_toolchain()
+    toolchain = Toolchain.discover()
     assembly = tmp_path / "packed_weight_lane_share.s"
     object_path = tmp_path / "packed_weight_lane_share.o"
     code_object = tmp_path / "packed_weight_lane_share.hsaco"
@@ -1000,13 +1000,13 @@ def test_writer_pipelines_packed_weight_reads(tmp_path: Path) -> None:
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(32768, 2048, 8192),
         pipelined,
     )
     assert validate_solution(key) == ()
 
-    toolchain = ggtensile_toolchain()
+    toolchain = Toolchain.discover()
     assembly = tmp_path / "prefetch_packed_weight.s"
     object_path = tmp_path / "prefetch_packed_weight.o"
     code_object = tmp_path / "prefetch_packed_weight.hsaco"
@@ -1036,13 +1036,13 @@ def test_writer_combines_global_prefetch_with_partial_waits(
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(32768, 2048, 8192),
         scheduled,
     )
     assert validate_solution(key) == ()
 
-    toolchain = ggtensile_toolchain()
+    toolchain = Toolchain.discover()
     assembly = tmp_path / "schedule5.s"
     object_path = tmp_path / "schedule5.o"
     code_object = tmp_path / "schedule5.hsaco"
@@ -1071,13 +1071,13 @@ def test_writer_builds_128x64_geometry(tmp_path: Path) -> None:
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(32768, 2048, 8192),
         tile_128x64,
     )
     assert validate_solution(key) == ()
 
-    toolchain = ggtensile_toolchain()
+    toolchain = Toolchain.discover()
     assembly = tmp_path / "tile_128x64.s"
     object_path = tmp_path / "tile_128x64.o"
     code_object = tmp_path / "tile_128x64.hsaco"
@@ -1106,13 +1106,13 @@ def test_writer_builds_64x128_geometry(tmp_path: Path) -> None:
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(32768, 2048, 8192),
         tile_64x128,
     )
     assert validate_solution(key) == ()
 
-    toolchain = ggtensile_toolchain()
+    toolchain = Toolchain.discover()
     assembly = tmp_path / "tile_64x128.s"
     object_path = tmp_path / "tile_64x128.o"
     code_object = tmp_path / "tile_64x128.hsaco"
@@ -1140,13 +1140,13 @@ def test_writer_builds_depth_u64_geometry(tmp_path: Path) -> None:
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(32768, 2048, 8192),
         depth_u64,
     )
     assert validate_solution(key) == ()
 
-    toolchain = ggtensile_toolchain()
+    toolchain = Toolchain.discover()
     assembly = tmp_path / "depth_u64.s"
     object_path = tmp_path / "depth_u64.o"
     code_object = tmp_path / "depth_u64.hsaco"
@@ -1173,13 +1173,13 @@ def test_writer_prefetches_next_local_read_pair(tmp_path: Path) -> None:
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(32768, 2048, 8192),
         prefetched,
     )
     assert validate_solution(key) == ()
 
-    toolchain = ggtensile_toolchain()
+    toolchain = Toolchain.discover()
     assembly = tmp_path / "prefetch_local_read.s"
     object_path = tmp_path / "prefetch_local_read.o"
     code_object = tmp_path / "prefetch_local_read.hsaco"
@@ -1201,13 +1201,13 @@ def test_writer_maps_grouped_m_launch_coordinates() -> None:
     pilot = BackwardSolution.pilot()
     all_m = replace(pilot, work_group_mapping=256)
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(32768, 2048, 8192),
         all_m,
     )
     assert validate_solution(key) == ()
 
-    source = _source(key)
+    source = BackwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert ".amdhsa_system_sgpr_workgroup_id_z 1" in source
     assert "s_mul_i32 s4, s4, 256" in source
     assert "s_add_u32 s2, s4, s2" in source
@@ -1223,7 +1223,7 @@ def test_validation_rejects_unsupported_256x128_sia5_geometry() -> None:
         schedule_iter_alg=5,
     )
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(32768, 2048, 8192),
         geometry,
     )
@@ -1243,14 +1243,14 @@ def test_writer_builds_true_decoded_b_pipeline(tmp_path: Path) -> None:
         store_priority_opt=False,
     )
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(32768, 2048, 512),
         pipeline,
     )
     assert validate_solution(key) == ()
     assert pipeline.lds_num_bytes == 16384
 
-    toolchain = ggtensile_toolchain()
+    toolchain = Toolchain.discover()
     assembly = tmp_path / "decoded_b_pipeline.s"
     object_path = tmp_path / "decoded_b_pipeline.o"
     code_object = tmp_path / "decoded_b_pipeline.hsaco"
@@ -1282,11 +1282,11 @@ def test_writer_specializes_single_tile_decoded_b_pipeline(tmp_path: Path) -> No
         store_priority_opt=False,
     )
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(128, 2048, 32),
         pipeline,
     )
-    toolchain = ggtensile_toolchain()
+    toolchain = Toolchain.discover()
     assembly = tmp_path / "single_tile_pipeline.s"
     object_path = tmp_path / "single_tile_pipeline.o"
     code_object = tmp_path / "single_tile_pipeline.hsaco"
@@ -1306,7 +1306,7 @@ def test_writer_specializes_single_tile_decoded_b_pipeline(tmp_path: Path) -> No
 def test_two_lds_buffers_reject_unsupported_schedule() -> None:
     unsupported = replace(BackwardSolution.pilot(), one_lds_buffer=0)
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(32768, 2048, 512),
         unsupported,
     )
@@ -1332,11 +1332,11 @@ def test_writer_builds_lower_bound_diagnostics(
         store_priority_opt=False,
     )
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(32768, 2048, 512),
         solution,
     )
-    toolchain = ggtensile_toolchain()
+    toolchain = Toolchain.discover()
     assembly = tmp_path / f"{mode.value}.s"
     object_path = tmp_path / f"{mode.value}.o"
     code_object = tmp_path / f"{mode.value}.hsaco"
@@ -1372,7 +1372,7 @@ def test_q8_one_buffer_lower_bound_diagnostics(
     wmma_count: int,
 ) -> None:
     key = SolutionKey(
-        ProblemType.mmq_backward_q8_0(),
+        ProblemType.mmq_backward("Q8_0"),
         ProblemSize(128, 4096, 1024),
         replace(
             BackwardSolution.pilot(),
@@ -1381,7 +1381,7 @@ def test_q8_one_buffer_lower_bound_diagnostics(
             lds_pad_b=8,
         ),
     )
-    toolchain = ggtensile_toolchain()
+    toolchain = Toolchain.discover()
     assembly = tmp_path / f"q8_{mode.value}.s"
     object_path = tmp_path / f"q8_{mode.value}.o"
     code_object = tmp_path / f"q8_{mode.value}.hsaco"
@@ -1405,11 +1405,11 @@ def test_writer_can_disable_store_priority() -> None:
     pilot = BackwardSolution.pilot()
     no_store_priority = replace(pilot, store_priority_opt=False)
     key = SolutionKey(
-        ProblemType.mmq_backward_q4_k(),
+        ProblemType.mmq_backward("Q4_K"),
         ProblemSize(128, 2048, 512),
         no_store_priority,
     )
     assert validate_solution(key) == ()
 
-    source = _source(key)
+    source = BackwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert "s_setprio" not in source

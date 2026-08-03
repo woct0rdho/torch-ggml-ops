@@ -11,7 +11,6 @@ from tests.ggtensile.support import (
     GGTensileInventoryCase,
     assert_resource_clean,
     build_and_inspect,
-    ggtensile_toolchain,
     load_inventory_case,
     selected_solution_keys,
 )
@@ -27,6 +26,7 @@ from tools.ggtensile.model import (
     SolutionKey,
 )
 from tools.ggtensile.runtime import FixedHipForwardModule, ForwardModule
+from tools.ggtensile.toolchain import Toolchain
 from tools.ggtensile.validation import validate_solution
 
 _Q5_INVENTORY_CASE = next(
@@ -80,10 +80,6 @@ def _key(
         size or ProblemSize(2048, 512, 2048),
         solution,
     )
-
-
-def _source(key: SolutionKey) -> str:
-    return ForwardKernelWriterAssembly(key, ggtensile_toolchain()).source()
 
 
 @pytest.mark.parametrize(
@@ -261,7 +257,7 @@ def test_q5_forward_validation_rejects_q4_control() -> None:
 
 def test_forward_writer_emits_direct_q8_1_f16_d4s4_q4_k_control(tmp_path: Path) -> None:
     key = _key()
-    writer = ForwardKernelWriterAssembly(key, ggtensile_toolchain())
+    writer = ForwardKernelWriterAssembly(key, Toolchain.discover())
     source = writer.source()
     assembly = tmp_path / "kernel.s"
     digest = writer.write(assembly)
@@ -279,7 +275,7 @@ def test_forward_writer_emits_direct_q8_1_f16_d4s4_q4_k_control(tmp_path: Path) 
 
 def test_forward_writer_emits_flat_wave_reuse_control() -> None:
     key = _key(solution=ForwardSolution.q4_k_wave_reuse())
-    source = _source(key)
+    source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert source.count("v_wmma_i32_16x16x16_iu8") == 128
     assert "v_lshrrev_b32 v159, 5, v157" in source
     assert "Reused Q4_K group 7 across eight activation tiles." in source
@@ -291,7 +287,7 @@ def test_forward_writer_emits_flat_wave_reuse_control() -> None:
 
 def test_forward_writer_emits_wave_batch_control() -> None:
     key = _key(solution=ForwardSolution.q4_k_wave_batch4())
-    source = _source(key)
+    source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert source.count("v_wmma_i32_16x16x16_iu8") == 128
     assert "Batch Q4_K group 7 across four activation tiles at a time." in source
     assert "v_wmma_i32_16x16x16_iu8 v[112:119]" in source
@@ -304,7 +300,7 @@ def test_forward_writer_emits_wave_batch_control() -> None:
 
 def test_forward_writer_emits_hip_shaped_staged_control() -> None:
     key = _key(solution=ForwardSolution.q4_k_hip_staged())
-    source = _source(key)
+    source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert source.count("v_wmma_i32_16x16x16_iu8") == 128
     assert source.count("s_barrier") == 4
     assert "Cooperatively stage the raw packed Q4_K payload." in source
@@ -317,7 +313,7 @@ def test_forward_writer_emits_hip_shaped_staged_control() -> None:
 
 def test_forward_writer_emits_hip_decoded_staged_control() -> None:
     key = _key(solution=ForwardSolution.q4_k_hip_decoded_staged())
-    source = _source(key)
+    source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert source.count("v_wmma_i32_16x16x16_iu8") == 32
     assert source.count("s_barrier") == 4
     assert "Cooperatively decode Q4_K payload into HIP's padded LDS rows." in source
@@ -332,7 +328,7 @@ def test_forward_writer_emits_hip_decoded_staged_control() -> None:
 
 def test_forward_writer_emits_retained_decoded_staged_control() -> None:
     key = _key(solution=ForwardSolution.q4_k_hip_decoded_staged_retained())
-    source = _source(key)
+    source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert source.count("v_wmma_i32_16x16x16_iu8") == 32
     assert source.count("s_barrier") == 4
     assert source.count("v_cvt_f16_u16_e32") == 16
@@ -348,7 +344,7 @@ def test_forward_writer_emits_metadata_after_low_wmma_schedule() -> None:
     solution = ForwardSolution.q4_k_hip_decoded_staged_metadata_after_low_wmma()
     key = _key(solution=solution)
     assert validate_solution(key) == ()
-    source = _source(key)
+    source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert source.count("s_waitcnt lgkmcnt(23)") == 0
     assert source.count("s_waitcnt lgkmcnt(15)") == 2
     assert source.count("s_waitcnt lgkmcnt(1)") == 2
@@ -379,7 +375,7 @@ def test_forward_independent_extraction_metadata_after_low_is_production_wide(
     solution = _q4_extraction(8, 1, priority=0, metadata_after_low_wmma=True)
     key = _key(size=size, solution=solution)
     assert validate_solution(key) == ()
-    source = _source(key)
+    source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert source.count("v_cvt_f16_u16_e32") == 16
     assert source.count("ds_write_b32 v229, v9") == 4
     assert source.count("ds_write_b32 v229, v10") == 4
@@ -423,7 +419,7 @@ def test_forward_writer_emits_selected_shared_down_extraction(
 ) -> None:
     key = _key(size=size, solution=solution)
     assert validate_solution(key) == ()
-    source = _source(key)
+    source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert source.count("v_cvt_f16_u16_e32") == 16
     assert source.count("ds_write_b32 v229, v9") == 4
     assert source.count("ds_write_b32 v229, v10") == 4
@@ -470,7 +466,7 @@ def test_forward_writer_emits_selected_exact_epilogue(
 ) -> None:
     key = _key(size=size, solution=solution)
     assert validate_solution(key) == ()
-    source = _source(key)
+    source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert source.count("s_setprio 2") == 1
     assert "s_setprio 0" not in source
     assert source.count("s_clause 7") == 8
@@ -522,7 +518,7 @@ def test_q5_forward_writer_covers_high_bit_decode_and_schedule(
     solution: ForwardSolution,
 ) -> None:
     key = _key("Q5_K", solution=solution)
-    source = _source(key)
+    source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert "GGTensile Q5_K MMQ forward" in source
     assert "Cooperatively decode Q5_K payload into HIP's padded LDS rows." in source
     assert "Build Q5_K high-bit and low-nibble payload addresses." in source
@@ -552,7 +548,7 @@ def test_q5_forward_writer_emits_vopd_accumulator_initialization() -> None:
     )
     key = _key("Q5_K", ProblemSize(32768, 512, 2048), solution)
     assert validate_solution(key) == ()
-    source = _source(key)
+    source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert "v_dual_mov_b32 v0, 0 :: v_dual_mov_b32 v1, 0" in source
     assert "v_dual_mov_b32 v6, 0 :: v_dual_mov_b32 v7, 0" in source
     assert "v_dual_mov_b32 v8, v0 :: v_dual_mov_b32 v9, v1" in source
@@ -695,7 +691,7 @@ def test_forward_artifact_passes_strict_inspection(
     lds_num_bytes: int,
     clause_count: int | None,
 ) -> None:
-    toolchain = ggtensile_toolchain()
+    toolchain = Toolchain.discover()
     artifact = build_and_inspect(
         key,
         ForwardKernelWriterAssembly(key, toolchain),
@@ -715,4 +711,4 @@ def test_forward_artifact_passes_strict_inspection(
 def test_forward_writer_rejects_invalid_solution() -> None:
     key = _key(solution=replace(ForwardSolution.q4_k_pilot(), wmma_clamp=False))
     with pytest.raises(ForwardKernelWriterError, match="solution rejected"):
-        ForwardKernelWriterAssembly(key, ggtensile_toolchain())
+        ForwardKernelWriterAssembly(key, Toolchain.discover())

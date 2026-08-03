@@ -323,14 +323,10 @@ def parse_dense_benchmark_args(
     return args
 
 
-def synchronize() -> None:
-    torch.cuda.synchronize()
-
-
 def clear_cuda_cache() -> None:
     gc.collect()
     torch.cuda.empty_cache()
-    synchronize()
+    torch.cuda.synchronize()
 
 
 def cuda_event_times_ms(
@@ -339,7 +335,7 @@ def cuda_event_times_ms(
     for _ in range(warmup):
         output = function()
         del output
-    synchronize()
+    torch.cuda.synchronize()
 
     times = []
     for _ in range(repeats):
@@ -362,12 +358,12 @@ def incremental_peak_bytes(
     if clear_cache:
         clear_cuda_cache()
     else:
-        synchronize()
+        torch.cuda.synchronize()
     baseline_allocated = torch.cuda.memory_allocated()
     baseline_reserved = torch.cuda.memory_reserved()
     torch.cuda.reset_peak_memory_stats()
     output = function()
-    synchronize()
+    torch.cuda.synchronize()
     peak_allocated = torch.cuda.max_memory_allocated()
     peak_reserved = torch.cuda.max_memory_reserved()
     del output

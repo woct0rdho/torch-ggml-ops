@@ -302,13 +302,13 @@ def selected_solution_keys(
     catalog: Mapping[str, Solution],
 ) -> tuple[SolutionKey, ...]:
     return tuple(
-        entry.solution_key(inventory.problem_type, catalog[entry.selected_solution])
+        SolutionKey(
+            inventory.problem_type,
+            entry.problem_size,
+            catalog[entry.selected_solution],
+        )
         for entry in inventory.entries
     )
-
-
-def ggtensile_toolchain() -> Toolchain:
-    return Toolchain.discover()
 
 
 class AssemblyWriter(Protocol):

@@ -112,22 +112,6 @@ class ProblemType:
         )
 
     @classmethod
-    def mmq_backward_q4_k(cls) -> Self:
-        return cls.mmq_backward("Q4_K")
-
-    @classmethod
-    def mmq_backward_q5_k(cls) -> Self:
-        return cls.mmq_backward("Q5_K")
-
-    @classmethod
-    def mmq_backward_q6_k(cls) -> Self:
-        return cls.mmq_backward("Q6_K")
-
-    @classmethod
-    def mmq_backward_q8_0(cls) -> Self:
-        return cls.mmq_backward("Q8_0")
-
-    @classmethod
     def mmq_forward(cls, quant_data_type: str) -> Self:
         if quant_data_type not in {"Q4_K", "Q5_K"}:
             raise ValueError(f"unsupported MMQ forward quant type {quant_data_type!r}")
@@ -141,14 +125,6 @@ class ProblemType:
             transpose_a=False,
             transpose_b=True,
         )
-
-    @classmethod
-    def mmq_forward_q4_k(cls) -> Self:
-        return cls.mmq_forward("Q4_K")
-
-    @classmethod
-    def mmq_forward_q5_k(cls) -> Self:
-        return cls.mmq_forward("Q5_K")
 
     @classmethod
     def from_mapping(cls, value: object) -> Self:
@@ -775,12 +751,10 @@ class SolutionKey:
             "Solution": self.solution.to_mapping(),
         }
 
-    def canonical_json(self) -> str:
-        return json.dumps(self.to_mapping(), sort_keys=True, separators=(",", ":"))
-
     @property
     def hash(self) -> str:
-        digest = hashlib.sha256(self.canonical_json().encode("utf-8")).hexdigest()
+        canonical = json.dumps(self.to_mapping(), sort_keys=True, separators=(",", ":"))
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         return f"ggsol_{digest[:16]}"
 
     @property

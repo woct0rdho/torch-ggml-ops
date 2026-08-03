@@ -35,7 +35,6 @@ from mmq_benchmark_common import (
     print_dense_result,
     resolve_lm_head_chunks,
     select_cases,
-    synchronize,
     validate_weight_case,
     write_json_report,
 )
@@ -198,7 +197,7 @@ def benchmark_case(
         quant_type,
     )
 
-    synchronize()
+    torch.cuda.synchronize()
     logical_weight = dequantize_gguf_tensor(
         packed_weight,
         tensor.tensor_type,

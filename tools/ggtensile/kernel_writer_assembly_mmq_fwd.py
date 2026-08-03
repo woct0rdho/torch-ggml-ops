@@ -87,15 +87,6 @@ class ForwardKernelWriterAssembly:
     def _quant_type(self) -> str:
         return self.solution_key.problem_type.quant_data_type
 
-    def _quant_label(self) -> str:
-        return self._quant_type().replace("_", "")
-
-    def _is_q5_k(self) -> bool:
-        return self._quant_type() == "Q5_K"
-
-    def _weight_block_bytes(self) -> int:
-        return self.solution.packed_weight_block_bytes
-
     def write(self, output: Path) -> str:
         source = self.source()
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -152,7 +143,7 @@ class ForwardKernelWriterAssembly:
         asm = _Assembly()
         size = self.solution_key.problem_size
         name = self.solution_key.kernel_name
-        row_stride = size.k // 256 * self._weight_block_bytes()
+        row_stride = size.k // 256 * self.solution.packed_weight_block_bytes
         activation_plane_stride = size.m * 144
         activation_block_stride = 2 * activation_plane_stride
 
@@ -211,10 +202,11 @@ class ForwardKernelWriterAssembly:
             asm.inst(f"v_mov_b32 v{register}, 0")
         asm.inst(f"s_mov_b32 s{self.LOOP_COUNTER}, 0")
 
-        quant_label = self._quant_label()
+        quant_type = self._quant_type()
+        quant_label = quant_type.replace("_", "")
         asm.label(f".LForward{quant_label}BlockLoop")
         asm.comment(
-            f"Keep one {self._quant_type()} block's dm/scales live across its eight groups."
+            f"Keep one {quant_type} block's dm/scales live across its eight groups."
         )
         for element in range(8):
             metadata = self.WEIGHT_METADATA + 4 * element
@@ -228,12 +220,12 @@ class ForwardKernelWriterAssembly:
         for element in range(8):
             asm.inst(
                 f"v_add_nc_u32 v{self.RESULT_WEIGHT_ADDRESS + element}, "
-                f"{self._weight_block_bytes()}, "
+                f"{self.solution.packed_weight_block_bytes}, "
                 f"v{self.RESULT_WEIGHT_ADDRESS + element}"
             )
         asm.inst(
             f"v_add_nc_u32 v{self.WEIGHT_Q_ADDRESS}, "
-            f"{self._weight_block_bytes()}, v{self.WEIGHT_Q_ADDRESS}"
+            f"{self.solution.packed_weight_block_bytes}, v{self.WEIGHT_Q_ADDRESS}"
         )
         asm.inst(
             f"v_add_nc_u32 v{self.ACTIVATION_ADDRESS_0}, "
@@ -269,8 +261,8 @@ class ForwardKernelWriterAssembly:
         weight_lds_base = 18_944
         weight_lds_stride = 304
         quant_type = self._quant_type()
-        quant_label = self._quant_label()
-        q5_k = self._is_q5_k()
+        quant_label = quant_type.replace("_", "")
+        q5_k = quant_type == "Q5_K"
         qh_address = auxiliary + 1
 
         asm.comment(
@@ -476,17 +468,11 @@ class ForwardKernelWriterAssembly:
             "GlobalWaveBatch4",
         )
 
-    def _uses_wave_batch(self) -> bool:
-        return self.solution.operand_source == "GlobalWaveBatch4"
-
     def _uses_hip_staged(self) -> bool:
         return self.solution.operand_source in (
             "HipStagedBatch8",
             "HipDecodedStagedBatch8",
         )
-
-    def _uses_hip_decoded_staged(self) -> bool:
-        return self.solution.operand_source == "HipDecodedStagedBatch8"
 
     def _uses_retained_decoded_schedule(self) -> bool:
         solution = self.solution
@@ -501,7 +487,7 @@ class ForwardKernelWriterAssembly:
     def _total_vgprs(self) -> int:
         if self._uses_hip_staged():
             return self.TOTAL_VGPRS_HIP_STAGED
-        if self._uses_wave_batch():
+        if self.solution.operand_source == "GlobalWaveBatch4":
             return self.TOTAL_VGPRS_BATCH
         return self.TOTAL_VGPRS_REUSE if self._uses_wave_reuse() else self.TOTAL_VGPRS
 
@@ -510,8 +496,8 @@ class ForwardKernelWriterAssembly:
         asm = _Assembly()
         size = self.solution_key.problem_size
         name = self.solution_key.kernel_name
-        decoded = self._uses_hip_decoded_staged()
-        row_stride = size.k // 256 * self._weight_block_bytes()
+        decoded = self.solution.operand_source == "HipDecodedStagedBatch8"
+        row_stride = size.k // 256 * self.solution.packed_weight_block_bytes
         activation_plane_stride = size.m * 144
         activation_lds_base = 512 if decoded else 8192
         sum_base = 8
@@ -533,7 +519,7 @@ class ForwardKernelWriterAssembly:
         lane = 237
         serial = 238
         retained_decoded = self._uses_retained_decoded_schedule()
-        quant_label = self._quant_label()
+        quant_label = self._quant_type().replace("_", "")
 
         asm.comment(
             "Load the exact packed-weight, Q8_1 F16_D4S4 workspace, and output pointers."
@@ -773,7 +759,7 @@ class ForwardKernelWriterAssembly:
         asm.inst("s_barrier")
         asm.inst(
             f"s_add_u32 s{self.SCALAR_TEMPORARY}, s{self.SCALAR_TEMPORARY}, "
-            f"{self._weight_block_bytes()}"
+            f"{self.solution.packed_weight_block_bytes}"
         )
         asm.inst(f"s_add_u32 s{self.LOOP_COUNTER}, s{self.LOOP_COUNTER}, 1")
         asm.inst(f"s_cmp_lt_u32 s{self.LOOP_COUNTER}, {size.k // 256}")
@@ -1121,7 +1107,8 @@ class ForwardKernelWriterAssembly:
         metadata_lds_base_address: int,
     ) -> None:
         quant_type = self._quant_type()
-        label = f".LForward{self._quant_label()}DecodedGroupLoop{group_base}"
+        quant_label = quant_type.replace("_", "")
+        label = f".LForward{quant_label}DecodedGroupLoop{group_base}"
         asm.comment(
             f"Roll decoded {quant_type} groups {group_base} through {group_base + 3}."
         )
@@ -1333,12 +1320,12 @@ class ForwardKernelWriterAssembly:
         asm = _Assembly()
         size = self.solution_key.problem_size
         name = self.solution_key.kernel_name
-        row_stride = size.k // 256 * self._weight_block_bytes()
+        row_stride = size.k // 256 * self.solution.packed_weight_block_bytes
         activation_plane_stride = size.m * 144
         activation_block_stride = 2 * activation_plane_stride
         sum_base = 8
         weight_q = 72
-        batch = self._uses_wave_batch()
+        batch = self.solution.operand_source == "GlobalWaveBatch4"
         activation_q = 80
         metadata = 80 if batch else 88
         result_addresses = 176 if batch else 136

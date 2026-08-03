@@ -47,17 +47,11 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _write_json_exclusive(path: Path, value: Mapping[str, Any]) -> None:
+def _write_json_exclusive(path: Path, value: Mapping[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("x", encoding="utf-8") as handle:
         json.dump(value, handle, indent=2, allow_nan=False)
         handle.write("\n")
-
-
-def _write_text_exclusive(path: Path, value: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("x", encoding="utf-8") as handle:
-        handle.write(value)
 
 
 def _copy_exclusive(source: Path, destination: Path) -> None:
@@ -149,7 +143,9 @@ def _generate(solution_path: Path, output_dir: Path) -> int:
     )
     source = writer_type(key, toolchain).source()
     _write_json_exclusive(solution_output, key.to_mapping())
-    _write_text_exclusive(assembly, source)
+    assembly.parent.mkdir(parents=True, exist_ok=True)
+    with assembly.open("x", encoding="utf-8") as handle:
+        handle.write(source)
     _write_json_exclusive(
         manifest_path,
         {

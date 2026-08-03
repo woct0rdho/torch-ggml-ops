@@ -5,7 +5,6 @@ import pytest
 from tests.ggtensile.support import (
     FWD_WRITER_SOURCE_PATH,
     assert_writer_methods_have_complete_line_coverage,
-    ggtensile_toolchain,
 )
 from tools.ggtensile import kernel_writer_assembly_mmq_fwd as fwd_writer_module
 from tools.ggtensile.kernel_writer_assembly_mmq_fwd import (
@@ -19,6 +18,7 @@ from tools.ggtensile.model import (
     ProblemType,
     SolutionKey,
 )
+from tools.ggtensile.toolchain import Toolchain
 from tools.ggtensile.validation import validate_solution
 
 
@@ -26,13 +26,13 @@ def test_writer_rejects_backward_solution_schema(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     key = SolutionKey(
-        ProblemType.mmq_forward_q4_k(),
+        ProblemType.mmq_forward("Q4_K"),
         ProblemSize(2048, 512, 2048),
         BackwardSolution.pilot(),
     )
     monkeypatch.setattr(fwd_writer_module, "validate_solution", lambda _: ())
     with pytest.raises(ForwardKernelWriterError, match="requires ForwardSolution"):
-        ForwardKernelWriterAssembly(key, ggtensile_toolchain())
+        ForwardKernelWriterAssembly(key, Toolchain.discover())
 
 
 def test_writer_emits_single_dependency_scheduled_epilogue() -> None:
@@ -42,12 +42,12 @@ def test_writer_emits_single_dependency_scheduled_epilogue() -> None:
         epilogue_priority=0,
     )
     key = SolutionKey(
-        ProblemType.mmq_forward_q5_k(),
+        ProblemType.mmq_forward("Q5_K"),
         ProblemSize(2048, 512, 2048),
         solution,
     )
     assert validate_solution(key) == ()
-    source = ForwardKernelWriterAssembly(key, ggtensile_toolchain()).source()
+    source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert source.count("v_bfe_u32 v228,") == 64
 
 
