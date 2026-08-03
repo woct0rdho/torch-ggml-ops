@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from .kernel_writer_assembly_mmq_fwd import ForwardKernelWriterAssembly
 from .model import ForwardSolution, SolutionKey
 from .toolchain import Toolchain
@@ -256,10 +258,6 @@ def _metadata(readelf: str) -> Mapping[str, Any]:
         end = readelf.index("\n...\n", start) + len("\n...")
     except ValueError as error:
         raise InspectionError("cannot find AMDGPU metadata note") from error
-    try:
-        import yaml
-    except ImportError as error:
-        raise InspectionError("PyYAML is required for artifact inspection") from error
     parsed = yaml.safe_load(readelf[start:end])
     if not isinstance(parsed, Mapping):
         raise InspectionError("AMDGPU metadata is not a mapping")

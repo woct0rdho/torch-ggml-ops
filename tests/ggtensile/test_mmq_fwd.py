@@ -1,10 +1,7 @@
-import builtins
 import json
 from collections import Counter
-from collections.abc import Mapping, Sequence
 from dataclasses import fields, replace
 from pathlib import Path
-from types import ModuleType
 
 import pytest
 
@@ -719,25 +716,3 @@ def test_forward_writer_rejects_invalid_solution() -> None:
     key = _key(solution=replace(ForwardSolution.q4_k_pilot(), wmma_clamp=False))
     with pytest.raises(ForwardKernelWriterError, match="solution rejected"):
         ForwardKernelWriterAssembly(key, ggtensile_toolchain())
-
-
-def test_forward_writer_reports_missing_rocisa(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    writer = ForwardKernelWriterAssembly(_key(), ggtensile_toolchain())
-    original_import = builtins.__import__
-
-    def reject_rocisa(
-        name: str,
-        globals: Mapping[str, object] | None = None,
-        locals: Mapping[str, object] | None = None,
-        fromlist: Sequence[str] | None = (),
-        level: int = 0,
-    ) -> ModuleType:
-        if name == "rocisa" or name.startswith("rocisa."):
-            raise ImportError("missing rocisa")
-        return original_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", reject_rocisa)
-    with pytest.raises(ForwardKernelWriterError, match="rocisa is required"):
-        writer.source()

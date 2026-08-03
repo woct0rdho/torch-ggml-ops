@@ -139,8 +139,6 @@ class BackwardModule(_SolutionHIPModule):
         *,
         stream: int,
     ) -> None:
-        import torch
-
         if not self._module or not self._function:
             raise HIPRuntimeError("HIP module is closed")
         size = self.solution_key.problem_size
@@ -374,8 +372,6 @@ class FixedQ81F16D4S4QuantizerModule(_HIPModule):
         super().__init__(selected, hip_library, self.SYMBOL)
 
     def allocate(self, input_tensor: torch.Tensor) -> torch.Tensor:
-        import torch
-
         if input_tensor.ndim != 2 or input_tensor.shape[1] % 128:
             raise HIPRuntimeError(
                 "quantizer input must be [rows, K] with K divisible by 128"
@@ -394,8 +390,6 @@ class FixedQ81F16D4S4QuantizerModule(_HIPModule):
         *,
         stream: int,
     ) -> None:
-        import torch
-
         if not self._module or not self._function:
             raise HIPRuntimeError("HIP module is closed")
         if not input_tensor.is_cuda or not output.is_cuda:

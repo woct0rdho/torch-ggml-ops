@@ -7,6 +7,12 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+import rocisa
+from rocisa import code  # ty: ignore[unresolved-import]
+from rocisa.enum import RegisterType  # ty: ignore[unresolved-import]
+from rocisa.enum import SignatureValueKind as SVK  # ty: ignore[unresolved-import]
+from rocisa.register import RegisterPool  # ty: ignore[unresolved-import]
+
 from .model import BackwardSolution, SolutionKey
 from .toolchain import Toolchain
 from .validation import validate_solution
@@ -127,17 +133,6 @@ class BackwardKernelWriterAssembly:
         return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
     def source(self) -> str:
-        try:
-            import rocisa
-            from rocisa import code  # ty: ignore[unresolved-import]
-            from rocisa.enum import (  # ty: ignore[unresolved-import]
-                SignatureValueKind as SVK,
-            )
-        except ImportError as error:
-            raise BackwardKernelWriterError(
-                "rocisa is required to generate assembly"
-            ) from error
-
         global_isa = rocisa.rocIsa.getInstance()  # ty: ignore[unresolved-attribute]
         original_directory = Path.cwd()
         with tempfile.TemporaryDirectory(prefix="ggtensile-rocisa-") as temp:
@@ -289,9 +284,6 @@ class BackwardKernelWriterAssembly:
         return lds_address, lds_offset
 
     def _allocate_registers(self) -> RegisterLayout:
-        from rocisa.enum import RegisterType  # ty: ignore[unresolved-import]
-        from rocisa.register import RegisterPool  # ty: ignore[unresolved-import]
-
         vgprs = RegisterPool(256, RegisterType.Vgpr, True)
         vgprs.addRange(0, 255, "GGTensile VGPRs")
         m_tiles = self.solution.matrix_instruction[5]

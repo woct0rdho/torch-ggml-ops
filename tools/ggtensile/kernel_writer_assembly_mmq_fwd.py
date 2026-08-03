@@ -4,6 +4,10 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
+import rocisa
+from rocisa import code  # ty: ignore[unresolved-import]
+from rocisa.enum import SignatureValueKind as SVK  # ty: ignore[unresolved-import]
+
 from .model import ForwardSolution, SolutionKey
 from .toolchain import Toolchain
 from .validation import validate_solution
@@ -101,17 +105,6 @@ class ForwardKernelWriterAssembly:
         return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
     def source(self) -> str:
-        try:
-            import rocisa
-            from rocisa import code  # ty: ignore[unresolved-import]
-            from rocisa.enum import (  # ty: ignore[unresolved-import]
-                SignatureValueKind as SVK,
-            )
-        except ImportError as error:
-            raise ForwardKernelWriterError(
-                "rocisa is required to generate assembly"
-            ) from error
-
         solution = self.solution
         global_isa = rocisa.rocIsa.getInstance()  # ty: ignore[unresolved-attribute]
         original_directory = Path.cwd()

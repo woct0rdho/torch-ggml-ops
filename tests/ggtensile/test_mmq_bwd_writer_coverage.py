@@ -1,9 +1,6 @@
 """Targeted branch and complete executable-line coverage for the backward writer."""
 
-import builtins
-from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from types import ModuleType
 
 import pytest
 
@@ -319,27 +316,6 @@ def test_writer_rejects_invalid_solution() -> None:
     )
     with pytest.raises(BackwardKernelWriterError, match="solution rejected"):
         BackwardKernelWriterAssembly(invalid, ggtensile_toolchain())
-
-
-def test_writer_reports_missing_rocisa(monkeypatch: pytest.MonkeyPatch) -> None:
-    key = _key("Q4_K", (128, 2048, 512), BackwardSolution.pilot())
-    writer = BackwardKernelWriterAssembly(key, ggtensile_toolchain())
-    original_import = builtins.__import__
-
-    def reject_rocisa(
-        name: str,
-        globals: Mapping[str, object] | None = None,
-        locals: Mapping[str, object] | None = None,
-        fromlist: Sequence[str] | None = (),
-        level: int = 0,
-    ) -> ModuleType:
-        if name == "rocisa" or name.startswith("rocisa."):
-            raise ImportError("missing rocisa")
-        return original_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", reject_rocisa)
-    with pytest.raises(BackwardKernelWriterError, match="rocisa is required"):
-        writer.source()
 
 
 def test_writer_rejects_forward_solution_schema(
