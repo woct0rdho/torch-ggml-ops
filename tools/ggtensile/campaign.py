@@ -12,6 +12,7 @@ from .model import (
     ProblemSize,
     ProblemType,
 )
+from .quant_formats import QUANT_FORMATS
 
 _EXPECTED_M = (2048, 8192, 32768)
 _FamilySpec = tuple[tuple[int, int], str, int]
@@ -19,9 +20,7 @@ _FamilySpec = tuple[tuple[int, int], str, int]
 
 class _CampaignSpec(TypedDict):
     families: dict[str, _FamilySpec]
-    block_bytes: int
     m_values: NotRequired[dict[str, tuple[int, ...]]]
-    block_values: NotRequired[int]
 
 
 _MMQ_BWD_CAMPAIGN_SPECS: dict[str, _CampaignSpec] = {
@@ -30,7 +29,6 @@ _MMQ_BWD_CAMPAIGN_SPECS: dict[str, _CampaignSpec] = {
             "narrow": ((2048, 512), "blk.3.attn_k.weight", 9),
             "query": ((2048, 8192), "blk.3.attn_q.weight", 9),
         },
-        "block_bytes": 110,
     },
     "Q4_K": {
         "families": {
@@ -39,14 +37,12 @@ _MMQ_BWD_CAMPAIGN_SPECS: dict[str, _CampaignSpec] = {
             "attention_output": ((4096, 2048), "blk.3.attn_output.weight", 10),
             "query": ((2048, 8192), "blk.39.attn_q.weight", 1),
         },
-        "block_bytes": 144,
     },
     "Q5_K": {
         "families": {
             "narrow": ((2048, 512), "blk.0.ffn_gate_shexp.weight", 21),
             "shared_down": ((512, 2048), "blk.0.ffn_down_shexp.weight", 10),
         },
-        "block_bytes": 176,
     },
     "Q6_K": {
         "families": {
@@ -55,7 +51,6 @@ _MMQ_BWD_CAMPAIGN_SPECS: dict[str, _CampaignSpec] = {
         "m_values": {
             "lm_head": (64, 128, 256),
         },
-        "block_bytes": 210,
     },
     "Q8_0": {
         "families": {
@@ -70,8 +65,6 @@ _MMQ_BWD_CAMPAIGN_SPECS: dict[str, _CampaignSpec] = {
         "m_values": {
             "lm_head": (32, 64, 128, 256, 512),
         },
-        "block_values": 32,
-        "block_bytes": 34,
     },
 }
 
@@ -83,14 +76,12 @@ _MMQ_FWD_CAMPAIGN_SPECS: dict[str, _CampaignSpec] = {
             "attention_output": ((2048, 4096), "blk.3.attn_output.weight", 10),
             "query": ((8192, 2048), "blk.39.attn_q.weight", 1),
         },
-        "block_bytes": 144,
     },
     "Q5_K": {
         "families": {
             "narrow": ((512, 2048), "blk.0.ffn_gate_shexp.weight", 21),
             "shared_down": ((2048, 512), "blk.0.ffn_down_shexp.weight", 10),
         },
-        "block_bytes": 176,
     },
 }
 
@@ -168,11 +159,16 @@ class CampaignEntry:
     @property
     def expected_physical_weight_shape(self) -> tuple[int, int]:
         size = self.problem_size
-        spec = _campaign_spec(self.operation_type, self.quant_data_type)
-        block_values = spec.get("block_values", 256)
+        quant_format = QUANT_FORMATS[self.quant_data_type]
         if self.operation_type == "MMQForward":
-            return (size.n, size.k // block_values * spec["block_bytes"])
-        return (size.k, size.n // block_values * spec["block_bytes"])
+            return (
+                size.n,
+                size.k // quant_format.block_values * quant_format.block_bytes,
+            )
+        return (
+            size.k,
+            size.n // quant_format.block_values * quant_format.block_bytes,
+        )
 
 
 @dataclass(frozen=True)

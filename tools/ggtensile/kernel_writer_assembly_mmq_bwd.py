@@ -1,19 +1,26 @@
-import hashlib
-import os
 import re
-import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-import rocisa
 from rocisa import code  # ty: ignore[unresolved-import]
 from rocisa.enum import RegisterType  # ty: ignore[unresolved-import]
 from rocisa.enum import SignatureValueKind as SVK  # ty: ignore[unresolved-import]
 from rocisa.register import RegisterPool  # ty: ignore[unresolved-import]
 
+from .kernel_writer_assembly import (
+    Assembly,
+    emit_add_pointer,
+    emit_bf16_rne,
+    emit_kernel_trailer,
+    emit_pointer_kernarg_loads,
+    emit_scale_u32,
+    initialize_rocisa,
+    write_assembly_source,
+)
 from .model import BackwardSolution, SolutionKey
+from .quant_formats import QUANT_FORMATS
 from .toolchain import Toolchain
 from .validation import validate_solution
 
@@ -48,16 +55,10 @@ class RegisterLayout:
     total_sgprs: int
 
 
-class _Assembly:
+class _Assembly(Assembly):
     def __init__(self) -> None:
-        self.lines: list[str] = []
+        super().__init__()
         self._pending_zero_moves: dict[int, list[int]] = {0: [], 1: []}
-
-    def comment(self, text: str) -> None:
-        self.lines.append(f"// {text}")
-
-    def label(self, name: str) -> None:
-        self.lines.append(f"{name}:")
 
     def inst(self, text: str, comment: str = "") -> None:
         dual = self._dual_with_pending_zero(text)
@@ -96,9 +97,6 @@ class _Assembly:
         )
         return f"v_dual_mov_b32 v{x_destination}, 0 :: {y_instruction}"
 
-    def text(self) -> str:
-        return "\n".join(self.lines) + "\n"
-
 
 class BackwardKernelWriterAssembly:
     """Emit an exact gfx1151 MMQ backward solution."""
@@ -125,29 +123,14 @@ class BackwardKernelWriterAssembly:
         self.registers = self._allocate_registers()
 
     def write(self, output: Path) -> str:
-        source = self.source()
-        output.parent.mkdir(parents=True, exist_ok=True)
-        temporary = output.with_suffix(output.suffix + ".tmp")
-        temporary.write_text(source, encoding="utf-8")
-        temporary.replace(output)
-        return hashlib.sha256(source.encode("utf-8")).hexdigest()
+        return write_assembly_source(output, self.source())
 
     def source(self) -> str:
-        global_isa = rocisa.rocIsa.getInstance()  # ty: ignore[unresolved-attribute]
-        original_directory = Path.cwd()
-        with tempfile.TemporaryDirectory(prefix="ggtensile-rocisa-") as temp:
-            os.chdir(temp)
-            try:
-                global_isa.init(
-                    self.solution.isa,
-                    str(self.toolchain.assembler),
-                    False,
-                )
-            finally:
-                os.chdir(original_directory)
-        global_isa.setKernel(
+        initialize_rocisa(
             self.solution.isa,
             self.solution.wavefront_size,
+            self.toolchain.assembler,
+            temporary_prefix="ggtensile-rocisa-",
         )
 
         signature = code.SignatureBase(
@@ -237,15 +220,6 @@ class BackwardKernelWriterAssembly:
         state_registers = 6 + self.solution.matrix_instruction[5]
         quant_shift_extra = 2 * int(self._quant_type() in ("Q3_K", "Q6_K"))
         return state_registers + quant_shift_extra
-
-    def _packed_block_bytes(self) -> int:
-        return {
-            "Q3_K": 110,
-            "Q4_K": 144,
-            "Q5_K": 176,
-            "Q6_K": 210,
-            "Q8_0": 34,
-        }[self._quant_type()]
 
     def _packed_load_count(self) -> int:
         if self._quant_type() in ("Q3_K", "Q4_K"):
@@ -379,6 +353,7 @@ class BackwardKernelWriterAssembly:
         r = self.registers
         size = self.solution_key.problem_size
         name = self.solution_key.kernel_name
+        quant_format = QUANT_FORMATS[self._quant_type()]
 
         asm.comment("Flatten gfx11 packed workitem X/Y before v0 becomes C storage.")
         asm.inst(f"v_bfe_u32 v{r.serial}, v0, 10, 10")
@@ -393,10 +368,7 @@ class BackwardKernelWriterAssembly:
             asm.inst(f"s_mul_i32 s4, s4, {group_m}")
             asm.inst("s_add_u32 s2, s4, s2")
         kernarg = r.kernarg
-        asm.inst(f"s_load_dwordx2 s[{kernarg}:{kernarg + 1}], s[0:1], 0x0")
-        asm.inst(f"s_load_dwordx2 s[{kernarg + 2}:{kernarg + 3}], s[0:1], 0x8")
-        asm.inst(f"s_load_dwordx2 s[{kernarg + 4}:{kernarg + 5}], s[0:1], 0x10")
-        asm.inst("s_waitcnt lgkmcnt(0)")
+        emit_pointer_kernarg_loads(asm, kernarg)
         accumulator_count = (
             8
             * self.solution.matrix_instruction[5]
@@ -414,7 +386,7 @@ class BackwardKernelWriterAssembly:
             asm.comment("Static Q8_0 packed-row coordinates.")
             asm.inst(
                 f"s_mul_i32 s{r.block_offset}, s3, "
-                f"{blocks_per_tile * self._packed_block_bytes()}"
+                f"{blocks_per_tile * quant_format.block_bytes}"
             )
             asm.inst(f"s_mov_b32 s{r.input_half}, 0")
             asm.inst(f"s_mov_b32 s{r.scalar_temporary}, 0")
@@ -426,7 +398,7 @@ class BackwardKernelWriterAssembly:
             asm.inst(f"s_lshr_b32 s{r.block_offset}, s3, {tile_shift}")
             asm.inst(
                 f"s_mul_i32 s{r.block_offset}, s{r.block_offset}, "
-                f"{self._packed_block_bytes()}"
+                f"{quant_format.block_bytes}"
             )
             asm.inst(f"s_lshr_b32 s{r.input_half}, s3, {tile_shift - 1}")
             asm.inst(f"s_and_b32 s{r.input_half}, s{r.input_half}, 1")
@@ -486,9 +458,7 @@ class BackwardKernelWriterAssembly:
             asm.inst("s_cbranch_scc1 .LDepthULoop")
         if store_output:
             self._emit_store(asm)
-        asm.inst("s_endpgm")
-        asm.lines.append(f".L{name}_end:")
-        asm.lines.append(f".size {name}, .L{name}_end - {name}")
+        emit_kernel_trailer(asm, name)
         return asm.text()
 
     def _emit_wmma_floor(self, asm: _Assembly) -> None:
@@ -711,7 +681,7 @@ class BackwardKernelWriterAssembly:
         )
         lds_address = self._lds_address_register()
         asm.inst(f"v_and_b32 v{temporary}, 15, v{r.serial}")
-        self._emit_scale_u32(asm, temporary, row_stride, temporary)
+        emit_scale_u32(asm, temporary, row_stride, temporary)
         asm.inst(f"v_add_nc_u32 v{temporary}, v{lds_address}, v{temporary}")
         asm.inst(f"v_and_b32 v{temporary + 1}, 3, v{r.serial}")
         asm.inst(f"v_lshlrev_b32 v{temporary + 1}, 4, v{temporary + 1}")
@@ -736,7 +706,7 @@ class BackwardKernelWriterAssembly:
             "State registers after the A row pointers hold LDS and quant state."
         )
         asm.inst(f"v_and_b32 v{lds_address}, {n_tiles - 1}, v{r.serial}")
-        self._emit_scale_u32(asm, lds_address, segment_stride, lds_address)
+        emit_scale_u32(asm, lds_address, segment_stride, lds_address)
         asm.inst(f"v_lshrrev_b32 v{t}, {k_shift}, v{r.serial}")
         asm.inst(f"v_lshlrev_b32 v{t}, 1, v{t}")
         asm.inst(f"v_add_nc_u32 v{lds_address}, v{lds_address}, v{t}")
@@ -803,7 +773,7 @@ class BackwardKernelWriterAssembly:
             asm.inst(f"v_add_nc_u32 v{a + 4 + m_tile}, {16 * m_tile}, v{a + 4}")
         row_stride_a = 2 * self.solution_key.problem_size.k
         for m_tile in range(m_tiles):
-            self._emit_scale_u32(
+            emit_scale_u32(
                 asm,
                 a + 4 + m_tile,
                 row_stride_a,
@@ -837,11 +807,16 @@ class BackwardKernelWriterAssembly:
         decoder_rows = self._decoder_rows()
         n_tiles = self.solution.matrix_instruction[6]
         n_per_tile = self.solution.macro_tile1
+        quant_format = QUANT_FORMATS["Q6_K"]
         tiles_per_weight_block = 256 // n_per_tile
         n_shift = n_per_tile.bit_length() - 1
         k_shift = n_tiles.bit_length() - 1
         k_span = self.solution.depth_u // decoder_rows
-        packed_row_bytes = self.solution_key.problem_size.n // 256 * 210
+        packed_row_bytes = (
+            self.solution_key.problem_size.n
+            // quant_format.block_values
+            * quant_format.block_bytes
+        )
         row_delta = k_span * packed_row_bytes
         q_low = r.global_read_b
         q_high = q_low + 4 * decoder_rows
@@ -933,9 +908,14 @@ class BackwardKernelWriterAssembly:
         r = self.registers
         decoder_rows = self._decoder_rows()
         n_tiles = self.solution.matrix_instruction[6]
+        quant_format = QUANT_FORMATS["Q8_0"]
         k_shift = n_tiles.bit_length() - 1
         k_span = self.solution.depth_u // decoder_rows
-        packed_row_bytes = self.solution_key.problem_size.n // 32 * 34
+        packed_row_bytes = (
+            self.solution_key.problem_size.n
+            // quant_format.block_values
+            * quant_format.block_bytes
+        )
         row_delta = k_span * packed_row_bytes
         q = r.global_read_b
         a = r.address
@@ -955,7 +935,7 @@ class BackwardKernelWriterAssembly:
         asm.comment("Map each lane to a Q8_0 16-value block half.")
         asm.inst(f"v_and_b32 v{t}, {n_tiles - 1}, v{r.serial}")
         asm.inst(f"v_lshrrev_b32 v{t + 1}, 1, v{t}")
-        asm.inst(f"v_mul_lo_u32 v{t + 1}, 34, v{t + 1}")
+        asm.inst(f"v_mul_lo_u32 v{t + 1}, {quant_format.block_bytes}, v{t + 1}")
         asm.inst(f"v_and_b32 v{t + 2}, 1, v{t}")
         asm.inst(f"v_lshlrev_b32 v{t + 2}, 4, v{t + 2}")
         asm.inst(f"v_add_nc_u32 v{t + 2}, 2, v{t + 2}")
@@ -992,11 +972,16 @@ class BackwardKernelWriterAssembly:
         decoder_rows = self._decoder_rows()
         n_tiles = self.solution.matrix_instruction[6]
         n_per_tile = self.solution.macro_tile1
+        quant_format = QUANT_FORMATS["Q3_K"]
         tiles_per_weight_block = 256 // n_per_tile
         n_shift = n_per_tile.bit_length() - 1
         k_shift = self.solution.matrix_instruction[6].bit_length() - 1
         k_span = self.solution.depth_u // decoder_rows
-        packed_row_bytes = self.solution_key.problem_size.n // 256 * 110
+        packed_row_bytes = (
+            self.solution_key.problem_size.n
+            // quant_format.block_values
+            * quant_format.block_bytes
+        )
         row_delta = k_span * packed_row_bytes
         q_low = r.global_read_b
         q_high = q_low + 4 * decoder_rows
@@ -1076,9 +1061,14 @@ class BackwardKernelWriterAssembly:
         r = self.registers
         n_tiles = self.solution.matrix_instruction[6]
         decoder_rows = self._decoder_rows()
+        quant_format = QUANT_FORMATS["Q4_K"]
         k_shift = n_tiles.bit_length() - 1
         k_span = self.solution.depth_u // decoder_rows
-        packed_row_bytes = self.solution_key.problem_size.n // 256 * 144
+        packed_row_bytes = (
+            self.solution_key.problem_size.n
+            // quant_format.block_values
+            * quant_format.block_bytes
+        )
         row_delta = k_span * packed_row_bytes
         q = r.global_read_b
         dm = r.quant_dm
@@ -1196,9 +1186,14 @@ class BackwardKernelWriterAssembly:
         r = self.registers
         n_tiles = self.solution.matrix_instruction[6]
         decoder_rows = self._decoder_rows()
+        quant_format = QUANT_FORMATS["Q5_K"]
         k_shift = n_tiles.bit_length() - 1
         k_span = self.solution.depth_u // decoder_rows
-        packed_row_bytes = self.solution_key.problem_size.n // 256 * 176
+        packed_row_bytes = (
+            self.solution_key.problem_size.n
+            // quant_format.block_values
+            * quant_format.block_bytes
+        )
         row_delta = k_span * packed_row_bytes
         q_low = r.global_read_b
         q_high = q_low + 4 * decoder_rows
@@ -1538,7 +1533,7 @@ class BackwardKernelWriterAssembly:
                 lds_address, lds_offset = self._decoded_lds_store_location(
                     output_element, row, k_span
                 )
-                self._emit_round_bf16(asm, output_value, rounding)
+                emit_bf16_rne(asm, output_value, rounding)
                 asm.inst(
                     f"ds_store_b16_d16_hi v{lds_address}, v{output_value} "
                     f"offset:{lds_offset}"
@@ -1620,7 +1615,7 @@ class BackwardKernelWriterAssembly:
                 lds_address, lds_offset = self._decoded_lds_store_location(
                     output_element, row, k_span
                 )
-                self._emit_round_bf16(asm, output_value, rounding)
+                emit_bf16_rne(asm, output_value, rounding)
                 asm.inst(
                     f"ds_store_b16_d16_hi v{lds_address}, v{output_value} "
                     f"offset:{lds_offset}"
@@ -1727,7 +1722,7 @@ class BackwardKernelWriterAssembly:
             lds_address, lds_offset = self._decoded_lds_store_location(
                 element, row, k_span
             )
-            self._emit_round_bf16(asm, value, rounding)
+            emit_bf16_rne(asm, value, rounding)
             asm.inst(
                 f"ds_store_b16_d16_hi v{lds_address}, v{value} offset:{lds_offset}"
             )
@@ -1869,7 +1864,7 @@ class BackwardKernelWriterAssembly:
             )
             asm.inst(f"v_cvt_f32_ubyte{element % 4}_e32 v{value}, v{packed}")
             asm.inst(f"v_fma_f32 v{value}, v{d_scaled}, v{value}, -v{min_scaled}")
-            self._emit_round_bf16(asm, value, rounding)
+            emit_bf16_rne(asm, value, rounding)
             asm.inst(
                 f"ds_store_b16_d16_hi v{lds_address}, v{value} offset:{lds_offset}"
             )
@@ -1995,7 +1990,7 @@ class BackwardKernelWriterAssembly:
             else:
                 asm.inst(f"v_cvt_f32_ubyte{element % 4}_e32 v{value}, v{low}")
             asm.inst(f"v_fma_f32 v{value}, v{d_scaled}, v{value}, -v{min_scaled}")
-            self._emit_round_bf16(asm, value, rounding)
+            emit_bf16_rne(asm, value, rounding)
             asm.inst(
                 f"ds_store_b16_d16_hi v{lds_address}, v{value} offset:{lds_offset}"
             )
@@ -2087,11 +2082,11 @@ class BackwardKernelWriterAssembly:
                     (0, a + 4, a),
                     (1, a + 5, a + 2),
                 ):
-                    self._emit_scale_u32(asm, t, 2 * size.k, row)
+                    emit_scale_u32(asm, t, 2 * size.k, row)
                     asm.inst(f"v_add_nc_u32 v{t}, s{r.scalar_temporary + 1}, v{t}")
                     if k_tile:
                         asm.inst(f"v_add_nc_u32 v{t}, {2 * k_tile}, v{t}")
-                    self._emit_add_pointer(asm, pointer, r.kernarg, t)
+                    emit_add_pointer(asm, pointer, r.kernarg, t)
                 for m_tile, pointer in ((0, a), (1, a + 2)):
                     valu_a = r.valu_a + 8 * m_tile
                     asm.inst(
@@ -2110,11 +2105,11 @@ class BackwardKernelWriterAssembly:
                         row = t
                     else:
                         row = a + 4
-                    self._emit_scale_u32(asm, t, 2 * size.k, row)
+                    emit_scale_u32(asm, t, 2 * size.k, row)
                     asm.inst(f"v_add_nc_u32 v{t}, s{r.scalar_temporary + 1}, v{t}")
                     if k_tile:
                         asm.inst(f"v_add_nc_u32 v{t}, {2 * k_tile}, v{t}")
-                    self._emit_add_pointer(asm, a, r.kernarg, t)
+                    emit_add_pointer(asm, a, r.kernarg, t)
                     valu_a = r.valu_a + 8 * m_tile
                     asm.inst(
                         f"global_load_b128 v[{valu_a}:{valu_a + 3}], "
@@ -2237,7 +2232,7 @@ class BackwardKernelWriterAssembly:
 
         t = r.temporary
         asm.inst(f"v_and_b32 v{t}, 15, v{r.serial}")
-        self._emit_scale_u32(asm, t, row_stride, t)
+        emit_scale_u32(asm, t, row_stride, t)
         if pipeline:
             asm.inst(f"v_add_nc_u32 v{t}, v{self._lds_address_register()}, v{t}")
         swizzle = solution.lds_swizzle_chunk_b
@@ -2489,7 +2484,7 @@ class BackwardKernelWriterAssembly:
         asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
         asm.inst(f"v_lshlrev_b32 v{t + 1}, {solution.macro_tile0.bit_length() - 1}, s2")
         asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
-        self._emit_scale_u32(asm, t, 2 * size.n, t)
+        emit_scale_u32(asm, t, 2 * size.n, t)
         asm.inst(
             f"v_lshlrev_b32 v{t + 1}, {(2 * solution.macro_tile1).bit_length() - 1}, s3"
         )
@@ -2504,7 +2499,7 @@ class BackwardKernelWriterAssembly:
             for element in range(8):
                 for n_tile in range(n_tiles):
                     accum = r.accum + (n_tiles * m_tile + n_tile) * 8 + element
-                    self._emit_round_bf16(asm, accum, t + 2)
+                    emit_bf16_rne(asm, accum, t + 2)
                     asm.inst(
                         f"global_store_d16_hi_b16 v{a}, v{accum}, "
                         f"s[{r.kernarg + 4}:{r.kernarg + 5}] offset:{32 * n_tile}"
@@ -2513,39 +2508,3 @@ class BackwardKernelWriterAssembly:
                     asm.inst(f"v_add_nc_u32 v{a}, {4 * size.n}, v{a}")
         if self.solution.store_priority_opt:
             asm.inst("s_setprio 0")
-
-    @staticmethod
-    def _emit_round_bf16(
-        asm: _Assembly, value_register: int, temporary_register: int
-    ) -> None:
-        asm.inst(f"v_bfe_u32 v{temporary_register}, v{value_register}, 16, 1")
-        asm.inst(
-            f"v_add3_u32 v{value_register}, v{temporary_register}, "
-            f"v{value_register}, 0x7fff"
-        )
-
-    @staticmethod
-    def _emit_scale_u32(
-        asm: _Assembly,
-        destination: int,
-        scale: int,
-        source: int,
-    ) -> None:
-        if scale > 0 and scale & (scale - 1) == 0:
-            shift = scale.bit_length() - 1
-            asm.inst(f"v_lshlrev_b32 v{destination}, {shift}, v{source}")
-        else:
-            asm.inst(f"v_mul_lo_u32 v{destination}, {scale}, v{source}")
-
-    @staticmethod
-    def _emit_add_pointer(
-        asm: _Assembly,
-        destination: int,
-        scalar_pointer: int,
-        offset: int,
-    ) -> None:
-        asm.inst(f"v_add_co_u32 v{destination}, vcc_lo, s{scalar_pointer}, v{offset}")
-        asm.inst(
-            f"v_add_co_ci_u32_e64 v{destination + 1}, null, "
-            f"s{scalar_pointer + 1}, 0, vcc_lo"
-        )

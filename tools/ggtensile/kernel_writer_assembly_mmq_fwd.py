@@ -1,38 +1,25 @@
-import hashlib
-import os
-import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
-import rocisa
 from rocisa import code  # ty: ignore[unresolved-import]
 from rocisa.enum import SignatureValueKind as SVK  # ty: ignore[unresolved-import]
 
+from .kernel_writer_assembly import (
+    Assembly,
+    emit_bf16_rne,
+    emit_kernel_trailer,
+    emit_pointer_kernarg_loads,
+    initialize_rocisa,
+    write_assembly_source,
+)
 from .model import ForwardSolution, SolutionKey
+from .quant_formats import Q8_1_F16_D4S4_BLOCK_BYTES, QUANT_FORMATS
 from .toolchain import Toolchain
 from .validation import validate_solution
 
 
 class ForwardKernelWriterError(RuntimeError):
     pass
-
-
-class _Assembly:
-    def __init__(self) -> None:
-        self.lines: list[str] = []
-
-    def comment(self, text: str) -> None:
-        self.lines.append(f"// {text}")
-
-    def label(self, name: str) -> None:
-        self.lines.append(f"{name}:")
-
-    def inst(self, text: str, comment: str = "") -> None:
-        suffix = f" // {comment}" if comment else ""
-        self.lines.append(f"  {text}{suffix}")
-
-    def text(self) -> str:
-        return "\n".join(self.lines) + "\n"
 
 
 class ForwardKernelWriterAssembly:
@@ -88,24 +75,16 @@ class ForwardKernelWriterAssembly:
         return self.solution_key.problem_type.quant_data_type
 
     def write(self, output: Path) -> str:
-        source = self.source()
-        output.parent.mkdir(parents=True, exist_ok=True)
-        temporary = output.with_suffix(output.suffix + ".tmp")
-        temporary.write_text(source, encoding="utf-8")
-        temporary.replace(output)
-        return hashlib.sha256(source.encode("utf-8")).hexdigest()
+        return write_assembly_source(output, self.source())
 
     def source(self) -> str:
         solution = self.solution
-        global_isa = rocisa.rocIsa.getInstance()  # ty: ignore[unresolved-attribute]
-        original_directory = Path.cwd()
-        with tempfile.TemporaryDirectory(prefix="ggtensile-forward-rocisa-") as temp:
-            os.chdir(temp)
-            try:
-                global_isa.init(solution.isa, str(self.toolchain.assembler), False)
-            finally:
-                os.chdir(original_directory)
-        global_isa.setKernel(solution.isa, solution.wavefront_size)
+        initialize_rocisa(
+            solution.isa,
+            solution.wavefront_size,
+            self.toolchain.assembler,
+            temporary_prefix="ggtensile-forward-rocisa-",
+        )
 
         signature = code.SignatureBase(
             kernelName=self.solution_key.kernel_name,
@@ -140,24 +119,23 @@ class ForwardKernelWriterAssembly:
             return self._body_hip_staged()
         if self._uses_wave_reuse():
             return self._body_wave_reuse()
-        asm = _Assembly()
+        asm = Assembly()
         size = self.solution_key.problem_size
         name = self.solution_key.kernel_name
-        row_stride = size.k // 256 * self.solution.packed_weight_block_bytes
-        activation_plane_stride = size.m * 144
+        quant_type = self._quant_type()
+        quant_format = QUANT_FORMATS[quant_type]
+        row_stride = (
+            size.k
+            // quant_format.block_values
+            * self.solution.packed_weight_block_bytes
+        )
+        activation_plane_stride = size.m * Q8_1_F16_D4S4_BLOCK_BYTES
         activation_block_stride = 2 * activation_plane_stride
 
         asm.comment(
             "Load the exact packed-weight, Q8_1 F16_D4S4 workspace, and output pointers."
         )
-        asm.inst(f"s_load_dwordx2 s[{self.KERNARG}:{self.KERNARG + 1}], s[0:1], 0x0")
-        asm.inst(
-            f"s_load_dwordx2 s[{self.KERNARG + 2}:{self.KERNARG + 3}], s[0:1], 0x8"
-        )
-        asm.inst(
-            f"s_load_dwordx2 s[{self.KERNARG + 4}:{self.KERNARG + 5}], s[0:1], 0x10"
-        )
-        asm.inst("s_waitcnt lgkmcnt(0)")
+        emit_pointer_kernarg_loads(asm, self.KERNARG)
 
         asm.comment("Map one wave to an exact 16x16 output tile.")
         asm.inst(f"v_mov_b32 v{self.SERIAL}, v0")
@@ -192,7 +170,8 @@ class ForwardKernelWriterAssembly:
             f"v{self.OUTPUT_COLUMN}"
         )
         asm.inst(
-            f"v_mul_lo_u32 v{self.ACTIVATION_ADDRESS_0}, 144, v{self.ACTIVATION_ROW}"
+            f"v_mul_lo_u32 v{self.ACTIVATION_ADDRESS_0}, "
+            f"{Q8_1_F16_D4S4_BLOCK_BYTES}, v{self.ACTIVATION_ROW}"
         )
         asm.inst(
             f"v_add_nc_u32 v{self.ACTIVATION_ADDRESS_1}, "
@@ -202,7 +181,6 @@ class ForwardKernelWriterAssembly:
             asm.inst(f"v_mov_b32 v{register}, 0")
         asm.inst(f"s_mov_b32 s{self.LOOP_COUNTER}, 0")
 
-        quant_type = self._quant_type()
         quant_label = quant_type.replace("_", "")
         asm.label(f".LForward{quant_label}BlockLoop")
         asm.comment(
@@ -236,18 +214,18 @@ class ForwardKernelWriterAssembly:
             f"{activation_block_stride}, v{self.ACTIVATION_ADDRESS_1}"
         )
         asm.inst(f"s_add_u32 s{self.LOOP_COUNTER}, s{self.LOOP_COUNTER}, 1")
-        asm.inst(f"s_cmp_lt_u32 s{self.LOOP_COUNTER}, {size.k // 256}")
+        asm.inst(
+            f"s_cmp_lt_u32 s{self.LOOP_COUNTER}, {size.k // quant_format.block_values}"
+        )
         asm.inst(f"s_cbranch_scc1 .LForward{quant_label}BlockLoop")
 
         self._emit_store(asm)
-        asm.inst("s_endpgm")
-        asm.lines.append(f".L{name}_end:")
-        asm.lines.append(f".size {name}, .L{name}_end - {name}")
+        emit_kernel_trailer(asm, name)
         return asm.text()
 
     def _emit_hip_stage_decoded_weights(
         self,
-        asm: _Assembly,
+        asm: Assembly,
         *,
         row_stride: int,
         serial: int,
@@ -493,12 +471,18 @@ class ForwardKernelWriterAssembly:
 
     def _body_hip_staged(self) -> str:
         """Mirror HIP's cooperative operand staging and eight-WMMA batches."""
-        asm = _Assembly()
+        asm = Assembly()
         size = self.solution_key.problem_size
         name = self.solution_key.kernel_name
         decoded = self.solution.operand_source == "HipDecodedStagedBatch8"
-        row_stride = size.k // 256 * self.solution.packed_weight_block_bytes
-        activation_plane_stride = size.m * 144
+        quant_type = self._quant_type()
+        quant_format = QUANT_FORMATS[quant_type]
+        row_stride = (
+            size.k
+            // quant_format.block_values
+            * self.solution.packed_weight_block_bytes
+        )
+        activation_plane_stride = size.m * Q8_1_F16_D4S4_BLOCK_BYTES
         activation_lds_base = 512 if decoded else 8192
         sum_base = 8
         weight_q = 72
@@ -519,19 +503,12 @@ class ForwardKernelWriterAssembly:
         lane = 237
         serial = 238
         retained_decoded = self._uses_retained_decoded_schedule()
-        quant_label = self._quant_type().replace("_", "")
+        quant_label = quant_type.replace("_", "")
 
         asm.comment(
             "Load the exact packed-weight, Q8_1 F16_D4S4 workspace, and output pointers."
         )
-        asm.inst(f"s_load_dwordx2 s[{self.KERNARG}:{self.KERNARG + 1}], s[0:1], 0x0")
-        asm.inst(
-            f"s_load_dwordx2 s[{self.KERNARG + 2}:{self.KERNARG + 3}], s[0:1], 0x8"
-        )
-        asm.inst(
-            f"s_load_dwordx2 s[{self.KERNARG + 4}:{self.KERNARG + 5}], s[0:1], 0x10"
-        )
-        asm.inst("s_waitcnt lgkmcnt(0)")
+        emit_pointer_kernarg_loads(asm, self.KERNARG)
         asm.inst(f"v_mov_b32 v{serial}, v0")
         asm.inst(f"v_and_b32 v{lane}, 15, v{serial}")
         asm.inst(f"v_lshrrev_b32 v{wave}, 5, v{serial}")
@@ -546,7 +523,10 @@ class ForwardKernelWriterAssembly:
         else:
             asm.inst(f"v_add_nc_u32 v{output_column}, v{wave_column_base}, v{lane}")
         asm.inst(f"v_lshlrev_b32 v{temporary}, 7, s3")
-        asm.inst(f"v_mul_lo_u32 v{activation_plane_address}, 144, v{temporary}")
+        asm.inst(
+            f"v_mul_lo_u32 v{activation_plane_address}, "
+            f"{Q8_1_F16_D4S4_BLOCK_BYTES}, v{temporary}"
+        )
         asm.inst(f"v_lshlrev_b32 v{temporary}, 2, v{serial}")
         asm.inst(
             f"v_add_nc_u32 v{activation_plane_address}, v{temporary}, "
@@ -762,7 +742,9 @@ class ForwardKernelWriterAssembly:
             f"{self.solution.packed_weight_block_bytes}"
         )
         asm.inst(f"s_add_u32 s{self.LOOP_COUNTER}, s{self.LOOP_COUNTER}, 1")
-        asm.inst(f"s_cmp_lt_u32 s{self.LOOP_COUNTER}, {size.k // 256}")
+        asm.inst(
+            f"s_cmp_lt_u32 s{self.LOOP_COUNTER}, {size.k // quant_format.block_values}"
+        )
         asm.inst(f"s_cbranch_scc1 .LForward{quant_label}HipStagedBlockLoop")
 
         asm.comment("Store the 128x64 row-major BF16 output tile.")
@@ -798,8 +780,7 @@ class ForwardKernelWriterAssembly:
                 )
                 for element in range(8):
                     total = sum_base + tile * 8 + element
-                    asm.inst(f"v_bfe_u32 v{temporary}, v{total}, 16, 1")
-                    asm.inst(f"v_add3_u32 v{total}, v{temporary}, v{total}, 0x7fff")
+                    emit_bf16_rne(asm, total, temporary)
                     asm.inst(
                         f"global_store_d16_hi_b16 v{metadata_address}, v{total}, "
                         f"s[{self.KERNARG + 4}:{self.KERNARG + 5}]"
@@ -808,14 +789,12 @@ class ForwardKernelWriterAssembly:
                         asm.inst(
                             f"v_add_nc_u32 v{metadata_address}, 4, v{metadata_address}"
                         )
-        asm.inst("s_endpgm")
-        asm.lines.append(f".L{name}_end:")
-        asm.lines.append(f".size {name}, .L{name}_end - {name}")
+        emit_kernel_trailer(asm, name)
         return asm.text()
 
     def _emit_hip_decoded_store(
         self,
-        asm: _Assembly,
+        asm: Assembly,
         *,
         size_n: int,
         sum_base: int,
@@ -836,8 +815,7 @@ class ForwardKernelWriterAssembly:
 
         if not scheduled:
             for total in range(sum_base, sum_base + 64):
-                asm.inst(f"v_bfe_u32 v{temporary}, v{total}, 16, 1")
-                asm.inst(f"v_add3_u32 v{total}, v{temporary}, v{total}, 0x7fff")
+                emit_bf16_rne(asm, total, temporary)
             self._emit_hip_decoded_store_address(
                 asm,
                 size_n=size_n,
@@ -892,8 +870,7 @@ class ForwardKernelWriterAssembly:
                 )
                 if batch_count == 1:
                     total = sum_base + batch
-                    asm.inst(f"v_bfe_u32 v{temporary}, v{total}, 16, 1")
-                    asm.inst(f"v_add3_u32 v{total}, v{temporary}, v{total}, 0x7fff")
+                    emit_bf16_rne(asm, total, temporary)
                     continue
                 for item in range(batch_count):
                     total = sum_base + batch + item
@@ -917,7 +894,7 @@ class ForwardKernelWriterAssembly:
 
     def _emit_hip_decoded_store_address(
         self,
-        asm: _Assembly,
+        asm: Assembly,
         *,
         size_n: int,
         temporary: int,
@@ -938,7 +915,7 @@ class ForwardKernelWriterAssembly:
 
     def _emit_hip_decoded_store_tile(
         self,
-        asm: _Assembly,
+        asm: Assembly,
         *,
         tile: int,
         sum_base: int,
@@ -955,7 +932,7 @@ class ForwardKernelWriterAssembly:
 
     def _emit_hip_stage_activation(
         self,
-        asm: _Assembly,
+        asm: Assembly,
         *,
         activation_plane_address: int,
         serial: int,
@@ -998,7 +975,7 @@ class ForwardKernelWriterAssembly:
 
     def _emit_hip_staged_group(
         self,
-        asm: _Assembly,
+        asm: Assembly,
         group: int,
         *,
         weight_q: int,
@@ -1030,14 +1007,14 @@ class ForwardKernelWriterAssembly:
             f"ds_read_b128 v[{weight_q + 4}:{weight_q + 7}], v{lds_address} "
             f"offset:{q_offset + 16}"
         )
-        asm.inst(f"v_mul_lo_u32 v{lds_address}, 144, v{lane}")
+        asm.inst(f"v_mul_lo_u32 v{lds_address}, {Q8_1_F16_D4S4_BLOCK_BYTES}, v{lane}")
         asm.inst(f"v_add_nc_u32 v{lds_address}, 8192, v{lds_address}")
         for tile in range(8):
             low_activation = (
                 c_base + 8 * (tile + 1) if tile < 7 else low_activation_last
             )
             high_activation = high_activation_base + 4 * tile
-            tile_offset = 16 * tile * 144
+            tile_offset = 16 * tile * Q8_1_F16_D4S4_BLOCK_BYTES
             asm.inst(
                 f"ds_read_b128 v[{low_activation}:{low_activation + 3}], "
                 f"v{lds_address} offset:{tile_offset + activation_q_offset}"
@@ -1087,7 +1064,7 @@ class ForwardKernelWriterAssembly:
 
     def _emit_hip_decoded_group_loop(
         self,
-        asm: _Assembly,
+        asm: Assembly,
         *,
         group_base: int,
         weight_q: int,
@@ -1142,9 +1119,11 @@ class ForwardKernelWriterAssembly:
         )
 
         if self.solution.activation_addressing == "MadU24":
-            asm.inst(f"v_mad_u32_u24 v{metadata}, 144, v{lane}, s15")
+            asm.inst(
+                f"v_mad_u32_u24 v{metadata}, {Q8_1_F16_D4S4_BLOCK_BYTES}, v{lane}, s15"
+            )
         else:
-            asm.inst(f"v_mul_lo_u32 v{metadata}, 144, v{lane}")
+            asm.inst(f"v_mul_lo_u32 v{metadata}, {Q8_1_F16_D4S4_BLOCK_BYTES}, v{lane}")
             asm.inst(f"v_add_nc_u32 v{metadata}, 512, v{metadata}")
         asm.inst(f"v_add_nc_u32 v{lds_address}, s14, v{metadata}")
         for tile in range(8):
@@ -1152,7 +1131,7 @@ class ForwardKernelWriterAssembly:
                 c_base + 8 * (tile + 1) if tile < 7 else low_activation_last
             )
             high_activation = high_activation_base + 4 * tile
-            tile_offset = 16 * tile * 144
+            tile_offset = 16 * tile * Q8_1_F16_D4S4_BLOCK_BYTES
             asm.inst(
                 f"ds_read_b128 v[{low_activation}:{low_activation + 3}], "
                 f"v{lds_address} offset:{tile_offset + 16}"
@@ -1229,7 +1208,7 @@ class ForwardKernelWriterAssembly:
 
     def _emit_hip_staged_accumulate(
         self,
-        asm: _Assembly,
+        asm: Assembly,
         *,
         weight_q: int,
         c_base: int,
@@ -1317,11 +1296,16 @@ class ForwardKernelWriterAssembly:
 
     def _body_wave_reuse(self) -> str:
         """Reuse one Q4_K weight tile across eight activation-row tiles per wave."""
-        asm = _Assembly()
+        asm = Assembly()
         size = self.solution_key.problem_size
         name = self.solution_key.kernel_name
-        row_stride = size.k // 256 * self.solution.packed_weight_block_bytes
-        activation_plane_stride = size.m * 144
+        quant_format = QUANT_FORMATS[self._quant_type()]
+        row_stride = (
+            size.k
+            // quant_format.block_values
+            * self.solution.packed_weight_block_bytes
+        )
+        activation_plane_stride = size.m * Q8_1_F16_D4S4_BLOCK_BYTES
         activation_block_stride = 2 * activation_plane_stride
         sum_base = 8
         weight_q = 72
@@ -1350,14 +1334,7 @@ class ForwardKernelWriterAssembly:
         asm.comment(
             "Load the exact packed-weight, Q8_1 F16_D4S4 workspace, and output pointers."
         )
-        asm.inst(f"s_load_dwordx2 s[{self.KERNARG}:{self.KERNARG + 1}], s[0:1], 0x0")
-        asm.inst(
-            f"s_load_dwordx2 s[{self.KERNARG + 2}:{self.KERNARG + 3}], s[0:1], 0x8"
-        )
-        asm.inst(
-            f"s_load_dwordx2 s[{self.KERNARG + 4}:{self.KERNARG + 5}], s[0:1], 0x10"
-        )
-        asm.inst("s_waitcnt lgkmcnt(0)")
+        emit_pointer_kernarg_loads(asm, self.KERNARG)
         asm.inst(f"v_mov_b32 v{serial}, v0")
         asm.inst(f"v_and_b32 v{lane}, 15, v{serial}")
         asm.inst(f"v_lshrrev_b32 v{wave_column_base}, 5, v{serial}")
@@ -1378,7 +1355,10 @@ class ForwardKernelWriterAssembly:
         asm.inst(f"v_lshlrev_b32 v{temporary}, 7, s3")
         asm.inst(f"v_add_nc_u32 v{activation_row}, v{temporary}, v{lane}")
         asm.inst(f"v_add_nc_u32 v{temporary}, v{temporary}, v{lane}")
-        asm.inst(f"v_mul_lo_u32 v{activation_address_0}, 144, v{temporary}")
+        asm.inst(
+            f"v_mul_lo_u32 v{activation_address_0}, "
+            f"{Q8_1_F16_D4S4_BLOCK_BYTES}, v{temporary}"
+        )
         asm.inst(
             f"v_add_nc_u32 v{activation_address_1}, {activation_plane_stride}, "
             f"v{activation_address_0}"
@@ -1419,10 +1399,14 @@ class ForwardKernelWriterAssembly:
             )
         for element in range(8):
             asm.inst(
-                f"v_add_nc_u32 v{result_addresses + element}, 144, "
+                f"v_add_nc_u32 v{result_addresses + element}, "
+                f"{self.solution.packed_weight_block_bytes}, "
                 f"v{result_addresses + element}"
             )
-        asm.inst(f"v_add_nc_u32 v{weight_q_address}, 144, v{weight_q_address}")
+        asm.inst(
+            f"v_add_nc_u32 v{weight_q_address}, "
+            f"{self.solution.packed_weight_block_bytes}, v{weight_q_address}"
+        )
         asm.inst(
             f"v_add_nc_u32 v{activation_address_0}, {activation_block_stride}, "
             f"v{activation_address_0}"
@@ -1432,7 +1416,9 @@ class ForwardKernelWriterAssembly:
             f"v{activation_address_1}"
         )
         asm.inst(f"s_add_u32 s{self.LOOP_COUNTER}, s{self.LOOP_COUNTER}, 1")
-        asm.inst(f"s_cmp_lt_u32 s{self.LOOP_COUNTER}, {size.k // 256}")
+        asm.inst(
+            f"s_cmp_lt_u32 s{self.LOOP_COUNTER}, {size.k // quant_format.block_values}"
+        )
         asm.inst("s_cbranch_scc1 .LForwardQ4KWaveReuseBlockLoop")
 
         asm.comment("Store eight reused activation-row tiles as row-major BF16 output.")
@@ -1446,22 +1432,19 @@ class ForwardKernelWriterAssembly:
             asm.inst(f"v_add_nc_u32 v{output_address}, v{output_address}, v{temporary}")
             for element in range(8):
                 total = sum_base + tile * 8 + element
-                asm.inst(f"v_bfe_u32 v{temporary}, v{total}, 16, 1")
-                asm.inst(f"v_add3_u32 v{total}, v{temporary}, v{total}, 0x7fff")
+                emit_bf16_rne(asm, total, temporary)
                 asm.inst(
                     f"global_store_d16_hi_b16 v{output_address}, v{total}, "
                     f"s[{self.KERNARG + 4}:{self.KERNARG + 5}]"
                 )
                 if element != 7:
                     asm.inst(f"v_add_nc_u32 v{output_address}, 4, v{output_address}")
-        asm.inst("s_endpgm")
-        asm.lines.append(f".L{name}_end:")
-        asm.lines.append(f".size {name}, .L{name}_end - {name}")
+        emit_kernel_trailer(asm, name)
         return asm.text()
 
     def _emit_wave_batch_group(
         self,
-        asm: _Assembly,
+        asm: Assembly,
         group: int,
         weight_q: int,
         activation_q: int,
@@ -1530,7 +1513,8 @@ class ForwardKernelWriterAssembly:
                 low_activation = c_base + 8 * (local_tile + 1)
                 high_activation = high_activation_base + 4 * local_tile
                 asm.inst(
-                    f"v_add_nc_u32 v{temporary}, {16 * tile * 144}, "
+                    f"v_add_nc_u32 v{temporary}, "
+                    f"{16 * tile * Q8_1_F16_D4S4_BLOCK_BYTES}, "
                     f"v{activation_address}"
                 )
                 asm.inst(
@@ -1594,7 +1578,7 @@ class ForwardKernelWriterAssembly:
 
     def _emit_wave_reuse_group(
         self,
-        asm: _Assembly,
+        asm: Assembly,
         group: int,
         weight_q: int,
         activation_q: int,
@@ -1651,7 +1635,7 @@ class ForwardKernelWriterAssembly:
 
         for tile in range(8):
             tile_address = temporary
-            tile_offset = 16 * tile * 144
+            tile_offset = 16 * tile * Q8_1_F16_D4S4_BLOCK_BYTES
             asm.inst(
                 f"v_add_nc_u32 v{tile_address}, {tile_offset}, v{activation_address}"
             )
@@ -1700,7 +1684,7 @@ class ForwardKernelWriterAssembly:
                     f"op_sel:[1,1,0] op_sel_hi:[1,1,0]"
                 )
 
-    def _emit_group(self, asm: _Assembly, group: int) -> None:
+    def _emit_group(self, asm: Assembly, group: int) -> None:
         weight_q_offset = 16 + 32 * (group // 2)
         activation_q_offset = 16 + 32 * (group % 4)
         activation_scale_sum_offset = 4 * (group % 4)
@@ -1761,7 +1745,7 @@ class ForwardKernelWriterAssembly:
 
     def _emit_scale_and_minimum(
         self,
-        asm: _Assembly,
+        asm: Assembly,
         group: int,
         metadata: int,
         *,
@@ -1787,7 +1771,7 @@ class ForwardKernelWriterAssembly:
         asm.inst(f"v_bfe_u32 v{temporary}, v{metadata + 2}, {bit + 6}, 2")
         asm.inst(f"v_lshl_or_b32 v{minimum}, v{temporary}, 4, v{minimum}")
 
-    def _emit_scaled_accumulate(self, asm: _Assembly, group: int) -> None:
+    def _emit_scaled_accumulate(self, asm: Assembly, group: int) -> None:
         asm.comment("Reproduce Q4_K FP16 scale/min construction before FP32 sums.")
         asm.inst(f"v_cvt_f32_f16 v{self.ACTIVATION_D}, v{self.ACTIVATION_SCALE_SUM}")
         asm.inst(
@@ -1818,7 +1802,7 @@ class ForwardKernelWriterAssembly:
                 f"v{self.ACTIVATION_SUM}, v{total}"
             )
 
-    def _emit_store(self, asm: _Assembly) -> None:
+    def _emit_store(self, asm: Assembly) -> None:
         size = self.solution_key.problem_size
         asm.comment("Store the gfx11 J-major C fragments as row-major BF16 output.")
         asm.inst(f"v_and_b32 v{self.TEMPORARY}, 15, v{self.SERIAL}")
@@ -1843,8 +1827,7 @@ class ForwardKernelWriterAssembly:
         )
         for element in range(8):
             total = self.SUM + element
-            asm.inst(f"v_bfe_u32 v{self.TEMPORARY}, v{total}, 16, 1")
-            asm.inst(f"v_add3_u32 v{total}, v{self.TEMPORARY}, v{total}, 0x7fff")
+            emit_bf16_rne(asm, total, self.TEMPORARY)
             asm.inst(
                 f"global_store_d16_hi_b16 v{self.OUTPUT_ADDRESS}, v{total}, "
                 f"s[{self.KERNARG + 4}:{self.KERNARG + 5}]"

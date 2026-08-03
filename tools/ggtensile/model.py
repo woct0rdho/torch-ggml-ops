@@ -7,6 +7,8 @@ from typing import ClassVar, Literal, overload
 
 from typing_extensions import Self
 
+from .quant_formats import Q8_1_F16_D4S4_BLOCK_BYTES, QUANT_FORMATS
+
 
 class SchemaError(ValueError):
     """A GGTensile input does not match its strict schema."""
@@ -482,8 +484,8 @@ class ForwardSolution:
             macro_tile1=16,
             depth_u=32,
             activation_layout="F16_D4S4",
-            activation_block_bytes=144,
-            packed_weight_block_bytes=144,
+            activation_block_bytes=Q8_1_F16_D4S4_BLOCK_BYTES,
+            packed_weight_block_bytes=QUANT_FORMATS["Q4_K"].block_bytes,
             operand_source="Global",
             weight_decode="DirectNibble",
             lds_address_hoist="None",
@@ -508,8 +510,8 @@ class ForwardSolution:
             macro_tile1=64,
             depth_u=32,
             activation_layout="F16_D4S4",
-            activation_block_bytes=144,
-            packed_weight_block_bytes=144,
+            activation_block_bytes=Q8_1_F16_D4S4_BLOCK_BYTES,
+            packed_weight_block_bytes=QUANT_FORMATS["Q4_K"].block_bytes,
             operand_source="GlobalWaveReuse",
             weight_decode="DirectNibble",
             lds_address_hoist="None",
@@ -555,7 +557,7 @@ class ForwardSolution:
     def q5_k_hip_decoded_staged_retained(cls) -> Self:
         return replace(
             cls.q4_k_hip_decoded_staged_retained(),
-            packed_weight_block_bytes=176,
+            packed_weight_block_bytes=QUANT_FORMATS["Q5_K"].block_bytes,
             weight_decode="DirectNibbleHighBit",
         )
 

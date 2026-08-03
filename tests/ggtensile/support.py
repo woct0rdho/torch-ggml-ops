@@ -24,13 +24,18 @@ from tools.ggtensile.toolchain import Toolchain
 
 _CONFIG_DIR = Path("tools/ggtensile/configs")
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+SHARED_WRITER_SOURCE_PATH = _REPO_ROOT / "tools/ggtensile/kernel_writer_assembly.py"
 FWD_WRITER_SOURCE_PATH = (
     _REPO_ROOT / "tools/ggtensile/kernel_writer_assembly_mmq_fwd.py"
 )
 BWD_WRITER_SOURCE_PATH = (
     _REPO_ROOT / "tools/ggtensile/kernel_writer_assembly_mmq_bwd.py"
 )
-WRITER_SOURCE_PATHS = (FWD_WRITER_SOURCE_PATH, BWD_WRITER_SOURCE_PATH)
+WRITER_SOURCE_PATHS = (
+    SHARED_WRITER_SOURCE_PATH,
+    FWD_WRITER_SOURCE_PATH,
+    BWD_WRITER_SOURCE_PATH,
+)
 WRITER_EXECUTED_LINES = {path: set() for path in WRITER_SOURCE_PATHS}
 _WRITER_LINES_BY_FILENAME = {
     str(path): WRITER_EXECUTED_LINES[path] for path in WRITER_SOURCE_PATHS
@@ -64,16 +69,20 @@ def _writer_body_lines(path: Path) -> set[int]:
     tree = ast.parse(source, filename=str(path))
     executable = _code_lines(compile(source, str(path), "exec"))
     body_lines: set[int] = set()
-    writer_class_name = (
-        "ForwardKernelWriterAssembly"
-        if path == FWD_WRITER_SOURCE_PATH
-        else "BackwardKernelWriterAssembly"
-    )
+    tracked_classes = {
+        SHARED_WRITER_SOURCE_PATH: {"Assembly"},
+        FWD_WRITER_SOURCE_PATH: {"ForwardKernelWriterAssembly"},
+        BWD_WRITER_SOURCE_PATH: {"_Assembly", "BackwardKernelWriterAssembly"},
+    }[path]
     for node in tree.body:
-        if not isinstance(node, ast.ClassDef) or node.name not in {
-            "_Assembly",
-            writer_class_name,
-        }:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if path != SHARED_WRITER_SOURCE_PATH:
+                continue
+            first_body_line = node.body[0].lineno
+            assert node.end_lineno is not None
+            body_lines.update(range(first_body_line, node.end_lineno + 1))
+            continue
+        if not isinstance(node, ast.ClassDef) or node.name not in tracked_classes:
             continue
         for member in node.body:
             if not isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef)):

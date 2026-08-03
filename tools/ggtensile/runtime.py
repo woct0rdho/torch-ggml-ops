@@ -9,6 +9,7 @@ import torch
 from typing_extensions import Self
 
 from .model import BackwardSolution, ForwardSolution, SolutionKey
+from .quant_formats import Q8_1_F16_D4S4_BLOCK_BYTES, QUANT_FORMATS
 from .validation import validate_solution
 
 
@@ -157,17 +158,10 @@ class BackwardModule(_SolutionHIPModule):
             raise HIPRuntimeError("grad_output shape does not match ProblemSize")
         if tuple(grad_input.shape) != (size.m, size.n):
             raise HIPRuntimeError("grad_input shape does not match ProblemSize")
-        block_bytes = {
-            "Q3_K": 110,
-            "Q4_K": 144,
-            "Q5_K": 176,
-            "Q6_K": 210,
-            "Q8_0": 34,
-        }[self.solution_key.problem_type.quant_data_type]
-        values_per_block = (
-            32 if self.solution_key.problem_type.quant_data_type == "Q8_0" else 256
+        quant_format = QUANT_FORMATS[self.solution_key.problem_type.quant_data_type]
+        expected_weight_bytes = (
+            size.k * (size.n // quant_format.block_values) * quant_format.block_bytes
         )
-        expected_weight_bytes = size.k * (size.n // values_per_block) * block_bytes
         if packed_weight.numel() != expected_weight_bytes:
             raise HIPRuntimeError(
                 "packed_weight size does not match "
@@ -257,16 +251,20 @@ class ForwardModule(_SolutionHIPModule):
             )
         if output.dtype != torch.bfloat16:
             raise HIPRuntimeError("output must be BF16")
-        block_bytes = {
-            "Q4_K": 144,
-            "Q5_K": 176,
-        }.get(self.solution_key.problem_type.quant_data_type)
-        if block_bytes is None:
+        quant_type = self.solution_key.problem_type.quant_data_type
+        if quant_type not in {"Q4_K", "Q5_K"}:
             raise HIPRuntimeError("unsupported MMQ forward quant type")
-        expected_weight_bytes = size.n * (size.k // 256) * block_bytes
+        quant_format = QUANT_FORMATS[quant_type]
+        expected_weight_bytes = (
+            size.n * (size.k // quant_format.block_values) * quant_format.block_bytes
+        )
         if packed_weight.numel() != expected_weight_bytes:
             raise HIPRuntimeError("packed_weight size does not match ProblemSize")
-        expected_activation_shape = (size.k // 128, size.m, 144)
+        expected_activation_shape = (
+            size.k // 128,
+            size.m,
+            Q8_1_F16_D4S4_BLOCK_BYTES,
+        )
         if tuple(activations.shape) != expected_activation_shape:
             raise HIPRuntimeError(
                 "activations shape does not match the exact Q8_1 F16_D4S4 "
@@ -378,7 +376,7 @@ class FixedQ81F16D4S4QuantizerModule(_HIPModule):
             )
         rows, k = input_tensor.shape
         return torch.empty(
-            (k // 128, rows, 144),
+            (k // 128, rows, Q8_1_F16_D4S4_BLOCK_BYTES),
             dtype=torch.uint8,
             device=input_tensor.device,
         )
@@ -403,7 +401,7 @@ class FixedQ81F16D4S4QuantizerModule(_HIPModule):
         if input_tensor.ndim != 2:
             raise HIPRuntimeError("quantizer input must be two-dimensional")
         rows, k = input_tensor.shape
-        expected_shape = (k // 128, rows, 144)
+        expected_shape = (k // 128, rows, Q8_1_F16_D4S4_BLOCK_BYTES)
         if k % 128 or tuple(output.shape) != expected_shape:
             raise HIPRuntimeError(
                 "quantizer output does not match the Q8_1 F16_D4S4 contract"
