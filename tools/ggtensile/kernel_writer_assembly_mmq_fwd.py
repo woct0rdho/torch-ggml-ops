@@ -295,12 +295,12 @@ class DenseForwardKernelWriterAssembly:
         if q5_k:
             asm.comment("Build Q5_K high-bit and low-nibble payload addresses.")
             asm.inst(f"v_and_b32 v{qh_address}, 1, v{auxiliary}")
-            asm.inst(f"v_lshlrev_b32 v{qh_address}, 4, v{qh_address}")
-            asm.inst(f"v_add_nc_u32 v{qh_address}, v{temporary}, v{qh_address}")
-            asm.inst(f"v_add_nc_u32 v{qh_address}, 16, v{qh_address}")
-        asm.inst(f"v_lshlrev_b32 v{metadata_address}, 4, v{auxiliary}")
-        asm.inst(f"v_add_nc_u32 v{temporary}, {48 if q5_k else 16}, v{temporary}")
-        asm.inst(f"v_add_nc_u32 v{temporary}, v{metadata_address}, v{temporary}")
+            asm.inst(f"v_mad_u32_u24 v{qh_address}, 16, v{qh_address}, v{temporary}")
+            asm.inst(f"v_mad_u32_u24 v{temporary}, 16, v{auxiliary}, v{temporary}")
+        else:
+            asm.inst(f"v_lshlrev_b32 v{metadata_address}, 4, v{auxiliary}")
+            asm.inst(f"v_add_nc_u32 v{temporary}, 16, v{temporary}")
+            asm.inst(f"v_add_nc_u32 v{temporary}, v{metadata_address}, v{temporary}")
 
         asm.inst(f"v_lshrrev_b32 v{lds_address}, 3, v{serial}")
         asm.inst(f"v_mul_lo_u32 v{lds_address}, {weight_lds_stride}, v{lds_address}")
@@ -338,11 +338,11 @@ class DenseForwardKernelWriterAssembly:
                 row_qh_base = qh_base + 4 * row_slice
                 asm.inst(
                     f"global_load_b128 v[{row_qh_base}:{row_qh_base + 3}], "
-                    f"v{qh_address}, s[{self.KERNARG}:{self.KERNARG + 1}]"
+                    f"v{qh_address}, s[{self.KERNARG}:{self.KERNARG + 1}] offset:16"
                 )
                 asm.inst(
                     f"global_load_b128 v[{raw_base}:{raw_base + 3}], "
-                    f"v{temporary}, s[{self.KERNARG}:{self.KERNARG + 1}]"
+                    f"v{temporary}, s[{self.KERNARG}:{self.KERNARG + 1}] offset:48"
                 )
                 if row_slice != 3:
                     asm.inst(
@@ -366,20 +366,40 @@ class DenseForwardKernelWriterAssembly:
         for row_slice in range(4):
             raw_base = staging_base + 8 * row_slice
             asm.inst(f"s_waitcnt vmcnt({6 - 2 * row_slice if q5_k else 3 - row_slice})")
-            for item in range(4):
-                low = raw_base + item
-                high = raw_base + 4 + item
-                asm.inst(f"v_lshrrev_b32 v{high}, 4, v{low}")
-                asm.inst(f"v_and_b32 v{low}, 0x0f0f0f0f, v{low}")
-                asm.inst(f"v_and_b32 v{high}, 0x0f0f0f0f, v{high}")
-                if q5_k:
-                    qh = staging_base + 36 + 4 * row_slice + item
-                    asm.inst(f"v_lshrrev_b32 v{temporary}, v{qh_address}, v{qh}")
-                    asm.inst(f"v_and_b32 v{auxiliary}, 0x01010101, v{temporary}")
+            if q5_k:
+                qh_base = staging_base + 36 + 4 * row_slice
+                for item in range(4):
+                    asm.inst(
+                        f"v_lshrrev_b32 v{qh_base + item}, v{qh_address}, "
+                        f"v{qh_base + item}"
+                    )
+                for item in range(4):
+                    asm.inst(
+                        f"v_lshrrev_b32 v{raw_base + 4 + item}, 4, v{raw_base + item}"
+                    )
+                for item in range(4):
+                    asm.inst(
+                        f"v_and_b32 v{raw_base + item}, 0x0f0f0f0f, v{raw_base + item}"
+                    )
+                    asm.inst(
+                        f"v_and_b32 v{raw_base + 4 + item}, 0x0f0f0f0f, "
+                        f"v{raw_base + 4 + item}"
+                    )
+                for item in range(4):
+                    low = raw_base + item
+                    high = raw_base + 4 + item
+                    qh = qh_base + item
+                    asm.inst(f"v_and_b32 v{auxiliary}, 0x01010101, v{qh}")
                     asm.inst(f"v_lshl_or_b32 v{low}, v{auxiliary}, 4, v{low}")
-                    asm.inst(f"v_lshrrev_b32 v{temporary}, 1, v{temporary}")
-                    asm.inst(f"v_and_b32 v{auxiliary}, 0x01010101, v{temporary}")
-                    asm.inst(f"v_lshl_or_b32 v{high}, v{auxiliary}, 4, v{high}")
+                    asm.inst(f"v_and_b32 v{auxiliary}, 0x02020202, v{qh}")
+                    asm.inst(f"v_lshl_or_b32 v{high}, v{auxiliary}, 3, v{high}")
+            else:
+                for item in range(4):
+                    low = raw_base + item
+                    high = raw_base + 4 + item
+                    asm.inst(f"v_lshrrev_b32 v{high}, 4, v{low}")
+                    asm.inst(f"v_and_b32 v{low}, 0x0f0f0f0f, v{low}")
+                    asm.inst(f"v_and_b32 v{high}, 0x0f0f0f0f, v{high}")
             asm.inst(f"ds_write_b128 v{lds_address}, v[{raw_base}:{raw_base + 3}]")
             asm.inst(
                 f"ds_write_b128 v{lds_address}, "
@@ -556,10 +576,19 @@ class DenseForwardKernelWriterAssembly:
             f"v_add_nc_u32 v{activation_plane_address}, v{temporary}, "
             f"v{activation_plane_address}"
         )
-        for register in range(self.C, self.C + 8):
-            asm.inst(f"v_mov_b32 v{register}, 0")
-        for register in range(sum_base, sum_base + 64):
-            asm.inst(f"v_mov_b32 v{register}, v0")
+        if self.solution.accumulator_initialization == "VopdPair":
+            for register in range(self.C, sum_base + 64, 2):
+                x_source = "0" if register < sum_base else "v0"
+                y_source = "0" if register < sum_base else "v1"
+                asm.inst(
+                    f"v_dual_mov_b32 v{register}, {x_source} :: "
+                    f"v_dual_mov_b32 v{register + 1}, {y_source}"
+                )
+        else:
+            for register in range(self.C, self.C + 8):
+                asm.inst(f"v_mov_b32 v{register}, 0")
+            for register in range(sum_base, sum_base + 64):
+                asm.inst(f"v_mov_b32 v{register}, v0")
         asm.inst(f"s_mov_b32 s{self.LOOP_COUNTER}, 0")
         asm.inst(f"s_mov_b32 s{self.SCALAR_TEMPORARY}, 0")
         if retained_decoded:

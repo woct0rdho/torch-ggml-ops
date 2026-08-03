@@ -32,8 +32,8 @@
       "RepresentativeTensor": "blk.0.ffn_gate_shexp.weight",
       "CallCount": 21,
       "HistoricalHipMedianMs": 0.198,
-      "CurrentStatus": "open",
-      "SelectedSolution": "retained_decoded_staged"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "selected_narrow_m2048_a1d8_p0"
     },
     {
       "Family": "narrow",
@@ -45,8 +45,8 @@
       "RepresentativeTensor": "blk.0.ffn_gate_shexp.weight",
       "CallCount": 21,
       "HistoricalHipMedianMs": 0.83,
-      "CurrentStatus": "open",
-      "SelectedSolution": "retained_decoded_staged"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "selected_narrow_m8192_a8d1_p0"
     },
     {
       "Family": "narrow",
@@ -58,8 +58,8 @@
       "RepresentativeTensor": "blk.0.ffn_gate_shexp.weight",
       "CallCount": 21,
       "HistoricalHipMedianMs": 3.235,
-      "CurrentStatus": "open",
-      "SelectedSolution": "retained_decoded_staged"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "selected_narrow_m32768_a8d4_p3_vopd_init"
     },
     {
       "Family": "shared_down",
@@ -71,8 +71,8 @@
       "RepresentativeTensor": "blk.0.ffn_down_shexp.weight",
       "CallCount": 10,
       "HistoricalHipMedianMs": 0.176,
-      "CurrentStatus": "open",
-      "SelectedSolution": "retained_decoded_staged"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "selected_shared_down_m2048_a1d2_p2"
     },
     {
       "Family": "shared_down",
@@ -84,8 +84,8 @@
       "RepresentativeTensor": "blk.0.ffn_down_shexp.weight",
       "CallCount": 10,
       "HistoricalHipMedianMs": 0.737,
-      "CurrentStatus": "open",
-      "SelectedSolution": "retained_decoded_staged"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "selected_shared_down_m8192_a1d4_p2_vopd_init"
     },
     {
       "Family": "shared_down",
@@ -97,8 +97,8 @@
       "RepresentativeTensor": "blk.0.ffn_down_shexp.weight",
       "CallCount": 10,
       "HistoricalHipMedianMs": 2.949,
-      "CurrentStatus": "open",
-      "SelectedSolution": "retained_decoded_staged"
+      "CurrentStatus": "selected",
+      "SelectedSolution": "selected_shared_down_m32768_a1d2_p2"
     }
   ]
 }

@@ -110,10 +110,22 @@ def test_forward_solution_key_is_strict_and_round_trips() -> None:
         SolutionKey.from_mapping(mapping)
 
 
-def test_forward_solution_identity_contains_every_dataclass_field() -> None:
+def test_forward_solution_identity_normalizes_scalar_accumulator_initialization() -> (
+    None
+):
     mapping = DenseForwardSolution.q4_k_pilot().to_mapping()
-    assert len(mapping) == len(fields(DenseForwardSolution))
+    assert len(mapping) == len(fields(DenseForwardSolution)) - 1
+    assert "AccumulatorInitialization" not in mapping
     assert DenseForwardSolution.from_mapping(mapping).to_mapping() == mapping
+
+    vopd = replace(
+        DenseForwardSolution.q5_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma(),
+        accumulator_initialization="VopdPair",
+    )
+    vopd_mapping = vopd.to_mapping()
+    assert len(vopd_mapping) == len(fields(DenseForwardSolution))
+    assert vopd_mapping["AccumulatorInitialization"] == "VopdPair"
+    assert DenseForwardSolution.from_mapping(vopd_mapping) == vopd
 
 
 @pytest.mark.parametrize(

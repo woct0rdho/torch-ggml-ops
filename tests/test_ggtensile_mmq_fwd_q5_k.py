@@ -42,7 +42,7 @@ def _key(
     )
 
 
-def test_q5_forward_inventory_is_exact_open_and_versionless() -> None:
+def test_q5_forward_inventory_is_exact_selected_and_versionless() -> None:
     inventory = load_inventory(_INVENTORY)
     catalog = load_solution_catalog(_CATALOG, problem_type=inventory.problem_type)
     assert inventory.problem_type == ProblemType.dense_mmq_forward_q5_k()
@@ -56,11 +56,17 @@ def test_q5_forward_inventory_is_exact_open_and_versionless() -> None:
         8192,
         32768,
     }
-    assert all(entry.current_status == "open" for entry in inventory.entries)
+    assert all(entry.current_status == "selected" for entry in inventory.entries)
     assert set(catalog) == {
         "retained_decoded_staged",
         "retained_metadata_after_low_wmma",
         "retained_independent_extraction_metadata_after_low_wmma",
+        "selected_narrow_m2048_a1d8_p0",
+        "selected_narrow_m8192_a8d1_p0",
+        "selected_narrow_m32768_a8d4_p3_vopd_init",
+        "selected_shared_down_m2048_a1d2_p2",
+        "selected_shared_down_m8192_a1d4_p2_vopd_init",
+        "selected_shared_down_m32768_a1d2_p2",
     }
     assert all(
         validate_solution(
@@ -110,10 +116,12 @@ def test_q5_forward_writer_covers_high_bit_decode_and_schedule(
     assert "GGTensile Q5_K dense MMQ forward" in source
     assert "Cooperatively decode Q5_K payload into HIP's padded LDS rows." in source
     assert "Build Q5_K high-bit and low-nibble payload addresses." in source
-    assert "v_add_nc_u32 v231, 16, v231" in source
-    assert "v_add_nc_u32 v228, 48, v228" in source
-    assert source.count("global_load_b128 v[148:151]") == 1
-    assert source.count("v_and_b32 v230, 0x01010101") == 32
+    assert "v_mad_u32_u24 v231, 16, v231, v228" in source
+    assert "v_mad_u32_u24 v228, 16, v230, v228" in source
+    assert "global_load_b128 v[148:151], v231, s[4:5] offset:16" in source
+    assert "global_load_b128 v[112:115], v228, s[4:5] offset:48" in source
+    assert source.count("v_and_b32 v230, 0x01010101") == 16
+    assert source.count("v_and_b32 v230, 0x02020202") == 16
     assert source.count("v_lshl_or_b32") == 40
     assert "s_add_u32 s11, s11, 176" in source
     assert ".LForwardQ5KHipStagedBlockLoop:" in source
@@ -123,6 +131,23 @@ def test_q5_forward_writer_covers_high_bit_decode_and_schedule(
     assert source.endswith(
         f".size {key.kernel_name}, .L{key.kernel_name}_end - {key.kernel_name}\n"
     )
+
+
+def test_q5_forward_writer_emits_vopd_accumulator_initialization() -> None:
+    solution = DenseForwardSolution.q5_k_hip_decoded_staged_extraction(
+        epilogue_tiles_ahead=8,
+        epilogue_dependency_width=4,
+        epilogue_priority=3,
+        accumulator_initialization="VopdPair",
+    )
+    key = _key(size=ProblemSize(32768, 512, 2048), solution=solution)
+    assert validate_solution(key) == ()
+    source = DenseForwardKernelWriterAssembly(key, _toolchain()).source()
+    assert "v_dual_mov_b32 v0, 0 :: v_dual_mov_b32 v1, 0" in source
+    assert "v_dual_mov_b32 v6, 0 :: v_dual_mov_b32 v7, 0" in source
+    assert "v_dual_mov_b32 v8, v0 :: v_dual_mov_b32 v9, v1" in source
+    assert "v_dual_mov_b32 v70, v0 :: v_dual_mov_b32 v71, v1" in source
+    assert "v_mov_b32 v8, v0" not in source
 
 
 def test_q5_forward_validation_rejects_q4_control_and_nonproduction_shape() -> None:

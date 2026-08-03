@@ -463,6 +463,7 @@ class DenseForwardSolution:
     epilogue_tiles_ahead: int = 8
     epilogue_dependency_width: int = 1
     epilogue_priority: int = 0
+    accumulator_initialization: str = "ScalarCopy"
 
     _KEYS: ClassVar[frozenset[str]] = frozenset(
         {
@@ -489,6 +490,7 @@ class DenseForwardSolution:
             "EpilogueTilesAhead",
             "EpilogueDependencyWidth",
             "EpiloguePriority",
+            "AccumulatorInitialization",
             "SignedActivation",
             "WmmaClamp",
         }
@@ -605,9 +607,36 @@ class DenseForwardSolution:
     def q5_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma(
         cls,
     ) -> Self:
+        return cls.q5_k_hip_decoded_staged_extraction(
+            epilogue_tiles_ahead=8,
+            epilogue_dependency_width=1,
+            epilogue_priority=0,
+        )
+
+    @classmethod
+    def q5_k_hip_decoded_staged_extraction(
+        cls,
+        *,
+        epilogue_tiles_ahead: int,
+        epilogue_dependency_width: int,
+        epilogue_priority: int,
+        accumulator_initialization: str = "ScalarCopy",
+    ) -> Self:
+        if epilogue_tiles_ahead not in (1, 2, 4, 8):
+            raise ValueError("unsupported forward epilogue tiles-ahead")
+        if epilogue_dependency_width not in (1, 2, 4, 8):
+            raise ValueError("unsupported forward epilogue dependency width")
+        if epilogue_priority not in (0, 1, 2, 3):
+            raise ValueError("unsupported forward epilogue priority")
+        if accumulator_initialization not in ("ScalarCopy", "VopdPair"):
+            raise ValueError("unsupported forward accumulator initialization")
         return replace(
             cls.q5_k_hip_decoded_staged_retained(),
             metadata_schedule="IndependentExtractionMetadataAfterLowWmma",
+            epilogue_tiles_ahead=epilogue_tiles_ahead,
+            epilogue_dependency_width=epilogue_dependency_width,
+            epilogue_priority=epilogue_priority,
+            accumulator_initialization=accumulator_initialization,
         )
 
     @classmethod
@@ -724,6 +753,8 @@ class DenseForwardSolution:
 
     @classmethod
     def from_mapping(cls, value: object) -> Self:
+        if isinstance(value, Mapping) and "AccumulatorInitialization" not in value:
+            value = {**value, "AccumulatorInitialization": "ScalarCopy"}
         item = _strict_mapping(value, name="Solution", keys=cls._KEYS)
         return cls(
             kernel_language=_string(item["KernelLanguage"], "KernelLanguage"),
@@ -765,6 +796,9 @@ class DenseForwardSolution:
                 item["EpilogueDependencyWidth"], "EpilogueDependencyWidth"
             ),
             epilogue_priority=_integer(item["EpiloguePriority"], "EpiloguePriority"),
+            accumulator_initialization=_string(
+                item["AccumulatorInitialization"], "AccumulatorInitialization"
+            ),
         )
 
     @property
@@ -780,7 +814,7 @@ class DenseForwardSolution:
         return 0
 
     def to_mapping(self) -> dict[str, object]:
-        return {
+        mapping: dict[str, object] = {
             "KernelLanguage": self.kernel_language,
             "ISA": list(self.isa),
             "WavefrontSize": self.wavefront_size,
@@ -807,6 +841,9 @@ class DenseForwardSolution:
             "EpilogueDependencyWidth": self.epilogue_dependency_width,
             "EpiloguePriority": self.epilogue_priority,
         }
+        if self.accumulator_initialization != "ScalarCopy":
+            mapping["AccumulatorInitialization"] = self.accumulator_initialization
+        return mapping
 
 
 @dataclass(frozen=True)
