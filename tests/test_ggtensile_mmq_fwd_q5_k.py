@@ -63,7 +63,7 @@ def test_q5_forward_inventory_is_exact_selected_and_versionless() -> None:
         "retained_independent_extraction_metadata_after_low_wmma",
         "selected_narrow_m2048_a1d8_p0",
         "selected_narrow_m8192_a8d1_p0",
-        "selected_narrow_m32768_a8d4_p3_vopd_init",
+        "selected_narrow_m32768_a7d3_p3_vopd_init",
         "selected_shared_down_m2048_a1d2_p2",
         "selected_shared_down_m8192_a1d4_p2_vopd_init",
         "selected_shared_down_m32768_a1d2_p2",
@@ -78,6 +78,12 @@ def test_q5_forward_inventory_is_exact_selected_and_versionless() -> None:
         == ()
         for entry in inventory.entries
     )
+    selected_m32768 = catalog["selected_narrow_m32768_a7d3_p3_vopd_init"]
+    assert isinstance(selected_m32768, DenseForwardSolution)
+    assert selected_m32768.epilogue_tiles_ahead == 7
+    assert selected_m32768.epilogue_dependency_width == 3
+    assert selected_m32768.epilogue_priority == 3
+    assert selected_m32768.accumulator_initialization == "VopdPair"
     narrow = inventory.entries[0]
     assert narrow.expected_logical_weight_shape == (512, 2048)
     assert narrow.expected_physical_weight_shape == (512, 1408)
@@ -135,8 +141,8 @@ def test_q5_forward_writer_covers_high_bit_decode_and_schedule(
 
 def test_q5_forward_writer_emits_vopd_accumulator_initialization() -> None:
     solution = DenseForwardSolution.q5_k_hip_decoded_staged_extraction(
-        epilogue_tiles_ahead=8,
-        epilogue_dependency_width=4,
+        epilogue_tiles_ahead=7,
+        epilogue_dependency_width=3,
         epilogue_priority=3,
         accumulator_initialization="VopdPair",
     )

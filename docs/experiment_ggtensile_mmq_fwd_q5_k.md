@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Build and optimize strict gfx1151 wave32 GGTensile assembly kernels for dense Q5_K forward over every exact production shape used by the current Qwen workload. The first objective is to close the largest kernel-level gaps against the installed HIP kernels. After every exact key is at least as fast as HIP, optimize the complete six-key model mix as far as repeatable evidence permits.
+Build and optimize strict gfx1151 wave32 GGTensile assembly kernels for dense Q5_K forward over every exact production shape used by the current Qwen workload. The authoritative objective is the prequantized packed multiply body using the fixed HIP-produced Q8_1 `F16_D4S4` workspace. Every exact key must be at least as fast as the installed HIP multiply within measurement error, after which optimization continues only while repeatable in-contract upside remains.
 
 The campaign is autonomous and iterative. After each coherent implementation, correctness, measurement, or review change, update this file with the result and the next premise. Commit changes that are worth retaining; documentation-only checkpoints do not require commits.
 
@@ -78,9 +78,10 @@ Every executable branch and emitted line in the assembly writer must be covered 
 ## Measurement and Promotion
 
 - Nine-repeat screens are pruning evidence only.
-- Promotion requires two independent warmed rotating 25-repeat confirmations against both HIP and the retained parent.
-- Measure complete fixed-quantizer calls and prequantized multiply bodies separately.
-- The complete candidate call must be no slower than HIP for every exact key in both confirmations.
+- A replacement schedule must first demonstrate repeatable improvement over its retained parent in direct candidate comparisons.
+- Final promotion requires two independent warmed rotating 25-repeat confirmations containing exactly the HIP multiply and selected GGTensile multiply.
+- Prefer both GGTensile/HIP latency medians `<=1.0x`. A small positive median counts as parity only when that confirmation's paired bootstrap confidence interval includes zero.
+- The fixed HIP Q8_1 quantizer is identical for both paths and excluded from ranking and promotion. Complete-call timing is diagnostic only.
 - Resource-bearing mechanisms require a stable gain above 2%.
 - Resource-neutral unconditional instruction reductions or schedules may be retained when neutral or consistently favorable, but must not regress any exact selected key materially.
 - Preserve immutable JSON timing, correctness, inspection, and source artifacts under `~/tmp/torch-ggml-ops/`.
@@ -112,9 +113,9 @@ Prioritize the largest fresh candidate/HIP margins. Search:
 
 Only after lower bounds and counters justify it, test reduced decoded-weight LDS, compact narrow ownership, bounded next-block payload overlap, or alternate DepthU. Do not repeat Q4_K geometries or double-buffer arrangements that lost without explaining why Q5_K's extra high-bit work changes the premise.
 
-### Phase 4: Complete-call selection
+### Phase 4: Multiply-only selection
 
-Confirm every exact selected key twice against HIP and its retained parent. Then optimize the weighted complete-call mix without permitting an exact-key regression. Preserve per-key solution identities rather than silently generalizing a family schedule.
+Confirm every exact selected key twice with only the HIP and GGTensile prequantized multiplies in the rotating set. Apply the paired measurement-parity rule independently to every confirmation and preserve per-key solution identities rather than silently generalizing a family schedule.
 
 ## Recursive Optimization-Exhaustion Review
 
@@ -126,7 +127,7 @@ Classify every remaining idea as:
 - contract-incompatible or deferred with an explicit prerequisite; or
 - actionable with a target key and measurement gate.
 
-Every actionable idea must be implemented and measured, after which the entire review repeats from the new premise. Completion is allowed only when a fresh recursive review finds no actionable in-contract mechanism, every selected exact key beats HIP in two independent complete-call confirmations, the residual bottleneck is quantified, all writer lines are covered by unit tests, and retained artifacts rebuild byte-identically.
+Every actionable idea must be implemented and measured, after which the entire review repeats from the new premise. Completion is allowed only when a fresh recursive review finds no actionable in-contract mechanism, every selected exact key beats or reaches measurement parity with the HIP multiply in two independent dedicated confirmations, the residual bottleneck is quantified, all writer lines are covered by unit tests, frozen Q4_K assembly remains byte-identical, and retained artifacts rebuild byte-identically.
 
 This is the same mandatory final-review rule used by the completed Q4_K campaign. Reaching HIP parity does not waive it.
 
@@ -189,37 +190,37 @@ Measured alternatives were closed:
 
 ### Exact epilogues and accumulator initialization
 
-The complete 64-point epilogue grid was generated for priority narrow keys, and the Q4_K exact epilogues were transferred to shared-down. The retained exact schedules are:
+The original complete-call campaign generated the 64-point power-of-two epilogue grid for priority narrow keys and transferred measured Q4_K epilogues to shared-down. The multiply-only continuation then expanded the Q5_K exact space to every tiles-ahead and dependency width in `[1,8]`. The final retained schedules are:
 
 | Exact key | Epilogue | Accumulator initialization |
 | --- | --- | --- |
 | Narrow M2048 | `a1d8-p0` | scalar copy |
 | Narrow M8192 | `a8d1-p0` | scalar copy |
-| Narrow M32768 | `a8d4-p3` | VOPD pairs |
+| Narrow M32768 | `a7d3-p3` | VOPD pairs |
 | Shared-down M2048 | `a1d2-p2` | scalar copy |
 | Shared-down M8192 | `a1d4-p2` | VOPD pairs |
 | Shared-down M32768 | `a1d2-p2` | scalar copy |
 
-Narrow M2048 is a complete-call selection sensitive to exact code-object identity. After default scalar initialization was normalized out of the JSON identity to preserve Q4_K default solution identities, the epilogue grid was rebuilt and retimed; `a1d8-p0` cleared two strict complete rotations at `0.99863x` and `0.99759x` HIP even though its prequantized body remained approximately tied. Narrow M32768 and shared-down use the measured Q4-shaped epilogue families, while the full narrow M32768 grid selected `a8d4-p3` over the common schedule.
+Narrow M2048 remains `a1d8-p0`: it cleared the former complete-call gate, met the final multiply-only parity rule, and no expanded scalar schedule confirmed a repeatable improvement. Narrow M32768 formerly used `a8d4-p3`, but the multiply-only campaign promoted resource-neutral `a7d3-p3` after two parent comparisons and two dedicated HIP comparisons. The three shared-down identities and narrow M8192 remain unchanged.
 
-`AccumulatorInitialization=VopdPair` represents a real emitted path rather than a post-generation patch. It replaces 72 scalar accumulator clears/copies with 36 legal `v_dual_mov_b32` instructions, using `v0` and `v1` as distinct source banks after the first zero pair. It is retained only on exact keys where complete-call evidence survives transfer. Narrow M32768 passed strict complete confirmation at `0.99555x` and `0.99547x` HIP. Shared-down M8192 improved its scalar parent by `0.99929x/0.99805x` in multiply rotations and `0.99929x/0.99805x` in direct complete rotations, then passed standalone strict calls at `0.98590x/0.99040x` HIP. Narrow M2048 and shared-down M2048/M32768 transfer controls were neutral or inconsistent in complete timing and remain scalar-copy identities.
+`AccumulatorInitialization=VopdPair` represents a real emitted path rather than a post-generation patch. It replaces 72 scalar accumulator clears/copies with 36 legal `v_dual_mov_b32` instructions, using `v0` and `v1` as distinct source banks after the first zero pair. It is retained only on exact keys with repeatable evidence: narrow M32768 and shared-down M8192. Narrow M2048 and shared-down M2048/M32768 transfer controls were neutral or inconsistent and remain scalar-copy identities.
 
-### Final six-key confirmation
+### Former six-key confirmation
 
 The native selected artifacts are bit-exact to the installed HIP multiply, finite, mutation-sensitive for input, packed weight, and Q8_1 workspace, and retain independent-reference NRMSE near `0.0137-0.0138`. Every artifact uses 239 VGPRs, 16 SGPRs, 38,400-byte LDS, 32 static WMMAs, four barriers, eight output clauses, and zero private bytes, spills, scratch, calls, or dynamic stack.
 
-Two independent warmed rotating 25-repeat complete-call confirmations produced:
+The last full six-key cohort predates the multiply-only continuation. The table therefore reports only its prequantized multiply bodies, not quantization plus multiply. Logical throughput is `2*M*N*K/(median_ms*1e9)`, and speedup is `HIP median time / GGTensile median time`. A/B are the two independent rotating 25-repeat confirmations.
 
-| Family/key | Confirmation A complete/multiply | Confirmation B complete/multiply |
-| --- | ---: | ---: |
-| Narrow M2048 | `0.998630/1.001844x` | `0.997586/1.003578x` |
-| Narrow M8192 | `0.984979/0.969062x` | `0.983814/0.968110x` |
-| Narrow M32768 | `0.995147/1.010124x` | `0.993254/1.009587x` |
-| Shared-down M2048 | `0.976222/0.971238x` | `0.976573/0.970889x` |
-| Shared-down M8192 | `0.988404/0.989870x` | `0.989655/0.989962x` |
-| Shared-down M32768 | `0.981714/0.984611x` | `0.981746/0.987550x` |
+| Family | `(M,N,K)` | HIP TFLOPS A/B | GGTensile TFLOPS A/B | Speedup vs HIP A/B |
+| --- | ---: | ---: | ---: | ---: |
+| Narrow | `(2048,512,2048)` | `24.749/24.432` | `24.704/24.345` | `0.9982x/0.9964x` |
+| Narrow | `(8192,512,2048)` | `26.018/25.915` | `26.848/26.769` | `1.0319x/1.0329x` |
+| Narrow | `(32768,512,2048)` | `27.208/27.256` | `26.935/26.997` | `0.9900x/0.9905x` |
+| Shared down | `(2048,2048,512)` | `24.127/24.516` | `24.842/25.251` | `1.0296x/1.0300x` |
+| Shared down | `(8192,2048,512)` | `25.817/25.811` | `26.081/26.073` | `1.0102x/1.0101x` |
+| Shared down | `(32768,2048,512)` | `26.106/26.147` | `26.514/26.477` | `1.0156x/1.0126x` |
 
-All six exact complete calls beat HIP in both confirmations. Using 21 narrow calls and 10 shared-down calls, weighted complete latency was `131.006 ms` versus `132.296 ms` HIP in confirmation A (`0.99024x`) and `131.012 ms` versus `132.453 ms` HIP in confirmation B (`0.98912x`). Multiply-only ratios remain slightly above HIP for narrow M2048/M32768, but the campaign contract is complete-call parity and both exact calls clear that gate in both rotations.
+All six exact complete calls beat HIP in both confirmations. Using 21 narrow calls and 10 shared-down calls, weighted complete latency was `131.006 ms` versus `132.296 ms` HIP in confirmation A (`0.99024x`) and `131.012 ms` versus `132.453 ms` HIP in confirmation B (`0.98912x`). Those complete-call totals are historical diagnostics. Under the old mixed protocol, narrow M2048 and M32768 were the only rows with multiply speedup below `1.0x`, which triggered the continuation below.
 
 Independent rebuilds were byte-identical to the retained timed artifacts. The six selected solution keys, generated assembly, code objects, inspection reports, and both confirmation reports are consolidated under `~/tmp/torch-ggml-ops/ggtensile-fwd-q5-k/retained-authoritative/`.
 
@@ -233,4 +234,66 @@ The review was repeated after the high-bit schedule gain and again after VOPD ac
 
 Backward Q5_K scalar extraction and padded 256x64 evidence does not reopen the forward body: it changes transposed ownership and LDS shape, while unchanged forward 256x64/compact ownership already lost and the final high-plane traffic floor is negligible. Grouped J32/J64 and row-task results are likewise small-row or routing mechanisms rather than dense-forward exact-key premises.
 
-No remaining in-contract mechanism has an unmeasured first-order path. The residual final M32768 high-bit merge floor is approximately `1.8%`, but every legal exact lowering found either preserves the same operation count, introduces cross-lane distribution, or regresses another exact key. Reopening the campaign requires a materially new ISA operation, decoded layout, or occupancy-preserving geometry premise. Q5_K dense forward optimization is therefore complete; public dispatch remains a separate deferred integration phase.
+No remaining in-contract mechanism had an unmeasured first-order path under the complete-call objective. The residual final M32768 high-bit merge floor is approximately `1.8%`, but every legal exact lowering found either preserves the same operation count, introduces cross-lane distribution, or regresses another exact key.
+
+## Multiply-only continuation
+
+The promotion objective is now the prequantized packed multiply only. The fixed HIP Q8_1 `F16_D4S4` producer is identical for HIP and GGTensile and is no longer part of selection, ranking, or completion. Complete-call timing remains diagnostic but cannot retain a slower multiply body.
+
+The former six-key table leaves narrow M2048 and M32768 as the only old-protocol rows below `1.0x` multiply speedup. Narrow M8192 and all three shared-down keys remain selected under the multiply-only objective; the two narrow rows are retimed with the dedicated protocol below.
+
+Nine-repeat screens still prune only. Multiply promotion requires two independent warmed rotating 25-repeat confirmations. A key is at parity only when both confirmation medians are no slower than HIP, or when a small positive median is not statistically distinguishable from HIP under a paired bootstrap confidence interval computed from that confirmation's rotating samples. The campaign should target `<=1.0x` in both medians rather than relying on the statistical exception. Correctness, mutation, resource, exact-key identity, byte-identical rebuild, and recursive-review requirements are unchanged.
+
+The review restarted from narrow M32768 and then M2048. Multiply-specific epilogues, startup schedules, decode/WMMA issue order, and lower-bound mechanisms were reconsidered even when neutral or unfavorable for the complete call. Previously rejected mechanisms reopened only when their recorded multiply result or a changed scheduling premise could close one of the two exact gaps. Both keys then cleared the multiply gate, all six keys completed the dedicated confirmation protocol, and the recursive review was repeated before closure.
+
+Q4_K assembly is a frozen regression contract throughout this continuation. Before changing any shared forward model, validator, or writer path, capture the current generated assembly for every retained Q4_K production identity. After each retained implementation change, regenerate and require byte-identical Q4_K assembly. Any Q4_K assembly difference must be isolated, explained, revalidated across all 12 exact keys, and explicitly approved rather than accepted as incidental fallout from Q5_K work.
+
+### Dedicated multiply-only protocol
+
+The earlier `1.01x` narrow M32768 result came from a four-way timing rotation containing HIP complete, GGTensile complete, HIP multiply, and GGTensile multiply. That protocol is valid for complete-call selection but injects two quantizer launches between multiply samples and is not authoritative for the new objective. The dedicated protocol quantizes once, warms only the two prequantized multiply kernels, and alternates HIP/GGTensile launch order for 25 repeats.
+
+Early dedicated retiming established that the apparent narrow-key deficits were primarily a four-operation timing-context artifact. Those runs were used to decide whether the continuation remained plausible; the final authoritative six-key measurements are reported together below rather than duplicated here.
+
+### Multiply-specific epilogue search
+
+The Q5_K epilogue schema was expanded from powers of two to every exact tiles-ahead and dependency width in `[1,8]`, preserving priorities `[0,3]` and both accumulator-initialization emitters. Validation remains strict: normalization must equal the implemented independent-extraction control after those four fields are removed.
+
+All 256 VOPD epilogue combinations were built and screened on narrow M32768. `a7d3-p3-vopd` improved the old `a8d4-p3-vopd` parent by `0.998237x` and `0.998231x` in two independent 25-repeat rotating candidate comparisons. Its initial dedicated paired intervals were `[-14.54, 4.78] us` and `[-14.34, -2.39] us`; the final all-key protocol below confirmed parity again. This exact schedule is the selected multiply-only M32768 identity; it is resource-neutral and leaves the 239-VGPR, 16-SGPR, 38,400-byte-LDS envelope unchanged.
+
+For narrow M2048, the original 64-point power-of-two grid, a focused 60-point non-power neighborhood, and all 196 previously unmeasured scalar combinations were screened. `a2d5-p3` led the exhaustive screen at approximately `0.9948x` the retained parent, but direct 25-repeat parent ratios were `0.99817x` and `1.00168x`; the apparent gain did not confirm. The retained `a1d8-p0` therefore remains selected, and no scalar epilogue schedule is left unmeasured.
+
+### Final multiply-only result
+
+This is the authoritative prequantized multiply result for all six production keys. Each A/B entry is an independent warmed 25-repeat rotation containing exactly the HIP multiply and selected GGTensile multiply. Logical throughput is `2*M*N*K/(median_ms*1e9)`, and speedup is `HIP median time / GGTensile median time`.
+
+| Family | `(M,N,K)` | Final identity | HIP TFLOPS A/B | GGTensile TFLOPS A/B | Speedup vs HIP A/B | Paired bootstrap 95% CI, us A/B |
+| --- | ---: | --- | ---: | ---: | ---: | ---: |
+| Narrow | `(2048,512,2048)` | `a1d8-p0` | `24.184/24.462` | `24.110/24.438` | `0.9970x/0.9990x` | `[-0.120,0.430]/[-0.650,0.080]` |
+| Narrow | `(8192,512,2048)` | `a8d1-p0` | `27.235/27.211` | `28.216/28.047` | `1.0360x/1.0307x` | `[-22.980,-19.220]/[-20.809,-18.059]` |
+| Narrow | `(32768,512,2048)` | `a7d3-p3`, VOPD | `28.021/27.962` | `27.990/27.968` | `0.9989x/1.0002x` | `[-5.681,7.100]/[-7.710,3.740]` |
+| Shared down | `(2048,2048,512)` | `a1d2-p2` | `23.871/24.587` | `24.494/25.261` | `1.0261x/1.0274x` | `[-5.330,-3.970]/[-5.350,-4.110]` |
+| Shared down | `(8192,2048,512)` | `a1d4-p2`, VOPD | `26.846/27.004` | `27.247/27.383` | `1.0149x/1.0141x` | `[-13.980,-8.161]/[-11.880,-7.570]` |
+| Shared down | `(32768,2048,512)` | `a1d2-p2` | `27.294/26.894` | `27.762/27.362` | `1.0172x/1.0174x` | `[-49.850,-35.029]/[-49.828,-34.180]` |
+
+Narrow M2048 and M32768 satisfy the stated measurement-error exception: their small latency deficits are not statistically distinguishable from HIP because both paired intervals include zero in both confirmations. Narrow M8192 and all shared-down keys are faster than HIP in both medians with intervals entirely below zero. Every candidate output was bit-exact to the HIP multiply; strict correctness, finite-output, independent-reference, and mutation checks remain satisfied.
+
+The final selected artifacts, correctness reports, inspection reports, and dedicated confirmation reports are consolidated under `~/tmp/torch-ggml-ops/ggtensile-fwd-q5-k/retained-multiply-authoritative/`. Two independent rebuilds reproduced all six solution keys, generated assemblies, and code objects byte-for-byte.
+
+### HIP/GGTensile issue evidence
+
+A multiply-only profiler pass on narrow M32768 found these median per-workgroup counters:
+
+| Counter | HIP | GGTensile | Interpretation |
+| --- | ---: | ---: | --- |
+| All SQ instructions | `103,776` | `88,056` | GGTensile executes about 15% fewer instructions |
+| Branch instructions | `288` | `352` | two rolled four-group loops add 64 branches |
+| Instruction-fetch waits | `2,467` | `2,817` | GGTensile has about 14% more fetch waiting |
+| SQ busy cycles | `64,021` | `63,714` | effectively tied under profiling |
+
+The profiler perturbs absolute timing, so these counters are diagnostic rather than promotion evidence. They exclude raw instruction count, packed traffic, occupancy, and total SQ busy work as explanations for a material residual deficit. The remaining variance is most consistent with instruction placement, branch/fetch behavior, and clock/cache state under the old mixed timing protocol.
+
+The installed HIP assembly aggressively pairs startup address operations with accumulator moves through VOPD and statically schedules long decode/WMMA/metadata regions. GGTensile instead uses a smaller rolled body, fewer total instructions, and VOPD-paired accumulator initialization. Earlier full and two-way unrolling regressed, so HIP's larger static layout is evidence for scheduling review, not evidence that copying its unrolling policy will win. Q5 high-bit insertion remains the largest quantified local body floor at approximately `1.8%`; HIP pre-shifts high planes and uses `v_and_or_b32`, while the retained GGTensile path uses direct masks plus `v_lshl_or_b32`. Measured equivalent four-instruction substitutions and cross-lane sharing did not improve the final body.
+
+The apparent remaining slowdown was therefore primarily a measurement-scope artifact: once complete calls are removed from the rotation, both formerly open narrow keys meet multiply parity. The final recursive review found no new in-contract premise with plausible unmeasured upside. All expanded scalar and VOPD epilogues were covered where they could matter; startup pairing, decode schedules, merge forms, lane sharing, loop unrolling, priority controls, alternate geometries, payload prefetch, and larger buffering had already been measured or rejected by ISA and resource premises. The M32768 merge-free lower bound remains only approximately `1.8%`, while tested exact replacements did not realize it without offsetting work.
+
+The multiply-only continuation is complete. `a7d3-p3-vopd` is represented in the exact catalog, all six keys pass the two-confirmation gate, independent rebuilds are byte-identical, and regenerated assembly for all 12 frozen Q4_K identities is byte-identical to the pre-continuation baseline. No further Q5_K forward performance experiment is justified without a changed compiler, ISA, hardware, or contract premise.

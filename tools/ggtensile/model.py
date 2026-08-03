@@ -622,9 +622,9 @@ class DenseForwardSolution:
         epilogue_priority: int,
         accumulator_initialization: str = "ScalarCopy",
     ) -> Self:
-        if epilogue_tiles_ahead not in (1, 2, 4, 8):
+        if epilogue_tiles_ahead not in range(1, 9):
             raise ValueError("unsupported forward epilogue tiles-ahead")
-        if epilogue_dependency_width not in (1, 2, 4, 8):
+        if epilogue_dependency_width not in range(1, 9):
             raise ValueError("unsupported forward epilogue dependency width")
         if epilogue_priority not in (0, 1, 2, 3):
             raise ValueError("unsupported forward epilogue priority")

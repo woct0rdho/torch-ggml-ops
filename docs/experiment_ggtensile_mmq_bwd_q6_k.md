@@ -134,17 +134,17 @@ Search M256 first, then transfer only measured mechanisms to M128/M64:
 
 Candidates pass correctness and resource inspection before timing. Nine-repeat screens narrow candidates; retained resource-bearing mechanisms require a stable gain above 2% in 25-repeat confirmation. Timing is authoritative.
 
-### Selected geometry and current evidence
+### Final result and selected geometry
 
-The retained exact catalog uses different Q6-owned tuning for each production M while sharing the same quant-neutral A/LDS/WMMA/store implementation:
+The retained exact catalog uses different Q6-owned tuning for each production M while sharing the same quant-neutral A/LDS/WMMA/store implementation. The final 25-repeat result reports logical arithmetic throughput; speedup is `HIP median time / GGTensile median time`.
 
-| M | Retained body | Resources | 25-repeat candidate/HIP |
-| ---: | --- | ---: | ---: |
-| 64 | `64x32x64`, unswizzled pad8, packed VOPD | 76 VGPR, 4608 B LDS | `5.1708 / 5.4057 ms = 0.9565x` |
-| 128 | `128x32x64`, unswizzled pad8, packed VOPD | 108 VGPR, 4608 B LDS | `6.6851 / 9.3648 ms = 0.7139x` |
-| 256 | `256x64x32`, next-packed-tile prefetch, pad8, packed VOPD | 240 VGPR, 5120 B LDS | `10.1445 / 12.1927 ms = 0.8320x` |
+| `(M,N,K)` | Retained body | Resources | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| `(64,2048,248320)` | `64x32x64`, unswizzled pad8, packed VOPD | 76 VGPR, 4608 B LDS | `12.042` | `12.589` | `1.0454x` |
+| `(128,2048,248320)` | `128x32x64`, unswizzled pad8, packed VOPD | 108 VGPR, 4608 B LDS | `13.902` | `19.475` | `1.4008x` |
+| `(256,2048,248320)` | `256x64x32`, next-packed-tile prefetch, pad8, packed VOPD | 240 VGPR, 5120 B LDS | `21.356` | `25.667` | `1.2019x` |
 
-The equal-call weighted candidate/HIP ratio is `0.8159412939177061`. M64 packed VOPD beats the packed pad8 control by 3.2% in a 25-repeat control comparison. M128 compact `128x32x64` beats the prior `128x64x32` next-prefetch/VOPD body by 2.77% while reducing VGPRs from 140 to 108 and LDS from 5120 B to 4608 B. M256 wide ownership beats the narrow next-prefetch/VOPD body by 18.0% in the same protocol.
+The equal-call weighted speedup is `1.2256x`, corresponding to the recorded `0.8159412939177061` candidate/HIP latency ratio. M64 packed VOPD beats the packed pad8 control by 3.2% in a 25-repeat control comparison. M128 compact `128x32x64` beats the prior `128x64x32` next-prefetch/VOPD body by 2.77% while reducing VGPRs from 140 to 108 and LDS from 5120 B to 4608 B. M256 wide ownership beats the narrow next-prefetch/VOPD body by 18.0% in the same protocol.
 
 Closed large-margin neighborhoods include:
 - M64 `64x32x64` XOR8/XOR16, scalar extraction, packed VOPD, and pad8/pad16/pad24. Pad8 and pad24 tie; pad8 wins on smaller LDS.

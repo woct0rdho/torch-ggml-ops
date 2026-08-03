@@ -128,18 +128,20 @@ The retained Q3 emitters use one LDS buffer, packed extraction, fused signed-sca
 | SIA4/store-priority alternatives | Q3, Q4, and Q5 screens were neutral or regressing; Q5's apparent M2048 win became `1.0178x` at 25 repeats | Reject |
 | WGM4/WGM8, PGR1, scalar extraction, alternate swizzles, metadata vector loads | Earlier correctness or timing gates failed | Reject |
 
-The final six-key 25-repeat confirmation is exact-key selected as follows:
+### Final result
 
-| Family | M | Geometry/schedule | Candidate/HIP |
-| --- | ---: | --- | ---: |
-| Narrow | 2048 | `256x64`, WGM2, padded, SIA5 | `0.8831x` |
-| Narrow | 8192 | `256x64`, WGM1, padded, SIA5 | `0.7874x` |
-| Narrow | 32768 | `256x64`, WGM1, padded, SIA5 | `0.8073x` |
-| Query | 2048 | `128x64`, WGM1, padded, SIA5 | `0.7958x` |
-| Query | 8192 | `128x64`, WGM1, padded, SIA5 | `0.8013x` |
-| Query | 32768 | `128x128`, WGM1, padded, SIA5 | `0.8291x` |
+The authoritative 25-repeat confirmation reports logical arithmetic throughput. Speedup is `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile.
 
-The final Q3 call-weighted candidate/HIP latency ratio is `0.8210x` in the authoritative confirmation. The final selected resource classes are 243 VGPR/5 KiB LDS for narrow `256x64`, 143 VGPR/5 KiB LDS for query `128x64`, and 218 VGPR/10 KiB LDS for query M32768 `128x128`; each has 16 SGPR, zero private bytes, zero spills, and the expected static WMMA/VMEM/LDS structure. The two independent final roots produce byte-identical assembly and matching resource tuples for all six keys.
+| Family | `(M,N,K)` | Geometry/schedule | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP |
+| --- | ---: | --- | ---: | ---: | ---: |
+| Narrow | `(2048,2048,512)` | `256x64`, WGM2, padded, SIA5 | `23.671` | `26.804` | `1.1323x` |
+| Narrow | `(8192,2048,512)` | `256x64`, WGM1, padded, SIA5 | `22.890` | `29.072` | `1.2700x` |
+| Narrow | `(32768,2048,512)` | `256x64`, WGM1, padded, SIA5 | `24.277` | `30.070` | `1.2386x` |
+| Query | `(2048,2048,8192)` | `128x64`, WGM1, padded, SIA5 | `19.649` | `24.692` | `1.2566x` |
+| Query | `(8192,2048,8192)` | `128x64`, WGM1, padded, SIA5 | `21.406` | `26.715` | `1.2480x` |
+| Query | `(32768,2048,8192)` | `128x128`, WGM1, padded, SIA5 | `22.520` | `27.162` | `1.2062x` |
+
+The call-weighted speedup is `1.2180x`, corresponding to the recorded `0.8210x` candidate/HIP latency ratio. The final selected resource classes are 243 VGPR/5 KiB LDS for narrow `256x64`, 143 VGPR/5 KiB LDS for query `128x64`, and 218 VGPR/10 KiB LDS for query M32768 `128x128`; each has 16 SGPR, zero private bytes, zero spills, and the expected static WMMA/VMEM/LDS structure. The two independent final roots produce byte-identical assembly and matching resource tuples for all six keys.
 
 The final correctness phase passed HIP comparison, independent references, complete `grad_output` mutation, and packed-weight mutation on all six exact keys. Reduced-K checks against the final padded `256x64` geometry matched HIP and the independent reference at K32/K64/K96; at K512 candidate and HIP matched each other, while both shared the known 511-element BF16 accumulation-order difference from the independent reference.
 

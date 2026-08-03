@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .model import (
     DenseForwardSolution,
@@ -100,19 +100,22 @@ def _validate_forward_solution(
         q5_metadata_after_low = (
             DenseForwardSolution.q5_k_hip_decoded_staged_metadata_after_low_wmma()
         )
-        q5_epilogues = tuple(
-            DenseForwardSolution.q5_k_hip_decoded_staged_extraction(
-                epilogue_tiles_ahead=tiles_ahead,
-                epilogue_dependency_width=dependency_width,
-                epilogue_priority=priority,
-                accumulator_initialization=accumulator_initialization,
+        q5_independent = DenseForwardSolution.q5_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma()
+        q5_extraction = (
+            replace(
+                solution,
+                epilogue_tiles_ahead=8,
+                epilogue_dependency_width=1,
+                epilogue_priority=0,
+                accumulator_initialization="ScalarCopy",
             )
-            for tiles_ahead in (1, 2, 4, 8)
-            for dependency_width in (1, 2, 4, 8)
-            for priority in (0, 1, 2, 3)
-            for accumulator_initialization in ("ScalarCopy", "VopdPair")
+            == q5_independent
+            and solution.epilogue_tiles_ahead in range(1, 9)
+            and solution.epilogue_dependency_width in range(1, 9)
+            and solution.epilogue_priority in range(4)
+            and solution.accumulator_initialization in ("ScalarCopy", "VopdPair")
         )
-        if solution not in (q5_retained, q5_metadata_after_low, *q5_epilogues):
+        if solution not in (q5_retained, q5_metadata_after_low) and not q5_extraction:
             _reject(
                 reasons,
                 "solution.forward.control.unimplemented",

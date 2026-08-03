@@ -193,6 +193,38 @@ This section is updated after every coherent implementation milestone. Code mile
 - Recursive optimization-exhaustion review with no actionable mechanism remaining. The final layout neighborhood and the actionable packed-VOPD decode mechanism were tested under the exact-key gates; remaining valid mechanisms are either outside contract or fail timing/resource thresholds.
 - Public runtime dispatch, deferred.
 
+### Final result
+
+The authoritative serial 25-repeat confirmations report logical arithmetic throughput. Speedup is `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile.
+
+| Family | `(M,N,K)` | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP |
+| --- | ---: | ---: | ---: | ---: |
+| Attention Q-A | `(2048,4096,1024)` | `18.917` | `36.582` | `1.9338x` |
+| Attention Q-A | `(8192,4096,1024)` | `25.166` | `31.978` | `1.2707x` |
+| Attention Q-A | `(32768,4096,1024)` | `20.279` | `32.317` | `1.5936x` |
+| Attention Q-B | `(2048,1024,32768)` | `19.642` | `22.134` | `1.1268x` |
+| Attention Q-B | `(8192,1024,32768)` | `17.488` | `24.766` | `1.4161x` |
+| Attention Q-B | `(32768,1024,32768)` | `19.456` | `27.091` | `1.3925x` |
+| Attention K/V | `(2048,4096,512)` | `19.164` | `35.789` | `1.8675x` |
+| Attention K/V | `(8192,4096,512)` | `24.715` | `32.644` | `1.3208x` |
+| Attention K/V | `(32768,4096,512)` | `26.207` | `33.034` | `1.2605x` |
+| Attention output-B | `(2048,8192,4096)` | `22.239` | `32.123` | `1.4445x` |
+| Attention output-B | `(8192,8192,4096)` | `20.551` | `33.117` | `1.6115x` |
+| Attention output-B | `(32768,8192,4096)` | `21.431` | `33.218` | `1.5500x` |
+| Shared gate/up | `(2048,4096,2048)` | `21.388` | `35.918` | `1.6794x` |
+| Shared gate/up | `(8192,4096,2048)` | `23.955` | `29.083` | `1.2141x` |
+| Shared gate/up | `(32768,4096,2048)` | `20.284` | `29.767` | `1.4675x` |
+| Shared down | `(2048,2048,4096)` | `20.697` | `32.126` | `1.5522x` |
+| Shared down | `(8192,2048,4096)` | `18.705` | `28.930` | `1.5466x` |
+| Shared down | `(32768,2048,4096)` | `19.972` | `28.433` | `1.4237x` |
+| LM head | `(32,4096,129280)` | `4.113` | `7.998` | `1.9447x` |
+| LM head | `(64,4096,129280)` | `9.531` | `16.367` | `1.7172x` |
+| LM head | `(128,4096,129280)` | `17.698` | `23.676` | `1.3377x` |
+| LM head | `(256,4096,129280)` | `26.413` | `28.485` | `1.0784x` |
+| LM head | `(512,4096,129280)` | `24.624` | `30.257` | `1.2287x` |
+
+The call-weighted ordinary-catalog speedup is `1.4535x`; the five-key LM-head aggregate speedup is `1.3310x`.
+
 ### Ordinary screening record
 
 The first fresh 18-key `128x128x32` control measured a call-weighted candidate/HIP ratio of `1.0329126789987204`; it was not competitive at several M2048/M8192 keys. Unswizzled eight-BF16 row padding then reduced representative long-row candidate latency by roughly 15-25%. PGR2/SIA5 plus pad8 produced candidate/HIP ratios from about `0.66` to `0.95` across the ordinary matrix and made every screened exact key faster than HIP.
@@ -203,7 +235,7 @@ Q8 scalar `global_load_b32` extraction was neutral for most families but improve
 
 The two decoded-B buffer path was extended to the Q8 XOR8 store layout and passed exact HIP, independent-reference, grad-output mutation, and packed-weight mutation checks. It was timing-neutral on the discriminator keys and is rejected. Pad16/24, XOR4/8/16 one-buffer layouts, PLR2, SIA3, `64x128`, and `256x128` also lost. Next-tile packed prefetch remains only a possible exact-key small mechanism because its broad effects were neutral or unfavorable.
 
-The selected ordinary catalog uses compact padded `256x64` for Q-A, KV, attention output, and the M2048 shared projections; padded `128x64` for M8192/M32768 shared gate/up and shared-down; DepthU64/XOR8 for Q-B M8192; padded scalar next-prefetch for Q-B M2048; and padded packed `128x128` for Q-B M32768. Final serial 25-repeat candidate/HIP ratios range from `0.5171043280166684` to `0.8874412389598483`; the call-weighted ordinary ratio is `0.6879975522199318`. The complete final catalog was independently rebuilt with byte-identical assembly and matching resource tuples for all 23 selected keys.
+The selected ordinary catalog uses compact padded `256x64` for Q-A, KV, attention output, and the M2048 shared projections; padded `128x64` for M8192/M32768 shared gate/up and shared-down; DepthU64/XOR8 for Q-B M8192; padded scalar next-prefetch for Q-B M2048; and padded packed `128x128` for Q-B M32768. The final per-key throughput and multiplicative HIP speedups are consolidated in the final-result table; the call-weighted candidate/HIP latency ratio is `0.6879975522199318`. The complete final catalog was independently rebuilt with byte-identical assembly and matching resource tuples for all 23 selected keys.
 
 ### LM-head screening record
 
@@ -226,4 +258,4 @@ The ordinary floors sum to within 2-5% of complete timing, so the residual is no
 
 Adding the HIP-analogous `64x64` ownership reduced M64 from `5.873` to `4.487 ms` (`0.6308024774361413x` HIP). Q8-specific unswizzled pad8 DepthU64 was then generalized to compact geometries and passed all five LM correctness screens. Packed VOPD decode was tested against the retained packed decoder: M32/M64/M128 screened at `4.248/4.151/5.654 ms`, versus `4.405/4.275/5.863 ms`, and final confirmation measured `4.237/4.141/5.726 ms` with HIP ratios `0.5142/0.5823/0.7475`. M256 improved only `1.44%` with extra VGPRs and was rejected by the resource-bearing threshold; M512 regressed `2.62%`. Alternate pad16/24 and XOR8 lost on every LM geometry. The final LM choices therefore use packed VOPD at M32/M64/M128, DepthU32 packed at M256, and DepthU32 packed with next-tile prefetch at M512. Scalar extraction, SIA4 without prefetch, PGR1, store-priority removal, and WGM2 lose.
 
-The promoted final LM confirmation is fully serial and uses the selected packed-VOPD/packed mix: M32 `4.237 ms` (`0.5142x` HIP), M64 `4.141 ms` (`0.5823x`), M128 `5.726 ms` (`0.7475x`), M256 `9.518 ms` (`0.9273x`), and M512 `17.921 ms` (`0.8138x`). Its five-key aggregate candidate/HIP ratio is `0.7512901204186552`; all five keys remain faster than HIP.
+The promoted final LM confirmation is fully serial and uses the selected packed-VOPD/packed mix. Its per-key throughput and multiplicative HIP speedups are consolidated in the final-result table; the five-key aggregate candidate/HIP latency ratio is `0.7512901204186552`, and all five keys remain faster than HIP.

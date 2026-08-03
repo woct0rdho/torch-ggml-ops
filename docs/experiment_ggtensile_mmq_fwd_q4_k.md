@@ -210,10 +210,26 @@ This rule applies to kernel optimization only. Public API integration is not a c
 
 The current common research identity combines selective weight and metadata LDS-base hoists, short-lived `v_mad_u32_u24` activation addressing, independent scale/min extraction, metadata LDS reads between low/high WMMA batches, eight contiguous clause-backed output-store runs, and incremental output-row addressing. `DenseForwardSolution` represents it as `MetadataSchedule=IndependentExtractionMetadataAfterLowWmma` with the default `a8d1p0` epilogue; independent build roots produce byte-identical code objects.
 
-Independent metadata extraction and the local-read schedule compose with seven exact epilogues:
-- Shared-down M2048/M8192/M32768: `a1d2-p2`, `a1d4-p2`, and `a1d2-p2`. Native strict complete ratios are `0.96895x`, `0.96883x`, and `0.96535x` HIP.
-- Narrow M32768: `a4d4-p2`. Two prequantized confirmations were `0.97423x` and `0.97126x` HIP; the native strict complete ratio is `0.97318x`.
-- Query M2048/M8192/M32768: `a1d2-p2`, `a4d4-p2`, and `a2d2-p2`. Two prequantized confirmations were `0.96558/0.96459x`, `0.96551/0.96383x`, and `0.96749/0.96930x` HIP. Native or direct strict complete ratios are `0.96411x`, `0.96396x`, and `0.96816x` HIP.
+### Final multiply result
+
+The table uses only the prequantized HIP and GGTensile multiply bodies; fixed Q8_1 quantization is excluded. Logical throughput is `2*M*N*K/(median_ms*1e9)`. Speedup is `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile. A/B are the two independent rotating 25-repeat confirmations.
+
+| Family | `(M,N,K)` | Selected schedule | HIP TFLOPS A/B | GGTensile TFLOPS A/B | Speedup vs HIP A/B |
+| --- | ---: | --- | ---: | ---: | ---: |
+| Narrow | `(2048,512,2048)` | common `a8d1-p0` | `23.981/23.817` | `24.320/24.130` | `1.0142x/1.0131x` |
+| Narrow | `(8192,512,2048)` | common `a8d1-p0` | `27.957/27.936` | `28.608/28.634` | `1.0233x/1.0250x` |
+| Narrow | `(32768,512,2048)` | `a4d4-p2` | `28.128/28.241` | `28.872/29.077` | `1.0265x/1.0296x` |
+| Shared down | `(2048,2048,512)` | `a1d2-p2` | `24.653/24.377` | `25.206/25.081` | `1.0224x/1.0289x` |
+| Shared down | `(8192,2048,512)` | `a1d4-p2` | `26.970/27.024` | `27.853/27.905` | `1.0327x/1.0326x` |
+| Shared down | `(32768,2048,512)` | `a1d2-p2` | `27.220/27.020` | `28.144/28.063` | `1.0339x/1.0386x` |
+| Attention output | `(2048,2048,4096)` | common `a8d1-p0` | `28.242/28.029` | `29.149/28.952` | `1.0321x/1.0329x` |
+| Attention output | `(8192,2048,4096)` | common `a8d1-p0` | `28.387/28.268` | `29.140/29.102` | `1.0265x/1.0295x` |
+| Attention output | `(32768,2048,4096)` | common `a8d1-p0` | `28.509/28.505` | `29.249/29.200` | `1.0259x/1.0244x` |
+| Query | `(2048,8192,2048)` | `a1d2-p2` | `28.159/28.016` | `29.163/29.044` | `1.0356x/1.0367x` |
+| Query | `(8192,8192,2048)` | `a4d4-p2` | `28.225/28.280` | `29.233/29.341` | `1.0357x/1.0375x` |
+| Query | `(32768,8192,2048)` | `a2d2-p2` | `28.359/28.168` | `29.312/29.060` | `1.0336x/1.0317x` |
+
+Independent metadata extraction and the local-read schedule compose with the seven exact schedules shown above: all shared-down and query sizes plus narrow M32768.
 
 All common and exact-epilogue compositions are bit-exact to HIP and retain 239 VGPRs, 16 SGPRs, 38,400-byte LDS, 32 static WMMAs, four barriers, eight store clauses, and zero private storage or spills. Strict independent-reference NRMSE remains approximately `0.0133-0.0138`; independent rebuilds are byte-identical; input, packed-weight, and workspace mutations all change outputs.
 

@@ -147,7 +147,20 @@ Initial long-key lower bounds now identify separate behavior. Narrow `M32768,N20
 
 A changed-premise review transferred unswizzled `LdsPadB=8`, `256x64`, PGR2, and SIA5 from the reopened Q3 short-K campaign. The combination improves the three Q5 narrow keys by 15-18% versus the prior selected assembly and is retained with WGM2 at M2048 and WGM1 at M8192/M32768. Shared-down retains the prior `128x128` two-buffer path: padded `256x64`, `128x64`, and `128x128` one-buffer candidates remain 7-46% slower than selected assembly controls.
 
-The authoritative mixed-catalog 25-repeat candidate/HIP ratios are narrow `0.7127/0.7088/0.6942` and shared-down `0.8201/0.7442/0.6240` in M2048/M8192/M32768 order. The call-weighted ratio is `0.67843x`, improving the prior approximately `0.763x` catalog. Every exact key beats HIP. Narrow candidates use 238 VGPRs, 16 SGPRs, 5 KiB LDS, 32 static WMMAs, 150 VMEM instructions, and 32 LDS instructions. Shared-down retains 220 VGPRs, 16 SGPRs, and 16 KiB LDS. All selected artifacts have zero private bytes and spills, pass both producer mutations and independent references, and are byte-identical across independent final roots.
+#### Final result
+
+The authoritative mixed-catalog 25-repeat confirmation reports logical arithmetic throughput. Speedup is `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile.
+
+| Family | `(M,N,K)` | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP |
+| --- | ---: | ---: | ---: | ---: |
+| Narrow | `(2048,2048,512)` | `19.981` | `28.037` | `1.4032x` |
+| Narrow | `(8192,2048,512)` | `20.831` | `29.387` | `1.4108x` |
+| Narrow | `(32768,2048,512)` | `22.154` | `31.913` | `1.4406x` |
+| Shared down | `(2048,512,2048)` | `16.959` | `20.679` | `1.2193x` |
+| Shared down | `(8192,512,2048)` | `11.743` | `15.779` | `1.3437x` |
+| Shared down | `(32768,512,2048)` | `12.352` | `19.794` | `1.6026x` |
+
+The call-weighted speedup is `1.4740x`, corresponding to the recorded `0.67843x` candidate/HIP latency ratio and improving the prior approximately `0.763x` catalog. Every exact key beats HIP. Narrow candidates use 238 VGPRs, 16 SGPRs, 5 KiB LDS, 32 static WMMAs, 150 VMEM instructions, and 32 LDS instructions. Shared-down retains 220 VGPRs, 16 SGPRs, and 16 KiB LDS. All selected artifacts have zero private bytes and spills, pass both producer mutations and independent references, and are byte-identical across independent final roots.
 
 The final small schedule scan compared SIA4 and SIA5 on the new geometry. Q5 WGM1 SIA4 was below the 2% retention gate. WGM2/SIA4 appeared 6.9% faster at M2048 in a nine-repeat screen but became `1.0178x` versus SIA5 in the 25-repeat rotating bracket, so it is rejected. WGM4/WGM8, store-priority changes, pad 16/24, and packed lane sharing remain measured rejections. The lower bounds continue to explain shared-down as WMMA/A/LDS dominated and narrow as an overlapped WMMA/decode/LDS path; no remaining in-contract Q5 mechanism has a qualifying measured gain path.
 
@@ -155,16 +168,16 @@ The final small schedule scan compared SIA4 and SIA5 on the new geometry. Q5 WGM
 
 The prior catalog used the Q5 packed extraction path, `v_lshl_or_b32` high-plane fusion on all six keys, the nibble-shift hoist on five keys, and the original nibble-shift path for shared-down `M8192`. Its authoritative protocol used 10 warmups, 25 rotating same-process repeats, serial phases, and HIP as the performance control.
 
-| Family | `(M,N,K)` | HIP ms | GGTensile ms | HIP TFLOPS | GGTensile TFLOPS | Relative gain |
+| Family | `(M,N,K)` | HIP ms | GGTensile ms | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| Narrow | `(2048,2048,512)` | `0.214` | `0.180` | `20.112` | `23.889` | `18.8%` |
-| Narrow | `(8192,2048,512)` | `0.810` | `0.680` | `21.211` | `25.271` | `19.1%` |
-| Narrow | `(32768,2048,512)` | `3.032` | `2.590` | `22.664` | `26.532` | `17.1%` |
-| Shared down | `(2048,512,2048)` | `0.244` | `0.204` | `17.581` | `21.014` | `19.5%` |
-| Shared down | `(8192,512,2048)` | `1.483` | `1.156` | `11.583` | `14.861` | `28.3%` |
-| Shared down | `(32768,512,2048)` | `5.572` | `3.461` | `12.332` | `19.853` | `61.0%` |
+| Narrow | `(2048,2048,512)` | `0.214` | `0.180` | `20.112` | `23.889` | `1.1878x` |
+| Narrow | `(8192,2048,512)` | `0.810` | `0.680` | `21.211` | `25.271` | `1.1914x` |
+| Narrow | `(32768,2048,512)` | `3.032` | `2.590` | `22.664` | `26.532` | `1.1706x` |
+| Shared down | `(2048,512,2048)` | `0.244` | `0.204` | `17.581` | `21.014` | `1.1952x` |
+| Shared down | `(8192,512,2048)` | `1.483` | `1.156` | `11.583` | `14.861` | `1.2830x` |
+| Shared down | `(32768,512,2048)` | `5.572` | `3.461` | `12.332` | `19.853` | `1.6098x` |
 
-Using call counts, weighted HIP latency is `158.166 ms` and weighted GGTensile latency is `120.663 ms`, a `23.7%` reduction. Narrow latency falls `14.9%` and shared-down latency falls `33.9%`. The largest absolute throughput gain is shared-down `M32768` at `+7.520 TFLOPS`; the largest relative gain is the same key at `61.0%`. The throughput formula is `2*M*N*K/(median_ms*1e9)` and represents complete fused-kernel arithmetic throughput, not WMMA-only throughput.
+Using call counts, weighted HIP latency is `158.166 ms` and weighted GGTensile latency is `120.663 ms`, a `1.3108x` historical speedup. The largest per-key speedup is shared-down M32768 at `1.6098x`. The throughput formula is `2*M*N*K/(median_ms*1e9)` and represents complete fused-kernel arithmetic throughput, not WMMA-only throughput.
 
 ## Optimization-Exhaustion Review
 

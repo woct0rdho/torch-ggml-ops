@@ -180,7 +180,7 @@
       "EpilogueDependencyWidth": 1,
       "EpiloguePriority": 0
     },
-    "selected_narrow_m32768_a8d4_p3_vopd_init": {
+    "selected_narrow_m32768_a7d3_p3_vopd_init": {
       "KernelLanguage": "Assembly",
       "ISA": [
         11,
@@ -221,8 +221,8 @@
       "SignedActivation": true,
       "WmmaClamp": true,
       "MetadataSchedule": "IndependentExtractionMetadataAfterLowWmma",
-      "EpilogueTilesAhead": 8,
-      "EpilogueDependencyWidth": 4,
+      "EpilogueTilesAhead": 7,
+      "EpilogueDependencyWidth": 3,
       "EpiloguePriority": 3,
       "AccumulatorInitialization": "VopdPair"
     },

@@ -228,6 +228,27 @@ Any new resource-bearing mechanism must remain bit-exact, reproducible, resource
 
 The dense Q4_K 12-key optimization campaign and its repeated optimization-exhaustion review are complete. The selected-solution catalog, exact validation, final correctness, and padded exact-key weighted 25-repeat matrix are the current controls. Further Q4_K work requires a newly actionable large-margin direction with a changed premise; ordinary local tuning is closed.
 
+#### Final result
+
+The authoritative 25-repeat matrix reports logical arithmetic throughput. Speedup is `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile.
+
+| Family | `(M,N,K)` | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP |
+| --- | ---: | ---: | ---: | ---: |
+| Narrow | `(2048,2048,512)` | `18.157` | `23.908` | `1.3167x` |
+| Narrow | `(8192,2048,512)` | `21.409` | `28.076` | `1.3114x` |
+| Narrow | `(32768,2048,512)` | `22.356` | `27.184` | `1.2159x` |
+| Shared down | `(2048,512,2048)` | `16.168` | `20.679` | `1.2789x` |
+| Shared down | `(8192,512,2048)` | `11.931` | `14.412` | `1.2079x` |
+| Shared down | `(32768,512,2048)` | `13.231` | `20.273` | `1.5322x` |
+| Attention output | `(2048,4096,2048)` | `24.095` | `28.372` | `1.1775x` |
+| Attention output | `(8192,4096,2048)` | `22.873` | `27.462` | `1.2006x` |
+| Attention output | `(32768,4096,2048)` | `23.699` | `28.249` | `1.1920x` |
+| Query | `(2048,2048,8192)` | `19.508` | `28.174` | `1.4442x` |
+| Query | `(8192,2048,8192)` | `21.653` | `27.318` | `1.2616x` |
+| Query | `(32768,2048,8192)` | `22.941` | `28.597` | `1.2466x` |
+
+The call-weighted speedup is `1.2656x`, corresponding to the recorded `0.79017x` candidate/HIP latency ratio.
+
 Quant-family expansion and public runtime dispatch remain governed by [ggtensile_plan.md](ggtensile_plan.md). Public integration remains deferred until dispatch engineering, complete end-to-end Qwen/DeepSeek validation, and broader dense multi-quant coverage are complete; exact-kernel campaign completion does not by itself authorize runtime exposure.
 
 Prepared weights, BF16 shadows, external decode workspaces, GSU, Stream-K, and persistent workgroups remain outside this experiment contract unless the broader plan explicitly accepts their ownership, workspace, or fixup requirements.
