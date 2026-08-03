@@ -576,17 +576,6 @@ class ForwardSolution:
         )
 
     @classmethod
-    def q4_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma(
-        cls,
-    ) -> Self:
-        return cls.q4_k_hip_decoded_staged_extraction(
-            epilogue_tiles_ahead=8,
-            epilogue_dependency_width=1,
-            epilogue_priority=0,
-            metadata_after_low_wmma=True,
-        )
-
-    @classmethod
     def q5_k_hip_decoded_staged_retained(cls) -> Self:
         return replace(
             cls.q4_k_hip_decoded_staged_retained(),
@@ -599,16 +588,6 @@ class ForwardSolution:
         return replace(
             cls.q5_k_hip_decoded_staged_retained(),
             metadata_schedule="MetadataAfterLowWmma",
-        )
-
-    @classmethod
-    def q5_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma(
-        cls,
-    ) -> Self:
-        return cls.q5_k_hip_decoded_staged_extraction(
-            epilogue_tiles_ahead=8,
-            epilogue_dependency_width=1,
-            epilogue_priority=0,
         )
 
     @classmethod
@@ -662,91 +641,6 @@ class ForwardSolution:
             epilogue_tiles_ahead=epilogue_tiles_ahead,
             epilogue_dependency_width=epilogue_dependency_width,
             epilogue_priority=epilogue_priority,
-        )
-
-    @classmethod
-    def q4_k_hip_decoded_staged_shared_down_m8192(cls) -> Self:
-        return cls.q4_k_hip_decoded_staged_extraction(
-            epilogue_tiles_ahead=1,
-            epilogue_dependency_width=4,
-            epilogue_priority=2,
-        )
-
-    @classmethod
-    def q4_k_hip_decoded_staged_shared_down_m32768(cls) -> Self:
-        return cls.q4_k_hip_decoded_staged_extraction(
-            epilogue_tiles_ahead=1,
-            epilogue_dependency_width=2,
-            epilogue_priority=2,
-        )
-
-    @classmethod
-    def q4_k_hip_decoded_staged_shared_down_m2048_metadata_after_low_wmma(
-        cls,
-    ) -> Self:
-        return cls.q4_k_hip_decoded_staged_extraction(
-            epilogue_tiles_ahead=1,
-            epilogue_dependency_width=2,
-            epilogue_priority=2,
-            metadata_after_low_wmma=True,
-        )
-
-    @classmethod
-    def q4_k_hip_decoded_staged_shared_down_m8192_metadata_after_low_wmma(
-        cls,
-    ) -> Self:
-        return cls.q4_k_hip_decoded_staged_extraction(
-            epilogue_tiles_ahead=1,
-            epilogue_dependency_width=4,
-            epilogue_priority=2,
-            metadata_after_low_wmma=True,
-        )
-
-    @classmethod
-    def q4_k_hip_decoded_staged_shared_down_m32768_metadata_after_low_wmma(
-        cls,
-    ) -> Self:
-        return cls.q4_k_hip_decoded_staged_extraction(
-            epilogue_tiles_ahead=1,
-            epilogue_dependency_width=2,
-            epilogue_priority=2,
-            metadata_after_low_wmma=True,
-        )
-
-    @classmethod
-    def q4_k_hip_decoded_staged_narrow_m32768_metadata_after_low_wmma(cls) -> Self:
-        return cls.q4_k_hip_decoded_staged_extraction(
-            epilogue_tiles_ahead=4,
-            epilogue_dependency_width=4,
-            epilogue_priority=2,
-            metadata_after_low_wmma=True,
-        )
-
-    @classmethod
-    def q4_k_hip_decoded_staged_query_m2048_metadata_after_low_wmma(cls) -> Self:
-        return cls.q4_k_hip_decoded_staged_extraction(
-            epilogue_tiles_ahead=1,
-            epilogue_dependency_width=2,
-            epilogue_priority=2,
-            metadata_after_low_wmma=True,
-        )
-
-    @classmethod
-    def q4_k_hip_decoded_staged_query_m8192_metadata_after_low_wmma(cls) -> Self:
-        return cls.q4_k_hip_decoded_staged_extraction(
-            epilogue_tiles_ahead=4,
-            epilogue_dependency_width=4,
-            epilogue_priority=2,
-            metadata_after_low_wmma=True,
-        )
-
-    @classmethod
-    def q4_k_hip_decoded_staged_query_m32768_metadata_after_low_wmma(cls) -> Self:
-        return cls.q4_k_hip_decoded_staged_extraction(
-            epilogue_tiles_ahead=2,
-            epilogue_dependency_width=2,
-            epilogue_priority=2,
-            metadata_after_low_wmma=True,
         )
 
     @classmethod

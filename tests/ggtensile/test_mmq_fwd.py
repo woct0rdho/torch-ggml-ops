@@ -37,6 +37,36 @@ _Q5_INVENTORY_CASE = next(
 )
 
 
+def _q4_extraction(
+    tiles_ahead: int,
+    dependency_width: int,
+    *,
+    priority: int = 2,
+    metadata_after_low_wmma: bool = False,
+) -> ForwardSolution:
+    return ForwardSolution.q4_k_hip_decoded_staged_extraction(
+        epilogue_tiles_ahead=tiles_ahead,
+        epilogue_dependency_width=dependency_width,
+        epilogue_priority=priority,
+        metadata_after_low_wmma=metadata_after_low_wmma,
+    )
+
+
+def _q5_extraction(
+    tiles_ahead: int = 8,
+    dependency_width: int = 1,
+    *,
+    priority: int = 0,
+    accumulator_initialization: str = "ScalarCopy",
+) -> ForwardSolution:
+    return ForwardSolution.q5_k_hip_decoded_staged_extraction(
+        epilogue_tiles_ahead=tiles_ahead,
+        epilogue_dependency_width=dependency_width,
+        epilogue_priority=priority,
+        accumulator_initialization=accumulator_initialization,
+    )
+
+
 def _key(
     quant_type: str = "Q4_K",
     size: ProblemSize | None = None,
@@ -45,7 +75,7 @@ def _key(
     if solution is None:
         default_solutions = {
             "Q4_K": ForwardSolution.q4_k_pilot(),
-            "Q5_K": ForwardSolution.q5_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma(),
+            "Q5_K": _q5_extraction(),
         }
         solution = default_solutions[quant_type]
     return SolutionKey(
@@ -139,7 +169,7 @@ def test_forward_solution_identity_normalizes_scalar_accumulator_initialization(
     assert ForwardSolution.from_mapping(mapping).to_mapping() == mapping
 
     vopd = replace(
-        ForwardSolution.q5_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma(),
+        _q5_extraction(),
         accumulator_initialization="VopdPair",
     )
     vopd_mapping = vopd.to_mapping()
@@ -349,7 +379,7 @@ def test_forward_writer_emits_metadata_after_low_wmma_schedule() -> None:
 def test_forward_independent_extraction_metadata_after_low_is_production_wide(
     size: ProblemSize,
 ) -> None:
-    solution = ForwardSolution.q4_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma()
+    solution = _q4_extraction(8, 1, priority=0, metadata_after_low_wmma=True)
     key = _key(size=size, solution=solution)
     assert validate_solution(key) == ()
     source = _source(key)
@@ -364,27 +394,27 @@ def test_forward_independent_extraction_metadata_after_low_is_production_wide(
     (
         (
             ProblemSize(8192, 2048, 512),
-            ForwardSolution.q4_k_hip_decoded_staged_shared_down_m8192(),
+            _q4_extraction(1, 4),
             4,
         ),
         (
             ProblemSize(32768, 2048, 512),
-            ForwardSolution.q4_k_hip_decoded_staged_shared_down_m32768(),
+            _q4_extraction(1, 2),
             2,
         ),
         (
             ProblemSize(2048, 2048, 512),
-            ForwardSolution.q4_k_hip_decoded_staged_shared_down_m2048_metadata_after_low_wmma(),
+            _q4_extraction(1, 2, metadata_after_low_wmma=True),
             2,
         ),
         (
             ProblemSize(8192, 2048, 512),
-            ForwardSolution.q4_k_hip_decoded_staged_shared_down_m8192_metadata_after_low_wmma(),
+            _q4_extraction(1, 4, metadata_after_low_wmma=True),
             4,
         ),
         (
             ProblemSize(32768, 2048, 512),
-            ForwardSolution.q4_k_hip_decoded_staged_shared_down_m32768_metadata_after_low_wmma(),
+            _q4_extraction(1, 2, metadata_after_low_wmma=True),
             2,
         ),
     ),
@@ -416,22 +446,22 @@ def test_forward_writer_emits_selected_shared_down_extraction(
     (
         (
             ProblemSize(32768, 512, 2048),
-            ForwardSolution.q4_k_hip_decoded_staged_narrow_m32768_metadata_after_low_wmma(),
+            _q4_extraction(4, 4, metadata_after_low_wmma=True),
             4,
         ),
         (
             ProblemSize(2048, 8192, 2048),
-            ForwardSolution.q4_k_hip_decoded_staged_query_m2048_metadata_after_low_wmma(),
+            _q4_extraction(1, 2, metadata_after_low_wmma=True),
             2,
         ),
         (
             ProblemSize(8192, 8192, 2048),
-            ForwardSolution.q4_k_hip_decoded_staged_query_m8192_metadata_after_low_wmma(),
+            _q4_extraction(4, 4, metadata_after_low_wmma=True),
             4,
         ),
         (
             ProblemSize(32768, 8192, 2048),
-            ForwardSolution.q4_k_hip_decoded_staged_query_m32768_metadata_after_low_wmma(),
+            _q4_extraction(2, 2, metadata_after_low_wmma=True),
             2,
         ),
     ),
@@ -457,19 +487,19 @@ def test_forward_writer_emits_selected_exact_epilogue(
     (
         (
             ProblemSize(2048, 2048, 512),
-            ForwardSolution.q4_k_hip_decoded_staged_shared_down_m8192(),
+            _q4_extraction(1, 4),
         ),
         (
             ProblemSize(32768, 2048, 512),
-            ForwardSolution.q4_k_hip_decoded_staged_shared_down_m8192(),
+            _q4_extraction(1, 4),
         ),
         (
             ProblemSize(8192, 2048, 512),
-            ForwardSolution.q4_k_hip_decoded_staged_shared_down_m32768(),
+            _q4_extraction(1, 2),
         ),
         (
             ProblemSize(8192, 8192, 2048),
-            ForwardSolution.q4_k_hip_decoded_staged_query_m32768_metadata_after_low_wmma(),
+            _q4_extraction(2, 2, metadata_after_low_wmma=True),
         ),
     ),
 )
@@ -488,7 +518,7 @@ def test_forward_extraction_rejects_unmeasured_exact_key(
     (
         ForwardSolution.q5_k_hip_decoded_staged_retained(),
         ForwardSolution.q5_k_hip_decoded_staged_metadata_after_low_wmma(),
-        ForwardSolution.q5_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma(),
+        _q5_extraction(),
     ),
 )
 def test_q5_forward_writer_covers_high_bit_decode_and_schedule(
@@ -517,10 +547,10 @@ def test_q5_forward_writer_covers_high_bit_decode_and_schedule(
 
 
 def test_q5_forward_writer_emits_vopd_accumulator_initialization() -> None:
-    solution = ForwardSolution.q5_k_hip_decoded_staged_extraction(
-        epilogue_tiles_ahead=7,
-        epilogue_dependency_width=3,
-        epilogue_priority=3,
+    solution = _q5_extraction(
+        7,
+        3,
+        priority=3,
         accumulator_initialization="VopdPair",
     )
     key = _key("Q5_K", ProblemSize(32768, 512, 2048), solution)
@@ -623,7 +653,7 @@ def test_forward_runtime_uses_exact_hip_launch_geometry(quant_type: str) -> None
         ),
         pytest.param(
             _key(
-                solution=ForwardSolution.q4_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma()
+                solution=_q4_extraction(8, 1, priority=0, metadata_after_low_wmma=True)
             ),
             32,
             239,
@@ -635,7 +665,7 @@ def test_forward_runtime_uses_exact_hip_launch_geometry(quant_type: str) -> None
         pytest.param(
             _key(
                 size=ProblemSize(8192, 2048, 512),
-                solution=ForwardSolution.q4_k_hip_decoded_staged_shared_down_m8192(),
+                solution=_q4_extraction(1, 4),
             ),
             32,
             239,
@@ -647,7 +677,7 @@ def test_forward_runtime_uses_exact_hip_launch_geometry(quant_type: str) -> None
         pytest.param(
             _key(
                 size=ProblemSize(32768, 2048, 512),
-                solution=ForwardSolution.q4_k_hip_decoded_staged_shared_down_m32768(),
+                solution=_q4_extraction(1, 2),
             ),
             32,
             239,

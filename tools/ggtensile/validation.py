@@ -68,6 +68,21 @@ def _validate_backward_problem_type(
             )
 
 
+def _q4_forward_extraction(
+    tiles_ahead: int,
+    dependency_width: int,
+    *,
+    priority: int = 2,
+    metadata_after_low_wmma: bool = False,
+) -> ForwardSolution:
+    return ForwardSolution.q4_k_hip_decoded_staged_extraction(
+        epilogue_tiles_ahead=tiles_ahead,
+        epilogue_dependency_width=dependency_width,
+        epilogue_priority=priority,
+        metadata_after_low_wmma=metadata_after_low_wmma,
+    )
+
+
 def _validate_forward_solution(
     solution_key: SolutionKey, reasons: list[RejectReason]
 ) -> None:
@@ -100,7 +115,11 @@ def _validate_forward_solution(
         q5_metadata_after_low = (
             ForwardSolution.q5_k_hip_decoded_staged_metadata_after_low_wmma()
         )
-        q5_independent = ForwardSolution.q5_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma()
+        q5_independent = ForwardSolution.q5_k_hip_decoded_staged_extraction(
+            epilogue_tiles_ahead=8,
+            epilogue_dependency_width=1,
+            epilogue_priority=0,
+        )
         q5_extraction = (
             replace(
                 solution,
@@ -163,27 +182,36 @@ def _validate_forward_solution(
     hip_decoded_staged_metadata_after_low_wmma = (
         ForwardSolution.q4_k_hip_decoded_staged_metadata_after_low_wmma()
     )
-    hip_decoded_staged_independent_extraction_metadata_after_low_wmma = ForwardSolution.q4_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma()
-    hip_decoded_staged_shared_down_m8192 = (
-        ForwardSolution.q4_k_hip_decoded_staged_shared_down_m8192()
+    hip_decoded_staged_independent_extraction_metadata_after_low_wmma = (
+        _q4_forward_extraction(
+            8,
+            1,
+            priority=0,
+            metadata_after_low_wmma=True,
+        )
     )
-    hip_decoded_staged_shared_down_m32768 = (
-        ForwardSolution.q4_k_hip_decoded_staged_shared_down_m32768()
+    hip_decoded_staged_shared_down_m8192 = _q4_forward_extraction(1, 4)
+    hip_decoded_staged_shared_down_m32768 = _q4_forward_extraction(1, 2)
+    hip_decoded_staged_shared_down_m2048_metadata_after_low_wmma = (
+        _q4_forward_extraction(1, 2, metadata_after_low_wmma=True)
     )
-    hip_decoded_staged_shared_down_m2048_metadata_after_low_wmma = ForwardSolution.q4_k_hip_decoded_staged_shared_down_m2048_metadata_after_low_wmma()
-    hip_decoded_staged_shared_down_m8192_metadata_after_low_wmma = ForwardSolution.q4_k_hip_decoded_staged_shared_down_m8192_metadata_after_low_wmma()
-    hip_decoded_staged_shared_down_m32768_metadata_after_low_wmma = ForwardSolution.q4_k_hip_decoded_staged_shared_down_m32768_metadata_after_low_wmma()
-    hip_decoded_staged_narrow_m32768_metadata_after_low_wmma = (
-        ForwardSolution.q4_k_hip_decoded_staged_narrow_m32768_metadata_after_low_wmma()
+    hip_decoded_staged_shared_down_m8192_metadata_after_low_wmma = (
+        _q4_forward_extraction(1, 4, metadata_after_low_wmma=True)
     )
-    hip_decoded_staged_query_m2048_metadata_after_low_wmma = (
-        ForwardSolution.q4_k_hip_decoded_staged_query_m2048_metadata_after_low_wmma()
+    hip_decoded_staged_shared_down_m32768_metadata_after_low_wmma = (
+        _q4_forward_extraction(1, 2, metadata_after_low_wmma=True)
     )
-    hip_decoded_staged_query_m8192_metadata_after_low_wmma = (
-        ForwardSolution.q4_k_hip_decoded_staged_query_m8192_metadata_after_low_wmma()
+    hip_decoded_staged_narrow_m32768_metadata_after_low_wmma = _q4_forward_extraction(
+        4, 4, metadata_after_low_wmma=True
     )
-    hip_decoded_staged_query_m32768_metadata_after_low_wmma = (
-        ForwardSolution.q4_k_hip_decoded_staged_query_m32768_metadata_after_low_wmma()
+    hip_decoded_staged_query_m2048_metadata_after_low_wmma = _q4_forward_extraction(
+        1, 2, metadata_after_low_wmma=True
+    )
+    hip_decoded_staged_query_m8192_metadata_after_low_wmma = _q4_forward_extraction(
+        4, 4, metadata_after_low_wmma=True
+    )
+    hip_decoded_staged_query_m32768_metadata_after_low_wmma = _q4_forward_extraction(
+        2, 2, metadata_after_low_wmma=True
     )
     implemented = (
         pilot,
