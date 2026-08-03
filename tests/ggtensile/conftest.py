@@ -12,10 +12,8 @@ def trace_writer_lines() -> Iterator[None]:
         lines.clear()
     previous = sys.gettrace()
     sys.settrace(record_writer_line)
-    try:
-        yield
-    finally:
-        sys.settrace(previous)
+    yield
+    sys.settrace(previous)
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:

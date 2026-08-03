@@ -11,7 +11,6 @@ from .model import (
     ForwardSolution,
     ProblemSize,
     ProblemType,
-    SchemaError,
     SolutionKey,
 )
 
@@ -103,12 +102,7 @@ def _campaign_spec(operation_type: str, quant_type: str) -> _CampaignSpec:
         if operation_type == "MMQForward"
         else _MMQ_BWD_CAMPAIGN_SPECS
     )
-    try:
-        return specs[quant_type]
-    except KeyError as error:
-        raise CampaignError(
-            f"unsupported campaign quant type {quant_type!r}"
-        ) from error
+    return specs[quant_type]
 
 
 class CampaignError(ValueError):
@@ -232,11 +226,8 @@ class CampaignInventory:
         return selected
 
 
-def _load_json(path: Path, name: str) -> object:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise CampaignError(f"cannot read {name} {path}: {error}") from error
+def _load_json(path: Path) -> object:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def load_solution(
@@ -249,10 +240,7 @@ def load_solution(
         if problem_type.operation_type == "MMQForward"
         else BackwardSolution
     )
-    try:
-        return solution_type.from_mapping(_load_json(path, "solution"))
-    except SchemaError as error:
-        raise CampaignError(f"invalid campaign solution: {error}") from error
+    return solution_type.from_mapping(_load_json(path))
 
 
 def load_solution_catalog(
@@ -261,7 +249,7 @@ def load_solution_catalog(
     problem_type: ProblemType,
 ) -> dict[str, BackwardSolution | ForwardSolution]:
     root = _mapping(
-        _load_json(path, "solution catalog"),
+        _load_json(path),
         "solution catalog",
         frozenset({"Solutions"}),
     )
@@ -276,25 +264,17 @@ def load_solution_catalog(
     solutions: dict[str, BackwardSolution | ForwardSolution] = {}
     for name, value in raw_solutions.items():
         selected_name = _string(name, "solution catalog key")
-        try:
-            solutions[selected_name] = solution_type.from_mapping(value)
-        except SchemaError as error:
-            raise CampaignError(
-                f"invalid catalog solution {selected_name!r}: {error}"
-            ) from error
+        solutions[selected_name] = solution_type.from_mapping(value)
     return solutions
 
 
 def load_inventory(path: Path) -> CampaignInventory:
     root = _mapping(
-        _load_json(path, "inventory"),
+        _load_json(path),
         "inventory",
         frozenset({"ProblemType", "ModelFile", "Validation", "Keys"}),
     )
-    try:
-        problem_type = ProblemType.from_mapping(root["ProblemType"])
-    except SchemaError as error:
-        raise CampaignError(f"invalid inventory ProblemType: {error}") from error
+    problem_type = ProblemType.from_mapping(root["ProblemType"])
     spec = _campaign_spec(
         problem_type.operation_type,
         problem_type.quant_data_type,
@@ -352,12 +332,7 @@ def load_inventory(path: Path) -> CampaignInventory:
         assert isinstance(family_specs, Mapping)
         if family not in family_specs:
             raise CampaignError(f"unknown family {family!r}")
-        try:
-            size = ProblemSize.from_mapping(item["ProblemSize"])
-        except SchemaError as error:
-            raise CampaignError(
-                f"invalid Keys[{index}].ProblemSize: {error}"
-            ) from error
+        size = ProblemSize.from_mapping(item["ProblemSize"])
         historical = _positive_float(
             item["HistoricalHipMedianMs"],
             f"Keys[{index}].HistoricalHipMedianMs",

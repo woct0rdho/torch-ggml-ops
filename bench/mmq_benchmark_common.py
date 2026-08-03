@@ -632,13 +632,12 @@ def select_family_cases(
     *,
     description: str = "benchmark",
 ) -> tuple[_CaseT, ...]:
-    try:
-        available_cases = cases_by_model_family[model_family]
-    except KeyError as error:
+    if model_family not in cases_by_model_family:
         raise ValueError(
             f"unknown model family {model_family!r}; available families are "
             f"{sorted(cases_by_model_family)}"
-        ) from error
+        )
+    available_cases = cases_by_model_family[model_family]
 
     by_name = {case.name: case for case in available_cases}
     if case_names:

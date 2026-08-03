@@ -20,6 +20,7 @@ from tools.ggtensile.campaign import (
     load_inventory,
     load_solution_catalog,
 )
+from tools.ggtensile.cli import ManifestError
 from tools.ggtensile.cli import main as ggtensile_cli_main
 from tools.ggtensile.inspection import inspect_artifact
 from tools.ggtensile.kernel_writer_assembly_mmq_bwd import (
@@ -286,7 +287,8 @@ def test_q4_k_campaign_prepare_is_serial_and_immutable(tmp_path: Path) -> None:
     assert (artifact / "generate.json").is_file()
     assert (artifact / "build.json").is_file()
     assert (artifact / "inspect.json").is_file()
-    assert campaign_main(arguments) == 2
+    with pytest.raises(CampaignError, match="refusing to overwrite artifact root"):
+        campaign_main(arguments)
 
 
 def test_q4_k_campaign_prepare_accepts_explicit_solution(tmp_path: Path) -> None:
@@ -773,7 +775,7 @@ def test_cli_generate_build_and_inspect_manifests(tmp_path: Path) -> None:
     assert "CodeObjectSHA256" not in inspection["Inspection"]
     assert "NormalizedAssemblySHA256" not in inspection["Inspection"]
 
-    assert (
+    with pytest.raises(ManifestError, match="refusing to overwrite"):
         ggtensile_cli_main(
             [
                 "generate",
@@ -783,8 +785,6 @@ def test_cli_generate_build_and_inspect_manifests(tmp_path: Path) -> None:
                 str(artifact_dir),
             ]
         )
-        == 2
-    )
 
 
 def test_cli_records_rejected_solution_manifest(tmp_path: Path) -> None:

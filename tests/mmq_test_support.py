@@ -4,10 +4,13 @@ import torch
 
 
 def find_tensor(reader: gguf.GGUFReader, name: str) -> gguf.ReaderTensor:
-    try:
-        return next(tensor for tensor in reader.tensors if tensor.name == name)
-    except StopIteration as error:
-        raise KeyError(f"GGUF tensor not found: {name}") from error
+    tensor = next(
+        (tensor for tensor in reader.tensors if tensor.name == name),
+        None,
+    )
+    if tensor is None:
+        raise KeyError(f"GGUF tensor not found: {name}")
+    return tensor
 
 
 def _to_cuda_uint8(data: np.ndarray) -> torch.Tensor:

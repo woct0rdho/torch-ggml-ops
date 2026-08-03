@@ -20,7 +20,7 @@ from tools.ggtensile.model import (
     ProblemType,
     SolutionKey,
 )
-from tools.ggtensile.toolchain import Toolchain, ToolchainError
+from tools.ggtensile.toolchain import Toolchain
 
 _CONFIG_DIR = Path("tools/ggtensile/configs")
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -308,10 +308,7 @@ def selected_solution_keys(
 
 
 def ggtensile_toolchain() -> Toolchain:
-    try:
-        return Toolchain.discover()
-    except ToolchainError as error:
-        pytest.skip(str(error))
+    return Toolchain.discover()
 
 
 class AssemblyWriter(Protocol):

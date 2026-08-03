@@ -765,10 +765,7 @@ class SolutionKey:
 
     @classmethod
     def from_json_file(cls, path: Path) -> Self:
-        try:
-            value = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as error:
-            raise SchemaError(f"invalid JSON in {path}: {error}") from error
+        value = json.loads(path.read_text(encoding="utf-8"))
         return cls.from_mapping(value)
 
     def to_mapping(self) -> dict[str, object]:

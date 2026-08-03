@@ -2,17 +2,16 @@ import argparse
 import hashlib
 import json
 import shutil
-import sys
 import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from .inspection import InspectionError, inspect_artifact
+from .inspection import inspect_artifact
 from .kernel_writer_assembly_mmq_bwd import BackwardKernelWriterAssembly
 from .kernel_writer_assembly_mmq_fwd import ForwardKernelWriterAssembly
-from .model import SchemaError, SolutionKey
-from .toolchain import Toolchain, ToolchainError
+from .model import SolutionKey
+from .toolchain import Toolchain
 from .validation import validate_solution
 
 
@@ -70,10 +69,7 @@ def _copy_exclusive(source: Path, destination: Path) -> None:
 
 
 def _load_mapping(path: Path, name: str) -> Mapping[str, object]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise ManifestError(f"cannot read {name} {path}: {error}") from error
+    value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, Mapping):
         raise ManifestError(f"{name} must contain a JSON object")
     return value
@@ -131,10 +127,7 @@ def _generate(solution_path: Path, output_dir: Path) -> int:
     if manifest_path.exists():
         raise ManifestError(f"refusing to overwrite {manifest_path}")
     output_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        key = SolutionKey.from_json_file(solution_path)
-    except (OSError, SchemaError) as error:
-        return _reject(manifest_path, phase="Generate", error=error)
+    key = SolutionKey.from_json_file(solution_path)
 
     reasons = validate_solution(key)
     if reasons:
@@ -188,10 +181,7 @@ _GENERATE_KEYS = frozenset(
 
 
 def _key_from_manifest(manifest: Mapping[str, object]) -> SolutionKey:
-    try:
-        key = SolutionKey.from_mapping(manifest["SolutionKey"])
-    except (KeyError, SchemaError) as error:
-        raise ManifestError(f"invalid manifest SolutionKey: {error}") from error
+    key = SolutionKey.from_mapping(manifest["SolutionKey"])
     if manifest.get("SolutionHash") != key.hash:
         raise ManifestError("manifest SolutionHash does not match SolutionKey")
     if manifest.get("KernelName") != key.kernel_name:
@@ -224,17 +214,14 @@ def _build(generate_manifest: Path, output_dir: Path | None) -> int:
         )
 
     toolchain = Toolchain.discover()
-    try:
-        with tempfile.TemporaryDirectory(prefix="ggtensile-build-") as temporary:
-            temporary_path = Path(temporary)
-            temporary_object = temporary_path / "kernel.o"
-            temporary_code_object = temporary_path / "kernel.hsaco"
-            toolchain.assemble(assembly, temporary_object)
-            toolchain.link(temporary_object, temporary_code_object)
-            _copy_exclusive(temporary_object, object_path)
-            _copy_exclusive(temporary_code_object, code_object)
-    except (OSError, ToolchainError) as error:
-        return _reject(build_manifest, phase="Build", error=error)
+    with tempfile.TemporaryDirectory(prefix="ggtensile-build-") as temporary:
+        temporary_path = Path(temporary)
+        temporary_object = temporary_path / "kernel.o"
+        temporary_code_object = temporary_path / "kernel.hsaco"
+        toolchain.assemble(assembly, temporary_object)
+        toolchain.link(temporary_object, temporary_code_object)
+        _copy_exclusive(temporary_object, object_path)
+        _copy_exclusive(temporary_code_object, code_object)
 
     _write_json_exclusive(
         build_manifest,
@@ -282,10 +269,7 @@ def _inspect(build_manifest: Path, output: Path | None) -> int:
     if inspection_manifest.exists():
         raise ManifestError(f"refusing to overwrite {inspection_manifest}")
 
-    try:
-        inspection = inspect_artifact(key, code_object, Toolchain.discover())
-    except (InspectionError, OSError, ToolchainError) as error:
-        return _reject(inspection_manifest, phase="Inspect", error=error)
+    inspection = inspect_artifact(key, code_object, Toolchain.discover())
     _write_json_exclusive(
         inspection_manifest,
         {
@@ -300,16 +284,12 @@ def _inspect(build_manifest: Path, output: Path | None) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
-    try:
-        if arguments.command == "generate":
-            return _generate(arguments.solution_key, arguments.output_dir)
-        if arguments.command == "build":
-            return _build(arguments.generate_manifest, arguments.output_dir)
-        if arguments.command == "inspect":
-            return _inspect(arguments.build_manifest, arguments.output)
-    except (ManifestError, FileExistsError, ToolchainError) as error:
-        print(f"ggtensile {arguments.command}: {error}", file=sys.stderr)
-        return 2
+    if arguments.command == "generate":
+        return _generate(arguments.solution_key, arguments.output_dir)
+    if arguments.command == "build":
+        return _build(arguments.generate_manifest, arguments.output_dir)
+    if arguments.command == "inspect":
+        return _inspect(arguments.build_manifest, arguments.output)
     raise AssertionError(f"unhandled command {arguments.command}")
 
 

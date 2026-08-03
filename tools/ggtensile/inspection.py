@@ -253,11 +253,8 @@ def inspect_artifact(
 
 def _metadata(readelf: str) -> Mapping[str, Any]:
     marker = "AMDGPU Metadata:\n        ---\n"
-    try:
-        start = readelf.index(marker) + len("AMDGPU Metadata:\n        ")
-        end = readelf.index("\n...\n", start) + len("\n...")
-    except ValueError as error:
-        raise InspectionError("cannot find AMDGPU metadata note") from error
+    start = readelf.index(marker) + len("AMDGPU Metadata:\n        ")
+    end = readelf.index("\n...\n", start) + len("\n...")
     parsed = yaml.safe_load(readelf[start:end])
     if not isinstance(parsed, Mapping):
         raise InspectionError("AMDGPU metadata is not a mapping")

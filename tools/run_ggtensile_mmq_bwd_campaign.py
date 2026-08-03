@@ -36,10 +36,7 @@ _PHASE_PROTOCOL = {
 
 
 def _problem_size(value: str) -> ProblemSize:
-    try:
-        fields = tuple(int(field) for field in value.split(","))
-    except ValueError as error:
-        raise argparse.ArgumentTypeError("key must be M,N,K") from error
+    fields = tuple(int(field) for field in value.split(","))
     if len(fields) != 3:
         raise argparse.ArgumentTypeError("key must be M,N,K")
     return ProblemSize(*fields)
@@ -194,10 +191,7 @@ def _prepare(
 
 
 def _load_report(path: Path) -> dict[str, object]:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise CampaignError(f"cannot read benchmark report {path}: {error}") from error
+    value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
         raise CampaignError(f"benchmark report {path} is not a JSON object")
     return {str(key): item for key, item in value.items()}
@@ -320,12 +314,7 @@ def _measure(
         _run_benchmark(command, entry=entry)
         report = _load_report(report_path)
         expected_key = SolutionKey.from_json_file(solution_path)
-        try:
-            reported_key = SolutionKey.from_mapping(report["SolutionKey"])
-        except (KeyError, TypeError, ValueError) as error:
-            raise CampaignError(
-                f"invalid SolutionKey in {report_path}: {error}"
-            ) from error
+        reported_key = SolutionKey.from_mapping(report["SolutionKey"])
         if (
             reported_key != expected_key
             or report.get("Tensor") != entry.representative_tensor
@@ -388,15 +377,11 @@ def _measure(
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
-    try:
-        inventory = load_inventory(arguments.inventory)
-        entries = _selected(inventory, arguments)
-        if arguments.command == "prepare":
-            return _prepare(arguments, inventory, entries)
-        return _measure(arguments, inventory, entries)
-    except (CampaignError, FileExistsError) as error:
-        print(f"ggtensile campaign {arguments.command}: {error}", file=sys.stderr)
-        return 2
+    inventory = load_inventory(arguments.inventory)
+    entries = _selected(inventory, arguments)
+    if arguments.command == "prepare":
+        return _prepare(arguments, inventory, entries)
+    return _measure(arguments, inventory, entries)
 
 
 if __name__ == "__main__":
