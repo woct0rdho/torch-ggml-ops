@@ -5,12 +5,22 @@ import shutil
 import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .inspection import inspect_artifact
 from .kernel_writer_assembly_mmq_bwd import BackwardKernelWriterAssembly
 from .kernel_writer_assembly_mmq_fwd import ForwardKernelWriterAssembly
-from .model import SolutionKey
+from .mmq_fwd_search import (
+    ForwardExactPairManifest,
+    ForwardSearchKnobGroup,
+    Q6ExactPairManifest,
+    Q6SearchKnobGroup,
+    candidate_domains,
+    candidate_neighbors,
+    q6_schedule_neighbors,
+)
+from .mmq_fwd_spec import q6_schedule_from_solution
+from .model import ForwardSolution, ProblemSize, SolutionKey
 from .toolchain import Toolchain
 from .validation import validate_solution
 
@@ -36,6 +46,34 @@ def _parser() -> argparse.ArgumentParser:
     inspect = subparsers.add_parser("inspect")
     inspect.add_argument("--build-manifest", type=Path, required=True)
     inspect.add_argument("--output", type=Path)
+
+    enumerate_forward = subparsers.add_parser("enumerate-forward")
+    enumerate_forward.add_argument(
+        "--quant-type", choices=("Q4_K", "Q5_K", "Q6_K"), required=True
+    )
+    enumerate_forward.add_argument("--m", type=int, required=True)
+    enumerate_forward.add_argument("--n", type=int, required=True)
+    enumerate_forward.add_argument("--k", type=int, required=True)
+    enumerate_forward.add_argument(
+        "--knob-group",
+        action="append",
+        choices=("InstructionPolicy", "Epilogue", "Metadata"),
+    )
+    enumerate_forward.add_argument("--output-dir", type=Path, required=True)
+
+    enumerate_q6 = subparsers.add_parser("enumerate-forward-q6")
+    enumerate_q6.add_argument(
+        "--macro-tile", type=int, choices=(64, 128), required=True
+    )
+    enumerate_q6.add_argument("--m", type=int, required=True)
+    enumerate_q6.add_argument("--n", type=int, required=True)
+    enumerate_q6.add_argument("--k", type=int, required=True)
+    enumerate_q6.add_argument(
+        "--knob-group",
+        action="append",
+        choices=("InstructionPolicy", "Epilogue"),
+    )
+    enumerate_q6.add_argument("--output-dir", type=Path, required=True)
     return parser
 
 
@@ -278,6 +316,122 @@ def _inspect(build_manifest: Path, output: Path | None) -> int:
     return 0
 
 
+def _enumerate_forward(
+    quant_type: str,
+    problem_size: ProblemSize,
+    knob_groups: tuple[ForwardSearchKnobGroup, ...],
+    output_dir: Path,
+) -> int:
+    if output_dir.exists() and any(output_dir.iterdir()):
+        raise ManifestError(f"refusing to populate nonempty {output_dir}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    entries: list[dict[str, object]] = []
+    for domain in candidate_domains(quant_type, problem_size):
+        groups = knob_groups or domain.knob_groups
+        for candidate in candidate_neighbors(domain.seed, groups):
+            pair = ForwardExactPairManifest(quant_type, problem_size, candidate)
+            reasons = validate_solution(pair.solution_key)
+            if reasons:
+                detail = "; ".join(
+                    f"{reason.rule_id}: {reason.message}" for reason in reasons
+                )
+                raise ManifestError(f"enumerated invalid candidate: {detail}")
+            candidate_dir = output_dir / pair.candidate_hash
+            candidate_dir.mkdir()
+            _write_json_exclusive(
+                candidate_dir / "solution-key.json", pair.solution_key.to_mapping()
+            )
+            _write_json_exclusive(
+                candidate_dir / "candidate.json",
+                {
+                    **pair.to_mapping(),
+                    "ExactPairHash": pair.exact_pair_hash,
+                    "SolutionKeyPath": "solution-key.json",
+                },
+            )
+            entries.append(
+                {
+                    "CandidateHash": pair.candidate_hash,
+                    "ExactPairHash": pair.exact_pair_hash,
+                    "SolutionHash": pair.solution_key.hash,
+                    "KernelName": pair.solution_key.kernel_name,
+                    "Directory": pair.candidate_hash,
+                }
+            )
+    _write_json_exclusive(
+        output_dir / "index.json",
+        {
+            "SchemaVersion": 1,
+            "KernelFamily": quant_type,
+            "ProblemSize": problem_size.to_mapping(),
+            "KnobGroups": list(knob_groups),
+            "CandidateCount": len(entries),
+            "Candidates": entries,
+        },
+    )
+    return 0
+
+
+def _enumerate_forward_q6(
+    macro_tile: int,
+    problem_size: ProblemSize,
+    knob_groups: tuple[Q6SearchKnobGroup, ...],
+    output_dir: Path,
+) -> int:
+    if output_dir.exists() and any(output_dir.iterdir()):
+        raise ManifestError(f"refusing to populate nonempty {output_dir}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    seed = q6_schedule_from_solution(
+        ForwardSolution.q6_k_structured_decoded(macro_tile0=macro_tile)
+    )
+    candidates = q6_schedule_neighbors(seed, knob_groups)
+    entries: list[dict[str, object]] = []
+    for schedule in candidates:
+        pair = Q6ExactPairManifest(problem_size, schedule)
+        key = pair.solution_key
+        reasons = validate_solution(key)
+        if reasons:
+            detail = "; ".join(
+                f"{reason.rule_id}: {reason.message}" for reason in reasons
+            )
+            raise ManifestError(f"enumerated invalid Q6 candidate: {detail}")
+        candidate_dir = output_dir / pair.candidate_hash
+        candidate_dir.mkdir()
+        solution_path = candidate_dir / "solution-key.json"
+        manifest_path = candidate_dir / "candidate.json"
+        _write_json_exclusive(solution_path, key.to_mapping())
+        _write_json_exclusive(
+            manifest_path,
+            {
+                **pair.to_mapping(),
+                "ExactPairHash": pair.exact_pair_hash,
+                "SolutionKeyPath": "solution-key.json",
+            },
+        )
+        entries.append(
+            {
+                "CandidateHash": pair.candidate_hash,
+                "ExactPairHash": pair.exact_pair_hash,
+                "SolutionHash": key.hash,
+                "KernelName": key.kernel_name,
+                "Directory": pair.candidate_hash,
+            }
+        )
+    _write_json_exclusive(
+        output_dir / "index.json",
+        {
+            "SchemaVersion": 1,
+            "KernelFamily": "Q6StructuredDecoded",
+            "ProblemSize": problem_size.to_mapping(),
+            "MacroTile0": macro_tile,
+            "KnobGroups": list(knob_groups),
+            "CandidateCount": len(entries),
+            "Candidates": entries,
+        },
+    )
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     if arguments.command == "generate":
@@ -286,6 +440,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _build(arguments.generate_manifest, arguments.output_dir)
     if arguments.command == "inspect":
         return _inspect(arguments.build_manifest, arguments.output)
+    if arguments.command == "enumerate-forward":
+        raw_groups = arguments.knob_group
+        knob_groups = cast(tuple[ForwardSearchKnobGroup, ...], tuple(raw_groups or ()))
+        return _enumerate_forward(
+            arguments.quant_type,
+            ProblemSize(arguments.m, arguments.n, arguments.k),
+            knob_groups,
+            arguments.output_dir,
+        )
+    if arguments.command == "enumerate-forward-q6":
+        raw_groups = arguments.knob_group or ["InstructionPolicy", "Epilogue"]
+        knob_groups = cast(tuple[Q6SearchKnobGroup, ...], tuple(raw_groups))
+        return _enumerate_forward_q6(
+            arguments.macro_tile,
+            ProblemSize(arguments.m, arguments.n, arguments.k),
+            knob_groups,
+            arguments.output_dir,
+        )
     raise AssertionError(f"unhandled command {arguments.command}")
 
 

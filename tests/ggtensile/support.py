@@ -73,10 +73,10 @@ def _writer_body_lines(path: Path) -> set[int]:
         SHARED_WRITER_SOURCE_PATH: {"Assembly"},
         FWD_WRITER_SOURCE_PATH: {"ForwardKernelWriterAssembly"},
         BWD_WRITER_SOURCE_PATH: {"_Assembly", "BackwardKernelWriterAssembly"},
-    }[path]
+    }.get(path, set())
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if path != SHARED_WRITER_SOURCE_PATH:
+            if path not in (SHARED_WRITER_SOURCE_PATH, FWD_WRITER_SOURCE_PATH):
                 continue
             first_body_line = node.body[0].lineno
             assert node.end_lineno is not None
@@ -199,8 +199,8 @@ MMQ_FWD_INVENTORY_CASES = (
         (("selected", 3),),
         frozenset(
             {
-                "hip_scheduled_j64_selected",
-                "hip_scheduled_j128_selected",
+                "structured_decoded_mt64_selected",
+                "structured_decoded_mt128_selected",
             }
         ),
     ),

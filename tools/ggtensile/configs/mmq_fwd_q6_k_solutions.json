@@ -1,6 +1,6 @@
 {
   "Solutions": {
-    "hip_scheduled_j64_selected": {
+    "structured_decoded_mt64_selected": {
       "KernelLanguage": "Assembly",
       "ISA": [11, 5, 1],
       "WavefrontSize": 32,
@@ -12,9 +12,9 @@
       "ActivationLayout": "F32_D4",
       "ActivationBlockBytes": 144,
       "PackedWeightBlockBytes": 210,
-      "OperandSource": "Q6HipScheduled",
+      "OperandSource": "Q6StructuredDecoded",
       "WeightDecode": "DirectQ6Signed",
-      "LdsAddressHoist": "HipSchedule",
+      "LdsAddressHoist": "StructuredDecodeDot",
       "ActivationAddressing": "MadU24",
       "MetadataConversion": "Float16DToFloat32Signed8Scale",
       "ScaleArithmetic": "Int32ScaleF32",
@@ -24,10 +24,19 @@
       "WmmaClamp": false,
       "MetadataSchedule": "Serialized",
       "EpilogueTilesAhead": 8,
-      "EpilogueDependencyWidth": 1,
-      "EpiloguePriority": 0
+      "EpilogueDependencyWidth": 2,
+      "EpiloguePriority": 0,
+      "Q6EpiloguePipelineScope": "StoreBatch",
+      "Q6DependencyDelayMode": "None",
+      "Q6GlobalReadCachePolicy": "InvalidateL0",
+      "Q6OutputTraversal": "OutputRoleGroupMajor",
+      "Q6StageClustering": "StageDependencyOrder",
+      "Q6LatencyPolicy": "SerializedDependencyDistance",
+      "Q6PressurePolicy": "ExplicitRoleLifetime",
+      "Q6WaitPolicy": "ProducerFirstUse",
+      "Q6PairingPolicy": "DependencyCompatibleDualIssue"
     },
-    "hip_scheduled_j128_selected": {
+    "structured_decoded_mt128_selected": {
       "KernelLanguage": "Assembly",
       "ISA": [11, 5, 1],
       "WavefrontSize": 32,
@@ -39,9 +48,9 @@
       "ActivationLayout": "F32_D4",
       "ActivationBlockBytes": 144,
       "PackedWeightBlockBytes": 210,
-      "OperandSource": "Q6HipScheduled",
+      "OperandSource": "Q6StructuredDecoded",
       "WeightDecode": "DirectQ6Signed",
-      "LdsAddressHoist": "HipSchedule",
+      "LdsAddressHoist": "StructuredDecodeDot",
       "ActivationAddressing": "MadU24",
       "MetadataConversion": "Float16DToFloat32Signed8Scale",
       "ScaleArithmetic": "Int32ScaleF32",
@@ -51,8 +60,17 @@
       "WmmaClamp": false,
       "MetadataSchedule": "Serialized",
       "EpilogueTilesAhead": 8,
-      "EpilogueDependencyWidth": 1,
-      "EpiloguePriority": 0
+      "EpilogueDependencyWidth": 2,
+      "EpiloguePriority": 0,
+      "Q6EpiloguePipelineScope": "FullTile",
+      "Q6DependencyDelayMode": "Explicit",
+      "Q6GlobalReadCachePolicy": "InvalidateL0",
+      "Q6OutputTraversal": "OutputRoleGroupMajor",
+      "Q6StageClustering": "StageDependencyOrder",
+      "Q6LatencyPolicy": "SerializedDependencyDistance",
+      "Q6PressurePolicy": "ExplicitRoleLifetime",
+      "Q6WaitPolicy": "ProducerFirstUse",
+      "Q6PairingPolicy": "DependencyCompatibleDualIssue"
     }
   }
 }

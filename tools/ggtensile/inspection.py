@@ -6,7 +6,7 @@ from typing import Any
 
 import yaml
 
-from .kernel_writer_assembly_mmq_fwd import ForwardKernelWriterAssembly
+from .mmq_fwd_spec import ForwardKernelSpec, derive_forward_resource_usage
 from .model import ForwardSolution, SolutionKey
 from .toolchain import Toolchain
 
@@ -152,19 +152,10 @@ def inspect_artifact(
     if expected_wmmas is None:
         if isinstance(solution, ForwardSolution):
             expected_wmmas = (
-                min(solution.macro_tile0, 128) // 16
-                if solution.operand_source == "Q6DecodedStaged"
-                else solution.macro_tile0 // 8
-                if solution.operand_source == "Q6HipScheduled"
+                solution.macro_tile0 // 8
+                if solution.operand_source == "Q6StructuredDecoded"
                 else 32
-                if solution.operand_source == "HipDecodedStagedBatch8"
-                else 128
-                if solution.operand_source
-                in (
-                    "GlobalWaveReuse",
-                    "GlobalWaveBatch4",
-                    "HipStagedBatch8",
-                )
+                if solution.operand_source == "DecodedWeightLdsBatch8"
                 else 16
             )
         else:
@@ -188,10 +179,8 @@ def inspect_artifact(
         if isinstance(solution, ForwardSolution):
             expected_barriers = (
                 4
-                if solution.operand_source in ("Q6DecodedStaged", "Q6HipScheduled")
-                else 4
                 if solution.operand_source
-                in ("HipStagedBatch8", "HipDecodedStagedBatch8")
+                in ("Q6StructuredDecoded", "DecodedWeightLdsBatch8")
                 else 0
             )
         elif solution.one_lds_buffer == 0:
@@ -402,39 +391,21 @@ def _validate_forward_metadata(
     solution: ForwardSolution,
     errors: list[str],
 ) -> None:
+    kernel_spec = ForwardKernelSpec.from_solution(solution)
+    resources = derive_forward_resource_usage(kernel_spec)
     expected = {
         ".kernarg_segment_size": 40,
         ".kernarg_segment_align": 8,
-        ".group_segment_fixed_size": solution.lds_num_bytes,
+        ".group_segment_fixed_size": resources.lds_bytes,
         ".private_segment_fixed_size": 0,
-        ".max_flat_workgroup_size": solution.num_threads,
+        ".max_flat_workgroup_size": (
+            kernel_spec.geometry.work_group[0]
+            * kernel_spec.geometry.work_group[1]
+            * kernel_spec.geometry.work_group[2]
+        ),
         ".wavefront_size": solution.wavefront_size,
-        ".vgpr_count": (
-            (
-                ForwardKernelWriterAssembly.TOTAL_VGPRS_Q6_HIP_J64
-                if solution.macro_tile0 == 64
-                else ForwardKernelWriterAssembly.TOTAL_VGPRS_Q6_HIP_J128
-            )
-            if solution.operand_source == "Q6HipScheduled"
-            else (
-                ForwardKernelWriterAssembly.TOTAL_VGPRS_Q6_J64
-                if solution.macro_tile0 == 64
-                else ForwardKernelWriterAssembly.TOTAL_VGPRS_Q6_J128
-            )
-            if solution.operand_source == "Q6DecodedStaged"
-            else ForwardKernelWriterAssembly.TOTAL_VGPRS_HIP_STAGED
-            if solution.operand_source in ("HipStagedBatch8", "HipDecodedStagedBatch8")
-            else ForwardKernelWriterAssembly.TOTAL_VGPRS_BATCH
-            if solution.operand_source == "GlobalWaveBatch4"
-            else ForwardKernelWriterAssembly.TOTAL_VGPRS_REUSE
-            if solution.operand_source == "GlobalWaveReuse"
-            else ForwardKernelWriterAssembly.TOTAL_VGPRS
-        ),
-        ".sgpr_count": (
-            ForwardKernelWriterAssembly.TOTAL_SGPRS_HIP
-            if solution.operand_source == "Q6HipScheduled"
-            else ForwardKernelWriterAssembly.TOTAL_SGPRS
-        ),
+        ".vgpr_count": resources.vgprs,
+        ".sgpr_count": resources.sgprs,
         ".vgpr_spill_count": 0,
         ".sgpr_spill_count": 0,
     }

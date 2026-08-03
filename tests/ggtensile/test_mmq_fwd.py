@@ -1,3 +1,4 @@
+import hashlib
 import json
 from collections import Counter
 from dataclasses import fields, replace
@@ -33,6 +34,24 @@ _Q5_INVENTORY_CASE = next(
     case for case in MMQ_FWD_INVENTORY_CASES if case.quant_type == "Q5_K"
 )
 
+_Q6_SCHEDULE_ARTIFACT_SHA256 = {
+    64: {
+        "source": "c14dd8e63a6ed0ef68c1f7000b2c7905b3c97018fe38f24d7b970505d230cbc7",
+        "text": "cce9eace941433c87ed1676c60de16483862839bc8b88ef74e6309ce76962427",
+        "hsaco": "6843f95b4e5372e00992a09ece234d134386a83844cc687ff605b00df99583f7",
+    },
+    128: {
+        "source": "98218bc2300f59f6fbe2de09d304f3b74c44e04178231763d06efe3d7b530ae9",
+        "text": "655c33ae070ff214998a32c7075d629aa9635c3deb90b0581deef19f3e8f8956",
+        "hsaco": "b85503c7fe93d1f69b5a89be528910b79439c560d952fe2d9570b6b1769f3eb6",
+    },
+    256: {
+        "source": "e46cf7f0c91e9af5dd4801ce5394e510b587f8d02fc61e58b253a08b6e09ad16",
+        "text": "655c33ae070ff214998a32c7075d629aa9635c3deb90b0581deef19f3e8f8956",
+        "hsaco": "13f6621814702ef832f67597f49fc506b3e9fbd9235711dd596f427a2f89cf4a",
+    },
+}
+
 
 def _q4_extraction(
     tiles_ahead: int,
@@ -41,7 +60,7 @@ def _q4_extraction(
     priority: int = 2,
     metadata_after_low_wmma: bool = False,
 ) -> ForwardSolution:
-    return ForwardSolution.q4_k_hip_decoded_staged_extraction(
+    return ForwardSolution.q4_k_decoded_weight_lds_extraction(
         epilogue_tiles_ahead=tiles_ahead,
         epilogue_dependency_width=dependency_width,
         epilogue_priority=priority,
@@ -56,7 +75,7 @@ def _q5_extraction(
     priority: int = 0,
     accumulator_initialization: str = "ScalarCopy",
 ) -> ForwardSolution:
-    return ForwardSolution.q5_k_hip_decoded_staged_extraction(
+    return ForwardSolution.q5_k_decoded_weight_lds_extraction(
         epilogue_tiles_ahead=tiles_ahead,
         epilogue_dependency_width=dependency_width,
         epilogue_priority=priority,
@@ -73,7 +92,7 @@ def _key(
         default_solutions = {
             "Q4_K": ForwardSolution.q4_k_pilot(),
             "Q5_K": _q5_extraction(),
-            "Q6_K": ForwardSolution.q6_k_decoded_staged(macro_tile0=64),
+            "Q6_K": ForwardSolution.q6_k_structured_decoded(macro_tile0=64),
         }
         solution = default_solutions[quant_type]
     return SolutionKey(
@@ -145,11 +164,11 @@ def test_forward_solution_key_is_strict_and_round_trips(quant_type: str) -> None
 def test_forward_quant_types_have_distinct_problem_and_solution_identity() -> None:
     q4_key = _key(
         "Q4_K",
-        solution=ForwardSolution.q4_k_hip_decoded_staged_retained(),
+        solution=ForwardSolution.q4_k_decoded_weight_lds_retained(),
     )
     q5_key = _key(
         "Q5_K",
-        solution=ForwardSolution.q5_k_hip_decoded_staged_retained(),
+        solution=ForwardSolution.q5_k_decoded_weight_lds_retained(),
     )
     assert q4_key.problem_type != q5_key.problem_type
     assert q4_key.hash != q5_key.hash
@@ -162,8 +181,11 @@ def test_forward_solution_identity_normalizes_scalar_accumulator_initialization(
     None
 ):
     mapping = ForwardSolution.q4_k_pilot().to_mapping()
-    assert len(mapping) == len(fields(ForwardSolution)) - 1
+    assert len(mapping) == len(fields(ForwardSolution)) - 10
     assert "AccumulatorInitialization" not in mapping
+    assert "Q6EpiloguePipelineScope" not in mapping
+    assert "Q6DependencyDelayMode" not in mapping
+    assert "Q6GlobalReadCachePolicy" not in mapping
     assert ForwardSolution.from_mapping(mapping).to_mapping() == mapping
 
     vopd = replace(
@@ -171,9 +193,36 @@ def test_forward_solution_identity_normalizes_scalar_accumulator_initialization(
         accumulator_initialization="VopdPair",
     )
     vopd_mapping = vopd.to_mapping()
-    assert len(vopd_mapping) == len(fields(ForwardSolution))
+    assert len(vopd_mapping) == len(fields(ForwardSolution)) - 9
     assert vopd_mapping["AccumulatorInitialization"] == "VopdPair"
     assert ForwardSolution.from_mapping(vopd_mapping) == vopd
+
+    structured = ForwardSolution.q6_k_structured_decoded(macro_tile0=128)
+    structured_mapping = structured.to_mapping()
+    assert structured_mapping["Q6EpiloguePipelineScope"] == "FullTile"
+    assert structured_mapping["Q6DependencyDelayMode"] == "Explicit"
+    assert structured_mapping["Q6GlobalReadCachePolicy"] == "InvalidateL0"
+    assert structured_mapping["Q6OutputTraversal"] == "OutputRoleGroupMajor"
+    assert structured_mapping["Q6StageClustering"] == "StageDependencyOrder"
+    assert structured_mapping["Q6LatencyPolicy"] == "SerializedDependencyDistance"
+    assert structured_mapping["Q6PressurePolicy"] == "ExplicitRoleLifetime"
+    assert structured_mapping["Q6WaitPolicy"] == "ProducerFirstUse"
+    assert structured_mapping["Q6PairingPolicy"] == "DependencyCompatibleDualIssue"
+    assert len(structured_mapping) == len(fields(ForwardSolution)) - 1
+    assert ForwardSolution.from_mapping(structured_mapping) == structured
+
+    for policy in (
+        "Q6OutputTraversal",
+        "Q6StageClustering",
+        "Q6LatencyPolicy",
+        "Q6PressurePolicy",
+        "Q6WaitPolicy",
+        "Q6PairingPolicy",
+    ):
+        incomplete = dict(structured_mapping)
+        del incomplete[policy]
+        with pytest.raises(SchemaError, match="invalid Solution"):
+            ForwardSolution.from_mapping(incomplete)
 
 
 @pytest.mark.parametrize(
@@ -222,11 +271,23 @@ def test_forward_validation_rejects_unimplemented_mechanisms(
         ("Q5_K", ProblemSize(2048, 2048, 4096)),
     ),
 )
-def test_forward_validation_rejects_nonproduction_sizes(
+def test_forward_validation_accepts_noncatalog_tile_aligned_sizes(
     quant_type: str,
     size: ProblemSize,
 ) -> None:
-    assert validate_solution(_key(quant_type, size=size))
+    assert validate_solution(_key(quant_type, size=size)) == ()
+
+
+@pytest.mark.parametrize(
+    "size",
+    (
+        ProblemSize(127, 512, 2048),
+        ProblemSize(2048, 1000, 2048),
+        ProblemSize(2048, 512, 2305),
+    ),
+)
+def test_forward_validation_rejects_nondivisible_sizes(size: ProblemSize) -> None:
+    assert validate_solution(_key(size=size))
 
 
 def test_q6_forward_validation_rejects_q4_control() -> None:
@@ -246,17 +307,17 @@ def test_q6_forward_validation_rejects_q4_control() -> None:
         ForwardSolution.q4_k_pilot(),
     )
     assert {reason.rule_id for reason in validate_solution(key)} == {
-        "solution.forward.q6.control.unimplemented"
+        "solution.forward.problem_contract"
     }
 
 
 def test_q5_forward_validation_rejects_q4_control() -> None:
     key = _key(
         "Q5_K",
-        solution=ForwardSolution.q4_k_hip_decoded_staged_retained(),
+        solution=ForwardSolution.q4_k_decoded_weight_lds_retained(),
     )
     assert {reason.rule_id for reason in validate_solution(key)} == {
-        "solution.forward.control.unimplemented"
+        "solution.forward.problem_contract"
     }
 
 
@@ -278,61 +339,8 @@ def test_forward_writer_emits_direct_q8_1_f16_d4s4_q4_k_control(tmp_path: Path) 
     assert "ds_" not in source
 
 
-def test_forward_writer_emits_flat_wave_reuse_control() -> None:
-    key = _key(solution=ForwardSolution.q4_k_wave_reuse())
-    source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
-    assert source.count("v_wmma_i32_16x16x16_iu8") == 128
-    assert "v_lshrrev_b32 v159, 5, v157" in source
-    assert "Reused Q4_K group 7 across eight activation tiles." in source
-    assert "global_store_d16_hi_b16" in source
-    assert "v_fma_mix_f32" in source
-    assert "v_cvt_f32_f16 v120" not in source
-    assert "s_barrier" not in source
-
-
-def test_forward_writer_emits_wave_batch_control() -> None:
-    key = _key(solution=ForwardSolution.q4_k_wave_batch4())
-    source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
-    assert source.count("v_wmma_i32_16x16x16_iu8") == 128
-    assert "Batch Q4_K group 7 across four activation tiles at a time." in source
-    assert "v_wmma_i32_16x16x16_iu8 v[112:119]" in source
-    assert "v_wmma_i32_16x16x16_iu8 v[136:143]" in source
-    assert "v_mov_b32 v175, v2" in source
-    assert "v_mov_b32 v176, v2" not in source
-    assert "v_fma_mix_f32 v148" in source
-    assert "s_barrier" not in source
-
-
-def test_forward_writer_emits_hip_shaped_staged_control() -> None:
-    key = _key(solution=ForwardSolution.q4_k_hip_staged())
-    source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
-    assert source.count("v_wmma_i32_16x16x16_iu8") == 128
-    assert source.count("s_barrier") == 4
-    assert "Cooperatively stage the raw packed Q4_K payload." in source
-    assert "Cooperatively stage one contiguous 128-row Q8_1 F16_D4S4 plane." in source
-    assert "ds_write_b128" in source
-    assert "ds_read_b128" in source
-    assert source.count("v_dual_fmac_f32") == 512
-    assert "v_fmac_f32_e32" not in source
-
-
-def test_forward_writer_emits_hip_decoded_staged_control() -> None:
-    key = _key(solution=ForwardSolution.q4_k_hip_decoded_staged())
-    source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
-    assert source.count("v_wmma_i32_16x16x16_iu8") == 32
-    assert source.count("s_barrier") == 4
-    assert "Cooperatively decode Q4_K payload into HIP's padded LDS rows." in source
-    assert "Compute each packed Q4_K scale/min pair once per weight row." in source
-    assert "Roll decoded Q4_K groups 0 through 3." in source
-    assert "Roll decoded Q4_K groups 4 through 7." in source
-    assert "ds_write2st64_b32" in source
-    assert "ds_read2st64_b32" in source
-    assert source.count("v_dual_fmac_f32") == 128
-    assert "s_clause" not in source
-
-
 def test_forward_writer_emits_retained_decoded_staged_control() -> None:
-    key = _key(solution=ForwardSolution.q4_k_hip_decoded_staged_retained())
+    key = _key(solution=ForwardSolution.q4_k_decoded_weight_lds_retained())
     source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert source.count("v_wmma_i32_16x16x16_iu8") == 32
     assert source.count("s_barrier") == 4
@@ -346,7 +354,7 @@ def test_forward_writer_emits_retained_decoded_staged_control() -> None:
 
 
 def test_forward_writer_emits_metadata_after_low_wmma_schedule() -> None:
-    solution = ForwardSolution.q4_k_hip_decoded_staged_metadata_after_low_wmma()
+    solution = ForwardSolution.q4_k_decoded_weight_lds_metadata_after_low_wmma()
     key = _key(solution=solution)
     assert validate_solution(key) == ()
     source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
@@ -501,21 +509,21 @@ def test_forward_writer_emits_selected_exact_epilogue(
         ),
     ),
 )
-def test_forward_extraction_rejects_unmeasured_exact_key(
+def test_forward_extraction_accepts_unselected_capability_candidate(
     size: ProblemSize,
     solution: ForwardSolution,
 ) -> None:
     key = _key(size=size, solution=solution)
-    assert {reason.rule_id for reason in validate_solution(key)} >= {
-        "solution.forward.metadata_schedule.key"
-    }
+    assert validate_solution(key) == ()
+    source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
+    assert f"s_setprio {solution.epilogue_priority}" in source
 
 
 @pytest.mark.parametrize(
     "solution",
     (
-        ForwardSolution.q5_k_hip_decoded_staged_retained(),
-        ForwardSolution.q5_k_hip_decoded_staged_metadata_after_low_wmma(),
+        ForwardSolution.q5_k_decoded_weight_lds_retained(),
+        ForwardSolution.q5_k_decoded_weight_lds_metadata_after_low_wmma(),
         _q5_extraction(),
     ),
 )
@@ -525,7 +533,7 @@ def test_q5_forward_writer_covers_high_bit_decode_and_schedule(
     key = _key("Q5_K", solution=solution)
     source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert "GGTensile Q5_K MMQ forward" in source
-    assert "Cooperatively decode Q5_K payload into HIP's padded LDS rows." in source
+    assert "Cooperatively decode Q5_K payload into padded LDS rows." in source
     assert "Build Q5_K high-bit and low-nibble payload addresses." in source
     assert "v_mad_u32_u24 v231, 16, v231, v228" in source
     assert "v_mad_u32_u24 v228, 16, v230, v228" in source
@@ -563,15 +571,23 @@ def test_q5_forward_writer_emits_vopd_accumulator_initialization() -> None:
 
 def test_forward_runtime_uses_exact_candidate_launch_geometry() -> None:
     direct = ForwardModule.__new__(ForwardModule)
-    direct.solution_key = _key(solution=ForwardSolution.q4_k_wave_reuse())
+    direct.solution_key = _key(
+        solution=ForwardSolution.q4_k_decoded_weight_lds_retained()
+    )
     assert direct._launch_configuration() == ((8, 16, 1), (128, 1, 1), 0)
 
 
 @pytest.mark.parametrize(
     ("m", "macro_tile0", "grid_y"),
-    ((64, 64, 1), (128, 128, 1), (256, 128, 2)),
+    (
+        (64, 64, 1),
+        (128, 128, 1),
+        (192, 64, 3),
+        (256, 128, 2),
+        (384, 128, 3),
+    ),
 )
-def test_q6_hip_scheduled_runtime_uses_structured_exact_geometry(
+def test_q6_structured_decoded_runtime_uses_exact_geometry(
     m: int,
     macro_tile0: int,
     grid_y: int,
@@ -580,11 +596,45 @@ def test_q6_hip_scheduled_runtime_uses_structured_exact_geometry(
     module.solution_key = _key(
         "Q6_K",
         ProblemSize(m, 248320, 2048),
-        ForwardSolution.q6_k_hip_scheduled(macro_tile0=macro_tile0),
+        ForwardSolution.q6_k_structured_decoded(macro_tile0=macro_tile0),
     )
     assert validate_solution(module.solution_key) == ()
     assert module._launch_configuration() == (
         (3880, grid_y, 1),
+        (32, 4, 1),
+        0,
+    )
+
+
+@pytest.mark.parametrize(
+    ("size", "macro_tile0"),
+    (
+        (ProblemSize(64, 64, 256), 64),
+        (ProblemSize(320, 192, 768), 64),
+        (ProblemSize(128, 64, 256), 128),
+        (ProblemSize(384, 320, 1024), 128),
+        (ProblemSize(512, 256, 2304), 128),
+    ),
+)
+def test_q6_structured_candidate_generates_for_blind_divisible_shape(
+    size: ProblemSize,
+    macro_tile0: int,
+) -> None:
+    key = _key(
+        "Q6_K",
+        size,
+        ForwardSolution.q6_k_structured_decoded(macro_tile0=macro_tile0),
+    )
+    assert validate_solution(key) == ()
+    source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
+    blocks_per_weight_row = size.k // 256
+    assert key.kernel_name in source
+    assert "blocks_per_weight_row" in source
+    assert f"s_cmp_lg_u32 s23, {blocks_per_weight_row}" in source
+    module = ForwardModule.__new__(ForwardModule)
+    module.solution_key = key
+    assert module._launch_configuration() == (
+        (size.n // 64, size.m // macro_tile0, 1),
         (32, 4, 1),
         0,
     )
@@ -617,43 +667,7 @@ def test_forward_runtime_uses_exact_hip_launch_geometry(quant_type: str) -> None
             id="q4-pilot",
         ),
         pytest.param(
-            _key(solution=ForwardSolution.q4_k_wave_reuse()),
-            128,
-            164,
-            0,
-            0,
-            None,
-            id="q4-wave-reuse",
-        ),
-        pytest.param(
-            _key(solution=ForwardSolution.q4_k_wave_batch4()),
-            128,
-            194,
-            0,
-            0,
-            None,
-            id="q4-wave-batch4",
-        ),
-        pytest.param(
-            _key(solution=ForwardSolution.q4_k_hip_staged()),
-            128,
-            239,
-            4,
-            26_624,
-            None,
-            id="q4-hip-staged",
-        ),
-        pytest.param(
-            _key(solution=ForwardSolution.q4_k_hip_decoded_staged()),
-            32,
-            239,
-            4,
-            38_400,
-            None,
-            id="q4-decoded-staged",
-        ),
-        pytest.param(
-            _key(solution=ForwardSolution.q4_k_hip_decoded_staged_retained()),
+            _key(solution=ForwardSolution.q4_k_decoded_weight_lds_retained()),
             32,
             239,
             4,
@@ -663,7 +677,7 @@ def test_forward_runtime_uses_exact_hip_launch_geometry(quant_type: str) -> None
         ),
         pytest.param(
             _key(
-                solution=ForwardSolution.q4_k_hip_decoded_staged_metadata_after_low_wmma()
+                solution=ForwardSolution.q4_k_decoded_weight_lds_metadata_after_low_wmma()
             ),
             32,
             239,
@@ -712,40 +726,66 @@ def test_forward_runtime_uses_exact_hip_launch_geometry(quant_type: str) -> None
             _key(
                 "Q6_K",
                 ProblemSize(64, 248320, 2048),
-                ForwardSolution.q6_k_hip_scheduled(macro_tile0=64),
+                ForwardSolution.q6_k_structured_decoded(macro_tile0=64),
             ),
             8,
             158,
             4,
             28_928,
             13,
-            id="q6-hip-scheduled-m64",
+            id="q6-structured-decoded-m64",
         ),
         pytest.param(
             _key(
                 "Q6_K",
                 ProblemSize(128, 248320, 2048),
-                ForwardSolution.q6_k_hip_scheduled(macro_tile0=128),
+                ForwardSolution.q6_k_structured_decoded(macro_tile0=128),
             ),
             16,
             210,
             4,
             38_400,
             19,
-            id="q6-hip-scheduled-m128",
+            id="q6-structured-decoded-m128",
         ),
         pytest.param(
             _key(
                 "Q6_K",
                 ProblemSize(256, 248320, 2048),
-                ForwardSolution.q6_k_hip_scheduled(macro_tile0=128),
+                ForwardSolution.q6_k_structured_decoded(macro_tile0=128),
             ),
             16,
             210,
             4,
             38_400,
             19,
-            id="q6-hip-scheduled-m256",
+            id="q6-structured-decoded-m256",
+        ),
+        pytest.param(
+            _key(
+                "Q6_K",
+                ProblemSize(320, 192, 768),
+                ForwardSolution.q6_k_structured_decoded(macro_tile0=64),
+            ),
+            8,
+            158,
+            4,
+            28_928,
+            13,
+            id="q6-structured-decoded-blind-mt64",
+        ),
+        pytest.param(
+            _key(
+                "Q6_K",
+                ProblemSize(384, 320, 1024),
+                ForwardSolution.q6_k_structured_decoded(macro_tile0=128),
+            ),
+            16,
+            210,
+            4,
+            38_400,
+            19,
+            id="q6-structured-decoded-blind-mt128",
         ),
     ),
 )
@@ -777,10 +817,28 @@ def test_forward_artifact_passes_strict_inspection(
         sgpr_count=(
             27
             if isinstance(key.solution, ForwardSolution)
-            and key.solution.operand_source == "Q6HipScheduled"
+            and key.solution.operand_source == "Q6StructuredDecoded"
             else 16
         ),
     )
+    if (
+        isinstance(key.solution, ForwardSolution)
+        and key.solution.operand_source == "Q6StructuredDecoded"
+    ):
+        expected_hashes = _Q6_SCHEDULE_ARTIFACT_SHA256.get(key.problem_size.m)
+        if expected_hashes is not None:
+            code_object = tmp_path / "kernel.hsaco"
+            text_section = tmp_path / "kernel.text"
+            toolchain.extract_section(code_object, ".text", text_section)
+            assert artifact.source_hash == expected_hashes["source"]
+            assert (
+                hashlib.sha256(text_section.read_bytes()).hexdigest()
+                == expected_hashes["text"]
+            )
+            assert (
+                hashlib.sha256(code_object.read_bytes()).hexdigest()
+                == expected_hashes["hsaco"]
+            )
 
 
 def test_forward_writer_rejects_invalid_solution() -> None:

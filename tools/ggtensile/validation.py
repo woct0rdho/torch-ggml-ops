@@ -1,5 +1,9 @@
 from dataclasses import dataclass, replace
 
+from .mmq_fwd_spec import (
+    ForwardProblemContract,
+    forward_kernel_spec_rejection_reason,
+)
 from .model import (
     BackwardSolution,
     ForwardSolution,
@@ -68,26 +72,158 @@ def _validate_backward_problem_type(
             )
 
 
-def _q4_forward_extraction(
-    tiles_ahead: int,
-    dependency_width: int,
-    *,
-    priority: int = 2,
-    metadata_after_low_wmma: bool = False,
-) -> ForwardSolution:
-    return ForwardSolution.q4_k_hip_decoded_staged_extraction(
-        epilogue_tiles_ahead=tiles_ahead,
-        epilogue_dependency_width=dependency_width,
-        epilogue_priority=priority,
-        metadata_after_low_wmma=metadata_after_low_wmma,
+def _validate_forward_tile_multiples(
+    problem_size: ProblemSize,
+    solution: ForwardSolution,
+    reasons: list[RejectReason],
+) -> None:
+    for parameter, value, divisor in (
+        ("M", problem_size.m, solution.macro_tile0),
+        ("N", problem_size.n, solution.macro_tile1),
+        ("K", problem_size.k, 256),
+    ):
+        if value <= 0 or divisor <= 0 or value % divisor:
+            _reject(
+                reasons,
+                f"problem_size.{parameter.lower()}.forward_tile_multiple",
+                f"{parameter} must be a positive multiple of {divisor}",
+                parameter,
+                source="ProblemSize",
+            )
+
+
+def _is_forward_extraction(
+    solution: ForwardSolution,
+    base: ForwardSolution,
+    metadata_schedules: tuple[str, ...],
+) -> bool:
+    if (
+        solution.metadata_schedule not in metadata_schedules
+        or solution.epilogue_tiles_ahead not in range(1, 9)
+        or solution.epilogue_dependency_width not in range(1, 9)
+        or solution.epilogue_priority not in range(4)
+        or solution.accumulator_initialization not in ("ScalarCopy", "VopdPair")
+    ):
+        return False
+    return replace(
+        solution,
+        metadata_schedule="Serialized",
+        epilogue_tiles_ahead=8,
+        epilogue_dependency_width=1,
+        epilogue_priority=0,
+        accumulator_initialization="ScalarCopy",
+    ) == replace(base, metadata_schedule="Serialized")
+
+
+def _validate_q6_forward_solution(
+    problem_size: ProblemSize,
+    solution: ForwardSolution,
+    reasons: list[RejectReason],
+) -> None:
+    if solution.macro_tile0 not in (64, 128):
+        _reject(
+            reasons,
+            "solution.forward.q6.control.unimplemented",
+            "Q6_K forward implements structured MT64 or MT128 controls",
+            "Solution",
+        )
+        return
+    structured = ForwardSolution.q6_k_structured_decoded(
+        macro_tile0=solution.macro_tile0
     )
+    structured_candidate = (
+        replace(
+            solution,
+            epilogue_dependency_width=structured.epilogue_dependency_width,
+            q6_epilogue_pipeline_scope=structured.q6_epilogue_pipeline_scope,
+            q6_dependency_delay_mode=structured.q6_dependency_delay_mode,
+            q6_global_read_cache_policy=structured.q6_global_read_cache_policy,
+        )
+        == structured
+    )
+    if not structured_candidate:
+        _reject(
+            reasons,
+            "solution.forward.q6.control.unimplemented",
+            "Q6_K forward implements structured MT64 or MT128 controls",
+            "Solution",
+        )
+        return
+
+    _validate_forward_tile_multiples(problem_size, solution, reasons)
+    if (
+        solution.epilogue_dependency_width not in (1, 2, 4, 8)
+        or solution.q6_epilogue_pipeline_scope not in ("StoreBatch", "FullTile")
+        or solution.q6_dependency_delay_mode not in ("None", "Explicit")
+        or solution.q6_global_read_cache_policy not in ("Default", "InvalidateL0")
+        or (solution.macro_tile0 == 64 and solution.q6_dependency_delay_mode != "None")
+    ):
+        _reject(
+            reasons,
+            "solution.forward.q6.schedule.unimplemented",
+            "structured Q6 requires an implemented epilogue, delay, and cache policy",
+            "EpilogueDependencyWidth",
+            "Q6EpiloguePipelineScope",
+            "Q6DependencyDelayMode",
+            "Q6GlobalReadCachePolicy",
+        )
+
+
+def _validate_q5_forward_solution(
+    problem_size: ProblemSize,
+    solution: ForwardSolution,
+    reasons: list[RejectReason],
+) -> None:
+    fixed = (
+        ForwardSolution.q5_k_decoded_weight_lds_retained(),
+        ForwardSolution.q5_k_decoded_weight_lds_metadata_after_low_wmma(),
+    )
+    extraction = _is_forward_extraction(
+        solution,
+        ForwardSolution.q5_k_decoded_weight_lds_retained(),
+        ("IndependentExtractionMetadataAfterLowWmma",),
+    )
+    if solution not in fixed and not extraction:
+        _reject(
+            reasons,
+            "solution.forward.control.unimplemented",
+            "Q5_K forward implements retained decoded staging and explicit extraction/epilogue policies",
+            "Solution",
+        )
+        return
+    _validate_forward_tile_multiples(problem_size, solution, reasons)
+
+
+def _validate_q4_forward_solution(
+    problem_size: ProblemSize,
+    solution: ForwardSolution,
+    reasons: list[RejectReason],
+) -> None:
+    fixed = (
+        ForwardSolution.q4_k_pilot(),
+        ForwardSolution.q4_k_decoded_weight_lds_retained(),
+        ForwardSolution.q4_k_decoded_weight_lds_metadata_after_low_wmma(),
+    )
+    extraction = _is_forward_extraction(
+        solution,
+        ForwardSolution.q4_k_decoded_weight_lds_retained(),
+        ("IndependentExtraction", "IndependentExtractionMetadataAfterLowWmma"),
+    )
+    if solution not in fixed and not extraction:
+        _reject(
+            reasons,
+            "solution.forward.control.unimplemented",
+            "Q4_K forward implements direct global or decoded-staged extraction/epilogue policies",
+            "Solution",
+        )
+        return
+    _validate_forward_tile_multiples(problem_size, solution, reasons)
 
 
 def _validate_forward_solution(
     solution_key: SolutionKey, reasons: list[RejectReason]
 ) -> None:
     problem_type = solution_key.problem_type
-    problem_size = solution_key.problem_size
     solution = solution_key.solution
     supported_problem_types = {
         ProblemType.mmq_forward("Q4_K"),
@@ -111,264 +247,40 @@ def _validate_forward_solution(
             source="SolutionStructs",
         )
         return
-    if problem_type == ProblemType.mmq_forward("Q6_K"):
-        expected_macro_tile0 = problem_size.m
-        if expected_macro_tile0 not in (64, 128, 256):
-            expected_macro_tile0 = (
-                solution.macro_tile0 if solution.macro_tile0 in (64, 128, 256) else 64
-            )
-        expected = ForwardSolution.q6_k_decoded_staged(macro_tile0=expected_macro_tile0)
-        hip_scheduled = ForwardSolution.q6_k_hip_scheduled(
-            macro_tile0=128 if problem_size.m == 256 else expected_macro_tile0
-        )
-        if solution != expected and solution != hip_scheduled:
-            _reject(
-                reasons,
-                "solution.forward.q6.control.unimplemented",
-                "Q6_K forward requires an exact decoded-staged or HIP-scheduled control",
-                "Solution",
-            )
-            return
-        if problem_size not in (
-            ProblemSize(64, 248320, 2048),
-            ProblemSize(128, 248320, 2048),
-            ProblemSize(256, 248320, 2048),
-        ):
-            _reject(
-                reasons,
-                "problem_size.forward.q6.production",
-                "Q6_K forward requires exact M64, M128, or M256 LM-head keys",
-                "M",
-                "N",
-                "K",
-                source="ProblemSize",
-            )
-        if problem_size.m % solution.macro_tile0:
-            _reject(
-                reasons,
-                "problem_size.m.forward_tile_multiple",
-                f"M must be a positive multiple of {solution.macro_tile0}",
-                "M",
-                source="ProblemSize",
-            )
+    if problem_type not in supported_problem_types:
         return
-    if problem_type == ProblemType.mmq_forward("Q5_K"):
-        q5_retained = ForwardSolution.q5_k_hip_decoded_staged_retained()
-        q5_metadata_after_low = (
-            ForwardSolution.q5_k_hip_decoded_staged_metadata_after_low_wmma()
-        )
-        q5_independent = ForwardSolution.q5_k_hip_decoded_staged_extraction(
-            epilogue_tiles_ahead=8,
-            epilogue_dependency_width=1,
-            epilogue_priority=0,
-        )
-        q5_extraction = (
-            replace(
-                solution,
-                epilogue_tiles_ahead=8,
-                epilogue_dependency_width=1,
-                epilogue_priority=0,
-                accumulator_initialization="ScalarCopy",
-            )
-            == q5_independent
-            and solution.epilogue_tiles_ahead in range(1, 9)
-            and solution.epilogue_dependency_width in range(1, 9)
-            and solution.epilogue_priority in range(4)
-            and solution.accumulator_initialization in ("ScalarCopy", "VopdPair")
-        )
-        if solution not in (q5_retained, q5_metadata_after_low) and not q5_extraction:
-            _reject(
-                reasons,
-                "solution.forward.control.unimplemented",
-                "Q5_K forward implements only the retained decoded-staged controls",
-                "Solution",
-            )
-            return
-        if problem_size.m not in (2048, 8192, 32768):
-            _reject(
-                reasons,
-                "problem_size.m.forward_production",
-                "Q5_K forward requires M=2048, 8192, or 32768",
-                "M",
-                source="ProblemSize",
-            )
-        if (problem_size.n, problem_size.k) not in {(512, 2048), (2048, 512)}:
-            _reject(
-                reasons,
-                "problem_size.nk.forward_production",
-                "Q5_K forward requires an exact production (N,K) pair",
-                "N",
-                "K",
-                source="ProblemSize",
-            )
-        for parameter, value, divisor in (
-            ("M", problem_size.m, solution.macro_tile0),
-            ("N", problem_size.n, solution.macro_tile1),
-            ("K", problem_size.k, 256),
-        ):
-            if value <= 0 or value % divisor:
-                _reject(
-                    reasons,
-                    f"problem_size.{parameter.lower()}.forward_tile_multiple",
-                    f"{parameter} must be a positive multiple of {divisor}",
-                    parameter,
-                    source="ProblemSize",
-                )
-        return
-    pilot = ForwardSolution.q4_k_pilot()
-    wave_reuse = ForwardSolution.q4_k_wave_reuse()
-    wave_batch = ForwardSolution.q4_k_wave_batch4()
-    hip_staged = ForwardSolution.q4_k_hip_staged()
-    hip_decoded_staged = ForwardSolution.q4_k_hip_decoded_staged()
-    hip_decoded_staged_retained = ForwardSolution.q4_k_hip_decoded_staged_retained()
-    hip_decoded_staged_metadata_after_low_wmma = (
-        ForwardSolution.q4_k_hip_decoded_staged_metadata_after_low_wmma()
+
+    contract_rejection = ForwardProblemContract.rejection_reason(
+        problem_type.quant_data_type,
+        solution,
     )
-    hip_decoded_staged_independent_extraction_metadata_after_low_wmma = (
-        _q4_forward_extraction(
-            8,
-            1,
-            priority=0,
-            metadata_after_low_wmma=True,
-        )
-    )
-    hip_decoded_staged_shared_down_m8192 = _q4_forward_extraction(1, 4)
-    hip_decoded_staged_shared_down_m32768 = _q4_forward_extraction(1, 2)
-    hip_decoded_staged_shared_down_m2048_metadata_after_low_wmma = (
-        _q4_forward_extraction(1, 2, metadata_after_low_wmma=True)
-    )
-    hip_decoded_staged_shared_down_m8192_metadata_after_low_wmma = (
-        _q4_forward_extraction(1, 4, metadata_after_low_wmma=True)
-    )
-    hip_decoded_staged_shared_down_m32768_metadata_after_low_wmma = (
-        _q4_forward_extraction(1, 2, metadata_after_low_wmma=True)
-    )
-    hip_decoded_staged_narrow_m32768_metadata_after_low_wmma = _q4_forward_extraction(
-        4, 4, metadata_after_low_wmma=True
-    )
-    hip_decoded_staged_query_m2048_metadata_after_low_wmma = _q4_forward_extraction(
-        1, 2, metadata_after_low_wmma=True
-    )
-    hip_decoded_staged_query_m8192_metadata_after_low_wmma = _q4_forward_extraction(
-        4, 4, metadata_after_low_wmma=True
-    )
-    hip_decoded_staged_query_m32768_metadata_after_low_wmma = _q4_forward_extraction(
-        2, 2, metadata_after_low_wmma=True
-    )
-    implemented = (
-        pilot,
-        wave_reuse,
-        wave_batch,
-        hip_staged,
-        hip_decoded_staged,
-        hip_decoded_staged_retained,
-        hip_decoded_staged_metadata_after_low_wmma,
-        hip_decoded_staged_independent_extraction_metadata_after_low_wmma,
-        hip_decoded_staged_shared_down_m8192,
-        hip_decoded_staged_shared_down_m32768,
-        hip_decoded_staged_shared_down_m2048_metadata_after_low_wmma,
-        hip_decoded_staged_shared_down_m8192_metadata_after_low_wmma,
-        hip_decoded_staged_shared_down_m32768_metadata_after_low_wmma,
-        hip_decoded_staged_narrow_m32768_metadata_after_low_wmma,
-        hip_decoded_staged_query_m2048_metadata_after_low_wmma,
-        hip_decoded_staged_query_m8192_metadata_after_low_wmma,
-        hip_decoded_staged_query_m32768_metadata_after_low_wmma,
-    )
-    if solution not in implemented:
+    if contract_rejection is not None:
         _reject(
             reasons,
-            "solution.forward.control.unimplemented",
-            "forward implements only the direct, wave-reuse, four-tile-wave-batch, raw staged, decoded staged, and retained decoded-staged controls",
+            "solution.forward.problem_contract",
+            contract_rejection,
             "Solution",
+            source="ForwardProblemContract",
         )
         return
-    allowed_pairs = {(512, 2048), (2048, 512), (2048, 4096), (8192, 2048)}
-    if problem_size.m not in (2048, 8192, 32768):
+    spec_rejection = forward_kernel_spec_rejection_reason(solution)
+    if spec_rejection is not None:
         _reject(
             reasons,
-            "problem_size.m.forward_production",
-            "Q4_K forward requires M=2048, 8192, or 32768",
-            "M",
-            source="ProblemSize",
+            "solution.forward.kernel_spec",
+            spec_rejection,
+            "Solution",
+            source="ForwardKernelSpec",
         )
-    if (problem_size.n, problem_size.k) not in allowed_pairs:
-        _reject(
-            reasons,
-            "problem_size.nk.forward_production",
-            "Q4_K forward requires an exact production (N,K) pair",
-            "N",
-            "K",
-            source="ProblemSize",
-        )
-    if solution.metadata_schedule in (
-        "IndependentExtraction",
-        "IndependentExtractionMetadataAfterLowWmma",
-    ):
-        if (
-            solution
-            == hip_decoded_staged_independent_extraction_metadata_after_low_wmma
-        ):
-            expected = solution
-        else:
-            if solution.metadata_schedule == "IndependentExtraction":
-                selected_by_size = {
-                    (8192, 2048, 512): hip_decoded_staged_shared_down_m8192,
-                    (32768, 2048, 512): hip_decoded_staged_shared_down_m32768,
-                }
-            else:
-                selected_by_size = {
-                    (2048, 2048, 512): (
-                        hip_decoded_staged_shared_down_m2048_metadata_after_low_wmma
-                    ),
-                    (8192, 2048, 512): (
-                        hip_decoded_staged_shared_down_m8192_metadata_after_low_wmma
-                    ),
-                    (32768, 2048, 512): (
-                        hip_decoded_staged_shared_down_m32768_metadata_after_low_wmma
-                    ),
-                    (32768, 512, 2048): (
-                        hip_decoded_staged_narrow_m32768_metadata_after_low_wmma
-                    ),
-                    (2048, 8192, 2048): (
-                        hip_decoded_staged_query_m2048_metadata_after_low_wmma
-                    ),
-                    (8192, 8192, 2048): (
-                        hip_decoded_staged_query_m8192_metadata_after_low_wmma
-                    ),
-                    (32768, 8192, 2048): (
-                        hip_decoded_staged_query_m32768_metadata_after_low_wmma
-                    ),
-                }
-            expected = selected_by_size.get(
-                (problem_size.m, problem_size.n, problem_size.k)
-            )
-        if solution != expected:
-            _reject(
-                reasons,
-                "solution.forward.metadata_schedule.key",
-                "independent metadata extraction and epilogue scheduling require their measured exact shared-down key",
-                "MetadataSchedule",
-                "EpilogueTilesAhead",
-                "EpilogueDependencyWidth",
-                "EpiloguePriority",
-                "M",
-                "N",
-                "K",
-                source="SolutionStructs",
-            )
-    for parameter, value, divisor in (
-        ("M", problem_size.m, solution.macro_tile0),
-        ("N", problem_size.n, solution.macro_tile1),
-        ("K", problem_size.k, 256),
-    ):
-        if value <= 0 or value % divisor:
-            _reject(
-                reasons,
-                f"problem_size.{parameter.lower()}.forward_tile_multiple",
-                f"{parameter} must be a positive multiple of {divisor}",
-                parameter,
-                source="ProblemSize",
-            )
+        return
+
+    problem_size = solution_key.problem_size
+    if problem_type.quant_data_type == "Q6_K":
+        _validate_q6_forward_solution(problem_size, solution, reasons)
+    elif problem_type.quant_data_type == "Q5_K":
+        _validate_q5_forward_solution(problem_size, solution, reasons)
+    else:
+        _validate_q4_forward_solution(problem_size, solution, reasons)
 
 
 def _validate_backward_problem_size(

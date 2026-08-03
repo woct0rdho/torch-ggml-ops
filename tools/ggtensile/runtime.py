@@ -8,6 +8,7 @@ from types import TracebackType
 import torch
 from typing_extensions import Self
 
+from .mmq_fwd_spec import DerivedForwardState
 from .model import BackwardSolution, ForwardSolution, SolutionKey
 from .quant_formats import (
     Q8_1_F16_D4S4_BLOCK_BYTES,
@@ -241,7 +242,8 @@ class ForwardModule(_SolutionHIPModule):
     ) -> None:
         if not self._module or not self._function:
             raise HIPRuntimeError("HIP module is closed")
-        size = self.solution_key.problem_size
+        state = DerivedForwardState.from_solution_key(self.solution_key)
+        size = state.problem_size
         tensors = (packed_weight, activations, output)
         if any(not tensor.is_cuda for tensor in tensors):
             raise HIPRuntimeError("all launch tensors must be on a HIP device")
@@ -251,35 +253,20 @@ class ForwardModule(_SolutionHIPModule):
             raise HIPRuntimeError("packed_weight must be uint8")
         if activations.dtype != torch.uint8:
             raise HIPRuntimeError(
-                "activations must be the uint8 Q8_1 F16_D4S4 workspace"
+                "activations must be the uint8 Q8_1 "
+                f"{state.contract.activation_layout} workspace"
             )
         if output.dtype != torch.bfloat16:
             raise HIPRuntimeError("output must be BF16")
-        quant_type = self.solution_key.problem_type.quant_data_type
-        if quant_type not in {"Q4_K", "Q5_K", "Q6_K"}:
-            raise HIPRuntimeError("unsupported MMQ forward quant type")
-        quant_format = QUANT_FORMATS[quant_type]
-        expected_weight_bytes = (
-            size.n * (size.k // quant_format.block_values) * quant_format.block_bytes
-        )
-        if packed_weight.numel() != expected_weight_bytes:
+        if packed_weight.numel() != state.expected_packed_weight_bytes:
             raise HIPRuntimeError("packed_weight size does not match ProblemSize")
-        activation_block_bytes = (
-            Q8_1_F32_D4_BLOCK_BYTES
-            if quant_type == "Q6_K"
-            else Q8_1_F16_D4S4_BLOCK_BYTES
-        )
-        expected_activation_shape = (
-            size.k // 128,
-            size.m,
-            activation_block_bytes,
-        )
+        expected_activation_shape = state.expected_activation_shape
         if tuple(activations.shape) != expected_activation_shape:
             raise HIPRuntimeError(
-                "activations shape does not match the exact Q8_1 F16_D4S4 "
-                "workspace contract"
+                "activations shape does not match the exact Q8_1 "
+                f"{state.contract.activation_layout} workspace contract"
             )
-        if tuple(output.shape) != (size.m, size.n):
+        if tuple(output.shape) != state.expected_output_shape:
             raise HIPRuntimeError("output shape does not match ProblemSize")
         devices = {tensor.device for tensor in tensors}
         if len(devices) != 1:
@@ -292,7 +279,7 @@ class ForwardModule(_SolutionHIPModule):
             ctypes.c_uint32(size.n),
             ctypes.c_uint32(size.m),
             ctypes.c_uint32(size.m),
-            ctypes.c_uint32(size.k // 256),
+            ctypes.c_uint32(state.blocks_per_weight_row),
         )
         parameters = (ctypes.c_void_p * len(arguments))(
             *(
@@ -317,13 +304,8 @@ class ForwardModule(_SolutionHIPModule):
     def _launch_configuration(
         self,
     ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
-        size = self.solution_key.problem_size
-        solution = self.solution_key.solution
-        return (
-            (size.n // solution.macro_tile1, size.m // solution.macro_tile0, 1),
-            solution.work_group,
-            0,
-        )
+        state = DerivedForwardState.from_solution_key(self.solution_key)
+        return (state.grid, state.kernel_spec.geometry.work_group, 0)
 
 
 class FixedHipForwardModule(ForwardModule):

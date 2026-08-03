@@ -1,239 +1,370 @@
-# GGTensile Implementation Plan
+# GGTensile Design and Progress
 
 ## Purpose
 
-GGTensile is a repository-local assembly kernel generator for packed GGUF matrix multiplication. It takes one `ProblemType`, one exact `ProblemSize`, and one complete direction-specific solution, then either emits reproducible assembly or returns structured rejection reasons. Its scope covers MMQ and grouped MMQ operation types, matrix-shape families, and GGUF quant formats, with exact measured solutions rather than one universal kernel.
+GGTensile is the repository-local assembly kernel generator for packed GGUF matrix multiplication. It accepts one exact `ProblemType`, one exact `ProblemSize`, and one complete direction-specific solution, then either emits reproducible assembly or returns a structured rejection reason.
 
-Packed GGUF tensors remain authoritative. Generated kernels reconstruct their operands without hidden dense shadows, implicit prepared-weight caches, or unreported external decode workspaces. Existing HIP kernels remain the correctness oracle, performance control, and runtime fallback.
+This document is authoritative for the generic design, implementation principles, supported scope, and current project progress. Format-specific problem definitions, measurements, rejected mechanisms, artifact identities, and campaign chronology belong in the experiment records. The remaining forward-writer work is tracked separately in `plan_ggtensile_asm_writer_refactor.md`.
 
-The implementation intentionally uses a small ROCISA surface inspired by TensileLite: structured code modules and metadata, explicit register pools, and direct assembler/linker invocation. It does not import TensileLite's solution, problem-type, or library-generation machinery. "Full Tensile" is reserved for rocBLAS and source identifiers.
+GGTensile uses a deliberately small ROCISA surface inspired by TensileLite: structured modules and metadata, explicit register pools, and direct assembler/linker invocation. It does not import TensileLite's solution, problem-type, search, scheduling, allocation, or library-generation machinery. Existing HIP kernels remain the correctness control, performance control, and runtime fallback.
 
-## Project Boundary
+## Project Scope
 
-The current backend targets gfx1151, wave32, and WMMA V1. Support expands deliberately by operation, quant format, exact shape family, data type, and ISA. Unsupported problem types, sizes, and solutions are normal validation results, not generator failures.
+The current backend targets gfx1151, code-object version 5, wave32, and WMMA V1. Support expands explicitly by operation, direction, quant format, exact shape family, activation layout, destination type, and ISA.
 
-The core contract is:
+The project boundary is:
 - exact positive problem sizes supplied at generation time.
-- explicit, complete solution identity with no silent repair.
-- packed-weight decode inside the generated kernel unless a separate public ownership contract says otherwise.
-- shape dimensions compatible with the selected ownership, vector widths, and reduction depth.
+- explicit complete solution identity with no silent repair or inferred tuning values.
+- authoritative packed GGUF weights, decoded inside the generated kernel unless a separate public representation contract is designed.
+- shape dimensions exactly divisible by the selected ownership, vector widths, and reduction depth; edge tiles reject.
 - exact-key runtime applicability and HIP fallback for every mismatch.
-- no private storage, spills, scratch instructions, calls, or dynamic stack.
-- no split reduction, atomics, persistent traversal, edge handling, or external workspace unless those mechanisms receive explicit model, ABI, validation, and dispatch support.
+- formula-derived resource admission under the target VGPR, SGPR, LDS, and code-object constraints.
+- zero private storage, spills, scratch instructions, calls, and dynamic stack.
+- no split reduction, atomics, persistent traversal, prepared-weight cache, hidden dense shadow, or external decode workspace unless the mechanism receives an explicit model, ABI, lifetime, validation, and dispatch contract.
 
-Broader architectures, edge handling, operation types, data types, quant formats, prepared representations, and multi-kernel reductions are expansion projects rather than implicit capabilities of the initial backend.
+Unsupported problems and solutions are normal validation results, not generator failures. Broader ISAs, edge handling, new operations, grouped ownership, prepared representations, and multi-kernel reductions are separate expansion projects rather than implicit capabilities.
 
-## Required Quant Formats
+## Required Format Inventory
 
-The required format inventory comes from the workload and compatibility contracts recorded in the HIP optimization logs, not from every quant type accepted by a generic operator or represented in the kernel bundle.
+The workload, not the set of types understood by generic GGUF code, defines required production coverage.
 
-MMQ uses:
-- Qwen: `Q3_K`, `Q4_K`, `Q5_K`, and `Q6_K`.
-- DeepSeek: `Q8_0`.
-- MMQ union: `Q3_K`, `Q4_K`, `Q5_K`, `Q6_K`, and `Q8_0`.
+| Operation | Workload | Required formats |
+| --- | --- | --- |
+| MMQ | Qwen ordinary projections and language-model head | `Q3_K`, `Q4_K`, `Q5_K`, `Q6_K` |
+| MMQ | DeepSeek ordinary projections and language-model head | `Q8_0` |
+| Grouped MMQ | Qwen experts | `Q3_K`, `Q4_K`, `Q5_K`, `IQ2_S` |
+| Grouped MMQ | DeepSeek experts | `Q2_K`, `IQ2_XXS`, fixed-group `Q8_0` |
 
-The ordinary Qwen projections and language-model head use `Q3_K`, `Q4_K`, `Q5_K`, and `Q6_K`; DeepSeek ordinary projections and its language-model head use `Q8_0`. Qwen `IQ2_S` tensors are expert weights and belong only to grouped production coverage. Ordinary IQ2_S tests and correctness-oracle use are intentionally excluded. The existing HIP ordinary IQ2_S path remains as reference code, not as a production inventory or GGTensile campaign requirement.
+The MMQ union is `Q3_K`, `Q4_K`, `Q5_K`, `Q6_K`, and `Q8_0`. The grouped union is `Q2_K`, `Q3_K`, `Q4_K`, `Q5_K`, `IQ2_XXS`, `IQ2_S`, and fixed-group `Q8_0`.
 
-Grouped MMQ uses:
-- Qwen: `Q3_K`, `Q4_K`, `Q5_K`, and `IQ2_S`.
-- DeepSeek: `Q2_K`, `IQ2_XXS`, and fixed-group `Q8_0`.
-- Grouped union: `Q2_K`, `Q3_K`, `Q4_K`, `Q5_K`, `IQ2_XXS`, `IQ2_S`, and `Q8_0`.
+`Q6_K` has no current grouped production workload. `Q2_K`, `IQ2_XXS`, and `IQ2_S` have no current required ordinary MMQ campaign. Ordinary `IQ2_S` tests and production inventory are intentionally excluded. Fixed-group `Q8_0` is a distinct grouped contract and is not implied by ordinary `Q8_0` coverage.
 
-`Q6_K` has no current grouped production workload. `Q2_K`, `IQ2_XXS`, and `IQ2_S` have no current required MMQ campaign; their relevant production ownership is grouped MMQ. Fixed-group `Q8_0` is a distinct grouped operation and must not be inferred from ordinary `Q8_0` coverage.
+## Design Principles
 
-These inventories describe formats that need workload coverage. They do not imply that one generated decoder, geometry, or artifact is valid across ordinary, paired routed, single routed, row-task, and fixed-group ownership.
+### Exact contracts, no repair
 
-## Public Model
+One complete problem and solution must predict one physical assembly stream. Unknown fields, missing fields, implicit numeric coercions, incompatible linked values, and unsupported policies reject before lowering. The generator never rewrites a request into a nearby valid solution.
 
-`tools.ggtensile` exposes immutable, JSON-serializable records using TensileLite terminology where the concepts match:
-- `ProblemType`: operation, quantized and activation data types, destination and compute data types, and transpose/layout semantics.
+Every accepted serialized field must affect canonical identity and lowering, or be explicitly fixed by the problem contract. Mutation tests enforce that accepted fields are projected or rejected rather than silently ignored.
+
+### Deterministic, self-contained generation
+
+Production generation does not search, benchmark, invoke HIP or LLVM code generation, consult measured winners, run an allocator or scheduler, repair register pressure, or fall back to source or insertion order. Search, profiling, compiler experiments, and GPU timing are offline evidence only.
+
+The same complete input must produce byte-identical source. Assembly, linking, and inspection then verify deterministic object and code-object translation.
+
+### Capability, candidate, and selection are separate
+
+Capability validation describes the formula-supported domain. Candidate manifests describe complete parameter points. Exact-key inventories and selected-solution catalogs describe measured production choices.
+
+Winner maps never belong in capability validation. Candidate identity is parameter-only; exact-pair identity additionally includes the problem type and exact shape; artifact identity additionally includes generated source.
+
+### Generate semantics, not stored schedules
+
+The writer describes logical work, ownership, dependencies, and traversal. It must not become a repository of copied physical instruction streams. Shortening by moving a schedule into another module, template, JSON file, tuple, opcode table, issue-slot map, rank list, or compatibility writer is not simplification.
+
+Line count is not the objective. A valid simplification deletes duplicated derivation or schedule-shaped implementation by replacing it with a typed invariant, formula, or genuinely shared semantic mechanism.
+
+### Preserve direction-specific algorithms
+
+Forward and backward share only mechanisms whose semantics and emitted text are genuinely direction-neutral. They retain separate solution contracts and lowering algorithms:
+- forward consumes a previously produced Q8_1 activation workspace, expands integer weights, uses integer WMMA, and applies joint weight/activation correction.
+- backward reads BF16 activations, dequantizes weights to BF16, and converges on a shared BF16-WMMA pipeline.
+- packed-weight addressing, LDS ownership, output ownership, launch mapping, and epilogue traversal remain direction-specific where required.
+
+GGTensile forward does not quantize activations. The Q8_1 producer is an upstream kernel with its own public workspace contract.
+
+### Derive redundant state once
+
+Geometry, ownership, grids, packed strides, activation strides, loop counts, accumulator counts, register roles, lifetimes, LDS offsets, waits, and resource usage derive from one authoritative contract/specification boundary. Exact shape names and selected resources are not derivation inputs.
+
+Formula-derived capability may accept divisible shapes beyond the selected inventory. Catalog coverage and GPU evidence remain exact-key facts.
+
+### Typed boundaries carry invariants
+
+Components consume typed logical operands, register roles, memory roles, and dependency records rather than opaque `vN`, `sN`, half-register, address-expression, or instruction strings. Small helpers are retained only when they enforce a typed invariant, own a nontrivial formula, or form a reused abstraction boundary.
+
+Contractual invalid states use explicit rejection reasons. Natural programming errors propagate. Python `try` blocks are reserved for releasing acquired resources or restoring process-global state before re-raising.
+
+### Completion requires recursive review
+
+Every campaign and structural refactor ends with a fresh recursive review of the plan, implementation, generated artifacts, selected and rejected evidence, target ISA, and related kernel work. Findings are classified as duplicate or closed, contract-incompatible, unsupported, deferred with an explicit prerequisite, or actionable.
+
+An actionable finding must be implemented and qualified before the review is repeated. Completion is valid only when a fresh pass finds no actionable in-contract mechanism.
+
+## Model and Identity
+
+### Public records
+
+`tools.ggtensile` exposes immutable, JSON-serializable records:
+- `ProblemType`: operation, quant and activation types, destination and compute types, and transpose/layout semantics.
 - `ProblemSize`: exact GEMM coordinates and operation-specific dimensions.
-- `BackwardSolution` and `ForwardSolution`: direction-specific kernel language, ISA, wave and workgroup geometry, matrix instruction, macro tile, reduction depth, LDS and prefetch choices, decoder strategy, scheduling choices, and resource limits.
+- `ForwardSolution` and `BackwardSolution`: complete direction-specific kernel choices.
 - `SolutionKey`: the exact problem-type/problem-size/solution tuple with canonical JSON and a stable content hash.
-- `RejectReason`: stable rule ID, message, involved parameters, and source.
-- `KernelArtifact`: kernel name, assembly/object/code-object paths, source identity, launch geometry, ABI, and measured static resources.
+- `RejectReason`: stable rule ID, diagnostic, involved parameters, and source.
+- `KernelArtifact`: symbol, source/object/code-object paths, source identity, ABI, launch geometry, and inspected resources.
 
-Solution parsing is strict: unknown parameters, implicit numeric coercions, and missing parameters fail before validation. Named defaults are explicit and remain part of `SolutionKey`. GGTensile never mutates or repairs a requested solution.
+Named defaults are explicit and remain part of canonical identity. Parsing is strict and generation never mutates a solution.
+
+### Forward contract layers
+
+The forward implementation separates fixed semantics, complete choices, and derived facts:
+
+```text
+ForwardProblemContract
+  quant format and packed block
+  activation layout and block
+  arithmetic and signedness
+  destination and BF16 rounding
+  ISA, wavefront, ABI
+
+ForwardKernelSpec
+  geometry and ownership
+  global memory and LDS representation
+  decode and iteration policy
+  dot and epilogue policy
+  instruction policy
+  resource limits
+
+DerivedForwardState
+  macro tile and workgroup ownership
+  exact grid and K-block count
+  packed and activation strides
+  accumulator and loop state
+  resource usage
+
+QuantForwardSemantics
+  packed payload planes
+  scale/minimum or signed-scale fields
+  high-bit reconstruction
+  post-WMMA correction semantics
+```
+
+`ForwardResourceUsage` is the shared authority for writer metadata, capability admission, and artifact inspection. Resource limits are candidate constraints; VGPR, SGPR, LDS, private-segment, and spill outcomes are derived facts.
+
+For gfx1151, admission and inspection account for the 64 KiB workgroup LDS ceiling and wave32's 24-VGPR allocation granularity. A logical high-water register index is not substituted for the allocated resource count reported in kernel metadata.
+
+### Canonical candidates
+
+Complete candidates round-trip through normal serialized solution inputs. Canonical hashes exclude problem shape so a candidate may be tested on another formula-compatible shape; exact-pair manifests preserve the shape-specific evidence. Family-inactive legacy fields reject before hashing.
+
+## Lowering Architecture
+
+### Shared assembly infrastructure
+
+`kernel_writer_assembly.py` owns the direction-neutral assembly module, ROCISA setup, source writing, pointer and address primitives, BF16 RNE emission, metadata/trailer emission, and deterministic register-pool mechanism. Direction writers own their algorithms and do not forward through compatibility writers.
+
+### Forward lowering
+
+The current forward writer has three implementation families:
+- direct-global Q4_K for the small direct tile.
+- shared decoded-weight-LDS Q4_K/Q5_K for the staged `128x64` family.
+- structured Q6_K with single-row and dual-row wave ownership; M256 reuses two exact dual-row tiles.
+
+All forward families consume Q8_1 bytes and metadata produced upstream. Weight decode, activation-workspace staging, integer dot, correction, and output conversion are distinct semantic responsibilities even when a selected physical schedule overlaps their instructions.
+
+Q4_K/Q5_K use `F16_D4S4` activation metadata and scale/minimum correction. Q6_K uses `F32_D4`, signed six-bit values, signed int8 scales, and block-factor correction. These arithmetic differences remain typed quant semantics rather than conditionals scattered through orchestration.
+
+### Backward lowering
+
+Backward retains one geometry-derived allocation, reduction pipeline, WMMA lowering, and store path. Quant-specific global-read and decoder leaves produce the common BF16 weight representation. This convergence point is why five backward formats can share a smaller common body without forcing the forward integer-WMMA algorithm into the same design.
+
+### Semantic stages and scheduling
+
+Lowering first constructs named stages:
+
+```text
+Setup
+GlobalRead
+Decode
+LocalWrite
+Barrier
+LocalRead
+Dot
+ScaleAccumulate
+LoopCommit
+Epilogue
+```
+
+Operations carry semantic coordinates such as row, payload plane, decode atom, K phase, output tile, LDS pair, and store batch. Dependencies are checked before emission.
+
+The second level applies explicit deterministic policies for traversal, clustering, lookahead, local-write placement, local reads, dot grouping, epilogue scope, VOPD pairing, delays, clauses, and cache behavior. Policies are complete mechanism choices, not generic heuristic scheduling. Waits derive from typed producers and first-use boundaries; redundant weaker waits are suppressed monotonically.
+
+### Register allocation and physical roles
+
+Register roles declare width, alignment, lifetime, reuse class, ownership, and deterministic role order. `DeterministicRegisterPlan` uses lifetime-aware first fit with no optimization, repair, or insertion-order fallback. `DeterministicRegisterPool` supports explicit checkout/checkin reuse at known last-use boundaries.
+
+Irregular selected assignments may remain pinned when they are measured ownership facts. Regular accumulators, outputs, pointers, decode values, LDS pairs, and scratch values derive from formulas or pool allocation. Lowering receives assignments; it does not discover pressure while emitting.
+
+### Q6 semantic boundary
+
+Q6 uses typed payload/address roles, 16 semantic decode atoms, explicit low/high extraction, signed-byte normalization, formula-derived LDS roles, producer-first-use VMEM waits, typed dependency delays, deterministic source-to-output register reuse, and shared dot/refill/epilogue orchestration.
+
+The residual single-row/dual-row setup, near/far read, activation-read, and refill leaves preserve selected physical traversal where no complete semantic ownership formula has yet replaced that order. They are bounded policies, not duplicate full kernels. Replacing them is deferred until Q3_K and Q8_0 forward evidence clarifies the correct cross-format abstraction.
+
+### Prohibited forward production mechanisms
+
+The refactored forward lowering may not use:
+- raw assembly templates or large assembly-string collections.
+- sibling forwarding writers or compatibility aliases.
+- external instruction data, opcode tables, rank tables, or absolute issue maps.
+- learned rankers, opaque cost models, repair logic, or hidden ready-list priorities.
+- source-order or insertion-order fallbacks.
+- build-time HIP/LLVM scheduling or allocation.
+- post-emission textual filtering or VOPD reconstruction.
+- accepted fields that affect neither lowering nor validation.
+
+Backward currently retains its direction-specific deferred-zero/VOPD assembly emitter. That selected backward mechanism is not a precedent for reintroducing textual scheduling into forward lowering; changing it belongs to a separate backward structural project with its own identity and performance gates.
+
+## Tuning and Search
+
+Only values with implemented distinct lowerings may enter a candidate domain. Fixed arithmetic, ABI, ISA, activation layout, and format facts are contracts rather than genes.
+
+The main linked tuning groups are:
+- geometry and ownership.
+- global-memory widths, assignment, clustering, prefetch, and cache policy.
+- LDS representation, buffering, layout, swizzle, and plane placement.
+- decode traversal, lane sharing, grouping, lookahead, and write deferral.
+- iteration, local reads, dot grouping, and activation/weight overlap.
+- epilogue traversal, dependency width, scope, priority, and stores.
+- explicit VOPD, delay, clause, and cache policies.
+- resource limits and desired occupancy.
+
+Repository-owned search tooling lives outside the writer and operates on complete candidates:
+
+```text
+candidate_domains(quant_type, shape)
+candidate_neighbors(seed, knob_group)
+explain_invalid(candidate, shape)
+canonical_candidate(candidate)
+```
+
+Search explores linked neighborhoods rather than a broad Cartesian product. Generation never benchmarks or selects. LLVM, HIP, TensileLite, EvoTensile, CK, and hipBLASLt may provide mechanism vocabulary or offline evidence, but cannot supply production instruction order, allocation, validity, or winner selection.
+
+Exact-shape constants, fixed trip counts, peeled tails, affine-address reductions, register-lifetime shortening, and legal VOPD formation are derived lowering work rather than public knobs unless complete alternate mechanisms are implemented. Their value is judged by the same correctness, resource, and timing gates as larger policies.
+
+### Diagnostic lower bounds and profiling
+
+When a bottleneck is ambiguous, exact diagnostic kernels may isolate matrix/activation/LDS work from packed decode/LDS work while preserving launch geometry and declared resources. They pass the same symbol, ABI, resource, and forbidden-storage inspection as candidates. Hardware counters and normalized disassembly explain first-order limits but never select winners; unsupported or over-capacity counter requests remain recorded evidence rather than silently reduced measurements.
 
 ## Artifact Lifecycle
 
-Generation, build, inspection, correctness, screening, and confirmation are separate phases with immutable outputs:
-- `generate` validates an exact `SolutionKey`, emits assembly or structured rejection, and records the generated source hash.
-- `build` accepts only an approved generation manifest, verifies source identity, and invokes the assembler and linker.
-- `inspect` accepts only an approved build manifest and validates symbol, ABI, ISA, metadata, resources, and forbidden instructions or storage.
-- `correctness` executes only inspected artifacts against the operation oracle and independent references required by the experiment.
-- `screen` ranks correct candidates under warmed rotating controls.
+Generation, build, inspection, correctness, screening, and confirmation are separate immutable phases:
+- `generate` validates one exact key, emits source or structured rejection, and records the source hash.
+- `build` verifies an approved generation manifest and invokes the assembler and linker.
+- `inspect` verifies symbol, ABI, ISA, metadata, resources, and forbidden storage or instructions.
+- `correctness` runs only inspected artifacts against the operation control and independent references.
+- `screen` ranks qualified candidates under warmed rotating controls.
 - `confirmation` retimes finalists under a fresh, longer rotating protocol.
 
-Every phase refuses to overwrite an existing artifact. Manifests are strict and versionless. The generated source assembly hash is the sole artifact content identity; object and code-object output is deterministic toolchain translation validated by inspection rather than a second mutable identity.
+Each phase refuses to overwrite an existing artifact. Manifests are strict. Source is the primary generated content identity; object and code-object identities are deterministic translations verified by rebuild and inspection.
 
-This separation supports reproducible manual experiments, bounded per-shape scans, and compile caching without coupling measurement to generation or requiring a large-grid search system.
+## Verification and Promotion
 
-## Kernel Design Contracts
+### Structural migrations
 
-Each generated kernel supports one exact `ProblemType` and `ProblemSize`. Exact dispatch permits constants, fixed loop counts, peeled tails, fixed launch geometry, shape-specific ownership, and immediate addressing without preserving cross-shape validity.
+When behavior is intended to remain unchanged, compare generated source, executable text, metadata, symbols, resources, and code objects exactly. Preserve ABI, launch ownership, waits, VOPD pairings, LDS offsets, barriers, and resource envelopes.
 
-The solution surface follows emitted behavior:
-- a field is tunable only when at least two supported values produce distinct, validated ISA or ownership.
-- linked validation covers divisibility, workgroup and wave ownership, load coverage and alignment, LDS size and layout, matrix-instruction structure, and resource limits.
-- unsupported combinations are rejected instead of rewritten into a nearby valid solution.
-- internal experiments remain derived choices until they have complete alternate emitters and stable identity.
-- generic GEMM controls are not exposed when they do not describe fused packed decode.
+### Deliberate stream changes
 
-Architecture-specific behavior is checked against `~/rdna35-isa-markdown/`, `~/amd-llvm-project/`, and LLVM AMDGPU definitions and tests. Packed work-item coordinates must be decoded before their incoming VGPRs are reused. Matrix-operand lane mapping, sub-dword load/store semantics, conversion rounding, wait dependencies, VOPD legality, and hazard sequences require ISA evidence and execution validation.
-
-## Toolchain And Inspection
-
-The toolchain resolver accepts explicit paths and otherwise discovers the ROCm SDK shipped with the active Python environment. Builds use deterministic commands and the target code-object format. Temporary build files live outside the output directory, and accepted artifacts are installed only after assembly and linking succeed.
-
-The artifact inspector requires:
-- exactly one expected global kernel symbol.
-- target metadata matching the declared kernarg ABI.
-- the requested wavefront and maximum workgroup sizes.
-- expected LDS, matrix-instruction, wait, and barrier structure.
-- no private segment, dynamic stack, scratch instructions, calls, or spills.
-- no register indices beyond metadata declarations.
-- no unsupported cache, hazard, or control-flow instructions.
-
-Inspection also records explanatory static metrics: allocated VGPRs and SGPRs, LDS bytes, VALU issues and operations, VOPD pairs, VMEM and LDS instructions, waits, barriers, clauses, dependency delays, cache invalidations, and code size.
-
-## Correctness Gates
-
-Unit tests cover canonical identity, JSON round trips, strict parsing, rejection rules, deterministic generation, tool discovery, and inspection parsers. GPU validation is an explicit phase so ordinary unit tests do not require ROCm hardware.
-
-Every experiment defines its own independent reference, adversarial packed-data cases, exact production keys, and mutation checks. The reusable validation policy is:
-- compare with the existing operation implementation.
-- compare with an independently decoded or independently formulated reference where practical.
-- cover metadata fields, packed bit planes, block and tile boundaries, and all specialized control-flow paths.
-- rerun after complete input and packed-weight rewrites when cache policy or producer handoff is relevant.
-- require bit-exact output when operand conversion and reduction order match.
-- otherwise establish and document a fixed numerical envelope before timing.
-- execute reduced problems before production launches whenever control flow, induction, ownership, or pipeline lifetimes change.
+A deliberate instruction-stream change requires:
+- finite output and exact control agreement when arithmetic order is unchanged.
+- an independent dequantized or independently formulated reference.
+- input, packed-weight, and activation-workspace mutation sensitivity.
+- deterministic source and code-object rebuilds.
+- strict ABI, ISA, VGPR, SGPR, LDS, spill, and private-storage inspection.
+- representative and blind formula-compatible shapes where shared lowering changes.
+- retained-parent comparisons and warmed GPU confirmation.
 
 Static inspection never substitutes for execution correctness.
 
-## Measurement And Retention
+### Measurement and retention
 
-Compilation, inspection, correctness, profiling, screening, and confirmation never overlap on the GPU. Timing uses warmed rotating same-process controls with the same tensors and launch conditions. Reports preserve raw samples, median, dispersion, candidate/control ratio, protocol identity, and normalized assembly around finalists.
+GPU timing is serial, warmed, and rotating, with the same tensors and launch conditions. Reports preserve raw samples, medians, dispersion, paired comparisons, protocol identity, and normalized assembly around finalists.
 
-The hard gates are:
+The standing gates are:
 - zero correctness failures.
-- byte-identical generated source on independent rebuilds.
+- byte-identical independent generation and rebuild.
 - zero private storage, spills, scratch, calls, or dynamic stack.
-- no stable regression above 1% on another exact key that shares the emitted path.
-- a stable gain above 2% for a new resource-bearing mechanism.
-- neutral-to-favorable representative timing for an unconditional instruction or resource reduction.
+- no stable regression above 1% on another exact key sharing the emitted path.
+- a stable gain above 2% for a resource-bearing mechanism.
+- neutral-to-favorable representative timing for an unconditional resource-neutral reduction.
 
-Lower static instruction count alone is insufficient. Timing selects winners; counters, static issues, locality, code size, and resources explain them.
+Timing selects winners. Static issue counts, counters, code size, locality, and resources explain results but do not promote candidates by themselves. Weighted workload totals guide effort and reporting; they never authorize a slower exact key.
 
-Per-key finalists are selected by fresh local brackets. Campaign success is evaluated by the complete target workload: weight exact-key medians by production call counts, report family totals and aggregate latency, and retain the existing implementation as fallback for every slower or unmatched key. A family average never authorizes dispatch of a slower exact key.
+## Current Progress
 
-## Tuning Method
+### Coverage status
 
-### Inventory and controls
+| Area | Current status |
+| --- | --- |
+| Shared generator, toolchain, inspection, runtime, and campaign infrastructure | Implemented for the current gfx1151 exact-key workflow |
+| MMQ backward | Required `Q3_K`, `Q4_K`, `Q5_K`, `Q6_K`, and `Q8_0` campaigns complete; 50 exact inventory keys are selected |
+| MMQ forward Q4_K | Lowering and 12-key research coverage implemented; the canonical inventory currently records 2 selected and 10 open keys |
+| MMQ forward Q5_K | Six exact inventory keys selected and recursively exhausted under the current contract |
+| MMQ forward Q6_K | Three exact language-model-head keys selected; structured semantic lowering and the current writer refactor are complete for the implemented domain |
+| MMQ forward Q3_K | Canonical forward campaign, inventory, and selected catalog remain to be completed |
+| MMQ forward Q8_0 | Ordinary and language-model-head campaigns, inventories, and selected catalogs remain to be completed |
+| Grouped GGTensile | Deferred until grouped ownership and routing receive an explicit generator contract |
+| Public GGTensile runtime selection | Deferred; existing HIP bundle dispatch remains authoritative |
 
-Begin with a machine-readable exact-key inventory containing representative tensors, call counts, historical controls, fresh control requirements, correctness obligations, and selected-solution references. Establish the current generated kernel and existing implementation as independent controls before changing ownership or scheduling.
+Global MMQ forward format exhaustion is not complete until Q3_K and both ordinary and language-model-head Q8_0 are qualified. Ordinary Q8_0 coverage will not imply fixed-group Q8_0 coverage.
 
-Bounded scans construct only explicit complete solutions. They do not build broad Cartesian products, infer missing values, repair invalid combinations, benchmark while compiling, time correctness failures, or treat missing observations as rejections.
+### Implemented forward architecture
 
-### Control taxonomy
+The completed Q4_K/Q5_K/Q6_K refactor established:
+- strict `ForwardProblemContract`, complete `ForwardKernelSpec`, `DerivedForwardState`, quant semantics, and formula-derived resource usage.
+- formula-based divisible-shape capability separated from exact inventories and winners.
+- canonical candidate and exact-pair manifests with linked external search neighborhoods.
+- a shared decoded-LDS Q4_K/Q5_K pipeline and semantic packed scale/minimum and Q5 high-bit reconstruction.
+- one structured Q6 orchestration with typed setup/read/decode/LDS/dot/refill/epilogue boundaries.
+- 16 semantic Q6 decode atoms with deterministic lifetime-aware register reuse.
+- typed address, payload, LDS-pair, accumulator, product, output, wait, and dependency-delay roles.
+- deterministic allocation and formula-derived VGPR, SGPR, and LDS admission.
+- removal of flat Q6 bodies, raw templates, forwarding writers, post-emission scheduling, inactive fields, and physical decode leaves.
+- structural tests for forbidden schedule representations, ignored fields, raw operands, legacy reads, and pass-through helpers.
 
-For every field or proposed mechanism, classify it as one of:
-- implemented search axis with distinct validated emitters.
-- fixed identity required by the current backend.
-- internal derived lowering with no public alternate.
-- proposed mechanism awaiting a complete emitter.
-- unsupported on the target ISA.
-- contract-expanding and deferred.
-- measured and closed for the current experiment.
+The retained residual Q6 setup/read/refill traversal is intentionally unchanged until the post-Q3/Q8 convergence review can define or reject a complete semantic ownership replacement. The active work and its entry criteria are in `plan_ggtensile_asm_writer_refactor.md`.
 
-TensileLite and other kernel generators supply mechanism vocabulary and linked-constraint evidence, not parameter lists to copy. Geometry, matrix-wave ownership, reduction depth, global and local prefetch, LDS buffer count and layout, vectorized reads, traversal, store scheduling, and instruction scheduling enter a search only when they change this generator's emitted behavior.
+### Latest qualified verification snapshot
 
-### Exact-shape lowering
+The latest completed forward-refactor checkpoint records:
+- 153 focused forward tests and 341 repository tests passing, with only the existing Python 3.14 PyTorch deprecation warnings.
+- Ruff, formatting, `ty check`, `compileall`, pre-commit, bundle currency, and `git diff --check` passing.
+- the gfx1151 MMQ bundle current at 179 kernels.
+- Q6 MT64 resources of 158 VGPRs, 27 SGPRs, and 28,928 bytes of LDS.
+- Q6 MT128/M256 resources of 210 VGPRs, 27 SGPRs, and 38,400 bytes of LDS.
+- zero private storage and zero VGPR/SGPR spills for the selected Q6 artifacts.
+- exact HIP/public agreement, finite output, independent-reference qualification, mutation sensitivity, deterministic rebuilds, blind divisible-shape coverage, and warmed confirmation for the selected Q6 paths.
 
-Apply exact-shape compiler work before adding resource-bearing mechanisms:
-- remove dead kernarg state while preserving the public ABI.
-- fold dimensions, strides, tile counts, launch divisors, and packed block offsets into immediates.
-- specialize fixed trip counts, peel prime and final iterations, and remove unreachable tails.
-- strength-reduce affine addressing when it does not extend live ranges or raise allocation.
-- choose immediate-offset, scalar-base, and explicit-address forms from the exact geometry.
-- recompute register lifetimes after each ownership or pipeline change.
-- place long-lived accumulators and fragments before transient decode/address state.
-- form VOPD pairs only when opcode slots, dependencies, and register-bank classes are legal.
-- remove cache or hazard instructions only after the memory and dependency contract is proven by mutation tests and target-ISA evidence.
-
-Exact lowerings are derived behavior, not user-visible tuning knobs.
-
-### Geometry, ownership, and locality
-
-Search high-level mechanisms before low-level instruction cadence because geometry changes register pressure, wave residency, data duplication, LDS capacity, launch parallelism, and useful overlap. Focused neighborhoods include:
-- macro-tile and wave-tile ownership.
-- active compute and decoder waves.
-- one versus multiple decoded-weight buffers.
-- decoder width and packed-payload assignment.
-- LDS transposition, padding, and XOR layouts.
-- workgroup traversal and mapping.
-- cooperative versus repeated input or weight staging.
-- epilogue ownership and store traversal.
-
-Traversal is an exact-shape axis, not a universal constant. Treat L0/L2 behavior, occupancy, LDS conflicts, and stall counters as explanatory evidence and keep timing authoritative.
-
-### Scheduling and ISA
-
-Low-level scheduling follows selected ownership and layout. A schedule names placement of packed reads, metadata reads, decode chunks, activation reads, LDS reads/writes, matrix instructions, waits, barriers, and stores. Numeric schedule identifiers are aliases for complete inspectable schedules.
-
-Vary wait thresholds only at actual first-use boundaries. Compare compiler output and expert assembly for instruction selection, clauses, VOPD, dependency distance, and termination sequences, but do not copy generic bounds, pointer state, or hazard padding without a matching contract. Add `s_delay_alu`, dependency waits, clauses, priorities, or explicit resource deallocation only from target-ISA requirements or measured evidence.
-
-### Lower bounds and profiling
-
-When diagnosis is ambiguous, generate exact diagnostic kernels that isolate major work classes while preserving launch geometry and declared resources. Typical floors separate matrix/activation/LDS work from packed decode/LDS work. Each diagnostic has its own expected instruction and synchronization structure and passes the same symbol, ABI, resource, and forbidden-storage checks.
-
-Collect only target-supported counter groups. Preserve raw runs when derived combinations exceed hardware collection capability. Profiles identify first-order opportunities; they do not select winners.
-
-## Optimization-Exhaustion Review
-
-Every campaign ends with a recursive optimization-exhaustion review. Re-read:
-- the project plan and active experiment record.
-- related dense and grouped optimization histories.
-- current generated and existing implementation sources and normalized disassembly.
-- manifests, selected and rejected candidates, lower bounds, profiles, counters, and timing brackets.
-- TensileLite, EvoTensile, CK, hipBLASLt, and relevant external mechanism studies.
-- target ISA documentation and LLVM AMDGPU instruction, VOPD, hazard, delay, and scheduling definitions and tests.
-
-Classify every inferred idea as duplicate or closed, contract-incompatible, unsupported, deferred with an explicit prerequisite, or actionable with a target key, mechanism, expected gain path, and measurement gate. If the review finds an actionable idea, insert and execute that experiment before the review and then repeat the complete review. A campaign is exhausted only when a fresh final pass finds no actionable in-contract mechanism.
-
-This review remains the permanent final step of every experiment. A later implementation or plan change that creates a new premise invalidates the stopping condition until the review is repeated.
-
-## Renewed Optimization Campaign
-
-The current multi-quant review identified a bounded set of executable in-contract work. It is ordered by evidence and must be completed serially:
-- Retime every repaired Q5_K and Q6_K path that was previously rejected only because the emitter was incorrect. Correctness, independent-reference comparison, both producer mutations, resource inspection, and reproducible assembly are prerequisites; renewed nine-repeat screening and 25-repeat confirmation decide whether any catalog entry changes.
-- Prototype Q4_K metadata owner-load plus wave-local DPP broadcast on `M32768,N2048,K8192`, then `M8192,N2048,K8192`. The emitter must load only metadata owners, broadcast the values needed by all consumer lanes, preserve the exact Q4 scale/minimum arithmetic and operand ordering, and pass reduced-trip plus producer-mutation tests before timing. A stable gain above 2% is required because this is a resource-bearing cross-lane mechanism.
-- Profile the long Q4/Q5/Q6 keys before attempting a combined unswizzled row padding plus logical-K XOR placement. That layout is actionable only when counters show residual LDS bank/conflict or locality pressure, occupancy remains unchanged or viable, and a complete alternate emitter can be validated. It is not an unconditional layout sweep.
-- Consider an exact-N, assembly-guided single-buffer software-pipeline family only as a separate structural campaign. Repeating the already closed `128x128x64` or current schedule neighborhoods does not satisfy this premise; admission requires a new schedule, reduced-trip correctness, resource inspection, and a fresh lower-bound comparison.
-
-Exact-shape literal and trip-count specialization remains a low-priority instruction-level probe and is admitted only after the preceding mechanisms fail to explain the residual gap. Model-owned lossless integer-plus-scale preparation, prepared weights, dense shadows, and transient decode workspaces remain outside this project and are documented as deferred representation work, not implementation targets.
-
-Execution of this renewed campaign is complete. Repaired Q5/Q6 candidates were correct but lost to the current selected assemblies. The Q4 metadata owner-load/DPP emitter was correct and resource-clean but regressed both screened long-query controls, so the candidate-only field and emitter were removed. Fresh Q4 profiling showed high nominal LDS bank-conflict percentage but only about `0.13%` ALU stalled by LDS, so the combined layout prerequisite did not pass. The exact-N single-buffer software pipeline was not admitted: the selected two-buffer path already beats the ordinary one-buffer control, existing floors demonstrate useful overlap, and no occupancy or LDS-stall evidence supports the extra synchronization. Exact-shape source inspection found dimensions, packed strides, and loop bounds already specialized as immediates. No selected catalog or generated production assembly changed.
+Exact source, executable-text, and code-object hashes remain in artifact tests and experiment evidence rather than this generic design document.
 
 ## Experiment Records
 
-Experiment-specific problem definitions, ABI details, production inventories, selected solutions, resources, timing, correctness, rejected mechanisms, debugging history, evidence paths, and completion state belong in experiment logs.
+Experiment records own exact problem scopes, timing tables, rejected mechanisms, debugging history, resource details, evidence paths, and campaign closure.
 
-Completed MMQ backward campaign records cover [Q3_K](experiment_ggtensile_mmq_bwd_q3_k.md), [Q4_K](experiment_ggtensile_mmq_bwd_q4_k.md), [Q5_K](experiment_ggtensile_mmq_bwd_q5_k.md), [Q6_K](experiment_ggtensile_mmq_bwd_q6_k.md), and [Q8_0](experiment_ggtensile_mmq_bwd_q8_0.md). Each document is authoritative only for its own exact keys and must not be generalized to another operation, quant format, shape family, or architecture without measurement. These five campaigns cover the required MMQ backward format inventory.
+Completed MMQ backward records:
+- `experiment_ggtensile_mmq_bwd_q3_k.md`
+- `experiment_ggtensile_mmq_bwd_q4_k.md`
+- `experiment_ggtensile_mmq_bwd_q5_k.md`
+- `experiment_ggtensile_mmq_bwd_q6_k.md`
+- `experiment_ggtensile_mmq_bwd_q8_0.md`
 
-The Q6_K forward campaign now has selected exact-key infrastructure for M64, M128, and M256 under [its experiment record](experiment_ggtensile_mmq_fwd_q6_k.md). Compact raw-payload and expanded-scale representations were measured rejections. The retained solution transfers the project-owned HIP J64/J128 instruction schedules into immutable GGTensile templates with generated exact symbols, fixed LDS metadata, strict 40-byte ABI inspection, and structured `(32,4,1)` ownership; M256 launches two exact J128 row tiles. All outputs are bit-exact and mutation/reference qualified. Two warmed confirmations measure final per-shape speedups of `1.0058x/1.0074x`, `1.0063x/1.0037x`, and `1.0033x/1.0032x` over HIP, with weighted speedups `1.0052x` and `1.0048x`. The M64 template additionally omits 47 compiler delay hints after separate bit-exact confirmations; the same change regressed J128. All three inventory entries are selected, independent sources and HSACOs rebuild byte-identically, and the frozen 379-source Q4_K/Q5_K/backward inventory remains unchanged. The separate recursive Q6_K review found no remaining actionable in-contract mechanism, so this exact-key campaign is complete. Global forward exhaustion still requires Q3_K and Q8_0 campaigns. This does not change public dispatch.
+MMQ forward records:
+- `experiment_ggtensile_mmq_fwd_q4_k.md`
+- `experiment_ggtensile_mmq_fwd_q5_k.md`
+- `experiment_ggtensile_mmq_fwd_q6_k.md`
 
-## Integration And Expansion
+Those documents retain campaign chronology and may describe historical premises that were later superseded. This document is authoritative for the current generic architecture and coverage status; selected catalogs and artifact tests are authoritative for current exact identities.
 
-Each artifact uses a separate exact-problem symbol and does not replace an existing range symbol. Production dispatch may select an assembly artifact only when every `ProblemType`, `ProblemSize`, ABI, architecture, and source-identity assertion matches; otherwise it uses the existing implementation. Cross-shape correctness is deliberately outside an exact artifact's contract.
+## Integration and Expansion
 
-Public runtime integration remains deferred until a useful production set is covered, per-key selection is complete, artifact packaging and identity are stable, and complete end-to-end workloads pass correctness and weighted performance validation. Experimental force controls are not public dispatch policy.
+Each generated artifact owns one exact problem symbol. Runtime selection may use an artifact only when every problem type, exact size, ABI, architecture, solution, and source-identity assertion matches. Every mismatch falls back to the existing implementation.
 
-MMQ backward GGTensile format coverage is complete for the required `Q3_K`, `Q4_K`, `Q5_K`, `Q6_K`, and `Q8_0` inventory. IQ2_S decoder development belongs to grouped GGTensile, where codebook access, sign and scale reconstruction, paired and single ownership, routing, row tasks, resource accounting, and correctness fixtures can be validated under the production contract.
+Public GGTensile integration remains deferred until a useful production set is selected, packaging and identity are stable, exact dispatch engineering is complete, and end-to-end workloads pass correctness and weighted performance validation. Experimental force controls are not public policy.
 
-The MMQ backward format prerequisite for considering MMQ forward is satisfied, though MMQ forward still requires its own explicit project and workload validation. Grouped GGTensile remains deferred until ordinary MMQ assembly demonstrates durable advantages and the grouped ownership contract is designed explicitly. Its eventual format scope is the seven-format grouped union above, including grouped-only `Q2_K`, `IQ2_XXS`, and `IQ2_S` plus fixed-group `Q8_0`; ordinary coverage of an overlapping format does not count as grouped coverage.
+Grouped GGTensile remains a separate design project. Paired routed, single routed, row-task, and fixed-group ownership require explicit routing, task, memory, synchronization, and fallback contracts. Ordinary coverage of an overlapping format does not count as grouped coverage.
 
-Prepared weights, compact alternate layouts, BF16 shadows, paired projections, persistent workgroups, split reduction, GSU, and Stream-K require explicit model-visible ownership, lifetime, invalidation, memory accounting, fixup, ABI, and fallback design. They are separate projects, not hidden extensions of a single-kernel tuning campaign.
+Prepared weights, compact alternate public layouts, BF16 shadows, paired projections, persistent workgroups, split reduction, GSU, Stream-K, and multi-kernel fixup require model-visible ownership, lifetime, invalidation, memory accounting, ABI, and fallback design. They are not hidden extensions of the current exact single-kernel backend.
 
-Bounded scan scripts remain outside the direction-specific kernel writers. They may construct, cache, validate, and rank complete solutions for explicit exact keys, while GGTensile preserves deterministic `SolutionKey` identity, explainable rejection, immutable artifact phases, and reproducible evidence. A larger automated search system remains optional.
+Bounded scan scripts may construct, cache, validate, and rank complete exact candidates outside the direction writers. A larger automated search system remains optional; deterministic `SolutionKey` identity, explainable rejection, immutable artifact phases, and reproducible evidence remain mandatory.

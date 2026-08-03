@@ -29,7 +29,7 @@
       "CallCount": 1,
       "HistoricalHipMedianMs": 4.050399,
       "CurrentStatus": "selected",
-      "SelectedSolution": "hip_scheduled_j64_selected"
+      "SelectedSolution": "structured_decoded_mt64_selected"
     },
     {
       "Family": "lm_head",
@@ -38,7 +38,7 @@
       "CallCount": 1,
       "HistoricalHipMedianMs": 7.626017,
       "CurrentStatus": "selected",
-      "SelectedSolution": "hip_scheduled_j128_selected"
+      "SelectedSolution": "structured_decoded_mt128_selected"
     },
     {
       "Family": "lm_head",
@@ -47,7 +47,7 @@
       "CallCount": 1,
       "HistoricalHipMedianMs": 15.203156,
       "CurrentStatus": "selected",
-      "SelectedSolution": "hip_scheduled_j128_selected"
+      "SelectedSolution": "structured_decoded_mt128_selected"
     }
   ]
 }

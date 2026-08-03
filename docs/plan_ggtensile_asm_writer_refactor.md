@@ -1,73 +1,124 @@
-# GGTensile assembly-writer refactor plan
+# Remaining GGTensile Assembly-Writer Work
 
-## Objective
+## Purpose
 
-Make the MMQ forward and backward assembly writers easier to maintain and extend without merging their direction-specific algorithms. Share direction-neutral assembly infrastructure and quant-format facts, align the writers' outer structure, and preserve every generated production kernel exactly unless a source change is explicitly justified and revalidated.
+This document contains only unfinished MMQ forward-writer work. Completed architecture, principles, implementation status, and verification evidence are maintained in `ggtensile_plan.md`. Format-specific timing and optimization history remain in the experiment records.
 
-## Design boundary
+The Q4_K/Q5_K/Q6_K writer refactor is closed for its implemented domain. The current qualified lowering must remain unchanged unless a complete replacement passes the gates below. Global forward-format completion still requires Q3_K and Q8_0, after which the additional format evidence may justify a deeper convergence refactor.
 
-Keep these direction-specific:
-- forward Q8_1 workspace consumption and integer-WMMA correction arithmetic.
-- backward BF16 activation reads and BF16-WMMA data path.
-- packed-weight address mapping.
-- forward integer expansion and backward BF16 dequantization.
-- LDS layouts and pipeline schedules.
-- register-allocation policy.
-- launch ABI, work-group mapping, and output-fragment mapping.
-- `ForwardSolution` and `BackwardSolution` schemas and exact validation rules.
+## Work Order
 
-Share only mechanisms whose semantics and emitted instruction text are identical.
+The remaining work has three stages:
+- Complete the Q3_K MMQ forward campaign and canonical catalogs.
+- Complete both ordinary and language-model-head Q8_0 MMQ forward campaigns and canonical catalogs.
+- Reevaluate and, if justified, implement the cross-format forward convergence path.
 
-## Refactor steps
+The Q3_K and Q8_0 campaigns may be developed independently, but the convergence review must not begin until both are complete.
 
-- Freeze generated assembly.
-  - Generate every selected production forward and backward inventory key.
-  - Generate every additional valid inventory-entry/catalog-solution combination from the pre-refactor committed tree.
-  - Save each complete source and SHA-256 digest outside the repository under `/home/wd/tmp/torch-ggml-ops/`.
-  - The selected production set is 18 forward keys and 50 backward keys. The broader catalog-valid set is compared independently.
+## Q3_K Forward Campaign
 
-- Add a direction-neutral assembly-writer module.
-  - Move the common line emitter into `tools/ggtensile/kernel_writer_assembly.py`.
-  - Share atomic source writing and digest calculation.
-  - Share ROCISA initialization with guaranteed working-directory restoration.
-  - Share identical ISA primitives: BF16 RNE preparation, multiply-or-shift address scaling, 64-bit pointer addition, three pointer-kernarg loads, and kernel trailer emission.
-  - Keep the backward deferred-zero/VOPD combiner as a backward-specific subclass.
+Build Q3_K through the current contract/specification/derived-state architecture rather than adding a standalone physical writer.
 
-- Centralize quant-format geometry.
-  - Add direction-neutral immutable format descriptions for Q3_K, Q4_K, Q5_K, Q6_K, and Q8_0.
-  - Give the Q8_1 `F16_D4S4` activation block its own named constant even though its byte size equals a Q4_K block.
-  - Replace duplicated block-size/value-count literals in GGTensile model, campaign, runtime, and writer code without changing serialized solution values or hashes.
-  - Keep direction-specific load and decode instruction emitters separate.
+Required deliverables:
+- a canonical Q3_K forward problem contract and `QuantForwardSemantics` covering packed planes, signedness, scale reconstruction, activation layout, correction arithmetic, BF16 output, and ABI.
+- formula-derived geometry, ownership, packed strides, activation strides, loop counts, LDS, registers, and resources.
+- one or more complete lowering mechanisms expressed through existing semantic stages and typed operands.
+- an exact workload inventory and strict selected-solution catalog; capability validation must remain formula-based and contain no winner map.
+- complete candidate and exact-pair round trips through the normal `ForwardSolution` and `SolutionKey` boundary.
+- deterministic generation, build, inspection, correctness, independent-reference, mutation, screen, and confirmation artifacts.
+- regression coverage proving that accepted fields affect canonical lowering or reject and that existing Q4_K/Q5_K/Q6_K selected sources remain unchanged unless a deliberate shared change is separately qualified.
+- a fresh recursive optimization-exhaustion review after the final Q3_K implementation or measurement premise.
 
-- Align writer structure without merging algorithms.
-  - Both writers continue to expose the same `write()` and `source()` interface.
-  - Both use the shared prologue primitives and trailer.
-  - Forward keeps its direct, wave-reuse, and HIP-staged bodies.
-  - Backward keeps its schedule and quant dispatch structure.
-  - Do not introduce a generic MMQ main loop or a shared solution base class.
+Q3_K completion requires every required exact key to have an explicit selected or fallback decision. A successful ordinary shape does not authorize another family or language-model-head shape without exact evidence.
 
-- Enforce complete executable-line coverage.
-  - Extend the existing tracing support to the shared assembly-writer module.
-  - Continue requiring complete method-body line coverage for the forward and backward writers.
-  - Require complete function and method-body line coverage for the shared module.
-  - Add targeted shared-helper coverage only for branches not naturally exercised by the direction suites.
+## Q8_0 Forward Campaigns
 
-- Verify generated output and resources.
-  - Compare all 68 selected production sources byte-for-byte with the frozen baseline.
-  - Compare every catalog-valid forward and backward source against a detached pre-refactor worktree.
-  - Run the existing retained Q4_K and Q5_K source/resource comparison scripts.
-  - If any generated source differs, document the exact changed instructions/directives and run correctness, inspection, and performance confirmation before retaining it.
-  - The intended result of this refactor is zero generated assembly differences.
+Treat ordinary Q8_0 and language-model-head Q8_0 as separate exact-shape and ownership campaigns. Do not infer either from the legacy HIP bundle, MMQ backward Q8_0, or fixed-group Q8_0.
 
-- Repository validation.
-  - Run focused GGTensile tests and the complete test suite.
-  - Run Ruff formatting/linting, `ty check`, pre-commit, bundle-current checks, and `git diff --check`.
+Required deliverables:
+- canonical ordinary and language-model-head inventories with representative tensors, call counts, exact shapes, controls, and selection status.
+- a Q8_0 forward contract and quant semantics that explicitly define packed-weight layout, activation-workspace layout, integer-dot or alternate arithmetic, scaling, destination rounding, and ABI.
+- complete geometry, ownership, global-read, LDS, decode, dot, correction, epilogue, instruction, and resource policies for each admitted mechanism.
+- formula-derived capability validation and exact catalogs kept as separate authorities.
+- deterministic candidate manifests and exact-pair evidence through the normal forward model.
+- independent-reference and adversarial packed-data coverage, including all scale fields, block boundaries, ownership boundaries, reduced K trips, and output boundaries.
+- input, packed-weight, and activation-workspace mutation sensitivity.
+- strict artifact inspection and byte-identical source/code-object rebuilds.
+- warmed rotating screens and two confirmations for every promoted exact key.
+- a recursive optimization-exhaustion review for ordinary Q8_0 and another for the language-model-head domain when their mechanisms or ownership differ.
 
-## Acceptance criteria
+Ordinary Q8_0 completion does not count as language-model-head completion, and neither counts as grouped fixed-group Q8_0 coverage.
 
-- Forward, backward, and shared writer executable method/function lines have complete coverage.
-- All 18 forward and 50 backward selected production assembly sources are byte-identical to the pre-refactor baseline.
-- All 87 forward and 292 backward catalog-valid assembly sources are byte-identical to the detached pre-refactor tree.
-- Retained Q4_K and Q5_K instruction bodies and resource envelopes remain unchanged.
-- Solution mappings, hashes, kernel names, ABIs, launch geometry, and strict validation behavior remain unchanged.
-- No compatibility aliases, forwarding modules, duplicate writer implementations, or generic direction-conditional main loop are introduced.
+## Post-Format Forward Convergence Review
+
+### Entry criteria
+
+Do not begin this work until:
+- Q3_K forward has a completed campaign, a canonical catalog with an explicit selected-or-HIP-fallback decision for every required key, qualification evidence, and a final recursive review.
+- ordinary Q8_0 forward has the same completed catalog decisions, qualification evidence, and final recursive review.
+- language-model-head Q8_0 forward has the same completed evidence.
+- the selected Q4_K/Q5_K/Q6_K artifacts still pass their frozen regression and resource gates.
+
+Before selecting an abstraction, produce one responsibility map across Q3_K, Q4_K, Q5_K, Q6_K, and Q8_0 covering:
+- packed-weight payload decode and metadata reconstruction.
+- Q8_1 activation-workspace addressing and staging.
+- integer or BF16 MMA operand ownership.
+- post-MMA scale, minimum, sum, signed-scale, and block-factor correction.
+- LDS stage, refill, barrier, and first-use wait behavior.
+- accumulator ownership, BF16 conversion, and output traversal.
+
+The map must identify actual shared semantics and actual format-specific semantics. Similar instruction text alone is not evidence of a shared component.
+
+### Highest-value path to evaluate
+
+Reevaluate this sequence from the complete five-format evidence:
+- Consolidate the overlapping Q6 ownership, decode, physical-register, LDS, lifetime, payload, accumulator, and output derivations into one immutable lowering state. The state must remain formula-derived and contain no instruction stream or issue-order table.
+- Define a complete semantic ownership descriptor for the residual single-row/dual-row Q6 setup, near/far reads, activation reads, and refill traversal. Derive owner lane and row, payload atom, address recurrence, destination role, refill slot, and first-use stage from geometry so one emitter can lower both modes.
+- Separate forward lowering into typed semantic domains equivalent to `WeightTile`, `Q81ActivationTile`, `IntegerDot`, `CorrectionTerms`, and `Epilogue`.
+- Let Q4_K/Q5_K share scale/minimum correction semantics while Q3_K, Q6_K, and Q8_0 provide their own typed correction terms. Do not force distinct arithmetic or memory ownership into one physical pipeline.
+- Lower those domains through deterministic mechanism policies while preserving distinct geometry and memory strategies where campaign evidence shows they are material.
+
+The Q3_K/Q8_0 evidence may revise, narrow, or reject this proposed decomposition. No abstraction is accepted solely because it shortens the current Q6 implementation. If the completed format map shows no defensible common ownership descriptor, record that conclusion and preserve the bounded Q6 policies.
+
+### What does not count
+
+The following do not satisfy the convergence work:
+- splitting the current writer into more files without deleting duplicated derivation.
+- moving Q6 into a sibling or forwarding writer.
+- encoding physical register or instruction order in tuples, tables, JSON, templates, ranks, or issue slots.
+- introducing a generic scheduler, learned ranker, opaque cost model, repair path, or source-order fallback.
+- invoking HIP, LLVM, TensileLite, or another compiler's scheduler or allocator during generation.
+- forcing all formats through one representation when selected geometry, arithmetic, resources, or timing show distinct mechanisms are required.
+
+## Validation Gates
+
+### Identity-preserving changes
+
+For a structural change intended to preserve behavior:
+- compare generated source exactly for every affected selected and frozen catalog-valid pair.
+- compare executable text, code-object identity, symbol, ABI, metadata, launch ownership, waits, VOPD pairings, LDS offsets, barriers, and resources.
+- preserve zero private storage, spills, scratch, calls, and dynamic stack.
+- run all focused writer tests and the complete repository suite.
+
+### Deliberate stream changes
+
+For an intentional stream change:
+- require finite output and exact retained-parent agreement when arithmetic order is unchanged.
+- require an independent reference and input, packed-weight, and workspace mutation sensitivity.
+- inspect exact VGPR, SGPR, LDS-byte, private-segment, spill, wait, barrier, WMMA, VOPD, VMEM, LDS-instruction, and code-object properties.
+- rebuild source and code objects deterministically.
+- qualify representative selected shapes and at least one blind formula-compatible shape for shared lowering.
+- compare with the retained same-policy parent, not only an unrelated HIP endpoint.
+- require serial warmed screens and two independent confirmations before promotion.
+
+Repository gates remain the complete GGTensile and repository tests, Ruff, formatting, `ty check`, `compileall`, pre-commit, bundle currency, and `git diff --check`.
+
+## Completion Rule
+
+This plan is complete only when:
+- required Q3_K forward exact keys have final catalog decisions.
+- ordinary and language-model-head Q8_0 exact keys have final catalog decisions.
+- the five-format responsibility map is complete.
+- the convergence path is either implemented through all gates or explicitly rejected from measured and structural evidence.
+- a fresh recursive review after the last actionable change finds no additional in-contract structural mechanism.
+- `ggtensile_plan.md` is updated with the resulting durable design and project status, leaving this file with no completed work log.

@@ -444,6 +444,15 @@ class ForwardSolution:
     epilogue_dependency_width: int = 1
     epilogue_priority: int = 0
     accumulator_initialization: str = "ScalarCopy"
+    q6_epilogue_pipeline_scope: str = "StoreBatch"
+    q6_dependency_delay_mode: str = "None"
+    q6_global_read_cache_policy: str = "Default"
+    q6_output_traversal: str = "OutputRoleGroupMajor"
+    q6_stage_clustering: str = "StageDependencyOrder"
+    q6_latency_policy: str = "SerializedDependencyDistance"
+    q6_pressure_policy: str = "ExplicitRoleLifetime"
+    q6_wait_policy: str = "ProducerFirstUse"
+    q6_pairing_policy: str = "DependencyCompatibleDualIssue"
 
     _KEYS: ClassVar[frozenset[str]] = frozenset(
         {
@@ -473,6 +482,15 @@ class ForwardSolution:
             "AccumulatorInitialization",
             "SignedActivation",
             "WmmaClamp",
+            "Q6EpiloguePipelineScope",
+            "Q6DependencyDelayMode",
+            "Q6GlobalReadCachePolicy",
+            "Q6OutputTraversal",
+            "Q6StageClustering",
+            "Q6LatencyPolicy",
+            "Q6PressurePolicy",
+            "Q6WaitPolicy",
+            "Q6PairingPolicy",
         }
     )
 
@@ -503,7 +521,7 @@ class ForwardSolution:
         )
 
     @classmethod
-    def q4_k_wave_reuse(cls) -> Self:
+    def q4_k_decoded_weight_lds_retained(cls) -> Self:
         return cls(
             kernel_language="Assembly",
             isa=(11, 5, 1),
@@ -516,64 +534,42 @@ class ForwardSolution:
             activation_layout="F16_D4S4",
             activation_block_bytes=Q8_1_F16_D4S4_BLOCK_BYTES,
             packed_weight_block_bytes=QUANT_FORMATS["Q4_K"].block_bytes,
-            operand_source="GlobalWaveReuse",
+            operand_source="DecodedWeightLdsBatch8",
             weight_decode="DirectNibble",
-            lds_address_hoist="None",
-            activation_addressing="MultiplyAdd",
-            metadata_conversion="Float32ThenFloat16",
+            lds_address_hoist="WeightMetadata",
+            activation_addressing="MadU24",
+            metadata_conversion="DirectFloat16Unsigned16",
             scale_arithmetic="FP16",
-            output_store="BFloat16RNE",
+            output_store="BFloat16RNEClauseBatch8IncrementRows",
             signed_weight=True,
             signed_activation=True,
             wmma_clamp=True,
         )
 
     @classmethod
-    def q4_k_wave_batch4(cls) -> Self:
-        return replace(cls.q4_k_wave_reuse(), operand_source="GlobalWaveBatch4")
-
-    @classmethod
-    def q4_k_hip_staged(cls) -> Self:
-        return replace(cls.q4_k_wave_reuse(), operand_source="HipStagedBatch8")
-
-    @classmethod
-    def q4_k_hip_decoded_staged(cls) -> Self:
-        return replace(cls.q4_k_wave_reuse(), operand_source="HipDecodedStagedBatch8")
-
-    @classmethod
-    def q4_k_hip_decoded_staged_retained(cls) -> Self:
+    def q4_k_decoded_weight_lds_metadata_after_low_wmma(cls) -> Self:
         return replace(
-            cls.q4_k_hip_decoded_staged(),
-            lds_address_hoist="WeightMetadata",
-            activation_addressing="MadU24",
-            metadata_conversion="DirectFloat16Unsigned16",
-            output_store="BFloat16RNEClauseBatch8IncrementRows",
-        )
-
-    @classmethod
-    def q4_k_hip_decoded_staged_metadata_after_low_wmma(cls) -> Self:
-        return replace(
-            cls.q4_k_hip_decoded_staged_retained(),
+            cls.q4_k_decoded_weight_lds_retained(),
             metadata_schedule="MetadataAfterLowWmma",
         )
 
     @classmethod
-    def q5_k_hip_decoded_staged_retained(cls) -> Self:
+    def q5_k_decoded_weight_lds_retained(cls) -> Self:
         return replace(
-            cls.q4_k_hip_decoded_staged_retained(),
+            cls.q4_k_decoded_weight_lds_retained(),
             packed_weight_block_bytes=QUANT_FORMATS["Q5_K"].block_bytes,
             weight_decode="DirectNibbleHighBit",
         )
 
     @classmethod
-    def q5_k_hip_decoded_staged_metadata_after_low_wmma(cls) -> Self:
+    def q5_k_decoded_weight_lds_metadata_after_low_wmma(cls) -> Self:
         return replace(
-            cls.q5_k_hip_decoded_staged_retained(),
+            cls.q5_k_decoded_weight_lds_retained(),
             metadata_schedule="MetadataAfterLowWmma",
         )
 
     @classmethod
-    def q5_k_hip_decoded_staged_extraction(
+    def q5_k_decoded_weight_lds_extraction(
         cls,
         *,
         epilogue_tiles_ahead: int,
@@ -590,7 +586,7 @@ class ForwardSolution:
         if accumulator_initialization not in ("ScalarCopy", "VopdPair"):
             raise ValueError("unsupported forward accumulator initialization")
         return replace(
-            cls.q5_k_hip_decoded_staged_retained(),
+            cls.q5_k_decoded_weight_lds_retained(),
             metadata_schedule="IndependentExtractionMetadataAfterLowWmma",
             epilogue_tiles_ahead=epilogue_tiles_ahead,
             epilogue_dependency_width=epilogue_dependency_width,
@@ -599,16 +595,14 @@ class ForwardSolution:
         )
 
     @classmethod
-    def q6_k_decoded_staged(cls, *, macro_tile0: int) -> Self:
-        if macro_tile0 not in (64, 128, 256):
-            raise ValueError(
-                "Q6_K forward implements only M64, M128, or M256 ownership"
-            )
+    def q6_k_structured_decoded(cls, *, macro_tile0: int) -> Self:
+        if macro_tile0 not in (64, 128):
+            raise ValueError("structured Q6_K forward implements MT64 or MT128")
         return cls(
             kernel_language="Assembly",
             isa=(11, 5, 1),
             wavefront_size=32,
-            work_group=(256 if macro_tile0 == 256 else 128, 1, 1),
+            work_group=(32, 4, 1),
             matrix_instruction=(16, 16, 16, 1, 1, 1, 4, 4, 1),
             macro_tile0=macro_tile0,
             macro_tile1=64,
@@ -616,9 +610,9 @@ class ForwardSolution:
             activation_layout="F32_D4",
             activation_block_bytes=Q8_1_F32_D4_BLOCK_BYTES,
             packed_weight_block_bytes=QUANT_FORMATS["Q6_K"].block_bytes,
-            operand_source="Q6DecodedStaged",
+            operand_source="Q6StructuredDecoded",
             weight_decode="DirectQ6Signed",
-            lds_address_hoist="WeightMetadata",
+            lds_address_hoist="StructuredDecodeDot",
             activation_addressing="MadU24",
             metadata_conversion="Float16DToFloat32Signed8Scale",
             scale_arithmetic="Int32ScaleF32",
@@ -626,21 +620,16 @@ class ForwardSolution:
             signed_weight=True,
             signed_activation=True,
             wmma_clamp=False,
+            epilogue_dependency_width=2,
+            q6_epilogue_pipeline_scope=(
+                "StoreBatch" if macro_tile0 == 64 else "FullTile"
+            ),
+            q6_dependency_delay_mode="None" if macro_tile0 == 64 else "Explicit",
+            q6_global_read_cache_policy="InvalidateL0",
         )
 
     @classmethod
-    def q6_k_hip_scheduled(cls, *, macro_tile0: int) -> Self:
-        if macro_tile0 not in (64, 128):
-            raise ValueError("HIP-scheduled Q6_K forward implements M64 or M128")
-        return replace(
-            cls.q6_k_decoded_staged(macro_tile0=macro_tile0),
-            work_group=(32, 4, 1),
-            operand_source="Q6HipScheduled",
-            lds_address_hoist="HipSchedule",
-        )
-
-    @classmethod
-    def q4_k_hip_decoded_staged_extraction(
+    def q4_k_decoded_weight_lds_extraction(
         cls,
         *,
         epilogue_tiles_ahead: int,
@@ -655,7 +644,7 @@ class ForwardSolution:
         if epilogue_priority not in (0, 1, 2, 3):
             raise ValueError("unsupported forward epilogue priority")
         return replace(
-            cls.q4_k_hip_decoded_staged_retained(),
+            cls.q4_k_decoded_weight_lds_retained(),
             metadata_schedule=(
                 "IndependentExtractionMetadataAfterLowWmma"
                 if metadata_after_low_wmma
@@ -668,8 +657,25 @@ class ForwardSolution:
 
     @classmethod
     def from_mapping(cls, value: object) -> Self:
-        if isinstance(value, Mapping) and "AccumulatorInitialization" not in value:
-            value = {**value, "AccumulatorInitialization": "ScalarCopy"}
+        if isinstance(value, Mapping):
+            defaults: dict[str, object] = {
+                "AccumulatorInitialization": "ScalarCopy",
+                "Q6EpiloguePipelineScope": "StoreBatch",
+                "Q6DependencyDelayMode": "None",
+                "Q6GlobalReadCachePolicy": "Default",
+            }
+            if value.get("OperandSource") != "Q6StructuredDecoded":
+                defaults.update(
+                    {
+                        "Q6OutputTraversal": "OutputRoleGroupMajor",
+                        "Q6StageClustering": "StageDependencyOrder",
+                        "Q6LatencyPolicy": "SerializedDependencyDistance",
+                        "Q6PressurePolicy": "ExplicitRoleLifetime",
+                        "Q6WaitPolicy": "ProducerFirstUse",
+                        "Q6PairingPolicy": "DependencyCompatibleDualIssue",
+                    }
+                )
+            value = {**defaults, **value}
         item = _strict_mapping(value, name="Solution", keys=cls._KEYS)
         return cls(
             kernel_language=_string(item["KernelLanguage"], "KernelLanguage"),
@@ -714,6 +720,21 @@ class ForwardSolution:
             accumulator_initialization=_string(
                 item["AccumulatorInitialization"], "AccumulatorInitialization"
             ),
+            q6_epilogue_pipeline_scope=_string(
+                item["Q6EpiloguePipelineScope"], "Q6EpiloguePipelineScope"
+            ),
+            q6_dependency_delay_mode=_string(
+                item["Q6DependencyDelayMode"], "Q6DependencyDelayMode"
+            ),
+            q6_global_read_cache_policy=_string(
+                item["Q6GlobalReadCachePolicy"], "Q6GlobalReadCachePolicy"
+            ),
+            q6_output_traversal=_string(item["Q6OutputTraversal"], "Q6OutputTraversal"),
+            q6_stage_clustering=_string(item["Q6StageClustering"], "Q6StageClustering"),
+            q6_latency_policy=_string(item["Q6LatencyPolicy"], "Q6LatencyPolicy"),
+            q6_pressure_policy=_string(item["Q6PressurePolicy"], "Q6PressurePolicy"),
+            q6_wait_policy=_string(item["Q6WaitPolicy"], "Q6WaitPolicy"),
+            q6_pairing_policy=_string(item["Q6PairingPolicy"], "Q6PairingPolicy"),
         )
 
     @property
@@ -722,14 +743,11 @@ class ForwardSolution:
 
     @property
     def lds_num_bytes(self) -> int:
-        if self.operand_source == "Q6DecodedStaged":
-            return self.macro_tile0 * Q8_1_F32_D4_BLOCK_BYTES + 64 * 304
-        if self.operand_source == "Q6HipScheduled":
-            return 28_928 if self.macro_tile0 == 64 else 38_400
-        if self.operand_source == "HipDecodedStagedBatch8":
+        if self.operand_source == "Q6StructuredDecoded":
+            output_rows_per_wave = self.macro_tile0 // 64
+            return 19_456 + 9_472 * output_rows_per_wave
+        if self.operand_source == "DecodedWeightLdsBatch8":
             return 38_400
-        if self.operand_source == "HipStagedBatch8":
-            return 18_432 + 8_192
         return 0
 
     def to_mapping(self) -> dict[str, object]:
@@ -762,6 +780,43 @@ class ForwardSolution:
         }
         if self.accumulator_initialization != "ScalarCopy":
             mapping["AccumulatorInitialization"] = self.accumulator_initialization
+        if self.q6_epilogue_pipeline_scope != "StoreBatch":
+            mapping["Q6EpiloguePipelineScope"] = self.q6_epilogue_pipeline_scope
+        if self.q6_dependency_delay_mode != "None":
+            mapping["Q6DependencyDelayMode"] = self.q6_dependency_delay_mode
+        if self.q6_global_read_cache_policy != "Default":
+            mapping["Q6GlobalReadCachePolicy"] = self.q6_global_read_cache_policy
+        q6_policy_fields = (
+            (
+                "Q6OutputTraversal",
+                self.q6_output_traversal,
+                "OutputRoleGroupMajor",
+            ),
+            (
+                "Q6StageClustering",
+                self.q6_stage_clustering,
+                "StageDependencyOrder",
+            ),
+            (
+                "Q6LatencyPolicy",
+                self.q6_latency_policy,
+                "SerializedDependencyDistance",
+            ),
+            (
+                "Q6PressurePolicy",
+                self.q6_pressure_policy,
+                "ExplicitRoleLifetime",
+            ),
+            ("Q6WaitPolicy", self.q6_wait_policy, "ProducerFirstUse"),
+            (
+                "Q6PairingPolicy",
+                self.q6_pairing_policy,
+                "DependencyCompatibleDualIssue",
+            ),
+        )
+        for key, value, default in q6_policy_fields:
+            if self.operand_source == "Q6StructuredDecoded" or value != default:
+                mapping[key] = value
         return mapping
 
 

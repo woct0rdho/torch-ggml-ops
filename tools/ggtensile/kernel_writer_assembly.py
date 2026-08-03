@@ -1,14 +1,180 @@
 import hashlib
 import os
 import tempfile
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 import rocisa
 
 
+@dataclass(frozen=True)
+class RegisterLifetime:
+    first_stage: int
+    last_stage: int
+
+    def __post_init__(self) -> None:
+        if self.first_stage < 0 or self.last_stage < self.first_stage:
+            raise ValueError("invalid register lifetime")
+
+    def overlaps(self, other: "RegisterLifetime") -> bool:
+        return not (
+            self.last_stage < other.first_stage or other.last_stage < self.first_stage
+        )
+
+
+@dataclass(frozen=True)
+class RegisterRole:
+    name: str
+    width: int
+    lifetime: RegisterLifetime
+    alignment: int = 1
+    minimum_register: int = 0
+
+    def __post_init__(self) -> None:
+        if not self.name or self.width <= 0:
+            raise ValueError("register role requires a name and positive width")
+        if self.alignment <= 0 or self.minimum_register < 0:
+            raise ValueError("invalid register role alignment or minimum")
+
+
+@dataclass(frozen=True)
+class RegisterAssignment:
+    role: RegisterRole
+    first_register: int
+
+    @property
+    def registers(self) -> range:
+        return range(self.first_register, self.first_register + self.role.width)
+
+
+@dataclass(frozen=True)
+class DeterministicRegisterPlan:
+    """First-fit allocation over an explicit semantic role order."""
+
+    assignments: tuple[RegisterAssignment, ...]
+    register_count: int
+
+    @classmethod
+    def allocate(
+        cls,
+        roles: Mapping[str, RegisterRole],
+        role_order: tuple[str, ...],
+        *,
+        max_registers: int,
+        reserved: tuple[RegisterAssignment, ...] = (),
+    ) -> "DeterministicRegisterPlan":
+        if max_registers <= 0:
+            raise ValueError("max_registers must be positive")
+        if len(role_order) != len(set(role_order)) or set(role_order) != set(roles):
+            raise ValueError("role_order must name every register role exactly once")
+        assigned = list(reserved)
+        for name in role_order:
+            role = roles[name]
+            if role.name != name:
+                raise ValueError("register role mapping key does not match role name")
+            candidate = _align_register(role.minimum_register, role.alignment)
+            while candidate + role.width <= max_registers:
+                proposed = range(candidate, candidate + role.width)
+                conflict = any(
+                    role.lifetime.overlaps(item.role.lifetime)
+                    and _register_ranges_overlap(proposed, item.registers)
+                    for item in assigned
+                )
+                if not conflict:
+                    assigned.append(RegisterAssignment(role, candidate))
+                    break
+                candidate = _align_register(candidate + 1, role.alignment)
+            else:
+                raise ValueError(f"register role {name!r} exceeds the register limit")
+        register_count = max(
+            (assignment.registers.stop for assignment in assigned),
+            default=0,
+        )
+        return cls(tuple(assigned), register_count)
+
+    def assignment(self, role_name: str) -> RegisterAssignment:
+        for assignment in self.assignments:
+            if assignment.role.name == role_name:
+                return assignment
+        raise KeyError(role_name)
+
+
+class DeterministicRegisterPool:
+    """Explicit first-fit checkout/checkin pool over a fixed register set."""
+
+    def __init__(self, registers: tuple[int, ...]) -> None:
+        if not registers or any(register < 0 for register in registers):
+            raise ValueError("register pool requires nonnegative registers")
+        if len(registers) != len(set(registers)):
+            raise ValueError("register pool entries must be unique")
+        self._registers = tuple(sorted(registers))
+        self._assignments: dict[str, RegisterAssignment] = {}
+        self._owners: dict[int, str] = {}
+
+    def checkout(
+        self,
+        role: RegisterRole,
+        *,
+        preferred_register: int | None = None,
+    ) -> RegisterAssignment:
+        if role.name in self._assignments:
+            raise ValueError(f"register role {role.name!r} is already checked out")
+        candidates = self._registers
+        if preferred_register is not None:
+            candidates = (preferred_register,)
+        for first in candidates:
+            if first % role.alignment or first < role.minimum_register:
+                continue
+            registers = range(first, first + role.width)
+            if all(
+                register in self._registers and register not in self._owners
+                for register in registers
+            ):
+                assignment = RegisterAssignment(role, first)
+                self._assignments[role.name] = assignment
+                for register in registers:
+                    self._owners[register] = role.name
+                return assignment
+        preference = (
+            f" at v{preferred_register}" if preferred_register is not None else ""
+        )
+        raise ValueError(
+            f"register role {role.name!r} cannot be checked out{preference}"
+        )
+
+    def checkin(self, role_name: str) -> RegisterAssignment:
+        if role_name not in self._assignments:
+            raise ValueError(f"register role {role_name!r} is not checked out")
+        assignment = self._assignments.pop(role_name)
+        for register in assignment.registers:
+            if self._owners.pop(register, None) != role_name:
+                raise ValueError(f"register pool ownership mismatch for {role_name!r}")
+        return assignment
+
+    def assignment(self, role_name: str) -> RegisterAssignment:
+        return self._assignments[role_name]
+
+    @property
+    def checked_out(self) -> tuple[RegisterAssignment, ...]:
+        return tuple(self._assignments[name] for name in sorted(self._assignments))
+
+
+def _align_register(register: int, alignment: int) -> int:
+    return (register + alignment - 1) // alignment * alignment
+
+
+def _register_ranges_overlap(left: range, right: range) -> bool:
+    return left.start < right.stop and right.start < left.stop
+
+
 class Assembly:
-    def __init__(self) -> None:
+    def __init__(self, *, indent: str = "  ") -> None:
+        self.indent = indent
         self.lines: list[str] = []
+
+    def line(self, text: str) -> None:
+        self.lines.append(text)
 
     def comment(self, text: str) -> None:
         self.lines.append(f"// {text}")
@@ -18,7 +184,7 @@ class Assembly:
 
     def inst(self, text: str, comment: str = "") -> None:
         suffix = f" // {comment}" if comment else ""
-        self.lines.append(f"  {text}{suffix}")
+        self.lines.append(f"{self.indent}{text}{suffix}")
 
     def text(self) -> str:
         return "\n".join(self.lines) + "\n"

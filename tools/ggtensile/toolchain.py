@@ -15,6 +15,7 @@ class Toolchain:
     assembler: Path
     readelf: Path
     objdump: Path
+    objcopy: Path
 
     @classmethod
     def discover(cls, assembler: Path | None = None):
@@ -26,6 +27,7 @@ class Toolchain:
             assembler=selected.resolve(),
             readelf=_find_sibling_tool(tool_dir, "llvm-readelf"),
             objdump=_find_sibling_tool(tool_dir, "llvm-objdump"),
+            objcopy=_find_sibling_tool(tool_dir, "llvm-objcopy"),
         )
 
     def assemble(self, source: Path, output: Path) -> None:
@@ -81,6 +83,23 @@ class Toolchain:
                 str(code_object),
             ]
         ).stdout
+
+    def extract_section(
+        self,
+        code_object: Path,
+        section: str,
+        output: Path,
+    ) -> None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        _run(
+            [
+                str(self.objcopy),
+                "--dump-section",
+                f"{section}={output}",
+                str(code_object),
+                os.devnull,
+            ]
+        )
 
 
 def _find_assembler() -> Path:
