@@ -1,12 +1,18 @@
 import builtins
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from pathlib import Path
 from types import ModuleType
 
 import pytest
 
-from tools.ggtensile.campaign import load_inventory, load_solution_catalog
+from tests.ggtensile.support import (
+    MMQ_BWD_INVENTORY_CASE_IDS,
+    MMQ_BWD_INVENTORY_CASES,
+    GGTensileInventoryCase,
+    ggtensile_toolchain,
+    load_inventory_case,
+    selected_solution_keys,
+)
 from tools.ggtensile.kernel_writer_assembly_mmq_bwd import (
     BackwardDiagnosticMode,
     BackwardKernelWriterAssembly,
@@ -19,15 +25,7 @@ from tools.ggtensile.model import (
     ProblemType,
     SolutionKey,
 )
-from tools.ggtensile.toolchain import Toolchain, ToolchainError
 from tools.ggtensile.validation import validate_solution
-
-
-def _toolchain() -> Toolchain:
-    try:
-        return Toolchain.discover()
-    except ToolchainError as error:
-        pytest.skip(str(error))
 
 
 def _key(
@@ -46,35 +44,26 @@ def _source(
     assert validate_solution(key) == ()
     return BackwardKernelWriterAssembly(
         key,
-        _toolchain(),
+        ggtensile_toolchain(),
         diagnostic_mode=diagnostic_mode,
     ).source()
 
 
-def test_writer_emits_every_selected_production_kernel() -> None:
-    catalogs = (
-        ("mmq_bwd_q3_k_inventory.json", "mmq_bwd_q3_k_solutions.json"),
-        ("mmq_bwd_q4_k_inventory.json", "mmq_bwd_q4_k_solutions.json"),
-        ("mmq_bwd_q5_k_inventory.json", "mmq_bwd_q5_k_solutions.json"),
-        ("mmq_bwd_q6_k_inventory.json", "mmq_bwd_q6_k_solutions.json"),
-        ("mmq_bwd_q8_0_inventory.json", "mmq_bwd_q8_0_solutions.json"),
-    )
+@pytest.mark.parametrize(
+    "case",
+    MMQ_BWD_INVENTORY_CASES,
+    ids=MMQ_BWD_INVENTORY_CASE_IDS,
+)
+def test_writer_emits_every_selected_production_kernel(
+    case: GGTensileInventoryCase,
+) -> None:
+    inventory, catalog = load_inventory_case(case)
     emitted: set[str] = set()
-    for inventory_name, catalog_name in catalogs:
-        inventory = load_inventory(Path("tools/ggtensile/configs") / inventory_name)
-        catalog = load_solution_catalog(
-            Path("tools/ggtensile/configs") / catalog_name,
-            problem_type=inventory.problem_type,
-        )
-        for entry in inventory.entries:
-            key = entry.solution_key(
-                inventory.problem_type,
-                catalog[entry.selected_solution],
-            )
-            source = _source(key)
-            assert f".globl {key.kernel_name}" in source
-            emitted.add(key.hash)
-    assert len(emitted) == 50
+    for key in selected_solution_keys(inventory, catalog):
+        source = _source(key)
+        assert f".globl {key.kernel_name}" in source
+        emitted.add(key.hash)
+    assert len(emitted) == case.entry_count
 
 
 def _targeted_writer_keys() -> tuple[SolutionKey, ...]:
@@ -257,7 +246,7 @@ def test_writer_emits_repaired_q6_lane_share_and_depth64_layouts() -> None:
     ) < source.index("s_and_saveexec_b32")
 
     depth64_key = _targeted_writer_keys()[10]
-    writer = BackwardKernelWriterAssembly(depth64_key, _toolchain())
+    writer = BackwardKernelWriterAssembly(depth64_key, ggtensile_toolchain())
     row_stride = 2 * depth64_key.solution.depth_u
     assert writer._decoded_lds_store_location(0, 1, 32)[1] == 64
     assert writer._decoded_lds_store_location(2, 1, 32)[1] == 2 * row_stride + 64
@@ -323,12 +312,12 @@ def test_writer_rejects_invalid_solution() -> None:
         replace(BackwardSolution.pilot(), depth_u=48),
     )
     with pytest.raises(BackwardKernelWriterError, match="solution rejected"):
-        BackwardKernelWriterAssembly(invalid, _toolchain())
+        BackwardKernelWriterAssembly(invalid, ggtensile_toolchain())
 
 
 def test_writer_reports_missing_rocisa(monkeypatch: pytest.MonkeyPatch) -> None:
     key = _key("Q4_K", (128, 2048, 512), BackwardSolution.pilot())
-    writer = BackwardKernelWriterAssembly(key, _toolchain())
+    writer = BackwardKernelWriterAssembly(key, ggtensile_toolchain())
     original_import = builtins.__import__
 
     def reject_rocisa(

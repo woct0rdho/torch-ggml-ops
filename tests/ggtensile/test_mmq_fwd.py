@@ -1,5 +1,6 @@
 import builtins
 import json
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import fields, replace
 from pathlib import Path
@@ -7,8 +8,16 @@ from types import ModuleType
 
 import pytest
 
-from tools.ggtensile.campaign import load_inventory, load_solution_catalog
-from tools.ggtensile.inspection import inspect_artifact
+from tests.ggtensile.support import (
+    MMQ_FWD_INVENTORY_CASE_IDS,
+    MMQ_FWD_INVENTORY_CASES,
+    GGTensileInventoryCase,
+    assert_resource_clean,
+    build_and_inspect,
+    ggtensile_toolchain,
+    load_inventory_case,
+    selected_solution_keys,
+)
 from tools.ggtensile.kernel_writer_assembly_mmq_fwd import (
     ForwardKernelWriterAssembly,
     ForwardKernelWriterError,
@@ -21,85 +30,80 @@ from tools.ggtensile.model import (
     SolutionKey,
 )
 from tools.ggtensile.runtime import FixedHipForwardModule, ForwardModule
-from tools.ggtensile.toolchain import Toolchain, ToolchainError
 from tools.ggtensile.validation import validate_solution
 
-_CONFIG_DIR = Path("tools/ggtensile/configs")
-_INVENTORY = _CONFIG_DIR / "mmq_fwd_q4_k_inventory.json"
-_CATALOG = _CONFIG_DIR / "mmq_fwd_q4_k_solutions.json"
-
-
-def _toolchain() -> Toolchain:
-    try:
-        return Toolchain.discover()
-    except ToolchainError as error:
-        pytest.skip(str(error))
+_Q5_INVENTORY_CASE = next(
+    case for case in MMQ_FWD_INVENTORY_CASES if case.quant_type == "Q5_K"
+)
 
 
 def _key(
+    quant_type: str = "Q4_K",
     size: ProblemSize | None = None,
     solution: ForwardSolution | None = None,
 ) -> SolutionKey:
+    if solution is None:
+        default_solutions = {
+            "Q4_K": ForwardSolution.q4_k_pilot(),
+            "Q5_K": ForwardSolution.q5_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma(),
+        }
+        solution = default_solutions[quant_type]
     return SolutionKey(
-        ProblemType.mmq_forward_q4_k(),
+        ProblemType.mmq_forward(quant_type),
         size or ProblemSize(2048, 512, 2048),
-        solution or ForwardSolution.q4_k_pilot(),
+        solution,
     )
 
 
-def test_forward_inventory_is_exact_open_and_versionless() -> None:
-    inventory = load_inventory(_INVENTORY)
-    catalog = load_solution_catalog(_CATALOG, problem_type=inventory.problem_type)
-    assert inventory.problem_type == ProblemType.mmq_forward_q4_k()
-    assert len(inventory.entries) == 12
-    assert {entry.family for entry in inventory.entries} == {
-        "narrow",
-        "shared_down",
-        "attention_output",
-        "query",
-    }
-    assert {entry.problem_size.m for entry in inventory.entries} == {
-        2048,
-        8192,
-        32768,
-    }
-    assert sum(entry.current_status == "selected" for entry in inventory.entries) == 2
-    assert sum(entry.current_status == "open" for entry in inventory.entries) == 10
-    assert set(catalog) == {
-        "pilot_direct_global",
-        "retained_metadata_after_low_wmma",
-        "retained_independent_extraction_metadata_after_low_wmma",
-        "retained_shared_down_m8192_extract_a1d4_p2",
-        "retained_shared_down_m32768_extract_a1d2_p2",
-        "composed_shared_down_m2048_extract_a1d2_p2",
-        "composed_shared_down_m8192_extract_a1d4_p2",
-        "composed_shared_down_m32768_extract_a1d2_p2",
-        "composed_narrow_m32768_extract_a4d4_p2",
-        "composed_query_m2048_extract_a1d2_p2",
-        "composed_query_m8192_extract_a4d4_p2",
-        "composed_query_m32768_extract_a2d2_p2",
-    }
+def _source(key: SolutionKey) -> str:
+    return ForwardKernelWriterAssembly(key, ggtensile_toolchain()).source()
+
+
+@pytest.mark.parametrize(
+    "case",
+    MMQ_FWD_INVENTORY_CASES,
+    ids=MMQ_FWD_INVENTORY_CASE_IDS,
+)
+def test_forward_campaign_inventory_is_exact_and_versionless(
+    case: GGTensileInventoryCase,
+) -> None:
+    inventory, catalog = load_inventory_case(case)
+    assert inventory.problem_type == case.problem_type
+    assert len(inventory.entries) == case.entry_count
+    assert {entry.family for entry in inventory.entries} == case.families
+    assert {entry.problem_size.m for entry in inventory.entries} == case.m_values
+    assert Counter(entry.current_status for entry in inventory.entries) == dict(
+        case.status_counts
+    )
+    assert set(catalog) == case.solution_names
+    assert all(entry.quant_data_type == case.quant_type for entry in inventory.entries)
     assert all(
-        validate_solution(
-            entry.solution_key(
-                inventory.problem_type,
-                catalog[entry.selected_solution],
-            )
-        )
-        == ()
-        for entry in inventory.entries
+        validate_solution(key) == ()
+        for key in selected_solution_keys(inventory, catalog)
     )
     narrow = inventory.entries[0]
     assert narrow.expected_logical_weight_shape == (512, 2048)
-    assert narrow.expected_physical_weight_shape == (512, 1152)
-    raw = json.loads(_INVENTORY.read_text(encoding="utf-8"))
+    expected_row_bytes = {"Q4_K": 1152, "Q5_K": 1408}[case.quant_type]
+    assert narrow.expected_physical_weight_shape == (512, expected_row_bytes)
+    raw = json.loads(case.inventory_path.read_text(encoding="utf-8"))
     assert "Version" not in raw and "SchemaVersion" not in raw
 
 
-def test_forward_solution_key_is_strict_and_round_trips() -> None:
-    key = _key()
+def test_q5_forward_inventory_selects_retained_vopd_epilogue() -> None:
+    _, catalog = load_inventory_case(_Q5_INVENTORY_CASE)
+    selected = catalog["selected_narrow_m32768_a7d3_p3_vopd_init"]
+    assert isinstance(selected, ForwardSolution)
+    assert selected.epilogue_tiles_ahead == 7
+    assert selected.epilogue_dependency_width == 3
+    assert selected.epilogue_priority == 3
+    assert selected.accumulator_initialization == "VopdPair"
+
+
+@pytest.mark.parametrize("quant_type", ("Q4_K", "Q5_K"), ids=str.lower)
+def test_forward_solution_key_is_strict_and_round_trips(quant_type: str) -> None:
+    key = _key(quant_type)
     assert SolutionKey.from_mapping(key.to_mapping()) == key
-    assert "mmq_fwd_q4_k" in key.kernel_name
+    assert f"mmq_fwd_{quant_type.lower()}" in key.kernel_name
     mapping = key.to_mapping()
     solution_mapping = mapping["Solution"]
     assert isinstance(solution_mapping, dict)
@@ -108,6 +112,22 @@ def test_forward_solution_key_is_strict_and_round_trips() -> None:
     mapping["Solution"] = solution
     with pytest.raises(SchemaError, match="invalid Solution"):
         SolutionKey.from_mapping(mapping)
+
+
+def test_forward_quant_types_have_distinct_problem_and_solution_identity() -> None:
+    q4_key = _key(
+        "Q4_K",
+        solution=ForwardSolution.q4_k_hip_decoded_staged_retained(),
+    )
+    q5_key = _key(
+        "Q5_K",
+        solution=ForwardSolution.q5_k_hip_decoded_staged_retained(),
+    )
+    assert q4_key.problem_type != q5_key.problem_type
+    assert q4_key.hash != q5_key.hash
+    assert isinstance(q5_key.solution, ForwardSolution)
+    assert q5_key.solution.packed_weight_block_bytes == 176
+    assert q5_key.solution.weight_decode == "DirectNibbleHighBit"
 
 
 def test_forward_solution_identity_normalizes_scalar_accumulator_initialization() -> (
@@ -166,15 +186,19 @@ def test_forward_validation_rejects_unimplemented_mechanisms(
 
 
 @pytest.mark.parametrize(
-    "size",
+    ("quant_type", "size"),
     (
-        ProblemSize(128, 512, 2048),
-        ProblemSize(2048, 1024, 2048),
-        ProblemSize(2048, 512, 2304),
+        ("Q4_K", ProblemSize(128, 512, 2048)),
+        ("Q4_K", ProblemSize(2048, 1024, 2048)),
+        ("Q4_K", ProblemSize(2048, 512, 2304)),
+        ("Q5_K", ProblemSize(2048, 2048, 4096)),
     ),
 )
-def test_forward_validation_rejects_nonproduction_sizes(size: ProblemSize) -> None:
-    assert validate_solution(_key(size=size))
+def test_forward_validation_rejects_nonproduction_sizes(
+    quant_type: str,
+    size: ProblemSize,
+) -> None:
+    assert validate_solution(_key(quant_type, size=size))
 
 
 def test_forward_validation_rejects_mismatched_problem_type() -> None:
@@ -198,9 +222,19 @@ def test_forward_validation_rejects_mismatched_problem_type() -> None:
     }
 
 
+def test_q5_forward_validation_rejects_q4_control() -> None:
+    key = _key(
+        "Q5_K",
+        solution=ForwardSolution.q4_k_hip_decoded_staged_retained(),
+    )
+    assert {reason.rule_id for reason in validate_solution(key)} == {
+        "solution.forward.control.unimplemented"
+    }
+
+
 def test_forward_writer_emits_direct_q8_1_f16_d4s4_q4_k_control(tmp_path: Path) -> None:
     key = _key()
-    writer = ForwardKernelWriterAssembly(key, _toolchain())
+    writer = ForwardKernelWriterAssembly(key, ggtensile_toolchain())
     source = writer.source()
     assembly = tmp_path / "kernel.s"
     digest = writer.write(assembly)
@@ -218,7 +252,7 @@ def test_forward_writer_emits_direct_q8_1_f16_d4s4_q4_k_control(tmp_path: Path) 
 
 def test_forward_writer_emits_flat_wave_reuse_control() -> None:
     key = _key(solution=ForwardSolution.q4_k_wave_reuse())
-    source = ForwardKernelWriterAssembly(key, _toolchain()).source()
+    source = _source(key)
     assert source.count("v_wmma_i32_16x16x16_iu8") == 128
     assert "v_lshrrev_b32 v159, 5, v157" in source
     assert "Reused Q4_K group 7 across eight activation tiles." in source
@@ -230,7 +264,7 @@ def test_forward_writer_emits_flat_wave_reuse_control() -> None:
 
 def test_forward_writer_emits_wave_batch_control() -> None:
     key = _key(solution=ForwardSolution.q4_k_wave_batch4())
-    source = ForwardKernelWriterAssembly(key, _toolchain()).source()
+    source = _source(key)
     assert source.count("v_wmma_i32_16x16x16_iu8") == 128
     assert "Batch Q4_K group 7 across four activation tiles at a time." in source
     assert "v_wmma_i32_16x16x16_iu8 v[112:119]" in source
@@ -243,7 +277,7 @@ def test_forward_writer_emits_wave_batch_control() -> None:
 
 def test_forward_writer_emits_hip_shaped_staged_control() -> None:
     key = _key(solution=ForwardSolution.q4_k_hip_staged())
-    source = ForwardKernelWriterAssembly(key, _toolchain()).source()
+    source = _source(key)
     assert source.count("v_wmma_i32_16x16x16_iu8") == 128
     assert source.count("s_barrier") == 4
     assert "Cooperatively stage the raw packed Q4_K payload." in source
@@ -256,7 +290,7 @@ def test_forward_writer_emits_hip_shaped_staged_control() -> None:
 
 def test_forward_writer_emits_hip_decoded_staged_control() -> None:
     key = _key(solution=ForwardSolution.q4_k_hip_decoded_staged())
-    source = ForwardKernelWriterAssembly(key, _toolchain()).source()
+    source = _source(key)
     assert source.count("v_wmma_i32_16x16x16_iu8") == 32
     assert source.count("s_barrier") == 4
     assert "Cooperatively decode Q4_K payload into HIP's padded LDS rows." in source
@@ -271,7 +305,7 @@ def test_forward_writer_emits_hip_decoded_staged_control() -> None:
 
 def test_forward_writer_emits_retained_decoded_staged_control() -> None:
     key = _key(solution=ForwardSolution.q4_k_hip_decoded_staged_retained())
-    source = ForwardKernelWriterAssembly(key, _toolchain()).source()
+    source = _source(key)
     assert source.count("v_wmma_i32_16x16x16_iu8") == 32
     assert source.count("s_barrier") == 4
     assert source.count("v_cvt_f16_u16_e32") == 16
@@ -287,7 +321,7 @@ def test_forward_writer_emits_metadata_after_low_wmma_schedule() -> None:
     solution = ForwardSolution.q4_k_hip_decoded_staged_metadata_after_low_wmma()
     key = _key(solution=solution)
     assert validate_solution(key) == ()
-    source = ForwardKernelWriterAssembly(key, _toolchain()).source()
+    source = _source(key)
     assert source.count("s_waitcnt lgkmcnt(23)") == 0
     assert source.count("s_waitcnt lgkmcnt(15)") == 2
     assert source.count("s_waitcnt lgkmcnt(1)") == 2
@@ -318,7 +352,7 @@ def test_forward_independent_extraction_metadata_after_low_is_production_wide(
     solution = ForwardSolution.q4_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma()
     key = _key(size=size, solution=solution)
     assert validate_solution(key) == ()
-    source = ForwardKernelWriterAssembly(key, _toolchain()).source()
+    source = _source(key)
     assert source.count("v_cvt_f16_u16_e32") == 16
     assert source.count("ds_write_b32 v229, v9") == 4
     assert source.count("ds_write_b32 v229, v10") == 4
@@ -362,7 +396,7 @@ def test_forward_writer_emits_selected_shared_down_extraction(
 ) -> None:
     key = _key(size=size, solution=solution)
     assert validate_solution(key) == ()
-    source = ForwardKernelWriterAssembly(key, _toolchain()).source()
+    source = _source(key)
     assert source.count("v_cvt_f16_u16_e32") == 16
     assert source.count("ds_write_b32 v229, v9") == 4
     assert source.count("ds_write_b32 v229, v10") == 4
@@ -409,7 +443,7 @@ def test_forward_writer_emits_selected_exact_epilogue(
 ) -> None:
     key = _key(size=size, solution=solution)
     assert validate_solution(key) == ()
-    source = ForwardKernelWriterAssembly(key, _toolchain()).source()
+    source = _source(key)
     assert source.count("s_setprio 2") == 1
     assert "s_setprio 0" not in source
     assert source.count("s_clause 7") == 8
@@ -449,127 +483,218 @@ def test_forward_extraction_rejects_unmeasured_exact_key(
     }
 
 
-def test_forward_runtime_uses_exact_candidate_and_hip_launch_geometry() -> None:
+@pytest.mark.parametrize(
+    "solution",
+    (
+        ForwardSolution.q5_k_hip_decoded_staged_retained(),
+        ForwardSolution.q5_k_hip_decoded_staged_metadata_after_low_wmma(),
+        ForwardSolution.q5_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma(),
+    ),
+)
+def test_q5_forward_writer_covers_high_bit_decode_and_schedule(
+    solution: ForwardSolution,
+) -> None:
+    key = _key("Q5_K", solution=solution)
+    source = _source(key)
+    assert "GGTensile Q5_K MMQ forward" in source
+    assert "Cooperatively decode Q5_K payload into HIP's padded LDS rows." in source
+    assert "Build Q5_K high-bit and low-nibble payload addresses." in source
+    assert "v_mad_u32_u24 v231, 16, v231, v228" in source
+    assert "v_mad_u32_u24 v228, 16, v230, v228" in source
+    assert "global_load_b128 v[148:151], v231, s[4:5] offset:16" in source
+    assert "global_load_b128 v[112:115], v228, s[4:5] offset:48" in source
+    assert source.count("v_and_b32 v230, 0x01010101") == 16
+    assert source.count("v_and_b32 v230, 0x02020202") == 16
+    assert source.count("v_lshl_or_b32") == 40
+    assert "s_add_u32 s11, s11, 176" in source
+    assert ".LForwardQ5KHipStagedBlockLoop:" in source
+    assert ".LForwardQ5KDecodedGroupLoop0:" in source
+    assert ".LForwardQ5KDecodedGroupLoop4:" in source
+    assert "Compute each packed Q5_K scale/min pair once per weight row." in source
+    assert source.endswith(
+        f".size {key.kernel_name}, .L{key.kernel_name}_end - {key.kernel_name}\n"
+    )
+
+
+def test_q5_forward_writer_emits_vopd_accumulator_initialization() -> None:
+    solution = ForwardSolution.q5_k_hip_decoded_staged_extraction(
+        epilogue_tiles_ahead=7,
+        epilogue_dependency_width=3,
+        epilogue_priority=3,
+        accumulator_initialization="VopdPair",
+    )
+    key = _key("Q5_K", ProblemSize(32768, 512, 2048), solution)
+    assert validate_solution(key) == ()
+    source = _source(key)
+    assert "v_dual_mov_b32 v0, 0 :: v_dual_mov_b32 v1, 0" in source
+    assert "v_dual_mov_b32 v6, 0 :: v_dual_mov_b32 v7, 0" in source
+    assert "v_dual_mov_b32 v8, v0 :: v_dual_mov_b32 v9, v1" in source
+    assert "v_dual_mov_b32 v70, v0 :: v_dual_mov_b32 v71, v1" in source
+    assert "v_mov_b32 v8, v0" not in source
+
+
+def test_forward_runtime_uses_exact_candidate_launch_geometry() -> None:
     direct = ForwardModule.__new__(ForwardModule)
     direct.solution_key = _key(solution=ForwardSolution.q4_k_wave_reuse())
     assert direct._launch_configuration() == ((8, 16, 1), (128, 1, 1), 0)
+
+
+@pytest.mark.parametrize("quant_type", ("Q4_K", "Q5_K"), ids=str.lower)
+def test_forward_runtime_uses_exact_hip_launch_geometry(quant_type: str) -> None:
     hip = FixedHipForwardModule.__new__(FixedHipForwardModule)
-    hip.solution_key = direct.solution_key
+    hip.solution_key = _key(quant_type)
     assert hip._launch_configuration() == ((8, 16, 1), (32, 4, 1), 38_400)
 
 
 @pytest.mark.parametrize(
-    ("solution", "wmma_count", "vgpr_count", "barrier_count", "lds_num_bytes"),
     (
-        (ForwardSolution.q4_k_pilot(), 16, 88, 0, 0),
-        (ForwardSolution.q4_k_wave_reuse(), 128, 164, 0, 0),
-        (ForwardSolution.q4_k_wave_batch4(), 128, 194, 0, 0),
-        (ForwardSolution.q4_k_hip_staged(), 128, 239, 4, 26_624),
-        (
-            ForwardSolution.q4_k_hip_decoded_staged(),
+        "key",
+        "wmma_count",
+        "vgpr_count",
+        "barrier_count",
+        "lds_num_bytes",
+        "clause_count",
+    ),
+    (
+        pytest.param(
+            _key(solution=ForwardSolution.q4_k_pilot()),
+            16,
+            88,
+            0,
+            0,
+            None,
+            id="q4-pilot",
+        ),
+        pytest.param(
+            _key(solution=ForwardSolution.q4_k_wave_reuse()),
+            128,
+            164,
+            0,
+            0,
+            None,
+            id="q4-wave-reuse",
+        ),
+        pytest.param(
+            _key(solution=ForwardSolution.q4_k_wave_batch4()),
+            128,
+            194,
+            0,
+            0,
+            None,
+            id="q4-wave-batch4",
+        ),
+        pytest.param(
+            _key(solution=ForwardSolution.q4_k_hip_staged()),
+            128,
+            239,
+            4,
+            26_624,
+            None,
+            id="q4-hip-staged",
+        ),
+        pytest.param(
+            _key(solution=ForwardSolution.q4_k_hip_decoded_staged()),
             32,
             239,
             4,
             38_400,
+            None,
+            id="q4-decoded-staged",
         ),
-        (
-            ForwardSolution.q4_k_hip_decoded_staged_retained(),
+        pytest.param(
+            _key(solution=ForwardSolution.q4_k_hip_decoded_staged_retained()),
             32,
             239,
             4,
             38_400,
+            None,
+            id="q4-retained",
         ),
-        (
-            ForwardSolution.q4_k_hip_decoded_staged_metadata_after_low_wmma(),
+        pytest.param(
+            _key(
+                solution=ForwardSolution.q4_k_hip_decoded_staged_metadata_after_low_wmma()
+            ),
             32,
             239,
             4,
             38_400,
+            None,
+            id="q4-metadata-after-low",
         ),
-        (
-            ForwardSolution.q4_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma(),
+        pytest.param(
+            _key(
+                solution=ForwardSolution.q4_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma()
+            ),
             32,
             239,
             4,
             38_400,
+            None,
+            id="q4-independent-extraction",
         ),
+        pytest.param(
+            _key(
+                size=ProblemSize(8192, 2048, 512),
+                solution=ForwardSolution.q4_k_hip_decoded_staged_shared_down_m8192(),
+            ),
+            32,
+            239,
+            4,
+            38_400,
+            8,
+            id="q4-selected-shared-down-m8192",
+        ),
+        pytest.param(
+            _key(
+                size=ProblemSize(32768, 2048, 512),
+                solution=ForwardSolution.q4_k_hip_decoded_staged_shared_down_m32768(),
+            ),
+            32,
+            239,
+            4,
+            38_400,
+            8,
+            id="q4-selected-shared-down-m32768",
+        ),
+        pytest.param(_key("Q5_K"), 32, 239, 4, 38_400, 8, id="q5-selected"),
     ),
 )
 def test_forward_artifact_passes_strict_inspection(
     tmp_path: Path,
-    solution: ForwardSolution,
+    key: SolutionKey,
     wmma_count: int,
     vgpr_count: int,
     barrier_count: int,
     lds_num_bytes: int,
+    clause_count: int | None,
 ) -> None:
-    key = _key(solution=solution)
-    toolchain = _toolchain()
-    assembly = tmp_path / "kernel.s"
-    object_path = tmp_path / "kernel.o"
-    code_object = tmp_path / "kernel.hsaco"
-    ForwardKernelWriterAssembly(key, toolchain).write(assembly)
-    toolchain.assemble(assembly, object_path)
-    toolchain.link(object_path, code_object)
-    inspection = inspect_artifact(key, code_object, toolchain)
+    toolchain = ggtensile_toolchain()
+    artifact = build_and_inspect(
+        key,
+        ForwardKernelWriterAssembly(key, toolchain),
+        toolchain,
+        tmp_path,
+    )
+    inspection = artifact.inspection
     assert inspection.wmma_count == wmma_count
     assert inspection.barrier_count == barrier_count
     assert inspection.vgpr_count == vgpr_count
-    assert inspection.sgpr_count == 16
     assert inspection.lds_num_bytes == lds_num_bytes
-    assert inspection.private_segment_bytes == 0
-    assert inspection.vgpr_spill_count == 0
-    assert inspection.sgpr_spill_count == 0
-
-
-@pytest.mark.parametrize(
-    ("size", "solution"),
-    (
-        (
-            ProblemSize(8192, 2048, 512),
-            ForwardSolution.q4_k_hip_decoded_staged_shared_down_m8192(),
-        ),
-        (
-            ProblemSize(32768, 2048, 512),
-            ForwardSolution.q4_k_hip_decoded_staged_shared_down_m32768(),
-        ),
-    ),
-)
-def test_selected_forward_artifact_passes_strict_inspection(
-    tmp_path: Path,
-    size: ProblemSize,
-    solution: ForwardSolution,
-) -> None:
-    key = _key(size=size, solution=solution)
-    toolchain = _toolchain()
-    assembly = tmp_path / "kernel.s"
-    object_path = tmp_path / "kernel.o"
-    code_object = tmp_path / "kernel.hsaco"
-    ForwardKernelWriterAssembly(key, toolchain).write(assembly)
-    toolchain.assemble(assembly, object_path)
-    toolchain.link(object_path, code_object)
-    inspection = inspect_artifact(key, code_object, toolchain)
-    assert inspection.wmma_count == 32
-    assert inspection.barrier_count == 4
-    assert inspection.clause_count == 8
-    assert inspection.vgpr_count == 239
-    assert inspection.sgpr_count == 16
-    assert inspection.lds_num_bytes == 38_400
-    assert inspection.private_segment_bytes == 0
-    assert inspection.vgpr_spill_count == 0
-    assert inspection.sgpr_spill_count == 0
+    if clause_count is not None:
+        assert inspection.clause_count == clause_count
+    assert_resource_clean(inspection)
 
 
 def test_forward_writer_rejects_invalid_solution() -> None:
     key = _key(solution=replace(ForwardSolution.q4_k_pilot(), wmma_clamp=False))
     with pytest.raises(ForwardKernelWriterError, match="solution rejected"):
-        ForwardKernelWriterAssembly(key, _toolchain())
+        ForwardKernelWriterAssembly(key, ggtensile_toolchain())
 
 
 def test_forward_writer_reports_missing_rocisa(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    writer = ForwardKernelWriterAssembly(_key(), _toolchain())
+    writer = ForwardKernelWriterAssembly(_key(), ggtensile_toolchain())
     original_import = builtins.__import__
 
     def reject_rocisa(

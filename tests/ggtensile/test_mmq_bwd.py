@@ -1,9 +1,20 @@
 import json
+from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+from tests.ggtensile.support import (
+    MMQ_BWD_INVENTORY_CASE_IDS,
+    MMQ_BWD_INVENTORY_CASES,
+    GGTensileInventoryCase,
+    assert_resource_clean,
+    build_and_inspect,
+    ggtensile_toolchain,
+    load_inventory_case,
+    selected_solution_keys,
+)
 from tools.ggtensile.campaign import (
     CampaignError,
     load_inventory,
@@ -21,13 +32,12 @@ from tools.ggtensile.model import (
     ProblemType,
     SolutionKey,
 )
-from tools.ggtensile.toolchain import Toolchain, ToolchainError
 from tools.ggtensile.validation import validate_solution
 from tools.run_ggtensile_mmq_bwd_campaign import main as campaign_main
 
-_CONFIG_DIR = Path("tools/ggtensile/configs")
-_Q4_INVENTORY = _CONFIG_DIR / "mmq_bwd_q4_k_inventory.json"
-_Q4_CATALOG = _CONFIG_DIR / "mmq_bwd_q4_k_solutions.json"
+_BWD_INVENTORY_CASES = {case.quant_type: case for case in MMQ_BWD_INVENTORY_CASES}
+_Q4_INVENTORY = _BWD_INVENTORY_CASES["Q4_K"].inventory_path
+_Q4_CATALOG = _BWD_INVENTORY_CASES["Q4_K"].catalog_path
 
 
 def _pilot_key() -> SolutionKey:
@@ -38,105 +48,68 @@ def _pilot_key() -> SolutionKey:
     )
 
 
-def _toolchain() -> Toolchain:
-    try:
-        return Toolchain.discover()
-    except ToolchainError as error:
-        pytest.skip(str(error))
+def _selected_solution(quant_type: str, name: str) -> BackwardSolution:
+    inventory, catalog = load_inventory_case(_BWD_INVENTORY_CASES[quant_type])
+    solution = catalog[name]
+    assert isinstance(solution, BackwardSolution)
+    assert inventory.problem_type == ProblemType.mmq_backward(quant_type)
+    return solution
 
 
-def test_q4_k_campaign_inventory_is_exact_and_versionless() -> None:
-    inventory = load_inventory(_Q4_INVENTORY)
-    catalog = load_solution_catalog(
-        _Q4_CATALOG,
-        problem_type=inventory.problem_type,
+def _source(key: SolutionKey) -> str:
+    return BackwardKernelWriterAssembly(key, ggtensile_toolchain()).source()
+
+
+@pytest.mark.parametrize(
+    "case",
+    MMQ_BWD_INVENTORY_CASES,
+    ids=MMQ_BWD_INVENTORY_CASE_IDS,
+)
+def test_backward_campaign_inventory_is_exact_and_versionless(
+    case: GGTensileInventoryCase,
+) -> None:
+    inventory, catalog = load_inventory_case(case)
+    assert inventory.problem_type == case.problem_type
+    assert len(inventory.entries) == case.entry_count
+    assert {entry.family for entry in inventory.entries} == case.families
+    assert {entry.problem_size.m for entry in inventory.entries} == case.m_values
+    assert Counter(entry.current_status for entry in inventory.entries) == dict(
+        case.status_counts
     )
-    assert len(inventory.entries) == 12
-    assert {entry.family for entry in inventory.entries} == {
-        "narrow",
-        "shared_down",
-        "attention_output",
-        "query",
-    }
-    assert {entry.problem_size.m for entry in inventory.entries} == {
-        2048,
-        8192,
-        32768,
-    }
-    assert all(entry.current_status == "selected" for entry in inventory.entries)
+    assert set(catalog) == case.solution_names
     assert {entry.selected_solution for entry in inventory.entries} == set(catalog)
+    assert all(entry.quant_data_type == case.quant_type for entry in inventory.entries)
     assert all(
-        validate_solution(
-            entry.solution_key(inventory.problem_type, catalog[entry.selected_solution])
-        )
-        == ()
-        for entry in inventory.entries
+        validate_solution(key) == ()
+        for key in selected_solution_keys(inventory, catalog)
     )
-    shared_down = next(
-        entry
-        for entry in inventory.entries
-        if entry.problem_size == ProblemSize(2048, 512, 2048)
-    )
-    assert shared_down.expected_logical_weight_shape == (2048, 512)
-    assert shared_down.expected_physical_weight_shape == (2048, 288)
+    raw = json.loads(case.inventory_path.read_text(encoding="utf-8"))
+    assert "Version" not in raw and "SchemaVersion" not in raw
 
 
-def test_q5_k_campaign_inventory_is_exact_and_quant_aware() -> None:
-    inventory = load_inventory(
-        Path("tools/ggtensile/configs/mmq_bwd_q5_k_inventory.json")
-    )
-    catalog = load_solution_catalog(
-        Path("tools/ggtensile/configs/mmq_bwd_q5_k_solutions.json"),
-        problem_type=inventory.problem_type,
-    )
-    assert inventory.problem_type == ProblemType.mmq_backward_q5_k()
-    assert len(inventory.entries) == 6
-    assert {entry.family for entry in inventory.entries} == {"narrow", "shared_down"}
-    assert {entry.problem_size.m for entry in inventory.entries} == {
-        2048,
-        8192,
-        32768,
-    }
-    assert all(entry.quant_data_type == "Q5_K" for entry in inventory.entries)
-    assert all(entry.current_status == "selected" for entry in inventory.entries)
-    assert {entry.selected_solution for entry in inventory.entries} == set(catalog)
-    assert all(
-        validate_solution(
-            entry.solution_key(inventory.problem_type, catalog[entry.selected_solution])
-        )
-        == ()
-        for entry in inventory.entries
-    )
-    narrow = next(entry for entry in inventory.entries if entry.family == "narrow")
-    shared_down = next(
-        entry for entry in inventory.entries if entry.family == "shared_down"
-    )
-    assert narrow.expected_physical_weight_shape == (512, 1408)
-    assert shared_down.expected_physical_weight_shape == (2048, 352)
+@pytest.mark.parametrize(
+    ("quant_type", "size", "logical_shape", "physical_shape"),
+    (
+        ("Q3_K", ProblemSize(2048, 2048, 512), (512, 2048), (512, 880)),
+        ("Q4_K", ProblemSize(2048, 512, 2048), (2048, 512), (2048, 288)),
+        ("Q5_K", ProblemSize(2048, 2048, 512), (512, 2048), (512, 1408)),
+        ("Q5_K", ProblemSize(2048, 512, 2048), (2048, 512), (2048, 352)),
+    ),
+)
+def test_backward_inventory_reports_expected_packed_shapes(
+    quant_type: str,
+    size: ProblemSize,
+    logical_shape: tuple[int, int],
+    physical_shape: tuple[int, int],
+) -> None:
+    inventory, _ = load_inventory_case(_BWD_INVENTORY_CASES[quant_type])
+    entry = next(entry for entry in inventory.entries if entry.problem_size == size)
+    assert entry.expected_logical_weight_shape == logical_shape
+    assert entry.expected_physical_weight_shape == physical_shape
 
 
-def test_q6_k_campaign_inventory_covers_exact_lm_head_chunks() -> None:
-    inventory = load_inventory(
-        Path("tools/ggtensile/configs/mmq_bwd_q6_k_inventory.json")
-    )
-    catalog = load_solution_catalog(
-        Path("tools/ggtensile/configs/mmq_bwd_q6_k_solutions.json"),
-        problem_type=inventory.problem_type,
-    )
-    assert inventory.problem_type == ProblemType.mmq_backward_q6_k()
-    assert len(inventory.entries) == 3
-    assert {entry.family for entry in inventory.entries} == {"lm_head"}
-    assert {entry.problem_size.m for entry in inventory.entries} == {64, 128, 256}
-    assert all(entry.quant_data_type == "Q6_K" for entry in inventory.entries)
-    assert all(entry.current_status == "selected" for entry in inventory.entries)
-    assert {entry.selected_solution for entry in inventory.entries} == set(catalog)
-    assert all(
-        validate_solution(
-            entry.solution_key(inventory.problem_type, catalog[entry.selected_solution])
-        )
-        == ()
-        for entry in inventory.entries
-    )
+def test_q6_k_campaign_inventory_selects_exact_lm_head_solutions() -> None:
+    inventory, catalog = load_inventory_case(_BWD_INVENTORY_CASES["Q6_K"])
     assert all(
         entry.expected_logical_weight_shape == (248320, 2048)
         for entry in inventory.entries
@@ -157,49 +130,8 @@ def test_q6_k_campaign_inventory_covers_exact_lm_head_chunks() -> None:
     assert retained_m256.prefetch_packed_weight_next is True
 
 
-def test_q3_k_campaign_inventory_selects_exact_padded_geometries() -> None:
-    inventory = load_inventory(
-        Path("tools/ggtensile/configs/mmq_bwd_q3_k_inventory.json")
-    )
-    catalog = load_solution_catalog(
-        Path("tools/ggtensile/configs/mmq_bwd_q3_k_solutions.json"),
-        problem_type=inventory.problem_type,
-    )
-    assert inventory.problem_type == ProblemType.mmq_backward("Q3_K")
-    assert len(inventory.entries) == 6
-    assert all(entry.current_status == "selected" for entry in inventory.entries)
-    assert {entry.selected_solution for entry in inventory.entries} == set(catalog)
-    assert all(
-        validate_solution(
-            entry.solution_key(inventory.problem_type, catalog[entry.selected_solution])
-        )
-        == ()
-        for entry in inventory.entries
-    )
-    narrow = next(entry for entry in inventory.entries if entry.family == "narrow")
-    assert narrow.expected_physical_weight_shape == (512, 880)
-
-
 def test_q8_0_campaign_inventory_covers_ordinary_and_lm_head_keys() -> None:
-    inventory = load_inventory(
-        Path("tools/ggtensile/configs/mmq_bwd_q8_0_inventory.json")
-    )
-    catalog = load_solution_catalog(
-        Path("tools/ggtensile/configs/mmq_bwd_q8_0_solutions.json"),
-        problem_type=inventory.problem_type,
-    )
-    assert inventory.problem_type == ProblemType.mmq_backward_q8_0()
-    assert len(inventory.entries) == 23
-    assert {entry.problem_size.m for entry in inventory.entries} == {
-        32,
-        64,
-        128,
-        256,
-        512,
-        2048,
-        8192,
-        32768,
-    }
+    inventory, _ = load_inventory_case(_BWD_INVENTORY_CASES["Q8_0"])
     ordinary = tuple(entry for entry in inventory.entries if entry.family != "lm_head")
     lm_head = tuple(entry for entry in inventory.entries if entry.family == "lm_head")
     assert len(ordinary) == 18
@@ -208,16 +140,6 @@ def test_q8_0_campaign_inventory_covers_ordinary_and_lm_head_keys() -> None:
         sum(entry.call_count for entry in ordinary if entry.problem_size.m == m)
         for m in (2048, 8192, 32768)
     } == {301}
-    assert all(entry.current_status == "selected" for entry in ordinary)
-    assert all(entry.current_status == "selected" for entry in lm_head)
-    assert {entry.selected_solution for entry in inventory.entries} == set(catalog)
-    assert all(
-        validate_solution(
-            entry.solution_key(inventory.problem_type, catalog[entry.selected_solution])
-        )
-        == ()
-        for entry in inventory.entries
-    )
     q_a = next(entry for entry in ordinary if entry.family == "attention_q_a")
     assert q_a.expected_physical_weight_shape == (1024, 4352)
     assert lm_head[0].expected_physical_weight_shape == (129280, 4352)
@@ -236,7 +158,7 @@ def test_q3_k_packed_decoder_uses_wave32_vopd_scale_pairs() -> None:
         ),
     )
     assert validate_solution(key) == ()
-    source = BackwardKernelWriterAssembly(key, _toolchain()).source()
+    source = _source(key)
     assert "v_dual_mul_f32" in source
     assert "v_dual_sub_f32" in source
     assert source.count("v_dual_mul_f32") >= 4
@@ -245,19 +167,13 @@ def test_q3_k_packed_decoder_uses_wave32_vopd_scale_pairs() -> None:
 
 
 def test_q6_k_packed_vopd_decoder_pairs_adjacent_values() -> None:
-    inventory = load_inventory(
-        Path("tools/ggtensile/configs/mmq_bwd_q6_k_inventory.json")
-    )
-    catalog = load_solution_catalog(
-        Path("tools/ggtensile/configs/mmq_bwd_q6_k_solutions.json"),
-        problem_type=inventory.problem_type,
-    )
+    inventory, catalog = load_inventory_case(_BWD_INVENTORY_CASES["Q6_K"])
     entry = next(item for item in inventory.entries if item.problem_size.m == 64)
     key = entry.solution_key(inventory.problem_type, catalog[entry.selected_solution])
     assert isinstance(key.solution, BackwardSolution)
     assert key.solution.q6_k_extraction == "packed_vopd"
     assert validate_solution(key) == ()
-    source = BackwardKernelWriterAssembly(key, _toolchain()).source()
+    source = _source(key)
     assert source.count("v_dual_sub_f32") >= 16
     assert source.count("v_dual_mul_f32") >= 16
     assert "v_lshl_or_b32" in source
@@ -302,21 +218,29 @@ def test_lds_row_padding_is_strict_and_quant_aware() -> None:
     assert any(reason.rule_id == "solution.ldspadb.swizzle" for reason in reasons)
 
 
-def test_quant_types_have_distinct_problem_identity() -> None:
+def test_backward_quant_types_have_distinct_problem_and_solution_identity() -> None:
+    sizes = {
+        "Q3_K": ProblemSize(128, 2048, 512),
+        "Q4_K": ProblemSize(128, 2048, 512),
+        "Q5_K": ProblemSize(128, 2048, 512),
+        "Q6_K": ProblemSize(128, 2048, 248320),
+        "Q8_0": ProblemSize(128, 4096, 1024),
+    }
+    keys = tuple(
+        SolutionKey(
+            ProblemType.mmq_backward(quant_type),
+            size,
+            BackwardSolution.pilot(),
+        )
+        for quant_type, size in sizes.items()
+    )
+    assert len({key.problem_type for key in keys}) == len(sizes)
+    assert len({key.hash for key in keys}) == len(sizes)
+    for quant_type, key in zip(sizes, keys, strict=True):
+        assert f"mmq_bwd_{quant_type.lower()}_" in key.kernel_name
+
     q4 = ProblemType.mmq_backward_q4_k()
     q5 = ProblemType.mmq_backward_q5_k()
-    q6 = ProblemType.mmq_backward_q6_k()
-    q8 = ProblemType.mmq_backward_q8_0()
-    assert len({q4, q5, q6, q8}) == 4
-    q4_key = SolutionKey(q4, ProblemSize(128, 2048, 512), BackwardSolution.pilot())
-    q5_key = SolutionKey(q5, ProblemSize(128, 2048, 512), BackwardSolution.pilot())
-    q6_key = SolutionKey(q6, ProblemSize(128, 2048, 248320), BackwardSolution.pilot())
-    q8_key = SolutionKey(q8, ProblemSize(128, 4096, 1024), BackwardSolution.pilot())
-    assert len({q4_key.hash, q5_key.hash, q6_key.hash, q8_key.hash}) == 4
-    assert "mmq_bwd_q4_k_" in q4_key.kernel_name
-    assert "mmq_bwd_q5_k_" in q5_key.kernel_name
-    assert "mmq_bwd_q6_k_" in q6_key.kernel_name
-    assert "mmq_bwd_q8_0_" in q8_key.kernel_name
     q5_scalar = SolutionKey(
         q5,
         ProblemSize(128, 2048, 512),
@@ -334,9 +258,7 @@ def test_quant_types_have_distinct_problem_identity() -> None:
 
 def test_q4_k_campaign_inventory_rejects_schema_version(tmp_path: Path) -> None:
     inventory_path = tmp_path / "inventory.json"
-    value = json.loads(
-        Path("tools/ggtensile/configs/mmq_bwd_q4_k_inventory.json").read_text()
-    )
+    value = json.loads(_Q4_INVENTORY.read_text())
     value["SchemaVersion"] = 1
     inventory_path.write_text(json.dumps(value))
     with pytest.raises(CampaignError, match="invalid inventory keys"):
@@ -356,9 +278,7 @@ def test_q4_k_campaign_prepare_is_serial_and_immutable(tmp_path: Path) -> None:
     summary = json.loads((root / "prepare.json").read_text())
     assert summary["Phase"] == "Prepare"
     assert summary["Status"] == "Accepted"
-    assert summary["SolutionCatalog"] == str(
-        Path("tools/ggtensile/configs/mmq_bwd_q4_k_solutions.json").resolve()
-    )
+    assert summary["SolutionCatalog"] == str(_Q4_CATALOG.resolve())
     assert "Solution" not in summary
     assert len(summary["Entries"]) == 1
     assert summary["Entries"][0]["SelectedSolution"] == ("retained_128x128_pipeline")
@@ -415,14 +335,14 @@ def test_writer_specializes_production_q4_k_row_stride(
         BackwardSolution.pilot(),
     )
     assert validate_solution(key) == ()
-    writer = BackwardKernelWriterAssembly(key, _toolchain())
+    writer = BackwardKernelWriterAssembly(key, ggtensile_toolchain())
     source = writer.source()
     temporary = writer.registers.temporary
     assert f"v_mul_lo_u32 v{temporary}, {packed_row_bytes}, v{temporary}" in source
 
 
 def test_writer_strength_reduces_power_of_two_row_strides() -> None:
-    toolchain = _toolchain()
+    toolchain = ggtensile_toolchain()
     pipeline = replace(
         BackwardSolution.pilot(),
         one_lds_buffer=0,
@@ -473,7 +393,7 @@ def test_validation_rejects_nonproduction_n() -> None:
 
 
 def test_writer_enables_and_flattens_packed_workitem_xy() -> None:
-    writer = BackwardKernelWriterAssembly(_pilot_key(), _toolchain())
+    writer = BackwardKernelWriterAssembly(_pilot_key(), ggtensile_toolchain())
     source = writer.source()
     registers = writer.registers
     assert ".amdhsa_system_vgpr_workitem_id 1" in source
@@ -486,98 +406,133 @@ def test_writer_enables_and_flattens_packed_workitem_xy() -> None:
     assert registers.total_sgprs == 16
 
 
-def test_build_and_inspect_pilot(tmp_path: Path) -> None:
-    key = _pilot_key()
-    toolchain = _toolchain()
-    assembly = tmp_path / "pilot.s"
-    object_path = tmp_path / "pilot.o"
-    code_object = tmp_path / "pilot.hsaco"
-    BackwardKernelWriterAssembly(key, toolchain).write(assembly)
-    toolchain.assemble(assembly, object_path)
-    toolchain.link(object_path, code_object)
-
-    inspection = inspect_artifact(key, code_object, toolchain)
+@pytest.mark.parametrize(
+    ("key", "vgpr_count", "lds_num_bytes", "wmma_count", "source_markers"),
+    (
+        pytest.param(
+            SolutionKey(
+                ProblemType.mmq_backward("Q3_K"),
+                ProblemSize(2048, 2048, 512),
+                _selected_solution("Q3_K", "retained_256x64_pad8_sia5"),
+            ),
+            243,
+            5120,
+            32,
+            (
+                "Precompute A row coordinates shared by every DepthU iteration.",
+                "ds_store_b16_d16_hi",
+                "ds_load_b128",
+            ),
+            id="q3-k",
+        ),
+        pytest.param(
+            _pilot_key(),
+            192,
+            8192,
+            32,
+            ("GGTensile Q4_K MMQ backward",),
+            id="q4-k",
+        ),
+        pytest.param(
+            SolutionKey(
+                ProblemType.mmq_backward_q5_k(),
+                ProblemSize(128, 2048, 512),
+                BackwardSolution.pilot(),
+            ),
+            200,
+            8192,
+            32,
+            (
+                "Build Q5_K payload",
+                "Decode Q5_K low nibbles and high payload bits into LDS.",
+                "offset:48",
+                "0x01010101",
+                "v_lshl_or_b32",
+            ),
+            id="q5-k",
+        ),
+        pytest.param(
+            SolutionKey(
+                ProblemType.mmq_backward_q6_k(),
+                ProblemSize(128, 2048, 248320),
+                replace(
+                    BackwardSolution.pilot(),
+                    matrix_instruction=(16, 16, 16, 1, 1, 2, 4, 4, 1),
+                    macro_tile0=128,
+                    macro_tile1=64,
+                    prefetch_global_read=2,
+                    schedule_iter_alg=5,
+                    lds_swizzle_chunk_b=8,
+                ),
+            ),
+            142,
+            4096,
+            16,
+            ("Build Q6_K block addresses", "global_load_b128", "v_lshl_or_b32"),
+            id="q6-k",
+        ),
+        pytest.param(
+            SolutionKey(
+                ProblemType.mmq_backward_q8_0(),
+                ProblemSize(128, 4096, 1024),
+                BackwardSolution.pilot(),
+            ),
+            186,
+            8192,
+            32,
+            (
+                "Build Q8_0 block addresses",
+                "Decode Q8_0 signed int8 payload and scale",
+                "global_load_d16_b16",
+                "global_load_b128",
+                "v_cvt_f32_i32",
+            ),
+            id="q8-0",
+        ),
+    ),
+)
+def test_build_and_inspect_quant_backend(
+    tmp_path: Path,
+    key: SolutionKey,
+    vgpr_count: int,
+    lds_num_bytes: int,
+    wmma_count: int,
+    source_markers: tuple[str, ...],
+) -> None:
+    assert validate_solution(key) == ()
+    toolchain = ggtensile_toolchain()
+    artifact = build_and_inspect(
+        key,
+        BackwardKernelWriterAssembly(key, toolchain),
+        toolchain,
+        tmp_path,
+    )
+    assert len(artifact.source_hash) == 64
+    assert all(marker in artifact.source for marker in source_markers)
+    inspection = artifact.inspection
     assert inspection.target == "gfx1151"
     assert inspection.code_object_version == 5
-    assert inspection.vgpr_count == 192
-    assert inspection.sgpr_count == 16
-    assert inspection.max_vgpr_index == 191
-    assert inspection.max_sgpr_index == 15
-    assert inspection.private_segment_bytes == 0
-    assert inspection.vgpr_spill_count == 0
-    assert inspection.sgpr_spill_count == 0
-    assert inspection.wmma_count == 32
-    assert inspection.barrier_count == 2
+    assert inspection.vgpr_count == vgpr_count
+    assert inspection.lds_num_bytes == lds_num_bytes
+    assert inspection.wmma_count == wmma_count
     assert inspection.valu_issue_count > 0
-    assert inspection.valu_operation_count > inspection.valu_issue_count
-    assert inspection.vopd_count > 0
     assert inspection.vmem_count > 0
     assert inspection.lds_count > 0
     assert inspection.wait_count > 0
-    assert inspection.clause_count == 0
-    assert inspection.delay_alu_count == 0
-    assert inspection.buffer_gl0_inv_count == 0
-
-
-def test_build_and_inspect_q5_k_payload_backend(tmp_path: Path) -> None:
-    key = SolutionKey(
-        ProblemType.mmq_backward_q5_k(),
-        ProblemSize(128, 2048, 512),
-        BackwardSolution.pilot(),
-    )
-    toolchain = _toolchain()
-    assembly = tmp_path / "q5_k.s"
-    object_path = tmp_path / "q5_k.o"
-    code_object = tmp_path / "q5_k.hsaco"
-    source = BackwardKernelWriterAssembly(key, toolchain).write(assembly)
-    toolchain.assemble(assembly, object_path)
-    toolchain.link(object_path, code_object)
-
-    assert len(source) == 64
-    text = assembly.read_text()
-    assert "Build Q5_K payload" in text
-    assert "Decode Q5_K low nibbles and high payload bits into LDS." in text
-    assert "offset:48" in text
-    assert "0x01010101" in text
-    assert "v_lshl_or_b32" in text
-    inspection = inspect_artifact(key, code_object, toolchain)
-    assert inspection.vgpr_count == 200
-    assert inspection.sgpr_count == 16
-    assert inspection.lds_num_bytes == 8192
-    assert inspection.wmma_count == 32
-    assert inspection.private_segment_bytes == 0
-    assert inspection.vgpr_spill_count == 0
-    assert inspection.sgpr_spill_count == 0
-
-
-def test_build_and_inspect_q8_0_payload_backend(tmp_path: Path) -> None:
-    key = SolutionKey(
-        ProblemType.mmq_backward_q8_0(),
-        ProblemSize(128, 4096, 1024),
-        BackwardSolution.pilot(),
-    )
-    toolchain = _toolchain()
-    assembly = tmp_path / "q8_0.s"
-    object_path = tmp_path / "q8_0.o"
-    code_object = tmp_path / "q8_0.hsaco"
-    BackwardKernelWriterAssembly(key, toolchain).write(assembly)
-    toolchain.assemble(assembly, object_path)
-    toolchain.link(object_path, code_object)
-
-    text = assembly.read_text()
-    assert "Build Q8_0 block addresses" in text
-    assert "Decode Q8_0 signed int8 payload and scale" in text
-    assert "global_load_d16_b16" in text
-    assert "global_load_b128" in text
-    assert "v_cvt_f32_i32" in text
-    inspection = inspect_artifact(key, code_object, toolchain)
-    assert inspection.vgpr_count == 186
-    assert inspection.sgpr_count == 16
-    assert inspection.lds_num_bytes == 8192
-    assert inspection.wmma_count == 32
-    assert inspection.private_segment_bytes == 0
-    assert inspection.vgpr_spill_count == 0
-    assert inspection.sgpr_spill_count == 0
+    assert_resource_clean(inspection)
+    if key.problem_type.quant_data_type == "Q3_K":
+        assert artifact.source.count("v_wmma_f32_16x16x16_bf16") == 32
+        assert artifact.source.count("ds_store_b16_d16_hi") == 16
+        assert artifact.source.count("ds_load_b128") == 16
+    if key.problem_type.quant_data_type == "Q4_K":
+        assert inspection.max_vgpr_index == 191
+        assert inspection.max_sgpr_index == 15
+        assert inspection.valu_operation_count > inspection.valu_issue_count
+        assert inspection.vopd_count > 0
+        assert inspection.barrier_count == 2
+        assert inspection.clause_count == 0
+        assert inspection.delay_alu_count == 0
+        assert inspection.buffer_gl0_inv_count == 0
 
 
 def test_build_and_inspect_q8_0_depth_u64_backend(tmp_path: Path) -> None:
@@ -594,27 +549,23 @@ def test_build_and_inspect_q8_0_depth_u64_backend(tmp_path: Path) -> None:
         solution,
     )
     assert validate_solution(key) == ()
-    toolchain = _toolchain()
-    assembly = tmp_path / "q8_0_depth_u64.s"
-    object_path = tmp_path / "q8_0_depth_u64.o"
-    code_object = tmp_path / "q8_0_depth_u64.hsaco"
-    writer = BackwardKernelWriterAssembly(key, toolchain)
-    writer.write(assembly)
-    toolchain.assemble(assembly, object_path)
-    toolchain.link(object_path, code_object)
-
-    text = assembly.read_text()
+    toolchain = ggtensile_toolchain()
+    artifact = build_and_inspect(
+        key,
+        BackwardKernelWriterAssembly(key, toolchain),
+        toolchain,
+        tmp_path,
+        stem="q8_0_depth_u64",
+    )
+    text = artifact.source
     assert text.count("global_load_d16_b16") == 4
     assert text.count("ds_store_b16_d16_hi") == 64
     assert "Precompute XOR-8 LDS store bases" in text
-    inspection = inspect_artifact(key, code_object, toolchain)
+    inspection = artifact.inspection
     assert inspection.vgpr_count == 220
-    assert inspection.sgpr_count == 16
     assert inspection.lds_num_bytes == 16384
     assert inspection.wmma_count == 64
-    assert inspection.private_segment_bytes == 0
-    assert inspection.vgpr_spill_count == 0
-    assert inspection.sgpr_spill_count == 0
+    assert_resource_clean(inspection)
 
 
 def test_build_and_inspect_q8_0_compact_geometry(tmp_path: Path) -> None:
@@ -633,60 +584,19 @@ def test_build_and_inspect_q8_0_compact_geometry(tmp_path: Path) -> None:
         solution,
     )
     assert validate_solution(key) == ()
-    toolchain = _toolchain()
-    assembly = tmp_path / "q8_0_compact.s"
-    object_path = tmp_path / "q8_0_compact.o"
-    code_object = tmp_path / "q8_0_compact.hsaco"
-    BackwardKernelWriterAssembly(key, toolchain).write(assembly)
-    toolchain.assemble(assembly, object_path)
-    toolchain.link(object_path, code_object)
-
-    inspection = inspect_artifact(key, code_object, toolchain)
+    toolchain = ggtensile_toolchain()
+    artifact = build_and_inspect(
+        key,
+        BackwardKernelWriterAssembly(key, toolchain),
+        toolchain,
+        tmp_path,
+        stem="q8_0_compact",
+    )
+    inspection = artifact.inspection
     assert inspection.vgpr_count == 231
-    assert inspection.sgpr_count == 16
     assert inspection.lds_num_bytes == 5120
     assert inspection.wmma_count == 32
-    assert inspection.private_segment_bytes == 0
-    assert inspection.vgpr_spill_count == 0
-    assert inspection.sgpr_spill_count == 0
-
-
-def test_build_and_inspect_q6_k_backend(tmp_path: Path) -> None:
-    solution = replace(
-        BackwardSolution.pilot(),
-        matrix_instruction=(16, 16, 16, 1, 1, 2, 4, 4, 1),
-        macro_tile0=128,
-        macro_tile1=64,
-        prefetch_global_read=2,
-        schedule_iter_alg=5,
-        lds_swizzle_chunk_b=8,
-    )
-    key = SolutionKey(
-        ProblemType.mmq_backward_q6_k(),
-        ProblemSize(128, 2048, 248320),
-        solution,
-    )
-    assert validate_solution(key) == ()
-    toolchain = _toolchain()
-    assembly = tmp_path / "q6_k_m128.s"
-    object_path = tmp_path / "q6_k_m128.o"
-    code_object = tmp_path / "q6_k_m128.hsaco"
-    BackwardKernelWriterAssembly(key, toolchain).write(assembly)
-    source = assembly.read_text()
-    assert "Build Q6_K block addresses" in source
-    assert "global_load_b128" in source
-    assert "v_lshl_or_b32" in source
-    toolchain.assemble(assembly, object_path)
-    toolchain.link(object_path, code_object)
-
-    inspection = inspect_artifact(key, code_object, toolchain)
-    assert inspection.vgpr_count == 142
-    assert inspection.sgpr_count == 16
-    assert inspection.lds_num_bytes == 4096
-    assert inspection.wmma_count == 16
-    assert inspection.private_segment_bytes == 0
-    assert inspection.vgpr_spill_count == 0
-    assert inspection.sgpr_spill_count == 0
+    assert_resource_clean(inspection)
 
 
 def test_build_and_inspect_q8_0_depth_u64_compact_geometry(tmp_path: Path) -> None:
@@ -714,22 +624,19 @@ def test_build_and_inspect_q8_0_depth_u64_compact_geometry(tmp_path: Path) -> No
         )
     )
     assert any(reason.rule_id == "solution.depthu64.q8_pad8" for reason in q4_reasons)
-    toolchain = _toolchain()
-    assembly = tmp_path / "q8_0_m64_depth_u64.s"
-    object_path = tmp_path / "q8_0_m64_depth_u64.o"
-    code_object = tmp_path / "q8_0_m64_depth_u64.hsaco"
-    BackwardKernelWriterAssembly(key, toolchain).write(assembly)
-    toolchain.assemble(assembly, object_path)
-    toolchain.link(object_path, code_object)
-
-    inspection = inspect_artifact(key, code_object, toolchain)
+    toolchain = ggtensile_toolchain()
+    artifact = build_and_inspect(
+        key,
+        BackwardKernelWriterAssembly(key, toolchain),
+        toolchain,
+        tmp_path,
+        stem="q8_0_m64_depth_u64",
+    )
+    inspection = artifact.inspection
     assert inspection.vgpr_count == 90
-    assert inspection.sgpr_count == 16
     assert inspection.lds_num_bytes == 9216
     assert inspection.wmma_count == 16
-    assert inspection.private_segment_bytes == 0
-    assert inspection.vgpr_spill_count == 0
-    assert inspection.sgpr_spill_count == 0
+    assert_resource_clean(inspection)
 
 
 def test_build_and_inspect_q8_0_two_wave_m32_geometry(tmp_path: Path) -> None:
@@ -756,23 +663,20 @@ def test_build_and_inspect_q8_0_two_wave_m32_geometry(tmp_path: Path) -> None:
             solution,
         )
     )
-    toolchain = _toolchain()
-    assembly = tmp_path / "q8_0_m32.s"
-    object_path = tmp_path / "q8_0_m32.o"
-    code_object = tmp_path / "q8_0_m32.hsaco"
-    BackwardKernelWriterAssembly(key, toolchain).write(assembly)
-    toolchain.assemble(assembly, object_path)
-    toolchain.link(object_path, code_object)
-
-    inspection = inspect_artifact(key, code_object, toolchain)
+    toolchain = ggtensile_toolchain()
+    artifact = build_and_inspect(
+        key,
+        BackwardKernelWriterAssembly(key, toolchain),
+        toolchain,
+        tmp_path,
+        stem="q8_0_m32",
+    )
+    inspection = artifact.inspection
     assert inspection.max_flat_workgroup_size == 64
     assert inspection.vgpr_count == 90
-    assert inspection.sgpr_count == 16
     assert inspection.lds_num_bytes == 5120
     assert inspection.wmma_count == 8
-    assert inspection.private_segment_bytes == 0
-    assert inspection.vgpr_spill_count == 0
-    assert inspection.sgpr_spill_count == 0
+    assert_resource_clean(inspection)
 
 
 def test_build_and_inspect_q8_0_packed_vopd_decode(tmp_path: Path) -> None:
@@ -794,23 +698,21 @@ def test_build_and_inspect_q8_0_packed_vopd_decode(tmp_path: Path) -> None:
         solution,
     )
     assert validate_solution(key) == ()
-    toolchain = _toolchain()
-    assembly = tmp_path / "q8_0_m32_vopd.s"
-    object_path = tmp_path / "q8_0_m32_vopd.o"
-    code_object = tmp_path / "q8_0_m32_vopd.hsaco"
-    BackwardKernelWriterAssembly(key, toolchain).write(assembly)
-    source = assembly.read_text()
-    assert "v_dual_mul_f32" in source
-    assert "global_load_b128" in source
-    toolchain.assemble(assembly, object_path)
-    toolchain.link(object_path, code_object)
-    inspection = inspect_artifact(key, code_object, toolchain)
+    toolchain = ggtensile_toolchain()
+    artifact = build_and_inspect(
+        key,
+        BackwardKernelWriterAssembly(key, toolchain),
+        toolchain,
+        tmp_path,
+        stem="q8_0_m32_vopd",
+    )
+    assert "v_dual_mul_f32" in artifact.source
+    assert "global_load_b128" in artifact.source
+    inspection = artifact.inspection
     assert inspection.vgpr_count == 106
     assert inspection.lds_num_bytes == 9216
     assert inspection.vopd_count > 40
-    assert inspection.private_segment_bytes == 0
-    assert inspection.vgpr_spill_count == 0
-    assert inspection.sgpr_spill_count == 0
+    assert_resource_clean(inspection)
 
 
 def test_cli_generate_build_and_inspect_manifests(tmp_path: Path) -> None:
@@ -923,7 +825,7 @@ def test_writer_emits_distinct_xor8_lds_layout() -> None:
     )
     assert validate_solution(key) == ()
 
-    source = BackwardKernelWriterAssembly(key, _toolchain()).source()
+    source = _source(key)
     assert "Precompute XOR-8 LDS store bases" in source
     assert "v_xor_b32" in source
     assert source.count("ds_load_b128") == 32
@@ -940,7 +842,7 @@ def test_writer_emits_distinct_xor16_lds_layout() -> None:
     )
     assert validate_solution(key) == ()
 
-    source = BackwardKernelWriterAssembly(key, _toolchain()).source()
+    source = _source(key)
     assert "Precompute XOR-16 LDS store bases" in source
     assert source.count("ds_load_b128") == 32
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
@@ -956,7 +858,7 @@ def test_writer_emits_distinct_xor4_lds_layout() -> None:
     )
     assert validate_solution(key) == ()
 
-    source = BackwardKernelWriterAssembly(key, _toolchain()).source()
+    source = _source(key)
     assert "Precompute XOR-4 LDS store bases" in source
     assert source.count("ds_load_b64") == 64
     assert source.count("ds_load_b128") == 0
@@ -974,7 +876,7 @@ def test_writer_emits_sia3_partial_wait_schedule() -> None:
     )
     assert validate_solution(key) == ()
 
-    source = BackwardKernelWriterAssembly(key, _toolchain()).source()
+    source = _source(key)
     assert source.count("s_waitcnt vmcnt(2) lgkmcnt(2)") == 2
     assert source.count("s_waitcnt lgkmcnt(2)") == 6
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
@@ -994,7 +896,7 @@ def test_writer_overlaps_first_a_half_with_decode(tmp_path: Path) -> None:
     )
     assert validate_solution(key) == ()
 
-    toolchain = _toolchain()
+    toolchain = ggtensile_toolchain()
     assembly = tmp_path / "schedule4.s"
     object_path = tmp_path / "schedule4.o"
     code_object = tmp_path / "schedule4.hsaco"
@@ -1033,7 +935,7 @@ def test_writer_prefetches_both_a_halves(tmp_path: Path) -> None:
     )
     assert validate_solution(key) == ()
 
-    toolchain = _toolchain()
+    toolchain = ggtensile_toolchain()
     assembly = tmp_path / "prefetch_global_read.s"
     object_path = tmp_path / "prefetch_global_read.o"
     code_object = tmp_path / "prefetch_global_read.hsaco"
@@ -1069,7 +971,7 @@ def test_writer_shares_packed_weight_across_nibble_lanes(
     )
     assert validate_solution(key) == ()
 
-    toolchain = _toolchain()
+    toolchain = ggtensile_toolchain()
     assembly = tmp_path / "packed_weight_lane_share.s"
     object_path = tmp_path / "packed_weight_lane_share.o"
     code_object = tmp_path / "packed_weight_lane_share.hsaco"
@@ -1104,7 +1006,7 @@ def test_writer_pipelines_packed_weight_reads(tmp_path: Path) -> None:
     )
     assert validate_solution(key) == ()
 
-    toolchain = _toolchain()
+    toolchain = ggtensile_toolchain()
     assembly = tmp_path / "prefetch_packed_weight.s"
     object_path = tmp_path / "prefetch_packed_weight.o"
     code_object = tmp_path / "prefetch_packed_weight.hsaco"
@@ -1140,7 +1042,7 @@ def test_writer_combines_global_prefetch_with_partial_waits(
     )
     assert validate_solution(key) == ()
 
-    toolchain = _toolchain()
+    toolchain = ggtensile_toolchain()
     assembly = tmp_path / "schedule5.s"
     object_path = tmp_path / "schedule5.o"
     code_object = tmp_path / "schedule5.hsaco"
@@ -1175,7 +1077,7 @@ def test_writer_builds_128x64_geometry(tmp_path: Path) -> None:
     )
     assert validate_solution(key) == ()
 
-    toolchain = _toolchain()
+    toolchain = ggtensile_toolchain()
     assembly = tmp_path / "tile_128x64.s"
     object_path = tmp_path / "tile_128x64.o"
     code_object = tmp_path / "tile_128x64.hsaco"
@@ -1210,7 +1112,7 @@ def test_writer_builds_64x128_geometry(tmp_path: Path) -> None:
     )
     assert validate_solution(key) == ()
 
-    toolchain = _toolchain()
+    toolchain = ggtensile_toolchain()
     assembly = tmp_path / "tile_64x128.s"
     object_path = tmp_path / "tile_64x128.o"
     code_object = tmp_path / "tile_64x128.hsaco"
@@ -1244,7 +1146,7 @@ def test_writer_builds_depth_u64_geometry(tmp_path: Path) -> None:
     )
     assert validate_solution(key) == ()
 
-    toolchain = _toolchain()
+    toolchain = ggtensile_toolchain()
     assembly = tmp_path / "depth_u64.s"
     object_path = tmp_path / "depth_u64.o"
     code_object = tmp_path / "depth_u64.hsaco"
@@ -1277,7 +1179,7 @@ def test_writer_prefetches_next_local_read_pair(tmp_path: Path) -> None:
     )
     assert validate_solution(key) == ()
 
-    toolchain = _toolchain()
+    toolchain = ggtensile_toolchain()
     assembly = tmp_path / "prefetch_local_read.s"
     object_path = tmp_path / "prefetch_local_read.o"
     code_object = tmp_path / "prefetch_local_read.hsaco"
@@ -1305,42 +1207,10 @@ def test_writer_maps_grouped_m_launch_coordinates() -> None:
     )
     assert validate_solution(key) == ()
 
-    source = BackwardKernelWriterAssembly(key, _toolchain()).source()
+    source = _source(key)
     assert ".amdhsa_system_sgpr_workgroup_id_z 1" in source
     assert "s_mul_i32 s4, s4, 256" in source
     assert "s_add_u32 s2, s4, s2" in source
-
-
-def test_writer_builds_q3_k_padded_256x64_geometry(tmp_path: Path) -> None:
-    catalog = load_solution_catalog(
-        Path("tools/ggtensile/configs/mmq_bwd_q3_k_solutions.json"),
-        problem_type=ProblemType.mmq_backward("Q3_K"),
-    )
-    geometry = catalog["retained_256x64_pad8_sia5"]
-    key = SolutionKey(
-        ProblemType.mmq_backward("Q3_K"),
-        ProblemSize(2048, 2048, 512),
-        geometry,
-    )
-    assert validate_solution(key) == ()
-
-    toolchain = _toolchain()
-    assembly = tmp_path / "geometry.s"
-    object_path = tmp_path / "geometry.o"
-    code_object = tmp_path / "geometry.hsaco"
-    source = BackwardKernelWriterAssembly(key, toolchain).source()
-    assembly.write_text(source)
-    toolchain.assemble(assembly, object_path)
-    toolchain.link(object_path, code_object)
-
-    assert "Precompute A row coordinates shared by every DepthU iteration." in source
-    assert source.count("v_wmma_f32_16x16x16_bf16") == 32
-    assert source.count("ds_store_b16_d16_hi") == 16
-    assert source.count("ds_load_b128") == 16
-    inspection = inspect_artifact(key, code_object, toolchain)
-    assert inspection.vgpr_count == 243
-    assert inspection.sgpr_count == 16
-    assert inspection.lds_num_bytes == 5120
 
 
 def test_validation_rejects_unsupported_256x128_sia5_geometry() -> None:
@@ -1380,7 +1250,7 @@ def test_writer_builds_true_decoded_b_pipeline(tmp_path: Path) -> None:
     assert validate_solution(key) == ()
     assert pipeline.lds_num_bytes == 16384
 
-    toolchain = _toolchain()
+    toolchain = ggtensile_toolchain()
     assembly = tmp_path / "decoded_b_pipeline.s"
     object_path = tmp_path / "decoded_b_pipeline.o"
     code_object = tmp_path / "decoded_b_pipeline.hsaco"
@@ -1416,7 +1286,7 @@ def test_writer_specializes_single_tile_decoded_b_pipeline(tmp_path: Path) -> No
         ProblemSize(128, 2048, 32),
         pipeline,
     )
-    toolchain = _toolchain()
+    toolchain = ggtensile_toolchain()
     assembly = tmp_path / "single_tile_pipeline.s"
     object_path = tmp_path / "single_tile_pipeline.o"
     code_object = tmp_path / "single_tile_pipeline.hsaco"
@@ -1466,7 +1336,7 @@ def test_writer_builds_lower_bound_diagnostics(
         ProblemSize(32768, 2048, 512),
         solution,
     )
-    toolchain = _toolchain()
+    toolchain = ggtensile_toolchain()
     assembly = tmp_path / f"{mode.value}.s"
     object_path = tmp_path / f"{mode.value}.o"
     code_object = tmp_path / f"{mode.value}.hsaco"
@@ -1511,7 +1381,7 @@ def test_q8_one_buffer_lower_bound_diagnostics(
             lds_pad_b=8,
         ),
     )
-    toolchain = _toolchain()
+    toolchain = ggtensile_toolchain()
     assembly = tmp_path / f"q8_{mode.value}.s"
     object_path = tmp_path / f"q8_{mode.value}.o"
     code_object = tmp_path / f"q8_{mode.value}.hsaco"
@@ -1541,5 +1411,5 @@ def test_writer_can_disable_store_priority() -> None:
     )
     assert validate_solution(key) == ()
 
-    source = BackwardKernelWriterAssembly(key, _toolchain()).source()
+    source = _source(key)
     assert "s_setprio" not in source
