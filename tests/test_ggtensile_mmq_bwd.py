@@ -7,26 +7,34 @@ import pytest
 from tools.ggtensile.campaign import (
     CampaignError,
     load_inventory,
-    load_solution,
     load_solution_catalog,
 )
 from tools.ggtensile.cli import main as ggtensile_cli_main
 from tools.ggtensile.inspection import inspect_artifact
 from tools.ggtensile.kernel_writer_assembly_mmq_bwd import (
-    DiagnosticMode,
-    KernelWriterAssembly,
+    BackwardDiagnosticMode,
+    BackwardKernelWriterAssembly,
 )
-from tools.ggtensile.model import ProblemSize, ProblemType, Solution, SolutionKey
+from tools.ggtensile.model import (
+    BackwardSolution,
+    ProblemSize,
+    ProblemType,
+    SolutionKey,
+)
 from tools.ggtensile.toolchain import Toolchain, ToolchainError
 from tools.ggtensile.validation import validate_solution
-from tools.run_ggtensile_q4_k_campaign import main as campaign_main
+from tools.run_ggtensile_mmq_bwd_campaign import main as campaign_main
+
+_CONFIG_DIR = Path("tools/ggtensile/configs")
+_Q4_INVENTORY = _CONFIG_DIR / "mmq_bwd_q4_k_inventory.json"
+_Q4_CATALOG = _CONFIG_DIR / "mmq_bwd_q4_k_solutions.json"
 
 
 def _pilot_key() -> SolutionKey:
     return SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(128, 2048, 512),
-        Solution.pilot(),
+        BackwardSolution.pilot(),
     )
 
 
@@ -38,9 +46,11 @@ def _toolchain() -> Toolchain:
 
 
 def test_q4_k_campaign_inventory_is_exact_and_versionless() -> None:
-    inventory = load_inventory()
-    solution = load_solution()
-    catalog = load_solution_catalog()
+    inventory = load_inventory(_Q4_INVENTORY)
+    catalog = load_solution_catalog(
+        _Q4_CATALOG,
+        problem_type=inventory.problem_type,
+    )
     assert len(inventory.entries) == 12
     assert {entry.family for entry in inventory.entries} == {
         "narrow",
@@ -55,10 +65,6 @@ def test_q4_k_campaign_inventory_is_exact_and_versionless() -> None:
     }
     assert all(entry.current_status == "selected" for entry in inventory.entries)
     assert {entry.selected_solution for entry in inventory.entries} == set(catalog)
-    assert all(
-        validate_solution(entry.solution_key(inventory.problem_type, solution)) == ()
-        for entry in inventory.entries
-    )
     assert all(
         validate_solution(
             entry.solution_key(inventory.problem_type, catalog[entry.selected_solution])
@@ -77,12 +83,13 @@ def test_q4_k_campaign_inventory_is_exact_and_versionless() -> None:
 
 def test_q5_k_campaign_inventory_is_exact_and_quant_aware() -> None:
     inventory = load_inventory(
-        Path("tools/ggtensile/configs/q5_k_dense_inventory.json")
+        Path("tools/ggtensile/configs/mmq_bwd_q5_k_inventory.json")
     )
     catalog = load_solution_catalog(
-        Path("tools/ggtensile/configs/q5_k_selected_solutions.json")
+        Path("tools/ggtensile/configs/mmq_bwd_q5_k_solutions.json"),
+        problem_type=inventory.problem_type,
     )
-    assert inventory.problem_type == ProblemType.dense_mmq_backward_q5_k()
+    assert inventory.problem_type == ProblemType.mmq_backward_q5_k()
     assert len(inventory.entries) == 6
     assert {entry.family for entry in inventory.entries} == {"narrow", "shared_down"}
     assert {entry.problem_size.m for entry in inventory.entries} == {
@@ -110,12 +117,13 @@ def test_q5_k_campaign_inventory_is_exact_and_quant_aware() -> None:
 
 def test_q6_k_campaign_inventory_covers_exact_lm_head_chunks() -> None:
     inventory = load_inventory(
-        Path("tools/ggtensile/configs/q6_k_dense_inventory.json")
+        Path("tools/ggtensile/configs/mmq_bwd_q6_k_inventory.json")
     )
     catalog = load_solution_catalog(
-        Path("tools/ggtensile/configs/q6_k_selected_solutions.json")
+        Path("tools/ggtensile/configs/mmq_bwd_q6_k_solutions.json"),
+        problem_type=inventory.problem_type,
     )
-    assert inventory.problem_type == ProblemType.dense_mmq_backward_q6_k()
+    assert inventory.problem_type == ProblemType.mmq_backward_q6_k()
     assert len(inventory.entries) == 3
     assert {entry.family for entry in inventory.entries} == {"lm_head"}
     assert {entry.problem_size.m for entry in inventory.entries} == {64, 128, 256}
@@ -140,9 +148,9 @@ def test_q6_k_campaign_inventory_covers_exact_lm_head_chunks() -> None:
     retained_m64 = catalog["retained_m64x32x64_pad8_vopd"]
     retained_m128 = catalog["retained_m128x32x64_pad8_vopd"]
     retained_m256 = catalog["retained_m256x64x32_next_pad8_vopd"]
-    assert isinstance(retained_m64, Solution)
-    assert isinstance(retained_m128, Solution)
-    assert isinstance(retained_m256, Solution)
+    assert isinstance(retained_m64, BackwardSolution)
+    assert isinstance(retained_m128, BackwardSolution)
+    assert isinstance(retained_m256, BackwardSolution)
     assert retained_m64.q6_k_extraction == "packed_vopd"
     assert retained_m128.macro_tile1 == 32
     assert retained_m128.depth_u == 64
@@ -151,12 +159,13 @@ def test_q6_k_campaign_inventory_covers_exact_lm_head_chunks() -> None:
 
 def test_q3_k_campaign_inventory_selects_exact_padded_geometries() -> None:
     inventory = load_inventory(
-        Path("tools/ggtensile/configs/q3_k_dense_inventory.json")
+        Path("tools/ggtensile/configs/mmq_bwd_q3_k_inventory.json")
     )
     catalog = load_solution_catalog(
-        Path("tools/ggtensile/configs/q3_k_selected_solutions.json")
+        Path("tools/ggtensile/configs/mmq_bwd_q3_k_solutions.json"),
+        problem_type=inventory.problem_type,
     )
-    assert inventory.problem_type == ProblemType.dense_mmq_backward("Q3_K")
+    assert inventory.problem_type == ProblemType.mmq_backward("Q3_K")
     assert len(inventory.entries) == 6
     assert all(entry.current_status == "selected" for entry in inventory.entries)
     assert {entry.selected_solution for entry in inventory.entries} == set(catalog)
@@ -173,12 +182,13 @@ def test_q3_k_campaign_inventory_selects_exact_padded_geometries() -> None:
 
 def test_q8_0_campaign_inventory_covers_ordinary_and_lm_head_keys() -> None:
     inventory = load_inventory(
-        Path("tools/ggtensile/configs/q8_0_dense_inventory.json")
+        Path("tools/ggtensile/configs/mmq_bwd_q8_0_inventory.json")
     )
     catalog = load_solution_catalog(
-        Path("tools/ggtensile/configs/q8_0_selected_solutions.json")
+        Path("tools/ggtensile/configs/mmq_bwd_q8_0_solutions.json"),
+        problem_type=inventory.problem_type,
     )
-    assert inventory.problem_type == ProblemType.dense_mmq_backward_q8_0()
+    assert inventory.problem_type == ProblemType.mmq_backward_q8_0()
     assert len(inventory.entries) == 23
     assert {entry.problem_size.m for entry in inventory.entries} == {
         32,
@@ -215,10 +225,10 @@ def test_q8_0_campaign_inventory_covers_ordinary_and_lm_head_keys() -> None:
 
 def test_q3_k_packed_decoder_uses_wave32_vopd_scale_pairs() -> None:
     key = SolutionKey(
-        ProblemType.dense_mmq_backward("Q3_K"),
+        ProblemType.mmq_backward("Q3_K"),
         ProblemSize(8192, 2048, 512),
         replace(
-            Solution.pilot(),
+            BackwardSolution.pilot(),
             one_lds_buffer=1,
             schedule_iter_alg=5,
             store_priority_opt=True,
@@ -226,7 +236,7 @@ def test_q3_k_packed_decoder_uses_wave32_vopd_scale_pairs() -> None:
         ),
     )
     assert validate_solution(key) == ()
-    source = KernelWriterAssembly(key, _toolchain()).source()
+    source = BackwardKernelWriterAssembly(key, _toolchain()).source()
     assert "v_dual_mul_f32" in source
     assert "v_dual_sub_f32" in source
     assert source.count("v_dual_mul_f32") >= 4
@@ -236,17 +246,18 @@ def test_q3_k_packed_decoder_uses_wave32_vopd_scale_pairs() -> None:
 
 def test_q6_k_packed_vopd_decoder_pairs_adjacent_values() -> None:
     inventory = load_inventory(
-        Path("tools/ggtensile/configs/q6_k_dense_inventory.json")
+        Path("tools/ggtensile/configs/mmq_bwd_q6_k_inventory.json")
     )
     catalog = load_solution_catalog(
-        Path("tools/ggtensile/configs/q6_k_selected_solutions.json")
+        Path("tools/ggtensile/configs/mmq_bwd_q6_k_solutions.json"),
+        problem_type=inventory.problem_type,
     )
     entry = next(item for item in inventory.entries if item.problem_size.m == 64)
     key = entry.solution_key(inventory.problem_type, catalog[entry.selected_solution])
-    assert isinstance(key.solution, Solution)
+    assert isinstance(key.solution, BackwardSolution)
     assert key.solution.q6_k_extraction == "packed_vopd"
     assert validate_solution(key) == ()
-    source = KernelWriterAssembly(key, _toolchain()).source()
+    source = BackwardKernelWriterAssembly(key, _toolchain()).source()
     assert source.count("v_dual_sub_f32") >= 16
     assert source.count("v_dual_mul_f32") >= 16
     assert "v_lshl_or_b32" in source
@@ -254,7 +265,7 @@ def test_q6_k_packed_vopd_decoder_pairs_adjacent_values() -> None:
 
 def test_q6_k_rejects_geometry_with_no_decoder_rows() -> None:
     solution = replace(
-        Solution.pilot(),
+        BackwardSolution.pilot(),
         matrix_instruction=(16, 16, 16, 1, 1, 1, 2, 4, 1),
         macro_tile0=64,
         macro_tile1=32,
@@ -264,7 +275,7 @@ def test_q6_k_rejects_geometry_with_no_decoder_rows() -> None:
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q6_k(),
+        ProblemType.mmq_backward_q6_k(),
         ProblemSize(64, 2048, 248320),
         solution,
     )
@@ -275,9 +286,9 @@ def test_q6_k_rejects_geometry_with_no_decoder_rows() -> None:
 
 
 def test_lds_row_padding_is_strict_and_quant_aware() -> None:
-    padded = replace(Solution.pilot(), lds_pad_b=8, lds_swizzle_chunk_b=0)
+    padded = replace(BackwardSolution.pilot(), lds_pad_b=8, lds_swizzle_chunk_b=0)
     key = SolutionKey(
-        ProblemType.dense_mmq_backward("Q3_K"),
+        ProblemType.mmq_backward("Q3_K"),
         ProblemSize(2048, 2048, 512),
         padded,
     )
@@ -292,31 +303,31 @@ def test_lds_row_padding_is_strict_and_quant_aware() -> None:
 
 
 def test_quant_types_have_distinct_problem_identity() -> None:
-    q4 = ProblemType.dense_mmq_backward_q4_k()
-    q5 = ProblemType.dense_mmq_backward_q5_k()
-    q6 = ProblemType.dense_mmq_backward_q6_k()
-    q8 = ProblemType.dense_mmq_backward_q8_0()
+    q4 = ProblemType.mmq_backward_q4_k()
+    q5 = ProblemType.mmq_backward_q5_k()
+    q6 = ProblemType.mmq_backward_q6_k()
+    q8 = ProblemType.mmq_backward_q8_0()
     assert len({q4, q5, q6, q8}) == 4
-    q4_key = SolutionKey(q4, ProblemSize(128, 2048, 512), Solution.pilot())
-    q5_key = SolutionKey(q5, ProblemSize(128, 2048, 512), Solution.pilot())
-    q6_key = SolutionKey(q6, ProblemSize(128, 2048, 248320), Solution.pilot())
-    q8_key = SolutionKey(q8, ProblemSize(128, 4096, 1024), Solution.pilot())
+    q4_key = SolutionKey(q4, ProblemSize(128, 2048, 512), BackwardSolution.pilot())
+    q5_key = SolutionKey(q5, ProblemSize(128, 2048, 512), BackwardSolution.pilot())
+    q6_key = SolutionKey(q6, ProblemSize(128, 2048, 248320), BackwardSolution.pilot())
+    q8_key = SolutionKey(q8, ProblemSize(128, 4096, 1024), BackwardSolution.pilot())
     assert len({q4_key.hash, q5_key.hash, q6_key.hash, q8_key.hash}) == 4
-    assert "dense_bwd_q4_k_" in q4_key.kernel_name
-    assert "dense_bwd_q5_k_" in q5_key.kernel_name
-    assert "dense_bwd_q6_k_" in q6_key.kernel_name
-    assert "dense_bwd_q8_0_" in q8_key.kernel_name
+    assert "mmq_bwd_q4_k_" in q4_key.kernel_name
+    assert "mmq_bwd_q5_k_" in q5_key.kernel_name
+    assert "mmq_bwd_q6_k_" in q6_key.kernel_name
+    assert "mmq_bwd_q8_0_" in q8_key.kernel_name
     q5_scalar = SolutionKey(
         q5,
         ProblemSize(128, 2048, 512),
-        replace(Solution.pilot(), q5_k_extraction="scalar"),
+        replace(BackwardSolution.pilot(), q5_k_extraction="scalar"),
     )
     assert validate_solution(q5_scalar) == ()
     assert validate_solution(
         SolutionKey(
             q4,
             ProblemSize(128, 2048, 512),
-            replace(Solution.pilot(), q5_k_extraction="scalar"),
+            replace(BackwardSolution.pilot(), q5_k_extraction="scalar"),
         )
     )
 
@@ -324,7 +335,7 @@ def test_quant_types_have_distinct_problem_identity() -> None:
 def test_q4_k_campaign_inventory_rejects_schema_version(tmp_path: Path) -> None:
     inventory_path = tmp_path / "inventory.json"
     value = json.loads(
-        Path("tools/ggtensile/configs/q4_k_dense_inventory.json").read_text()
+        Path("tools/ggtensile/configs/mmq_bwd_q4_k_inventory.json").read_text()
     )
     value["SchemaVersion"] = 1
     inventory_path.write_text(json.dumps(value))
@@ -345,6 +356,10 @@ def test_q4_k_campaign_prepare_is_serial_and_immutable(tmp_path: Path) -> None:
     summary = json.loads((root / "prepare.json").read_text())
     assert summary["Phase"] == "Prepare"
     assert summary["Status"] == "Accepted"
+    assert summary["SolutionCatalog"] == str(
+        Path("tools/ggtensile/configs/mmq_bwd_q4_k_solutions.json").resolve()
+    )
+    assert "Solution" not in summary
     assert len(summary["Entries"]) == 1
     assert summary["Entries"][0]["SelectedSolution"] == ("retained_128x128_pipeline")
     artifact = root / "m2048_n512_k2048"
@@ -352,6 +367,33 @@ def test_q4_k_campaign_prepare_is_serial_and_immutable(tmp_path: Path) -> None:
     assert (artifact / "build.json").is_file()
     assert (artifact / "inspect.json").is_file()
     assert campaign_main(arguments) == 2
+
+
+def test_q4_k_campaign_prepare_accepts_explicit_solution(tmp_path: Path) -> None:
+    solution_path = tmp_path / "solution.json"
+    solution = load_solution_catalog(
+        _Q4_CATALOG,
+        problem_type=ProblemType.mmq_backward_q4_k(),
+    )["retained_128x128_pipeline"]
+    solution_path.write_text(json.dumps(solution.to_mapping()))
+    root = tmp_path / "campaign"
+    assert (
+        campaign_main(
+            [
+                "prepare",
+                "--artifact-root",
+                str(root),
+                "--key",
+                "2048,512,2048",
+                "--solution",
+                str(solution_path),
+            ]
+        )
+        == 0
+    )
+    summary = json.loads((root / "prepare.json").read_text())
+    assert summary["Solution"] == str(solution_path.resolve())
+    assert "SolutionCatalog" not in summary
 
 
 def test_pilot_solution_identity_and_round_trip() -> None:
@@ -368,12 +410,12 @@ def test_writer_specializes_production_q4_k_row_stride(
     n: int, packed_row_bytes: int
 ) -> None:
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(128, n, 512),
-        Solution.pilot(),
+        BackwardSolution.pilot(),
     )
     assert validate_solution(key) == ()
-    writer = KernelWriterAssembly(key, _toolchain())
+    writer = BackwardKernelWriterAssembly(key, _toolchain())
     source = writer.source()
     temporary = writer.registers.temporary
     assert f"v_mul_lo_u32 v{temporary}, {packed_row_bytes}, v{temporary}" in source
@@ -382,7 +424,7 @@ def test_writer_specializes_production_q4_k_row_stride(
 def test_writer_strength_reduces_power_of_two_row_strides() -> None:
     toolchain = _toolchain()
     pipeline = replace(
-        Solution.pilot(),
+        BackwardSolution.pilot(),
         one_lds_buffer=0,
         schedule_iter_alg=4,
         prefetch_global_read=2,
@@ -390,11 +432,11 @@ def test_writer_strength_reduces_power_of_two_row_strides() -> None:
         store_priority_opt=False,
     )
     production_key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(128, 2048, 512),
         pipeline,
     )
-    production_writer = KernelWriterAssembly(production_key, toolchain)
+    production_writer = BackwardKernelWriterAssembly(production_key, toolchain)
     production_source = production_writer.source()
     registers = production_writer.registers
     assert (
@@ -407,11 +449,11 @@ def test_writer_strength_reduces_power_of_two_row_strides() -> None:
     )
 
     reduced_key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(128, 2048, 96),
         pipeline,
     )
-    reduced_writer = KernelWriterAssembly(reduced_key, toolchain)
+    reduced_writer = BackwardKernelWriterAssembly(reduced_key, toolchain)
     reduced_source = reduced_writer.source()
     assert (
         f"v_mul_lo_u32 v{reduced_writer.registers.address + 4}, 192, "
@@ -421,9 +463,9 @@ def test_writer_strength_reduces_power_of_two_row_strides() -> None:
 
 def test_validation_rejects_nonproduction_n() -> None:
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(128, 1024, 512),
-        Solution.pilot(),
+        BackwardSolution.pilot(),
     )
     assert {reason.rule_id for reason in validate_solution(key)} == {
         "problem_size.n.production"
@@ -431,7 +473,7 @@ def test_validation_rejects_nonproduction_n() -> None:
 
 
 def test_writer_enables_and_flattens_packed_workitem_xy() -> None:
-    writer = KernelWriterAssembly(_pilot_key(), _toolchain())
+    writer = BackwardKernelWriterAssembly(_pilot_key(), _toolchain())
     source = writer.source()
     registers = writer.registers
     assert ".amdhsa_system_vgpr_workitem_id 1" in source
@@ -450,7 +492,7 @@ def test_build_and_inspect_pilot(tmp_path: Path) -> None:
     assembly = tmp_path / "pilot.s"
     object_path = tmp_path / "pilot.o"
     code_object = tmp_path / "pilot.hsaco"
-    KernelWriterAssembly(key, toolchain).write(assembly)
+    BackwardKernelWriterAssembly(key, toolchain).write(assembly)
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
 
@@ -479,15 +521,15 @@ def test_build_and_inspect_pilot(tmp_path: Path) -> None:
 
 def test_build_and_inspect_q5_k_payload_backend(tmp_path: Path) -> None:
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q5_k(),
+        ProblemType.mmq_backward_q5_k(),
         ProblemSize(128, 2048, 512),
-        Solution.pilot(),
+        BackwardSolution.pilot(),
     )
     toolchain = _toolchain()
     assembly = tmp_path / "q5_k.s"
     object_path = tmp_path / "q5_k.o"
     code_object = tmp_path / "q5_k.hsaco"
-    source = KernelWriterAssembly(key, toolchain).write(assembly)
+    source = BackwardKernelWriterAssembly(key, toolchain).write(assembly)
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
 
@@ -510,15 +552,15 @@ def test_build_and_inspect_q5_k_payload_backend(tmp_path: Path) -> None:
 
 def test_build_and_inspect_q8_0_payload_backend(tmp_path: Path) -> None:
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q8_0(),
+        ProblemType.mmq_backward_q8_0(),
         ProblemSize(128, 4096, 1024),
-        Solution.pilot(),
+        BackwardSolution.pilot(),
     )
     toolchain = _toolchain()
     assembly = tmp_path / "q8_0.s"
     object_path = tmp_path / "q8_0.o"
     code_object = tmp_path / "q8_0.hsaco"
-    KernelWriterAssembly(key, toolchain).write(assembly)
+    BackwardKernelWriterAssembly(key, toolchain).write(assembly)
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
 
@@ -540,14 +582,14 @@ def test_build_and_inspect_q8_0_payload_backend(tmp_path: Path) -> None:
 
 def test_build_and_inspect_q8_0_depth_u64_backend(tmp_path: Path) -> None:
     solution = replace(
-        Solution.pilot(),
+        BackwardSolution.pilot(),
         depth_u=64,
         prefetch_global_read=2,
         schedule_iter_alg=4,
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q8_0(),
+        ProblemType.mmq_backward_q8_0(),
         ProblemSize(128, 4096, 1024),
         solution,
     )
@@ -556,7 +598,7 @@ def test_build_and_inspect_q8_0_depth_u64_backend(tmp_path: Path) -> None:
     assembly = tmp_path / "q8_0_depth_u64.s"
     object_path = tmp_path / "q8_0_depth_u64.o"
     code_object = tmp_path / "q8_0_depth_u64.hsaco"
-    writer = KernelWriterAssembly(key, toolchain)
+    writer = BackwardKernelWriterAssembly(key, toolchain)
     writer.write(assembly)
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
@@ -577,7 +619,7 @@ def test_build_and_inspect_q8_0_depth_u64_backend(tmp_path: Path) -> None:
 
 def test_build_and_inspect_q8_0_compact_geometry(tmp_path: Path) -> None:
     solution = replace(
-        Solution.pilot(),
+        BackwardSolution.pilot(),
         matrix_instruction=(16, 16, 16, 1, 1, 4, 4, 4, 1),
         macro_tile0=256,
         macro_tile1=64,
@@ -586,7 +628,7 @@ def test_build_and_inspect_q8_0_compact_geometry(tmp_path: Path) -> None:
         lds_pad_b=8,
     )
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q8_0(),
+        ProblemType.mmq_backward_q8_0(),
         ProblemSize(2048, 4096, 1024),
         solution,
     )
@@ -595,7 +637,7 @@ def test_build_and_inspect_q8_0_compact_geometry(tmp_path: Path) -> None:
     assembly = tmp_path / "q8_0_compact.s"
     object_path = tmp_path / "q8_0_compact.o"
     code_object = tmp_path / "q8_0_compact.hsaco"
-    KernelWriterAssembly(key, toolchain).write(assembly)
+    BackwardKernelWriterAssembly(key, toolchain).write(assembly)
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
 
@@ -611,7 +653,7 @@ def test_build_and_inspect_q8_0_compact_geometry(tmp_path: Path) -> None:
 
 def test_build_and_inspect_q6_k_backend(tmp_path: Path) -> None:
     solution = replace(
-        Solution.pilot(),
+        BackwardSolution.pilot(),
         matrix_instruction=(16, 16, 16, 1, 1, 2, 4, 4, 1),
         macro_tile0=128,
         macro_tile1=64,
@@ -620,7 +662,7 @@ def test_build_and_inspect_q6_k_backend(tmp_path: Path) -> None:
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q6_k(),
+        ProblemType.mmq_backward_q6_k(),
         ProblemSize(128, 2048, 248320),
         solution,
     )
@@ -629,7 +671,7 @@ def test_build_and_inspect_q6_k_backend(tmp_path: Path) -> None:
     assembly = tmp_path / "q6_k_m128.s"
     object_path = tmp_path / "q6_k_m128.o"
     code_object = tmp_path / "q6_k_m128.hsaco"
-    KernelWriterAssembly(key, toolchain).write(assembly)
+    BackwardKernelWriterAssembly(key, toolchain).write(assembly)
     source = assembly.read_text()
     assert "Build Q6_K block addresses" in source
     assert "global_load_b128" in source
@@ -649,7 +691,7 @@ def test_build_and_inspect_q6_k_backend(tmp_path: Path) -> None:
 
 def test_build_and_inspect_q8_0_depth_u64_compact_geometry(tmp_path: Path) -> None:
     solution = replace(
-        Solution.pilot(),
+        BackwardSolution.pilot(),
         matrix_instruction=(16, 16, 16, 1, 1, 1, 4, 4, 1),
         macro_tile0=64,
         macro_tile1=64,
@@ -659,14 +701,14 @@ def test_build_and_inspect_q8_0_depth_u64_compact_geometry(tmp_path: Path) -> No
         lds_pad_b=8,
     )
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q8_0(),
+        ProblemType.mmq_backward_q8_0(),
         ProblemSize(64, 4096, 129280),
         solution,
     )
     assert validate_solution(key) == ()
     q4_reasons = validate_solution(
         SolutionKey(
-            ProblemType.dense_mmq_backward_q4_k(),
+            ProblemType.mmq_backward_q4_k(),
             ProblemSize(64, 4096, 129280),
             solution,
         )
@@ -676,7 +718,7 @@ def test_build_and_inspect_q8_0_depth_u64_compact_geometry(tmp_path: Path) -> No
     assembly = tmp_path / "q8_0_m64_depth_u64.s"
     object_path = tmp_path / "q8_0_m64_depth_u64.o"
     code_object = tmp_path / "q8_0_m64_depth_u64.hsaco"
-    KernelWriterAssembly(key, toolchain).write(assembly)
+    BackwardKernelWriterAssembly(key, toolchain).write(assembly)
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
 
@@ -692,7 +734,7 @@ def test_build_and_inspect_q8_0_depth_u64_compact_geometry(tmp_path: Path) -> No
 
 def test_build_and_inspect_q8_0_two_wave_m32_geometry(tmp_path: Path) -> None:
     solution = replace(
-        Solution.pilot(),
+        BackwardSolution.pilot(),
         work_group=(32, 2, 1),
         matrix_instruction=(16, 16, 16, 1, 1, 1, 4, 2, 1),
         macro_tile0=32,
@@ -702,14 +744,14 @@ def test_build_and_inspect_q8_0_two_wave_m32_geometry(tmp_path: Path) -> None:
         lds_pad_b=8,
     )
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q8_0(),
+        ProblemType.mmq_backward_q8_0(),
         ProblemSize(32, 4096, 129280),
         solution,
     )
     assert validate_solution(key) == ()
     assert validate_solution(
         SolutionKey(
-            ProblemType.dense_mmq_backward_q4_k(),
+            ProblemType.mmq_backward_q4_k(),
             ProblemSize(32, 4096, 129280),
             solution,
         )
@@ -718,7 +760,7 @@ def test_build_and_inspect_q8_0_two_wave_m32_geometry(tmp_path: Path) -> None:
     assembly = tmp_path / "q8_0_m32.s"
     object_path = tmp_path / "q8_0_m32.o"
     code_object = tmp_path / "q8_0_m32.hsaco"
-    KernelWriterAssembly(key, toolchain).write(assembly)
+    BackwardKernelWriterAssembly(key, toolchain).write(assembly)
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
 
@@ -735,7 +777,7 @@ def test_build_and_inspect_q8_0_two_wave_m32_geometry(tmp_path: Path) -> None:
 
 def test_build_and_inspect_q8_0_packed_vopd_decode(tmp_path: Path) -> None:
     solution = replace(
-        Solution.pilot(),
+        BackwardSolution.pilot(),
         work_group=(32, 2, 1),
         matrix_instruction=(16, 16, 16, 1, 1, 1, 4, 2, 1),
         macro_tile0=32,
@@ -747,7 +789,7 @@ def test_build_and_inspect_q8_0_packed_vopd_decode(tmp_path: Path) -> None:
         q8_0_extraction="packed_vopd",
     )
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q8_0(),
+        ProblemType.mmq_backward_q8_0(),
         ProblemSize(32, 4096, 129280),
         solution,
     )
@@ -756,7 +798,7 @@ def test_build_and_inspect_q8_0_packed_vopd_decode(tmp_path: Path) -> None:
     assembly = tmp_path / "q8_0_m32_vopd.s"
     object_path = tmp_path / "q8_0_m32_vopd.o"
     code_object = tmp_path / "q8_0_m32_vopd.hsaco"
-    KernelWriterAssembly(key, toolchain).write(assembly)
+    BackwardKernelWriterAssembly(key, toolchain).write(assembly)
     source = assembly.read_text()
     assert "v_dual_mul_f32" in source
     assert "global_load_b128" in source
@@ -845,9 +887,9 @@ def test_cli_generate_build_and_inspect_manifests(tmp_path: Path) -> None:
 
 def test_cli_records_rejected_solution_manifest(tmp_path: Path) -> None:
     rejected = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(32768, 2048, 8192),
-        replace(Solution.pilot(), depth_u=16),
+        replace(BackwardSolution.pilot(), depth_u=16),
     )
     solution_path = tmp_path / "rejected.json"
     solution_path.write_text(json.dumps(rejected.to_mapping()))
@@ -872,16 +914,16 @@ def test_cli_records_rejected_solution_manifest(tmp_path: Path) -> None:
 
 
 def test_writer_emits_distinct_xor8_lds_layout() -> None:
-    pilot = Solution.pilot()
+    pilot = BackwardSolution.pilot()
     swizzled = replace(pilot, lds_swizzle_chunk_b=8)
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(128, 2048, 512),
         swizzled,
     )
     assert validate_solution(key) == ()
 
-    source = KernelWriterAssembly(key, _toolchain()).source()
+    source = BackwardKernelWriterAssembly(key, _toolchain()).source()
     assert "Precompute XOR-8 LDS store bases" in source
     assert "v_xor_b32" in source
     assert source.count("ds_load_b128") == 32
@@ -889,32 +931,32 @@ def test_writer_emits_distinct_xor8_lds_layout() -> None:
 
 
 def test_writer_emits_distinct_xor16_lds_layout() -> None:
-    pilot = Solution.pilot()
+    pilot = BackwardSolution.pilot()
     swizzled = replace(pilot, lds_swizzle_chunk_b=16)
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(128, 2048, 512),
         swizzled,
     )
     assert validate_solution(key) == ()
 
-    source = KernelWriterAssembly(key, _toolchain()).source()
+    source = BackwardKernelWriterAssembly(key, _toolchain()).source()
     assert "Precompute XOR-16 LDS store bases" in source
     assert source.count("ds_load_b128") == 32
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
 
 
 def test_writer_emits_distinct_xor4_lds_layout() -> None:
-    pilot = Solution.pilot()
+    pilot = BackwardSolution.pilot()
     swizzled = replace(pilot, lds_swizzle_chunk_b=4, schedule_iter_alg=3)
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(128, 2048, 512),
         swizzled,
     )
     assert validate_solution(key) == ()
 
-    source = KernelWriterAssembly(key, _toolchain()).source()
+    source = BackwardKernelWriterAssembly(key, _toolchain()).source()
     assert "Precompute XOR-4 LDS store bases" in source
     assert source.count("ds_load_b64") == 64
     assert source.count("ds_load_b128") == 0
@@ -923,30 +965,30 @@ def test_writer_emits_distinct_xor4_lds_layout() -> None:
 
 
 def test_writer_emits_sia3_partial_wait_schedule() -> None:
-    pilot = Solution.pilot()
+    pilot = BackwardSolution.pilot()
     scheduled = replace(pilot, schedule_iter_alg=3)
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(128, 2048, 512),
         scheduled,
     )
     assert validate_solution(key) == ()
 
-    source = KernelWriterAssembly(key, _toolchain()).source()
+    source = BackwardKernelWriterAssembly(key, _toolchain()).source()
     assert source.count("s_waitcnt vmcnt(2) lgkmcnt(2)") == 2
     assert source.count("s_waitcnt lgkmcnt(2)") == 6
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
 
 
 def test_writer_overlaps_first_a_half_with_decode(tmp_path: Path) -> None:
-    pilot = Solution.pilot()
+    pilot = BackwardSolution.pilot()
     scheduled = replace(
         pilot,
         schedule_iter_alg=4,
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(32768, 2048, 8192),
         scheduled,
     )
@@ -956,7 +998,7 @@ def test_writer_overlaps_first_a_half_with_decode(tmp_path: Path) -> None:
     assembly = tmp_path / "schedule4.s"
     object_path = tmp_path / "schedule4.o"
     code_object = tmp_path / "schedule4.hsaco"
-    source = KernelWriterAssembly(key, toolchain).source()
+    source = BackwardKernelWriterAssembly(key, toolchain).source()
     assembly.write_text(source)
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
@@ -977,7 +1019,7 @@ def test_writer_overlaps_first_a_half_with_decode(tmp_path: Path) -> None:
 
 
 def test_writer_prefetches_both_a_halves(tmp_path: Path) -> None:
-    pilot = Solution.pilot()
+    pilot = BackwardSolution.pilot()
     prefetched = replace(
         pilot,
         schedule_iter_alg=4,
@@ -985,7 +1027,7 @@ def test_writer_prefetches_both_a_halves(tmp_path: Path) -> None:
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(32768, 2048, 8192),
         prefetched,
     )
@@ -995,7 +1037,7 @@ def test_writer_prefetches_both_a_halves(tmp_path: Path) -> None:
     assembly = tmp_path / "prefetch_global_read.s"
     object_path = tmp_path / "prefetch_global_read.o"
     code_object = tmp_path / "prefetch_global_read.hsaco"
-    source = KernelWriterAssembly(key, toolchain).source()
+    source = BackwardKernelWriterAssembly(key, toolchain).source()
     assembly.write_text(source)
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
@@ -1012,7 +1054,7 @@ def test_writer_prefetches_both_a_halves(tmp_path: Path) -> None:
 def test_writer_shares_packed_weight_across_nibble_lanes(
     tmp_path: Path,
 ) -> None:
-    pilot = Solution.pilot()
+    pilot = BackwardSolution.pilot()
     shared = replace(
         pilot,
         schedule_iter_alg=4,
@@ -1021,7 +1063,7 @@ def test_writer_shares_packed_weight_across_nibble_lanes(
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(32768, 2048, 8192),
         shared,
     )
@@ -1031,7 +1073,7 @@ def test_writer_shares_packed_weight_across_nibble_lanes(
     assembly = tmp_path / "packed_weight_lane_share.s"
     object_path = tmp_path / "packed_weight_lane_share.o"
     code_object = tmp_path / "packed_weight_lane_share.hsaco"
-    source = KernelWriterAssembly(key, toolchain).source()
+    source = BackwardKernelWriterAssembly(key, toolchain).source()
     assembly.write_text(source)
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
@@ -1047,7 +1089,7 @@ def test_writer_shares_packed_weight_across_nibble_lanes(
 
 
 def test_writer_pipelines_packed_weight_reads(tmp_path: Path) -> None:
-    pilot = Solution.pilot()
+    pilot = BackwardSolution.pilot()
     pipelined = replace(
         pilot,
         schedule_iter_alg=4,
@@ -1056,7 +1098,7 @@ def test_writer_pipelines_packed_weight_reads(tmp_path: Path) -> None:
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(32768, 2048, 8192),
         pipelined,
     )
@@ -1066,7 +1108,7 @@ def test_writer_pipelines_packed_weight_reads(tmp_path: Path) -> None:
     assembly = tmp_path / "prefetch_packed_weight.s"
     object_path = tmp_path / "prefetch_packed_weight.o"
     code_object = tmp_path / "prefetch_packed_weight.hsaco"
-    source = KernelWriterAssembly(key, toolchain).source()
+    source = BackwardKernelWriterAssembly(key, toolchain).source()
     assembly.write_text(source)
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
@@ -1084,7 +1126,7 @@ def test_writer_pipelines_packed_weight_reads(tmp_path: Path) -> None:
 def test_writer_combines_global_prefetch_with_partial_waits(
     tmp_path: Path,
 ) -> None:
-    pilot = Solution.pilot()
+    pilot = BackwardSolution.pilot()
     scheduled = replace(
         pilot,
         schedule_iter_alg=5,
@@ -1092,7 +1134,7 @@ def test_writer_combines_global_prefetch_with_partial_waits(
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(32768, 2048, 8192),
         scheduled,
     )
@@ -1102,7 +1144,7 @@ def test_writer_combines_global_prefetch_with_partial_waits(
     assembly = tmp_path / "schedule5.s"
     object_path = tmp_path / "schedule5.o"
     code_object = tmp_path / "schedule5.hsaco"
-    source = KernelWriterAssembly(key, toolchain).source()
+    source = BackwardKernelWriterAssembly(key, toolchain).source()
     assembly.write_text(source)
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
@@ -1117,7 +1159,7 @@ def test_writer_combines_global_prefetch_with_partial_waits(
 
 
 def test_writer_builds_128x64_geometry(tmp_path: Path) -> None:
-    pilot = Solution.pilot()
+    pilot = BackwardSolution.pilot()
     tile_128x64 = replace(
         pilot,
         matrix_instruction=(16, 16, 16, 1, 1, 2, 4, 4, 1),
@@ -1127,7 +1169,7 @@ def test_writer_builds_128x64_geometry(tmp_path: Path) -> None:
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(32768, 2048, 8192),
         tile_128x64,
     )
@@ -1137,7 +1179,7 @@ def test_writer_builds_128x64_geometry(tmp_path: Path) -> None:
     assembly = tmp_path / "tile_128x64.s"
     object_path = tmp_path / "tile_128x64.o"
     code_object = tmp_path / "tile_128x64.hsaco"
-    source = KernelWriterAssembly(key, toolchain).source()
+    source = BackwardKernelWriterAssembly(key, toolchain).source()
     assembly.write_text(source)
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
@@ -1152,7 +1194,7 @@ def test_writer_builds_128x64_geometry(tmp_path: Path) -> None:
 
 
 def test_writer_builds_64x128_geometry(tmp_path: Path) -> None:
-    pilot = Solution.pilot()
+    pilot = BackwardSolution.pilot()
     tile_64x128 = replace(
         pilot,
         matrix_instruction=(16, 16, 16, 1, 1, 1, 8, 4, 1),
@@ -1162,7 +1204,7 @@ def test_writer_builds_64x128_geometry(tmp_path: Path) -> None:
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(32768, 2048, 8192),
         tile_64x128,
     )
@@ -1172,7 +1214,7 @@ def test_writer_builds_64x128_geometry(tmp_path: Path) -> None:
     assembly = tmp_path / "tile_64x128.s"
     object_path = tmp_path / "tile_64x128.o"
     code_object = tmp_path / "tile_64x128.hsaco"
-    source = KernelWriterAssembly(key, toolchain).source()
+    source = BackwardKernelWriterAssembly(key, toolchain).source()
     assembly.write_text(source)
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
@@ -1187,7 +1229,7 @@ def test_writer_builds_64x128_geometry(tmp_path: Path) -> None:
 
 
 def test_writer_builds_depth_u64_geometry(tmp_path: Path) -> None:
-    pilot = Solution.pilot()
+    pilot = BackwardSolution.pilot()
     depth_u64 = replace(
         pilot,
         depth_u=64,
@@ -1196,7 +1238,7 @@ def test_writer_builds_depth_u64_geometry(tmp_path: Path) -> None:
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(32768, 2048, 8192),
         depth_u64,
     )
@@ -1206,7 +1248,7 @@ def test_writer_builds_depth_u64_geometry(tmp_path: Path) -> None:
     assembly = tmp_path / "depth_u64.s"
     object_path = tmp_path / "depth_u64.o"
     code_object = tmp_path / "depth_u64.hsaco"
-    source = KernelWriterAssembly(key, toolchain).source()
+    source = BackwardKernelWriterAssembly(key, toolchain).source()
     assembly.write_text(source)
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
@@ -1221,7 +1263,7 @@ def test_writer_builds_depth_u64_geometry(tmp_path: Path) -> None:
 
 
 def test_writer_prefetches_next_local_read_pair(tmp_path: Path) -> None:
-    pilot = Solution.pilot()
+    pilot = BackwardSolution.pilot()
     prefetched = replace(
         pilot,
         schedule_iter_alg=3,
@@ -1229,7 +1271,7 @@ def test_writer_prefetches_next_local_read_pair(tmp_path: Path) -> None:
         lds_swizzle_chunk_b=8,
     )
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(32768, 2048, 8192),
         prefetched,
     )
@@ -1239,7 +1281,7 @@ def test_writer_prefetches_next_local_read_pair(tmp_path: Path) -> None:
     assembly = tmp_path / "prefetch_local_read.s"
     object_path = tmp_path / "prefetch_local_read.o"
     code_object = tmp_path / "prefetch_local_read.hsaco"
-    source = KernelWriterAssembly(key, toolchain).source()
+    source = BackwardKernelWriterAssembly(key, toolchain).source()
     assembly.write_text(source)
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
@@ -1254,16 +1296,16 @@ def test_writer_prefetches_next_local_read_pair(tmp_path: Path) -> None:
 
 
 def test_writer_maps_grouped_m_launch_coordinates() -> None:
-    pilot = Solution.pilot()
+    pilot = BackwardSolution.pilot()
     all_m = replace(pilot, work_group_mapping=256)
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(32768, 2048, 8192),
         all_m,
     )
     assert validate_solution(key) == ()
 
-    source = KernelWriterAssembly(key, _toolchain()).source()
+    source = BackwardKernelWriterAssembly(key, _toolchain()).source()
     assert ".amdhsa_system_sgpr_workgroup_id_z 1" in source
     assert "s_mul_i32 s4, s4, 256" in source
     assert "s_add_u32 s2, s4, s2" in source
@@ -1271,11 +1313,12 @@ def test_writer_maps_grouped_m_launch_coordinates() -> None:
 
 def test_writer_builds_q3_k_padded_256x64_geometry(tmp_path: Path) -> None:
     catalog = load_solution_catalog(
-        Path("tools/ggtensile/configs/q3_k_selected_solutions.json")
+        Path("tools/ggtensile/configs/mmq_bwd_q3_k_solutions.json"),
+        problem_type=ProblemType.mmq_backward("Q3_K"),
     )
     geometry = catalog["retained_256x64_pad8_sia5"]
     key = SolutionKey(
-        ProblemType.dense_mmq_backward("Q3_K"),
+        ProblemType.mmq_backward("Q3_K"),
         ProblemSize(2048, 2048, 512),
         geometry,
     )
@@ -1285,7 +1328,7 @@ def test_writer_builds_q3_k_padded_256x64_geometry(tmp_path: Path) -> None:
     assembly = tmp_path / "geometry.s"
     object_path = tmp_path / "geometry.o"
     code_object = tmp_path / "geometry.hsaco"
-    source = KernelWriterAssembly(key, toolchain).source()
+    source = BackwardKernelWriterAssembly(key, toolchain).source()
     assembly.write_text(source)
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
@@ -1301,7 +1344,7 @@ def test_writer_builds_q3_k_padded_256x64_geometry(tmp_path: Path) -> None:
 
 
 def test_validation_rejects_unsupported_256x128_sia5_geometry() -> None:
-    pilot = Solution.pilot()
+    pilot = BackwardSolution.pilot()
     geometry = replace(
         pilot,
         work_group=(32, 8, 1),
@@ -1310,7 +1353,7 @@ def test_validation_rejects_unsupported_256x128_sia5_geometry() -> None:
         schedule_iter_alg=5,
     )
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(32768, 2048, 8192),
         geometry,
     )
@@ -1322,7 +1365,7 @@ def test_validation_rejects_unsupported_256x128_sia5_geometry() -> None:
 
 def test_writer_builds_true_decoded_b_pipeline(tmp_path: Path) -> None:
     pipeline = replace(
-        Solution.pilot(),
+        BackwardSolution.pilot(),
         one_lds_buffer=0,
         schedule_iter_alg=4,
         prefetch_global_read=2,
@@ -1330,7 +1373,7 @@ def test_writer_builds_true_decoded_b_pipeline(tmp_path: Path) -> None:
         store_priority_opt=False,
     )
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(32768, 2048, 512),
         pipeline,
     )
@@ -1341,7 +1384,7 @@ def test_writer_builds_true_decoded_b_pipeline(tmp_path: Path) -> None:
     assembly = tmp_path / "decoded_b_pipeline.s"
     object_path = tmp_path / "decoded_b_pipeline.o"
     code_object = tmp_path / "decoded_b_pipeline.hsaco"
-    source = KernelWriterAssembly(key, toolchain).source()
+    source = BackwardKernelWriterAssembly(key, toolchain).source()
     assembly.write_text(source)
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
@@ -1361,7 +1404,7 @@ def test_writer_builds_true_decoded_b_pipeline(tmp_path: Path) -> None:
 
 def test_writer_specializes_single_tile_decoded_b_pipeline(tmp_path: Path) -> None:
     pipeline = replace(
-        Solution.pilot(),
+        BackwardSolution.pilot(),
         one_lds_buffer=0,
         schedule_iter_alg=4,
         prefetch_global_read=2,
@@ -1369,7 +1412,7 @@ def test_writer_specializes_single_tile_decoded_b_pipeline(tmp_path: Path) -> No
         store_priority_opt=False,
     )
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(128, 2048, 32),
         pipeline,
     )
@@ -1377,7 +1420,7 @@ def test_writer_specializes_single_tile_decoded_b_pipeline(tmp_path: Path) -> No
     assembly = tmp_path / "single_tile_pipeline.s"
     object_path = tmp_path / "single_tile_pipeline.o"
     code_object = tmp_path / "single_tile_pipeline.hsaco"
-    source = KernelWriterAssembly(key, toolchain).source()
+    source = BackwardKernelWriterAssembly(key, toolchain).source()
     assembly.write_text(source)
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
@@ -1391,9 +1434,9 @@ def test_writer_specializes_single_tile_decoded_b_pipeline(tmp_path: Path) -> No
 
 
 def test_two_lds_buffers_reject_unsupported_schedule() -> None:
-    unsupported = replace(Solution.pilot(), one_lds_buffer=0)
+    unsupported = replace(BackwardSolution.pilot(), one_lds_buffer=0)
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(32768, 2048, 512),
         unsupported,
     )
@@ -1403,15 +1446,15 @@ def test_two_lds_buffers_reject_unsupported_schedule() -> None:
 
 @pytest.mark.parametrize(
     ("mode", "wmma_count"),
-    ((DiagnosticMode.WMMA_FLOOR, 32), (DiagnosticMode.DECODE_FLOOR, 0)),
+    ((BackwardDiagnosticMode.WMMA_FLOOR, 32), (BackwardDiagnosticMode.DECODE_FLOOR, 0)),
 )
 def test_writer_builds_lower_bound_diagnostics(
     tmp_path: Path,
-    mode: DiagnosticMode,
+    mode: BackwardDiagnosticMode,
     wmma_count: int,
 ) -> None:
     solution = replace(
-        Solution.pilot(),
+        BackwardSolution.pilot(),
         one_lds_buffer=0,
         schedule_iter_alg=4,
         prefetch_global_read=2,
@@ -1419,7 +1462,7 @@ def test_writer_builds_lower_bound_diagnostics(
         store_priority_opt=False,
     )
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(32768, 2048, 512),
         solution,
     )
@@ -1427,7 +1470,7 @@ def test_writer_builds_lower_bound_diagnostics(
     assembly = tmp_path / f"{mode.value}.s"
     object_path = tmp_path / f"{mode.value}.o"
     code_object = tmp_path / f"{mode.value}.hsaco"
-    source = KernelWriterAssembly(
+    source = BackwardKernelWriterAssembly(
         key,
         toolchain,
         diagnostic_mode=mode,
@@ -1451,18 +1494,18 @@ def test_writer_builds_lower_bound_diagnostics(
 
 @pytest.mark.parametrize(
     ("mode", "wmma_count"),
-    ((DiagnosticMode.WMMA_FLOOR, 32), (DiagnosticMode.DECODE_FLOOR, 0)),
+    ((BackwardDiagnosticMode.WMMA_FLOOR, 32), (BackwardDiagnosticMode.DECODE_FLOOR, 0)),
 )
 def test_q8_one_buffer_lower_bound_diagnostics(
     tmp_path: Path,
-    mode: DiagnosticMode,
+    mode: BackwardDiagnosticMode,
     wmma_count: int,
 ) -> None:
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q8_0(),
+        ProblemType.mmq_backward_q8_0(),
         ProblemSize(128, 4096, 1024),
         replace(
-            Solution.pilot(),
+            BackwardSolution.pilot(),
             prefetch_global_read=2,
             schedule_iter_alg=5,
             lds_pad_b=8,
@@ -1472,7 +1515,7 @@ def test_q8_one_buffer_lower_bound_diagnostics(
     assembly = tmp_path / f"q8_{mode.value}.s"
     object_path = tmp_path / f"q8_{mode.value}.o"
     code_object = tmp_path / f"q8_{mode.value}.hsaco"
-    KernelWriterAssembly(key, toolchain, diagnostic_mode=mode).write(assembly)
+    BackwardKernelWriterAssembly(key, toolchain, diagnostic_mode=mode).write(assembly)
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
     inspection = inspect_artifact(
@@ -1489,14 +1532,14 @@ def test_q8_one_buffer_lower_bound_diagnostics(
 
 
 def test_writer_can_disable_store_priority() -> None:
-    pilot = Solution.pilot()
+    pilot = BackwardSolution.pilot()
     no_store_priority = replace(pilot, store_priority_opt=False)
     key = SolutionKey(
-        ProblemType.dense_mmq_backward_q4_k(),
+        ProblemType.mmq_backward_q4_k(),
         ProblemSize(128, 2048, 512),
         no_store_priority,
     )
     assert validate_solution(key) == ()
 
-    source = KernelWriterAssembly(key, _toolchain()).source()
+    source = BackwardKernelWriterAssembly(key, _toolchain()).source()
     assert "s_setprio" not in source

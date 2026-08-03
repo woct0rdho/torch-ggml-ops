@@ -1,8 +1,8 @@
-# GGTensile Dense MMQ Backward Q4_K Experiment Log
+# GGTensile MMQ Backward Q4_K Experiment Log
 
 ## Scope
 
-This document is the current result summary, next plan, and historical evidence log for the gfx1151 dense MMQ backward Q4_K experiment. The first measured pair is `ProblemSize(M=32768, N=2048, K=8192)` and its production companion `ProblemSize(M=32768, N=2048, K=512)`. All campaign shapes use packed Q4_K weights, BF16 inputs and outputs, FP32 WMMA accumulation, wave32, and the existing 40-byte dense-backward kernarg ABI.
+This document is the current result summary, next plan, and historical evidence log for the gfx1151 MMQ backward Q4_K experiment. The first measured pair is `ProblemSize(M=32768, N=2048, K=8192)` and its production companion `ProblemSize(M=32768, N=2048, K=512)`. All campaign shapes use packed Q4_K weights, BF16 inputs and outputs, FP32 WMMA accumulation, wave32, and the existing 40-byte MMQ backward kernarg ABI.
 
 The generated kernels compute
 
@@ -16,9 +16,9 @@ The overall generator architecture, multi-quant roadmap, and deferred integratio
 
 ## Campaign Contract And Coverage
 
-GGTensile generates a kernel for one exact `ProblemType` and `ProblemSize`. Dense backward uses `M=rows`, `N=in_features`, and `K=out_features`. A generated kernel is required to be correct only for that matrix shape, and runtime dispatch may use it only on an exact key match. This is weaker than the repository's hipBLASLt tuning contract, where a kernel selected while tuning one matrix shape may still run on another shape in its supported assertion domain. GGTensile can therefore use shape constants, exact loop counts, fully peeled tails, fixed launch geometry, and shape-specific ownership or traversal without preserving cross-shape validity. The HIP kernel remains the correctness and compatibility fallback for every unmatched shape.
+GGTensile generates a kernel for one exact `ProblemType` and `ProblemSize`. MMQ backward uses `M=rows`, `N=in_features`, and `K=out_features`. A generated kernel is required to be correct only for that matrix shape, and runtime dispatch may use it only on an exact key match. This is weaker than the repository's hipBLASLt tuning contract, where a kernel selected while tuning one matrix shape may still run on another shape in its supported assertion domain. GGTensile can therefore use shape constants, exact loop counts, fully peeled tails, fixed launch geometry, and shape-specific ownership or traversal without preserving cross-shape validity. The HIP kernel remains the correctness and compatibility fallback for every unmatched shape.
 
-The dense Q4_K campaign contains only 12 production shapes: the Cartesian product of `M={2048,8192,32768}` and these backward `(N,K)` families:
+The Q4_K campaign contains only 12 production shapes: the Cartesian product of `M={2048,8192,32768}` and these backward `(N,K)` families:
 - `(2048,512)`: narrow K/V/shared gate/up, 70 model calls.
 - `(512,2048)`: shared-expert down, 30 model calls.
 - `(4096,2048)`: attention output, 10 model calls.
@@ -39,7 +39,7 @@ Weighted optimization priority used fresh `call_count * HIP_median_ms`, not call
 
 ## Kernel And Campaign Design
 
-The initial pilot deliberately supported only gfx1151, wave32, WMMA V1, dense backward Q4_K, BF16 inputs and outputs, FP32 accumulation, exact tile-divisible shapes, `in_features == 2048`, one complete output tile per workgroup, and the existing 40-byte ABI. Production coverage later generalized exact N to `{512,2048,4096}` while retaining exact-key dispatch. Split reduction, atomics, edge masks, persistent traversal, and external decode workspaces remained outside the campaign.
+The initial pilot deliberately supported only gfx1151, wave32, WMMA V1, MMQ backward Q4_K, BF16 inputs and outputs, FP32 accumulation, exact tile-divisible shapes, `in_features == 2048`, one complete output tile per workgroup, and the existing 40-byte ABI. Production coverage later generalized exact N to `{512,2048,4096}` while retaining exact-key dispatch. Split reduction, atomics, edge masks, persistent traversal, and external decode workspaces remained outside the campaign.
 
 The pilot used a `128x128x32` work tile and 128 threads in four wave32 waves. Each wave owned 32 output rows as two M16 WMMA tiles. Every reduction iteration:
 - cooperatively loaded Q4_K headers and packed nibbles for a `32x128` weight tile.
@@ -119,10 +119,10 @@ Independent source generation is byte-reproducible, and both artifacts pass the 
 
 ### Measurement and inspection infrastructure
 
-- `tools/benchmark_ggtensile.py` provides warmed rotating HIP, candidate, and assembly-control timing; full-output comparison; independent BF16-reference comparison; and producer-handoff checks.
+- `tools/benchmark_ggtensile_mmq_bwd.py` provides warmed rotating HIP, candidate, and assembly-control timing; full-output comparison; independent BF16-reference comparison; and producer-handoff checks.
 - Artifact inspection records ABI and hard resources plus static VALU issues and operations, VOPD pairs, VMEM, LDS, waits, barriers, clauses, dependency delays, and L0 invalidations.
-- `tools/benchmark_ggtensile_lower_bounds.py` generates, builds, inspects, and rotates exact `wmma_floor` and `decode_floor` diagnostic artifacts while leaving production `Solution` and dispatch contracts unchanged.
-- `tools/ggtensile/configs/q4_k_dense_inventory.json` records the exact 12 keys, representative tensors, call counts, historical HIP controls, validation contract, and selected-solution references without a schema version. `tools/ggtensile/configs/q4_k_selected_solutions.json` contains the four complete selected solution mappings. `tools/run_ggtensile_q4_k_campaign.py` runs immutable prepare, correctness, nine-repeat screen, and 25-repeat confirmation phases serially and reports call-weighted totals.
+- `tools/benchmark_ggtensile_mmq_bwd_lower_bounds.py` generates, builds, inspects, and rotates exact `wmma_floor` and `decode_floor` diagnostic artifacts while leaving production `BackwardSolution` and dispatch contracts unchanged.
+- `tools/ggtensile/configs/mmq_bwd_q4_k_inventory.json` records the exact 12 keys, representative tensors, call counts, historical HIP controls, validation contract, and selected-solution references without a schema version. `tools/ggtensile/configs/mmq_bwd_q4_k_solutions.json` contains the four complete selected solution mappings. `tools/run_ggtensile_mmq_bwd_campaign.py` runs immutable prepare, correctness, nine-repeat screen, and 25-repeat confirmation phases serially and reports call-weighted totals.
 
 ### Campaign search space and control taxonomy
 
@@ -138,7 +138,7 @@ A rejected value was reconsidered on another exact key only when shape changed i
 
 The following fields remained fixed identity because alternate values did not have complete distinct emitters: `DecoderWidth=16`, both global-read vector widths, `LocalReadVectorWidth=16`, `NumElementsPerBatchStore=8`, `StoreVectorWidth=1`, `TransposeLDS=0`, both LDS pad fields, and `PrefetchPackedWeight=true`. In particular, `NumElementsPerBatchStore` did not control the assembly store loop and was not treated as a tuning knob.
 
-Potential mechanisms stayed internal rather than becoming public controls: active compute/decoder ownership, other decoder widths and chunk sizes, metadata-sharing and packed-payload assignments, independent activation/payload/metadata prefetch leads, explicit wait budgets, alternate metadata and payload load widths, new padded LDS formulas, real store batching or remap, and fixed-trip unroll policy. Each required two complete validated emitters before admission to `Solution`.
+Potential mechanisms stayed internal rather than becoming public controls: active compute/decoder ownership, other decoder widths and chunk sizes, metadata-sharing and packed-payload assignments, independent activation/payload/metadata prefetch leads, explicit wait budgets, alternate metadata and payload load widths, new padded LDS formulas, real store batching or remap, and fixed-trip unroll policy. Each required two complete validated emitters before admission to `BackwardSolution`.
 
 Exact-shape lowering preceded resource-bearing experiments. The checklist was to remove dead kernarg state; fold dimensions, strides, tile counts, launch divisors, and packed block offsets; specialize fixed trips and peel impossible tails; strength-reduce affine addresses without extending live ranges; choose immediate, scalar-base, or explicit addressing from exact geometry; recompute lifetimes after ownership changes; and form VOPD only under gfx1151 opcode and bank legality. Retained and rejected outcomes are recorded below.
 
@@ -224,9 +224,9 @@ A future K8192 attempt should begin only with a mechanism plausibly worth more t
 
 Any new resource-bearing mechanism must remain bit-exact, reproducible, resource-clean, and more than 2% faster on both K8192 and K512. Given the explicit request to prioritize larger margins, a practical threshold for revisiting this case is closer to the remaining 3.8% K8192 gap.
 
-### Twelve-shape dense Q4_K campaign
+### Twelve-shape Q4_K campaign
 
-The dense Q4_K 12-key optimization campaign and its repeated optimization-exhaustion review are complete. The selected-solution catalog, exact validation, final correctness, and padded exact-key weighted 25-repeat matrix are the current controls. Further Q4_K work requires a newly actionable large-margin direction with a changed premise; ordinary local tuning is closed.
+The Q4_K 12-key optimization campaign and its repeated optimization-exhaustion review are complete. The selected-solution catalog, exact validation, final correctness, and padded exact-key weighted 25-repeat matrix are the current controls. Further Q4_K work requires a newly actionable large-margin direction with a changed premise; ordinary local tuning is closed.
 
 #### Final result
 
@@ -249,7 +249,7 @@ The authoritative 25-repeat matrix reports logical arithmetic throughput. Speedu
 
 The call-weighted speedup is `1.2656x`, corresponding to the recorded `0.79017x` candidate/HIP latency ratio.
 
-Quant-family expansion and public runtime dispatch remain governed by [ggtensile_plan.md](ggtensile_plan.md). Public integration remains deferred until dispatch engineering, complete end-to-end Qwen/DeepSeek validation, and broader dense multi-quant coverage are complete; exact-kernel campaign completion does not by itself authorize runtime exposure.
+Quant-family expansion and public runtime dispatch remain governed by [ggtensile_plan.md](ggtensile_plan.md). Public integration remains deferred until dispatch engineering, complete end-to-end Qwen/DeepSeek validation, and broader MMQ multi-quant coverage are complete; exact-kernel campaign completion does not by itself authorize runtime exposure.
 
 Prepared weights, BF16 shadows, external decode workspaces, GSU, Stream-K, and persistent workgroups remain outside this experiment contract unless the broader plan explicitly accepts their ownership, workspace, or fixup requirements.
 

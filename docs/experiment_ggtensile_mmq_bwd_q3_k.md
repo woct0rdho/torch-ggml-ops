@@ -1,14 +1,14 @@
-# GGTensile Dense MMQ Backward Q3_K Experiment Plan
+# GGTensile MMQ Backward Q3_K Experiment Plan
 
 ## Purpose
 
-This experiment extends GGTensile dense MMQ backward to Q3_K on gfx1151, wave32, and WMMA V1. It covers the six exact production keys in the current Qwen workload. HIP remains the correctness and performance oracle and the runtime fallback for unmatched keys; every selected exact production key now beats HIP.
+This experiment extends GGTensile MMQ backward to Q3_K on gfx1151, wave32, and WMMA V1. It covers the six exact production keys in the current Qwen workload. HIP remains the correctness and performance oracle and the runtime fallback for unmatched keys; every selected exact production key now beats HIP.
 
 The generic lifecycle, strict identity rules, phase separation, validation policy, retention gates, and public-integration roadmap remain in [ggtensile_plan.md](ggtensile_plan.md). The completed Q4_K and Q5_K campaigns are architectural references only; no Q4_K or Q5_K tuning result transfers to Q3_K without measurement.
 
 ## Exact Scope
 
-Dense backward uses `M=rows`, `N=in_features`, and `K=out_features`:
+MMQ backward uses `M=rows`, `N=in_features`, and `K=out_features`:
 
 ```text
 grad_input[M,N] = grad_output[M,K] @ dequant(weight[K,N])
@@ -167,4 +167,4 @@ Documentation-only plan updates remain uncommitted unless explicitly requested.
 - Padded LDS support, compact `256x64` short-K geometry, four-M-tile address-state separation, and exact-key selection.
 - Final six-key confirmation and independent reproducibility rebuild.
 - Recursive final optimization-exhaustion review with no actionable mechanism remaining.
-- Public runtime dispatch deferred until broader dense quant coverage and complete workload validation.
+- Public runtime dispatch deferred until broader MMQ quant coverage and complete workload validation.

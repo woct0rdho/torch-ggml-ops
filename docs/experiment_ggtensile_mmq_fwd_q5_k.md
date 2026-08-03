@@ -1,8 +1,8 @@
-# GGTensile Dense MMQ Forward Q5_K Plan
+# GGTensile MMQ Forward Q5_K Plan
 
 ## Purpose
 
-Build and optimize strict gfx1151 wave32 GGTensile assembly kernels for dense Q5_K forward over every exact production shape used by the current Qwen workload. The authoritative objective is the prequantized packed multiply body using the fixed HIP-produced Q8_1 `F16_D4S4` workspace. Every exact key must be at least as fast as the installed HIP multiply within measurement error, after which optimization continues only while repeatable in-contract upside remains.
+Build and optimize strict gfx1151 wave32 GGTensile assembly kernels for Q5_K forward over every exact production shape used by the current Qwen workload. The authoritative objective is the prequantized packed multiply body using the fixed HIP-produced Q8_1 `F16_D4S4` workspace. Every exact key must be at least as fast as the installed HIP multiply within measurement error, after which optimization continues only while repeatable in-contract upside remains.
 
 The campaign is autonomous and iterative. After each coherent implementation, correctness, measurement, or review change, update this file with the result and the next premise. Commit changes that are worth retaining; documentation-only checkpoints do not require commits.
 
@@ -232,7 +232,7 @@ The review was repeated after the high-bit schedule gain and again after VOPD ac
 - Rejected by ISA or premise: gfx1151 AND/AND VOPD pairing, exact two-plane byte insertion in fewer bitwise operations, direct-to-LDS, software instruction prefetch, split barriers, and useful shift/shift VOPD forms.
 - Contract-incompatible: prepared or dense weights, external decode workspaces, split-K, Stream-K, persistent/grouped workgroups, producer fusion, online tuning, and public dispatch changes.
 
-Backward Q5_K scalar extraction and padded 256x64 evidence does not reopen the forward body: it changes transposed ownership and LDS shape, while unchanged forward 256x64/compact ownership already lost and the final high-plane traffic floor is negligible. Grouped J32/J64 and row-task results are likewise small-row or routing mechanisms rather than dense-forward exact-key premises.
+Backward Q5_K scalar extraction and padded 256x64 evidence does not reopen the forward body: it changes transposed ownership and LDS shape, while unchanged forward 256x64/compact ownership already lost and the final high-plane traffic floor is negligible. Grouped J32/J64 and row-task results are likewise small-row or routing mechanisms rather than MMQ forward exact-key premises.
 
 No remaining in-contract mechanism had an unmeasured first-order path under the complete-call objective. The residual final M32768 high-bit merge floor is approximately `1.8%`, but every legal exact lowering found either preserves the same operation count, introduces cross-lane distribution, or regresses another exact key.
 
@@ -296,4 +296,4 @@ The installed HIP assembly aggressively pairs startup address operations with ac
 
 The apparent remaining slowdown was therefore primarily a measurement-scope artifact: once complete calls are removed from the rotation, both formerly open narrow keys meet multiply parity. The final recursive review found no new in-contract premise with plausible unmeasured upside. All expanded scalar and VOPD epilogues were covered where they could matter; startup pairing, decode schedules, merge forms, lane sharing, loop unrolling, priority controls, alternate geometries, payload prefetch, and larger buffering had already been measured or rejected by ISA and resource premises. The M32768 merge-free lower bound remains only approximately `1.8%`, while tested exact replacements did not realize it without offsetting work.
 
-The multiply-only continuation is complete. `a7d3-p3-vopd` is represented in the exact catalog, all six keys pass the two-confirmation gate, independent rebuilds are byte-identical, and regenerated assembly for all 12 frozen Q4_K identities is byte-identical to the pre-continuation baseline. No further Q5_K forward performance experiment is justified without a changed compiler, ISA, hardware, or contract premise.
+The multiply-only continuation is complete. `a7d3-p3-vopd` is represented in the exact catalog, all six keys pass the two-confirmation gate, independent rebuilds are byte-identical, and regenerated assembly for all 12 frozen Q4_K identities was byte-identical to the pre-continuation baseline when the campaign closed. The later direction-naming refactor intentionally changed only GGTensile operation identities, kernel symbols, and descriptive comments: after normalizing those names, every instruction and directive is unchanged across all 12 Q4_K and all six selected Q5_K artifacts, and every artifact reassembles and passes strict inspection with its retained resource envelope. No further Q5_K forward performance experiment is justified without a changed compiler, ISA, hardware, or contract premise.

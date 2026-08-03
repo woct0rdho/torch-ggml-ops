@@ -8,7 +8,7 @@ from types import TracebackType
 import torch
 from typing_extensions import Self
 
-from .model import DenseForwardSolution, Solution, SolutionKey
+from .model import BackwardSolution, ForwardSolution, SolutionKey
 from .validation import validate_solution
 
 
@@ -128,8 +128,8 @@ class _SolutionHIPModule(_HIPModule):
         )
 
 
-class DenseBackwardModule(_SolutionHIPModule):
-    """Direct HIP module launcher for the fixed dense-backward kernarg ABI."""
+class BackwardModule(_SolutionHIPModule):
+    """Direct HIP module launcher for the fixed MMQ backward kernarg ABI."""
 
     def launch(
         self,
@@ -195,8 +195,8 @@ class DenseBackwardModule(_SolutionHIPModule):
             )
         )
         solution = self.solution_key.solution
-        if not isinstance(solution, Solution):
-            raise HIPRuntimeError("dense backward requires Solution")
+        if not isinstance(solution, BackwardSolution):
+            raise HIPRuntimeError("MMQ backward requires BackwardSolution")
         group_m = solution.work_group_mapping
         m_blocks = size.m // solution.macro_tile0
         self._check(
@@ -215,7 +215,7 @@ class DenseBackwardModule(_SolutionHIPModule):
         )
 
 
-class DenseForwardModule(_SolutionHIPModule):
+class ForwardModule(_SolutionHIPModule):
     """Direct launcher for an exact packed K-quant/Q8_1 forward kernel."""
 
     def __init__(
@@ -226,8 +226,8 @@ class DenseForwardModule(_SolutionHIPModule):
         *,
         kernel_name: str | None = None,
     ) -> None:
-        if not isinstance(solution_key.solution, DenseForwardSolution):
-            raise HIPRuntimeError("dense forward requires DenseForwardSolution")
+        if not isinstance(solution_key.solution, ForwardSolution):
+            raise HIPRuntimeError("MMQ forward requires ForwardSolution")
         super().__init__(
             solution_key,
             code_object,
@@ -264,7 +264,7 @@ class DenseForwardModule(_SolutionHIPModule):
             "Q5_K": 176,
         }.get(self.solution_key.problem_type.quant_data_type)
         if block_bytes is None:
-            raise HIPRuntimeError("unsupported dense-forward quant type")
+            raise HIPRuntimeError("unsupported MMQ forward quant type")
         expected_weight_bytes = size.n * (size.k // 256) * block_bytes
         if packed_weight.numel() != expected_weight_bytes:
             raise HIPRuntimeError("packed_weight size does not match ProblemSize")
@@ -321,7 +321,7 @@ class DenseForwardModule(_SolutionHIPModule):
         )
 
 
-class FixedHipDenseForwardModule(DenseForwardModule):
+class FixedHipForwardModule(ForwardModule):
     """Direct prequantized launcher for an installed exact HIP multiply."""
 
     def __init__(
@@ -341,6 +341,8 @@ class FixedHipDenseForwardModule(DenseForwardModule):
                 f"installed {quant_type} control does not support K={k}"
             )
         symbol_quant = quant_type.lower()
+        # The installed bundle ABI explicitly contrasts ordinary (`dense_fwd`) and
+        # grouped entry points, so preserve its external symbol spelling here.
         symbol = (
             f"torch_ggml_ops_mmq_gfx1151_v1_dense_fwd_{symbol_quant}_k{k}_j128_full"
         )

@@ -1,6 +1,6 @@
 {
   "ProblemType": {
-    "OperationType": "DenseMMQForward",
+    "OperationType": "MMQForward",
     "QuantDataType": "Q4_K",
     "DataTypeA": "Q8_1",
     "DataTypeB": "Q4_K",

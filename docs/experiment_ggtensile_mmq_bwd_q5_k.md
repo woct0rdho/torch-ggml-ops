@@ -1,14 +1,14 @@
-# GGTensile Dense MMQ Backward Q5_K Experiment Plan
+# GGTensile MMQ Backward Q5_K Experiment Plan
 
 ## Purpose
 
-This experiment extends GGTensile to dense MMQ backward Q5_K on gfx1151, wave32, and WMMA V1. It covers the six exact production keys used by the current Qwen dense workload and keeps HIP as the correctness, performance, and runtime fallback.
+This experiment extends GGTensile to MMQ backward Q5_K on gfx1151, wave32, and WMMA V1. It covers the six exact production keys used by the current Qwen dense workload and keeps HIP as the correctness, performance, and runtime fallback.
 
 The generic lifecycle, strict identity rules, phase separation, validation policy, retention gates, and public-integration roadmap remain in [ggtensile_plan.md](ggtensile_plan.md). The completed Q4_K campaign remains the architectural reference, but no Q4_K result is assumed to transfer to Q5_K without measurement.
 
 ## Exact Scope
 
-Dense backward uses `M=rows`, `N=in_features`, and `K=out_features`:
+MMQ backward uses `M=rows`, `N=in_features`, and `K=out_features`:
 
 ```text
 grad_input[M,N] = grad_output[M,K] @ dequant(weight[K,N])
@@ -50,7 +50,7 @@ This is a derived starting policy, not a public force control. The implementatio
 ### Shared kernel layers
 
 The writer should be split into a quant-neutral fused body and a small quant-family backend:
-- `ProblemType` identifies the quant format through strict data-type fields, with factories for each supported dense quant family rather than a Q4-only constructor.
+- `ProblemType` identifies the quant format through strict data-type fields, with factories for each supported MMQ quant family rather than a Q4-only constructor.
 - A quant specification resolves block values, packed row bytes, payload planes, metadata layout, decoder width, and quant-specific register demand.
 - The shared body owns work-item flattening, exact launch mapping, A addressing and prefetch, reduction-trip specialization, WMMA issue order, LDS read ownership, accumulation, BF16 rounding, stores, barriers, waits, and termination.
 - The quant backend owns packed-row global reads, packed payload replication, metadata normalization, dequantization, and LDS stores. It emits a complete named path, not a collection of unchecked string substitutions.
@@ -200,7 +200,7 @@ A plan edit or implementation change that creates a new premise invalidates the 
 This section is updated after each coherent implementation or experiment milestone. Documentation-only updates remain uncommitted unless explicitly requested.
 - Q5_K multi-quant model and strict ProblemType support. Q4_K and Q5_K now have distinct strict problem identities, hashes, and symbols; Q5 validation accepts only the initial production N values 512 and 2048.
 - Q5_K quant backend with shared WMMA body. Q5_K loads the 176-byte block's `qh` and `qs` planes, reuses the K-family scale/minimum path, and shares the Q4-compatible A, LDS, WMMA, accumulation, store, and exact-trip body.
-- Six-key inventory and immutable campaign runner. The existing runner now derives family and packed-row rules from the inventory quant type; `tools/ggtensile/configs/q5_k_dense_inventory.json` and `tools/ggtensile/configs/q5_k_selected_solutions.json` define the six exact keys and initial two-buffer control.
+- Six-key inventory and immutable campaign runner. The existing runner now derives family and packed-row rules from the inventory quant type; `tools/ggtensile/configs/mmq_bwd_q5_k_inventory.json` and `tools/ggtensile/configs/mmq_bwd_q5_k_solutions.json` define the six exact keys and initial two-buffer control.
 - Complete correctness and producer-mutation validation. All six keys pass HIP, independent Q5 dequantized BF16 reference, grad-output mutation, and packed-weight mutation checks. The initial two-buffer control is resource-clean at 220 VGPRs, 16 SGPRs, and 16 KiB LDS.
 - Initial bounded optimization screen. One-buffer ownership, WGM2/4/8, store-priority, lane-sharing, scalar extraction, SIA5, SIA3, and DepthU64 alternatives were generated, inspected, and measured or rejected by correctness/runtime gates; no common candidate cleared the retention threshold.
 - Q5 decode lowering and exact-key selection. The nibble-shift hoist is selected for five keys, while the isolated shared-down M8192 regression uses the original emitter; `v_lshl_or_b32` is selected for all six keys. Both paths are strict, reproducible, resource-clean, and mutation-correct.

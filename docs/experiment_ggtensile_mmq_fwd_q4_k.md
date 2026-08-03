@@ -1,8 +1,8 @@
-# GGTensile Dense MMQ Forward Q4_K Plan
+# GGTensile MMQ Forward Q4_K Plan
 
 ## Purpose
 
-Continue the strict gfx1151 wave32 GGTensile assembly optimization campaign for dense Q4_K forward. The immediate objective is kernel performance only: close the remaining exact-key gaps against the existing HIP kernels, then optimize the complete production mix. Public dispatch, generated bundle tables, source distribution, and API integration are outside the current phase and must not be changed by optimization work.
+Continue the strict gfx1151 wave32 GGTensile assembly optimization campaign for Q4_K forward. The immediate objective is kernel performance only: close the remaining exact-key gaps against the existing HIP kernels, then optimize the complete production mix. Public dispatch, generated bundle tables, source distribution, and API integration are outside the current phase and must not be changed by optimization work.
 
 The campaign must stop only after a recursive review finds no new valid in-contract optimization mechanism. The final review rule remains mandatory even after all currently open keys reach HIP parity.
 
@@ -187,7 +187,7 @@ The measured common identity, extraction-only controls, and seven exact epilogue
 
 ## Recursive Optimization-Exhaustion Review
 
-Before declaring completion, reread this plan, the Q4_K HIP source and normalized ISA, all forward artifacts and timing reports, the dense-forward HIP record, completed GGTensile backward records, grouped histories, lower bounds, rejected candidates, `~/rdna35-isa-markdown/`, AMD LLVM definitions/tests, and relevant CK/TensileLite material.
+Before declaring completion, reread this plan, the Q4_K HIP source and normalized ISA, all forward artifacts and timing reports, the MMQ forward HIP record, completed GGTensile backward records, grouped histories, lower bounds, rejected candidates, `~/rdna35-isa-markdown/`, AMD LLVM definitions/tests, and relevant CK/TensileLite material.
 
 Classify every remaining idea as retained and measured; rejected by correctness, resources, timing, or reproducibility; contract-incompatible or deferred with a prerequisite; or actionable with a target key and measurement gate. An actionable idea must be implemented and measured, then the full review repeated from the new premise. Completion is allowed only after a fresh review finds no actionable in-contract mechanism, every selected key beats HIP, and the residual bottleneck is quantified.
 
@@ -208,7 +208,7 @@ This rule applies to kernel optimization only. Public API integration is not a c
 
 ## Current Research Record
 
-The current common research identity combines selective weight and metadata LDS-base hoists, short-lived `v_mad_u32_u24` activation addressing, independent scale/min extraction, metadata LDS reads between low/high WMMA batches, eight contiguous clause-backed output-store runs, and incremental output-row addressing. `DenseForwardSolution` represents it as `MetadataSchedule=IndependentExtractionMetadataAfterLowWmma` with the default `a8d1p0` epilogue; independent build roots produce byte-identical code objects.
+The current common research identity combines selective weight and metadata LDS-base hoists, short-lived `v_mad_u32_u24` activation addressing, independent scale/min extraction, metadata LDS reads between low/high WMMA batches, eight contiguous clause-backed output-store runs, and incremental output-row addressing. `ForwardSolution` represents it as `MetadataSchedule=IndependentExtractionMetadataAfterLowWmma` with the default `a8d1p0` epilogue; independent build roots produce byte-identical code objects.
 
 ### Final multiply result
 

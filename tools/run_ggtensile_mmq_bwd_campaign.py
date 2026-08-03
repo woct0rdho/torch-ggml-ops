@@ -12,9 +12,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.ggtensile.campaign import (
-    DEFAULT_INVENTORY,
-    DEFAULT_RETAINED_SOLUTION,
-    DEFAULT_SELECTED_SOLUTIONS,
     CampaignEntry,
     CampaignError,
     CampaignInventory,
@@ -23,10 +20,13 @@ from tools.ggtensile.campaign import (
     load_solution_catalog,
 )
 from tools.ggtensile.cli import main as ggtensile_cli_main
-from tools.ggtensile.model import ProblemSize, Solution, SolutionKey
+from tools.ggtensile.model import BackwardSolution, ProblemSize, SolutionKey
 from tools.ggtensile.validation import validate_solution
 
-BENCHMARK = REPO_ROOT / "tools" / "benchmark_ggtensile.py"
+BENCHMARK = REPO_ROOT / "tools" / "benchmark_ggtensile_mmq_bwd.py"
+CONFIG_DIR = REPO_ROOT / "tools" / "ggtensile" / "configs"
+DEFAULT_INVENTORY = CONFIG_DIR / "mmq_bwd_q4_k_inventory.json"
+DEFAULT_SOLUTION_CATALOG = CONFIG_DIR / "mmq_bwd_q4_k_solutions.json"
 DEFAULT_MODEL = Path.home() / "models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf"
 _PHASE_PROTOCOL = {
     "correctness": ("Correctness", 2, 1),
@@ -54,7 +54,7 @@ def _add_selection_arguments(parser: argparse.ArgumentParser) -> None:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run serial immutable phases over exact dense MMQ production keys"
+        description="Run serial immutable phases over exact MMQ backward production keys"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -65,7 +65,7 @@ def _parser() -> argparse.ArgumentParser:
     solution_source.add_argument(
         "--solution-catalog",
         type=Path,
-        const=DEFAULT_SELECTED_SOLUTIONS,
+        const=DEFAULT_SOLUTION_CATALOG,
         nargs="?",
     )
 
@@ -106,8 +106,12 @@ def _prepare(
     if root.exists():
         raise CampaignError(f"refusing to overwrite artifact root {root}")
     source_mapping: dict[str, object]
-    if arguments.solution_catalog is not None:
-        catalog = load_solution_catalog(arguments.solution_catalog)
+    if arguments.solution is None:
+        catalog_path = arguments.solution_catalog or DEFAULT_SOLUTION_CATALOG
+        catalog = load_solution_catalog(
+            catalog_path,
+            problem_type=inventory.problem_type,
+        )
         missing = sorted(
             {entry.selected_solution for entry in entries} - catalog.keys()
         )
@@ -116,12 +120,15 @@ def _prepare(
                 f"selected solutions are missing from catalog: {missing}"
             )
         solutions = [catalog[entry.selected_solution] for entry in entries]
-        source_mapping = {"SolutionCatalog": str(arguments.solution_catalog.resolve())}
+        source_mapping = {"SolutionCatalog": str(catalog_path.resolve())}
     else:
-        solution_path = arguments.solution or DEFAULT_RETAINED_SOLUTION
-        solution = load_solution(solution_path)
-        if not isinstance(solution, Solution):
-            raise CampaignError("dense backward campaign requires a backward solution")
+        solution_path = arguments.solution
+        solution = load_solution(
+            solution_path,
+            problem_type=inventory.problem_type,
+        )
+        if not isinstance(solution, BackwardSolution):
+            raise CampaignError("MMQ backward campaign requires a backward solution")
         solutions = [solution] * len(entries)
         source_mapping = {"Solution": str(solution_path.resolve())}
     keys = [

@@ -21,7 +21,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.ggtensile.model import SolutionKey
-from tools.ggtensile.runtime import DenseBackwardModule
+from tools.ggtensile.runtime import BackwardModule
 
 DEFAULT_MODEL = Path.home() / "models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf"
 DEFAULT_TENSOR = "blk.39.attn_q.weight"
@@ -50,7 +50,7 @@ class TimingSummary(TypedDict):
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Benchmark one exact GGTensile artifact against HIP"
+        description="Benchmark one exact GGTensile MMQ backward artifact against HIP"
     )
     parser.add_argument("--solution-key", type=Path, required=True)
     parser.add_argument("--code-object", type=Path, required=True)
@@ -169,13 +169,11 @@ def main() -> None:
         )
 
     with contextlib.ExitStack() as stack:
-        candidate = stack.enter_context(DenseBackwardModule(key, args.code_object))
+        candidate = stack.enter_context(BackwardModule(key, args.code_object))
         assembly_control = None
         if assembly_control_key is not None:
             assembly_control = stack.enter_context(
-                DenseBackwardModule(
-                    assembly_control_key, args.assembly_control_code_object
-                )
+                BackwardModule(assembly_control_key, args.assembly_control_code_object)
             )
 
         def launch_candidate():

@@ -408,7 +408,7 @@ Transfer lessons from the other kernel logs:
 | Kernel bundle | Warm modules, normalized ISA, concrete wrappers, resource checks, and reproducibility are mandatory | Offsets, symbol ordering, and compiler instruction ordering alone are not performance evidence |
 
 Architecture lessons retained for future work:
-- four wave32 waves remain a sound dense-forward workgroup.
+- four wave32 waves remain a sound MMQ forward workgroup.
 - conventional global-to-VGPR-to-LDS staging is competitive on gfx1151.
 - Q4_K/Q5_K principal LDS reads are already `ds_load_b128`. Q3_K/Q6_K use paired 32/64-bit forms where packed layouts permit.
 - one versus two LDS buffers is shape-specific. Buffer count is not an optimization by itself.
@@ -437,7 +437,7 @@ Excluded:
 
 DeepSeek routed IQ2_XXS gate/up, routed Q2_K down, and fixed eight-group output-A are grouped workloads. They must not be flattened into dense semantics. See `docs/grouped_mmq_fwd_optimization.md`.
 
-The dense-forward optimization and bundle conversion remained in project-owned code and did not modify the selectively vendored llama.cpp sources.
+The MMQ forward optimization and bundle conversion remained in project-owned code and did not modify the selectively vendored llama.cpp sources.
 
 Correctness and compatibility requirements:
 - independent GGUF-reference coverage for every affected quant/shape family.

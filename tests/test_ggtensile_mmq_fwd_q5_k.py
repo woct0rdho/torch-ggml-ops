@@ -6,21 +6,21 @@ import pytest
 from tools.ggtensile.campaign import load_inventory, load_solution_catalog
 from tools.ggtensile.inspection import inspect_artifact
 from tools.ggtensile.kernel_writer_assembly_mmq_fwd import (
-    DenseForwardKernelWriterAssembly,
+    ForwardKernelWriterAssembly,
 )
 from tools.ggtensile.model import (
-    DenseForwardSolution,
+    ForwardSolution,
     ProblemSize,
     ProblemType,
     SolutionKey,
 )
-from tools.ggtensile.runtime import FixedHipDenseForwardModule
+from tools.ggtensile.runtime import FixedHipForwardModule
 from tools.ggtensile.toolchain import Toolchain, ToolchainError
 from tools.ggtensile.validation import validate_solution
 
 _CONFIG_DIR = Path("tools/ggtensile/configs")
-_INVENTORY = _CONFIG_DIR / "mmq_fwd_q5_k_dense_inventory.json"
-_CATALOG = _CONFIG_DIR / "mmq_fwd_q5_k_open_solutions.json"
+_INVENTORY = _CONFIG_DIR / "mmq_fwd_q5_k_inventory.json"
+_CATALOG = _CONFIG_DIR / "mmq_fwd_q5_k_solutions.json"
 
 
 def _toolchain() -> Toolchain:
@@ -32,20 +32,20 @@ def _toolchain() -> Toolchain:
 
 def _key(
     size: ProblemSize | None = None,
-    solution: DenseForwardSolution | None = None,
+    solution: ForwardSolution | None = None,
 ) -> SolutionKey:
     return SolutionKey(
-        ProblemType.dense_mmq_forward_q5_k(),
+        ProblemType.mmq_forward_q5_k(),
         size or ProblemSize(2048, 512, 2048),
         solution
-        or DenseForwardSolution.q5_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma(),
+        or ForwardSolution.q5_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma(),
     )
 
 
 def test_q5_forward_inventory_is_exact_selected_and_versionless() -> None:
     inventory = load_inventory(_INVENTORY)
     catalog = load_solution_catalog(_CATALOG, problem_type=inventory.problem_type)
-    assert inventory.problem_type == ProblemType.dense_mmq_forward_q5_k()
+    assert inventory.problem_type == ProblemType.mmq_forward_q5_k()
     assert len(inventory.entries) == 6
     assert {entry.family for entry in inventory.entries} == {
         "narrow",
@@ -79,7 +79,7 @@ def test_q5_forward_inventory_is_exact_selected_and_versionless() -> None:
         for entry in inventory.entries
     )
     selected_m32768 = catalog["selected_narrow_m32768_a7d3_p3_vopd_init"]
-    assert isinstance(selected_m32768, DenseForwardSolution)
+    assert isinstance(selected_m32768, ForwardSolution)
     assert selected_m32768.epilogue_tiles_ahead == 7
     assert selected_m32768.epilogue_dependency_width == 3
     assert selected_m32768.epilogue_priority == 3
@@ -93,15 +93,15 @@ def test_q5_forward_inventory_is_exact_selected_and_versionless() -> None:
 
 def test_q5_forward_problem_and_solution_identity_are_quant_aware() -> None:
     q4_key = SolutionKey(
-        ProblemType.dense_mmq_forward_q4_k(),
+        ProblemType.mmq_forward_q4_k(),
         ProblemSize(2048, 512, 2048),
-        DenseForwardSolution.q4_k_hip_decoded_staged_retained(),
+        ForwardSolution.q4_k_hip_decoded_staged_retained(),
     )
-    q5_key = _key(solution=DenseForwardSolution.q5_k_hip_decoded_staged_retained())
+    q5_key = _key(solution=ForwardSolution.q5_k_hip_decoded_staged_retained())
     assert q4_key.hash != q5_key.hash
-    assert "dense_fwd_q4_k" in q4_key.kernel_name
-    assert "dense_fwd_q5_k" in q5_key.kernel_name
-    assert isinstance(q5_key.solution, DenseForwardSolution)
+    assert "mmq_fwd_q4_k" in q4_key.kernel_name
+    assert "mmq_fwd_q5_k" in q5_key.kernel_name
+    assert isinstance(q5_key.solution, ForwardSolution)
     assert q5_key.solution.packed_weight_block_bytes == 176
     assert q5_key.solution.weight_decode == "DirectNibbleHighBit"
 
@@ -109,17 +109,17 @@ def test_q5_forward_problem_and_solution_identity_are_quant_aware() -> None:
 @pytest.mark.parametrize(
     "solution",
     (
-        DenseForwardSolution.q5_k_hip_decoded_staged_retained(),
-        DenseForwardSolution.q5_k_hip_decoded_staged_metadata_after_low_wmma(),
-        DenseForwardSolution.q5_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma(),
+        ForwardSolution.q5_k_hip_decoded_staged_retained(),
+        ForwardSolution.q5_k_hip_decoded_staged_metadata_after_low_wmma(),
+        ForwardSolution.q5_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma(),
     ),
 )
 def test_q5_forward_writer_covers_high_bit_decode_and_schedule(
-    solution: DenseForwardSolution,
+    solution: ForwardSolution,
 ) -> None:
     key = _key(solution=solution)
-    source = DenseForwardKernelWriterAssembly(key, _toolchain()).source()
-    assert "GGTensile Q5_K dense MMQ forward" in source
+    source = ForwardKernelWriterAssembly(key, _toolchain()).source()
+    assert "GGTensile Q5_K MMQ forward" in source
     assert "Cooperatively decode Q5_K payload into HIP's padded LDS rows." in source
     assert "Build Q5_K high-bit and low-nibble payload addresses." in source
     assert "v_mad_u32_u24 v231, 16, v231, v228" in source
@@ -140,7 +140,7 @@ def test_q5_forward_writer_covers_high_bit_decode_and_schedule(
 
 
 def test_q5_forward_writer_emits_vopd_accumulator_initialization() -> None:
-    solution = DenseForwardSolution.q5_k_hip_decoded_staged_extraction(
+    solution = ForwardSolution.q5_k_hip_decoded_staged_extraction(
         epilogue_tiles_ahead=7,
         epilogue_dependency_width=3,
         epilogue_priority=3,
@@ -148,7 +148,7 @@ def test_q5_forward_writer_emits_vopd_accumulator_initialization() -> None:
     )
     key = _key(size=ProblemSize(32768, 512, 2048), solution=solution)
     assert validate_solution(key) == ()
-    source = DenseForwardKernelWriterAssembly(key, _toolchain()).source()
+    source = ForwardKernelWriterAssembly(key, _toolchain()).source()
     assert "v_dual_mov_b32 v0, 0 :: v_dual_mov_b32 v1, 0" in source
     assert "v_dual_mov_b32 v6, 0 :: v_dual_mov_b32 v7, 0" in source
     assert "v_dual_mov_b32 v8, v0 :: v_dual_mov_b32 v9, v1" in source
@@ -158,9 +158,9 @@ def test_q5_forward_writer_emits_vopd_accumulator_initialization() -> None:
 
 def test_q5_forward_validation_rejects_q4_control_and_nonproduction_shape() -> None:
     q4_control = SolutionKey(
-        ProblemType.dense_mmq_forward_q5_k(),
+        ProblemType.mmq_forward_q5_k(),
         ProblemSize(2048, 512, 2048),
-        DenseForwardSolution.q4_k_hip_decoded_staged_retained(),
+        ForwardSolution.q4_k_hip_decoded_staged_retained(),
     )
     assert {reason.rule_id for reason in validate_solution(q4_control)} == {
         "solution.forward.control.unimplemented"
@@ -172,7 +172,7 @@ def test_q5_forward_validation_rejects_q4_control_and_nonproduction_shape() -> N
 
 
 def test_q5_forward_runtime_uses_exact_hip_geometry() -> None:
-    hip = FixedHipDenseForwardModule.__new__(FixedHipDenseForwardModule)
+    hip = FixedHipForwardModule.__new__(FixedHipForwardModule)
     hip.solution_key = _key()
     assert hip._launch_configuration() == ((8, 16, 1), (32, 4, 1), 38_400)
 
@@ -183,7 +183,7 @@ def test_q5_forward_artifact_passes_strict_inspection(tmp_path: Path) -> None:
     assembly = tmp_path / "kernel.s"
     object_path = tmp_path / "kernel.o"
     code_object = tmp_path / "kernel.hsaco"
-    DenseForwardKernelWriterAssembly(key, toolchain).write(assembly)
+    ForwardKernelWriterAssembly(key, toolchain).write(assembly)
     toolchain.assemble(assembly, object_path)
     toolchain.link(object_path, code_object)
     inspection = inspect_artifact(key, code_object, toolchain)

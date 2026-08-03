@@ -21,9 +21,9 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools.ggtensile.model import SolutionKey
 from tools.ggtensile.runtime import (
-    DenseForwardModule,
-    FixedHipDenseForwardModule,
+    FixedHipForwardModule,
     FixedQ81F16D4S4QuantizerModule,
+    ForwardModule,
 )
 
 DEFAULT_MODEL = Path.home() / "models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf"
@@ -139,8 +139,8 @@ def main() -> None:
     if arguments.warmup < 0 or arguments.repeats <= 0:
         raise ValueError("warmup must be nonnegative and repeats must be positive")
     key = SolutionKey.from_json_file(arguments.solution_key)
-    if key.problem_type.operation_type != "DenseMMQForward":
-        raise ValueError("solution key is not dense MMQ forward")
+    if key.problem_type.operation_type != "MMQForward":
+        raise ValueError("solution key is not MMQ forward")
     size = key.problem_size
     tensor, packed_weight = _load_weight(arguments.model, arguments.tensor, key)
     generator = torch.Generator(device="cuda").manual_seed(arguments.seed)
@@ -161,8 +161,8 @@ def main() -> None:
     with contextlib.ExitStack() as stack:
         quantizer = stack.enter_context(FixedQ81F16D4S4QuantizerModule())
         workspace = quantizer.allocate(input_tensor)
-        candidate = stack.enter_context(DenseForwardModule(key, arguments.code_object))
-        hip_multiply = stack.enter_context(FixedHipDenseForwardModule(key))
+        candidate = stack.enter_context(ForwardModule(key, arguments.code_object))
+        hip_multiply = stack.enter_context(FixedHipForwardModule(key))
 
         def quantize() -> None:
             quantizer.launch(input_tensor, workspace, stream=stream)

@@ -1,8 +1,8 @@
-# GGTensile Dense MMQ Backward Q8_0 Plan
+# GGTensile MMQ Backward Q8_0 Plan
 
 ## Purpose
 
-Extend the strict gfx1151 GGTensile dense MMQ backward campaign to the production Q8_0 weight shapes used by the DeepSeek dense workload. The campaign must improve the complete fused packed-weight backward kernel, not a predecoded or prepared-weight surrogate.
+Extend the strict gfx1151 GGTensile MMQ backward campaign to the production Q8_0 weight shapes used by the DeepSeek dense workload. The campaign must improve the complete fused packed-weight backward kernel, not a predecoded or prepared-weight surrogate.
 
 Q8_0 is a separate quantization campaign from Q3_K, Q4_K, and Q5_K. It may reuse quant-neutral WMMA, A-address, LDS, synchronization, store, inspection, and campaign infrastructure only when the emitted code and identity remain quant-aware. Q8_0 has its own byte/block decoder and must receive its own tuning knobs, correctness fixtures, inventory, catalog, and resource evidence.
 
@@ -11,7 +11,7 @@ The campaign is complete only after every exact production key that is retained 
 ## Contract
 
 Target only:
-- gfx1151, wave32, WMMA V1, and the existing 40-byte dense-backward kernarg ABI.
+- gfx1151, wave32, WMMA V1, and the existing 40-byte MMQ backward kernarg ABI.
 - BF16 grad-output and grad-input, FP32 WMMA accumulation, and packed GGUF Q8_0 weights.
 - In-kernel Q8_0 decode from the authoritative packed tensor.
 - Exact `ProblemType` plus exact `ProblemSize` identity for each generated kernel.
@@ -19,7 +19,7 @@ Target only:
 
 Do not introduce prepared weights, BF16 shadows, external decode workspaces, split-K, persistent workgroups, grouped MMQ, hidden caches, or model-owned paired backward APIs. Unsupported shapes must fail closed to HIP or the existing generic path; an exact campaign artifact must not silently repair a mismatched shape.
 
-Dense backward coordinates are:
+MMQ backward coordinates are:
 
 ```text
 M = rows
@@ -176,7 +176,7 @@ Classify every remaining idea as:
 
 A plan or implementation change creates a new premise and invalidates the previous stopping condition. The review must be the final step of the campaign and cannot pass in the same iteration that discovers an actionable mechanism.
 
-The campaign is exhausted only when every valid large-margin mechanism has been implemented or rejected, smaller plausible mechanisms have been tested after the large margins close, all 23 exact keys have final evidence, and the remaining bottleneck is explained quantitatively. Public runtime dispatch remains deferred until broader dense multi-quant coverage, artifact packaging, dispatch engineering, and complete Qwen/DeepSeek workload validation are complete.
+The campaign is exhausted only when every valid large-margin mechanism has been implemented or rejected, smaller plausible mechanisms have been tested after the large margins close, all 23 exact keys have final evidence, and the remaining bottleneck is explained quantitatively. Public runtime dispatch remains deferred until broader MMQ multi-quant coverage, artifact packaging, dispatch engineering, and complete Qwen/DeepSeek workload validation are complete.
 
 ## Completion Record
 

@@ -1,10 +1,10 @@
 from dataclasses import dataclass, replace
 
 from .model import (
-    DenseForwardSolution,
+    BackwardSolution,
+    ForwardSolution,
     ProblemSize,
     ProblemType,
-    Solution,
     SolutionKey,
 )
 
@@ -30,24 +30,24 @@ def _reject(
     rule_id: str,
     message: str,
     *parameters: str,
-    source: str = "KernelWriterAssembly",
+    source: str = "KernelWriter",
 ) -> None:
     reasons.append(RejectReason(rule_id, message, tuple(parameters), source))
 
 
-def _validate_problem_type(
+def _validate_backward_problem_type(
     problem_type: ProblemType, reasons: list[RejectReason]
 ) -> None:
     if problem_type.quant_data_type not in {"Q3_K", "Q4_K", "Q5_K", "Q6_K", "Q8_0"}:
         _reject(
             reasons,
             "problem_type.quant_data_type.unsupported",
-            "dense MMQ backward supports only Q3_K, Q4_K, Q5_K, Q6_K, and Q8_0",
+            "MMQ backward supports only Q3_K, Q4_K, Q5_K, Q6_K, and Q8_0",
             "QuantDataType",
             source="ProblemType",
         )
         return
-    expected = ProblemType.dense_mmq_backward(problem_type.quant_data_type)
+    expected = ProblemType.mmq_backward(problem_type.quant_data_type)
     for attribute, parameter in (
         ("operation_type", "OperationType"),
         ("quant_data_type", "QuantDataType"),
@@ -62,7 +62,7 @@ def _validate_problem_type(
             _reject(
                 reasons,
                 f"problem_type.{parameter.lower()}.unsupported",
-                f"dense MMQ backward requires {parameter}={getattr(expected, attribute)!r}",
+                f"MMQ backward requires {parameter}={getattr(expected, attribute)!r}",
                 parameter,
                 source="ProblemType",
             )
@@ -75,32 +75,32 @@ def _validate_forward_solution(
     problem_size = solution_key.problem_size
     solution = solution_key.solution
     supported_problem_types = {
-        ProblemType.dense_mmq_forward_q4_k(),
-        ProblemType.dense_mmq_forward_q5_k(),
+        ProblemType.mmq_forward_q4_k(),
+        ProblemType.mmq_forward_q5_k(),
     }
     if problem_type not in supported_problem_types:
         _reject(
             reasons,
             "problem_type.forward.unsupported",
-            "dense MMQ forward requires an exact Q4_K/Q8_1 or Q5_K/Q8_1 problem type",
+            "MMQ forward requires an exact Q4_K/Q8_1 or Q5_K/Q8_1 problem type",
             "ProblemType",
             source="ProblemType",
         )
-    if not isinstance(solution, DenseForwardSolution):
+    if not isinstance(solution, ForwardSolution):
         _reject(
             reasons,
             "solution.forward.schema",
-            "dense MMQ forward requires DenseForwardSolution",
+            "MMQ forward requires ForwardSolution",
             "Solution",
             source="SolutionStructs",
         )
         return
-    if problem_type == ProblemType.dense_mmq_forward_q5_k():
-        q5_retained = DenseForwardSolution.q5_k_hip_decoded_staged_retained()
+    if problem_type == ProblemType.mmq_forward_q5_k():
+        q5_retained = ForwardSolution.q5_k_hip_decoded_staged_retained()
         q5_metadata_after_low = (
-            DenseForwardSolution.q5_k_hip_decoded_staged_metadata_after_low_wmma()
+            ForwardSolution.q5_k_hip_decoded_staged_metadata_after_low_wmma()
         )
-        q5_independent = DenseForwardSolution.q5_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma()
+        q5_independent = ForwardSolution.q5_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma()
         q5_extraction = (
             replace(
                 solution,
@@ -154,31 +154,37 @@ def _validate_forward_solution(
                     source="ProblemSize",
                 )
         return
-    pilot = DenseForwardSolution.q4_k_pilot()
-    wave_reuse = DenseForwardSolution.q4_k_wave_reuse()
-    wave_batch = DenseForwardSolution.q4_k_wave_batch4()
-    hip_staged = DenseForwardSolution.q4_k_hip_staged()
-    hip_decoded_staged = DenseForwardSolution.q4_k_hip_decoded_staged()
-    hip_decoded_staged_retained = (
-        DenseForwardSolution.q4_k_hip_decoded_staged_retained()
-    )
+    pilot = ForwardSolution.q4_k_pilot()
+    wave_reuse = ForwardSolution.q4_k_wave_reuse()
+    wave_batch = ForwardSolution.q4_k_wave_batch4()
+    hip_staged = ForwardSolution.q4_k_hip_staged()
+    hip_decoded_staged = ForwardSolution.q4_k_hip_decoded_staged()
+    hip_decoded_staged_retained = ForwardSolution.q4_k_hip_decoded_staged_retained()
     hip_decoded_staged_metadata_after_low_wmma = (
-        DenseForwardSolution.q4_k_hip_decoded_staged_metadata_after_low_wmma()
+        ForwardSolution.q4_k_hip_decoded_staged_metadata_after_low_wmma()
     )
-    hip_decoded_staged_independent_extraction_metadata_after_low_wmma = DenseForwardSolution.q4_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma()
+    hip_decoded_staged_independent_extraction_metadata_after_low_wmma = ForwardSolution.q4_k_hip_decoded_staged_independent_extraction_metadata_after_low_wmma()
     hip_decoded_staged_shared_down_m8192 = (
-        DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m8192()
+        ForwardSolution.q4_k_hip_decoded_staged_shared_down_m8192()
     )
     hip_decoded_staged_shared_down_m32768 = (
-        DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m32768()
+        ForwardSolution.q4_k_hip_decoded_staged_shared_down_m32768()
     )
-    hip_decoded_staged_shared_down_m2048_metadata_after_low_wmma = DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m2048_metadata_after_low_wmma()
-    hip_decoded_staged_shared_down_m8192_metadata_after_low_wmma = DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m8192_metadata_after_low_wmma()
-    hip_decoded_staged_shared_down_m32768_metadata_after_low_wmma = DenseForwardSolution.q4_k_hip_decoded_staged_shared_down_m32768_metadata_after_low_wmma()
-    hip_decoded_staged_narrow_m32768_metadata_after_low_wmma = DenseForwardSolution.q4_k_hip_decoded_staged_narrow_m32768_metadata_after_low_wmma()
-    hip_decoded_staged_query_m2048_metadata_after_low_wmma = DenseForwardSolution.q4_k_hip_decoded_staged_query_m2048_metadata_after_low_wmma()
-    hip_decoded_staged_query_m8192_metadata_after_low_wmma = DenseForwardSolution.q4_k_hip_decoded_staged_query_m8192_metadata_after_low_wmma()
-    hip_decoded_staged_query_m32768_metadata_after_low_wmma = DenseForwardSolution.q4_k_hip_decoded_staged_query_m32768_metadata_after_low_wmma()
+    hip_decoded_staged_shared_down_m2048_metadata_after_low_wmma = ForwardSolution.q4_k_hip_decoded_staged_shared_down_m2048_metadata_after_low_wmma()
+    hip_decoded_staged_shared_down_m8192_metadata_after_low_wmma = ForwardSolution.q4_k_hip_decoded_staged_shared_down_m8192_metadata_after_low_wmma()
+    hip_decoded_staged_shared_down_m32768_metadata_after_low_wmma = ForwardSolution.q4_k_hip_decoded_staged_shared_down_m32768_metadata_after_low_wmma()
+    hip_decoded_staged_narrow_m32768_metadata_after_low_wmma = (
+        ForwardSolution.q4_k_hip_decoded_staged_narrow_m32768_metadata_after_low_wmma()
+    )
+    hip_decoded_staged_query_m2048_metadata_after_low_wmma = (
+        ForwardSolution.q4_k_hip_decoded_staged_query_m2048_metadata_after_low_wmma()
+    )
+    hip_decoded_staged_query_m8192_metadata_after_low_wmma = (
+        ForwardSolution.q4_k_hip_decoded_staged_query_m8192_metadata_after_low_wmma()
+    )
+    hip_decoded_staged_query_m32768_metadata_after_low_wmma = (
+        ForwardSolution.q4_k_hip_decoded_staged_query_m32768_metadata_after_low_wmma()
+    )
     implemented = (
         pilot,
         wave_reuse,
@@ -295,10 +301,10 @@ def _validate_forward_solution(
             )
 
 
-def _validate_problem_size(
+def _validate_backward_problem_size(
     problem_type: ProblemType,
     problem_size: ProblemSize,
-    solution: Solution,
+    solution: BackwardSolution,
     reasons: list[RejectReason],
 ) -> None:
     for parameter, value in (
@@ -327,7 +333,7 @@ def _validate_problem_size(
         _reject(
             reasons,
             "problem_size.n.production",
-            f"{problem_type.quant_data_type} dense campaign requires N=in_features in {allowed_n}",
+            f"{problem_type.quant_data_type} MMQ campaign requires N=in_features in {allowed_n}",
             "N",
             source="ProblemSize",
         )
@@ -378,10 +384,10 @@ def _validate_problem_size(
             )
 
 
-def _validate_solution_parameters(
-    solution: Solution, reasons: list[RejectReason]
+def _validate_backward_solution_parameters(
+    solution: BackwardSolution, reasons: list[RejectReason]
 ) -> None:
-    pilot = Solution.pilot()
+    pilot = BackwardSolution.pilot()
     implemented = (
         ("kernel_language", "KernelLanguage"),
         ("isa", "ISA"),
@@ -401,7 +407,7 @@ def _validate_solution_parameters(
             _reject(
                 reasons,
                 f"solution.{parameter.lower()}.unimplemented",
-                f"pilot KernelWriterAssembly implements only {parameter}={getattr(pilot, attribute)!r}",
+                f"pilot MMQ backward writer implements only {parameter}={getattr(pilot, attribute)!r}",
                 parameter,
             )
 
@@ -409,14 +415,14 @@ def _validate_solution_parameters(
         _reject(
             reasons,
             "solution.ldsswizzlechunkb.unimplemented",
-            "KernelWriterAssembly implements only LdsSwizzleChunkB=0, 4, 8, or 16",
+            "MMQ backward writer implements only LdsSwizzleChunkB=0, 4, 8, or 16",
             "LdsSwizzleChunkB",
         )
     if solution.lds_pad_b not in (0, 8, 16, 24):
         _reject(
             reasons,
             "solution.ldspadb.unimplemented",
-            "KernelWriterAssembly implements only LdsPadB=0, 8, 16, or 24",
+            "MMQ backward writer implements only LdsPadB=0, 8, 16, or 24",
             "LdsPadB",
         )
     if solution.lds_pad_b and solution.lds_swizzle_chunk_b:
@@ -431,7 +437,7 @@ def _validate_solution_parameters(
         _reject(
             reasons,
             "solution.1ldsbuffer.unimplemented",
-            "KernelWriterAssembly implements only 1LDSBuffer=0 or 1",
+            "MMQ backward writer implements only 1LDSBuffer=0 or 1",
             "1LDSBuffer",
         )
     pipeline_schedule = (
@@ -469,14 +475,14 @@ def _validate_solution_parameters(
         _reject(
             reasons,
             "solution.scheduleiteralg.unimplemented",
-            "KernelWriterAssembly implements only ScheduleIterAlg=2, 3, 4, or 5",
+            "MMQ backward writer implements only ScheduleIterAlg=2, 3, 4, or 5",
             "ScheduleIterAlg",
         )
     if solution.prefetch_global_read not in (1, 2):
         _reject(
             reasons,
             "solution.prefetchglobalread.unimplemented",
-            "KernelWriterAssembly implements only PrefetchGlobalRead=1 or 2",
+            "MMQ backward writer implements only PrefetchGlobalRead=1 or 2",
             "PrefetchGlobalRead",
         )
     if solution.prefetch_global_read == 2 and solution.schedule_iter_alg not in (4, 5):
@@ -491,7 +497,7 @@ def _validate_solution_parameters(
         _reject(
             reasons,
             "solution.prefetchlocalread.unimplemented",
-            "KernelWriterAssembly implements only PrefetchLocalRead=1 or 2",
+            "MMQ backward writer implements only PrefetchLocalRead=1 or 2",
             "PrefetchLocalRead",
         )
     if solution.prefetch_local_read == 2 and solution.schedule_iter_alg != 3:
@@ -506,7 +512,7 @@ def _validate_solution_parameters(
         _reject(
             reasons,
             "solution.packedweightlaneshare.unimplemented",
-            "KernelWriterAssembly implements PackedWeightLaneShare=1 or 2",
+            "MMQ backward writer implements PackedWeightLaneShare=1 or 2",
             "PackedWeightLaneShare",
         )
     if solution.q3_k_extraction not in ("packed", "scalar"):
@@ -602,7 +608,7 @@ def _validate_solution_parameters(
         _reject(
             reasons,
             "solution.workgroupmapping.unimplemented",
-            "KernelWriterAssembly implements WorkGroupMapping=1, 2, 4, 8, 128, or 256",
+            "MMQ backward writer implements WorkGroupMapping=1, 2, 4, 8, 128, or 256",
             "WorkGroupMapping",
         )
 
@@ -636,7 +642,7 @@ def _validate_solution_parameters(
         _reject(
             reasons,
             "solution.geometry.unimplemented",
-            "KernelWriterAssembly implements the selected 32x64, 32x128, 64x32, 64x64, 64x128, 128x32, 128x64, 128x128, 256x32, 256x64, and 256x128 DepthU32/64 geometries",
+            "MMQ backward writer implements the selected 32x64, 32x128, 64x32, 64x64, 64x128, 128x32, 128x64, 128x128, 256x32, 256x64, and 256x128 DepthU32/64 geometries",
             "MatrixInstruction",
             "MacroTile0",
             "MacroTile1",
@@ -664,7 +670,7 @@ def _validate_solution_parameters(
         _reject(
             reasons,
             "solution.work_group.num_threads",
-            "KernelWriterAssembly requires NumThreads=64, 128, or 256",
+            "MMQ backward writer requires NumThreads=64, 128, or 256",
             "WorkGroup",
             source="SolutionStructs",
         )
@@ -690,20 +696,20 @@ def _validate_solution_parameters(
 
 def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
     reasons: list[RejectReason] = []
-    if solution_key.problem_type.operation_type == "DenseMMQForward":
+    if solution_key.problem_type.operation_type == "MMQForward":
         _validate_forward_solution(solution_key, reasons)
         return tuple(reasons)
-    if not isinstance(solution_key.solution, Solution):
+    if not isinstance(solution_key.solution, BackwardSolution):
         _reject(
             reasons,
             "solution.backward.schema",
-            "dense MMQ backward requires Solution",
+            "MMQ backward requires BackwardSolution",
             "Solution",
             source="SolutionStructs",
         )
         return tuple(reasons)
-    _validate_problem_type(solution_key.problem_type, reasons)
-    _validate_solution_parameters(solution_key.solution, reasons)
+    _validate_backward_problem_type(solution_key.problem_type, reasons)
+    _validate_backward_solution_parameters(solution_key.solution, reasons)
     if (
         solution_key.solution.num_threads == 64
         or (
@@ -849,7 +855,7 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             "Q3KExtraction",
             source="ProblemType",
         )
-    _validate_problem_size(
+    _validate_backward_problem_size(
         solution_key.problem_type,
         solution_key.problem_size,
         solution_key.solution,

@@ -8,12 +8,17 @@ import pytest
 
 from tools.ggtensile.campaign import load_inventory, load_solution_catalog
 from tools.ggtensile.kernel_writer_assembly_mmq_bwd import (
-    DiagnosticMode,
-    KernelWriterAssembly,
-    KernelWriterError,
+    BackwardDiagnosticMode,
+    BackwardKernelWriterAssembly,
+    BackwardKernelWriterError,
     _Assembly,
 )
-from tools.ggtensile.model import ProblemSize, ProblemType, Solution, SolutionKey
+from tools.ggtensile.model import (
+    BackwardSolution,
+    ProblemSize,
+    ProblemType,
+    SolutionKey,
+)
 from tools.ggtensile.toolchain import Toolchain, ToolchainError
 from tools.ggtensile.validation import validate_solution
 
@@ -25,17 +30,21 @@ def _toolchain() -> Toolchain:
         pytest.skip(str(error))
 
 
-def _key(quant: str, size: tuple[int, int, int], solution: Solution) -> SolutionKey:
+def _key(
+    quant: str, size: tuple[int, int, int], solution: BackwardSolution
+) -> SolutionKey:
     return SolutionKey(
-        ProblemType.dense_mmq_backward(quant),
+        ProblemType.mmq_backward(quant),
         ProblemSize(*size),
         solution,
     )
 
 
-def _source(key: SolutionKey, diagnostic_mode: DiagnosticMode | None = None) -> str:
+def _source(
+    key: SolutionKey, diagnostic_mode: BackwardDiagnosticMode | None = None
+) -> str:
     assert validate_solution(key) == ()
-    return KernelWriterAssembly(
+    return BackwardKernelWriterAssembly(
         key,
         _toolchain(),
         diagnostic_mode=diagnostic_mode,
@@ -44,16 +53,19 @@ def _source(key: SolutionKey, diagnostic_mode: DiagnosticMode | None = None) -> 
 
 def test_writer_emits_every_selected_production_kernel() -> None:
     catalogs = (
-        ("q3_k_dense_inventory.json", "q3_k_selected_solutions.json"),
-        ("q4_k_dense_inventory.json", "q4_k_selected_solutions.json"),
-        ("q5_k_dense_inventory.json", "q5_k_selected_solutions.json"),
-        ("q6_k_dense_inventory.json", "q6_k_selected_solutions.json"),
-        ("q8_0_dense_inventory.json", "q8_0_selected_solutions.json"),
+        ("mmq_bwd_q3_k_inventory.json", "mmq_bwd_q3_k_solutions.json"),
+        ("mmq_bwd_q4_k_inventory.json", "mmq_bwd_q4_k_solutions.json"),
+        ("mmq_bwd_q5_k_inventory.json", "mmq_bwd_q5_k_solutions.json"),
+        ("mmq_bwd_q6_k_inventory.json", "mmq_bwd_q6_k_solutions.json"),
+        ("mmq_bwd_q8_0_inventory.json", "mmq_bwd_q8_0_solutions.json"),
     )
     emitted: set[str] = set()
     for inventory_name, catalog_name in catalogs:
         inventory = load_inventory(Path("tools/ggtensile/configs") / inventory_name)
-        catalog = load_solution_catalog(Path("tools/ggtensile/configs") / catalog_name)
+        catalog = load_solution_catalog(
+            Path("tools/ggtensile/configs") / catalog_name,
+            problem_type=inventory.problem_type,
+        )
         for entry in inventory.entries:
             key = entry.solution_key(
                 inventory.problem_type,
@@ -66,7 +78,7 @@ def test_writer_emits_every_selected_production_kernel() -> None:
 
 
 def _targeted_writer_keys() -> tuple[SolutionKey, ...]:
-    pilot = Solution.pilot()
+    pilot = BackwardSolution.pilot()
     q5_sia3 = replace(
         pilot,
         one_lds_buffer=0,
@@ -245,7 +257,7 @@ def test_writer_emits_repaired_q6_lane_share_and_depth64_layouts() -> None:
     ) < source.index("s_and_saveexec_b32")
 
     depth64_key = _targeted_writer_keys()[10]
-    writer = KernelWriterAssembly(depth64_key, _toolchain())
+    writer = BackwardKernelWriterAssembly(depth64_key, _toolchain())
     row_stride = 2 * depth64_key.solution.depth_u
     assert writer._decoded_lds_store_location(0, 1, 32)[1] == 64
     assert writer._decoded_lds_store_location(2, 1, 32)[1] == 2 * row_stride + 64
@@ -265,9 +277,9 @@ def test_writer_emits_repaired_q5_sia3_and_depth64_pipeline_state() -> None:
 
 
 def test_writer_emits_both_lower_bound_diagnostics() -> None:
-    key = _key("Q4_K", (128, 2048, 512), Solution.pilot())
-    wmma = _source(key, DiagnosticMode.WMMA_FLOOR)
-    decode = _source(key, DiagnosticMode.DECODE_FLOOR)
+    key = _key("Q4_K", (128, 2048, 512), BackwardSolution.pilot())
+    wmma = _source(key, BackwardDiagnosticMode.WMMA_FLOOR)
+    decode = _source(key, BackwardDiagnosticMode.DECODE_FLOOR)
     assert ".LWmmaFloorLoop:" in wmma
     assert ".LDecodeFloorLoop:" in decode
 
@@ -275,7 +287,7 @@ def test_writer_emits_both_lower_bound_diagnostics() -> None:
 def test_writer_emits_non_direct_multirow_decode_floors() -> None:
     keys = _targeted_writer_keys()
     for key in (keys[16], keys[17]):
-        source = _source(key, DiagnosticMode.DECODE_FLOOR)
+        source = _source(key, BackwardDiagnosticMode.DECODE_FLOOR)
         assert ".LDecodeFloorLoop:" in source
         assert source.count("global_load_d16_u8") >= 12
 
@@ -283,7 +295,7 @@ def test_writer_emits_non_direct_multirow_decode_floors() -> None:
 def test_assembly_rejects_nested_deferred_zero_fills() -> None:
     assembly = _Assembly()
     assembly.defer_zero_moves(range(2))
-    with pytest.raises(KernelWriterError, match="cannot nest"):
+    with pytest.raises(BackwardKernelWriterError, match="cannot nest"):
         assembly.defer_zero_moves(range(2, 4))
 
 
@@ -292,7 +304,7 @@ def test_depth64_next_packed_prefetch_remains_q6_specific() -> None:
         "Q4_K",
         (128, 2048, 512),
         replace(
-            Solution.pilot(),
+            BackwardSolution.pilot(),
             depth_u=64,
             schedule_iter_alg=4,
             prefetch_global_read=2,
@@ -308,15 +320,15 @@ def test_writer_rejects_invalid_solution() -> None:
     invalid = _key(
         "Q4_K",
         (128, 2048, 512),
-        replace(Solution.pilot(), depth_u=48),
+        replace(BackwardSolution.pilot(), depth_u=48),
     )
-    with pytest.raises(KernelWriterError, match="solution rejected"):
-        KernelWriterAssembly(invalid, _toolchain())
+    with pytest.raises(BackwardKernelWriterError, match="solution rejected"):
+        BackwardKernelWriterAssembly(invalid, _toolchain())
 
 
 def test_writer_reports_missing_rocisa(monkeypatch: pytest.MonkeyPatch) -> None:
-    key = _key("Q4_K", (128, 2048, 512), Solution.pilot())
-    writer = KernelWriterAssembly(key, _toolchain())
+    key = _key("Q4_K", (128, 2048, 512), BackwardSolution.pilot())
+    writer = BackwardKernelWriterAssembly(key, _toolchain())
     original_import = builtins.__import__
 
     def reject_rocisa(
@@ -331,5 +343,5 @@ def test_writer_reports_missing_rocisa(monkeypatch: pytest.MonkeyPatch) -> None:
         return original_import(name, globals, locals, fromlist, level)
 
     monkeypatch.setattr(builtins, "__import__", reject_rocisa)
-    with pytest.raises(KernelWriterError, match="rocisa is required"):
+    with pytest.raises(BackwardKernelWriterError, match="rocisa is required"):
         writer.source()

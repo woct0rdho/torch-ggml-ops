@@ -60,7 +60,7 @@ These bodies may use templates and compile-time parameters, but do not own packa
 
 `tools/mmq_bundle_wrapper_source.py` renders one small `.cu` translation unit per kernel specification. Each unit exposes one literal `extern "C" __global__` symbol, states its launch signature, and calls one selected device body with explicit template arguments.
 
-Forward, dense-backward, and grouped-backward entries remain separate when they have incompatible argument ABIs or launch-bound contracts. The generated units contain no family or geometry selector macros and no model-level dispatch policy. They are deterministic ignored build inputs under `build/`. Sdists contain the typed renderer and device sources rather than the duplicated generated files.
+MMQ forward, MMQ backward, and grouped MMQ backward entries remain separate when they have incompatible argument ABIs or launch-bound contracts. The generated units contain no family or geometry selector macros and no model-level dispatch policy. They are deterministic ignored build inputs under `build/`. Sdists contain the typed renderer and device sources rather than the duplicated generated files.
 
 ### Deterministic generator
 

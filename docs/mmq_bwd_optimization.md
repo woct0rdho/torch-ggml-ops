@@ -9,8 +9,8 @@ The retained implementation provides:
 - Static quant, shape, row-count, traversal, and LDS-layout dispatch with bounds-safe fallbacks.
 - Qwen production bodies for Q3_K, Q4_K, Q5_K, and Q6_K.
 - DeepSeek exact Q8_0 bodies for six ordinary geometries and the language-model head.
-- 83 dense-backward specializations in the 179-kernel source-built gfx1151 bundle.
-- Zero private storage, zero VGPR/SGPR spills, and no dynamic stack for every retained dense-backward artifact.
+- 83 MMQ backward specializations in the 179-kernel source-built gfx1151 bundle.
+- Zero private storage, zero VGPR/SGPR spills, and no dynamic stack for every retained MMQ backward artifact.
 
 Repository-local Qwen work closed after QB1. DeepSeek work closed after DB8. No additional geometry, traversal, decoder, prefetch, LDS, active-wave, or arithmetic sweep is authorized under the current API. Further material gains require explicit model-owned prepared weights, paired grad-input, BF16-shadow, or shared-scratch ownership.
 
@@ -153,11 +153,11 @@ Representative retained allocations:
 | DeepSeek G2 unpadded | 192 | 14 | 8 KiB |
 | DeepSeek G2 padding8 | 192 | 14 | 10 KiB |
 
-Every retained dense-backward artifact has zero private bytes, zero VGPR/SGPR spills, and no dynamic stack. The 253-VGPR Qwen shared-down Q5_K body is the practical allocation warning point.
+Every retained MMQ backward artifact has zero private bytes, zero VGPR/SGPR spills, and no dynamic stack. The 253-VGPR Qwen shared-down Q5_K body is the practical allocation warning point.
 
 ## Remaining work
 
-No repository-local dense-backward experiment remains pending. The following are separate model-owned projects.
+No repository-local MMQ backward experiment remains pending. The following are separate model-owned projects.
 
 | Priority | Project | First target | Required mechanism |
 | ---: | --- | --- | --- |
@@ -402,7 +402,7 @@ Matched profiles identified locality as the first-order mechanism:
 
 L2 hit rate rose by 30.6-47.4 percentage points. LDS stalls and latency often increased, but the shorter packed-weight/cotangent reuse window dominated. `MemUnitBusy` could not be collected because rocprofv3 rejects its non-windowable `TA_TA_BUSY` dependency under dispatch-windowed gfx1151 collection.
 
-DB8 reduced weighted packed latency by `4.51%/18.85%/26.41%` from DB7 and closed repository-local DeepSeek dense-backward work. Its seven wrappers were appended as bundle IDs 172-178, preserving all established IDs.
+DB8 reduced weighted packed latency by `4.51%/18.85%/26.41%` from DB7 and closed repository-local DeepSeek MMQ backward work. Its seven wrappers were appended as bundle IDs 172-178, preserving all established IDs.
 
 ## Closed directions and durable reasoning
 
@@ -514,7 +514,7 @@ Measurement rules:
 - Report per-point and checkpoint-weighted movement.
 - Inspect normalized disassembly and VGPR/SGPR/LDS/private/spill/stack metadata.
 - Require zero private storage, zero VGPR/SGPR spills, and no dynamic stack for retained production bodies.
-- Rerun the complete Qwen matrix whenever shared dense-backward source changes.
+- Rerun the complete Qwen matrix whenever shared MMQ backward source changes.
 
 Benchmark examples:
 
@@ -546,7 +546,7 @@ git diff --check
 Final status:
 - `100 passed, 14 warnings` from the complete project suite.
 - Bundle freshness reports 179 current kernels.
-- All 83 dense-backward artifacts pass resource gates.
+- All 83 MMQ backward artifacts pass resource gates.
 - Independent ccache-bypassed reproducibility passes for all 179 artifacts.
 - The installed extension was rebuilt against the final selector.
 - Generated HSACOs remain ignored by Git and excluded from source distributions. Local wheels may contain verified artifacts.

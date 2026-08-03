@@ -7,16 +7,16 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from .model import Solution, SolutionKey
+from .model import BackwardSolution, SolutionKey
 from .toolchain import Toolchain
 from .validation import validate_solution
 
 
-class KernelWriterError(RuntimeError):
+class BackwardKernelWriterError(RuntimeError):
     pass
 
 
-class DiagnosticMode(str, Enum):
+class BackwardDiagnosticMode(str, Enum):
     WMMA_FLOOR = "wmma_floor"
     DECODE_FLOOR = "decode_floor"
 
@@ -62,7 +62,7 @@ class _Assembly:
 
     def defer_zero_moves(self, registers: range) -> None:
         if any(self._pending_zero_moves.values()):
-            raise KernelWriterError("cannot nest deferred VGPR zero fills")
+            raise BackwardKernelWriterError("cannot nest deferred VGPR zero fills")
         for register in reversed(registers):
             self._pending_zero_moves[register & 1].append(register)
 
@@ -94,24 +94,24 @@ class _Assembly:
         return "\n".join(self.lines) + "\n"
 
 
-class KernelWriterAssembly:
-    """Emit an exact gfx1151 dense-MMQ backward solution."""
+class BackwardKernelWriterAssembly:
+    """Emit an exact gfx1151 MMQ backward solution."""
 
     def __init__(
         self,
         solution_key: SolutionKey,
         toolchain: Toolchain,
         *,
-        diagnostic_mode: DiagnosticMode | None = None,
+        diagnostic_mode: BackwardDiagnosticMode | None = None,
     ) -> None:
         reasons = validate_solution(solution_key)
         if reasons:
             details = "; ".join(
                 f"{reason.rule_id}: {reason.message}" for reason in reasons
             )
-            raise KernelWriterError(f"solution rejected: {details}")
-        if not isinstance(solution_key.solution, Solution):
-            raise KernelWriterError("backward writer requires Solution")
+            raise BackwardKernelWriterError(f"solution rejected: {details}")
+        if not isinstance(solution_key.solution, BackwardSolution):
+            raise BackwardKernelWriterError("backward writer requires BackwardSolution")
         self.solution_key = solution_key
         self.solution = solution_key.solution
         self.toolchain = toolchain
@@ -134,7 +134,7 @@ class KernelWriterAssembly:
                 SignatureValueKind as SVK,
             )
         except ImportError as error:
-            raise KernelWriterError(
+            raise BackwardKernelWriterError(
                 "rocisa is required to generate assembly"
             ) from error
 
@@ -168,8 +168,7 @@ class KernelWriterAssembly:
             totalSgprs=self.registers.total_sgprs,
         )
         description = (
-            f"GGTensile {self.solution_key.problem_type.quant_data_type} "
-            "dense MMQ backward"
+            f"GGTensile {self.solution_key.problem_type.quant_data_type} MMQ backward"
         )
         if self.diagnostic_mode is not None:
             description += f" {self.diagnostic_mode.value} diagnostic"
@@ -411,7 +410,7 @@ class KernelWriterAssembly:
             * self.solution.matrix_instruction[5]
             * self.solution.matrix_instruction[6]
         )
-        if self.diagnostic_mode != DiagnosticMode.DECODE_FLOOR:
+        if self.diagnostic_mode != BackwardDiagnosticMode.DECODE_FLOOR:
             asm.comment(
                 "Pair accumulator zeroing with independent pre-loop address VALU."
             )
@@ -452,9 +451,9 @@ class KernelWriterAssembly:
         self._emit_static_thread_coordinates(asm)
         asm.flush_zero_moves()
         store_output = True
-        if self.diagnostic_mode == DiagnosticMode.WMMA_FLOOR:
+        if self.diagnostic_mode == BackwardDiagnosticMode.WMMA_FLOOR:
             self._emit_wmma_floor(asm)
-        elif self.diagnostic_mode == DiagnosticMode.DECODE_FLOOR:
+        elif self.diagnostic_mode == BackwardDiagnosticMode.DECODE_FLOOR:
             self._emit_decode_floor(asm)
             store_output = False
         elif self.solution.one_lds_buffer == 0:

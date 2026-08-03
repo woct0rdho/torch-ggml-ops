@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .kernel_writer_assembly_mmq_fwd import DenseForwardKernelWriterAssembly
-from .model import DenseForwardSolution, SolutionKey
+from .kernel_writer_assembly_mmq_fwd import ForwardKernelWriterAssembly
+from .model import ForwardSolution, SolutionKey
 from .toolchain import Toolchain
 
 
@@ -148,7 +148,7 @@ def inspect_artifact(
     solution = solution_key.solution
     expected_wmmas = expected_wmma_count
     if expected_wmmas is None:
-        if isinstance(solution, DenseForwardSolution):
+        if isinstance(solution, ForwardSolution):
             expected_wmmas = (
                 32
                 if solution.operand_source == "HipDecodedStagedBatch8"
@@ -179,7 +179,7 @@ def inspect_artifact(
     )
     expected_barriers = expected_barrier_count
     if expected_barriers is None:
-        if isinstance(solution, DenseForwardSolution):
+        if isinstance(solution, ForwardSolution):
             expected_barriers = (
                 4
                 if solution.operand_source
@@ -284,7 +284,7 @@ def _validate_metadata(
     errors: list[str],
 ) -> None:
     solution = solution_key.solution
-    if isinstance(solution, DenseForwardSolution):
+    if isinstance(solution, ForwardSolution):
         _validate_forward_metadata(kernel, solution, errors)
         return
     m_tiles = solution.matrix_instruction[5]
@@ -398,7 +398,7 @@ def _validate_metadata(
 
 def _validate_forward_metadata(
     kernel: Mapping[str, Any],
-    solution: DenseForwardSolution,
+    solution: ForwardSolution,
     errors: list[str],
 ) -> None:
     expected = {
@@ -409,15 +409,15 @@ def _validate_forward_metadata(
         ".max_flat_workgroup_size": solution.num_threads,
         ".wavefront_size": solution.wavefront_size,
         ".vgpr_count": (
-            DenseForwardKernelWriterAssembly.TOTAL_VGPRS_HIP_STAGED
+            ForwardKernelWriterAssembly.TOTAL_VGPRS_HIP_STAGED
             if solution.operand_source in ("HipStagedBatch8", "HipDecodedStagedBatch8")
-            else DenseForwardKernelWriterAssembly.TOTAL_VGPRS_BATCH
+            else ForwardKernelWriterAssembly.TOTAL_VGPRS_BATCH
             if solution.operand_source == "GlobalWaveBatch4"
-            else DenseForwardKernelWriterAssembly.TOTAL_VGPRS_REUSE
+            else ForwardKernelWriterAssembly.TOTAL_VGPRS_REUSE
             if solution.operand_source == "GlobalWaveReuse"
-            else DenseForwardKernelWriterAssembly.TOTAL_VGPRS
+            else ForwardKernelWriterAssembly.TOTAL_VGPRS
         ),
-        ".sgpr_count": DenseForwardKernelWriterAssembly.TOTAL_SGPRS,
+        ".sgpr_count": ForwardKernelWriterAssembly.TOTAL_SGPRS,
         ".vgpr_spill_count": 0,
         ".sgpr_spill_count": 0,
     }

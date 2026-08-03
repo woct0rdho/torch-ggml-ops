@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from .inspection import InspectionError, inspect_artifact
-from .kernel_writer_assembly_mmq_bwd import KernelWriterAssembly
-from .kernel_writer_assembly_mmq_fwd import DenseForwardKernelWriterAssembly
+from .kernel_writer_assembly_mmq_bwd import BackwardKernelWriterAssembly
+from .kernel_writer_assembly_mmq_fwd import ForwardKernelWriterAssembly
 from .model import SchemaError, SolutionKey
 from .toolchain import Toolchain, ToolchainError
 from .validation import validate_solution
@@ -150,9 +150,9 @@ def _generate(solution_path: Path, output_dir: Path) -> int:
         raise ManifestError("refusing to overwrite generated solution or assembly")
     toolchain = Toolchain.discover()
     writer_type = (
-        DenseForwardKernelWriterAssembly
-        if key.problem_type.operation_type == "DenseMMQForward"
-        else KernelWriterAssembly
+        ForwardKernelWriterAssembly
+        if key.problem_type.operation_type == "MMQForward"
+        else BackwardKernelWriterAssembly
     )
     source = writer_type(key, toolchain).source()
     _write_json_exclusive(solution_output, key.to_mapping())

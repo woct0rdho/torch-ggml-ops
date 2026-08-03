@@ -19,11 +19,11 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools.ggtensile.inspection import inspect_artifact
 from tools.ggtensile.kernel_writer_assembly_mmq_bwd import (
-    DiagnosticMode,
-    KernelWriterAssembly,
+    BackwardDiagnosticMode,
+    BackwardKernelWriterAssembly,
 )
 from tools.ggtensile.model import SolutionKey
-from tools.ggtensile.runtime import DenseBackwardModule
+from tools.ggtensile.runtime import BackwardModule
 from tools.ggtensile.toolchain import Toolchain
 
 DEFAULT_MODEL = Path.home() / "models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf"
@@ -33,7 +33,7 @@ BF16_WMMA_ROOFLINE_TFLOPS = 59.4
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Build and time exact GGTensile lower-bound diagnostics"
+        description="Build and time exact GGTensile MMQ backward lower-bound diagnostics"
     )
     parser.add_argument("--solution-key", type=Path, required=True)
     parser.add_argument("--complete-code-object", type=Path, required=True)
@@ -70,13 +70,13 @@ def _build_diagnostic(
     key: SolutionKey,
     toolchain: Toolchain,
     output_dir: Path,
-    mode: DiagnosticMode,
+    mode: BackwardDiagnosticMode,
 ) -> tuple[Path, str, dict[str, object]]:
     stem = mode.value
     assembly = output_dir / f"{stem}.s"
     object_path = output_dir / f"{stem}.o"
     code_object = output_dir / f"{stem}.hsaco"
-    source_hash = KernelWriterAssembly(
+    source_hash = BackwardKernelWriterAssembly(
         key,
         toolchain,
         diagnostic_mode=mode,
@@ -89,7 +89,7 @@ def _build_diagnostic(
         * key.solution.depth_u
         // 16
     )
-    expected_wmmas = normal_wmmas if mode == DiagnosticMode.WMMA_FLOOR else 0
+    expected_wmmas = normal_wmmas if mode == BackwardDiagnosticMode.WMMA_FLOOR else 0
     inspection = inspect_artifact(
         key,
         code_object,
@@ -111,10 +111,10 @@ def main() -> None:
     key = SolutionKey.from_json_file(args.solution_key)
     toolchain = Toolchain.discover()
     complete_inspection = inspect_artifact(key, args.complete_code_object, toolchain)
-    code_objects: dict[DiagnosticMode, Path] = {}
-    source_hashes: dict[DiagnosticMode, str] = {}
-    inspections: dict[DiagnosticMode, dict[str, object]] = {}
-    for mode in DiagnosticMode:
+    code_objects: dict[BackwardDiagnosticMode, Path] = {}
+    source_hashes: dict[BackwardDiagnosticMode, str] = {}
+    inspections: dict[BackwardDiagnosticMode, dict[str, object]] = {}
+    for mode in BackwardDiagnosticMode:
         code_object, source_hash, inspection = _build_diagnostic(
             key,
             toolchain,
@@ -160,13 +160,13 @@ def main() -> None:
     with contextlib.ExitStack() as stack:
         modules = {
             "complete": stack.enter_context(
-                DenseBackwardModule(key, args.complete_code_object)
+                BackwardModule(key, args.complete_code_object)
             ),
             "wmma_floor": stack.enter_context(
-                DenseBackwardModule(key, code_objects[DiagnosticMode.WMMA_FLOOR])
+                BackwardModule(key, code_objects[BackwardDiagnosticMode.WMMA_FLOOR])
             ),
             "decode_floor": stack.enter_context(
-                DenseBackwardModule(key, code_objects[DiagnosticMode.DECODE_FLOOR])
+                BackwardModule(key, code_objects[BackwardDiagnosticMode.DECODE_FLOOR])
             ),
         }
 
@@ -215,7 +215,7 @@ def main() -> None:
                 "AssemblySHA256": source_hashes[mode],
                 "Inspection": inspections[mode],
             }
-            for mode in DiagnosticMode
+            for mode in BackwardDiagnosticMode
         },
         "Model": str(args.model),
         "Tensor": args.tensor,

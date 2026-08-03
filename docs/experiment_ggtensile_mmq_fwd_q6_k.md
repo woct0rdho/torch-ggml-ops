@@ -1,8 +1,8 @@
-# GGTensile Dense MMQ Forward Q6_K Plan
+# GGTensile MMQ Forward Q6_K Plan
 
 ## Purpose
 
-Build and exhaust a strict gfx1151 wave32 GGTensile assembly campaign for dense Q6_K forward over the three exact production language-model-head chunks. The first objective is to make every exact complete call at least as fast as the installed HIP kernel. After exact-key parity, optimize the complete 2,048-row forward mix as far as repeatable evidence permits without regressing any production key.
+Build and exhaust a strict gfx1151 wave32 GGTensile assembly campaign for Q6_K forward over the three exact production language-model-head chunks. The first objective is to make every exact complete call at least as fast as the installed HIP kernel. After exact-key parity, optimize the complete 2,048-row forward mix as far as repeatable evidence permits without regressing any production key.
 
 Q6_K is a separate forward backend from Q4_K and Q5_K. It may reuse proven launch, WMMA, synchronization, output, inspection, correctness, and measurement mechanisms only when their ownership and physical layouts remain valid. It must own its 210-byte packed block, split low/high payload decode, signed scale fields, block multiplier, `Q8_1` `F32_D4` activation metadata, small-M geometry, and exact tuning identities.
 
@@ -14,8 +14,8 @@ Target only:
 - gfx1151, wave32, WMMA V1, BF16 input/output, and FP32 correction/accumulation.
 - Authoritative packed GGUF Q6_K weights with direct in-kernel decode.
 - The installed HIP Q8_1 `F32_D4` activation producer and exact 144-byte workspace block.
-- Exact 40-byte dense-forward kernarg ABI.
-- One exact `ProblemType`, `ProblemSize`, and complete `Solution` per artifact.
+- Exact 40-byte MMQ forward kernarg ABI.
+- One exact `ProblemType`, `ProblemSize`, and complete `ForwardSolution` per artifact.
 - Exact-key launch geometry with strict rejection for every mismatch.
 - Zero private bytes, spills, scratch instructions, calls, and dynamic stack.
 - Serial warmed rotating-control timing. Builds and independent correctness work may run separately; timed GPU work never overlaps.
@@ -108,7 +108,7 @@ The completed Q6_K backward campaign provides decoder facts but not a transferab
 
 ### Phase 0: Strict Q6_K forward infrastructure
 
-- Add Q6_K dense-forward `ProblemType`, exact three-key inventory, versionless catalog, strict validation, runtime packed-size checks, and launch support.
+- Add Q6_K MMQ forward `ProblemType`, exact three-key inventory, versionless catalog, strict validation, runtime packed-size checks, and launch support.
 - Add a sibling fixed HIP Q8_1 `F32_D4` producer launcher rather than overloading the incompatible `F16_D4S4` launcher.
 - Add exact installed HIP Q6_K J64/J128 multiply launchers.
 - Extend correctness and independent-reference handling to the Q6_K block and `F32_D4` workspace.

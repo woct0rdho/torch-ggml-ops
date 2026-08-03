@@ -1,6 +1,6 @@
 {
   "ProblemType": {
-    "OperationType": "DenseMMQBackward",
+    "OperationType": "MMQBackward",
     "QuantDataType": "Q6_K",
     "DataTypeA": "BFloat16",
     "DataTypeB": "Q6_K",

@@ -4,7 +4,7 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
-from .model import DenseForwardSolution, SolutionKey
+from .model import ForwardSolution, SolutionKey
 from .toolchain import Toolchain
 from .validation import validate_solution
 
@@ -31,7 +31,7 @@ class _Assembly:
         return "\n".join(self.lines) + "\n"
 
 
-class DenseForwardKernelWriterAssembly:
+class ForwardKernelWriterAssembly:
     """Emit strict packed K-quant/Q8_1 F16_D4S4 forward controls."""
 
     TOTAL_VGPRS = 88
@@ -74,10 +74,8 @@ class DenseForwardKernelWriterAssembly:
                 f"{reason.rule_id}: {reason.message}" for reason in reasons
             )
             raise ForwardKernelWriterError(f"solution rejected: {details}")
-        if not isinstance(solution_key.solution, DenseForwardSolution):
-            raise ForwardKernelWriterError(
-                "forward writer requires DenseForwardSolution"
-            )
+        if not isinstance(solution_key.solution, ForwardSolution):
+            raise ForwardKernelWriterError("forward writer requires ForwardSolution")
         self.solution_key = solution_key
         self.solution = solution_key.solution
         self.toolchain = toolchain
@@ -138,8 +136,7 @@ class DenseForwardKernelWriterAssembly:
             totalSgprs=self.TOTAL_SGPRS,
         )
         signature.addDescriptionTopic(
-            f"GGTensile {self._quant_type()} dense MMQ forward, "
-            "fixed Q8_1 F16_D4S4 producer"
+            f"GGTensile {self._quant_type()} MMQ forward, fixed Q8_1 F16_D4S4 producer"
         )
         signature.addArg("packed_weight", SVK.SIG_GLOBALBUFFER, "struct", "generic")
         signature.addArg("activations", SVK.SIG_GLOBALBUFFER, "struct", "generic")
@@ -501,7 +498,7 @@ class DenseForwardKernelWriterAssembly:
     def _uses_retained_decoded_schedule(self) -> bool:
         solution = self.solution
         return (
-            isinstance(solution, DenseForwardSolution)
+            isinstance(solution, ForwardSolution)
             and solution.operand_source == "HipDecodedStagedBatch8"
             and solution.lds_address_hoist == "WeightMetadata"
             and solution.activation_addressing == "MadU24"
@@ -853,7 +850,7 @@ class DenseForwardKernelWriterAssembly:
         serial: int,
     ) -> None:
         solution = self.solution
-        assert isinstance(solution, DenseForwardSolution)
+        assert isinstance(solution, ForwardSolution)
         scheduled = (
             solution.epilogue_tiles_ahead != 8
             or solution.epilogue_dependency_width != 1

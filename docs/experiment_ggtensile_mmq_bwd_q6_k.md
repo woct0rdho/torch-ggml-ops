@@ -1,8 +1,8 @@
-# GGTensile Dense MMQ Backward Q6_K Plan
+# GGTensile MMQ Backward Q6_K Plan
 
 ## Purpose
 
-Build and exhaust a strict gfx1151 GGTensile assembly campaign for the three production Q6_K dense-MMQ-backward shapes used by the Qwen language-model head. The result must decode the authoritative packed GGUF tensor inside the fused kernel, beat the existing HIP kernel on every selected exact key, and continue until no new valid in-contract optimization mechanism remains.
+Build and exhaust a strict gfx1151 GGTensile assembly campaign for the three production Q6_K MMQ backward shapes used by the Qwen language-model head. The result must decode the authoritative packed GGUF tensor inside the fused kernel, beat the existing HIP kernel on every selected exact key, and continue until no new valid in-contract optimization mechanism remains.
 
 Q6_K is a separate quant backend from Q3_K, Q4_K, Q5_K, and Q8_0. It may reuse quant-neutral A addressing, decoded-B LDS staging, WMMA issue, synchronization, stores, diagnostics, inspection, and immutable campaign phases. It must own its 210-byte block addressing, split low/high payload extraction, signed 8-bit scale handling, FP16 block multiplier, register lifetimes, load strategy, and tuning identity.
 
@@ -11,7 +11,7 @@ The final review rule is recursive: any newly actionable mechanism invalidates t
 ## Contract
 
 Target only:
-- gfx1151, wave32, WMMA V1, and the existing 40-byte dense-backward kernarg ABI.
+- gfx1151, wave32, WMMA V1, and the existing 40-byte MMQ backward kernarg ABI.
 - BF16 grad output and grad input, FP32 accumulation, and packed GGUF Q6_K weights.
 - Fused in-kernel decode with no prepared weights, dense shadows, external decode workspace, hidden cache, split-K, persistent workgroups, or grouped MMQ.
 - One exact `ProblemType` and one exact `ProblemSize` per artifact.
@@ -20,7 +20,7 @@ Target only:
 - Bit-exact HIP equality, independent-reference behavior, grad-output mutation, and packed-weight mutation for retained kernels.
 - Zero private storage, spills, scratch instructions, calls, and dynamic stack.
 
-Dense backward coordinates are:
+MMQ backward coordinates are:
 
 ```text
 M = rows

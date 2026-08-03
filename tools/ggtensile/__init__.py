@@ -2,36 +2,36 @@
 
 from .inspection import ArtifactInspection, InspectionError, inspect_artifact
 from .model import (
-    DenseForwardSolution,
+    BackwardSolution,
+    ForwardSolution,
     KernelArtifact,
     ProblemSize,
     ProblemType,
-    Solution,
     SolutionKey,
 )
 from .runtime import (
-    DenseBackwardModule,
-    DenseForwardModule,
-    FixedHipDenseForwardModule,
+    BackwardModule,
+    FixedHipForwardModule,
     FixedQ81F16D4S4QuantizerModule,
+    ForwardModule,
     HIPRuntimeError,
 )
 from .validation import RejectReason, validate_solution
 
 __all__ = [
     "ArtifactInspection",
-    "DenseBackwardModule",
-    "DenseForwardModule",
-    "DenseForwardSolution",
-    "FixedHipDenseForwardModule",
+    "BackwardModule",
+    "BackwardSolution",
+    "FixedHipForwardModule",
     "FixedQ81F16D4S4QuantizerModule",
+    "ForwardModule",
+    "ForwardSolution",
     "HIPRuntimeError",
     "InspectionError",
     "KernelArtifact",
     "ProblemSize",
     "ProblemType",
     "RejectReason",
-    "Solution",
     "SolutionKey",
     "inspect_artifact",
     "validate_solution",

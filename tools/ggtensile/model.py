@@ -97,13 +97,11 @@ class ProblemType:
     )
 
     @classmethod
-    def dense_mmq_backward(cls, quant_data_type: str) -> Self:
+    def mmq_backward(cls, quant_data_type: str) -> Self:
         if quant_data_type not in {"Q3_K", "Q4_K", "Q5_K", "Q6_K", "Q8_0"}:
-            raise ValueError(
-                f"unsupported dense MMQ backward quant type {quant_data_type!r}"
-            )
+            raise ValueError(f"unsupported MMQ backward quant type {quant_data_type!r}")
         return cls(
-            operation_type="DenseMMQBackward",
+            operation_type="MMQBackward",
             quant_data_type=quant_data_type,
             data_type_a="BFloat16",
             data_type_b=quant_data_type,
@@ -114,29 +112,27 @@ class ProblemType:
         )
 
     @classmethod
-    def dense_mmq_backward_q4_k(cls) -> Self:
-        return cls.dense_mmq_backward("Q4_K")
+    def mmq_backward_q4_k(cls) -> Self:
+        return cls.mmq_backward("Q4_K")
 
     @classmethod
-    def dense_mmq_backward_q5_k(cls) -> Self:
-        return cls.dense_mmq_backward("Q5_K")
+    def mmq_backward_q5_k(cls) -> Self:
+        return cls.mmq_backward("Q5_K")
 
     @classmethod
-    def dense_mmq_backward_q6_k(cls) -> Self:
-        return cls.dense_mmq_backward("Q6_K")
+    def mmq_backward_q6_k(cls) -> Self:
+        return cls.mmq_backward("Q6_K")
 
     @classmethod
-    def dense_mmq_backward_q8_0(cls) -> Self:
-        return cls.dense_mmq_backward("Q8_0")
+    def mmq_backward_q8_0(cls) -> Self:
+        return cls.mmq_backward("Q8_0")
 
     @classmethod
-    def dense_mmq_forward(cls, quant_data_type: str) -> Self:
+    def mmq_forward(cls, quant_data_type: str) -> Self:
         if quant_data_type not in {"Q4_K", "Q5_K"}:
-            raise ValueError(
-                f"unsupported dense MMQ forward quant type {quant_data_type!r}"
-            )
+            raise ValueError(f"unsupported MMQ forward quant type {quant_data_type!r}")
         return cls(
-            operation_type="DenseMMQForward",
+            operation_type="MMQForward",
             quant_data_type=quant_data_type,
             data_type_a="Q8_1",
             data_type_b=quant_data_type,
@@ -147,12 +143,12 @@ class ProblemType:
         )
 
     @classmethod
-    def dense_mmq_forward_q4_k(cls) -> Self:
-        return cls.dense_mmq_forward("Q4_K")
+    def mmq_forward_q4_k(cls) -> Self:
+        return cls.mmq_forward("Q4_K")
 
     @classmethod
-    def dense_mmq_forward_q5_k(cls) -> Self:
-        return cls.dense_mmq_forward("Q5_K")
+    def mmq_forward_q5_k(cls) -> Self:
+        return cls.mmq_forward("Q5_K")
 
     @classmethod
     def from_mapping(cls, value: object) -> Self:
@@ -205,7 +201,9 @@ class ProblemSize:
 
 
 @dataclass(frozen=True)
-class Solution:
+class BackwardSolution:
+    """Strict MMQ backward control. Fields name only implemented mechanisms."""
+
     kernel_language: str
     isa: tuple[int, int, int]
     wavefront_size: int
@@ -435,8 +433,8 @@ class Solution:
 
 
 @dataclass(frozen=True)
-class DenseForwardSolution:
-    """Strict dense forward control; fields name only implemented mechanisms."""
+class ForwardSolution:
+    """Strict MMQ forward control. Fields name only implemented mechanisms."""
 
     kernel_language: str
     isa: tuple[int, int, int]
@@ -850,7 +848,7 @@ class DenseForwardSolution:
 class SolutionKey:
     problem_type: ProblemType
     problem_size: ProblemSize
-    solution: Solution | DenseForwardSolution
+    solution: BackwardSolution | ForwardSolution
 
     _KEYS: ClassVar[frozenset[str]] = frozenset(
         {"ProblemType", "ProblemSize", "Solution"}
@@ -861,9 +859,9 @@ class SolutionKey:
         item = _strict_mapping(value, name="SolutionKey", keys=cls._KEYS)
         problem_type = ProblemType.from_mapping(item["ProblemType"])
         solution_type = (
-            DenseForwardSolution
-            if problem_type.operation_type == "DenseMMQForward"
-            else Solution
+            ForwardSolution
+            if problem_type.operation_type == "MMQForward"
+            else BackwardSolution
         )
         return cls(
             problem_type=problem_type,
@@ -899,9 +897,7 @@ class SolutionKey:
         size = self.problem_size
         quant_type = self.problem_type.quant_data_type.lower()
         operation = (
-            "dense_fwd"
-            if self.problem_type.operation_type == "DenseMMQForward"
-            else "dense_bwd"
+            "mmq_fwd" if self.problem_type.operation_type == "MMQForward" else "mmq_bwd"
         )
         return (
             f"torch_ggml_ops_ggtensile_gfx1151_v1_{operation}_"
