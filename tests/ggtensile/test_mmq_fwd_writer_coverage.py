@@ -35,6 +35,28 @@ def test_writer_rejects_backward_solution_schema(
         ForwardKernelWriterAssembly(key, Toolchain.discover())
 
 
+@pytest.mark.parametrize("macro_tile0", (64, 128, 256))
+def test_writer_emits_q6_forward_controls(macro_tile0: int) -> None:
+    solution = ForwardSolution.q6_k_decoded_staged(macro_tile0=macro_tile0)
+    key = SolutionKey(
+        ProblemType.mmq_forward("Q6_K"),
+        ProblemSize(macro_tile0, 248320, 2048),
+        solution,
+    )
+    assert validate_solution(key) == ()
+    source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
+    assert "Decode low/high Q6_K planes" in source
+    assert "v_wmma_i32_16x16x16_iu8" in source
+    assert "v_dual_fmac_f32" in source
+    assert "F32_D4" in source
+    if macro_tile0 == 256:
+        assert "v_and_b32 v198, 3, v205" in source
+    elif macro_tile0 == 128:
+        assert "v_lshlrev_b32 v198, 4, v205" in source
+    else:
+        assert "v_lshlrev_b32" in source
+
+
 def test_writer_emits_single_dependency_scheduled_epilogue() -> None:
     solution = ForwardSolution.q5_k_hip_decoded_staged_extraction(
         epilogue_tiles_ahead=1,

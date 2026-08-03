@@ -152,7 +152,9 @@ def inspect_artifact(
     if expected_wmmas is None:
         if isinstance(solution, ForwardSolution):
             expected_wmmas = (
-                32
+                min(solution.macro_tile0, 128) // 16
+                if solution.operand_source == "Q6DecodedStaged"
+                else 32
                 if solution.operand_source == "HipDecodedStagedBatch8"
                 else 128
                 if solution.operand_source
@@ -184,6 +186,8 @@ def inspect_artifact(
         if isinstance(solution, ForwardSolution):
             expected_barriers = (
                 4
+                if solution.operand_source == "Q6DecodedStaged"
+                else 4
                 if solution.operand_source
                 in ("HipStagedBatch8", "HipDecodedStagedBatch8")
                 else 0
@@ -404,7 +408,13 @@ def _validate_forward_metadata(
         ".max_flat_workgroup_size": solution.num_threads,
         ".wavefront_size": solution.wavefront_size,
         ".vgpr_count": (
-            ForwardKernelWriterAssembly.TOTAL_VGPRS_HIP_STAGED
+            (
+                ForwardKernelWriterAssembly.TOTAL_VGPRS_Q6_J64
+                if solution.macro_tile0 == 64
+                else ForwardKernelWriterAssembly.TOTAL_VGPRS_Q6_J128
+            )
+            if solution.operand_source == "Q6DecodedStaged"
+            else ForwardKernelWriterAssembly.TOTAL_VGPRS_HIP_STAGED
             if solution.operand_source in ("HipStagedBatch8", "HipDecodedStagedBatch8")
             else ForwardKernelWriterAssembly.TOTAL_VGPRS_BATCH
             if solution.operand_source == "GlobalWaveBatch4"

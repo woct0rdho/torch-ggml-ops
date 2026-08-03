@@ -92,12 +92,13 @@ def _validate_forward_solution(
     supported_problem_types = {
         ProblemType.mmq_forward("Q4_K"),
         ProblemType.mmq_forward("Q5_K"),
+        ProblemType.mmq_forward("Q6_K"),
     }
     if problem_type not in supported_problem_types:
         _reject(
             reasons,
             "problem_type.forward.unsupported",
-            "MMQ forward requires an exact Q4_K/Q8_1 or Q5_K/Q8_1 problem type",
+            "MMQ forward requires an exact Q4_K, Q5_K, or Q6_K Q8_1 problem type",
             "ProblemType",
             source="ProblemType",
         )
@@ -109,6 +110,44 @@ def _validate_forward_solution(
             "Solution",
             source="SolutionStructs",
         )
+        return
+    if problem_type == ProblemType.mmq_forward("Q6_K"):
+        expected_macro_tile0 = problem_size.m
+        if expected_macro_tile0 not in (64, 128, 256):
+            expected_macro_tile0 = (
+                solution.macro_tile0 if solution.macro_tile0 in (64, 128, 256) else 64
+            )
+        expected = ForwardSolution.q6_k_decoded_staged(macro_tile0=expected_macro_tile0)
+        if solution != expected:
+            _reject(
+                reasons,
+                "solution.forward.q6.control.unimplemented",
+                "Q6_K forward requires the exact decoded-staged J64/J128/J256 control",
+                "Solution",
+            )
+            return
+        if problem_size not in (
+            ProblemSize(64, 248320, 2048),
+            ProblemSize(128, 248320, 2048),
+            ProblemSize(256, 248320, 2048),
+        ):
+            _reject(
+                reasons,
+                "problem_size.forward.q6.production",
+                "Q6_K forward requires exact M64, M128, or M256 LM-head keys",
+                "M",
+                "N",
+                "K",
+                source="ProblemSize",
+            )
+        if problem_size.m % solution.macro_tile0:
+            _reject(
+                reasons,
+                "problem_size.m.forward_tile_multiple",
+                f"M must be a positive multiple of {solution.macro_tile0}",
+                "M",
+                source="ProblemSize",
+            )
         return
     if problem_type == ProblemType.mmq_forward("Q5_K"):
         q5_retained = ForwardSolution.q5_k_hip_decoded_staged_retained()

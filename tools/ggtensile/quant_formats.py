@@ -20,3 +20,4 @@ QUANT_FORMATS: Mapping[str, QuantFormat] = MappingProxyType(
 )
 
 Q8_1_F16_D4S4_BLOCK_BYTES = 144
+Q8_1_F32_D4_BLOCK_BYTES = 144

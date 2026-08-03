@@ -9,7 +9,11 @@ import torch
 from typing_extensions import Self
 
 from .model import BackwardSolution, ForwardSolution, SolutionKey
-from .quant_formats import Q8_1_F16_D4S4_BLOCK_BYTES, QUANT_FORMATS
+from .quant_formats import (
+    Q8_1_F16_D4S4_BLOCK_BYTES,
+    Q8_1_F32_D4_BLOCK_BYTES,
+    QUANT_FORMATS,
+)
 from .validation import validate_solution
 
 
@@ -252,7 +256,7 @@ class ForwardModule(_SolutionHIPModule):
         if output.dtype != torch.bfloat16:
             raise HIPRuntimeError("output must be BF16")
         quant_type = self.solution_key.problem_type.quant_data_type
-        if quant_type not in {"Q4_K", "Q5_K"}:
+        if quant_type not in {"Q4_K", "Q5_K", "Q6_K"}:
             raise HIPRuntimeError("unsupported MMQ forward quant type")
         quant_format = QUANT_FORMATS[quant_type]
         expected_weight_bytes = (
@@ -260,10 +264,15 @@ class ForwardModule(_SolutionHIPModule):
         )
         if packed_weight.numel() != expected_weight_bytes:
             raise HIPRuntimeError("packed_weight size does not match ProblemSize")
+        activation_block_bytes = (
+            Q8_1_F32_D4_BLOCK_BYTES
+            if quant_type == "Q6_K"
+            else Q8_1_F16_D4S4_BLOCK_BYTES
+        )
         expected_activation_shape = (
             size.k // 128,
             size.m,
-            Q8_1_F16_D4S4_BLOCK_BYTES,
+            activation_block_bytes,
         )
         if tuple(activations.shape) != expected_activation_shape:
             raise HIPRuntimeError(
@@ -331,6 +340,7 @@ class FixedHipForwardModule(ForwardModule):
         allowed_k = {
             "Q4_K": (512, 2048, 4096),
             "Q5_K": (512, 2048),
+            "Q6_K": (2048,),
         }.get(quant_type)
         if allowed_k is None or k not in allowed_k:
             raise HIPRuntimeError(
@@ -339,8 +349,9 @@ class FixedHipForwardModule(ForwardModule):
         symbol_quant = quant_type.lower()
         # The installed bundle ABI explicitly contrasts ordinary (`dense_fwd`) and
         # grouped entry points, so preserve its external symbol spelling here.
+        j = 64 if quant_type == "Q6_K" and solution_key.problem_size.m == 64 else 128
         symbol = (
-            f"torch_ggml_ops_mmq_gfx1151_v1_dense_fwd_{symbol_quant}_k{k}_j128_full"
+            f"torch_ggml_ops_mmq_gfx1151_v1_dense_fwd_{symbol_quant}_k{k}_j{j}_full"
         )
         super().__init__(
             solution_key,
@@ -353,7 +364,13 @@ class FixedHipForwardModule(ForwardModule):
         self,
     ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
         size = self.solution_key.problem_size
-        return ((size.n // 64, size.m // 128, 1), (32, 4, 1), 38_400)
+        j = (
+            64
+            if self.solution_key.problem_type.quant_data_type == "Q6_K" and size.m == 64
+            else 128
+        )
+        lds_bytes = 28_928 if j == 64 else 38_400
+        return ((size.n // 64, size.m // j, 1), (32, 4, 1), lds_bytes)
 
 
 class FixedQ81F16D4S4QuantizerModule(_HIPModule):
@@ -440,6 +457,87 @@ class FixedQ81F16D4S4QuantizerModule(_HIPModule):
         )
 
 
+class FixedQ81F32D4QuantizerModule(_HIPModule):
+    """Direct launcher for the installed HIP Q8_1 F32_D4 producer."""
+
+    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f32_d4"
+
+    def __init__(
+        self,
+        code_object: Path | None = None,
+        hip_library: Path | None = None,
+    ) -> None:
+        selected = code_object or _find_installed_kernel(self.SYMBOL)
+        super().__init__(selected, hip_library, self.SYMBOL)
+
+    def allocate(self, input_tensor: torch.Tensor) -> torch.Tensor:
+        if input_tensor.ndim != 2 or input_tensor.shape[1] % 128:
+            raise HIPRuntimeError(
+                "quantizer input must be [rows, K] with K divisible by 128"
+            )
+        rows, k = input_tensor.shape
+        return torch.empty(
+            (k // 128, rows, Q8_1_F32_D4_BLOCK_BYTES),
+            dtype=torch.uint8,
+            device=input_tensor.device,
+        )
+
+    def launch(
+        self,
+        input_tensor: torch.Tensor,
+        output: torch.Tensor,
+        *,
+        stream: int,
+    ) -> None:
+        if not self._module or not self._function:
+            raise HIPRuntimeError("HIP module is closed")
+        if not input_tensor.is_cuda or not output.is_cuda:
+            raise HIPRuntimeError("quantizer tensors must be on a HIP device")
+        if not input_tensor.is_contiguous() or not output.is_contiguous():
+            raise HIPRuntimeError("quantizer tensors must be contiguous")
+        if input_tensor.dtype != torch.bfloat16 or output.dtype != torch.uint8:
+            raise HIPRuntimeError("quantizer requires BF16 input and uint8 output")
+        if input_tensor.ndim != 2:
+            raise HIPRuntimeError("quantizer input must be two-dimensional")
+        rows, k = input_tensor.shape
+        expected_shape = (k // 128, rows, Q8_1_F32_D4_BLOCK_BYTES)
+        if k % 128 or tuple(output.shape) != expected_shape:
+            raise HIPRuntimeError(
+                "quantizer output does not match the Q8_1 F32_D4 contract"
+            )
+        if input_tensor.device != output.device:
+            raise HIPRuntimeError("quantizer tensors must be on the same device")
+        arguments = (
+            ctypes.c_uint64(input_tensor.data_ptr()),
+            ctypes.c_uint64(output.data_ptr()),
+            ctypes.c_int64(rows),
+            ctypes.c_int64(rows),
+            ctypes.c_int64(k),
+        )
+        parameters = (ctypes.c_void_p * len(arguments))(
+            *(
+                ctypes.cast(ctypes.byref(argument), ctypes.c_void_p)
+                for argument in arguments
+            )
+        )
+        self._check(
+            self._lib.hipModuleLaunchKernel(
+                self._function,
+                rows,
+                1,
+                1,
+                512,
+                1,
+                1,
+                0,
+                ctypes.c_void_p(stream),
+                parameters,
+                None,
+            ),
+            "hipModuleLaunchKernel",
+        )
+
+
 def _find_hip_library() -> Path:
     override = os.environ.get("GGTENSILE_HIP_LIBRARY")
     if override:
@@ -462,6 +560,8 @@ def _find_installed_kernel(symbol: str) -> Path:
     override_name = (
         "GGTENSILE_Q8_1_F16_D4S4_CODE_OBJECT"
         if symbol == FixedQ81F16D4S4QuantizerModule.SYMBOL
+        else "GGTENSILE_Q8_1_F32_D4_CODE_OBJECT"
+        if symbol == FixedQ81F32D4QuantizerModule.SYMBOL
         else "GGTENSILE_HIP_FORWARD_CODE_OBJECT"
     )
     override = os.environ.get(override_name)

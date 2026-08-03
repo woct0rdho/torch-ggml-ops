@@ -222,6 +222,8 @@ Experiment-specific problem definitions, ABI details, production inventories, se
 
 Completed MMQ backward campaign records cover [Q3_K](experiment_ggtensile_mmq_bwd_q3_k.md), [Q4_K](experiment_ggtensile_mmq_bwd_q4_k.md), [Q5_K](experiment_ggtensile_mmq_bwd_q5_k.md), [Q6_K](experiment_ggtensile_mmq_bwd_q6_k.md), and [Q8_0](experiment_ggtensile_mmq_bwd_q8_0.md). Each document is authoritative only for its own exact keys and must not be generalized to another operation, quant format, shape family, or architecture without measurement. These five campaigns cover the required MMQ backward format inventory.
 
+The Q6_K forward campaign now has strict exact-key infrastructure and decoded-staged controls for M64, M128, and M256 under [its experiment record](experiment_ggtensile_mmq_fwd_q6_k.md). All three controls are bit-exact to the installed HIP multiply path and pass independent-reference and mutation checks; the M256 flat eight-wave shared-weight ownership is cataloged separately. Current timing evidence remains diagnostic: two warmed confirmations measure approximately `0.84x`, `0.93x`, and `0.96x` of HIP for M64, M128, and M256, so performance promotion and the campaign-specific recursive exhaustion review remain open. This does not change the Q4_K/Q5_K or backward generated sources.
+
 ## Integration And Expansion
 
 Each artifact uses a separate exact-problem symbol and does not replace an existing range symbol. Production dispatch may select an assembly artifact only when every `ProblemType`, `ProblemSize`, ABI, architecture, and source-identity assertion matches; otherwise it uses the existing implementation. Cross-shape correctness is deliberately outside an exact artifact's contract.

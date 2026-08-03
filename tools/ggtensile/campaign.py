@@ -83,6 +83,14 @@ _MMQ_FWD_CAMPAIGN_SPECS: dict[str, _CampaignSpec] = {
             "shared_down": ((2048, 512), "blk.0.ffn_down_shexp.weight", 10),
         },
     },
+    "Q6_K": {
+        "families": {
+            "lm_head": ((248320, 2048), "output.weight", 1),
+        },
+        "m_values": {
+            "lm_head": (64, 128, 256),
+        },
+    },
 }
 
 
@@ -269,7 +277,11 @@ def load_inventory(path: Path) -> CampaignInventory:
             "RequireInputMutation": True,
             "RequirePackedWeightMutation": True,
             "RequireWorkspaceMutation": True,
-            "FixedActivationProducer": "HIP_Q8_1_F16_D4S4",
+            "FixedActivationProducer": (
+                "HIP_Q8_1_F32_D4"
+                if problem_type.quant_data_type == "Q6_K"
+                else "HIP_Q8_1_F16_D4S4"
+            ),
         }
     else:
         validation_expected = {

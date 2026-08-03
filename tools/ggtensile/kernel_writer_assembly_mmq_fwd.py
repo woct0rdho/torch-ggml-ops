@@ -13,7 +13,11 @@ from .kernel_writer_assembly import (
     write_assembly_source,
 )
 from .model import ForwardSolution, SolutionKey
-from .quant_formats import Q8_1_F16_D4S4_BLOCK_BYTES, QUANT_FORMATS
+from .quant_formats import (
+    Q8_1_F16_D4S4_BLOCK_BYTES,
+    Q8_1_F32_D4_BLOCK_BYTES,
+    QUANT_FORMATS,
+)
 from .toolchain import Toolchain
 from .validation import validate_solution
 
@@ -29,6 +33,8 @@ class ForwardKernelWriterAssembly:
     TOTAL_VGPRS_REUSE = 164
     TOTAL_VGPRS_BATCH = 194
     TOTAL_VGPRS_HIP_STAGED = 239
+    TOTAL_VGPRS_Q6_J64 = 124
+    TOTAL_VGPRS_Q6_J128 = 208
     TOTAL_SGPRS = 16
 
     C = 0
@@ -99,7 +105,8 @@ class ForwardKernelWriterAssembly:
             totalSgprs=self.TOTAL_SGPRS,
         )
         signature.addDescriptionTopic(
-            f"GGTensile {self._quant_type()} MMQ forward, fixed Q8_1 F16_D4S4 producer"
+            f"GGTensile {self._quant_type()} MMQ forward, fixed Q8_1 "
+            f"{self.solution.activation_layout} producer"
         )
         signature.addArg("packed_weight", SVK.SIG_GLOBALBUFFER, "struct", "generic")
         signature.addArg("activations", SVK.SIG_GLOBALBUFFER, "struct", "generic")
@@ -115,6 +122,8 @@ class ForwardKernelWriterAssembly:
         return str(module)
 
     def _body(self) -> str:
+        if self.solution.operand_source == "Q6DecodedStaged":
+            return self._body_q6_decoded_staged()
         if self._uses_hip_staged():
             return self._body_hip_staged()
         if self._uses_wave_reuse():
@@ -222,6 +231,701 @@ class ForwardKernelWriterAssembly:
         self._emit_store(asm)
         emit_kernel_trailer(asm, name)
         return asm.text()
+
+    def _body_q6_decoded_staged(self) -> str:
+        asm = Assembly()
+        solution = self.solution
+        size = self.solution_key.problem_size
+        name = self.solution_key.kernel_name
+        tile_count = min(solution.macro_tile0, 128) // 16
+        num_threads = solution.num_threads
+        activation_bytes = solution.macro_tile0 * Q8_1_F32_D4_BLOCK_BYTES
+        activation_plane_stride = size.m * Q8_1_F32_D4_BLOCK_BYTES
+        weight_lds_base = activation_bytes
+
+        zero = 0
+        sum_base = 8
+        weight_q = sum_base + 8 * tile_count
+        activation_q = weight_q + 4
+        activation_d = activation_q + 4 * tile_count
+        weight_d = activation_d + tile_count
+        first_scale = weight_d + 8
+        c_base = first_scale + 8
+        temporary = c_base + 8 * tile_count
+        global_address = temporary + 1
+        lds_address = temporary + 2
+        auxiliary = temporary + 3
+        auxiliary_2 = temporary + 4
+        qh_shift = temporary + 5
+        q_lds_offset = temporary + 6
+        lane = temporary + 7
+        output_lane = temporary + 8
+        wave = temporary + 9
+        serial = temporary + 10
+        activation_plane_address = temporary + 11
+
+        asm.comment("Load packed Q6_K, Q8_1 F32_D4 workspace, and output pointers.")
+        emit_pointer_kernarg_loads(asm, self.KERNARG)
+        asm.inst(f"v_mov_b32 v{serial}, v0")
+        asm.inst(f"v_and_b32 v{lane}, 31, v{serial}")
+        asm.inst(f"v_and_b32 v{output_lane}, 15, v{serial}")
+        asm.inst(f"v_lshrrev_b32 v{wave}, 5, v{serial}")
+        if solution.macro_tile0 == 256:
+            asm.inst(f"v_lshrrev_b32 v{temporary}, 2, v{wave}")
+            asm.inst(f"v_lshlrev_b32 v{temporary}, 7, v{temporary}")
+            asm.inst(f"v_add_nc_u32 v{output_lane}, v{temporary}, v{output_lane}")
+        asm.inst(
+            f"v_lshlrev_b32 v{temporary}, {solution.macro_tile0.bit_length() - 1}, s3"
+        )
+        asm.inst(
+            f"v_mul_lo_u32 v{activation_plane_address}, "
+            f"{Q8_1_F32_D4_BLOCK_BYTES}, v{temporary}"
+        )
+        asm.inst(f"v_lshlrev_b32 v{temporary}, 2, v{serial}")
+        asm.inst(
+            f"v_add_nc_u32 v{activation_plane_address}, v{temporary}, "
+            f"v{activation_plane_address}"
+        )
+        for register in range(zero, sum_base + 8 * tile_count):
+            asm.inst(f"v_mov_b32 v{register}, 0")
+        asm.inst(f"s_mov_b32 s{self.LOOP_COUNTER}, 0")
+        asm.inst(f"s_mov_b32 s{self.SCALAR_TEMPORARY}, 0")
+
+        asm.label(".LForwardQ6KDecodedBlockLoop")
+        self._emit_q6_prefetch_activation(
+            asm,
+            activation_plane_address=activation_plane_address,
+            activation_bytes=activation_bytes,
+            num_threads=num_threads,
+            c_base=c_base,
+            temporary=temporary,
+        )
+        self._emit_q6_stage_decoded_weights(
+            asm,
+            row_stride=size.k // 256 * solution.packed_weight_block_bytes,
+            weight_lds_base=weight_lds_base,
+            c_base=weight_q,
+            temporary=temporary,
+            global_address=global_address,
+            lds_address=lds_address,
+            auxiliary=auxiliary,
+            auxiliary_2=auxiliary_2,
+            qh_shift=qh_shift,
+            q_lds_offset=q_lds_offset,
+            lane=lane,
+            wave=wave,
+            serial=serial,
+            num_waves=num_threads // 32,
+        )
+        self._emit_q6_commit_activation(
+            asm,
+            activation_plane_address=activation_plane_address,
+            activation_plane_stride=activation_plane_stride,
+            activation_bytes=activation_bytes,
+            num_threads=num_threads,
+            c_base=c_base,
+            lds_address=lds_address,
+            serial=serial,
+        )
+        self._emit_q6_load_weight_d(
+            asm,
+            weight_lds_base=weight_lds_base,
+            weight_d=weight_d,
+            temporary=temporary,
+            lds_address=lds_address,
+            auxiliary=auxiliary,
+            wave=wave,
+            serial=serial,
+            wave_mask=3 if solution.macro_tile0 == 256 else None,
+        )
+        asm.inst("s_mov_b32 s13, 0")
+        asm.inst("s_mov_b32 s14, 0")
+        asm.label(".LForwardQ6KDecodedGroupLoop")
+        self._emit_q6_decoded_group(
+            asm,
+            tile_count=tile_count,
+            weight_lds_base=weight_lds_base,
+            zero=zero,
+            sum_base=sum_base,
+            weight_q=weight_q,
+            activation_q=activation_q,
+            activation_d=activation_d,
+            weight_d=weight_d,
+            first_scale=first_scale,
+            c_base=c_base,
+            activation_plane_address=activation_plane_address,
+            activation_bytes=activation_bytes,
+            num_threads=num_threads,
+            temporary=temporary,
+            lds_address=lds_address,
+            auxiliary=auxiliary,
+            output_lane=output_lane,
+            wave=wave,
+            serial=serial,
+            wave_mask=3 if solution.macro_tile0 == 256 else None,
+        )
+        asm.inst("s_add_u32 s13, s13, 1")
+        asm.inst("s_add_u32 s14, s14, 1")
+        asm.inst("s_cmp_eq_u32 s13, 8")
+        asm.inst("s_cbranch_scc0 .LForwardQ6KActivationPlaneReady")
+        asm.inst("s_barrier")
+        self._emit_q6_commit_split_activation(
+            asm,
+            activation_plane_address=activation_plane_address,
+            activation_plane_stride=activation_plane_stride,
+            activation_bytes=activation_bytes,
+            num_threads=num_threads,
+            first_base=activation_q,
+            first_count=4 * tile_count,
+            second_base=weight_q,
+            lds_address=lds_address,
+            serial=serial,
+        )
+        asm.inst("s_mov_b32 s14, 0")
+        asm.label(".LForwardQ6KActivationPlaneReady")
+        asm.inst("s_cmp_lt_u32 s13, 16")
+        asm.inst("s_cbranch_scc1 .LForwardQ6KDecodedGroupLoop")
+        asm.inst("s_barrier")
+        asm.inst(
+            f"s_add_u32 s{self.SCALAR_TEMPORARY}, s{self.SCALAR_TEMPORARY}, "
+            f"{solution.packed_weight_block_bytes}"
+        )
+        asm.inst(f"s_add_u32 s{self.LOOP_COUNTER}, s{self.LOOP_COUNTER}, 1")
+        asm.inst(f"s_cmp_lt_u32 s{self.LOOP_COUNTER}, {size.k // 256}")
+        asm.inst("s_cbranch_scc1 .LForwardQ6KDecodedBlockLoop")
+
+        self._emit_q6_store(
+            asm,
+            size_n=size.n,
+            macro_tile0=solution.macro_tile0,
+            tile_count=tile_count,
+            sum_base=sum_base,
+            temporary=temporary,
+            global_address=global_address,
+            auxiliary=auxiliary,
+            output_lane=output_lane,
+            wave=wave,
+            serial=serial,
+            wave_mask=3 if solution.macro_tile0 == 256 else None,
+        )
+        emit_kernel_trailer(asm, name)
+        return asm.text()
+
+    @staticmethod
+    def _emit_q6_sign_extend_packed(
+        asm: Assembly,
+        *,
+        value: int,
+        temporary: int,
+    ) -> None:
+        asm.inst(f"v_xor_b32 v{value}, 0x20202020, v{value}")
+        asm.inst(f"v_and_b32 v{temporary}, 0x20202020, v{value}")
+        asm.inst(f"v_lshl_or_b32 v{value}, v{temporary}, 1, v{value}")
+        asm.inst(f"v_lshl_or_b32 v{value}, v{temporary}, 2, v{value}")
+
+    def _emit_q6_stage_decoded_weights(
+        self,
+        asm: Assembly,
+        *,
+        row_stride: int,
+        weight_lds_base: int,
+        c_base: int,
+        temporary: int,
+        global_address: int,
+        lds_address: int,
+        auxiliary: int,
+        auxiliary_2: int,
+        qh_shift: int,
+        q_lds_offset: int,
+        lane: int,
+        wave: int,
+        serial: int,
+        num_waves: int,
+    ) -> None:
+        asm.comment("Decode low/high Q6_K planes into signed int8 LDS rows.")
+        asm.inst(f"v_and_b32 v{auxiliary}, 7, v{lane}")
+        asm.inst(f"v_bfe_u32 v{auxiliary_2}, v{lane}, 4, 1")
+        asm.inst(f"v_lshlrev_b32 v{auxiliary_2}, 3, v{auxiliary_2}")
+        asm.inst(f"v_add_nc_u32 v{auxiliary}, v{auxiliary}, v{auxiliary_2}")
+        asm.inst(f"v_lshlrev_b32 v{auxiliary}, 2, v{auxiliary}")
+        asm.inst(f"v_and_b32 v{qh_shift}, 8, v{lane}")
+        asm.inst(f"v_lshrrev_b32 v{qh_shift}, 2, v{qh_shift}")
+        asm.inst(f"v_bfe_u32 v{q_lds_offset}, v{lane}, 4, 1")
+        asm.inst(f"v_lshlrev_b32 v{q_lds_offset}, 4, v{q_lds_offset}")
+        asm.inst(f"v_add_nc_u32 v{q_lds_offset}, v{lane}, v{q_lds_offset}")
+        asm.inst(f"v_lshlrev_b32 v{q_lds_offset}, 2, v{q_lds_offset}")
+        for batch in range(16 // num_waves):
+            asm.inst(f"v_lshlrev_b32 v{temporary}, 6, s2")
+            asm.inst(
+                f"v_add_nc_u32 v{temporary}, {4 * num_waves * batch}, v{temporary}"
+            )
+            asm.inst(f"v_add_nc_u32 v{temporary}, v{wave}, v{temporary}")
+            asm.inst(f"v_mul_lo_u32 v{global_address}, {row_stride}, v{temporary}")
+            asm.inst(
+                f"v_add_nc_u32 v{global_address}, s{self.SCALAR_TEMPORARY}, "
+                f"v{global_address}"
+            )
+            asm.inst(f"v_lshlrev_b32 v{auxiliary_2}, 2, v{lane}")
+            for item in range(4):
+                raw = c_base + 2 * item
+                asm.inst(
+                    f"v_add_nc_u32 v{temporary}, v{global_address}, v{auxiliary_2}"
+                )
+                asm.inst(
+                    f"global_load_b32 v{raw}, v{temporary}, "
+                    f"s[{self.KERNARG}:{self.KERNARG + 1}]"
+                )
+                asm.inst(
+                    f"v_add3_u32 v{temporary}, 128, v{global_address}, v{auxiliary}"
+                )
+                asm.inst(
+                    f"global_load_b32 v{raw + 1}, v{temporary}, "
+                    f"s[{self.KERNARG}:{self.KERNARG + 1}]"
+                )
+                if item != 3:
+                    asm.inst(
+                        f"v_add_nc_u32 v{global_address}, "
+                        f"{num_waves * row_stride}, "
+                        f"v{global_address}"
+                    )
+            asm.inst(
+                f"v_mov_b32 v{lds_address}, "
+                f"{weight_lds_base + 1216 * num_waves * batch}"
+            )
+            asm.inst(f"v_mad_u32_u24 v{lds_address}, 304, v{wave}, v{lds_address}")
+            asm.inst(f"v_add_nc_u32 v{lds_address}, v{q_lds_offset}, v{lds_address}")
+            for item in range(4):
+                raw = c_base + 2 * item
+                low_high = raw + 1
+                asm.inst(f"s_waitcnt vmcnt({6 - 2 * item})")
+                asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{raw}")
+                asm.inst(f"v_and_b32 v{raw}, 0x0f0f0f0f, v{raw}")
+                asm.inst(f"v_and_b32 v{temporary}, 0x0f0f0f0f, v{temporary}")
+                asm.inst(f"v_lshrrev_b32 v{low_high}, v{qh_shift}, v{low_high}")
+                asm.inst(f"v_lshlrev_b32 v{auxiliary_2}, 4, v{low_high}")
+                asm.inst(f"v_and_b32 v{auxiliary_2}, 0x30303030, v{auxiliary_2}")
+                asm.inst(f"v_and_b32 v{low_high}, 0x30303030, v{low_high}")
+                asm.inst(f"v_or_b32 v{raw}, v{raw}, v{auxiliary_2}")
+                asm.inst(f"v_or_b32 v{temporary}, v{temporary}, v{low_high}")
+                self._emit_q6_sign_extend_packed(asm, value=raw, temporary=auxiliary_2)
+                self._emit_q6_sign_extend_packed(
+                    asm, value=temporary, temporary=auxiliary_2
+                )
+                asm.inst(f"ds_write_b32 v{lds_address}, v{raw}")
+                asm.inst(f"ds_write_b32 v{lds_address}, v{temporary} offset:64")
+                if item != 3:
+                    asm.inst(
+                        f"v_add_nc_u32 v{lds_address}, {304 * num_waves}, "
+                        f"v{lds_address}"
+                    )
+        asm.comment("Stage Q6_K FP32 d and packed signed scales for 64 weight rows.")
+        asm.inst(f"v_readfirstlane_b32 s12, v{wave}")
+        asm.inst("s_cmp_lt_u32 s12, 2")
+        asm.inst("s_cbranch_scc0 .LForwardQ6KMetadataStageDone")
+        asm.inst(f"v_lshlrev_b32 v{temporary}, 6, s2")
+        asm.inst(f"v_add_nc_u32 v{temporary}, v{serial}, v{temporary}")
+        asm.inst(f"v_mul_lo_u32 v{global_address}, {row_stride}, v{temporary}")
+        asm.inst(
+            f"v_add_nc_u32 v{global_address}, s{self.SCALAR_TEMPORARY}, "
+            f"v{global_address}"
+        )
+        asm.inst(
+            f"global_load_b128 v[{c_base}:{c_base + 3}], v{global_address}, "
+            f"s[{self.KERNARG}:{self.KERNARG + 1}] offset:192"
+        )
+        asm.inst(
+            f"global_load_d16_b16 v{c_base + 4}, v{global_address}, "
+            f"s[{self.KERNARG}:{self.KERNARG + 1}] offset:208"
+        )
+        asm.inst("s_waitcnt vmcnt(0)")
+        asm.inst(f"v_cvt_f32_f16_e64 v{c_base + 4}, v{c_base + 4}.l")
+        asm.inst(f"v_mul_lo_u32 v{lds_address}, 304, v{serial}")
+        asm.inst(
+            f"v_add_nc_u32 v{lds_address}, {weight_lds_base + 256}, v{lds_address}"
+        )
+        asm.inst(f"ds_write_b32 v{lds_address}, v{c_base + 4}")
+        asm.inst(f"ds_write_b128 v{lds_address}, v[{c_base}:{c_base + 3}] offset:4")
+        asm.label(".LForwardQ6KMetadataStageDone")
+        asm.inst("s_waitcnt lgkmcnt(0)")
+
+    def _emit_q6_prefetch_activation(
+        self,
+        asm: Assembly,
+        *,
+        activation_plane_address: int,
+        activation_bytes: int,
+        num_threads: int,
+        c_base: int,
+        temporary: int,
+    ) -> None:
+        dwords_per_thread = activation_bytes // (num_threads * 4)
+        chunk_width = 4096 // (num_threads * 4)
+        asm.comment("Prefetch one exact Q8_1 F32_D4 activation plane.")
+        for chunk_start in range(0, dwords_per_thread, chunk_width):
+            chunk_count = min(chunk_width, dwords_per_thread - chunk_start)
+            asm.inst(
+                f"v_add_nc_u32 v{temporary}, "
+                f"{4 * num_threads * chunk_start}, "
+                f"v{activation_plane_address}"
+            )
+            for item in range(chunk_count):
+                asm.inst(
+                    f"global_load_b32 v{c_base + chunk_start + item}, "
+                    f"v{temporary}, s[{self.KERNARG + 2}:{self.KERNARG + 3}] "
+                    f"offset:{4 * num_threads * item}"
+                )
+
+    def _emit_q6_commit_activation(
+        self,
+        asm: Assembly,
+        *,
+        activation_plane_address: int,
+        activation_plane_stride: int,
+        activation_bytes: int,
+        num_threads: int,
+        c_base: int,
+        lds_address: int,
+        serial: int,
+    ) -> None:
+        dwords_per_thread = activation_bytes // (num_threads * 4)
+        asm.comment("Commit the prefetched Q8_1 plane at LDS offset 0.")
+        asm.inst(f"v_lshlrev_b32 v{lds_address}, 2, v{serial}")
+        for item in range(0, dwords_per_thread, 2):
+            asm.inst(f"s_waitcnt vmcnt({dwords_per_thread - item - 2})")
+            asm.inst(
+                f"ds_write2st64_b32 v{lds_address}, v{c_base + item}, "
+                f"v{c_base + item + 1} "
+                f"offset0:{num_threads // 64 * item} "
+                f"offset1:{num_threads // 64 * (item + 1)}"
+            )
+        asm.inst("s_waitcnt lgkmcnt(0)")
+        asm.inst("s_barrier")
+        asm.inst(
+            f"v_add_nc_u32 v{activation_plane_address}, "
+            f"{activation_plane_stride}, v{activation_plane_address}"
+        )
+
+    def _emit_q6_prefetch_split_activation(
+        self,
+        asm: Assembly,
+        *,
+        activation_plane_address: int,
+        activation_bytes: int,
+        num_threads: int,
+        first_base: int,
+        first_count: int,
+        second_base: int,
+        temporary: int,
+    ) -> None:
+        dwords_per_thread = activation_bytes // (num_threads * 4)
+        chunk_width = 4096 // (num_threads * 4)
+        asm.comment("Prefetch the next Q8_1 plane into retired operand VGPRs.")
+        for chunk_start in range(0, dwords_per_thread, chunk_width):
+            chunk_count = min(chunk_width, dwords_per_thread - chunk_start)
+            asm.inst(
+                f"v_add_nc_u32 v{temporary}, "
+                f"{4 * num_threads * chunk_start}, "
+                f"v{activation_plane_address}"
+            )
+            for item in range(chunk_count):
+                index = chunk_start + item
+                register = (
+                    first_base + index
+                    if index < first_count
+                    else second_base + index - first_count
+                )
+                asm.inst(
+                    f"global_load_b32 v{register}, v{temporary}, "
+                    f"s[{self.KERNARG + 2}:{self.KERNARG + 3}] "
+                    f"offset:{4 * num_threads * item}"
+                )
+
+    def _emit_q6_commit_split_activation(
+        self,
+        asm: Assembly,
+        *,
+        activation_plane_address: int,
+        activation_plane_stride: int,
+        activation_bytes: int,
+        num_threads: int,
+        first_base: int,
+        first_count: int,
+        second_base: int,
+        lds_address: int,
+        serial: int,
+    ) -> None:
+        dwords_per_thread = activation_bytes // (num_threads * 4)
+        asm.comment("Commit the overlapped Q8_1 plane at LDS offset 0.")
+        asm.inst(f"v_lshlrev_b32 v{lds_address}, 2, v{serial}")
+        for item in range(0, dwords_per_thread, 2):
+            first_register = (
+                first_base + item
+                if item < first_count
+                else second_base + item - first_count
+            )
+            second_index = item + 1
+            second_register = (
+                first_base + second_index
+                if second_index < first_count
+                else second_base + second_index - first_count
+            )
+            asm.inst(f"s_waitcnt vmcnt({dwords_per_thread - item - 2})")
+            asm.inst(
+                f"ds_write2st64_b32 v{lds_address}, v{first_register}, "
+                f"v{second_register} "
+                f"offset0:{num_threads // 64 * item} "
+                f"offset1:{num_threads // 64 * (item + 1)}"
+            )
+        asm.inst("s_waitcnt lgkmcnt(0)")
+        asm.inst("s_barrier")
+        asm.inst(
+            f"v_add_nc_u32 v{activation_plane_address}, "
+            f"{activation_plane_stride}, v{activation_plane_address}"
+        )
+
+    @staticmethod
+    def _emit_q6_metadata_row_addresses(
+        asm: Assembly,
+        *,
+        weight_lds_base: int,
+        temporary: int,
+        lds_address: int,
+        wave: int,
+        serial: int,
+        wave_mask: int | None,
+    ) -> None:
+        asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{serial}")
+        asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
+        if wave_mask is None:
+            asm.inst(f"v_lshlrev_b32 v{lds_address}, 4, v{wave}")
+        else:
+            asm.inst(f"v_and_b32 v{lds_address}, {wave_mask}, v{wave}")
+            asm.inst(f"v_lshlrev_b32 v{lds_address}, 4, v{lds_address}")
+        asm.inst(f"v_add_nc_u32 v{lds_address}, v{temporary}, v{lds_address}")
+        asm.inst(f"v_mul_lo_u32 v{lds_address}, 304, v{lds_address}")
+        asm.inst(
+            f"v_add_nc_u32 v{lds_address}, {weight_lds_base + 256}, v{lds_address}"
+        )
+        for pair in range(1, 4):
+            asm.inst(
+                f"v_add_nc_u32 v{lds_address + pair}, {1216 * pair}, v{lds_address}"
+            )
+
+    def _emit_q6_load_weight_d(
+        self,
+        asm: Assembly,
+        *,
+        weight_lds_base: int,
+        weight_d: int,
+        temporary: int,
+        lds_address: int,
+        auxiliary: int,
+        wave: int,
+        serial: int,
+        wave_mask: int | None,
+    ) -> None:
+        self._emit_q6_metadata_row_addresses(
+            asm,
+            weight_lds_base=weight_lds_base,
+            temporary=temporary,
+            lds_address=lds_address,
+            wave=wave,
+            serial=serial,
+            wave_mask=wave_mask,
+        )
+        for pair in range(4):
+            asm.inst(
+                f"ds_read2_b32 v[{weight_d + 2 * pair}:{weight_d + 2 * pair + 1}], "
+                f"v{lds_address + pair} offset0:0 offset1:152"
+            )
+
+    def _emit_q6_decoded_group(
+        self,
+        asm: Assembly,
+        *,
+        tile_count: int,
+        weight_lds_base: int,
+        zero: int,
+        sum_base: int,
+        weight_q: int,
+        activation_q: int,
+        activation_d: int,
+        weight_d: int,
+        first_scale: int,
+        c_base: int,
+        activation_plane_address: int,
+        activation_bytes: int,
+        num_threads: int,
+        temporary: int,
+        lds_address: int,
+        auxiliary: int,
+        output_lane: int,
+        wave: int,
+        serial: int,
+        wave_mask: int | None,
+    ) -> None:
+        asm.comment("Accumulate one dynamically selected 16-value Q6_K chunk.")
+        asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{serial}")
+        asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
+        if wave_mask is None:
+            asm.inst(f"v_lshlrev_b32 v{lds_address}, 4, v{wave}")
+        else:
+            asm.inst(f"v_and_b32 v{lds_address}, {wave_mask}, v{wave}")
+            asm.inst(f"v_lshlrev_b32 v{lds_address}, 4, v{lds_address}")
+        asm.inst(f"v_add_nc_u32 v{lds_address}, v{temporary}, v{lds_address}")
+        asm.inst(f"v_mul_lo_u32 v{lds_address}, 304, v{lds_address}")
+        asm.inst(f"v_add_nc_u32 v{lds_address}, s13, v{lds_address}")
+        for element in range(8):
+            asm.inst(
+                f"ds_read_i8 v{first_scale + element}, v{lds_address} "
+                f"offset:{weight_lds_base + 260 + 608 * element}"
+            )
+
+        asm.inst(f"v_and_b32 v{temporary}, 15, v{serial}")
+        if wave_mask is None:
+            asm.inst(f"v_mad_u32_u24 v{temporary}, 16, v{wave}, v{temporary}")
+        else:
+            asm.inst(f"v_and_b32 v{auxiliary}, {wave_mask}, v{wave}")
+            asm.inst(f"v_mad_u32_u24 v{temporary}, 16, v{auxiliary}, v{temporary}")
+        asm.inst(f"v_mul_lo_u32 v{lds_address}, 304, v{temporary}")
+        asm.inst(f"v_lshlrev_b32 v{auxiliary}, 4, s13")
+        asm.inst(f"v_add_nc_u32 v{lds_address}, v{auxiliary}, v{lds_address}")
+        asm.inst(f"v_add_nc_u32 v{lds_address}, {weight_lds_base}, v{lds_address}")
+        asm.inst(f"ds_read_b128 v[{weight_q}:{weight_q + 3}], v{lds_address}")
+
+        asm.inst(f"v_lshlrev_b32 v{lds_address}, 4, s14")
+        asm.inst(f"v_add_nc_u32 v{lds_address}, 16, v{lds_address}")
+        asm.inst(
+            f"v_mad_u32_u24 v{lds_address}, {Q8_1_F32_D4_BLOCK_BYTES}, "
+            f"v{output_lane}, v{lds_address}"
+        )
+        asm.inst(f"v_lshrrev_b32 v{auxiliary}, 1, s14")
+        asm.inst(f"v_lshlrev_b32 v{auxiliary}, 2, v{auxiliary}")
+        asm.inst(
+            f"v_mad_u32_u24 v{auxiliary}, {Q8_1_F32_D4_BLOCK_BYTES}, "
+            f"v{output_lane}, v{auxiliary}"
+        )
+        for tile in range(tile_count):
+            asm.inst(
+                f"ds_read_b128 v[{activation_q + 4 * tile}:"
+                f"{activation_q + 4 * tile + 3}], v{lds_address} "
+                f"offset:{16 * tile * Q8_1_F32_D4_BLOCK_BYTES}"
+            )
+            asm.inst(
+                f"ds_read_b32 v{activation_d + tile}, v{auxiliary} "
+                f"offset:{16 * tile * Q8_1_F32_D4_BLOCK_BYTES}"
+            )
+        for tile in range(tile_count):
+            c_fragment = c_base + 8 * tile
+            activation_fragment = activation_q + 4 * tile
+            asm.inst(f"s_waitcnt lgkmcnt({2 * tile_count - 2 * tile - 1})")
+            asm.inst(
+                f"v_wmma_i32_16x16x16_iu8 v[{c_fragment}:{c_fragment + 7}], "
+                f"v[{weight_q}:{weight_q + 3}], "
+                f"v[{activation_fragment}:{activation_fragment + 3}], "
+                f"v[{zero}:{zero + 7}] neg_lo:[1,1,0]"
+            )
+        asm.inst("s_cmp_eq_u32 s13, 7")
+        asm.inst("s_cbranch_scc0 .LForwardQ6KSecondPlanePrefetchDone")
+        self._emit_q6_prefetch_split_activation(
+            asm,
+            activation_plane_address=activation_plane_address,
+            activation_bytes=activation_bytes,
+            num_threads=num_threads,
+            first_base=activation_q,
+            first_count=4 * tile_count,
+            second_base=weight_q,
+            temporary=temporary,
+        )
+        asm.label(".LForwardQ6KSecondPlanePrefetchDone")
+        for tile in range(tile_count):
+            c_fragment = c_base + 8 * tile
+            for element in range(8):
+                asm.inst(
+                    f"v_mul_lo_u32 v{c_fragment + element}, "
+                    f"v{c_fragment + element}, v{first_scale + element}"
+                )
+        for tile in range(tile_count):
+            c_fragment = c_base + 8 * tile
+            for element in range(8):
+                asm.inst(
+                    f"v_cvt_f32_i32_e32 v{c_fragment + element}, "
+                    f"v{c_fragment + element}"
+                )
+        for tile in range(tile_count):
+            c_fragment = c_base + 8 * tile
+            for element in range(0, 8, 2):
+                asm.inst(
+                    f"v_dual_mul_f32 v{c_fragment + element}, "
+                    f"v{weight_d + element}, v{c_fragment + element} :: "
+                    f"v_dual_mul_f32 v{c_fragment + element + 1}, "
+                    f"v{weight_d + element + 1}, v{c_fragment + element + 1}"
+                )
+        asm.inst("s_waitcnt lgkmcnt(0)")
+        for tile in range(0, tile_count, 2):
+            for element in range(0, 8, 2):
+                for first_element, second_element in (
+                    (element, element + 1),
+                    (element + 1, element),
+                ):
+                    first_total = sum_base + 8 * tile + first_element
+                    second_total = sum_base + 8 * (tile + 1) + second_element
+                    first_c = c_base + 8 * tile + first_element
+                    second_c = c_base + 8 * (tile + 1) + second_element
+                    asm.inst(
+                        f"v_dual_fmac_f32 v{first_total}, "
+                        f"v{activation_d + tile}, v{first_c} :: "
+                        f"v_dual_fmac_f32 v{second_total}, "
+                        f"v{activation_d + tile + 1}, v{second_c}"
+                    )
+
+    def _emit_q6_store(
+        self,
+        asm: Assembly,
+        *,
+        size_n: int,
+        macro_tile0: int,
+        tile_count: int,
+        sum_base: int,
+        temporary: int,
+        global_address: int,
+        auxiliary: int,
+        output_lane: int,
+        wave: int,
+        serial: int,
+        wave_mask: int | None,
+    ) -> None:
+        asm.comment(f"Store the {macro_tile0}x64 row-major BF16 output tile.")
+        asm.inst(f"v_mad_u32_u24 v{temporary}, {macro_tile0}, s3, v{output_lane}")
+        asm.inst(f"v_mul_lo_u32 v{global_address}, {2 * size_n}, v{temporary}")
+        if wave_mask is None:
+            asm.inst(f"v_lshlrev_b32 v{temporary}, 4, v{wave}")
+        else:
+            asm.inst(f"v_and_b32 v{temporary}, {wave_mask}, v{wave}")
+            asm.inst(f"v_lshlrev_b32 v{temporary}, 4, v{temporary}")
+        asm.inst(f"v_lshrrev_b32 v{auxiliary}, 4, v{serial}")
+        asm.inst(f"v_and_b32 v{auxiliary}, 1, v{auxiliary}")
+        asm.inst(f"v_add_nc_u32 v{temporary}, v{temporary}, v{auxiliary}")
+        asm.inst(f"v_lshlrev_b32 v{auxiliary}, 6, s2")
+        asm.inst(f"v_add_nc_u32 v{temporary}, v{temporary}, v{auxiliary}")
+        asm.inst(f"v_lshlrev_b32 v{temporary}, 1, v{temporary}")
+        asm.inst(f"v_add_nc_u32 v{global_address}, v{global_address}, v{temporary}")
+        for tile in range(tile_count):
+            if tile:
+                asm.inst(
+                    f"v_add_nc_u32 v{global_address}, {32 * size_n}, v{global_address}"
+                )
+            for element in range(8):
+                total = sum_base + 8 * tile + element
+                emit_bf16_rne(asm, total, temporary)
+            asm.inst("s_clause 7")
+            for element in range(8):
+                total = sum_base + 8 * tile + element
+                offset = f" offset:{4 * element}" if element else ""
+                asm.inst(
+                    f"global_store_d16_hi_b16 v{global_address}, v{total}, "
+                    f"s[{self.KERNARG + 4}:{self.KERNARG + 5}]{offset}"
+                )
 
     def _emit_hip_stage_decoded_weights(
         self,
@@ -463,6 +1167,12 @@ class ForwardKernelWriterAssembly:
         )
 
     def _total_vgprs(self) -> int:
+        if self.solution.operand_source == "Q6DecodedStaged":
+            return (
+                self.TOTAL_VGPRS_Q6_J64
+                if self.solution.macro_tile0 == 64
+                else self.TOTAL_VGPRS_Q6_J128
+            )
         if self._uses_hip_staged():
             return self.TOTAL_VGPRS_HIP_STAGED
         if self.solution.operand_source == "GlobalWaveBatch4":

@@ -23,6 +23,7 @@ from tools.ggtensile.model import SolutionKey
 from tools.ggtensile.runtime import (
     FixedHipForwardModule,
     FixedQ81F16D4S4QuantizerModule,
+    FixedQ81F32D4QuantizerModule,
     ForwardModule,
 )
 
@@ -159,7 +160,12 @@ def main() -> None:
     quant_type = int(tensor.tensor_type)
 
     with contextlib.ExitStack() as stack:
-        quantizer = stack.enter_context(FixedQ81F16D4S4QuantizerModule())
+        quantizer_type = (
+            FixedQ81F32D4QuantizerModule
+            if key.problem_type.quant_data_type == "Q6_K"
+            else FixedQ81F16D4S4QuantizerModule
+        )
+        quantizer = stack.enter_context(quantizer_type())
         workspace = quantizer.allocate(input_tensor)
         candidate = stack.enter_context(ForwardModule(key, arguments.code_object))
         hip_multiply = stack.enter_context(FixedHipForwardModule(key))

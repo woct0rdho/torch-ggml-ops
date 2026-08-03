@@ -7,7 +7,11 @@ from typing import ClassVar, Literal, overload
 
 from typing_extensions import Self
 
-from .quant_formats import Q8_1_F16_D4S4_BLOCK_BYTES, QUANT_FORMATS
+from .quant_formats import (
+    Q8_1_F16_D4S4_BLOCK_BYTES,
+    Q8_1_F32_D4_BLOCK_BYTES,
+    QUANT_FORMATS,
+)
 
 
 class SchemaError(ValueError):
@@ -115,7 +119,7 @@ class ProblemType:
 
     @classmethod
     def mmq_forward(cls, quant_data_type: str) -> Self:
-        if quant_data_type not in {"Q4_K", "Q5_K"}:
+        if quant_data_type not in {"Q4_K", "Q5_K", "Q6_K"}:
             raise ValueError(f"unsupported MMQ forward quant type {quant_data_type!r}")
         return cls(
             operation_type="MMQForward",
@@ -595,6 +599,36 @@ class ForwardSolution:
         )
 
     @classmethod
+    def q6_k_decoded_staged(cls, *, macro_tile0: int) -> Self:
+        if macro_tile0 not in (64, 128, 256):
+            raise ValueError(
+                "Q6_K forward implements only M64, M128, or M256 ownership"
+            )
+        return cls(
+            kernel_language="Assembly",
+            isa=(11, 5, 1),
+            wavefront_size=32,
+            work_group=(256 if macro_tile0 == 256 else 128, 1, 1),
+            matrix_instruction=(16, 16, 16, 1, 1, 1, 4, 4, 1),
+            macro_tile0=macro_tile0,
+            macro_tile1=64,
+            depth_u=32,
+            activation_layout="F32_D4",
+            activation_block_bytes=Q8_1_F32_D4_BLOCK_BYTES,
+            packed_weight_block_bytes=QUANT_FORMATS["Q6_K"].block_bytes,
+            operand_source="Q6DecodedStaged",
+            weight_decode="DirectQ6Signed",
+            lds_address_hoist="WeightMetadata",
+            activation_addressing="MadU24",
+            metadata_conversion="Float16DToFloat32Signed8Scale",
+            scale_arithmetic="Int32ScaleF32",
+            output_store="BFloat16RNEClauseBatch8IncrementRows",
+            signed_weight=True,
+            signed_activation=True,
+            wmma_clamp=False,
+        )
+
+    @classmethod
     def q4_k_hip_decoded_staged_extraction(
         cls,
         *,
@@ -677,6 +711,8 @@ class ForwardSolution:
 
     @property
     def lds_num_bytes(self) -> int:
+        if self.operand_source == "Q6DecodedStaged":
+            return self.macro_tile0 * Q8_1_F32_D4_BLOCK_BYTES + 64 * 304
         if self.operand_source == "HipDecodedStagedBatch8":
             return 38_400
         if self.operand_source == "HipStagedBatch8":

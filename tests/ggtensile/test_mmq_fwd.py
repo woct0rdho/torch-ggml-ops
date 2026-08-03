@@ -73,6 +73,7 @@ def _key(
         default_solutions = {
             "Q4_K": ForwardSolution.q4_k_pilot(),
             "Q5_K": _q5_extraction(),
+            "Q6_K": ForwardSolution.q6_k_decoded_staged(macro_tile0=64),
         }
         solution = default_solutions[quant_type]
     return SolutionKey(
@@ -105,9 +106,13 @@ def test_forward_campaign_inventory_is_exact_and_versionless(
         for key in selected_solution_keys(inventory, catalog)
     )
     narrow = inventory.entries[0]
-    assert narrow.expected_logical_weight_shape == (512, 2048)
-    expected_row_bytes = {"Q4_K": 1152, "Q5_K": 1408}[case.quant_type]
-    assert narrow.expected_physical_weight_shape == (512, expected_row_bytes)
+    if case.quant_type == "Q6_K":
+        assert narrow.expected_logical_weight_shape == (248320, 2048)
+        assert narrow.expected_physical_weight_shape == (248320, 1680)
+    else:
+        assert narrow.expected_logical_weight_shape == (512, 2048)
+        expected_row_bytes = {"Q4_K": 1152, "Q5_K": 1408}[case.quant_type]
+        assert narrow.expected_physical_weight_shape == (512, expected_row_bytes)
     raw = json.loads(case.inventory_path.read_text(encoding="utf-8"))
     assert "Version" not in raw and "SchemaVersion" not in raw
 
@@ -122,7 +127,7 @@ def test_q5_forward_inventory_selects_retained_vopd_epilogue() -> None:
     assert selected.accumulator_initialization == "VopdPair"
 
 
-@pytest.mark.parametrize("quant_type", ("Q4_K", "Q5_K"), ids=str.lower)
+@pytest.mark.parametrize("quant_type", ("Q4_K", "Q5_K", "Q6_K"), ids=str.lower)
 def test_forward_solution_key_is_strict_and_round_trips(quant_type: str) -> None:
     key = _key(quant_type)
     assert SolutionKey.from_mapping(key.to_mapping()) == key
@@ -224,7 +229,7 @@ def test_forward_validation_rejects_nonproduction_sizes(
     assert validate_solution(_key(quant_type, size=size))
 
 
-def test_forward_validation_rejects_mismatched_problem_type() -> None:
+def test_q6_forward_validation_rejects_q4_control() -> None:
     problem_type = ProblemType(
         operation_type="MMQForward",
         quant_data_type="Q6_K",
@@ -240,8 +245,8 @@ def test_forward_validation_rejects_mismatched_problem_type() -> None:
         ProblemSize(2048, 512, 2048),
         ForwardSolution.q4_k_pilot(),
     )
-    assert {reason.rule_id for reason in validate_solution(key)} >= {
-        "problem_type.forward.unsupported"
+    assert {reason.rule_id for reason in validate_solution(key)} == {
+        "solution.forward.q6.control.unimplemented"
     }
 
 

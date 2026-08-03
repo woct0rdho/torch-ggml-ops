@@ -1,0 +1,53 @@
+{
+  "ProblemType": {
+    "OperationType": "MMQForward",
+    "QuantDataType": "Q6_K",
+    "DataTypeA": "Q8_1",
+    "DataTypeB": "Q6_K",
+    "DestDataType": "BFloat16",
+    "ComputeDataType": "Float",
+    "TransposeA": false,
+    "TransposeB": true
+  },
+  "ModelFile": "Qwen3.6-35B-A3B-APEX-I-Mini.gguf",
+  "Validation": {
+    "QuantType": "Q6_K",
+    "ExactDispatch": true,
+    "MaxCandidateToHipNormalizedRmse": 0.0005,
+    "MaxCandidateToHipAbsoluteError": 0.015625,
+    "MaxIndependentNormalizedRmse": 0.04,
+    "RequireInputMutation": true,
+    "RequirePackedWeightMutation": true,
+    "RequireWorkspaceMutation": true,
+    "FixedActivationProducer": "HIP_Q8_1_F32_D4"
+  },
+  "Keys": [
+    {
+      "Family": "lm_head",
+      "ProblemSize": {"M": 64, "N": 248320, "K": 2048},
+      "RepresentativeTensor": "output.weight",
+      "CallCount": 1,
+      "HistoricalHipMedianMs": 4.050399,
+      "CurrentStatus": "open",
+      "SelectedSolution": "decoded_staged_j64_control"
+    },
+    {
+      "Family": "lm_head",
+      "ProblemSize": {"M": 128, "N": 248320, "K": 2048},
+      "RepresentativeTensor": "output.weight",
+      "CallCount": 1,
+      "HistoricalHipMedianMs": 7.626017,
+      "CurrentStatus": "open",
+      "SelectedSolution": "decoded_staged_j128_control"
+    },
+    {
+      "Family": "lm_head",
+      "ProblemSize": {"M": 256, "N": 248320, "K": 2048},
+      "RepresentativeTensor": "output.weight",
+      "CallCount": 1,
+      "HistoricalHipMedianMs": 15.203156,
+      "CurrentStatus": "open",
+      "SelectedSolution": "decoded_staged_j256_control"
+    }
+  ]
+}

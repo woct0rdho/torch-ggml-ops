@@ -193,6 +193,45 @@ Classify every remaining idea as retained and measured; rejected by correctness,
 
 This rule applies to kernel optimization only. Public API integration is not a completion criterion for the current phase and must remain deferred.
 
+## Reopened Compact-LDS Campaign
+
+The prior review closed schedules around the fully decoded 304-byte LDS weight row, but it did not test a hybrid row that keeps the packed Q4 payload raw while preserving cooperative exact metadata preparation. This is a changed representation, ownership, and residency premise rather than another schedule or compact output geometry.
+
+For the retained `128x64`, 128-thread ownership, add one strict hybrid row layout:
+- 128 bytes of raw Q4 payload.
+- 32 bytes containing the same eight exact packed FP16 scale/minimum pairs produced by the retained decoded path.
+- 160 bytes per weight row and 10,240 bytes for 64 rows.
+- the unchanged 18,432-byte Q8_1 `F16_D4S4` activation plane at LDS offset 0, followed immediately by weight row `r` at `18,432 + 160*r`, for 28,672 bytes total LDS and no leading gap.
+
+The workgroup must still load each packed weight block cooperatively. Metadata is converted once by its producer lanes and read from LDS by the owning consumers. Raw nibbles are read from LDS and expanded immediately before the existing integer WMMA sequence. No consumer may duplicate another wave's payload decode, and scale/minimum conversion, integer accumulation, FP32 correction order, BF16 rounding, activation staging, four barriers, and exact epilogue identity remain unchanged.
+
+The target crosses the gfx1151 LDS residency boundary while preserving productive ownership: 38,400 bytes permits three four-wave workgroups in 128 KiB WGP LDS, while 28,672 bytes permits four. The current 239 VGPR declaration rounds to the 240-register wave32 allocation class and already permits six waves per SIMD, so the candidate must keep `NumVgpr <= 239`; a minor VGPR reduction without the LDS transition is not this experiment. WGP mode is the primary control. CU mode is compared only after a correct compact body exists and only when inspection proves the same resident-workgroup class.
+
+The old `HipStagedBatch8` artifact at 26,624-byte LDS does not close this premise. It kept metadata in per-consumer global/register paths and emitted the older unrolled body with 128 static WMMAs and 3,000 static VALU issues; its approximately `0.252 ms` multiply versus `0.174 ms` HIP demonstrates that occupancy alone is insufficient. The new candidate must compose compact payload staging with cooperative decoded metadata, the retained rolled group loops, metadata-after-low placement, and the selected epilogue.
+
+Falsify the premise first on exact narrow `(2048,512,2048)`:
+- generate a serialized correctness control and at most two dependency-safe placements that decode raw nibbles after the LDS read while independent activation or metadata reads are outstanding.
+- require bit-exact HIP output, the independent reference, all three mutation checks, exact 40-byte ABI, 28,672-byte LDS, 32 static WMMAs, four barriers, zero private storage or spills, and byte-identical rebuilds.
+- compare exact-trip-normalized dynamic ISA rather than unrolled static counts; global packed bytes must remain unchanged, while payload LDS writes and reads must each fall by 8 KiB per staged 64-row Q4 tile.
+- use a nine-repeat multiply screen only for pruning. Stop this Q4 premise if both dependency-safe placements remain more than 5% slower than the retained body or inspection shows duplicated decode or failure to realize the four-workgroup class.
+- advance only a candidate with a stable greater-than-2% gain to two independent rotating 25-repeat confirmations against both the retained parent and HIP, then retest every exact key affected by its strict identity.
+
+### Compact-LDS result and remaining bottleneck
+
+The compact representation was implemented with serialized consumer decode, decode after activation LDS reads, and a corrected pair-reuse schedule. The first two controls reread each 32-byte packed pair for its low- and high-nibble groups and therefore did not satisfy the planned LDS-read reduction; pair reuse retained the raw pair across both groups and is the traffic-correct falsification. All three forms are bit-exact to HIP and the independent reference, finite, sensitive to input/packed-weight/workspace mutations, and resource-clean.
+
+| Exact narrow `(2048,512,2048)` | Median ms | Candidate/parent | Candidate/HIP |
+| --- | ---: | ---: | ---: |
+| HIP | `0.179463` | - | `1.00000x` |
+| Retained decoded parent | `0.175113` | `1.00000x` | `0.97576x` |
+| Serialized compact control | `0.206893` | `1.18148x` | `1.15284x` |
+| Activation-read overlap | `0.203853` | `1.16412x` | `1.13591x` |
+| Traffic-correct pair reuse | `0.204072` | `1.16537x` | `1.13713x` |
+
+The pair-reuse body has 239 VGPRs, 16 SGPRs, 28,672-byte LDS, 32 static WMMAs, four barriers, and zero private storage or spills, so it realizes the intended three-to-four-workgroup transition. It also reduces raw-payload LDS writes and exact-trip reads by 8 KiB per staged 64-row tile. The remaining bottleneck is consumer decode issue and dependency depth: exact-trip normalization replaces 48 producer-side nibble operations per wave/block with 128 operations in the rolled consumer loop, a net 80 vector operations on the WMMA critical path. The fourth resident workgroup cannot hide that work, and both dependency-safe placements exceed the 5% stop gate by more than three times.
+
+The compact-LDS premise is rejected and its unselected implementation is removed. The existing selected catalog remains authoritative. A fresh recursive review after this rejection finds no remaining actionable in-contract Q4_K mechanism; another attempt requires a new instruction, representation, or ownership premise that removes consumer decode rather than rescheduling it. Public integration remains deferred.
+
 ## Completion Record
 
 - Forward identity, fixed-quantizer control runtime, inspection, and exact 12-key inventory.
@@ -203,7 +242,7 @@ This rule applies to kernel optimization only. Public API integration is not a c
 - Fresh paired controls and confirmation for all twelve exact keys.
 - Per-key research identities with every exact key below HIP in two strict complete-call rotations.
 - Weighted complete-call optimization after all exact keys clear HIP.
-- Recursive optimization-exhaustion review with no actionable mechanism remaining.
+- Compact-LDS representation measured and rejected; fresh recursive optimization-exhaustion review with no actionable mechanism remaining.
 - Public dispatch and bundle integration. Deferred to a separate later phase.
 
 ## Current Research Record
@@ -233,6 +272,8 @@ Independent metadata extraction and the local-read schedule compose with the sev
 
 All common and exact-epilogue compositions are bit-exact to HIP and retain 239 VGPRs, 16 SGPRs, 38,400-byte LDS, 32 static WMMAs, four barriers, eight store clauses, and zero private storage or spills. Strict independent-reference NRMSE remains approximately `0.0133-0.0138`; independent rebuilds are byte-identical; input, packed-weight, and workspace mutations all change outputs.
 
-The final recursive review found no remaining actionable in-contract mechanism. Resource-neutral local-read, extraction, loop, barrier, payload-prefetch, metadata-overlap, priority, and epilogue neighborhoods are measured. Larger activation or decoded-weight ping-pong allocations inherit the measured 56-KiB LDS residency loss and cannot plausibly recover it without a new reduced-LDS geometry; the implemented `128x32` premise was already `21.6%` slower. Gfx1151 lacks direct-to-LDS, instruction-prefetch, split-barrier, and useful payload-mask VOPD forms. Remaining sub-`0.5%` epilogue screens either collapsed in confirmation or were diluted below repeatability in the complete call. Reopening any branch therefore requires a materially new ISA, layout, or resource premise.
+The prior recursive review found no remaining actionable in-contract mechanism under the fully decoded LDS premise. Resource-neutral local-read, extraction, loop, barrier, payload-prefetch, metadata-overlap, priority, and epilogue neighborhoods are measured. Larger activation or decoded-weight ping-pong allocations inherit the measured 56-KiB LDS residency loss and cannot plausibly recover it without a new reduced-LDS geometry; the implemented `128x32` premise was already `21.6%` slower. Gfx1151 lacks direct-to-LDS, instruction-prefetch, split-barrier, and useful payload-mask VOPD forms. Remaining sub-`0.5%` epilogue screens either collapsed in confirmation or were diluted below repeatability in the complete call.
+
+The compact raw-payload plus decoded-metadata row above is the materially new layout and ownership premise required by that review. It preserves `128x64` output ownership rather than repeating `128x32`, and its pending status prevents a new exhaustion claim until it is measured and the recursive review is repeated.
 
 Transformed assembly, lower-bound sources, rejected buffering prototypes, profiler output, and one-off timing screens remain diagnostic unless represented by a generated strict solution identity and revalidated through the gates above. Public dispatch and bundle integration remain untouched.
