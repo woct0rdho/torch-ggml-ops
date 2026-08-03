@@ -1,3 +1,5 @@
+"""Targeted branch and complete executable-line coverage for the backward writer."""
+
 import builtins
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
@@ -6,13 +8,16 @@ from types import ModuleType
 import pytest
 
 from tests.ggtensile.support import (
+    BWD_WRITER_SOURCE_PATH,
     MMQ_BWD_INVENTORY_CASE_IDS,
     MMQ_BWD_INVENTORY_CASES,
     GGTensileInventoryCase,
+    assert_writer_methods_have_complete_line_coverage,
     ggtensile_toolchain,
     load_inventory_case,
     selected_solution_keys,
 )
+from tools.ggtensile import kernel_writer_assembly_mmq_bwd as bwd_writer_module
 from tools.ggtensile.kernel_writer_assembly_mmq_bwd import (
     BackwardDiagnosticMode,
     BackwardKernelWriterAssembly,
@@ -21,6 +26,7 @@ from tools.ggtensile.kernel_writer_assembly_mmq_bwd import (
 )
 from tools.ggtensile.model import (
     BackwardSolution,
+    ForwardSolution,
     ProblemSize,
     ProblemType,
     SolutionKey,
@@ -334,3 +340,20 @@ def test_writer_reports_missing_rocisa(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(builtins, "__import__", reject_rocisa)
     with pytest.raises(BackwardKernelWriterError, match="rocisa is required"):
         writer.source()
+
+
+def test_writer_rejects_forward_solution_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    key = SolutionKey(
+        ProblemType.mmq_backward_q4_k(),
+        ProblemSize(128, 2048, 512),
+        ForwardSolution.q4_k_pilot(),
+    )
+    monkeypatch.setattr(bwd_writer_module, "validate_solution", lambda _: ())
+    with pytest.raises(BackwardKernelWriterError, match="requires BackwardSolution"):
+        BackwardKernelWriterAssembly(key, ggtensile_toolchain())
+
+
+def test_writer_methods_have_complete_line_coverage() -> None:
+    assert_writer_methods_have_complete_line_coverage(BWD_WRITER_SOURCE_PATH)

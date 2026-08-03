@@ -1,6 +1,9 @@
+import ast
+import dis
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from types import CodeType, FrameType
 from typing import Literal, Protocol
 
 import pytest
@@ -20,6 +23,78 @@ from tools.ggtensile.model import (
 from tools.ggtensile.toolchain import Toolchain, ToolchainError
 
 _CONFIG_DIR = Path("tools/ggtensile/configs")
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+FWD_WRITER_SOURCE_PATH = (
+    _REPO_ROOT / "tools/ggtensile/kernel_writer_assembly_mmq_fwd.py"
+)
+BWD_WRITER_SOURCE_PATH = (
+    _REPO_ROOT / "tools/ggtensile/kernel_writer_assembly_mmq_bwd.py"
+)
+WRITER_SOURCE_PATHS = (FWD_WRITER_SOURCE_PATH, BWD_WRITER_SOURCE_PATH)
+WRITER_EXECUTED_LINES = {path: set() for path in WRITER_SOURCE_PATHS}
+_WRITER_LINES_BY_FILENAME = {
+    str(path): WRITER_EXECUTED_LINES[path] for path in WRITER_SOURCE_PATHS
+}
+
+
+def record_writer_line(
+    frame: FrameType,
+    event: str,
+    argument: object,
+) -> object:
+    del argument
+    lines = _WRITER_LINES_BY_FILENAME.get(frame.f_code.co_filename)
+    if lines is None:
+        return None
+    if event == "line":
+        lines.add(frame.f_lineno)
+    return record_writer_line
+
+
+def _code_lines(code: CodeType) -> set[int]:
+    lines = {line for _, line in dis.findlinestarts(code) if line is not None}
+    for constant in code.co_consts:
+        if isinstance(constant, CodeType):
+            lines.update(_code_lines(constant))
+    return lines
+
+
+def _writer_body_lines(path: Path) -> set[int]:
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(path))
+    executable = _code_lines(compile(source, str(path), "exec"))
+    body_lines: set[int] = set()
+    writer_class_name = (
+        "ForwardKernelWriterAssembly"
+        if path == FWD_WRITER_SOURCE_PATH
+        else "BackwardKernelWriterAssembly"
+    )
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef) or node.name not in {
+            "_Assembly",
+            writer_class_name,
+        }:
+            continue
+        for member in node.body:
+            if not isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            first_body_line = member.body[0].lineno
+            assert member.end_lineno is not None
+            body_lines.update(range(first_body_line, member.end_lineno + 1))
+    return executable & body_lines
+
+
+def assert_writer_methods_have_complete_line_coverage(path: Path) -> None:
+    missing = sorted(_writer_body_lines(path) - WRITER_EXECUTED_LINES[path])
+    if not missing:
+        return
+    source_lines = path.read_text(encoding="utf-8").splitlines()
+    details = "\n".join(
+        f"  {line}: {source_lines[line - 1].strip()}" for line in missing
+    )
+    pytest.fail(
+        f"writer method lines not covered in {path.relative_to(_REPO_ROOT)}:\n{details}"
+    )
 
 
 @dataclass(frozen=True)

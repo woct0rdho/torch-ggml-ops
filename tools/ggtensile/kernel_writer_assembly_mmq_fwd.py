@@ -725,7 +725,6 @@ class ForwardKernelWriterAssembly:
                     temporary=temporary,
                     lds_address=lds_address,
                     serial=serial,
-                    decoded=False,
                 )
         asm.inst("s_barrier")
 
@@ -777,7 +776,6 @@ class ForwardKernelWriterAssembly:
                     temporary=temporary,
                     lds_address=lds_address,
                     serial=serial,
-                    decoded=False,
                 )
         asm.inst("s_barrier")
         asm.inst(
@@ -1037,21 +1035,14 @@ class ForwardKernelWriterAssembly:
         temporary: int,
         lds_address: int,
         serial: int,
-        decoded: bool,
     ) -> None:
-        q_offset = 32 * group if decoded else 32 * (group // 2)
+        q_offset = 32 * (group // 2)
         activation_q_offset = 16 + 32 * (group % 4)
         activation_scale_sum_offset = 4 * (group % 4)
         asm.comment(f"HIP-shaped staged Q4_K group {group}.")
-        if decoded:
-            asm.inst(f"v_lshlrev_b32 v{temporary}, 4, v{wave}")
-            asm.inst(f"v_add_nc_u32 v{temporary}, v{lane}, v{temporary}")
-            asm.inst(f"v_mul_lo_u32 v{lds_address}, 304, v{temporary}")
-            asm.inst(f"v_add_nc_u32 v{lds_address}, 18944, v{lds_address}")
-        else:
-            asm.inst(f"v_lshlrev_b32 v{temporary}, 11, v{wave}")
-            asm.inst(f"v_lshlrev_b32 v{lds_address}, 7, v{lane}")
-            asm.inst(f"v_add_nc_u32 v{lds_address}, v{temporary}, v{lds_address}")
+        asm.inst(f"v_lshlrev_b32 v{temporary}, 11, v{wave}")
+        asm.inst(f"v_lshlrev_b32 v{lds_address}, 7, v{lane}")
+        asm.inst(f"v_add_nc_u32 v{lds_address}, v{temporary}, v{lds_address}")
         asm.inst(
             f"ds_read_b128 v[{weight_q}:{weight_q + 3}], v{lds_address} "
             f"offset:{q_offset}"
@@ -1061,9 +1052,7 @@ class ForwardKernelWriterAssembly:
             f"offset:{q_offset + 16}"
         )
         asm.inst(f"v_mul_lo_u32 v{lds_address}, 144, v{lane}")
-        asm.inst(
-            f"v_add_nc_u32 v{lds_address}, {512 if decoded else 8192}, v{lds_address}"
-        )
+        asm.inst(f"v_add_nc_u32 v{lds_address}, 8192, v{lds_address}")
         for tile in range(8):
             low_activation = (
                 c_base + 8 * (tile + 1) if tile < 7 else low_activation_last
@@ -1084,43 +1073,27 @@ class ForwardKernelWriterAssembly:
                 f"offset:{tile_offset + activation_scale_sum_offset}"
             )
         asm.inst("s_waitcnt lgkmcnt(0)")
-        if decoded:
-            asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{serial}")
-            asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
-            asm.inst(f"v_lshlrev_b32 v{metadata}, 4, v{wave}")
-            asm.inst(f"v_add_nc_u32 v{metadata}, v{temporary}, v{metadata}")
-            asm.inst(f"v_mul_lo_u32 v{metadata}, 304, v{metadata}")
-            asm.inst(
-                f"v_add_nc_u32 v{metadata}, {18944 + 256 + 4 * group}, v{metadata}"
+        for register in range(weight_q, weight_q + 8):
+            if group & 1:
+                asm.inst(f"v_lshrrev_b32 v{register}, 4, v{register}")
+            asm.inst(f"v_and_b32 v{register}, 0x0f0f0f0f, v{register}")
+        for element in range(8):
+            element_metadata = metadata + 4 * element
+            self._emit_scale_and_minimum(
+                asm,
+                group,
+                element_metadata,
+                scale=112,
+                minimum=113,
+                temporary=117,
             )
-            for element in range(8):
-                asm.inst(
-                    f"ds_read_b32 v{scaled_dm_base + element}, v{metadata} "
-                    f"offset:{608 * element}"
-                )
-            asm.inst("s_waitcnt lgkmcnt(0)")
-        else:
-            for register in range(weight_q, weight_q + 8):
-                if group & 1:
-                    asm.inst(f"v_lshrrev_b32 v{register}, 4, v{register}")
-                asm.inst(f"v_and_b32 v{register}, 0x0f0f0f0f, v{register}")
-            for element in range(8):
-                element_metadata = metadata + 4 * element
-                self._emit_scale_and_minimum(
-                    asm,
-                    group,
-                    element_metadata,
-                    scale=112,
-                    minimum=113,
-                    temporary=117,
-                )
-                asm.inst("v_cvt_f32_u32 v114, v112")
-                asm.inst("v_cvt_f32_u32 v115, v113")
-                asm.inst("v_cvt_f16_f32_e32 v116.l, v114")
-                asm.inst("v_cvt_f16_f32_e32 v116.h, v115")
-                asm.inst("v_pk_mul_f16 v116, 0xbc003c00, v116")
-                asm.inst(f"v_pk_mul_f16 v116, v{element_metadata}, v116")
-                asm.inst(f"v_mov_b32 v{scaled_dm_base + element}, v116")
+            asm.inst("v_cvt_f32_u32 v114, v112")
+            asm.inst("v_cvt_f32_u32 v115, v113")
+            asm.inst("v_cvt_f16_f32_e32 v116.l, v114")
+            asm.inst("v_cvt_f16_f32_e32 v116.h, v115")
+            asm.inst("v_pk_mul_f16 v116, 0xbc003c00, v116")
+            asm.inst(f"v_pk_mul_f16 v116, v{element_metadata}, v116")
+            asm.inst(f"v_mov_b32 v{scaled_dm_base + element}, v116")
         self._emit_hip_staged_accumulate(
             asm,
             weight_q=weight_q,
