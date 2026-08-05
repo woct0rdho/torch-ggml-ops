@@ -656,6 +656,25 @@ class ForwardSolution:
         )
 
     @classmethod
+    def q8_0_register_tiled(
+        cls,
+        *,
+        wave_tile_m: int = 2,
+        wave_tile_n: int = 2,
+    ) -> Self:
+        """Return a four-wave Q8_0 four-fragment register tile."""
+        if wave_tile_m * wave_tile_n != 4:
+            raise ValueError("Q8_0 register tile must own four fragments per wave")
+        return replace(
+            cls.q8_0_direct_global(),
+            work_group=(32, 4, 1),
+            matrix_instruction=(16, 16, 16, 1, 1, 1, 4, 4, 1),
+            macro_tile0=64 * wave_tile_m,
+            macro_tile1=16 * wave_tile_n,
+            operand_source="Q8RegisterTiled",
+        )
+
+    @classmethod
     def q4_k_decoded_weight_lds_extraction(
         cls,
         *,

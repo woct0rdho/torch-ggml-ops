@@ -174,7 +174,12 @@ def _validate_q8_forward_solution(
     solution: ForwardSolution,
     reasons: list[RejectReason],
 ) -> None:
-    if solution != ForwardSolution.q8_0_direct_global():
+    if solution not in {
+        ForwardSolution.q8_0_direct_global(),
+        ForwardSolution.q8_0_register_tiled(wave_tile_m=1, wave_tile_n=4),
+        ForwardSolution.q8_0_register_tiled(wave_tile_m=2, wave_tile_n=2),
+        ForwardSolution.q8_0_register_tiled(wave_tile_m=4, wave_tile_n=1),
+    }:
         _reject(
             reasons,
             "solution.forward.q8.control.unimplemented",
@@ -280,10 +285,12 @@ def _validate_forward_solution(
             source="ForwardProblemContract",
         )
         return
-    if (
-        problem_type.quant_data_type == "Q8_0"
-        and solution != ForwardSolution.q8_0_direct_global()
-    ):
+    if problem_type.quant_data_type == "Q8_0" and solution not in {
+        ForwardSolution.q8_0_direct_global(),
+        ForwardSolution.q8_0_register_tiled(wave_tile_m=1, wave_tile_n=4),
+        ForwardSolution.q8_0_register_tiled(wave_tile_m=2, wave_tile_n=2),
+        ForwardSolution.q8_0_register_tiled(wave_tile_m=4, wave_tile_n=1),
+    }:
         _validate_q8_forward_solution(solution_key.problem_size, solution, reasons)
         return
     spec_rejection = forward_kernel_spec_rejection_reason(solution)

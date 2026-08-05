@@ -177,12 +177,15 @@ def test_complete_candidate_round_trips_to_the_normal_build_solution() -> None:
         ("Q6_K", ForwardSolution.q6_k_structured_decoded(macro_tile0=64)),
         ("Q6_K", ForwardSolution.q6_k_structured_decoded(macro_tile0=128)),
         ("Q8_0", ForwardSolution.q8_0_direct_global()),
+        ("Q8_0", ForwardSolution.q8_0_register_tiled()),
     )
     for quant_type, solution in candidates:
         candidate = ForwardKernelCandidate.from_solution(quant_type, solution)
         assert candidate.to_solution() == solution
 
-    candidate = ForwardKernelCandidate.from_solution("Q6_K", candidates[-2][1])
+    candidate = ForwardKernelCandidate.from_solution(
+        "Q6_K", ForwardSolution.q6_k_structured_decoded(macro_tile0=64)
+    )
     assert candidate.kernel_spec.semantic_schedule == (
         SemanticSchedulePolicy.structured_q6()
     )
@@ -226,6 +229,7 @@ def test_complete_candidate_round_trips_to_the_normal_build_solution() -> None:
             (210, 27, 38_400),
         ),
         (ForwardSolution.q8_0_direct_global(), (88, 16, 0)),
+        (ForwardSolution.q8_0_register_tiled(), (137, 16, 0)),
     ),
 )
 def test_forward_resources_are_derived_from_the_kernel_spec(
@@ -309,6 +313,7 @@ def test_every_forward_solution_field_is_projected_or_rejected() -> None:
         ("Q5_K", ForwardSolution.q5_k_decoded_weight_lds_retained()),
         ("Q6_K", ForwardSolution.q6_k_structured_decoded(macro_tile0=64)),
         ("Q8_0", ForwardSolution.q8_0_direct_global()),
+        ("Q8_0", ForwardSolution.q8_0_register_tiled()),
     )
 
     def different(value: object) -> object:

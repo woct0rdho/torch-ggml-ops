@@ -92,6 +92,117 @@ Initial control evidence is under `~/tmp/torch-ggml-ops/q8-fwd-direct-control/m2
 
 The focused contract/reference/writer suite passes with `158 passed`. The full repository suite passes with `355 passed` and 14 existing warnings; Ruff, formatting, ty, compileall, diff checks, pre-commit, and the current 179-kernel public-bundle check also pass. Regeneration of the frozen eight pre-Q8 catalog families produced 447 sources with zero missing, added, or byte-changed files; the report is `~/tmp/torch-ggml-ops/q8-fwd-contract-current-sources-20260805/comparison.json`.
 
+The first optimization adds an LDS-free four-wave register tile. Each wave owns four `16x16` fragments and retains weight and activation operands through four cross-products. The formula-derived resource count is `67 + 25*wave_tile_n + 10*wave_tile_m` VGPRs, 16 SGPRs, and zero LDS. Strictly inspected `1x4`, `2x2`, and `4x1` ownership geometries use 177, 137, and 132 VGPRs respectively, with zero private storage/spills and 32 static WMMAs each.
+
+Warmed Q-A `M=2048,N=1024,K=4096` geometry screening under `~/tmp/torch-ggml-ops/q8-fwd-register-tile-geometry/` measured isolated multiply medians of `1.3217 ms`, `0.8800 ms`, and `0.8955 ms` for `1x4`, `2x2`, and `4x1`. Their static `(VMEM, VALU)` counts are `(204,1038)`, `(136,875)`, and `(120,804)`. The balanced `2x2` `128x32` geometry is the narrow winner and is retained in the Q8 solution catalog. It is bit-exact with HIP/public and passes all mutation and independent-reference gates, but its `1.4300x` HIP ratio is not a production promotion.
+
+Cooperative raw-weight LDS staging was implemented and then removed after failing the promotion rule. The `128x32` form used 121 VGPRs, 4,608-byte LDS, 59 VMEM, 83 LDS instructions, two barriers, and 32 WMMAs. It remained bit-exact, but measured `0.8972 ms`, or `1.4357x` HIP, against register-parent runs at `1.4300x` and `1.4374x` HIP. Wider `128x64` and `64x64` variants measured `0.9390 ms` (`1.5512x` HIP) and `0.9830 ms` (`1.5952x` HIP). The added LDS traffic and synchronization produced no stable gain. Artifacts remain under `~/tmp/torch-ggml-ops/q8-fwd-weight-lds-register-tile*/`.
+
+Dependency-independent VOPD pairing of register zeros and scale multiplies reduced static VALU issues from 875 to 731 with 144 VOPD instructions and unchanged 137-VGPR resources. It remained bit-exact but regressed to `0.9554 ms` (`1.4949x` HIP) versus the same scalar artifact at `0.9300 ms` (`1.4374x` HIP), so the paired lowering was removed. Pairing the FP32 FMACs was also rejected structurally because a pair reuses one activation scale and cannot satisfy gfx1151's distinct-bank requirement for both sources. Evidence is under `~/tmp/torch-ggml-ops/q8-fwd-register-tile-vopd/`.
+
+The retained register-tiled source then hoisted the four fixed Q8_0 block
+offsets into `Q8DirectGroupRole` and advanced the per-lane packed addresses by
+136 bytes per activation block. The Q-A artifact remained bit-exact with 137
+VGPRs, 16 SGPRs, zero LDS, and 136 VMEM instructions; its warmed multiply
+diagnostic improved to approximately `0.8714 ms` (`1.3674x` HIP). A subsequent
+linear store traversal computes the first output address once and advances by
+fixed row/column deltas. It removes 37 static VALU instructions and stayed
+correct in the short recovery check at `0.8592 ms`; a rotating comparison
+reported `0.81055 ms` for a scale-overlap experiment against `0.80945 ms` for
+the retained parent, so only the linear traversal is retained.
+
+Three follow-up scheduling tests were rejected. The first store `s_clause` was
+invalid because address updates occurred between stores and caused the first
+launch to fail to complete; its artifact is quarantined. Moving weight-scale
+loads to the front of each clause and partially waiting for scale conversion
+was bit-exact but neutral in a rotating 25-repeat comparison (`1.00136x`
+parent). Advancing the packed-weight and activation scalar base pointers
+instead of 20 per-lane VGPR addresses was also bit-exact, but the loop-carried
+scalar dependency regressed to `1.02210x` parent. Both schedules were removed.
+
+The store-clause mechanism was then repaired by materializing eight output
+addresses in the dead WMMA product registers before each fragment's contiguous
+store sequence. The corrected form is bit-exact, remains at 137 VGPRs/16 SGPRs
+with zero LDS, and has eight static clauses. Two independent rotating
+25-repeat comparisons measured candidate/parent median ratios of `0.96645x`
+and `0.96411x`. A follow-up reused all 32 dead product registers to issue one
+32-store clause; it remained exact and reduced static clauses from eight to
+five, with two rotating comparisons against the four-clause-store parent at
+`1.00111x` and `1.00034x`. The one-clause epilogue is retained as a
+resource-neutral simplification. The active writer therefore uses the simple
+26-read clause, full wait, expression-order correction, and address-materialized
+32-store clause.
+
+An offline no-extra-register payload pipeline then moved each next group's
+weight and activation payload reads immediately after the current operands'
+last WMMA use, while loading the next scales after the current correction. It
+kept the exact `137/16/0` resources, 136 VMEM instructions, five waits, and five
+clauses, and remained bit-exact. A rotating 25-repeat comparison measured
+`0.83267 ms` versus `0.78333 ms` for the retained parent (`1.06299x`), so the
+schedule was rejected. Splitting the 26-read clause and injecting VMEM into the
+WMMA/correction stream costs more than the hidden payload latency saves.
+
+An offline pressure experiment packed pairs of FP16 weight scales into eight
+VGPRs and retained one packed workitem coordinate instead of separate lane and
+wave registers. The linked artifact declared 128 VGPRs with no reference above
+`v127`, remained bit-exact, and used on-demand low/high scale conversion to
+preserve scale reuse across the two activation fragments. The extra extraction
+arithmetic dominated: rotating medians were `0.86205 ms` versus `0.78846 ms`
+parent (`1.09334x`). The 128-VGPR form was rejected; pressure reduction is not
+useful when it duplicates scale conversion in every product fragment.
+
+A second offline 128-VGPR experiment preserved the original FP32 scale reuse
+by keeping eight scale-address VGPRs and alternating those addresses between
+the two N fragments across the four groups. It also used one packed workitem
+coordinate, declared 128 VGPRs/16 SGPRs, referenced at most `v127`, and had zero
+LDS/private storage/spills. The form remained bit-exact, but the added address
+dependencies and split read clauses were neutral-to-slower: rotating medians
+were `0.78901 ms` versus `0.78665 ms` parent (`1.00301x`). The mechanism was
+rejected because it adds substantial semantic complexity without a target gain.
+
+Store-only `s_setprio` values 1, 2, and 3 were screened offline after the
+reduction loop. All three were bit-exact and resource-neutral, but rotating
+21-repeat ratios were `1.00581x`, `1.00190x`, and `1.00550x` parent. The default
+priority remains retained.
+
+Moving each next fragment's eight zero-initializations immediately after the
+previous fragment's second WMMA was also bit-exact and resource-neutral. The
+intended result-latency coverage did not materialize: rotating medians were
+`0.78377 ms` versus `0.78089 ms` parent (`1.00369x`). The original local
+WMMA/correction order remains retained.
+
+The 20 packed-weight, scale-address, and activation-address advances from the
+last group were distributed five at a time after each second WMMA to remove the
+serial loop tail. The schedule remained exact and resource-neutral, but VALU
+issue contention outweighed latency coverage: rotating medians were `0.78884
+ms` versus `0.78322 ms` parent (`1.00717x`). Address advancement remains after
+the correction body.
+
+Deferring the eight n1 FP16-to-FP32 scale conversions until immediately after
+the first fragment's second WMMA was exact and resource-neutral, but rotating
+medians were `0.79378 ms` versus `0.79214 ms` parent (`1.00207x`). Scale
+conversion placement is not retained.
+
+The retained Q-A checkpoint is
+`~/tmp/torch-ggml-ops/q8-fwd-register-tile-store-clause-all/m2048-n1024-k4096/`.
+Strict inspection reports code-object v5, gfx1151, wave32, the 40-byte ABI,
+137 VGPRs, 16 SGPRs, zero LDS/private storage/spills, 32 WMMAs, 136 VMEM
+instructions, 784 VALU issues, five waits, and five clauses. It is bit-exact
+with HIP/public for all 2,097,152 BF16 outputs, passes every mutation gate, and
+matches the independent-reference envelope at normalized RMSE `0.00604494`.
+Source, object, and HSACO hashes are respectively
+`3bd8a96d1e44b6819eb2f31469aeacea7c75529ed337d70528705bd50cc10069`,
+`3e96c302b1b4dbf4778b96cf86e66b8e5379828e9c937f5168c61b0a3a749691`,
+and `afd6aa768415373a934f800bce3d8f71f9880691a3ed89b074ef09a5846ad3d4`;
+two independent rebuilds reproduced all three hashes.
+
+The current quality checkpoint passes the focused Q8/forward suite with `159
+passed`, the full repository suite with `358 passed` and 14 existing warnings,
+Ruff checking and formatting, `ty`, compileall, pre-commit, and the 179-kernel
+bundle-current check. Regenerating the frozen pre-Q8 gate reproduced all 447
+sources byte-for-byte. The report is
+`~/tmp/torch-ggml-ops/q8-fwd-store-clause-current-sources-20260805/comparison.json`.
+
 ## Design And Implementation Plan
 
 ### Phase 1: contract, inventory, and semantic reference

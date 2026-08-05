@@ -26,6 +26,33 @@
       "EpilogueTilesAhead": 8,
       "EpilogueDependencyWidth": 1,
       "EpiloguePriority": 0
+    },
+    "register_tiled_128x32": {
+      "KernelLanguage": "Assembly",
+      "ISA": [11, 5, 1],
+      "WavefrontSize": 32,
+      "WorkGroup": [32, 4, 1],
+      "MatrixInstruction": [16, 16, 16, 1, 1, 1, 4, 4, 1],
+      "MacroTile0": 128,
+      "MacroTile1": 32,
+      "DepthU": 32,
+      "ActivationLayout": "F32_D4",
+      "ActivationBlockBytes": 144,
+      "PackedWeightBlockBytes": 34,
+      "OperandSource": "Q8RegisterTiled",
+      "WeightDecode": "DirectSignedInt8",
+      "LdsAddressHoist": "None",
+      "ActivationAddressing": "MultiplyAdd",
+      "MetadataConversion": "Float16DToFloat32",
+      "ScaleArithmetic": "Int32ScaleF32",
+      "OutputStore": "BFloat16RNE",
+      "SignedWeight": true,
+      "SignedActivation": true,
+      "WmmaClamp": false,
+      "MetadataSchedule": "Serialized",
+      "EpilogueTilesAhead": 8,
+      "EpilogueDependencyWidth": 1,
+      "EpiloguePriority": 0
     }
   }
 }

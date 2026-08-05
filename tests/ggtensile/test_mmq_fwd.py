@@ -375,6 +375,28 @@ def test_forward_writer_emits_direct_q8_0_f32_d4_control(tmp_path: Path) -> None
     assert "ds_" not in source
 
 
+def test_forward_writer_emits_q8_0_register_tiled_candidate(tmp_path: Path) -> None:
+    key = _key(
+        "Q8_0",
+        ProblemSize(2048, 1024, 4096),
+        ForwardSolution.q8_0_register_tiled(),
+    )
+    writer = ForwardKernelWriterAssembly(key, Toolchain.discover())
+    source = writer.source()
+    assembly = tmp_path / "q8_0_register_tiled.s"
+    assert writer.write(assembly) == hashlib.sha256(source.encode()).hexdigest()
+    assert source.count("v_wmma_i32_16x16x16_iu8") == 32
+    assert source.count("neg_lo:[1,1,0]") == 32
+    assert source.count("global_load_b128") == 32
+    assert source.count("global_load_d16_b16") == 64
+    assert source.count("global_store_d16_hi_b16") == 32
+    assert source.count("s_clause 31") == 1
+    assert ".amdhsa_system_vgpr_workitem_id 1" in source
+    assert "s_cmp_lt_u32 s10, 32" in source
+    assert "s_barrier" not in source
+    assert "ds_" not in source
+
+
 def test_forward_writer_emits_retained_decoded_staged_control() -> None:
     key = _key(solution=ForwardSolution.q4_k_decoded_weight_lds_retained())
     source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
@@ -792,6 +814,19 @@ def test_q8_forward_runtime_uses_exact_hip_launch_geometry(
             0,
             None,
             id="q8-direct-global-control",
+        ),
+        pytest.param(
+            _key(
+                "Q8_0",
+                ProblemSize(2048, 1024, 4096),
+                ForwardSolution.q8_0_register_tiled(),
+            ),
+            32,
+            137,
+            0,
+            0,
+            None,
+            id="q8-register-tiled-128x32",
         ),
         pytest.param(
             _key(

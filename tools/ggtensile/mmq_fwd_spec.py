@@ -511,6 +511,15 @@ def derive_forward_resource_usage(spec: "ForwardKernelSpec") -> ForwardResourceU
         return ForwardResourceUsage(vgprs=88, sgprs=16, lds_bytes=0)
     if operand_source == "Q8DirectGlobal":
         return ForwardResourceUsage(vgprs=88, sgprs=16, lds_bytes=0)
+    if operand_source == "Q8RegisterTiled":
+        wave_tile_m, wave_tile_n = spec.ownership.mi_wave_tile
+        if wave_tile_m * wave_tile_n != 4:
+            raise ValueError("Q8 register tile must own four fragments per wave")
+        return ForwardResourceUsage(
+            vgprs=67 + 25 * wave_tile_n + 10 * wave_tile_m,
+            sgprs=16,
+            lds_bytes=0,
+        )
     raise ValueError(f"unsupported forward operand source {operand_source!r}")
 
 
@@ -556,6 +565,7 @@ class SemanticSchedulePolicy:
 def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | None:
     structured_q6 = solution.operand_source == "Q6StructuredDecoded"
     decoded_staged = solution.operand_source == "DecodedWeightLdsBatch8"
+    q8_register_tiled = solution.operand_source == "Q8RegisterTiled"
     serialized_q6_schedule = SemanticSchedulePolicy(
         traversal=solution.q6_output_traversal,
         clustering=solution.q6_stage_clustering,
@@ -570,7 +580,9 @@ def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | Non
     elif serialized_q6_schedule != SemanticSchedulePolicy.structured_q6():
         return "Q6 semantic schedule is inactive for this lowering"
     expected_legacy_suffix = (
-        (1, 1, 4, 4, 1) if structured_q6 or decoded_staged else (1, 1, 1, 1, 1)
+        (1, 1, 4, 4, 1)
+        if structured_q6 or decoded_staged or q8_register_tiled
+        else (1, 1, 1, 1, 1)
     )
     if (
         len(solution.matrix_instruction) != 9
@@ -788,12 +800,14 @@ class ForwardKernelSpec:
         source = self.global_memory.operand_source
         decoded_staged = source == "DecodedWeightLdsBatch8"
         structured_q6 = source == "Q6StructuredDecoded"
-        q8_direct = source == "Q8DirectGlobal"
+        q8_direct = source in {"Q8DirectGlobal", "Q8RegisterTiled"}
+        q8_register_tiled = source == "Q8RegisterTiled"
         if source not in {
             "Global",
             "DecodedWeightLdsBatch8",
             "Q6StructuredDecoded",
             "Q8DirectGlobal",
+            "Q8RegisterTiled",
         }:
             raise ValueError(f"unsupported forward operand source {source!r}")
         expected_semantic_schedule = (
@@ -822,7 +836,9 @@ class ForwardKernelSpec:
                 "forward epilogue pipeline does not match the lowering family"
             )
         legacy_suffix = (
-            (1, 1, 4, 4, 1) if structured_q6 or decoded_staged else (1, 1, 1, 1, 1)
+            (1, 1, 4, 4, 1)
+            if structured_q6 or decoded_staged or q8_register_tiled
+            else (1, 1, 1, 1, 1)
         )
         metadata_schedule = "Serialized"
         epilogue_tiles_ahead = 8
