@@ -119,7 +119,7 @@ class ProblemType:
 
     @classmethod
     def mmq_forward(cls, quant_data_type: str) -> Self:
-        if quant_data_type not in {"Q4_K", "Q5_K", "Q6_K"}:
+        if quant_data_type not in {"Q4_K", "Q5_K", "Q6_K", "Q8_0"}:
             raise ValueError(f"unsupported MMQ forward quant type {quant_data_type!r}")
         return cls(
             operation_type="MMQForward",
@@ -626,6 +626,33 @@ class ForwardSolution:
             ),
             q6_dependency_delay_mode="None" if macro_tile0 == 64 else "Explicit",
             q6_global_read_cache_policy="InvalidateL0",
+        )
+
+    @classmethod
+    def q8_0_direct_global(cls) -> Self:
+        """Return the fixed semantic Q8_0 direct-global control."""
+        return cls(
+            kernel_language="Assembly",
+            isa=(11, 5, 1),
+            wavefront_size=32,
+            work_group=(32, 1, 1),
+            matrix_instruction=(16, 16, 16, 1, 1, 1, 1, 1, 1),
+            macro_tile0=16,
+            macro_tile1=16,
+            depth_u=32,
+            activation_layout="F32_D4",
+            activation_block_bytes=Q8_1_F32_D4_BLOCK_BYTES,
+            packed_weight_block_bytes=QUANT_FORMATS["Q8_0"].block_bytes,
+            operand_source="Q8DirectGlobal",
+            weight_decode="DirectSignedInt8",
+            lds_address_hoist="None",
+            activation_addressing="MultiplyAdd",
+            metadata_conversion="Float16DToFloat32",
+            scale_arithmetic="Int32ScaleF32",
+            output_store="BFloat16RNE",
+            signed_weight=True,
+            signed_activation=True,
+            wmma_clamp=False,
         )
 
     @classmethod

@@ -204,6 +204,25 @@ MMQ_FWD_INVENTORY_CASES = (
             }
         ),
     ),
+    GGTensileInventoryCase(
+        "fwd",
+        "Q8_0",
+        23,
+        frozenset(
+            {
+                "attention_kv",
+                "attention_output_b",
+                "attention_q_a",
+                "attention_q_b",
+                "lm_head",
+                "shared_down",
+                "shared_gate_up",
+            }
+        ),
+        frozenset({32, 64, 128, 256, 512, 2048, 8192, 32768}),
+        (("open", 23),),
+        frozenset({"direct_global_control"}),
+    ),
 )
 MMQ_FWD_INVENTORY_CASE_IDS = tuple(case.id for case in MMQ_FWD_INVENTORY_CASES)
 

@@ -23,10 +23,10 @@ class ForwardFormatTraits:
 
     @classmethod
     def for_quant_type(cls, quant_type: str) -> "ForwardFormatTraits":
-        if quant_type not in {"Q4_K", "Q5_K", "Q6_K"}:
+        if quant_type not in {"Q4_K", "Q5_K", "Q6_K", "Q8_0"}:
             raise ValueError(f"unsupported MMQ forward quant type {quant_type!r}")
         quant_format = QUANT_FORMATS[quant_type]
-        if quant_type == "Q6_K":
+        if quant_type in {"Q6_K", "Q8_0"}:
             activation_layout = "F32_D4"
             activation_block_bytes = Q8_1_F32_D4_BLOCK_BYTES
         else:
@@ -156,6 +156,17 @@ class QuantForwardSemantics:
                 activation_components=("q", "d"),
                 post_wmma_correction="SignedScaleTimesBlockFactors",
             )
+        if quant_type == "Q8_0":
+            return cls(
+                quant_type=quant_type,
+                weight_bits=8,
+                payload_planes=(
+                    PayloadPlaneSpec("d", 0, 2, "Float16"),
+                    PayloadPlaneSpec("qs", 2, 32, "SignedInt8"),
+                ),
+                activation_components=("q", "d"),
+                post_wmma_correction="SignedScaleTimesActivationScale",
+            )
         raise ValueError(f"unsupported MMQ forward quant type {quant_type!r}")
 
     def low_payload_group_offsets(self, group: int) -> tuple[int, int]:
@@ -269,13 +280,16 @@ class ForwardProblemContract:
         solution: ForwardSolution,
     ) -> str | None:
         traits = ForwardFormatTraits.for_quant_type(quant_type)
-        expected_clamp = quant_type != "Q6_K"
+        expected_clamp = quant_type not in {"Q6_K", "Q8_0"}
         expected_weight_decode = {
             "Q4_K": "DirectNibble",
             "Q5_K": "DirectNibbleHighBit",
             "Q6_K": "DirectQ6Signed",
+            "Q8_0": "DirectSignedInt8",
         }[quant_type]
-        expected_scale_arithmetic = "Int32ScaleF32" if quant_type == "Q6_K" else "FP16"
+        expected_scale_arithmetic = (
+            "Int32ScaleF32" if quant_type in {"Q6_K", "Q8_0"} else "FP16"
+        )
         checks = (
             (
                 solution.activation_layout == traits.activation_layout,
@@ -341,6 +355,8 @@ class ForwardProblemContract:
             arithmetic_contract=(
                 "SignedQ6Int8ScaleIntegerWmmaF32Correction"
                 if quant_type == "Q6_K"
+                else "SignedQ8Int8ScaleIntegerWmmaF32Correction"
+                if quant_type == "Q8_0"
                 else "SignedKQuantIntegerWmmaFP16ScaleMinimumCorrection"
             ),
         )
@@ -492,6 +508,8 @@ def derive_forward_resource_usage(spec: "ForwardKernelSpec") -> ForwardResourceU
     if operand_source == "DecodedWeightLdsBatch8":
         return ForwardResourceUsage(vgprs=239, sgprs=16, lds_bytes=38_400)
     if operand_source == "Global":
+        return ForwardResourceUsage(vgprs=88, sgprs=16, lds_bytes=0)
+    if operand_source == "Q8DirectGlobal":
         return ForwardResourceUsage(vgprs=88, sgprs=16, lds_bytes=0)
     raise ValueError(f"unsupported forward operand source {operand_source!r}")
 
@@ -770,7 +788,13 @@ class ForwardKernelSpec:
         source = self.global_memory.operand_source
         decoded_staged = source == "DecodedWeightLdsBatch8"
         structured_q6 = source == "Q6StructuredDecoded"
-        if source not in {"Global", "DecodedWeightLdsBatch8", "Q6StructuredDecoded"}:
+        q8_direct = source == "Q8DirectGlobal"
+        if source not in {
+            "Global",
+            "DecodedWeightLdsBatch8",
+            "Q6StructuredDecoded",
+            "Q8DirectGlobal",
+        }:
             raise ValueError(f"unsupported forward operand source {source!r}")
         expected_semantic_schedule = (
             SemanticSchedulePolicy.structured_q6()
@@ -786,6 +810,8 @@ class ForwardKernelSpec:
             if structured_q6
             else {"Q4_K", "Q5_K"}
             if decoded_staged
+            else {"Q8_0"}
+            if q8_direct
             else {"Q4_K"}
         )
         if contract.quant_type not in expected_quant_types:

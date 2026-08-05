@@ -1,0 +1,31 @@
+{
+  "Solutions": {
+    "direct_global_control": {
+      "KernelLanguage": "Assembly",
+      "ISA": [11, 5, 1],
+      "WavefrontSize": 32,
+      "WorkGroup": [32, 1, 1],
+      "MatrixInstruction": [16, 16, 16, 1, 1, 1, 1, 1, 1],
+      "MacroTile0": 16,
+      "MacroTile1": 16,
+      "DepthU": 32,
+      "ActivationLayout": "F32_D4",
+      "ActivationBlockBytes": 144,
+      "PackedWeightBlockBytes": 34,
+      "OperandSource": "Q8DirectGlobal",
+      "WeightDecode": "DirectSignedInt8",
+      "LdsAddressHoist": "None",
+      "ActivationAddressing": "MultiplyAdd",
+      "MetadataConversion": "Float16DToFloat32",
+      "ScaleArithmetic": "Int32ScaleF32",
+      "OutputStore": "BFloat16RNE",
+      "SignedWeight": true,
+      "SignedActivation": true,
+      "WmmaClamp": false,
+      "MetadataSchedule": "Serialized",
+      "EpilogueTilesAhead": 8,
+      "EpilogueDependencyWidth": 1,
+      "EpiloguePriority": 0
+    }
+  }
+}

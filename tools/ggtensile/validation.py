@@ -169,6 +169,22 @@ def _validate_q6_forward_solution(
         )
 
 
+def _validate_q8_forward_solution(
+    problem_size: ProblemSize,
+    solution: ForwardSolution,
+    reasons: list[RejectReason],
+) -> None:
+    if solution != ForwardSolution.q8_0_direct_global():
+        _reject(
+            reasons,
+            "solution.forward.q8.control.unimplemented",
+            "Q8_0 forward currently implements the direct-global semantic control",
+            "Solution",
+        )
+        return
+    _validate_forward_tile_multiples(problem_size, solution, reasons)
+
+
 def _validate_q5_forward_solution(
     problem_size: ProblemSize,
     solution: ForwardSolution,
@@ -229,12 +245,13 @@ def _validate_forward_solution(
         ProblemType.mmq_forward("Q4_K"),
         ProblemType.mmq_forward("Q5_K"),
         ProblemType.mmq_forward("Q6_K"),
+        ProblemType.mmq_forward("Q8_0"),
     }
     if problem_type not in supported_problem_types:
         _reject(
             reasons,
             "problem_type.forward.unsupported",
-            "MMQ forward requires an exact Q4_K, Q5_K, or Q6_K Q8_1 problem type",
+            "MMQ forward requires an exact Q4_K, Q5_K, Q6_K, or Q8_0 Q8_1 problem type",
             "ProblemType",
             source="ProblemType",
         )
@@ -263,6 +280,12 @@ def _validate_forward_solution(
             source="ForwardProblemContract",
         )
         return
+    if (
+        problem_type.quant_data_type == "Q8_0"
+        and solution != ForwardSolution.q8_0_direct_global()
+    ):
+        _validate_q8_forward_solution(solution_key.problem_size, solution, reasons)
+        return
     spec_rejection = forward_kernel_spec_rejection_reason(solution)
     if spec_rejection is not None:
         _reject(
@@ -277,6 +300,8 @@ def _validate_forward_solution(
     problem_size = solution_key.problem_size
     if problem_type.quant_data_type == "Q6_K":
         _validate_q6_forward_solution(problem_size, solution, reasons)
+    elif problem_type.quant_data_type == "Q8_0":
+        _validate_q8_forward_solution(problem_size, solution, reasons)
     elif problem_type.quant_data_type == "Q5_K":
         _validate_q5_forward_solution(problem_size, solution, reasons)
     else:

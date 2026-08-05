@@ -156,6 +156,8 @@ def inspect_artifact(
                 if solution.operand_source == "Q6StructuredDecoded"
                 else 32
                 if solution.operand_source == "DecodedWeightLdsBatch8"
+                else 8
+                if solution.operand_source == "Q8DirectGlobal"
                 else 16
             )
         else:

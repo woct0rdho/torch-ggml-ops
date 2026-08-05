@@ -91,6 +91,28 @@ _MMQ_FWD_CAMPAIGN_SPECS: dict[str, _CampaignSpec] = {
             "lm_head": (64, 128, 256),
         },
     },
+    "Q8_0": {
+        "families": {
+            "attention_q_a": ((1024, 4096), "blk.0.attn_q_a.weight", 43),
+            "attention_q_b": ((32768, 1024), "blk.0.attn_q_b.weight", 43),
+            "attention_kv": ((512, 4096), "blk.0.attn_kv.weight", 43),
+            "attention_output_b": (
+                (4096, 8192),
+                "blk.0.attn_output_b.weight",
+                43,
+            ),
+            "shared_gate_up": (
+                (2048, 4096),
+                "blk.0.ffn_gate_shexp.weight",
+                86,
+            ),
+            "shared_down": ((4096, 2048), "blk.0.ffn_down_shexp.weight", 43),
+            "lm_head": ((129280, 4096), "output.weight", 1),
+        },
+        "m_values": {
+            "lm_head": (32, 64, 128, 256, 512),
+        },
+    },
 }
 
 
@@ -279,7 +301,7 @@ def load_inventory(path: Path) -> CampaignInventory:
             "RequireWorkspaceMutation": True,
             "FixedActivationProducer": (
                 "HIP_Q8_1_F32_D4"
-                if problem_type.quant_data_type == "Q6_K"
+                if problem_type.quant_data_type in ("Q6_K", "Q8_0")
                 else "HIP_Q8_1_F16_D4S4"
             ),
         }

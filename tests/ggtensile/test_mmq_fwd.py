@@ -93,6 +93,7 @@ def _key(
             "Q4_K": ForwardSolution.q4_k_pilot(),
             "Q5_K": _q5_extraction(),
             "Q6_K": ForwardSolution.q6_k_structured_decoded(macro_tile0=64),
+            "Q8_0": ForwardSolution.q8_0_direct_global(),
         }
         solution = default_solutions[quant_type]
     return SolutionKey(
@@ -128,6 +129,9 @@ def test_forward_campaign_inventory_is_exact_and_versionless(
     if case.quant_type == "Q6_K":
         assert narrow.expected_logical_weight_shape == (248320, 2048)
         assert narrow.expected_physical_weight_shape == (248320, 1680)
+    elif case.quant_type == "Q8_0":
+        assert narrow.expected_logical_weight_shape == (1024, 4096)
+        assert narrow.expected_physical_weight_shape == (1024, 4352)
     else:
         assert narrow.expected_logical_weight_shape == (512, 2048)
         expected_row_bytes = {"Q4_K": 1152, "Q5_K": 1408}[case.quant_type]
@@ -146,7 +150,7 @@ def test_q5_forward_inventory_selects_retained_vopd_epilogue() -> None:
     assert selected.accumulator_initialization == "VopdPair"
 
 
-@pytest.mark.parametrize("quant_type", ("Q4_K", "Q5_K", "Q6_K"), ids=str.lower)
+@pytest.mark.parametrize("quant_type", ("Q4_K", "Q5_K", "Q6_K", "Q8_0"), ids=str.lower)
 def test_forward_solution_key_is_strict_and_round_trips(quant_type: str) -> None:
     key = _key(quant_type)
     assert SolutionKey.from_mapping(key.to_mapping()) == key
@@ -321,6 +325,20 @@ def test_q5_forward_validation_rejects_q4_control() -> None:
     }
 
 
+def test_q8_forward_validation_rejects_unimplemented_control_variants() -> None:
+    key = _key(
+        "Q8_0",
+        solution=replace(ForwardSolution.q8_0_direct_global(), epilogue_tiles_ahead=7),
+    )
+    reasons = validate_solution(key)
+    assert [(reason.rule_id, reason.message) for reason in reasons] == [
+        (
+            "solution.forward.q8.control.unimplemented",
+            "Q8_0 forward currently implements the direct-global semantic control",
+        )
+    ]
+
+
 def test_forward_writer_emits_direct_q8_1_f16_d4s4_q4_k_control(tmp_path: Path) -> None:
     key = _key()
     writer = ForwardKernelWriterAssembly(key, Toolchain.discover())
@@ -335,6 +353,24 @@ def test_forward_writer_emits_direct_q8_1_f16_d4s4_q4_k_control(tmp_path: Path) 
     assert "offset:128" in source
     assert "Reproduce Q4_K FP16 scale/min construction" in source
     assert "global_store_d16_hi_b16" in source
+    assert "s_barrier" not in source
+    assert "ds_" not in source
+
+
+def test_forward_writer_emits_direct_q8_0_f32_d4_control(tmp_path: Path) -> None:
+    key = _key("Q8_0", ProblemSize(2048, 1024, 4096))
+    writer = ForwardKernelWriterAssembly(key, Toolchain.discover())
+    source = writer.source()
+    assembly = tmp_path / "q8_0.s"
+    assert writer.write(assembly) == hashlib.sha256(source.encode()).hexdigest()
+    assert source.count("v_wmma_i32_16x16x16_iu8") == 8
+    assert source.count("neg_lo:[1,1,0]") == 8
+    assert " clamp" not in source
+    assert source.count("global_load_d16_b16 v3") == 32
+    assert "offset:2" in source
+    assert "offset:128" in source
+    assert "s_cmp_lt_u32 s10, 32" in source
+    assert "Q8_1 F32_D4 workspace" in source
     assert "s_barrier" not in source
     assert "ds_" not in source
 
@@ -648,6 +684,28 @@ def test_forward_runtime_uses_exact_hip_launch_geometry(quant_type: str) -> None
 
 
 @pytest.mark.parametrize(
+    ("m", "grid_y", "lds_bytes"),
+    ((32, 1, 28_928), (64, 1, 28_928), (128, 1, 38_400), (512, 4, 38_400)),
+)
+def test_q8_forward_runtime_uses_exact_hip_launch_geometry(
+    m: int,
+    grid_y: int,
+    lds_bytes: int,
+) -> None:
+    hip = FixedHipForwardModule.__new__(FixedHipForwardModule)
+    hip.solution_key = _key(
+        "Q8_0",
+        ProblemSize(m, 129280, 4096),
+        ForwardSolution.q8_0_direct_global(),
+    )
+    assert hip._launch_configuration() == (
+        (2020, grid_y, 1),
+        (32, 4, 1),
+        lds_bytes,
+    )
+
+
+@pytest.mark.parametrize(
     (
         "key",
         "wmma_count",
@@ -722,6 +780,19 @@ def test_forward_runtime_uses_exact_hip_launch_geometry(quant_type: str) -> None
             id="q4-selected-shared-down-m32768",
         ),
         pytest.param(_key("Q5_K"), 32, 239, 4, 38_400, 8, id="q5-selected"),
+        pytest.param(
+            _key(
+                "Q8_0",
+                ProblemSize(2048, 1024, 4096),
+                ForwardSolution.q8_0_direct_global(),
+            ),
+            8,
+            88,
+            0,
+            0,
+            None,
+            id="q8-direct-global-control",
+        ),
         pytest.param(
             _key(
                 "Q6_K",

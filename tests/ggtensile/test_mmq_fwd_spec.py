@@ -44,6 +44,7 @@ def _key(
         ("Q4_K", "F16_D4S4", 144),
         ("Q5_K", "F16_D4S4", 144),
         ("Q6_K", "F32_D4", 144),
+        ("Q8_0", "F32_D4", 144),
     ),
 )
 def test_forward_format_traits_are_fixed_contracts(
@@ -54,17 +55,22 @@ def test_forward_format_traits_are_fixed_contracts(
     traits = ForwardFormatTraits.for_quant_type(quant_type)
     assert traits.activation_layout == layout
     assert traits.activation_block_bytes == block_bytes
-    assert traits.block_values == 256
+    assert traits.block_values == (32 if quant_type == "Q8_0" else 256)
 
 
 def test_quant_forward_semantics_describe_packed_planes() -> None:
     q4 = QuantForwardSemantics.for_quant_type("Q4_K")
     q5 = QuantForwardSemantics.for_quant_type("Q5_K")
     q6 = QuantForwardSemantics.for_quant_type("Q6_K")
+    q8 = QuantForwardSemantics.for_quant_type("Q8_0")
     assert q4.payload_plane("ql").byte_offset == 16
     assert q5.payload_plane("qh").byte_count == 32
     assert q6.payload_plane("scales").encoding == "SignedInt8"
     assert q6.payload_plane("d").byte_offset == 208
+    assert q8.payload_plane("d").byte_count == 2
+    assert q8.payload_plane("qs").byte_offset == 2
+    assert q8.payload_plane("qs").encoding == "SignedInt8"
+    assert q8.post_wmma_correction == "SignedScaleTimesActivationScale"
     with pytest.raises(ValueError, match="no payload plane"):
         q4.payload_plane("qh")
 
@@ -170,12 +176,13 @@ def test_complete_candidate_round_trips_to_the_normal_build_solution() -> None:
         ),
         ("Q6_K", ForwardSolution.q6_k_structured_decoded(macro_tile0=64)),
         ("Q6_K", ForwardSolution.q6_k_structured_decoded(macro_tile0=128)),
+        ("Q8_0", ForwardSolution.q8_0_direct_global()),
     )
     for quant_type, solution in candidates:
         candidate = ForwardKernelCandidate.from_solution(quant_type, solution)
         assert candidate.to_solution() == solution
 
-    candidate = ForwardKernelCandidate.from_solution("Q6_K", candidates[-1][1])
+    candidate = ForwardKernelCandidate.from_solution("Q6_K", candidates[-2][1])
     assert candidate.kernel_spec.semantic_schedule == (
         SemanticSchedulePolicy.structured_q6()
     )
@@ -218,6 +225,7 @@ def test_complete_candidate_round_trips_to_the_normal_build_solution() -> None:
             ForwardSolution.q6_k_structured_decoded(macro_tile0=128),
             (210, 27, 38_400),
         ),
+        (ForwardSolution.q8_0_direct_global(), (88, 16, 0)),
     ),
 )
 def test_forward_resources_are_derived_from_the_kernel_spec(
@@ -300,6 +308,7 @@ def test_every_forward_solution_field_is_projected_or_rejected() -> None:
         ("Q4_K", ForwardSolution.q4_k_decoded_weight_lds_retained()),
         ("Q5_K", ForwardSolution.q5_k_decoded_weight_lds_retained()),
         ("Q6_K", ForwardSolution.q6_k_structured_decoded(macro_tile0=64)),
+        ("Q8_0", ForwardSolution.q8_0_direct_global()),
     )
 
     def different(value: object) -> object:

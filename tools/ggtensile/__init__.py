@@ -1,6 +1,11 @@
 """Exact-problem gfx1151 assembly generation for packed GGUF MMQ."""
 
 from .inspection import ArtifactInspection, InspectionError, inspect_artifact
+from .mmq_fwd_reference import (
+    decode_q8_0_block,
+    decode_q8_0_rows,
+    q8_0_matmul_reference,
+)
 from .mmq_fwd_spec import (
     DecodedLdsLayout,
     DecodeSpec,
@@ -40,6 +45,7 @@ from .runtime import (
     BackwardModule,
     FixedHipForwardModule,
     FixedQ81F16D4S4QuantizerModule,
+    FixedQ81F32D4QuantizerModule,
     ForwardModule,
     HIPRuntimeError,
 )
@@ -56,6 +62,7 @@ __all__ = [
     "EpilogueSpec",
     "FixedHipForwardModule",
     "FixedQ81F16D4S4QuantizerModule",
+    "FixedQ81F32D4QuantizerModule",
     "ForwardFormatTraits",
     "ForwardKernelCandidate",
     "ForwardKernelSpec",
@@ -84,7 +91,10 @@ __all__ = [
     "ResourceLimits",
     "SemanticSchedulePolicy",
     "SolutionKey",
+    "decode_q8_0_block",
+    "decode_q8_0_rows",
     "derive_forward_resource_usage",
     "inspect_artifact",
+    "q8_0_matmul_reference",
     "validate_solution",
 ]

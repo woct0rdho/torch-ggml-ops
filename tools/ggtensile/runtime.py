@@ -323,6 +323,7 @@ class FixedHipForwardModule(ForwardModule):
             "Q4_K": (512, 2048, 4096),
             "Q5_K": (512, 2048),
             "Q6_K": (2048,),
+            "Q8_0": (1024, 2048, 4096, 8192),
         }.get(quant_type)
         if allowed_k is None or k not in allowed_k:
             raise HIPRuntimeError(
@@ -331,10 +332,17 @@ class FixedHipForwardModule(ForwardModule):
         symbol_quant = quant_type.lower()
         # The installed bundle ABI explicitly contrasts ordinary (`dense_fwd`) and
         # grouped entry points, so preserve its external symbol spelling here.
-        j = 64 if quant_type == "Q6_K" and solution_key.problem_size.m == 64 else 128
-        symbol = (
-            f"torch_ggml_ops_mmq_gfx1151_v1_dense_fwd_{symbol_quant}_k{k}_j{j}_full"
-        )
+        m = solution_key.problem_size.m
+        j = 64 if quant_type == "Q6_K" and m == 64 else 128
+        suffix = f"k{k}_j{j}_full"
+        if quant_type == "Q8_0" and m in (32, 64):
+            if k != 4096:
+                raise HIPRuntimeError(
+                    f"installed Q8_0 J64 control does not support K={k}"
+                )
+            j = 64
+            suffix = f"k4096_j64_{'bounded' if m == 32 else 'full'}"
+        symbol = f"torch_ggml_ops_mmq_gfx1151_v1_dense_fwd_{symbol_quant}_{suffix}"
         super().__init__(
             solution_key,
             code_object or _find_installed_kernel(symbol),
@@ -346,13 +354,14 @@ class FixedHipForwardModule(ForwardModule):
         self,
     ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
         size = self.solution_key.problem_size
-        j = (
-            64
-            if self.solution_key.problem_type.quant_data_type == "Q6_K" and size.m == 64
-            else 128
-        )
+        quant_type = self.solution_key.problem_type.quant_data_type
+        j = 64 if quant_type in ("Q6_K", "Q8_0") and size.m in (32, 64) else 128
         lds_bytes = 28_928 if j == 64 else 38_400
-        return ((size.n // 64, size.m // j, 1), (32, 4, 1), lds_bytes)
+        return (
+            (size.n // 64, (size.m + j - 1) // j, 1),
+            (32, 4, 1),
+            lds_bytes,
+        )
 
 
 class FixedQ81F16D4S4QuantizerModule(_HIPModule):

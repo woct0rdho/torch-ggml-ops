@@ -2721,6 +2721,110 @@ class ForwardKernelWriterError(RuntimeError):
     pass
 
 
+@dataclass(frozen=True)
+class Q8DirectGroupRole:
+    """One 32-value Q8_0/Q8_1 scale and payload group."""
+
+    index: int
+    weight_payload_offset: int
+    activation_payload_offset: int
+    activation_scale_offset: int
+
+    @classmethod
+    def from_semantics(
+        cls,
+        semantics: QuantForwardSemantics,
+        index: int,
+    ) -> "Q8DirectGroupRole":
+        if semantics.quant_type != "Q8_0" or index not in range(4):
+            raise ValueError("Q8 direct group requires Q8_0 index 0..3")
+        return cls(
+            index=index,
+            weight_payload_offset=semantics.payload_plane("qs").byte_offset,
+            activation_payload_offset=16 + 32 * index,
+            activation_scale_offset=4 * index,
+        )
+
+
+@dataclass(frozen=True)
+class Q8DirectRegisterPlan:
+    """Typed deterministic register ownership for the direct Q8 control."""
+
+    c: RegisterAssignment
+    sums: RegisterAssignment
+    weight_payload: RegisterAssignment
+    activation_payload: RegisterAssignment
+    weight_scales: RegisterAssignment
+    activation_scale: RegisterAssignment
+    result_addresses: RegisterAssignment
+    weight_address: RegisterAssignment
+    activation_address: RegisterAssignment
+    output_address: RegisterAssignment
+    temporary: RegisterAssignment
+    output_column: RegisterAssignment
+    store_auxiliary: RegisterAssignment
+    serial: RegisterAssignment
+    activation_row: RegisterAssignment
+    register_count: int
+
+    @classmethod
+    def allocate(cls) -> "Q8DirectRegisterPlan":
+        roles = {
+            "c": RegisterRole("c", 8, RegisterLifetime(2, 3), minimum_register=0),
+            "sums": RegisterRole("sums", 8, RegisterLifetime(0, 5), minimum_register=8),
+            "weight_payload": RegisterRole(
+                "weight_payload", 8, RegisterLifetime(2, 3), minimum_register=16
+            ),
+            "activation_payload": RegisterRole(
+                "activation_payload", 8, RegisterLifetime(2, 3), minimum_register=24
+            ),
+            "weight_scales": RegisterRole(
+                "weight_scales", 8, RegisterLifetime(2, 4), minimum_register=32
+            ),
+            "activation_scale": RegisterRole(
+                "activation_scale", 1, RegisterLifetime(2, 4), minimum_register=40
+            ),
+            "result_addresses": RegisterRole(
+                "result_addresses", 8, RegisterLifetime(0, 4), minimum_register=64
+            ),
+            "weight_address": RegisterRole(
+                "weight_address", 1, RegisterLifetime(0, 4), minimum_register=72
+            ),
+            "activation_address": RegisterRole(
+                "activation_address", 1, RegisterLifetime(0, 4), minimum_register=73
+            ),
+            "output_address": RegisterRole(
+                "output_address", 1, RegisterLifetime(5, 5), minimum_register=75
+            ),
+            "temporary": RegisterRole(
+                "temporary", 1, RegisterLifetime(0, 5), minimum_register=84
+            ),
+            "output_column": RegisterRole(
+                "output_column", 1, RegisterLifetime(0, 0), minimum_register=85
+            ),
+            "store_auxiliary": RegisterRole(
+                "store_auxiliary", 1, RegisterLifetime(5, 5), minimum_register=85
+            ),
+            "serial": RegisterRole(
+                "serial", 1, RegisterLifetime(0, 5), minimum_register=86
+            ),
+            "activation_row": RegisterRole(
+                "activation_row", 1, RegisterLifetime(0, 0), minimum_register=87
+            ),
+        }
+        order = tuple(roles)
+        plan = DeterministicRegisterPlan.allocate(
+            roles,
+            order,
+            max_registers=88,
+        )
+        assignments = {name: plan.assignment(name) for name in order}
+        return cls(
+            **assignments,
+            register_count=plan.register_count,
+        )
+
+
 class ForwardKernelWriterAssembly:
     """Emit strict packed K-quant/Q8_1 forward controls."""
 
@@ -2815,6 +2919,8 @@ class ForwardKernelWriterAssembly:
             return self._body_q6_structured_decoded()
         if operand_source == "DecodedWeightLdsBatch8":
             return self._body_decoded_weight_lds()
+        if operand_source == "Q8DirectGlobal":
+            return self._body_q8_direct_global()
         asm = Assembly()
         name = self.solution_key.kernel_name
         quant_type = self.state.contract.quant_type
@@ -2912,6 +3018,203 @@ class ForwardKernelWriterAssembly:
         self._emit_store(asm)
         emit_kernel_trailer(asm, name)
         return asm.text()
+
+    def _body_q8_direct_global(self) -> str:
+        """Lower the isolated one-wave Q8_0 direct-global correctness control."""
+        asm = Assembly()
+        registers = Q8DirectRegisterPlan.allocate()
+        name = self.solution_key.kernel_name
+        row_stride = self.state.packed_weight_row_bytes
+        activation_plane_stride = self.state.activation_plane_stride_bytes
+        sums = registers.sums.first_register
+        result_addresses = registers.result_addresses.first_register
+        temporary = registers.temporary.first_register
+        output_column = registers.output_column.first_register
+        serial = registers.serial.first_register
+        activation_row = registers.activation_row.first_register
+
+        asm.comment("Load packed Q8_0, the Q8_1 F32_D4 workspace, and output pointers.")
+        emit_pointer_kernarg_loads(asm, self.KERNARG)
+
+        asm.comment("Map one wave to an exact 16x16 output tile.")
+        asm.inst(f"v_mov_b32 v{serial}, v0")
+        asm.inst(f"v_and_b32 v{output_column}, 15, v{serial}")
+        asm.inst(f"v_lshlrev_b32 v{temporary}, 4, s2")
+        asm.inst(f"v_add_nc_u32 v{output_column}, v{temporary}, v{output_column}")
+        asm.inst(f"v_and_b32 v{activation_row}, 15, v{serial}")
+        asm.inst(f"v_lshlrev_b32 v{temporary}, 4, s3")
+        asm.inst(f"v_add_nc_u32 v{activation_row}, v{temporary}, v{activation_row}")
+
+        asm.comment("Build Q8 payload, scale, and activation row addresses.")
+        asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{serial}")
+        asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
+        asm.inst(f"v_lshlrev_b32 v{registers.activation_scale.first_register}, 4, s2")
+        asm.inst(
+            f"v_add_nc_u32 v{temporary}, "
+            f"v{registers.activation_scale.first_register}, v{temporary}"
+        )
+        asm.inst(f"v_mul_lo_u32 v{result_addresses}, {row_stride}, v{temporary}")
+        for element in range(1, 8):
+            asm.inst(
+                f"v_add_nc_u32 v{result_addresses + element}, "
+                f"{2 * element * row_stride}, v{result_addresses}"
+            )
+        asm.inst(
+            f"v_mul_lo_u32 v{registers.weight_address.first_register}, "
+            f"{row_stride}, v{output_column}"
+        )
+        asm.inst(
+            f"v_mul_lo_u32 v{registers.activation_address.first_register}, "
+            f"{self.state.contract.activation_block_bytes}, v{activation_row}"
+        )
+        for register in range(sums, sums + 8):
+            asm.inst(f"v_mov_b32 v{register}, 0")
+        asm.inst(f"s_mov_b32 s{self.LOOP_COUNTER}, 0")
+
+        asm.label(".LForwardQ80ActivationBlockLoop")
+        for group in range(4):
+            self._emit_q8_direct_group(
+                asm,
+                Q8DirectGroupRole.from_semantics(self.state.semantics, group),
+                registers,
+            )
+            for element in range(8):
+                asm.inst(
+                    f"v_add_nc_u32 v{result_addresses + element}, "
+                    f"{self.state.contract.packed_weight_block_bytes}, "
+                    f"v{result_addresses + element}"
+                )
+            asm.inst(
+                f"v_add_nc_u32 v{registers.weight_address.first_register}, "
+                f"{self.state.contract.packed_weight_block_bytes}, "
+                f"v{registers.weight_address.first_register}"
+            )
+        asm.inst(
+            f"v_add_nc_u32 v{registers.activation_address.first_register}, "
+            f"{activation_plane_stride}, "
+            f"v{registers.activation_address.first_register}"
+        )
+        asm.inst(f"s_add_u32 s{self.LOOP_COUNTER}, s{self.LOOP_COUNTER}, 1")
+        asm.inst(
+            f"s_cmp_lt_u32 s{self.LOOP_COUNTER}, {self.state.activation_blocks_per_row}"
+        )
+        asm.inst("s_cbranch_scc1 .LForwardQ80ActivationBlockLoop")
+
+        self._emit_q8_direct_store(asm, registers)
+        emit_kernel_trailer(asm, name)
+        return asm.text()
+
+    def _emit_q8_direct_group(
+        self,
+        asm: Assembly,
+        group: Q8DirectGroupRole,
+        registers: Q8DirectRegisterPlan,
+    ) -> None:
+        c = registers.c.first_register
+        sums = registers.sums.first_register
+        weight_payload = registers.weight_payload.first_register
+        activation_payload = registers.activation_payload.first_register
+        weight_scales = registers.weight_scales.first_register
+        activation_scale = registers.activation_scale.first_register
+        result_addresses = registers.result_addresses.first_register
+        weight_address = registers.weight_address.first_register
+        activation_address = registers.activation_address.first_register
+
+        asm.comment(
+            f"Q8_0 group {group.index}: signed payload and FP32 scale correction."
+        )
+        asm.inst(
+            f"global_load_b128 v[{weight_payload}:{weight_payload + 3}], "
+            f"v{weight_address}, s[{self.KERNARG}:{self.KERNARG + 1}] "
+            f"offset:{group.weight_payload_offset}"
+        )
+        asm.inst(
+            f"global_load_b128 v[{weight_payload + 4}:{weight_payload + 7}], "
+            f"v{weight_address}, s[{self.KERNARG}:{self.KERNARG + 1}] "
+            f"offset:{group.weight_payload_offset + 16}"
+        )
+        asm.inst(
+            f"global_load_b128 v[{activation_payload}:{activation_payload + 3}], "
+            f"v{activation_address}, s[{self.KERNARG + 2}:{self.KERNARG + 3}] "
+            f"offset:{group.activation_payload_offset}"
+        )
+        asm.inst(
+            f"global_load_b128 v[{activation_payload + 4}:"
+            f"{activation_payload + 7}], v{activation_address}, "
+            f"s[{self.KERNARG + 2}:{self.KERNARG + 3}] "
+            f"offset:{group.activation_payload_offset + 16}"
+        )
+        asm.inst(
+            f"global_load_b32 v{activation_scale}, v{activation_address}, "
+            f"s[{self.KERNARG + 2}:{self.KERNARG + 3}] "
+            f"offset:{group.activation_scale_offset}"
+        )
+        for element in range(8):
+            asm.inst(
+                f"global_load_d16_b16 v{weight_scales + element}, "
+                f"v{result_addresses + element}, "
+                f"s[{self.KERNARG}:{self.KERNARG + 1}]"
+            )
+        asm.inst("s_waitcnt vmcnt(0)")
+
+        for register in range(c, c + 8):
+            asm.inst(f"v_mov_b32 v{register}, 0")
+        asm.inst(
+            f"v_wmma_i32_16x16x16_iu8 v[{c}:{c + 7}], "
+            f"v[{weight_payload}:{weight_payload + 3}], "
+            f"v[{activation_payload}:{activation_payload + 3}], "
+            f"v[{c}:{c + 7}] neg_lo:[1,1,0]"
+        )
+        asm.inst(
+            f"v_wmma_i32_16x16x16_iu8 v[{c}:{c + 7}], "
+            f"v[{weight_payload + 4}:{weight_payload + 7}], "
+            f"v[{activation_payload + 4}:{activation_payload + 7}], "
+            f"v[{c}:{c + 7}] neg_lo:[1,1,0]"
+        )
+        for element in range(8):
+            asm.inst(
+                f"v_cvt_f32_f16 v{weight_scales + element}, v{weight_scales + element}"
+            )
+            asm.inst(f"v_cvt_f32_i32 v{c + element}, v{c + element}")
+            asm.inst(
+                f"v_mul_f32 v{c + element}, v{weight_scales + element}, v{c + element}"
+            )
+            asm.inst(
+                f"v_fmac_f32 v{sums + element}, v{activation_scale}, v{c + element}"
+            )
+
+    def _emit_q8_direct_store(
+        self,
+        asm: Assembly,
+        registers: Q8DirectRegisterPlan,
+    ) -> None:
+        size = self.state.problem_size
+        sums = registers.sums.first_register
+        output_address = registers.output_address.first_register
+        temporary = registers.temporary.first_register
+        store_auxiliary = registers.store_auxiliary.first_register
+        serial = registers.serial.first_register
+
+        asm.comment("Store the Q8 direct J-major fragments as row-major BF16.")
+        asm.inst(f"v_and_b32 v{temporary}, 15, v{serial}")
+        asm.inst(f"v_lshlrev_b32 v{output_address}, 4, s3")
+        asm.inst(f"v_add_nc_u32 v{output_address}, v{output_address}, v{temporary}")
+        asm.inst(f"v_mul_lo_u32 v{output_address}, {2 * size.n}, v{output_address}")
+        asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{serial}")
+        asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
+        asm.inst(f"v_lshlrev_b32 v{store_auxiliary}, 4, s2")
+        asm.inst(f"v_add_nc_u32 v{temporary}, v{store_auxiliary}, v{temporary}")
+        asm.inst(f"v_lshlrev_b32 v{temporary}, 1, v{temporary}")
+        asm.inst(f"v_add_nc_u32 v{output_address}, v{output_address}, v{temporary}")
+        for element in range(8):
+            total = sums + element
+            emit_bf16_rne(asm, total, temporary)
+            asm.inst(
+                f"global_store_d16_hi_b16 v{output_address}, v{total}, "
+                f"s[{self.KERNARG + 4}:{self.KERNARG + 5}]"
+            )
+            if element != 7:
+                asm.inst(f"v_add_nc_u32 v{output_address}, 4, v{output_address}")
 
     def _emit_decoded_weight_lds_stage(
         self,
