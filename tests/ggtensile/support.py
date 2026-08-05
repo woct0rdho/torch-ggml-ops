@@ -220,7 +220,7 @@ MMQ_FWD_INVENTORY_CASES = (
             }
         ),
         frozenset({32, 64, 128, 256, 512, 2048, 8192, 32768}),
-        (("open", 23),),
+        (("selected", 23),),
         frozenset({"direct_global_control", "register_tiled_128x32"}),
     ),
 )
@@ -350,6 +350,7 @@ def selected_solution_keys(
             catalog[entry.selected_solution],
         )
         for entry in inventory.entries
+        if entry.selected_solution != "hip_fallback"
     )
 
 

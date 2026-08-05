@@ -37,7 +37,7 @@ A Q6_K block contains 256 logical values in 210 bytes:
 ql[128]      low four bits
 qh[64]       high two bits
 scales[16]   signed int8 scale per 16 values
-d             FP16 block multiplier
+d            FP16 block multiplier
 ```
 
 For logical value `i`:
