@@ -18,6 +18,7 @@ from tests.ggtensile.support import (
 from tools.ggtensile.kernel_writer_assembly_mmq_fwd import (
     ForwardKernelWriterAssembly,
     ForwardKernelWriterError,
+    Q8HipTiledLdsRegisterPlan,
 )
 from tools.ggtensile.model import (
     ForwardSolution,
@@ -419,6 +420,11 @@ def test_forward_writer_emits_q8_0_register_tiled_candidate(tmp_path: Path) -> N
 
 
 def test_forward_writer_emits_q8_0_hip_tiled_lds_control(tmp_path: Path) -> None:
+    registers = Q8HipTiledLdsRegisterPlan.allocate()
+    assert registers.activation_read_address.first_register == (
+        registers.activation_row.first_register
+    )
+    assert registers.register_count == 235
     key = _key(
         "Q8_0",
         ProblemSize(2048, 1024, 4096),
@@ -435,6 +441,10 @@ def test_forward_writer_emits_q8_0_hip_tiled_lds_control(tmp_path: Path) -> None
     assert source.count("v_dual_fmac_f32") == 256
     assert source.count("s_barrier") == 2
     assert source.count("s_clause 63") == 1
+    assert source.count("v_mul_lo_u32 v223, 144, v223") == 1
+    assert source.count("v_mul_lo_u32 v220, 144, v220") == 0
+    assert source.count("s_waitcnt lgkmcnt(18)") == 8
+    assert source.count("s_waitcnt lgkmcnt(0)") == 10
     assert "HIP-shaped wave-N Q8 tile" in source
     assert "s_waitcnt lgkmcnt(0)" in source
 
@@ -458,6 +468,8 @@ def test_forward_writer_emits_q8_0_hip_tiled_lds_depth64_control(
     assert source.count("v_dual_fmac_f32") == 512
     assert source.count("s_barrier") == 4
     assert source.count("s_clause 63") == 1
+    assert source.count("v_mul_lo_u32 v223, 144, v223") == 1
+    assert source.count("v_mul_lo_u32 v220, 144, v220") == 0
     assert "s_cmp_lt_u32 s10, 16" in source
 
 

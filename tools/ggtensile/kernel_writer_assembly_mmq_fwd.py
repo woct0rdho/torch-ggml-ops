@@ -3002,6 +3002,7 @@ class Q8HipTiledLdsRegisterPlan:
     lane: RegisterAssignment
     wave: RegisterAssignment
     activation_row: RegisterAssignment
+    activation_read_address: RegisterAssignment
     weight_row: RegisterAssignment
     output_address: RegisterAssignment
     store_auxiliary: RegisterAssignment
@@ -3090,7 +3091,13 @@ class Q8HipTiledLdsRegisterPlan:
                 "wave", 1, RegisterLifetime(0, 5), minimum_register=222
             ),
             "activation_row": RegisterRole(
-                "activation_row", 1, RegisterLifetime(0, 2), minimum_register=223
+                "activation_row", 1, RegisterLifetime(0, 0), minimum_register=223
+            ),
+            "activation_read_address": RegisterRole(
+                "activation_read_address",
+                1,
+                RegisterLifetime(1, 4),
+                minimum_register=223,
             ),
             "weight_row": RegisterRole(
                 "weight_row", 1, RegisterLifetime(0, 0), minimum_register=10
@@ -4440,6 +4447,7 @@ class ForwardKernelWriterAssembly:
         lane = registers.lane.first_register
         wave = registers.wave.first_register
         activation_row = registers.activation_row.first_register
+        activation_read_address = registers.activation_read_address.first_register
         weight_row = registers.weight_row.first_register
         output_address = registers.output_address.first_register
         store_auxiliary = registers.store_auxiliary.first_register
@@ -4478,6 +4486,12 @@ class ForwardKernelWriterAssembly:
         asm.inst(
             f"v_mul_lo_u32 v{activation_lds_address}, "
             f"{activation_lds_row_stride}, v{activation_row}"
+        )
+        asm.comment("Hoist the lane-local activation LDS row base across all groups.")
+        asm.inst(f"v_and_b32 v{activation_read_address}, 15, v{lane}")
+        asm.inst(
+            f"v_mul_lo_u32 v{activation_read_address}, "
+            f"{activation_lds_row_stride}, v{activation_read_address}"
         )
         asm.inst(f"v_mul_lo_u32 v{temporary}, {weight_lds_row_stride}, v{weight_row}")
         asm.inst(f"v_add_nc_u32 v{weight_lds_address}, {weight_lds_base}, v{temporary}")
@@ -4581,8 +4595,7 @@ class ForwardKernelWriterAssembly:
                 activation_scale_copies,
                 weight_scale_address,
                 weight_lds_address,
-                lane,
-                temporary,
+                activation_read_address,
                 zero_accumulator=zero_accumulator,
             )
         if groups_per_iteration == 8:
@@ -4619,8 +4632,7 @@ class ForwardKernelWriterAssembly:
                     activation_scale_copies,
                     weight_scale_address,
                     weight_lds_address,
-                    lane,
-                    temporary,
+                    activation_read_address,
                     activation_group=group - 4,
                     zero_accumulator=zero_accumulator,
                 )
@@ -4808,8 +4820,7 @@ class ForwardKernelWriterAssembly:
         activation_scale_copies: int,
         weight_scale_address: int,
         weight_lds_address: int,
-        lane: int,
-        temporary: int,
+        activation_read_address: int,
         *,
         activation_group: int | None = None,
         zero_accumulator: int,
@@ -4836,24 +4847,27 @@ class ForwardKernelWriterAssembly:
             )
         for m_index in range(8):
             payload = activation_payloads + 8 * m_index
-            asm.inst(f"v_and_b32 v{temporary}, 15, v{lane}")
-            if m_index:
-                asm.inst(f"v_add_nc_u32 v{temporary}, {16 * m_index}, v{temporary}")
-            asm.inst(f"v_mul_lo_u32 v{temporary}, 144, v{temporary}")
-            asm.inst(
-                f"ds_read_b128 v[{payload}:{payload + 3}], v{temporary} "
-                f"offset:{16 + 32 * activation_group}"
+            activation_row_offset = (
+                16 * m_index * self.state.contract.activation_block_bytes
             )
             asm.inst(
-                f"ds_read_b128 v[{payload + 4}:{payload + 7}], v{temporary} "
-                f"offset:{32 + 32 * activation_group}"
+                f"ds_read_b128 v[{payload}:{payload + 3}], "
+                f"v{activation_read_address} "
+                f"offset:{activation_row_offset + 16 + 32 * activation_group}"
             )
             asm.inst(
-                f"ds_read_b32 v{activation_scales + m_index}, v{temporary} "
-                f"offset:{4 * activation_group}"
+                f"ds_read_b128 v[{payload + 4}:{payload + 7}], "
+                f"v{activation_read_address} "
+                f"offset:{activation_row_offset + 32 + 32 * activation_group}"
+            )
+            asm.inst(
+                f"ds_read_b32 v{activation_scales + m_index}, "
+                f"v{activation_read_address} "
+                f"offset:{activation_row_offset + 4 * activation_group}"
             )
         for m_index in range(8):
-            asm.inst(f"s_waitcnt lgkmcnt({21 - 3 * m_index})")
+            scale_pair_tail = 1 if m_index % 2 == 0 else 0
+            asm.inst(f"s_waitcnt lgkmcnt({21 - 3 * (m_index + scale_pair_tail)})")
             if m_index % 2 == 0:
                 asm.inst(
                     f"v_dual_mov_b32 v{activation_scale_copies}, "
