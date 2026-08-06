@@ -243,7 +243,7 @@ Search explores linked neighborhoods rather than a broad Cartesian product. Gene
 
 Exact-shape constants, fixed trip counts, peeled tails, affine-address reductions, register-lifetime shortening, and legal VOPD formation are derived lowering work rather than public knobs unless complete alternate mechanisms are implemented. Their value is judged by the same correctness, resource, and timing gates as larger policies.
 
-### Reopened Q8_0 performance campaign (completed)
+### Q8_0 performance campaign (initial control complete; parity work reopened)
 
 The Q8_0 forward campaign was reopened as an isolated performance experiment. Its HIP fallback decisions remained the production control throughout, and the completed GGTensile comparison below did not meet the promotion gates.
 
@@ -256,13 +256,25 @@ The campaign proceeds in measurable gates:
 - screen the ordinary Q-A control with warmed rotating HIP comparisons, then confirm any gain on Q-B, attention-output B, shared gate/up, shared down, KV, and LM-head chunks before changing exact-key decisions.
 - require parity or better on every promoted exact key, strict zero-spill/resource/ABI checks, mutation and independent-reference correctness, and deterministic rebuilds.
 
-Only a measured complete dataflow may replace a fallback. The HIP-shaped `Q8HipTiledLds` lowering was exact and resource-qualified, but its final Q-A medians were `1.04384x` HIP for multiply and `1.01486x` for complete execution. It is therefore rejected for promotion while remaining an isolated research control; all 23 Q8_0 production keys stay on explicit HIP fallback, and the next independent forward campaign is Q3_K.
+Only a measured complete dataflow may replace a fallback. The HIP-shaped `Q8HipTiledLds` lowering was exact and resource-qualified, but its final Q-A medians were `1.04384x` HIP for multiply and `1.01486x` for complete execution. It is therefore rejected for promotion while remaining an isolated research control; all 23 Q8_0 production keys stay on explicit HIP fallback. The initial Q8 campaign is closed as historical evidence, but parity work is reopened below.
 
 ### Initial Q3_K forward exact-shape control (isolated)
 
-The first forward Q3_K control is implemented and qualified only for the ordinary exact shape `(M,N,K)=(2048,4096,2048)`, representative tensor `blk.4.attn_gate.weight`. It uses the 110-byte Q3_K block format, Q8_1 `F32_D4` activations, a wave32 `(32,4,1)` workgroup, a `128x64` macro tile, decoded Q3 rows in LDS, integer WMMA accumulation, FP32 scale correction, and BF16 RNE stores. The typed lowering is resource-clean at 104 VGPRs, 16 SGPRs, and 28,672 bytes of LDS, with zero private storage and spills.
+The isolated forward Q3_K control is qualified only for the ordinary exact shape `(M,N,K)=(2048,4096,2048)`, representative tensor `blk.4.attn_gate.weight`. It uses the 110-byte Q3_K block format, Q8_1 `F32_D4` activations, a wave32 `(32,4,1)` workgroup, a `128x64` macro tile, decoded Q3 rows in LDS, integer WMMA accumulation, FP32 scale correction, and BF16 RNE stores. The final shared-VMEM plus loop-carried weight-prefetch lowering is resource-clean at 144 VGPRs, 16 SGPRs, and 28,672 bytes of LDS, with zero private storage and spills.
 
-The control is bit-exact with the direct HIP control and public path across 8,388,608 outputs, passes input/weight/workspace mutation and independent-reference checks, and reproduces source, object, HSACO, and normalized inspection content across two independent builds. Its warmed 25-sample medians are `1.8305x` HIP for multiply and `1.7871x` for complete execution, so it is rejected for promotion. The control remains isolated research evidence: it adds no Q3 inventory, selected catalog, runtime dispatch, or public bundle entry. Additional Q3 shapes and tuning require a new exact-shape premise and the complete correctness, resource, deterministic-build, and timing gates. Evidence is in [experiment_ggtensile_mmq_fwd_q3_k.md](experiment_ggtensile_mmq_fwd_q3_k.md).
+The control is bit-exact with the direct HIP control and public path across 8,388,608 outputs, passes input/weight/workspace mutation and independent-reference checks, and reproduces source, object, HSACO, and normalized inspection content across two independent builds. The final warmed 25-sample medians are `0.9380x` HIP for multiply and `0.9260x` for complete execution. It remains isolated research evidence because Q3 inventory, selected catalog, runtime dispatch, and public bundle promotion are still deferred pending broader shape validation and a separate integration decision. Evidence is in [experiment_ggtensile_mmq_fwd_q3_k.md](experiment_ggtensile_mmq_fwd_q3_k.md).
+
+### Active Q8_0/Q3_K parity reopening
+
+The forward parity campaigns are reopened under an explicit premise: the existing HIP kernels demonstrate a feasible complete dataflow, so a GGTensile implementation must continue until the remaining in-contract mechanisms are either measured or classified with evidence. This reopening changes the research stopping condition only; it does not change production dispatch, inventories, selected catalogs, public bundles, or the frozen-source boundary.
+
+The active order is:
+- Establish an exact HIP-shaped mapping and resource/performance floor for each format, then identify the largest non-excluded ownership or dataflow difference rather than repeating already rejected schedule-only variants.
+- Optimize Q8_0 across the 23 exact keys, starting with the remaining decode, operand-reuse, LDS, and epilogue gaps; retain HIP fallback until every promoted key clears its exact timing gate.
+- Optimize the isolated Q3_K ordinary control first, then expand only when a complete mechanism is correct, resource-clean, deterministic, and faster than HIP on the first exact shape.
+- Use warmed rotating measurements and independent controls. Static instruction reductions, partial-body timings, and compiler scheduling observations are diagnostic only.
+
+The recursive final review remains mandatory and is the final step of the reopened campaign. No campaign may be declared complete immediately after discovering an actionable mechanism. Every actionable finding must be implemented and measured, then followed by a fresh review that classifies all remaining ideas and explains the residual bottleneck.
 
 ### Diagnostic lower bounds and profiling
 
@@ -324,8 +336,8 @@ Timing selects winners. Static issue counts, counters, code size, locality, and 
 | MMQ forward Q4_K | Lowering and 12-key research coverage implemented; the canonical inventory currently records 2 selected and 10 open keys |
 | MMQ forward Q5_K | Six exact inventory keys selected and recursively exhausted under the current contract |
 | MMQ forward Q6_K | Three exact language-model-head keys selected; structured semantic lowering and the current writer refactor are complete for the implemented domain |
-| MMQ forward Q3_K | First exact ordinary control is correctness-qualified but isolated and slower than HIP; inventory and selected catalog remain deferred |
-| MMQ forward Q8_0 | Exact inventory remains on HIP fallback; the HIP-shaped GGTensile control was measured and rejected for promotion |
+| MMQ forward Q3_K | One exact ordinary control is correctness-qualified and faster than HIP with the retained shared-VMEM/prefetch dataflow; inventory and selected catalog remain deferred |
+| MMQ forward Q8_0 | Exact inventory remains on HIP fallback; parity optimization is reopened after the initial HIP-shaped control was rejected |
 | Grouped GGTensile | Deferred until grouped ownership and routing receive an explicit generator contract |
 | Public GGTensile runtime selection | Deferred; existing HIP bundle dispatch remains authoritative |
 
@@ -350,7 +362,7 @@ The retained residual Q6 setup/read/refill traversal is intentionally unchanged 
 ### Latest qualified verification snapshot
 
 The latest completed forward-refactor checkpoint records:
-- 153 focused forward tests and 341 repository tests passing, with only the existing Python 3.14 PyTorch deprecation warnings.
+- 284 focused GGTensile tests and 369 repository tests passing, with only the existing Python 3.14 PyTorch deprecation warnings.
 - Ruff, formatting, `ty check`, `compileall`, pre-commit, bundle currency, and `git diff --check` passing.
 - the gfx1151 MMQ bundle current at 179 kernels.
 - Q6 MT64 resources of 158 VGPRs, 27 SGPRs, and 28,928 bytes of LDS.
@@ -358,7 +370,7 @@ The latest completed forward-refactor checkpoint records:
 - zero private storage and zero VGPR/SGPR spills for the selected Q6 artifacts.
 - exact HIP/public agreement, finite output, independent-reference qualification, mutation sensitivity, deterministic rebuilds, blind divisible-shape coverage, and warmed confirmation for the selected Q6 paths.
 
-Exact source, executable-text, and code-object hashes remain in artifact tests and experiment evidence rather than this generic design document.
+Exact source identities and normalized executable/code-object checks remain in artifact tests and experiment evidence rather than this generic design document.
 
 ## Experiment Records
 

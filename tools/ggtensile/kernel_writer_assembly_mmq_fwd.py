@@ -3124,6 +3124,7 @@ class Q3HipTiledLdsRegisterPlan:
     weight_stage_address: RegisterAssignment
     scale_shift: RegisterAssignment
     c: RegisterAssignment
+    zero_accumulator: RegisterAssignment
     weight_payload: RegisterAssignment
     activation_payload: RegisterAssignment
     weight_scales: RegisterAssignment
@@ -3133,6 +3134,7 @@ class Q3HipTiledLdsRegisterPlan:
     weight_address: RegisterAssignment
     activation_address: RegisterAssignment
     activation_lds_address: RegisterAssignment
+    activation_read_address: RegisterAssignment
     weight_lds_address: RegisterAssignment
     temporary: RegisterAssignment
     lane: RegisterAssignment
@@ -3144,14 +3146,14 @@ class Q3HipTiledLdsRegisterPlan:
         roles = {
             "sums": RegisterRole("sums", 64, RegisterLifetime(0, 5)),
             "activation_stage": RegisterRole(
-                "activation_stage", 4, RegisterLifetime(1, 1)
+                "activation_stage", 36, RegisterLifetime(1, 1)
             ),
-            "weight_low_raw": RegisterRole("weight_low_raw", 4, RegisterLifetime(2, 2)),
+            "weight_low_raw": RegisterRole("weight_low_raw", 4, RegisterLifetime(1, 2)),
             "weight_high_raw": RegisterRole(
-                "weight_high_raw", 4, RegisterLifetime(2, 2)
+                "weight_high_raw", 4, RegisterLifetime(1, 2)
             ),
             "weight_metadata": RegisterRole(
-                "weight_metadata", 4, RegisterLifetime(2, 2)
+                "weight_metadata", 4, RegisterLifetime(1, 2)
             ),
             "decoded_payload": RegisterRole(
                 "decoded_payload", 4, RegisterLifetime(2, 2)
@@ -3162,17 +3164,20 @@ class Q3HipTiledLdsRegisterPlan:
                 "stage_auxiliary", 1, RegisterLifetime(2, 2)
             ),
             "weight_stage_address": RegisterRole(
-                "weight_stage_address", 1, RegisterLifetime(2, 2)
+                "weight_stage_address", 1, RegisterLifetime(1, 2)
             ),
-            "scale_shift": RegisterRole("scale_shift", 1, RegisterLifetime(2, 2)),
+            "scale_shift": RegisterRole("scale_shift", 1, RegisterLifetime(1, 2)),
             "c": RegisterRole("c", 8, RegisterLifetime(3, 3)),
+            "zero_accumulator": RegisterRole(
+                "zero_accumulator", 8, RegisterLifetime(0, 3)
+            ),
             "weight_payload": RegisterRole("weight_payload", 4, RegisterLifetime(3, 3)),
             "activation_payload": RegisterRole(
-                "activation_payload", 4, RegisterLifetime(3, 3)
+                "activation_payload", 32, RegisterLifetime(3, 3)
             ),
             "weight_scales": RegisterRole("weight_scales", 8, RegisterLifetime(3, 3)),
             "activation_scale": RegisterRole(
-                "activation_scale", 1, RegisterLifetime(3, 3)
+                "activation_scale", 8, RegisterLifetime(3, 3)
             ),
             "weight_scale_address": RegisterRole(
                 "weight_scale_address", 1, RegisterLifetime(3, 3)
@@ -3185,6 +3190,9 @@ class Q3HipTiledLdsRegisterPlan:
             "activation_lds_address": RegisterRole(
                 "activation_lds_address", 1, RegisterLifetime(0, 5)
             ),
+            "activation_read_address": RegisterRole(
+                "activation_read_address", 1, RegisterLifetime(0, 3)
+            ),
             "weight_lds_address": RegisterRole(
                 "weight_lds_address", 1, RegisterLifetime(0, 5)
             ),
@@ -3192,8 +3200,36 @@ class Q3HipTiledLdsRegisterPlan:
             "lane": RegisterRole("lane", 1, RegisterLifetime(0, 5)),
             "wave": RegisterRole("wave", 1, RegisterLifetime(0, 5)),
         }
-        order = tuple(roles)
-        plan = DeterministicRegisterPlan.allocate(roles, order, max_registers=104)
+        order = (
+            "sums",
+            "activation_stage",
+            "activation_payload",
+            "decoded_payload",
+            "c",
+            "weight_metadata",
+            "output_address",
+            "stage_d",
+            "wave",
+            "activation_read_address",
+            "scale_shift",
+            "activation_lds_address",
+            "lane",
+            "weight_payload",
+            "weight_low_raw",
+            "weight_scales",
+            "temporary",
+            "weight_lds_address",
+            "stage_auxiliary",
+            "weight_scale_address",
+            "zero_accumulator",
+            "stage_scale",
+            "weight_stage_address",
+            "weight_address",
+            "activation_scale",
+            "activation_address",
+            "weight_high_raw",
+        )
+        plan = DeterministicRegisterPlan.allocate(roles, order, max_registers=144)
         assignments = {name: plan.assignment(name) for name in order}
         return cls(**assignments, register_count=plan.register_count)
 
@@ -3911,7 +3947,9 @@ class ForwardKernelWriterAssembly:
         weight_address = registers.weight_address.first_register
         activation_address = registers.activation_address.first_register
         activation_lds_address = registers.activation_lds_address.first_register
+        activation_read_address = registers.activation_read_address.first_register
         weight_lds_address = registers.weight_lds_address.first_register
+        zero_accumulator = registers.zero_accumulator.first_register
         temporary = registers.temporary.first_register
         lane = registers.lane.first_register
         wave = registers.wave.first_register
@@ -3921,6 +3959,12 @@ class ForwardKernelWriterAssembly:
         asm.comment("Map each wave to sixteen output-feature rows.")
         asm.inst(f"v_bfe_u32 v{wave}, v0, 10, 10")
         asm.inst(f"v_and_b32 v{lane}, 0x3ff, v0")
+        asm.comment("Hoist the invariant activation LDS lane base.")
+        asm.inst(f"v_and_b32 v{activation_read_address}, 15, v{lane}")
+        asm.inst(
+            f"v_mul_lo_u32 v{activation_read_address}, "
+            f"{layout.activation_row_stride}, v{activation_read_address}"
+        )
         asm.inst(f"v_and_b32 v{temporary}, 15, v{lane}")
         asm.inst(f"v_lshlrev_b32 v{temporary + 1}, 4, v{wave}")
         asm.inst(f"v_add_nc_u32 v{temporary}, v{temporary + 1}, v{temporary}")
@@ -3957,12 +4001,26 @@ class ForwardKernelWriterAssembly:
 
         for register in range(sums, sums + 64):
             asm.inst(f"v_mov_b32 v{register}, 0")
+        asm.comment("Initialize one persistent zero source for all Q3 WMMAs.")
+        for element in range(0, 8, 2):
+            asm.inst(
+                f"v_dual_mov_b32 v{zero_accumulator + element}, 0 :: "
+                f"v_dual_mov_b32 v{zero_accumulator + element + 1}, 0"
+            )
+        self._emit_q3_weight_prefetch(asm, registers, half=0)
         asm.inst(f"s_mov_b32 s{self.LOOP_COUNTER}, 0")
 
         asm.label(".LForwardQ3KHipTiledLdsBlockLoop")
         for half in range(2):
             self._emit_q3_activation_stage(asm, registers, layout)
-            self._emit_q3_weight_stage(asm, registers, layout, half)
+            self._emit_q3_weight_stage(
+                asm,
+                registers,
+                layout,
+                half,
+                preloaded=half == 0,
+                store_activation=True,
+            )
             asm.inst("s_waitcnt lgkmcnt(0)")
             asm.inst("s_barrier")
             self._emit_q3_half_accumulate(asm, registers, layout)
@@ -3971,15 +4029,18 @@ class ForwardKernelWriterAssembly:
                 f"v_add_nc_u32 v{activation_address}, "
                 f"{activation_plane_stride}, v{activation_address}"
             )
-        asm.inst(
-            f"v_add_nc_u32 v{weight_address}, "
-            f"{self.state.contract.packed_weight_block_bytes}, v{weight_address}"
-        )
         asm.inst(f"s_add_u32 s{self.LOOP_COUNTER}, s{self.LOOP_COUNTER}, 1")
         asm.inst(
             f"s_cmp_lt_u32 s{self.LOOP_COUNTER}, {self.state.blocks_per_weight_row}"
         )
-        asm.inst("s_cbranch_scc1 .LForwardQ3KHipTiledLdsBlockLoop")
+        asm.inst("s_cbranch_scc0 .LForwardQ3KHipTiledLdsEnd")
+        asm.inst(
+            f"v_add_nc_u32 v{weight_address}, "
+            f"{self.state.contract.packed_weight_block_bytes}, v{weight_address}"
+        )
+        self._emit_q3_weight_prefetch(asm, registers, half=0)
+        asm.inst("s_branch .LForwardQ3KHipTiledLdsBlockLoop")
+        asm.label(".LForwardQ3KHipTiledLdsEnd")
 
         self._emit_q3_store(asm, registers)
         emit_kernel_trailer(asm, name)
@@ -3991,23 +4052,75 @@ class ForwardKernelWriterAssembly:
         registers: Q3HipTiledLdsRegisterPlan,
         layout: Q3HipTiledLdsLayout,
     ) -> None:
-        """Cooperatively stage one complete 128-value Q8_1 activation block."""
+        """Issue one 128-value Q8_1 activation block stage."""
         activation_stage = registers.activation_stage.first_register
         activation_address = registers.activation_address.first_register
-        activation_lds_address = registers.activation_lds_address.first_register
         asm.comment("Stage 128 contiguous Q8_1 F32_D4 rows into LDS.")
         for chunk in range(layout.activation_row_stride // 16):
             offset = 16 * chunk
+            payload = activation_stage + 4 * chunk
             asm.inst(
-                f"global_load_b128 v[{activation_stage}:{activation_stage + 3}], "
+                f"global_load_b128 v[{payload}:{payload + 3}], "
                 f"v{activation_address}, "
                 f"s[{self.KERNARG + 2}:{self.KERNARG + 3}] offset:{offset}"
             )
-            asm.inst("s_waitcnt vmcnt(0)")
+
+    def _emit_q3_activation_stores(
+        self,
+        asm: Assembly,
+        registers: Q3HipTiledLdsRegisterPlan,
+        layout: Q3HipTiledLdsLayout,
+    ) -> None:
+        """Store the ready activation stage into its cooperative LDS tile."""
+        activation_stage = registers.activation_stage.first_register
+        activation_lds_address = registers.activation_lds_address.first_register
+        for chunk in range(layout.activation_row_stride // 16):
+            offset = 16 * chunk
+            payload = activation_stage + 4 * chunk
             asm.inst(
                 f"ds_write_b128 v{activation_lds_address}, "
-                f"v[{activation_stage}:{activation_stage + 3}] offset:{offset}"
+                f"v[{payload}:{payload + 3}] offset:{offset}"
             )
+
+    def _emit_q3_weight_prefetch(
+        self,
+        asm: Assembly,
+        registers: Q3HipTiledLdsRegisterPlan,
+        *,
+        half: int,
+    ) -> None:
+        """Issue one Q3 half's raw VMEM reads for the following block."""
+        semantics = self.state.semantics
+        first_group = semantics.q3_payload_group(8 * half)
+        low_raw = registers.weight_low_raw.first_register
+        high_raw = registers.weight_high_raw.first_register
+        metadata = registers.weight_metadata.first_register
+        stage_address = registers.weight_stage_address.first_register
+        weight_address = registers.weight_address.first_register
+        temporary = registers.temporary.first_register
+        lane = registers.lane.first_register
+        metadata_load_offset = semantics.payload_plane("scales").byte_offset - 2
+
+        asm.comment(f"Prefetch Q3_K half {half} raw operands for the next block.")
+        asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{lane}")
+        asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
+        asm.inst(f"v_lshlrev_b32 v{temporary + 1}, 4, v{temporary}")
+        asm.inst(f"v_add_nc_u32 v{stage_address}, v{temporary + 1}, v{weight_address}")
+        asm.inst(
+            f"global_load_b128 v[{low_raw}:{low_raw + 3}], v{stage_address}, "
+            f"s[{self.KERNARG}:{self.KERNARG + 1}] "
+            f"offset:{first_group.low_payload_offset}"
+        )
+        asm.inst(
+            f"global_load_b128 v[{high_raw}:{high_raw + 3}], v{stage_address}, "
+            f"s[{self.KERNARG}:{self.KERNARG + 1}] "
+            f"offset:{first_group.high_payload_offset}"
+        )
+        asm.inst(
+            f"global_load_b128 v[{metadata}:{metadata + 3}], v{weight_address}, "
+            f"s[{self.KERNARG}:{self.KERNARG + 1}] "
+            f"offset:{metadata_load_offset}"
+        )
 
     def _emit_q3_weight_stage(
         self,
@@ -4015,6 +4128,9 @@ class ForwardKernelWriterAssembly:
         registers: Q3HipTiledLdsRegisterPlan,
         layout: Q3HipTiledLdsLayout,
         half: int,
+        *,
+        preloaded: bool = False,
+        store_activation: bool = False,
     ) -> None:
         """Decode four interleaved Q3 groups per thread into one LDS half row."""
         semantics = self.state.semantics
@@ -4042,23 +4158,26 @@ class ForwardKernelWriterAssembly:
         asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
         asm.inst(f"v_lshlrev_b32 v{temporary + 1}, 4, v{temporary}")
         asm.inst(f"v_add_nc_u32 v{stage_address}, v{temporary + 1}, v{weight_address}")
-        asm.inst(
-            f"global_load_b128 v[{low_raw}:{low_raw + 3}], v{stage_address}, "
-            f"s[{self.KERNARG}:{self.KERNARG + 1}] "
-            f"offset:{first_group.low_payload_offset}"
-        )
-        asm.inst(
-            f"global_load_b128 v[{high_raw}:{high_raw + 3}], v{stage_address}, "
-            f"s[{self.KERNARG}:{self.KERNARG + 1}] "
-            f"offset:{first_group.high_payload_offset}"
-        )
-        asm.inst(
-            f"global_load_b128 v[{metadata}:{metadata + 3}], v{weight_address}, "
-            f"s[{self.KERNARG}:{self.KERNARG + 1}] "
-            f"offset:{metadata_load_offset}"
-        )
+        if not preloaded:
+            asm.inst(
+                f"global_load_b128 v[{low_raw}:{low_raw + 3}], v{stage_address}, "
+                f"s[{self.KERNARG}:{self.KERNARG + 1}] "
+                f"offset:{first_group.low_payload_offset}"
+            )
+            asm.inst(
+                f"global_load_b128 v[{high_raw}:{high_raw + 3}], v{stage_address}, "
+                f"s[{self.KERNARG}:{self.KERNARG + 1}] "
+                f"offset:{first_group.high_payload_offset}"
+            )
+            asm.inst(
+                f"global_load_b128 v[{metadata}:{metadata + 3}], v{weight_address}, "
+                f"s[{self.KERNARG}:{self.KERNARG + 1}] "
+                f"offset:{metadata_load_offset}"
+            )
         asm.inst(f"v_lshlrev_b32 v{scale_shift}, 3, v{temporary}")
         asm.inst("s_waitcnt vmcnt(0)")
+        if store_activation:
+            self._emit_q3_activation_stores(asm, registers, layout)
 
         asm.inst(
             f"v_add_nc_u32 v{stage_address}, v{temporary + 1}, v{weight_lds_address}"
@@ -4152,11 +4271,13 @@ class ForwardKernelWriterAssembly:
     ) -> None:
         """Accumulate eight Q3 scale groups over all eight M fragments."""
         c = registers.c.first_register
+        zero_accumulator = registers.zero_accumulator.first_register
         sums = registers.sums.first_register
         weight_payload = registers.weight_payload.first_register
         activation_payload = registers.activation_payload.first_register
         weight_scales = registers.weight_scales.first_register
         activation_scale = registers.activation_scale.first_register
+        activation_read_address = registers.activation_read_address.first_register
         weight_scale_address = registers.weight_scale_address.first_register
         weight_lds_address = registers.weight_lds_address.first_register
         temporary = registers.temporary.first_register
@@ -4176,7 +4297,6 @@ class ForwardKernelWriterAssembly:
             f"v_add_nc_u32 v{weight_scale_address}, {layout.weight_base}, "
             f"v{weight_scale_address}"
         )
-
         for group in range(layout.scale_count):
             group_spec = self.state.semantics.q3_payload_group(group)
             asm.comment(f"Q3_K half group {group}: signed WMMA and FP32 correction.")
@@ -4192,39 +4312,48 @@ class ForwardKernelWriterAssembly:
                 )
             for m_index in range(8):
                 activation_row_offset = 16 * m_index * layout.activation_row_stride
-                asm.inst(f"v_and_b32 v{temporary}, 15, v{lane}")
+                payload = activation_payload + 4 * m_index
+                scale = activation_scale + m_index
                 asm.inst(
-                    f"v_mul_lo_u32 v{temporary}, "
-                    f"{layout.activation_row_stride}, v{temporary}"
-                )
-                asm.inst(
-                    f"ds_read_b128 v[{activation_payload}:{activation_payload + 3}], "
-                    f"v{temporary} "
+                    f"ds_read_b128 v[{payload}:{payload + 3}], "
+                    f"v{activation_read_address} "
                     f"offset:{activation_row_offset + group_spec.activation_payload_offset}"
                 )
-                asm.inst(
-                    f"ds_read_b32 v{activation_scale}, v{temporary} "
-                    f"offset:{activation_row_offset + group_spec.activation_scale_offset}"
-                )
-                asm.inst("s_waitcnt lgkmcnt(0)")
-                for element in range(8):
-                    asm.inst(f"v_mov_b32 v{c + element}, 0")
+                if group % 2 == 0:
+                    asm.inst(
+                        f"ds_read_b32 v{scale}, v{activation_read_address} "
+                        f"offset:{activation_row_offset + group_spec.activation_scale_offset}"
+                    )
+            asm.inst("s_waitcnt lgkmcnt(0)")
+            for m_index in range(8):
+                payload = activation_payload + 4 * m_index
+                scale = activation_scale + m_index
+                activation_scale_copy = temporary + ((temporary ^ scale ^ 1) & 1)
+                asm.inst(f"v_mov_b32 v{activation_scale_copy}, v{scale}")
                 asm.inst(
                     f"v_wmma_i32_16x16x16_iu8 v[{c}:{c + 7}], "
                     f"v[{weight_payload}:{weight_payload + 3}], "
-                    f"v[{activation_payload}:{activation_payload + 3}], "
-                    f"v[{c}:{c + 7}] neg_lo:[1,1,0]"
+                    f"v[{payload}:{payload + 3}], "
+                    f"v[{zero_accumulator}:{zero_accumulator + 7}] "
+                    "neg_lo:[1,1,0]"
                 )
                 sum_fragment = sums + 8 * m_index
                 for element in range(8):
                     asm.inst(f"v_cvt_f32_i32 v{c + element}, v{c + element}")
+                for element in range(0, 8, 2):
                     asm.inst(
-                        f"v_mul_f32 v{c + element}, v{weight_scales + element}, "
-                        f"v{c + element}"
+                        f"v_dual_mul_f32 v{c + element}, "
+                        f"v{weight_scales + element}, v{c + element} :: "
+                        f"v_dual_mul_f32 v{c + element + 1}, "
+                        f"v{weight_scales + element + 1}, "
+                        f"v{c + element + 1}"
                     )
+                for element in range(0, 8, 2):
                     asm.inst(
-                        f"v_fmac_f32 v{sum_fragment + element}, "
-                        f"v{activation_scale}, v{c + element}"
+                        f"v_dual_fmac_f32 v{sum_fragment + element}, "
+                        f"v{scale}, v{c + element} :: "
+                        f"v_dual_fmac_f32 v{sum_fragment + element + 1}, "
+                        f"v{activation_scale_copy}, v{c + element + 1}"
                     )
 
     def _emit_q3_store(

@@ -666,14 +666,16 @@ def q3_hip_tiled_lds_resource_usage() -> ForwardResourceUsage:
     """Derive the fixed Q3 wave-N control's registers and half-tile LDS."""
     layout = Q3HipTiledLdsLayout()
     accumulator_registers = 8 * (layout.activation_rows // 16)
-    activation_stage_registers = 4
+    activation_stage_registers = 36
     weight_stage_registers = 21
-    compute_registers = 8 + 4 + 4 + 8 + 1 + 1
+    weight_global_overlap_registers = 3 * 4 + 1 + 1
+    compute_registers = 8 + 8 + 4 + 32 + 8 + 8 + 1
     store_registers = 1
-    address_registers = 8
+    address_registers = 9
     transient_registers = max(
         activation_stage_registers,
         weight_stage_registers,
+        activation_stage_registers + weight_global_overlap_registers,
         compute_registers,
         store_registers,
     )

@@ -6,7 +6,7 @@ Implement and optimize dense MMQ forward Q8_0 assembly kernels for the DeepSeek 
 
 The existing HIP dense Q8_0 forward kernels are correctness and performance controls. They establish that the operation is feasible, but their templated implementation and generated assembly are evidence only. GGTensile must express the same operation through the repository's typed forward contracts, semantic stages, deterministic register allocation, and explicit mechanism policies rather than copying a large HIP assembly body.
 
-This document is the Q8_0 forward campaign record. Update it after every coherent implementation, correctness, resource, measurement, rejection, or review change. Code changes worth retaining receive commits; documentation-only checkpoints need not be committed.
+This document is the Q8_0 forward campaign record. Update it after every coherent implementation, correctness, resource, measurement, rejection, or review change. Keep detailed build and timing artifacts under the recorded temporary paths.
 
 ## Contract
 
@@ -120,7 +120,7 @@ The 20 packed-weight, scale-address, and activation-address advances from the la
 
 Deferring the eight n1 FP16-to-FP32 scale conversions until immediately after the first fragment's second WMMA was exact and resource-neutral, but rotating medians were `0.79378 ms` versus `0.79214 ms` parent (`1.00207x`). Scale conversion placement is not retained.
 
-The retained Q-A checkpoint is `~/tmp/torch-ggml-ops/q8-fwd-register-tile-store-clause-all/m2048-n1024-k4096/`. Strict inspection reports code-object v5, gfx1151, wave32, the 40-byte ABI, 137 VGPRs, 16 SGPRs, zero LDS/private storage/spills, 32 WMMAs, 136 VMEM instructions, 784 VALU issues, five waits, and five clauses. It is bit-exact with HIP/public for all 2,097,152 BF16 outputs, passes every mutation gate, and matches the independent-reference envelope at normalized RMSE `0.00604494`. Source, object, and HSACO hashes are respectively `3bd8a96d1e44b6819eb2f31469aeacea7c75529ed337d70528705bd50cc10069`, `3e96c302b1b4dbf4778b96cf86e66b8e5379828e9c937f5168c61b0a3a749691`, and `afd6aa768415373a934f800bce3d8f71f9880691a3ed89b074ef09a5846ad3d4`; two independent rebuilds reproduced all three hashes.
+The retained Q-A checkpoint is `~/tmp/torch-ggml-ops/q8-fwd-register-tile-store-clause-all/m2048-n1024-k4096/`. Strict inspection reports code-object v5, gfx1151, wave32, the 40-byte ABI, 137 VGPRs, 16 SGPRs, zero LDS/private storage/spills, 32 WMMAs, 136 VMEM instructions, 784 VALU issues, five waits, and five clauses. It is bit-exact with HIP/public for all 2,097,152 BF16 outputs, passes every mutation gate, and matches the independent-reference envelope at normalized RMSE `0.00604494`. Two independent rebuilds reproduced matching generated source and normalized inspection results.
 
 The current quality checkpoint passes the focused Q8/forward suite with `159 passed`, the full repository suite with `358 passed` and 14 existing warnings, Ruff checking and formatting, `ty`, compileall, pre-commit, and the 179-kernel bundle-current check. Regenerating the frozen pre-Q8 gate reproduced all 447 sources byte-for-byte. The report is `~/tmp/torch-ggml-ops/q8-fwd-final-sources-20260805/comparison.json`.
 
@@ -145,7 +145,7 @@ The final recursive review implemented the remaining concrete mechanism as an is
 
 The residual gap is quantitative: the retained Q-A source has 128 scalar FMACs, 128 scalar scale multiplies, and 64 FP16 scale conversions. The HIP J128 control has 62 scalar FMACs plus one dual-FMAC issue, 64 dual-multiply issues for 128 logical scale multiplies, and four FP16 scale conversions. Direct VOPD scale/zero pairing, DPP scale sharing, clause changes, address overlap, and payload/scale schedule variants were exact but neutral or slower. The completed cross-wave scale/accumulator ownership and activation staging probe also failed the timing gate, so no remaining schedule-only mechanism justifies promoting the current register path.
 
-## Reopened Performance Plan (Completed)
+## Reopened Performance Plan (Initial control complete; parity work reopened)
 
 The fallback result reopened the Q8_0 research campaign because the HIP kernel demonstrates a different complete dataflow that the direct/register controls do not express: a 128-thread `I=64, J=128` tile, cooperative Q8_0 payload and FP16-scale decode into LDS, activation reuse across eight output-column fragments, 32 WMMAs per reduction stage, and dual-issue scale/epilogue work. That dataflow has now been implemented through typed ownership and LDS roles without importing HIP's physical instruction order.
 
@@ -234,6 +234,14 @@ Require finite output, exact HIP agreement when arithmetic order is unchanged, i
 
 Resource-bearing mechanisms require a stable gain above 2%. Resource-neutral reductions may be retained only when neutral or consistently favorable across shared exact keys. Static line or instruction reduction alone is not promotion evidence.
 
+## Active Parity Reopening
+
+The Q8_0 campaign is reopened because the HIP control proves that the current GGTensile gap is not a feasibility boundary. The active objective is to find a complete, correct, resource-clean GGTensile dataflow at or below the HIP median on the exact production keys, beginning with the largest remaining operand-reuse and decode gaps. Existing HIP fallback selections, the 23-key inventory, public dispatch, public bundle, and frozen source snapshot remain unchanged until promotion gates pass.
+
+New work must start from a changed ownership, representation, or dataflow premise. The already rejected schedule-only variants remain closed unless a prerequisite changes. Every candidate still requires exact HIP/public agreement, independent-reference and mutation checks, strict zero-spill inspection, deterministic rebuilds, and warmed rotating timing. A candidate that beats HIP on only a partial body or one unrepresentative shape is not promotable.
+
+The recursive final review in this document remains the final campaign step. After the active mechanisms are exhausted, reread the complete Q8/Q3/GGTensile/HIP evidence, classify every remaining mechanism as retained, rejected, incompatible/deferred, or actionable, implement and measure every actionable item, and repeat the review after any new premise. The campaign is not complete until that fresh final review finds no actionable in-contract mechanism and explains the residual bottleneck.
+
 ## Recursive Final Review
 
 Before declaring Q8_0 forward complete, reread this document, the generic GGTensile design/progress document, all Q8 implementation and experiment records, Q3/Q4/Q5/Q6 forward records, relevant backward and grouped records, current and HIP sources, normalized disassembly, lower bounds, profiles, counters, inventories, rejected candidates, and gfx1151 ISA/LLVM definitions.
@@ -255,9 +263,9 @@ Update this section after each coherent change. Keep detailed timing and artifac
 - Per-key HIP-fallback selection is the current production control; it is reopened for the HIP-shaped performance campaign above.
 - Complete writer line coverage and regression identity gates remain mandatory for the new isolated family.
 - The HIP-shaped `Q8HipTiledLds` control is measured and rejected for promotion: it is exact and resource-qualified, but remains slower than HIP on the complete Q-A gate.
-- The reopened control has completed its recursive review; Q8 production selection remains HIP fallback for all 23 keys, and Q3_K forward is the next independent campaign.
+- The initial reopened control completed its first review and remains rejected for promotion; Q8 production selection remains HIP fallback for all 23 keys. That review is superseded for optimization by the active parity reopening below; the next final review must be run only after all newly actionable mechanisms are implemented and measured.
 
-### Reopened HIP-Shaped Control Result
+### Initial Reopened HIP-Shaped Control Result
 
 The isolated `Q8HipTiledLds` lowering uses a wave32 workgroup `(32,4,1)`, a `128x64` macro tile, cooperative Q8_1 activation and packed Q8_0 weight staging in LDS, wave-N ownership, 64 integer WMMAs, typed scale copies for legal VOPD correction, and one 64-store BF16 RNE epilogue. It is a research control only: it is not present in the production catalog, exact-key inventory selections, public dispatch, or the 179-kernel bundle.
 
@@ -265,4 +273,4 @@ The full Q-A gate `(M,N,K)=(2048,1024,4096)` is bit-exact with HIP multiply and 
 
 The final warmed rotating 25-sample comparison measured a `0.675784 ms` HIP complete median versus `0.685826 ms` GGTensile complete (`1.01486x`), and a `0.617289 ms` HIP multiply median versus `0.644354 ms` GGTensile multiply (`1.04384x`). The candidate therefore misses both parity gates and does not satisfy the greater-than-2% promotion gate for a resource-bearing mechanism. The implementation and tests remain as isolated evidence for the dataflow, but no Q8 key changes selection.
 
-The phase gates are complete: focused coverage and the full repository suite pass (`160` and `359` tests respectively, with the existing `14` warnings), Ruff/formatting/`ty`/compileall/pre-commit pass, the public bundle remains current at `179` kernels, frozen pre-Q8 regeneration reports `447/447` byte-identical sources, and two independent CLI source/object/HSACO rebuilds produced identical hashes. Detailed artifacts are under `/tmp/q8-hip-test-artifact/` and `/tmp/q8-hip-deterministic-{a,b}/`.
+The initial phase gates are complete: focused coverage and the full repository suite pass (`160` and `359` tests respectively, with the existing `14` warnings), Ruff/formatting/`ty`/compileall/pre-commit pass, the public bundle remains current at `179` kernels, frozen pre-Q8 regeneration reports `447/447` byte-identical sources, and two independent CLI rebuilds reproduced matching generated source and normalized inspection results. Detailed artifacts are under `/tmp/q8-hip-test-artifact/` and `/tmp/q8-hip-deterministic-{a,b}/`.

@@ -452,10 +452,12 @@ def test_forward_writer_emits_q3_k_hip_tiled_lds_control(tmp_path: Path) -> None
     assert writer.write(assembly) == hashlib.sha256(source.encode()).hexdigest()
     assert source.count("v_wmma_i32_16x16x16_iu8") == 128
     assert source.count("neg_lo:[1,1,0]") == 128
-    assert source.count("global_load_b128") == 24
+    assert source.count("global_load_b128") == 27
     assert source.count("ds_write_b128") == 26
     assert source.count("ds_read_b128") == 144
     assert source.count("global_store_d16_hi_b16") == 64
+    assert source.count("v_dual_mov_b32") == 8
+    assert "persistent zero source for all Q3 WMMAs" in source
     assert source.count("v_sub_nc_u32 v") >= 8
     assert source.count("s_barrier") == 4
     assert source.count("s_clause 7") == 8
@@ -826,7 +828,7 @@ def test_q8_forward_runtime_uses_exact_hip_launch_geometry(
                 ForwardSolution.q3_k_hip_tiled_lds(),
             ),
             128,
-            104,
+            144,
             4,
             28_672,
             8,

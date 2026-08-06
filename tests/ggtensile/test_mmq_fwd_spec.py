@@ -224,7 +224,7 @@ def test_complete_candidate_round_trips_to_the_normal_build_solution() -> None:
     ("solution", "expected"),
     (
         (ForwardSolution.q4_k_pilot(), (88, 16, 0)),
-        (ForwardSolution.q3_k_hip_tiled_lds(), (104, 16, 28_672)),
+        (ForwardSolution.q3_k_hip_tiled_lds(), (144, 16, 28_672)),
         (
             ForwardSolution.q4_k_decoded_weight_lds_retained(),
             (239, 16, 38_400),

@@ -423,7 +423,7 @@ The DeepSeek work was executed as D0-D4 after the Qwen G-series pass. These entr
 
 Status: complete.
 
-The same-session baseline artifacts were `~/tmp/torch-ggml-ops/grouped_mmq_fwd_ds4_baseline_full.json` and `~/tmp/torch-ggml-ops/grouped_mmq_fwd_qwen_pre_ds4_control.json`, from source checkpoint `aa3ebd4`. The generic routed kernels used J128 and crossed the resource cliff:
+The same-session baseline artifacts were `~/tmp/torch-ggml-ops/grouped_mmq_fwd_ds4_baseline_full.json` and `~/tmp/torch-ggml-ops/grouped_mmq_fwd_qwen_pre_ds4_control.json`, from the recorded source checkpoint. The generic routed kernels used J128 and crossed the resource cliff:
 
 | Family | Batch-1 packed/reference ms | Batch-4 packed/reference ms | Batch-16 packed/reference ms | Baseline resource signal |
 |---|---:|---:|---:|---|
