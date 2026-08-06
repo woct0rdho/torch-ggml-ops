@@ -338,7 +338,7 @@ def test_q8_forward_validation_rejects_unimplemented_control_variants() -> None:
     assert [(reason.rule_id, reason.message) for reason in reasons] == [
         (
             "solution.forward.q8.control.unimplemented",
-            "Q8_0 forward currently implements the direct-global semantic control",
+            "Q8_0 forward currently implements direct, register-tiled, and HIP-shaped LDS controls",
         )
     ]
 
@@ -399,6 +399,27 @@ def test_forward_writer_emits_q8_0_register_tiled_candidate(tmp_path: Path) -> N
     assert "s_cmp_lt_u32 s10, 32" in source
     assert "s_barrier" not in source
     assert "ds_" not in source
+
+
+def test_forward_writer_emits_q8_0_hip_tiled_lds_control(tmp_path: Path) -> None:
+    key = _key(
+        "Q8_0",
+        ProblemSize(2048, 1024, 4096),
+        ForwardSolution.q8_0_hip_tiled_lds(),
+    )
+    writer = ForwardKernelWriterAssembly(key, Toolchain.discover())
+    source = writer.source()
+    assembly = tmp_path / "q8_0_hip_tiled_lds.s"
+    assert writer.write(assembly) == hashlib.sha256(source.encode()).hexdigest()
+    assert source.count("v_wmma_i32_16x16x16_iu8") == 64
+    assert source.count("global_load_b128") == 12
+    assert source.count("ds_read_b128") == 72
+    assert source.count("global_store_d16_hi_b16") == 64
+    assert source.count("v_dual_fmac_f32") == 256
+    assert source.count("s_barrier") == 2
+    assert source.count("s_clause 63") == 1
+    assert "HIP-shaped wave-N Q8 tile" in source
+    assert "s_waitcnt lgkmcnt(0)" in source
 
 
 def test_forward_writer_emits_retained_decoded_staged_control() -> None:

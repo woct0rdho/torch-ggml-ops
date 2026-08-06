@@ -243,6 +243,21 @@ Search explores linked neighborhoods rather than a broad Cartesian product. Gene
 
 Exact-shape constants, fixed trip counts, peeled tails, affine-address reductions, register-lifetime shortening, and legal VOPD formation are derived lowering work rather than public knobs unless complete alternate mechanisms are implemented. Their value is judged by the same correctness, resource, and timing gates as larger policies.
 
+### Reopened Q8_0 performance campaign (completed)
+
+The Q8_0 forward campaign was reopened as an isolated performance experiment. Its HIP fallback decisions remained the production control throughout, and the completed GGTensile comparison below did not meet the promotion gates.
+
+The first mechanism is a typed HIP-shaped `I=64, J=128` workgroup: 128 wave32 threads, cooperative Q8_0 payload/scale decode into LDS, reusable Q8_1 activation rows, 32 integer WMMAs per reduction stage, and a denser output ownership/scale epilogue. This is a new dataflow boundary, not a schedule-only variation of the retained `128x32` register tile. The lowering must derive its LDS layout, ownership, local-read coordinates, accumulator roles, and resource count from the semantic tile contract; it must not copy the HIP instruction stream or import a physical schedule.
+
+The campaign proceeds in measurable gates:
+- document the exact HIP tile mapping and static work/resource floors from the source and disassembly.
+- implement one isolated ordinary Q8_0 control through typed Q8 roles and semantic LDS stages, then assemble, inspect, and validate it before timing.
+- match the HIP operand reuse and epilogue ownership while preserving the established integer-result, weight-scale, activation-scale arithmetic order and BF16 results.
+- screen the ordinary Q-A control with warmed rotating HIP comparisons, then confirm any gain on Q-B, attention-output B, shared gate/up, shared down, KV, and LM-head chunks before changing exact-key decisions.
+- require parity or better on every promoted exact key, strict zero-spill/resource/ABI checks, mutation and independent-reference correctness, and deterministic rebuilds.
+
+Only a measured complete dataflow may replace a fallback. The HIP-shaped `Q8HipTiledLds` lowering was exact and resource-qualified, but its final Q-A medians were `1.04384x` HIP for multiply and `1.01486x` for complete execution. It is therefore rejected for promotion while remaining an isolated research control; all 23 Q8_0 production keys stay on explicit HIP fallback, and the next independent forward campaign is Q3_K.
+
 ### Diagnostic lower bounds and profiling
 
 When a bottleneck is ambiguous, exact diagnostic kernels may isolate matrix/activation/LDS work from packed decode/LDS work while preserving launch geometry and declared resources. They pass the same symbol, ABI, resource, and forbidden-storage inspection as candidates. Hardware counters and normalized disassembly explain first-order limits but never select winners; unsupported or over-capacity counter requests remain recorded evidence rather than silently reduced measurements.
@@ -304,7 +319,7 @@ Timing selects winners. Static issue counts, counters, code size, locality, and 
 | MMQ forward Q5_K | Six exact inventory keys selected and recursively exhausted under the current contract |
 | MMQ forward Q6_K | Three exact language-model-head keys selected; structured semantic lowering and the current writer refactor are complete for the implemented domain |
 | MMQ forward Q3_K | Canonical forward campaign, inventory, and selected catalog remain to be completed |
-| MMQ forward Q8_0 | Ordinary and language-model-head campaigns, inventories, and selected catalogs remain to be completed |
+| MMQ forward Q8_0 | Exact inventory remains on HIP fallback; the HIP-shaped GGTensile control was measured and rejected for promotion |
 | Grouped GGTensile | Deferred until grouped ownership and routing receive an explicit generator contract |
 | Public GGTensile runtime selection | Deferred; existing HIP bundle dispatch remains authoritative |
 

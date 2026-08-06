@@ -160,6 +160,8 @@ def inspect_artifact(
                 if solution.operand_source == "Q8DirectGlobal"
                 else 32
                 if solution.operand_source == "Q8RegisterTiled"
+                else 64
+                if solution.operand_source == "Q8HipTiledLds"
                 else 16
             )
         else:
@@ -185,6 +187,8 @@ def inspect_artifact(
                 4
                 if solution.operand_source
                 in ("Q6StructuredDecoded", "DecodedWeightLdsBatch8")
+                else 2
+                if solution.operand_source == "Q8HipTiledLds"
                 else 0
             )
         elif solution.one_lds_buffer == 0:

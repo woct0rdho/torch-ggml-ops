@@ -675,6 +675,21 @@ class ForwardSolution:
         )
 
     @classmethod
+    def q8_0_hip_tiled_lds(cls) -> Self:
+        """Return the HIP-shaped wave-N Q8_0 LDS research control."""
+        return replace(
+            cls.q8_0_direct_global(),
+            work_group=(32, 4, 1),
+            matrix_instruction=(16, 16, 16, 1, 1, 1, 4, 4, 1),
+            macro_tile0=128,
+            macro_tile1=64,
+            operand_source="Q8HipTiledLds",
+            lds_address_hoist="HipTile",
+            activation_addressing="MadU24",
+            output_store="BFloat16RNEClause64",
+        )
+
+    @classmethod
     def q4_k_decoded_weight_lds_extraction(
         cls,
         *,

@@ -179,11 +179,12 @@ def _validate_q8_forward_solution(
         ForwardSolution.q8_0_register_tiled(wave_tile_m=1, wave_tile_n=4),
         ForwardSolution.q8_0_register_tiled(wave_tile_m=2, wave_tile_n=2),
         ForwardSolution.q8_0_register_tiled(wave_tile_m=4, wave_tile_n=1),
+        ForwardSolution.q8_0_hip_tiled_lds(),
     }:
         _reject(
             reasons,
             "solution.forward.q8.control.unimplemented",
-            "Q8_0 forward currently implements the direct-global semantic control",
+            "Q8_0 forward currently implements direct, register-tiled, and HIP-shaped LDS controls",
             "Solution",
         )
         return
@@ -290,6 +291,7 @@ def _validate_forward_solution(
         ForwardSolution.q8_0_register_tiled(wave_tile_m=1, wave_tile_n=4),
         ForwardSolution.q8_0_register_tiled(wave_tile_m=2, wave_tile_n=2),
         ForwardSolution.q8_0_register_tiled(wave_tile_m=4, wave_tile_n=1),
+        ForwardSolution.q8_0_hip_tiled_lds(),
     }:
         _validate_q8_forward_solution(solution_key.problem_size, solution, reasons)
         return
