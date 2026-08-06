@@ -320,6 +320,7 @@ class FixedHipForwardModule(ForwardModule):
         quant_type = solution_key.problem_type.quant_data_type
         k = solution_key.problem_size.k
         allowed_k = {
+            "Q3_K": (2048,),
             "Q4_K": (512, 2048, 4096),
             "Q5_K": (512, 2048),
             "Q6_K": (2048,),
@@ -356,7 +357,12 @@ class FixedHipForwardModule(ForwardModule):
         size = self.solution_key.problem_size
         quant_type = self.solution_key.problem_type.quant_data_type
         j = 64 if quant_type in ("Q6_K", "Q8_0") and size.m in (32, 64) else 128
-        lds_bytes = 28_928 if j == 64 else 38_400
+        if quant_type == "Q3_K":
+            # Match mmq_bundle.cpp: Q3 uses a 36-dword activation tile and
+            # the 84-dword packed Q3 row stride.
+            lds_bytes = 40_448
+        else:
+            lds_bytes = 28_928 if j == 64 else 38_400
         return (
             (size.n // 64, (size.m + j - 1) // j, 1),
             (32, 4, 1),

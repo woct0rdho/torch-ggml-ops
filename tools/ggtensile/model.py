@@ -119,7 +119,7 @@ class ProblemType:
 
     @classmethod
     def mmq_forward(cls, quant_data_type: str) -> Self:
-        if quant_data_type not in {"Q4_K", "Q5_K", "Q6_K", "Q8_0"}:
+        if quant_data_type not in {"Q3_K", "Q4_K", "Q5_K", "Q6_K", "Q8_0"}:
             raise ValueError(f"unsupported MMQ forward quant type {quant_data_type!r}")
         return cls(
             operation_type="MMQForward",
@@ -518,6 +518,33 @@ class ForwardSolution:
             signed_weight=True,
             signed_activation=True,
             wmma_clamp=True,
+        )
+
+    @classmethod
+    def q3_k_hip_tiled_lds(cls) -> Self:
+        """Return the first four-wave Q3_K forward research control."""
+        return cls(
+            kernel_language="Assembly",
+            isa=(11, 5, 1),
+            wavefront_size=32,
+            work_group=(32, 4, 1),
+            matrix_instruction=(16, 16, 16, 1, 1, 1, 4, 4, 1),
+            macro_tile0=128,
+            macro_tile1=64,
+            depth_u=16,
+            activation_layout="F32_D4",
+            activation_block_bytes=Q8_1_F32_D4_BLOCK_BYTES,
+            packed_weight_block_bytes=QUANT_FORMATS["Q3_K"].block_bytes,
+            operand_source="Q3HipTiledLds",
+            weight_decode="DirectQ3Signed",
+            lds_address_hoist="Q3HalfTile",
+            activation_addressing="MadU24",
+            metadata_conversion="Float16DToFloat32Signed6Scale",
+            scale_arithmetic="Int32ScaleF32",
+            output_store="BFloat16RNEClause8",
+            signed_weight=True,
+            signed_activation=True,
+            wmma_clamp=False,
         )
 
     @classmethod

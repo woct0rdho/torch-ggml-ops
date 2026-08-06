@@ -90,6 +90,7 @@ def _key(
 ) -> SolutionKey:
     if solution is None:
         default_solutions = {
+            "Q3_K": ForwardSolution.q3_k_hip_tiled_lds(),
             "Q4_K": ForwardSolution.q4_k_pilot(),
             "Q5_K": _q5_extraction(),
             "Q6_K": ForwardSolution.q6_k_structured_decoded(macro_tile0=64),
@@ -154,7 +155,9 @@ def test_q5_forward_inventory_selects_retained_vopd_epilogue() -> None:
     assert selected.accumulator_initialization == "VopdPair"
 
 
-@pytest.mark.parametrize("quant_type", ("Q4_K", "Q5_K", "Q6_K", "Q8_0"), ids=str.lower)
+@pytest.mark.parametrize(
+    "quant_type", ("Q3_K", "Q4_K", "Q5_K", "Q6_K", "Q8_0"), ids=str.lower
+)
 def test_forward_solution_key_is_strict_and_round_trips(quant_type: str) -> None:
     key = _key(quant_type)
     assert SolutionKey.from_mapping(key.to_mapping()) == key
@@ -343,6 +346,20 @@ def test_q8_forward_validation_rejects_unimplemented_control_variants() -> None:
     ]
 
 
+def test_q3_forward_validation_rejects_unimplemented_control_variants() -> None:
+    key = _key(
+        "Q3_K",
+        solution=replace(
+            ForwardSolution.q3_k_hip_tiled_lds(),
+            output_store="BFloat16RNE",
+        ),
+    )
+    reasons = validate_solution(key)
+    assert {reason.rule_id for reason in reasons} == {
+        "solution.forward.q3.control.unimplemented"
+    }
+
+
 def test_forward_writer_emits_direct_q8_1_f16_d4s4_q4_k_control(tmp_path: Path) -> None:
     key = _key()
     writer = ForwardKernelWriterAssembly(key, Toolchain.discover())
@@ -420,6 +437,32 @@ def test_forward_writer_emits_q8_0_hip_tiled_lds_control(tmp_path: Path) -> None
     assert source.count("s_clause 63") == 1
     assert "HIP-shaped wave-N Q8 tile" in source
     assert "s_waitcnt lgkmcnt(0)" in source
+
+
+def test_forward_writer_emits_q3_k_hip_tiled_lds_control(tmp_path: Path) -> None:
+    key = _key(
+        "Q3_K",
+        ProblemSize(2048, 2048, 2048),
+        ForwardSolution.q3_k_hip_tiled_lds(),
+    )
+    assert validate_solution(key) == ()
+    writer = ForwardKernelWriterAssembly(key, Toolchain.discover())
+    source = writer.source()
+    assembly = tmp_path / "q3_k_hip_tiled_lds.s"
+    assert writer.write(assembly) == hashlib.sha256(source.encode()).hexdigest()
+    assert source.count("v_wmma_i32_16x16x16_iu8") == 128
+    assert source.count("neg_lo:[1,1,0]") == 128
+    assert source.count("global_load_b128") == 24
+    assert source.count("ds_write_b128") == 26
+    assert source.count("ds_read_b128") == 144
+    assert source.count("global_store_d16_hi_b16") == 64
+    assert source.count("v_sub_nc_u32 v") >= 8
+    assert source.count("s_barrier") == 4
+    assert source.count("s_clause 7") == 8
+    assert "0x7c7c7c7c" in source
+    assert "0x80808080" in source
+    assert "s_cmp_lt_u32 s10, 8" in source
+    assert ".amdhsa_system_vgpr_workitem_id 1" in source
 
 
 def test_forward_writer_emits_retained_decoded_staged_control() -> None:
@@ -660,6 +703,20 @@ def test_forward_runtime_uses_exact_candidate_launch_geometry() -> None:
     assert direct._launch_configuration() == ((8, 16, 1), (128, 1, 1), 0)
 
 
+def test_q3_forward_runtime_uses_exact_candidate_and_hip_geometry() -> None:
+    key = _key(
+        "Q3_K",
+        ProblemSize(2048, 2048, 2048),
+        ForwardSolution.q3_k_hip_tiled_lds(),
+    )
+    candidate = ForwardModule.__new__(ForwardModule)
+    candidate.solution_key = key
+    assert candidate._launch_configuration() == ((32, 16, 1), (32, 4, 1), 0)
+    hip = FixedHipForwardModule.__new__(FixedHipForwardModule)
+    hip.solution_key = key
+    assert hip._launch_configuration() == ((32, 16, 1), (32, 4, 1), 40_448)
+
+
 @pytest.mark.parametrize(
     ("m", "macro_tile0", "grid_y"),
     (
@@ -762,6 +819,19 @@ def test_q8_forward_runtime_uses_exact_hip_launch_geometry(
         "clause_count",
     ),
     (
+        pytest.param(
+            _key(
+                "Q3_K",
+                ProblemSize(2048, 2048, 2048),
+                ForwardSolution.q3_k_hip_tiled_lds(),
+            ),
+            128,
+            104,
+            4,
+            28_672,
+            8,
+            id="q3-hip-tiled-lds-control",
+        ),
         pytest.param(
             _key(solution=ForwardSolution.q4_k_pilot()),
             16,

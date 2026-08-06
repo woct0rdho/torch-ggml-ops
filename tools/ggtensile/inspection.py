@@ -154,6 +154,8 @@ def inspect_artifact(
             expected_wmmas = (
                 solution.macro_tile0 // 8
                 if solution.operand_source == "Q6StructuredDecoded"
+                else 128
+                if solution.operand_source == "Q3HipTiledLds"
                 else 32
                 if solution.operand_source == "DecodedWeightLdsBatch8"
                 else 8
@@ -186,7 +188,11 @@ def inspect_artifact(
             expected_barriers = (
                 4
                 if solution.operand_source
-                in ("Q6StructuredDecoded", "DecodedWeightLdsBatch8")
+                in (
+                    "Q6StructuredDecoded",
+                    "DecodedWeightLdsBatch8",
+                    "Q3HipTiledLds",
+                )
                 else 2
                 if solution.operand_source == "Q8HipTiledLds"
                 else 0

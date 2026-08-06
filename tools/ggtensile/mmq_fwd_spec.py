@@ -23,10 +23,10 @@ class ForwardFormatTraits:
 
     @classmethod
     def for_quant_type(cls, quant_type: str) -> "ForwardFormatTraits":
-        if quant_type not in {"Q4_K", "Q5_K", "Q6_K", "Q8_0"}:
+        if quant_type not in {"Q3_K", "Q4_K", "Q5_K", "Q6_K", "Q8_0"}:
             raise ValueError(f"unsupported MMQ forward quant type {quant_type!r}")
         quant_format = QUANT_FORMATS[quant_type]
-        if quant_type in {"Q6_K", "Q8_0"}:
+        if quant_type in {"Q3_K", "Q6_K", "Q8_0"}:
             activation_layout = "F32_D4"
             activation_block_bytes = Q8_1_F32_D4_BLOCK_BYTES
         else:
@@ -107,6 +107,51 @@ class Q6SignedDecodeSpec:
 
 
 @dataclass(frozen=True)
+class Q3PackedFieldPart:
+    """One byte-local field contributing to a signed Q3_K group scale."""
+
+    source_byte: int
+    bit_offset: int
+    bit_count: int
+    destination_shift: int = 0
+
+
+@dataclass(frozen=True)
+class Q3PayloadGroupSpec:
+    """Packed payload and activation offsets for one 16-value Q3_K group."""
+
+    group: int
+    half: int
+    low_payload_offset: int
+    low_shift: int
+    high_payload_offset: int
+    high_shift: int
+    activation_payload_offset: int
+    activation_scale_offset: int
+
+
+@dataclass(frozen=True)
+class Q3SignedDecodeSpec:
+    """Bit-exact packed Q3_K byte reconstruction and signed normalization."""
+
+    low_mask: int
+    high_mask: int
+    high_destination_shift: int
+    signed_add: int
+    signed_xor: int
+
+    def __post_init__(self) -> None:
+        if (
+            self.low_mask != 0x03030303
+            or self.high_mask != 0x01010101
+            or self.high_destination_shift != 2
+            or self.signed_add != 0x7C7C7C7C
+            or self.signed_xor != 0x80808080
+        ):
+            raise ValueError("unsupported Q3 signed decode formula")
+
+
+@dataclass(frozen=True)
 class QuantForwardSemantics:
     """Project-owned packed payload and post-WMMA arithmetic semantics."""
 
@@ -118,6 +163,19 @@ class QuantForwardSemantics:
 
     @classmethod
     def for_quant_type(cls, quant_type: str) -> "QuantForwardSemantics":
+        if quant_type == "Q3_K":
+            return cls(
+                quant_type=quant_type,
+                weight_bits=3,
+                payload_planes=(
+                    PayloadPlaneSpec("hmask", 0, 32, "HighBitMask"),
+                    PayloadPlaneSpec("qs", 32, 64, "UnsignedTwoBit"),
+                    PayloadPlaneSpec("scales", 96, 12, "PackedSigned6"),
+                    PayloadPlaneSpec("d", 108, 2, "Float16"),
+                ),
+                activation_components=("q", "d"),
+                post_wmma_correction="SignedGroupScaleTimesBlockFactors",
+            )
         if quant_type == "Q4_K":
             return cls(
                 quant_type=quant_type,
@@ -168,6 +226,54 @@ class QuantForwardSemantics:
                 post_wmma_correction="SignedScaleTimesActivationScale",
             )
         raise ValueError(f"unsupported MMQ forward quant type {quant_type!r}")
+
+    def q3_payload_group(self, group: int) -> Q3PayloadGroupSpec:
+        if self.quant_type != "Q3_K":
+            raise ValueError(f"{self.quant_type} has no Q3 payload groups")
+        if group not in range(16):
+            raise ValueError("Q3 payload group must be in range 0..15")
+        half = group // 8
+        local_group = group % 8
+        return Q3PayloadGroupSpec(
+            group=group,
+            half=half,
+            low_payload_offset=(
+                self.payload_plane("qs").byte_offset
+                + 32 * half
+                + 16 * (local_group % 2)
+            ),
+            low_shift=2 * (local_group // 2),
+            high_payload_offset=(
+                self.payload_plane("hmask").byte_offset + 16 * (local_group % 2)
+            ),
+            high_shift=group // 2,
+            activation_payload_offset=16 + 16 * local_group,
+            activation_scale_offset=4 * (local_group // 2),
+        )
+
+    def q3_scale_fields(
+        self,
+        group: int,
+    ) -> tuple[Q3PackedFieldPart, Q3PackedFieldPart]:
+        if self.quant_type != "Q3_K":
+            raise ValueError(f"{self.quant_type} has no Q3 scale fields")
+        if group not in range(16):
+            raise ValueError("Q3 scale group must be in range 0..15")
+        return (
+            Q3PackedFieldPart(group % 8, 4 * (group // 8), 4),
+            Q3PackedFieldPart(8 + group % 4, 2 * (group // 4), 2, 4),
+        )
+
+    def q3_signed_decode(self) -> Q3SignedDecodeSpec:
+        if self.quant_type != "Q3_K":
+            raise ValueError(f"{self.quant_type} has no signed Q3 decode")
+        return Q3SignedDecodeSpec(
+            low_mask=0x03030303,
+            high_mask=0x01010101,
+            high_destination_shift=2,
+            signed_add=0x7C7C7C7C,
+            signed_xor=0x80808080,
+        )
 
     def low_payload_group_offsets(self, group: int) -> tuple[int, int]:
         """Return the two 128-bit QL vectors consumed by one direct group."""
@@ -280,15 +386,16 @@ class ForwardProblemContract:
         solution: ForwardSolution,
     ) -> str | None:
         traits = ForwardFormatTraits.for_quant_type(quant_type)
-        expected_clamp = quant_type not in {"Q6_K", "Q8_0"}
+        expected_clamp = quant_type not in {"Q3_K", "Q6_K", "Q8_0"}
         expected_weight_decode = {
+            "Q3_K": "DirectQ3Signed",
             "Q4_K": "DirectNibble",
             "Q5_K": "DirectNibbleHighBit",
             "Q6_K": "DirectQ6Signed",
             "Q8_0": "DirectSignedInt8",
         }[quant_type]
         expected_scale_arithmetic = (
-            "Int32ScaleF32" if quant_type in {"Q6_K", "Q8_0"} else "FP16"
+            "Int32ScaleF32" if quant_type in {"Q3_K", "Q6_K", "Q8_0"} else "FP16"
         )
         checks = (
             (
@@ -353,7 +460,9 @@ class ForwardProblemContract:
             weight_decode=solution.weight_decode,
             scale_arithmetic=solution.scale_arithmetic,
             arithmetic_contract=(
-                "SignedQ6Int8ScaleIntegerWmmaF32Correction"
+                "SignedQ3Int8ScaleIntegerWmmaF32Correction"
+                if quant_type == "Q3_K"
+                else "SignedQ6Int8ScaleIntegerWmmaF32Correction"
                 if quant_type == "Q6_K"
                 else "SignedQ8Int8ScaleIntegerWmmaF32Correction"
                 if quant_type == "Q8_0"
@@ -431,6 +540,58 @@ class DecodedLdsLayout:
 
 
 @dataclass(frozen=True)
+class Q3HipTiledLdsLayout:
+    """Formula-derived LDS planes for one 128-value Q3_K half block."""
+
+    activation_rows: int = 128
+    weight_rows: int = 64
+    activation_row_stride: int = Q8_1_F32_D4_BLOCK_BYTES
+    decoded_weight_values: int = 128
+    scale_count: int = 8
+
+    def __post_init__(self) -> None:
+        if (
+            min(
+                self.activation_rows,
+                self.weight_rows,
+                self.activation_row_stride,
+                self.decoded_weight_values,
+                self.scale_count,
+            )
+            <= 0
+        ):
+            raise ValueError("Q3 half-tile LDS dimensions must be positive")
+
+    @property
+    def activation_bytes(self) -> int:
+        return self.activation_rows * self.activation_row_stride
+
+    @property
+    def weight_payload_bytes(self) -> int:
+        return self.decoded_weight_values
+
+    @property
+    def weight_scale_bytes(self) -> int:
+        return 4 * self.scale_count
+
+    @property
+    def weight_row_stride(self) -> int:
+        return self.weight_payload_bytes + self.weight_scale_bytes
+
+    @property
+    def weight_base(self) -> int:
+        return self.activation_bytes
+
+    @property
+    def weight_bytes(self) -> int:
+        return self.weight_rows * self.weight_row_stride
+
+    @property
+    def total_bytes(self) -> int:
+        return self.activation_bytes + self.weight_bytes
+
+
+@dataclass(frozen=True)
 class DecodeSpec:
     """Candidate-selectable metadata and traversal lowering policies."""
 
@@ -501,10 +662,34 @@ def structured_q6_resource_usage(mi_wave_tile_m: int) -> ForwardResourceUsage:
     )
 
 
+def q3_hip_tiled_lds_resource_usage() -> ForwardResourceUsage:
+    """Derive the fixed Q3 wave-N control's registers and half-tile LDS."""
+    layout = Q3HipTiledLdsLayout()
+    accumulator_registers = 8 * (layout.activation_rows // 16)
+    activation_stage_registers = 4
+    weight_stage_registers = 21
+    compute_registers = 8 + 4 + 4 + 8 + 1 + 1
+    store_registers = 1
+    address_registers = 8
+    transient_registers = max(
+        activation_stage_registers,
+        weight_stage_registers,
+        compute_registers,
+        store_registers,
+    )
+    unaligned_vgprs = accumulator_registers + transient_registers + address_registers
+    vgprs = (unaligned_vgprs + 7) // 8 * 8
+    return ForwardResourceUsage(vgprs=vgprs, sgprs=16, lds_bytes=layout.total_bytes)
+
+
 def derive_forward_resource_usage(spec: "ForwardKernelSpec") -> ForwardResourceUsage:
     operand_source = spec.global_memory.operand_source
     if operand_source == "Q6StructuredDecoded":
         return structured_q6_resource_usage(spec.ownership.mi_wave_tile[0])
+    if operand_source == "Q3HipTiledLds":
+        if spec.geometry.work_group != (32, 4, 1) or spec.macro_tile != (128, 64):
+            raise ValueError("Q3 HIP-shaped LDS control requires a 128x64 tile")
+        return q3_hip_tiled_lds_resource_usage()
     if operand_source == "DecodedWeightLdsBatch8":
         return ForwardResourceUsage(vgprs=239, sgprs=16, lds_bytes=38_400)
     if operand_source == "Global":
@@ -569,6 +754,7 @@ class SemanticSchedulePolicy:
 def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | None:
     structured_q6 = solution.operand_source == "Q6StructuredDecoded"
     decoded_staged = solution.operand_source == "DecodedWeightLdsBatch8"
+    q3_hip_tiled_lds = solution.operand_source == "Q3HipTiledLds"
     q8_register_tiled = solution.operand_source == "Q8RegisterTiled"
     q8_hip_tiled_lds = solution.operand_source == "Q8HipTiledLds"
     serialized_q6_schedule = SemanticSchedulePolicy(
@@ -586,7 +772,11 @@ def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | Non
         return "Q6 semantic schedule is inactive for this lowering"
     expected_legacy_suffix = (
         (1, 1, 4, 4, 1)
-        if structured_q6 or decoded_staged or q8_register_tiled or q8_hip_tiled_lds
+        if structured_q6
+        or decoded_staged
+        or q3_hip_tiled_lds
+        or q8_register_tiled
+        or q8_hip_tiled_lds
         else (1, 1, 1, 1, 1)
     )
     if (
@@ -805,6 +995,7 @@ class ForwardKernelSpec:
         source = self.global_memory.operand_source
         decoded_staged = source == "DecodedWeightLdsBatch8"
         structured_q6 = source == "Q6StructuredDecoded"
+        q3_hip_tiled_lds = source == "Q3HipTiledLds"
         q8_direct = source in {
             "Q8DirectGlobal",
             "Q8RegisterTiled",
@@ -815,6 +1006,7 @@ class ForwardKernelSpec:
             "Global",
             "DecodedWeightLdsBatch8",
             "Q6StructuredDecoded",
+            "Q3HipTiledLds",
             "Q8DirectGlobal",
             "Q8RegisterTiled",
             "Q8HipTiledLds",
@@ -832,6 +1024,8 @@ class ForwardKernelSpec:
         expected_quant_types = (
             {"Q6_K"}
             if structured_q6
+            else {"Q3_K"}
+            if q3_hip_tiled_lds
             else {"Q4_K", "Q5_K"}
             if decoded_staged
             else {"Q8_0"}
@@ -849,6 +1043,7 @@ class ForwardKernelSpec:
             (1, 1, 4, 4, 1)
             if structured_q6
             or decoded_staged
+            or q3_hip_tiled_lds
             or q8_register_tiled
             or source == "Q8HipTiledLds"
             else (1, 1, 1, 1, 1)

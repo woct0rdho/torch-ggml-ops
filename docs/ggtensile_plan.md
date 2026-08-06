@@ -258,6 +258,12 @@ The campaign proceeds in measurable gates:
 
 Only a measured complete dataflow may replace a fallback. The HIP-shaped `Q8HipTiledLds` lowering was exact and resource-qualified, but its final Q-A medians were `1.04384x` HIP for multiply and `1.01486x` for complete execution. It is therefore rejected for promotion while remaining an isolated research control; all 23 Q8_0 production keys stay on explicit HIP fallback, and the next independent forward campaign is Q3_K.
 
+### Initial Q3_K forward exact-shape control (isolated)
+
+The first forward Q3_K control is implemented and qualified only for the ordinary exact shape `(M,N,K)=(2048,4096,2048)`, representative tensor `blk.4.attn_gate.weight`. It uses the 110-byte Q3_K block format, Q8_1 `F32_D4` activations, a wave32 `(32,4,1)` workgroup, a `128x64` macro tile, decoded Q3 rows in LDS, integer WMMA accumulation, FP32 scale correction, and BF16 RNE stores. The typed lowering is resource-clean at 104 VGPRs, 16 SGPRs, and 28,672 bytes of LDS, with zero private storage and spills.
+
+The control is bit-exact with the direct HIP control and public path across 8,388,608 outputs, passes input/weight/workspace mutation and independent-reference checks, and reproduces source, object, HSACO, and normalized inspection content across two independent builds. Its warmed 25-sample medians are `1.8305x` HIP for multiply and `1.7871x` for complete execution, so it is rejected for promotion. The control remains isolated research evidence: it adds no Q3 inventory, selected catalog, runtime dispatch, or public bundle entry. Additional Q3 shapes and tuning require a new exact-shape premise and the complete correctness, resource, deterministic-build, and timing gates. Evidence is in [experiment_ggtensile_mmq_fwd_q3_k.md](experiment_ggtensile_mmq_fwd_q3_k.md).
+
 ### Diagnostic lower bounds and profiling
 
 When a bottleneck is ambiguous, exact diagnostic kernels may isolate matrix/activation/LDS work from packed decode/LDS work while preserving launch geometry and declared resources. They pass the same symbol, ABI, resource, and forbidden-storage inspection as candidates. Hardware counters and normalized disassembly explain first-order limits but never select winners; unsupported or over-capacity counter requests remain recorded evidence rather than silently reduced measurements.
@@ -318,7 +324,7 @@ Timing selects winners. Static issue counts, counters, code size, locality, and 
 | MMQ forward Q4_K | Lowering and 12-key research coverage implemented; the canonical inventory currently records 2 selected and 10 open keys |
 | MMQ forward Q5_K | Six exact inventory keys selected and recursively exhausted under the current contract |
 | MMQ forward Q6_K | Three exact language-model-head keys selected; structured semantic lowering and the current writer refactor are complete for the implemented domain |
-| MMQ forward Q3_K | Canonical forward campaign, inventory, and selected catalog remain to be completed |
+| MMQ forward Q3_K | First exact ordinary control is correctness-qualified but isolated and slower than HIP; inventory and selected catalog remain deferred |
 | MMQ forward Q8_0 | Exact inventory remains on HIP fallback; the HIP-shaped GGTensile control was measured and rejected for promotion |
 | Grouped GGTensile | Deferred until grouped ownership and routing receive an explicit generator contract |
 | Public GGTensile runtime selection | Deferred; existing HIP bundle dispatch remains authoritative |
@@ -369,6 +375,7 @@ MMQ forward records:
 - `experiment_ggtensile_mmq_fwd_q4_k.md`
 - `experiment_ggtensile_mmq_fwd_q5_k.md`
 - `experiment_ggtensile_mmq_fwd_q6_k.md`
+- `experiment_ggtensile_mmq_fwd_q3_k.md`
 
 Those documents retain campaign chronology and may describe historical premises that were later superseded. This document is authoritative for the current generic architecture and coverage status; selected catalogs and artifact tests are authoritative for current exact identities.
 

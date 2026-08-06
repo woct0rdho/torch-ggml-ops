@@ -21,6 +21,7 @@ from .kernel_writer_assembly import (
 )
 from .mmq_fwd_spec import (
     DerivedForwardState,
+    Q3HipTiledLdsLayout,
     Q6DotPhase,
     Q6ForwardSchedule,
     Q6LdsLayout,
@@ -3107,6 +3108,96 @@ class Q8HipTiledLdsRegisterPlan:
         )
 
 
+@dataclass(frozen=True)
+class Q3HipTiledLdsRegisterPlan:
+    """Deterministic registers for the wave-N 128x64 Q3 half-tile."""
+
+    sums: RegisterAssignment
+    activation_stage: RegisterAssignment
+    weight_low_raw: RegisterAssignment
+    weight_high_raw: RegisterAssignment
+    weight_metadata: RegisterAssignment
+    decoded_payload: RegisterAssignment
+    stage_d: RegisterAssignment
+    stage_scale: RegisterAssignment
+    stage_auxiliary: RegisterAssignment
+    weight_stage_address: RegisterAssignment
+    scale_shift: RegisterAssignment
+    c: RegisterAssignment
+    weight_payload: RegisterAssignment
+    activation_payload: RegisterAssignment
+    weight_scales: RegisterAssignment
+    activation_scale: RegisterAssignment
+    weight_scale_address: RegisterAssignment
+    output_address: RegisterAssignment
+    weight_address: RegisterAssignment
+    activation_address: RegisterAssignment
+    activation_lds_address: RegisterAssignment
+    weight_lds_address: RegisterAssignment
+    temporary: RegisterAssignment
+    lane: RegisterAssignment
+    wave: RegisterAssignment
+    register_count: int
+
+    @classmethod
+    def allocate(cls) -> "Q3HipTiledLdsRegisterPlan":
+        roles = {
+            "sums": RegisterRole("sums", 64, RegisterLifetime(0, 5)),
+            "activation_stage": RegisterRole(
+                "activation_stage", 4, RegisterLifetime(1, 1)
+            ),
+            "weight_low_raw": RegisterRole("weight_low_raw", 4, RegisterLifetime(2, 2)),
+            "weight_high_raw": RegisterRole(
+                "weight_high_raw", 4, RegisterLifetime(2, 2)
+            ),
+            "weight_metadata": RegisterRole(
+                "weight_metadata", 4, RegisterLifetime(2, 2)
+            ),
+            "decoded_payload": RegisterRole(
+                "decoded_payload", 4, RegisterLifetime(2, 2)
+            ),
+            "stage_d": RegisterRole("stage_d", 1, RegisterLifetime(2, 2)),
+            "stage_scale": RegisterRole("stage_scale", 1, RegisterLifetime(2, 2)),
+            "stage_auxiliary": RegisterRole(
+                "stage_auxiliary", 1, RegisterLifetime(2, 2)
+            ),
+            "weight_stage_address": RegisterRole(
+                "weight_stage_address", 1, RegisterLifetime(2, 2)
+            ),
+            "scale_shift": RegisterRole("scale_shift", 1, RegisterLifetime(2, 2)),
+            "c": RegisterRole("c", 8, RegisterLifetime(3, 3)),
+            "weight_payload": RegisterRole("weight_payload", 4, RegisterLifetime(3, 3)),
+            "activation_payload": RegisterRole(
+                "activation_payload", 4, RegisterLifetime(3, 3)
+            ),
+            "weight_scales": RegisterRole("weight_scales", 8, RegisterLifetime(3, 3)),
+            "activation_scale": RegisterRole(
+                "activation_scale", 1, RegisterLifetime(3, 3)
+            ),
+            "weight_scale_address": RegisterRole(
+                "weight_scale_address", 1, RegisterLifetime(3, 3)
+            ),
+            "output_address": RegisterRole("output_address", 1, RegisterLifetime(5, 5)),
+            "weight_address": RegisterRole("weight_address", 1, RegisterLifetime(0, 5)),
+            "activation_address": RegisterRole(
+                "activation_address", 1, RegisterLifetime(0, 5)
+            ),
+            "activation_lds_address": RegisterRole(
+                "activation_lds_address", 1, RegisterLifetime(0, 5)
+            ),
+            "weight_lds_address": RegisterRole(
+                "weight_lds_address", 1, RegisterLifetime(0, 5)
+            ),
+            "temporary": RegisterRole("temporary", 2, RegisterLifetime(0, 5)),
+            "lane": RegisterRole("lane", 1, RegisterLifetime(0, 5)),
+            "wave": RegisterRole("wave", 1, RegisterLifetime(0, 5)),
+        }
+        order = tuple(roles)
+        plan = DeterministicRegisterPlan.allocate(roles, order, max_registers=104)
+        assignments = {name: plan.assignment(name) for name in order}
+        return cls(**assignments, register_count=plan.register_count)
+
+
 class ForwardKernelWriterAssembly:
     """Emit strict packed K-quant/Q8_1 forward controls."""
 
@@ -3172,6 +3263,7 @@ class ForwardKernelWriterAssembly:
                 if self.state.kernel_spec.global_memory.operand_source
                 in {
                     "Q6StructuredDecoded",
+                    "Q3HipTiledLds",
                     "Q8RegisterTiled",
                     "Q8HipTiledLds",
                 }
@@ -3203,6 +3295,8 @@ class ForwardKernelWriterAssembly:
         operand_source = self.state.kernel_spec.global_memory.operand_source
         if operand_source == "Q6StructuredDecoded":
             return self._body_q6_structured_decoded()
+        if operand_source == "Q3HipTiledLds":
+            return self._body_q3_hip_tiled_lds()
         if operand_source == "DecodedWeightLdsBatch8":
             return self._body_decoded_weight_lds()
         if operand_source == "Q8DirectGlobal":
@@ -3803,6 +3897,377 @@ class ForwardKernelWriterAssembly:
                 asm.inst(
                     f"global_store_d16_hi_b16 v{address_base + element}, v{total}, "
                     f"s[{self.KERNARG + 4}:{self.KERNARG + 5}]"
+                )
+
+    def _body_q3_hip_tiled_lds(self) -> str:
+        """Lower the isolated wave-N 128x64 Q3_K LDS research control."""
+        asm = Assembly()
+        registers = Q3HipTiledLdsRegisterPlan.allocate()
+        layout = Q3HipTiledLdsLayout()
+        name = self.solution_key.kernel_name
+        row_stride = self.state.packed_weight_row_bytes
+        activation_plane_stride = self.state.activation_plane_stride_bytes
+        sums = registers.sums.first_register
+        weight_address = registers.weight_address.first_register
+        activation_address = registers.activation_address.first_register
+        activation_lds_address = registers.activation_lds_address.first_register
+        weight_lds_address = registers.weight_lds_address.first_register
+        temporary = registers.temporary.first_register
+        lane = registers.lane.first_register
+        wave = registers.wave.first_register
+
+        asm.comment("Load pointers for the four-wave Q3_K half-tile control.")
+        emit_pointer_kernarg_loads(asm, self.KERNARG)
+        asm.comment("Map each wave to sixteen output-feature rows.")
+        asm.inst(f"v_bfe_u32 v{wave}, v0, 10, 10")
+        asm.inst(f"v_and_b32 v{lane}, 0x3ff, v0")
+        asm.inst(f"v_and_b32 v{temporary}, 15, v{lane}")
+        asm.inst(f"v_lshlrev_b32 v{temporary + 1}, 4, v{wave}")
+        asm.inst(f"v_add_nc_u32 v{temporary}, v{temporary + 1}, v{temporary}")
+        asm.inst(f"v_lshlrev_b32 v{temporary + 1}, 6, s2")
+        asm.inst(f"v_add_nc_u32 v{temporary}, v{temporary + 1}, v{temporary}")
+        asm.inst(f"v_mul_lo_u32 v{weight_address}, {row_stride}, v{temporary}")
+
+        asm.comment("Build global and LDS addresses for all 128 activation rows.")
+        asm.inst(f"v_lshlrev_b32 v{temporary}, 5, v{wave}")
+        asm.inst(f"v_add_nc_u32 v{temporary}, v{lane}, v{temporary}")
+        asm.inst(
+            f"v_mul_lo_u32 v{activation_lds_address}, "
+            f"{layout.activation_row_stride}, v{temporary}"
+        )
+        asm.inst(f"v_lshlrev_b32 v{temporary + 1}, 7, s3")
+        asm.inst(f"v_add_nc_u32 v{temporary}, v{temporary + 1}, v{temporary}")
+        asm.inst(
+            f"v_mul_lo_u32 v{activation_address}, "
+            f"{layout.activation_row_stride}, v{temporary}"
+        )
+
+        asm.comment("Build one decoded-weight LDS row per output feature.")
+        asm.inst(f"v_and_b32 v{temporary}, 15, v{lane}")
+        asm.inst(f"v_lshlrev_b32 v{temporary + 1}, 4, v{wave}")
+        asm.inst(f"v_add_nc_u32 v{temporary}, v{temporary + 1}, v{temporary}")
+        asm.inst(
+            f"v_mul_lo_u32 v{weight_lds_address}, "
+            f"{layout.weight_row_stride}, v{temporary}"
+        )
+        asm.inst(
+            f"v_add_nc_u32 v{weight_lds_address}, {layout.weight_base}, "
+            f"v{weight_lds_address}"
+        )
+
+        for register in range(sums, sums + 64):
+            asm.inst(f"v_mov_b32 v{register}, 0")
+        asm.inst(f"s_mov_b32 s{self.LOOP_COUNTER}, 0")
+
+        asm.label(".LForwardQ3KHipTiledLdsBlockLoop")
+        for half in range(2):
+            self._emit_q3_activation_stage(asm, registers, layout)
+            self._emit_q3_weight_stage(asm, registers, layout, half)
+            asm.inst("s_waitcnt lgkmcnt(0)")
+            asm.inst("s_barrier")
+            self._emit_q3_half_accumulate(asm, registers, layout)
+            asm.inst("s_barrier")
+            asm.inst(
+                f"v_add_nc_u32 v{activation_address}, "
+                f"{activation_plane_stride}, v{activation_address}"
+            )
+        asm.inst(
+            f"v_add_nc_u32 v{weight_address}, "
+            f"{self.state.contract.packed_weight_block_bytes}, v{weight_address}"
+        )
+        asm.inst(f"s_add_u32 s{self.LOOP_COUNTER}, s{self.LOOP_COUNTER}, 1")
+        asm.inst(
+            f"s_cmp_lt_u32 s{self.LOOP_COUNTER}, {self.state.blocks_per_weight_row}"
+        )
+        asm.inst("s_cbranch_scc1 .LForwardQ3KHipTiledLdsBlockLoop")
+
+        self._emit_q3_store(asm, registers)
+        emit_kernel_trailer(asm, name)
+        return asm.text()
+
+    def _emit_q3_activation_stage(
+        self,
+        asm: Assembly,
+        registers: Q3HipTiledLdsRegisterPlan,
+        layout: Q3HipTiledLdsLayout,
+    ) -> None:
+        """Cooperatively stage one complete 128-value Q8_1 activation block."""
+        activation_stage = registers.activation_stage.first_register
+        activation_address = registers.activation_address.first_register
+        activation_lds_address = registers.activation_lds_address.first_register
+        asm.comment("Stage 128 contiguous Q8_1 F32_D4 rows into LDS.")
+        for chunk in range(layout.activation_row_stride // 16):
+            offset = 16 * chunk
+            asm.inst(
+                f"global_load_b128 v[{activation_stage}:{activation_stage + 3}], "
+                f"v{activation_address}, "
+                f"s[{self.KERNARG + 2}:{self.KERNARG + 3}] offset:{offset}"
+            )
+            asm.inst("s_waitcnt vmcnt(0)")
+            asm.inst(
+                f"ds_write_b128 v{activation_lds_address}, "
+                f"v[{activation_stage}:{activation_stage + 3}] offset:{offset}"
+            )
+
+    def _emit_q3_weight_stage(
+        self,
+        asm: Assembly,
+        registers: Q3HipTiledLdsRegisterPlan,
+        layout: Q3HipTiledLdsLayout,
+        half: int,
+    ) -> None:
+        """Decode four interleaved Q3 groups per thread into one LDS half row."""
+        semantics = self.state.semantics
+        decode = semantics.q3_signed_decode()
+        first_group = semantics.q3_payload_group(8 * half)
+        low_raw = registers.weight_low_raw.first_register
+        high_raw = registers.weight_high_raw.first_register
+        metadata = registers.weight_metadata.first_register
+        decoded = registers.decoded_payload.first_register
+        stage_d = registers.stage_d.first_register
+        stage_scale = registers.stage_scale.first_register
+        auxiliary = registers.stage_auxiliary.first_register
+        stage_address = registers.weight_stage_address.first_register
+        scale_shift = registers.scale_shift.first_register
+        weight_address = registers.weight_address.first_register
+        weight_lds_address = registers.weight_lds_address.first_register
+        temporary = registers.temporary.first_register
+        lane = registers.lane.first_register
+        metadata_load_offset = semantics.payload_plane("scales").byte_offset - 2
+
+        asm.comment(
+            f"Decode Q3_K half {half} into signed int8 payloads and FP32 scales."
+        )
+        asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{lane}")
+        asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
+        asm.inst(f"v_lshlrev_b32 v{temporary + 1}, 4, v{temporary}")
+        asm.inst(f"v_add_nc_u32 v{stage_address}, v{temporary + 1}, v{weight_address}")
+        asm.inst(
+            f"global_load_b128 v[{low_raw}:{low_raw + 3}], v{stage_address}, "
+            f"s[{self.KERNARG}:{self.KERNARG + 1}] "
+            f"offset:{first_group.low_payload_offset}"
+        )
+        asm.inst(
+            f"global_load_b128 v[{high_raw}:{high_raw + 3}], v{stage_address}, "
+            f"s[{self.KERNARG}:{self.KERNARG + 1}] "
+            f"offset:{first_group.high_payload_offset}"
+        )
+        asm.inst(
+            f"global_load_b128 v[{metadata}:{metadata + 3}], v{weight_address}, "
+            f"s[{self.KERNARG}:{self.KERNARG + 1}] "
+            f"offset:{metadata_load_offset}"
+        )
+        asm.inst(f"v_lshlrev_b32 v{scale_shift}, 3, v{temporary}")
+        asm.inst("s_waitcnt vmcnt(0)")
+
+        asm.inst(
+            f"v_add_nc_u32 v{stage_address}, v{temporary + 1}, v{weight_lds_address}"
+        )
+        for local_group in range(4):
+            group = 8 * half + 2 * local_group
+            group_spec = semantics.q3_payload_group(group)
+            for item in range(4):
+                asm.inst(
+                    f"v_lshrrev_b32 v{decoded + item}, {group_spec.low_shift}, "
+                    f"v{low_raw + item}"
+                )
+                asm.inst(
+                    f"v_and_b32 v{decoded + item}, {decode.low_mask:#010x}, "
+                    f"v{decoded + item}"
+                )
+                asm.inst(
+                    f"v_lshrrev_b32 v{auxiliary}, {group_spec.high_shift}, "
+                    f"v{high_raw + item}"
+                )
+                asm.inst(
+                    f"v_and_b32 v{auxiliary}, {decode.high_mask:#010x}, v{auxiliary}"
+                )
+                asm.inst(
+                    f"v_lshl_or_b32 v{decoded + item}, v{auxiliary}, "
+                    f"{decode.high_destination_shift}, v{decoded + item}"
+                )
+                asm.inst(
+                    f"v_add_nc_u32 v{decoded + item}, {decode.signed_add:#010x}, "
+                    f"v{decoded + item}"
+                )
+                asm.inst(
+                    f"v_xor_b32 v{decoded + item}, {decode.signed_xor:#010x}, "
+                    f"v{decoded + item}"
+                )
+            asm.inst(
+                f"ds_write_b128 v{stage_address}, v[{decoded}:{decoded + 3}] "
+                f"offset:{32 * local_group}"
+            )
+
+        asm.inst(f"v_cvt_f32_f16 v{stage_d}, v{metadata + 3}.h")
+        asm.inst(f"v_lshlrev_b32 v{temporary + 1}, 2, v{temporary}")
+        asm.inst(
+            f"v_add_nc_u32 v{stage_address}, v{temporary + 1}, v{weight_lds_address}"
+        )
+        scale_plane_offset = semantics.payload_plane("scales").byte_offset
+        for local_group in range(4):
+            group = 8 * half + 2 * local_group
+            low_field, high_field = semantics.q3_scale_fields(group)
+            low_byte = scale_plane_offset - metadata_load_offset + low_field.source_byte
+            high_byte = (
+                scale_plane_offset - metadata_load_offset + high_field.source_byte
+            )
+            low_word = low_byte // 4
+            high_word = high_byte // 4
+            low_bit = 8 * (low_byte % 4) + low_field.bit_offset
+            high_bit = 8 * (high_byte % 4) + high_field.bit_offset
+            asm.inst(f"v_add_nc_u32 v{auxiliary}, {low_bit}, v{scale_shift}")
+            asm.inst(
+                f"v_lshrrev_b32 v{stage_scale}, v{auxiliary}, v{metadata + low_word}"
+            )
+            asm.inst(
+                f"v_and_b32 v{stage_scale}, {(1 << low_field.bit_count) - 1}, "
+                f"v{stage_scale}"
+            )
+            asm.inst(f"v_add_nc_u32 v{auxiliary}, {high_bit}, v{scale_shift}")
+            asm.inst(
+                f"v_lshrrev_b32 v{auxiliary}, v{auxiliary}, v{metadata + high_word}"
+            )
+            asm.inst(
+                f"v_and_b32 v{auxiliary}, {(1 << high_field.bit_count) - 1}, "
+                f"v{auxiliary}"
+            )
+            asm.inst(
+                f"v_lshl_or_b32 v{stage_scale}, v{auxiliary}, "
+                f"{high_field.destination_shift}, v{stage_scale}"
+            )
+            asm.inst(f"v_sub_nc_u32 v{stage_scale}, v{stage_scale}, 32")
+            asm.inst(f"v_cvt_f32_i32 v{stage_scale}, v{stage_scale}")
+            asm.inst(f"v_mul_f32 v{stage_scale}, v{stage_d}, v{stage_scale}")
+            asm.inst(
+                f"ds_write_b32 v{stage_address}, v{stage_scale} "
+                f"offset:{layout.weight_payload_bytes + 8 * local_group}"
+            )
+
+    def _emit_q3_half_accumulate(
+        self,
+        asm: Assembly,
+        registers: Q3HipTiledLdsRegisterPlan,
+        layout: Q3HipTiledLdsLayout,
+    ) -> None:
+        """Accumulate eight Q3 scale groups over all eight M fragments."""
+        c = registers.c.first_register
+        sums = registers.sums.first_register
+        weight_payload = registers.weight_payload.first_register
+        activation_payload = registers.activation_payload.first_register
+        weight_scales = registers.weight_scales.first_register
+        activation_scale = registers.activation_scale.first_register
+        weight_scale_address = registers.weight_scale_address.first_register
+        weight_lds_address = registers.weight_lds_address.first_register
+        temporary = registers.temporary.first_register
+        lane = registers.lane.first_register
+        wave = registers.wave.first_register
+
+        asm.comment("Build the first C-fragment weight-scale row in LDS.")
+        asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{lane}")
+        asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
+        asm.inst(f"v_lshlrev_b32 v{temporary + 1}, 4, v{wave}")
+        asm.inst(f"v_add_nc_u32 v{temporary}, v{temporary + 1}, v{temporary}")
+        asm.inst(
+            f"v_mul_lo_u32 v{weight_scale_address}, "
+            f"{layout.weight_row_stride}, v{temporary}"
+        )
+        asm.inst(
+            f"v_add_nc_u32 v{weight_scale_address}, {layout.weight_base}, "
+            f"v{weight_scale_address}"
+        )
+
+        for group in range(layout.scale_count):
+            group_spec = self.state.semantics.q3_payload_group(group)
+            asm.comment(f"Q3_K half group {group}: signed WMMA and FP32 correction.")
+            asm.inst(
+                f"ds_read_b128 v[{weight_payload}:{weight_payload + 3}], "
+                f"v{weight_lds_address} offset:{16 * group}"
+            )
+            for element in range(8):
+                asm.inst(
+                    f"ds_read_b32 v{weight_scales + element}, "
+                    f"v{weight_scale_address} "
+                    f"offset:{layout.weight_payload_bytes + 2 * layout.weight_row_stride * element + 4 * group}"
+                )
+            for m_index in range(8):
+                activation_row_offset = 16 * m_index * layout.activation_row_stride
+                asm.inst(f"v_and_b32 v{temporary}, 15, v{lane}")
+                asm.inst(
+                    f"v_mul_lo_u32 v{temporary}, "
+                    f"{layout.activation_row_stride}, v{temporary}"
+                )
+                asm.inst(
+                    f"ds_read_b128 v[{activation_payload}:{activation_payload + 3}], "
+                    f"v{temporary} "
+                    f"offset:{activation_row_offset + group_spec.activation_payload_offset}"
+                )
+                asm.inst(
+                    f"ds_read_b32 v{activation_scale}, v{temporary} "
+                    f"offset:{activation_row_offset + group_spec.activation_scale_offset}"
+                )
+                asm.inst("s_waitcnt lgkmcnt(0)")
+                for element in range(8):
+                    asm.inst(f"v_mov_b32 v{c + element}, 0")
+                asm.inst(
+                    f"v_wmma_i32_16x16x16_iu8 v[{c}:{c + 7}], "
+                    f"v[{weight_payload}:{weight_payload + 3}], "
+                    f"v[{activation_payload}:{activation_payload + 3}], "
+                    f"v[{c}:{c + 7}] neg_lo:[1,1,0]"
+                )
+                sum_fragment = sums + 8 * m_index
+                for element in range(8):
+                    asm.inst(f"v_cvt_f32_i32 v{c + element}, v{c + element}")
+                    asm.inst(
+                        f"v_mul_f32 v{c + element}, v{weight_scales + element}, "
+                        f"v{c + element}"
+                    )
+                    asm.inst(
+                        f"v_fmac_f32 v{sum_fragment + element}, "
+                        f"v{activation_scale}, v{c + element}"
+                    )
+
+    def _emit_q3_store(
+        self,
+        asm: Assembly,
+        registers: Q3HipTiledLdsRegisterPlan,
+    ) -> None:
+        """Store eight wave-N fragments as row-major BF16 with RNE."""
+        size = self.state.problem_size
+        sums = registers.sums.first_register
+        output_address = registers.output_address.first_register
+        temporary = registers.temporary.first_register
+        lane = registers.lane.first_register
+        wave = registers.wave.first_register
+
+        asm.comment("Store the Q3 wave-N fragments as row-major BF16.")
+        asm.inst(f"v_and_b32 v{temporary}, 15, v{lane}")
+        asm.inst(f"v_lshlrev_b32 v{temporary + 1}, 7, s3")
+        asm.inst(f"v_add_nc_u32 v{temporary}, v{temporary + 1}, v{temporary}")
+        asm.inst(f"v_mul_lo_u32 v{output_address}, {2 * size.n}, v{temporary}")
+        asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{lane}")
+        asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
+        asm.inst(f"v_lshlrev_b32 v{temporary + 1}, 4, v{wave}")
+        asm.inst(f"v_add_nc_u32 v{temporary}, v{temporary + 1}, v{temporary}")
+        asm.inst(f"v_lshlrev_b32 v{temporary + 1}, 6, s2")
+        asm.inst(f"v_add_nc_u32 v{temporary}, v{temporary + 1}, v{temporary}")
+        asm.inst(f"v_lshlrev_b32 v{temporary}, 1, v{temporary}")
+        asm.inst(f"v_add_nc_u32 v{output_address}, v{temporary}, v{output_address}")
+        for m_index in range(8):
+            fragment = sums + 8 * m_index
+            for element in range(8):
+                emit_bf16_rne(asm, fragment + element, temporary)
+            asm.inst("s_clause 7")
+            for element in range(8):
+                asm.inst(
+                    f"global_store_d16_hi_b16 v{output_address}, "
+                    f"v{fragment + element}, "
+                    f"s[{self.KERNARG + 4}:{self.KERNARG + 5}] "
+                    f"offset:{4 * element}"
+                )
+            if m_index != 7:
+                asm.inst(
+                    f"v_add_nc_u32 v{output_address}, {32 * size.n}, v{output_address}"
                 )
 
     def _body_q8_hip_tiled_lds(self) -> str:

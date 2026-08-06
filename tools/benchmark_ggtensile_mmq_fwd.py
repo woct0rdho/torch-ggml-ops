@@ -162,7 +162,7 @@ def main() -> None:
     with contextlib.ExitStack() as stack:
         quantizer_type = (
             FixedQ81F32D4QuantizerModule
-            if key.problem_type.quant_data_type in ("Q6_K", "Q8_0")
+            if key.problem_type.quant_data_type in ("Q3_K", "Q6_K", "Q8_0")
             else FixedQ81F16D4S4QuantizerModule
         )
         quantizer = stack.enter_context(quantizer_type())

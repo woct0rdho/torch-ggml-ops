@@ -10,6 +10,7 @@ from tools.ggtensile.mmq_fwd_spec import (
     ForwardKernelSpec,
     ForwardProblemContract,
     ForwardResourceUsage,
+    Q3HipTiledLdsLayout,
     Q6LdsLayout,
     Q6SemanticPlan,
     Q6SemanticStage,
@@ -41,6 +42,7 @@ def _key(
 @pytest.mark.parametrize(
     ("quant_type", "layout", "block_bytes"),
     (
+        ("Q3_K", "F32_D4", 144),
         ("Q4_K", "F16_D4S4", 144),
         ("Q5_K", "F16_D4S4", 144),
         ("Q6_K", "F32_D4", 144),
@@ -59,10 +61,15 @@ def test_forward_format_traits_are_fixed_contracts(
 
 
 def test_quant_forward_semantics_describe_packed_planes() -> None:
+    q3 = QuantForwardSemantics.for_quant_type("Q3_K")
     q4 = QuantForwardSemantics.for_quant_type("Q4_K")
     q5 = QuantForwardSemantics.for_quant_type("Q5_K")
     q6 = QuantForwardSemantics.for_quant_type("Q6_K")
     q8 = QuantForwardSemantics.for_quant_type("Q8_0")
+    assert q3.payload_plane("hmask").byte_count == 32
+    assert q3.payload_plane("qs").byte_offset == 32
+    assert q3.payload_plane("scales").byte_offset == 96
+    assert q3.payload_plane("d").byte_offset == 108
     assert q4.payload_plane("ql").byte_offset == 16
     assert q5.payload_plane("qh").byte_count == 32
     assert q6.payload_plane("scales").encoding == "SignedInt8"
@@ -155,6 +162,7 @@ def test_forward_derived_state_owns_shape_formulas() -> None:
 def test_complete_candidate_round_trips_to_the_normal_build_solution() -> None:
     candidates = (
         ("Q4_K", ForwardSolution.q4_k_pilot()),
+        ("Q3_K", ForwardSolution.q3_k_hip_tiled_lds()),
         ("Q4_K", ForwardSolution.q4_k_decoded_weight_lds_retained()),
         (
             "Q4_K",
@@ -216,6 +224,7 @@ def test_complete_candidate_round_trips_to_the_normal_build_solution() -> None:
     ("solution", "expected"),
     (
         (ForwardSolution.q4_k_pilot(), (88, 16, 0)),
+        (ForwardSolution.q3_k_hip_tiled_lds(), (104, 16, 28_672)),
         (
             ForwardSolution.q4_k_decoded_weight_lds_retained(),
             (239, 16, 38_400),
@@ -295,6 +304,54 @@ def test_q6_lds_layout_derives_selected_plane_offsets() -> None:
         narrow.factor_role(-1)
 
 
+def test_q3_half_tile_lds_and_packed_groups_are_formula_derived() -> None:
+    layout = Q3HipTiledLdsLayout()
+    assert layout.activation_bytes == 18_432
+    assert layout.weight_payload_bytes == 128
+    assert layout.weight_scale_bytes == 32
+    assert layout.weight_row_stride == 160
+    assert layout.weight_base == 18_432
+    assert layout.weight_bytes == 10_240
+    assert layout.total_bytes == 28_672
+
+    semantics = QuantForwardSemantics.for_quant_type("Q3_K")
+    first = semantics.q3_payload_group(0)
+    assert (
+        first.half,
+        first.low_payload_offset,
+        first.low_shift,
+        first.high_payload_offset,
+        first.high_shift,
+        first.activation_payload_offset,
+        first.activation_scale_offset,
+    ) == (0, 32, 0, 0, 0, 16, 0)
+    last = semantics.q3_payload_group(15)
+    assert (
+        last.half,
+        last.low_payload_offset,
+        last.low_shift,
+        last.high_payload_offset,
+        last.high_shift,
+        last.activation_payload_offset,
+        last.activation_scale_offset,
+    ) == (1, 80, 6, 16, 7, 128, 12)
+    assert semantics.q3_scale_fields(0)[0].source_byte == 0
+    assert semantics.q3_scale_fields(15)[0].bit_offset == 4
+    assert semantics.q3_scale_fields(15)[1].source_byte == 11
+    assert semantics.q3_scale_fields(15)[1].bit_offset == 6
+    signed = semantics.q3_signed_decode()
+    assert signed.signed_add == 0x7C7C7C7C
+    assert signed.signed_xor == 0x80808080
+    with pytest.raises(ValueError, match="payload group"):
+        semantics.q3_payload_group(16)
+    with pytest.raises(ValueError, match="scale group"):
+        semantics.q3_scale_fields(-1)
+    with pytest.raises(ValueError, match="has no signed Q3"):
+        QuantForwardSemantics.for_quant_type("Q4_K").q3_signed_decode()
+    with pytest.raises(ValueError, match="dimensions must be positive"):
+        Q3HipTiledLdsLayout(activation_rows=0)
+
+
 def test_forward_resource_admission_rejects_each_fixed_limit() -> None:
     with pytest.raises(ValueError, match="VGPR"):
         ForwardResourceUsage(257, 1, 0).admit(ResourceLimits())
@@ -308,6 +365,7 @@ def test_forward_resource_admission_rejects_each_fixed_limit() -> None:
 
 def test_every_forward_solution_field_is_projected_or_rejected() -> None:
     representatives = (
+        ("Q3_K", ForwardSolution.q3_k_hip_tiled_lds()),
         ("Q4_K", ForwardSolution.q4_k_pilot()),
         ("Q4_K", ForwardSolution.q4_k_decoded_weight_lds_retained()),
         ("Q5_K", ForwardSolution.q5_k_decoded_weight_lds_retained()),
