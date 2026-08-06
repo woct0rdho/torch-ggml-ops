@@ -710,6 +710,8 @@ def derive_forward_resource_usage(spec: "ForwardKernelSpec") -> ForwardResourceU
     if operand_source == "Q8HipTiledLds":
         # The two semantic planes match the HIP tile: 128 activation rows at
         # 144 bytes plus 64 weight rows at a padded 304-byte stride.
+        if spec.geometry.depth_u not in (32, 64):
+            raise ValueError("Q8 HIP-shaped LDS controls require DepthU 32 or 64")
         return ForwardResourceUsage(vgprs=240, sgprs=16, lds_bytes=38_400)
     raise ValueError(f"unsupported forward operand source {operand_source!r}")
 
@@ -789,6 +791,8 @@ def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | Non
             "inactive legacy matrix-instruction fields must retain their "
             "canonical sentinel values"
         )
+    if q8_hip_tiled_lds and solution.depth_u not in (32, 64):
+        return "Q8 HIP-shaped LDS controls require DepthU 32 or 64"
     inactive_checks: list[tuple[bool, str]] = []
     if structured_q6:
         inactive_checks.extend(

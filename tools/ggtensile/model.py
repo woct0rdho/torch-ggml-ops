@@ -717,6 +717,11 @@ class ForwardSolution:
         )
 
     @classmethod
+    def q8_0_hip_tiled_lds_depth64(cls) -> Self:
+        """Return the two-activation-plane Q8_0 LDS research control."""
+        return replace(cls.q8_0_hip_tiled_lds(), depth_u=64)
+
+    @classmethod
     def q4_k_decoded_weight_lds_extraction(
         cls,
         *,

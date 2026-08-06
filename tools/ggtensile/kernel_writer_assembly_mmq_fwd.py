@@ -2989,6 +2989,7 @@ class Q8HipTiledLdsRegisterPlan:
     weight_scales: RegisterAssignment
     activation_scales: RegisterAssignment
     activation_scale_copies: RegisterAssignment
+    zero_accumulator: RegisterAssignment
     weight_stage_payload: RegisterAssignment
     weight_scale_address: RegisterAssignment
     weight_address: RegisterAssignment
@@ -3030,12 +3031,18 @@ class Q8HipTiledLdsRegisterPlan:
             ),
             "activation_scale_copies": RegisterRole(
                 "activation_scale_copies",
-                8,
+                2,
                 RegisterLifetime(2, 3),
                 minimum_register=225,
             ),
+            "zero_accumulator": RegisterRole(
+                "zero_accumulator",
+                8,
+                RegisterLifetime(2, 4),
+                minimum_register=227,
+            ),
             "weight_stage_payload": RegisterRole(
-                "weight_stage_payload", 8, RegisterLifetime(1, 1), minimum_register=224
+                "weight_stage_payload", 8, RegisterLifetime(1, 1), minimum_register=0
             ),
             "weight_scale_address": RegisterRole(
                 "weight_scale_address",
@@ -3065,13 +3072,13 @@ class Q8HipTiledLdsRegisterPlan:
                 "weight_stage_address",
                 1,
                 RegisterLifetime(1, 1),
-                minimum_register=232,
+                minimum_register=8,
             ),
             "weight_scale_stage_address": RegisterRole(
                 "weight_scale_stage_address",
                 1,
                 RegisterLifetime(1, 1),
-                minimum_register=233,
+                minimum_register=9,
             ),
             "temporary": RegisterRole(
                 "temporary", 1, RegisterLifetime(0, 5), minimum_register=220
@@ -3086,7 +3093,7 @@ class Q8HipTiledLdsRegisterPlan:
                 "activation_row", 1, RegisterLifetime(0, 2), minimum_register=223
             ),
             "weight_row": RegisterRole(
-                "weight_row", 1, RegisterLifetime(0, 2), minimum_register=234
+                "weight_row", 1, RegisterLifetime(0, 0), minimum_register=10
             ),
             "output_address": RegisterRole(
                 "output_address", 64, RegisterLifetime(5, 5), minimum_register=0
@@ -4407,6 +4414,12 @@ class ForwardKernelWriterAssembly:
         size = self.state.problem_size
         row_stride = self.state.packed_weight_row_bytes
         activation_plane_stride = self.state.activation_plane_stride_bytes
+        depth_u = self.state.kernel_spec.geometry.depth_u
+        groups_per_iteration = depth_u // 8
+        activation_planes_per_iteration = groups_per_iteration // 4
+        iteration_count = (
+            self.state.activation_blocks_per_row // activation_planes_per_iteration
+        )
         c = registers.c.first_register
         sums = registers.sums.first_register
         weight_payload = registers.weight_payload.first_register
@@ -4414,6 +4427,7 @@ class ForwardKernelWriterAssembly:
         weight_scales = registers.weight_scales.first_register
         activation_scales = registers.activation_scales.first_register
         activation_scale_copies = registers.activation_scale_copies.first_register
+        zero_accumulator = registers.zero_accumulator.first_register
         weight_stage_payload = registers.weight_stage_payload.first_register
         weight_scale_address = registers.weight_scale_address.first_register
         weight_address = registers.weight_address.first_register
@@ -4472,6 +4486,11 @@ class ForwardKernelWriterAssembly:
             asm.inst(
                 f"v_dual_mov_b32 v{register}, 0 :: v_dual_mov_b32 v{register + 1}, 0"
             )
+        asm.comment("Keep one zero WMMA fragment live across all reduction loops.")
+        for register in range(zero_accumulator, zero_accumulator + 8, 2):
+            asm.inst(
+                f"v_dual_mov_b32 v{register}, 0 :: v_dual_mov_b32 v{register + 1}, 0"
+            )
         asm.inst(f"s_mov_b32 s{self.LOOP_COUNTER}, 0")
 
         asm.label(".LForwardQ80HipTiledLdsBlockLoop")
@@ -4492,6 +4511,7 @@ class ForwardKernelWriterAssembly:
             weight_scales,
             lane,
             temporary,
+            group_base=0,
         )
         self._emit_q8_hip_activation_writes(
             asm,
@@ -4506,7 +4526,31 @@ class ForwardKernelWriterAssembly:
             weight_scales,
             weight_scale_stage_address,
             temporary,
+            group_base=0,
         )
+        if groups_per_iteration == 8:
+            self._emit_q8_hip_weight_stage(
+                asm,
+                weight_address,
+                weight_lds_address,
+                weight_stage_address,
+                weight_scale_stage_address,
+                weight_payload,
+                weight_stage_payload,
+                weight_scales,
+                lane,
+                temporary,
+                group_base=4,
+            )
+            self._emit_q8_hip_weight_writes(
+                asm,
+                weight_payload,
+                weight_stage_payload,
+                weight_scales,
+                weight_scale_stage_address,
+                temporary,
+                group_base=4,
+            )
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
         asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{lane}")
@@ -4539,20 +4583,60 @@ class ForwardKernelWriterAssembly:
                 weight_lds_address,
                 lane,
                 temporary,
+                zero_accumulator=zero_accumulator,
             )
+        if groups_per_iteration == 8:
+            asm.inst(
+                f"v_add_nc_u32 v{temporary}, {activation_plane_stride}, "
+                f"v{activation_address}"
+            )
+            self._emit_q8_hip_activation_loads(
+                asm,
+                temporary,
+                activation_payloads,
+                activation_scales,
+            )
+            asm.inst("s_barrier")
+            self._emit_q8_hip_activation_writes(
+                asm,
+                activation_lds_address,
+                activation_payloads,
+                activation_scales,
+                trailing_vmem=0,
+            )
+            asm.inst("s_waitcnt lgkmcnt(0)")
+            asm.inst("s_barrier")
+            for group in range(4, 8):
+                self._emit_q8_hip_group(
+                    asm,
+                    group,
+                    c,
+                    sums,
+                    weight_payload,
+                    activation_payloads,
+                    weight_scales,
+                    activation_scales,
+                    activation_scale_copies,
+                    weight_scale_address,
+                    weight_lds_address,
+                    lane,
+                    temporary,
+                    activation_group=group - 4,
+                    zero_accumulator=zero_accumulator,
+                )
         asm.inst("s_barrier")
         asm.inst(
             f"v_add_nc_u32 v{weight_address}, "
-            f"{4 * self.state.contract.packed_weight_block_bytes}, v{weight_address}"
+            f"{groups_per_iteration * self.state.contract.packed_weight_block_bytes}, "
+            f"v{weight_address}"
         )
         asm.inst(
             f"v_add_nc_u32 v{activation_address}, "
-            f"{activation_plane_stride}, v{activation_address}"
+            f"{activation_planes_per_iteration * activation_plane_stride}, "
+            f"v{activation_address}"
         )
         asm.inst(f"s_add_u32 s{self.LOOP_COUNTER}, s{self.LOOP_COUNTER}, 1")
-        asm.inst(
-            f"s_cmp_lt_u32 s{self.LOOP_COUNTER}, {self.state.activation_blocks_per_row}"
-        )
+        asm.inst(f"s_cmp_lt_u32 s{self.LOOP_COUNTER}, {iteration_count}")
         asm.inst("s_cbranch_scc1 .LForwardQ80HipTiledLdsBlockLoop")
 
         self._emit_q8_hip_store(
@@ -4599,10 +4683,12 @@ class ForwardKernelWriterAssembly:
         lds_address: int,
         activation_payloads: int,
         activation_scales: int,
+        *,
+        trailing_vmem: int = 6,
     ) -> None:
         """Commit the completed activation loads to their LDS rows."""
         for group in range(4):
-            asm.inst(f"s_waitcnt vmcnt({15 - 3 * group})")
+            asm.inst(f"s_waitcnt vmcnt({9 + trailing_vmem - 3 * group})")
             payload = activation_payloads + 8 * group
             scale = activation_scales + group
             asm.inst(
@@ -4627,6 +4713,8 @@ class ForwardKernelWriterAssembly:
         weight_scales: int,
         lane: int,
         temporary: int,
+        *,
+        group_base: int,
     ) -> None:
         """Stage four packed Q8_0 groups and their FP32 scales in LDS."""
         weight_lds_scale_offset = 256
@@ -4661,17 +4749,18 @@ class ForwardKernelWriterAssembly:
             asm.inst(
                 f"global_load_b128 v[{payload}:{payload + 3}], "
                 f"v{weight_stage_address}, s[{self.KERNARG}:{self.KERNARG + 1}] "
-                f"offset:{2 + 34 * group}"
+                f"offset:{2 + 34 * (group_base + group)}"
             )
             asm.inst(
                 f"global_load_b128 v[{payload + 4}:{payload + 7}], "
                 f"v{weight_stage_address}, s[{self.KERNARG}:{self.KERNARG + 1}] "
-                f"offset:{18 + 34 * group}"
+                f"offset:{18 + 34 * (group_base + group)}"
             )
             asm.inst(
                 f"global_load_d16_b16 v{weight_scales + group}, "
                 f"v{weight_stage_address}, "
-                f"s[{self.KERNARG}:{self.KERNARG + 1}] offset:{34 * group}"
+                f"s[{self.KERNARG}:{self.KERNARG + 1}] "
+                f"offset:{34 * (group_base + group)}"
             )
 
     def _emit_q8_hip_weight_writes(
@@ -4682,6 +4771,8 @@ class ForwardKernelWriterAssembly:
         weight_scales: int,
         weight_scale_stage_address: int,
         lds_address: int,
+        *,
+        group_base: int,
     ) -> None:
         """Commit the packed-weight loads after their VMEM dependencies mature."""
         for group, wait_count in enumerate((3, 0)):
@@ -4689,18 +4780,19 @@ class ForwardKernelWriterAssembly:
             payload = weight_payload if group == 0 else weight_stage_payload
             asm.inst(
                 f"ds_write_b128 v{lds_address}, v[{payload}:{payload + 3}] "
-                f"offset:{32 * group}"
+                f"offset:{32 * (group_base + group)}"
             )
             asm.inst(
                 f"ds_write_b128 v{lds_address}, v[{payload + 4}:{payload + 7}] "
-                f"offset:{16 + 32 * group}"
+                f"offset:{16 + 32 * (group_base + group)}"
             )
             asm.inst(
                 f"v_cvt_f32_f16 v{weight_scales + group}, v{weight_scales + group}"
             )
             asm.inst(
                 f"ds_write_b32 v{weight_scale_stage_address}, "
-                f"v{weight_scales + group} offset:{4 * group}"
+                f"v{weight_scales + group} "
+                f"offset:{4 * (group_base + group)}"
             )
 
     def _emit_q8_hip_group(
@@ -4718,8 +4810,12 @@ class ForwardKernelWriterAssembly:
         weight_lds_address: int,
         lane: int,
         temporary: int,
+        *,
+        activation_group: int | None = None,
+        zero_accumulator: int,
     ) -> None:
         """Read one staged Q8 group and accumulate eight activation fragments."""
+        activation_group = group if activation_group is None else activation_group
         weight_lds_scale_offset = 256
         weight_offset = 32 * group
         asm.inst(
@@ -4746,39 +4842,34 @@ class ForwardKernelWriterAssembly:
             asm.inst(f"v_mul_lo_u32 v{temporary}, 144, v{temporary}")
             asm.inst(
                 f"ds_read_b128 v[{payload}:{payload + 3}], v{temporary} "
-                f"offset:{16 + 32 * group}"
+                f"offset:{16 + 32 * activation_group}"
             )
             asm.inst(
                 f"ds_read_b128 v[{payload + 4}:{payload + 7}], v{temporary} "
-                f"offset:{32 + 32 * group}"
+                f"offset:{32 + 32 * activation_group}"
             )
             asm.inst(
                 f"ds_read_b32 v{activation_scales + m_index}, v{temporary} "
-                f"offset:{4 * group}"
+                f"offset:{4 * activation_group}"
             )
         for m_index in range(8):
             asm.inst(f"s_waitcnt lgkmcnt({21 - 3 * m_index})")
             if m_index % 2 == 0:
                 asm.inst(
-                    f"v_dual_mov_b32 v{activation_scale_copies + m_index}, "
+                    f"v_dual_mov_b32 v{activation_scale_copies}, "
                     f"v{activation_scales + m_index} :: "
-                    f"v_dual_mov_b32 v{activation_scale_copies + m_index + 1}, "
+                    f"v_dual_mov_b32 v{activation_scale_copies + 1}, "
                     f"v{activation_scales + m_index + 1}"
                 )
             fragment = 8 * m_index
             c_fragment = c + fragment
             sum_fragment = sums + fragment
             payload = activation_payloads + 8 * m_index
-            for element in range(0, 8, 2):
-                asm.inst(
-                    f"v_dual_mov_b32 v{c_fragment + element}, 0 :: "
-                    f"v_dual_mov_b32 v{c_fragment + element + 1}, 0"
-                )
             asm.inst(
                 f"v_wmma_i32_16x16x16_iu8 v[{c_fragment}:{c_fragment + 7}], "
                 f"v[{weight_payload}:{weight_payload + 3}], "
                 f"v[{payload}:{payload + 3}], "
-                f"v[{c_fragment}:{c_fragment + 7}] neg_lo:[1,1,0]"
+                f"v[{zero_accumulator}:{zero_accumulator + 7}] neg_lo:[1,1,0]"
             )
             asm.inst(
                 f"v_wmma_i32_16x16x16_iu8 v[{c_fragment}:{c_fragment + 7}], "
@@ -4803,7 +4894,7 @@ class ForwardKernelWriterAssembly:
                     f"v_dual_fmac_f32 v{sum_fragment + element}, "
                     f"v{activation_scales + m_index}, v{c_fragment + element} :: "
                     f"v_dual_fmac_f32 v{sum_fragment + element + 1}, "
-                    f"v{activation_scale_copies + m_index}, "
+                    f"v{activation_scale_copies + (m_index & 1)}, "
                     f"v{c_fragment + element + 1}"
                 )
 

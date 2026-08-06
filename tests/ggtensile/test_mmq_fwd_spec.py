@@ -186,6 +186,8 @@ def test_complete_candidate_round_trips_to_the_normal_build_solution() -> None:
         ("Q6_K", ForwardSolution.q6_k_structured_decoded(macro_tile0=128)),
         ("Q8_0", ForwardSolution.q8_0_direct_global()),
         ("Q8_0", ForwardSolution.q8_0_register_tiled()),
+        ("Q8_0", ForwardSolution.q8_0_hip_tiled_lds()),
+        ("Q8_0", ForwardSolution.q8_0_hip_tiled_lds_depth64()),
     )
     for quant_type, solution in candidates:
         candidate = ForwardKernelCandidate.from_solution(quant_type, solution)
@@ -239,6 +241,8 @@ def test_complete_candidate_round_trips_to_the_normal_build_solution() -> None:
         ),
         (ForwardSolution.q8_0_direct_global(), (88, 16, 0)),
         (ForwardSolution.q8_0_register_tiled(), (137, 16, 0)),
+        (ForwardSolution.q8_0_hip_tiled_lds(), (240, 16, 38_400)),
+        (ForwardSolution.q8_0_hip_tiled_lds_depth64(), (240, 16, 38_400)),
     ),
 )
 def test_forward_resources_are_derived_from_the_kernel_spec(

@@ -274,3 +274,26 @@ The full Q-A gate `(M,N,K)=(2048,1024,4096)` is bit-exact with HIP multiply and 
 The final warmed rotating 25-sample comparison measured a `0.675784 ms` HIP complete median versus `0.685826 ms` GGTensile complete (`1.01486x`), and a `0.617289 ms` HIP multiply median versus `0.644354 ms` GGTensile multiply (`1.04384x`). The candidate therefore misses both parity gates and does not satisfy the greater-than-2% promotion gate for a resource-bearing mechanism. The implementation and tests remain as isolated evidence for the dataflow, but no Q8 key changes selection.
 
 The initial phase gates are complete: focused coverage and the full repository suite pass (`160` and `359` tests respectively, with the existing `14` warnings), Ruff/formatting/`ty`/compileall/pre-commit pass, the public bundle remains current at `179` kernels, frozen pre-Q8 regeneration reports `447/447` byte-identical sources, and two independent CLI rebuilds reproduced matching generated source and normalized inspection results. Detailed artifacts are under `/tmp/q8-hip-test-artifact/` and `/tmp/q8-hip-deterministic-{a,b}/`.
+
+## DepthU=64 And Persistent-Zero Follow-Up
+
+The HIP-shaped control was reopened with two linked research changes. First, `DepthU=64` stages eight Q8_0 groups and two Q8_1 activation planes per reduction iteration, advances the packed-weight and activation pointers by the widened depth, and halves the loop count for divisible shapes. The intended three-barrier schedule was not legal for the current ownership: the second activation-plane staging still requires a separate barrier, so the emitted control has four barriers. The `DepthU=64` source is an ordinary `ForwardSolution` identity and remains isolated from production catalogs.
+
+Second, the depth32 and depth64 controls retain one typed eight-VGPR zero WMMA operand across the reduction loop instead of reinitializing each product fragment. The two activation-scale-copy registers are reused by parity of the M fragment, and setup-only staging payload/address roles are packed into dead low-register ranges. The resulting plan allocates 235 registers and the artifact remains in the declared `240 VGPR / 16 SGPR / 38,400-byte LDS` class. A probe that restored the staging payload to its former high-register range failed correctness because the asynchronous load still overlapped the scale-address value; that placement is rejected.
+
+The depth32 persistent-zero control inspects at 64 WMMAs, 2 barriers, 82 VMEM operations, 154 LDS operations, 40 waits, and 3 clauses, with 900 VALU issues, 1,208 VALU operations, and 308 VOPD instructions. The depth64 control inspects at 128 WMMAs, 4 barriers, 100 VMEM operations, 308 LDS operations, 79 waits, and 5 clauses, with 1,534 VALU issues, 2,114 VALU operations, and 580 VOPD instructions. Both have zero private bytes and zero VGPR/SGPR spills. The depth64 source remains exact across the full Q-A output and all producer-repeat, input, packed-weight, workspace, finiteness, and public-path checks; its independent-reference normalized RMSE is `0.00606098` with maximum absolute error `0.0625`.
+
+The warmed results are shape-dependent:
+
+| Control and shape | HIP multiply median | GGTensile multiply median | Multiply ratio | Complete ratio |
+| --- | ---: | ---: | ---: | ---: |
+| Persistent zero, depth32, M2048 Q-A, 25 repeats | `0.61000 ms` | `0.63626 ms` | `1.04305x` | `0.98478x` |
+| Persistent zero, depth64, M2048 Q-A, 25 repeats | `0.59913 ms` | `0.62177 ms` | `1.03779x` | `0.98763x` |
+| Persistent zero, depth32, M8192 Q-A, confirmation A | `2.47521 ms` | `2.43440 ms` | `0.98351x` | `0.96571x` |
+| Persistent zero, depth32, M8192 Q-A, confirmation B | `2.49921 ms` | `2.44065 ms` | `0.97657x` | `0.96818x` |
+| Persistent zero, depth64, M8192 Q-A | `2.46226 ms` | `2.42491 ms` | `0.98483x` | `0.96798x` |
+| Persistent zero, depth32, M32768 Q-A, nine repeats | `9.61868 ms` | `9.63052 ms` | `1.00123x` | `0.99237x` |
+
+The M8192 depth32 result is a real shape-specific lead: the committed parent measured `1.01760x` multiply and `0.99899x` complete in a separate 25-repeat confirmation, while the persistent-zero candidate measured below HIP in both candidate confirmations. The same control is materially slower at M512 (`1.18511x` multiply) and M2048, and it is neutral at M32768. The depth64 widening does not improve on depth32 and doubles the static reduction body. The candidate therefore remains research-only: no exact-key selection, inventory, public dispatch, generated bundle, or production fallback changes are justified. Q8 production remains HIP fallback for all 23 keys.
+
+The post-follow-up frozen-source comparison still reports `ExpectedCount=447`, `GeneratedCount=447`, and `ChangedCount=0`; the new isolated writer controls do not alter the existing Q4/Q5/Q6/Q8 frozen streams. The focused suite passes 182 tests and the full repository suite passes 372 tests with the existing 14 warnings. Ruff, formatting, `ty`, compileall, pre-commit, diff checks, and the 179-kernel bundle-current check pass, and independent depth32/depth64 rebuilds reproduce identical generated source and normalized inspection results. Qualification artifacts are under `/tmp/q8-persistent-zero-depth32/`, `/tmp/q8-persistent-zero-depth64/`, `/tmp/q8-pz-m8192-d32/`, `/tmp/q8-pz-m32768-d32/`, and `/tmp/q8-pz-m512-d32/`.

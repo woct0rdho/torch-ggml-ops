@@ -162,7 +162,7 @@ def inspect_artifact(
                 if solution.operand_source == "Q8DirectGlobal"
                 else 32
                 if solution.operand_source == "Q8RegisterTiled"
-                else 64
+                else 2 * solution.depth_u
                 if solution.operand_source == "Q8HipTiledLds"
                 else 16
             )
@@ -193,7 +193,7 @@ def inspect_artifact(
                     "DecodedWeightLdsBatch8",
                     "Q3HipTiledLds",
                 )
-                else 2
+                else 2 * solution.depth_u // 32
                 if solution.operand_source == "Q8HipTiledLds"
                 else 0
             )

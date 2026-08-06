@@ -439,6 +439,28 @@ def test_forward_writer_emits_q8_0_hip_tiled_lds_control(tmp_path: Path) -> None
     assert "s_waitcnt lgkmcnt(0)" in source
 
 
+def test_forward_writer_emits_q8_0_hip_tiled_lds_depth64_control(
+    tmp_path: Path,
+) -> None:
+    key = _key(
+        "Q8_0",
+        ProblemSize(2048, 1024, 4096),
+        ForwardSolution.q8_0_hip_tiled_lds_depth64(),
+    )
+    writer = ForwardKernelWriterAssembly(key, Toolchain.discover())
+    source = writer.source()
+    assembly = tmp_path / "q8_0_hip_tiled_lds_depth64.s"
+    assert writer.write(assembly) == hashlib.sha256(source.encode()).hexdigest()
+    assert source.count("v_wmma_i32_16x16x16_iu8") == 128
+    assert source.count("global_load_b128") == 24
+    assert source.count("ds_read_b128") == 144
+    assert source.count("global_store_d16_hi_b16") == 64
+    assert source.count("v_dual_fmac_f32") == 512
+    assert source.count("s_barrier") == 4
+    assert source.count("s_clause 63") == 1
+    assert "s_cmp_lt_u32 s10, 16" in source
+
+
 def test_forward_writer_emits_q3_k_hip_tiled_lds_control(tmp_path: Path) -> None:
     key = _key(
         "Q3_K",
