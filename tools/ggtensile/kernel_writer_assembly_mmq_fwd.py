@@ -3123,6 +3123,211 @@ class Q8HipTiledLdsRegisterPlan:
 
 
 @dataclass(frozen=True)
+class Q8SmallMTiledLdsRegisterPlan:
+    """Deterministic registers for exact M32/M64 wave-N Q8 LDS tiles."""
+
+    c: RegisterAssignment
+    sums: RegisterAssignment
+    weight_payload: RegisterAssignment
+    activation_payloads: RegisterAssignment
+    weight_scales: RegisterAssignment
+    activation_scales: RegisterAssignment
+    activation_scale_copies: RegisterAssignment
+    zero_accumulator: RegisterAssignment
+    weight_stage_payload: RegisterAssignment
+    weight_scale_address: RegisterAssignment
+    weight_address: RegisterAssignment
+    activation_address: RegisterAssignment
+    activation_scale_stage_address: RegisterAssignment
+    activation_lds_address: RegisterAssignment
+    activation_scale_lds_address: RegisterAssignment
+    weight_lds_address: RegisterAssignment
+    weight_stage_address: RegisterAssignment
+    weight_scale_stage_address: RegisterAssignment
+    temporary: RegisterAssignment
+    lane: RegisterAssignment
+    wave: RegisterAssignment
+    activation_row: RegisterAssignment
+    activation_group: RegisterAssignment
+    activation_read_address: RegisterAssignment
+    weight_row: RegisterAssignment
+    output_address: RegisterAssignment
+    store_auxiliary: RegisterAssignment
+    register_count: int
+
+    @classmethod
+    def allocate(cls, m_fragments: int) -> "Q8SmallMTiledLdsRegisterPlan":
+        if m_fragments not in (2, 4):
+            raise ValueError("Q8 small-M register plan requires two or four fragments")
+        c_width = 8 * m_fragments
+        sums_base = c_width
+        weight_payload_base = 2 * c_width
+        activation_payload_base = weight_payload_base + 8
+        weight_scales_base = activation_payload_base + c_width
+        activation_scales_base = weight_scales_base + 8
+        scale_copies_base = activation_scales_base + m_fragments + 1
+        zero_base = (scale_copies_base + 2 + 7) // 8 * 8
+        address_base = zero_base + 8
+        max_registers = 96 if m_fragments == 2 else 144
+        roles = {
+            "c": RegisterRole("c", c_width, RegisterLifetime(2, 3), minimum_register=0),
+            "sums": RegisterRole(
+                "sums",
+                c_width,
+                RegisterLifetime(0, 5),
+                minimum_register=sums_base,
+            ),
+            "weight_payload": RegisterRole(
+                "weight_payload",
+                8,
+                RegisterLifetime(1, 3),
+                minimum_register=weight_payload_base,
+            ),
+            "activation_payloads": RegisterRole(
+                "activation_payloads",
+                c_width,
+                RegisterLifetime(1, 3),
+                minimum_register=activation_payload_base,
+            ),
+            "weight_scales": RegisterRole(
+                "weight_scales",
+                8,
+                RegisterLifetime(1, 4),
+                minimum_register=weight_scales_base,
+            ),
+            "activation_scales": RegisterRole(
+                "activation_scales",
+                m_fragments,
+                RegisterLifetime(1, 3),
+                minimum_register=activation_scales_base,
+            ),
+            "activation_scale_copies": RegisterRole(
+                "activation_scale_copies",
+                2,
+                RegisterLifetime(2, 3),
+                minimum_register=scale_copies_base,
+            ),
+            "zero_accumulator": RegisterRole(
+                "zero_accumulator",
+                8,
+                RegisterLifetime(2, 4),
+                alignment=8,
+                minimum_register=zero_base,
+            ),
+            "weight_stage_payload": RegisterRole(
+                "weight_stage_payload", 8, RegisterLifetime(1, 1)
+            ),
+            "weight_scale_address": RegisterRole(
+                "weight_scale_address",
+                1,
+                RegisterLifetime(2, 4),
+                minimum_register=address_base,
+            ),
+            "weight_address": RegisterRole(
+                "weight_address",
+                1,
+                RegisterLifetime(0, 4),
+                minimum_register=address_base,
+            ),
+            "activation_address": RegisterRole(
+                "activation_address",
+                1,
+                RegisterLifetime(0, 4),
+                minimum_register=address_base,
+            ),
+            "activation_scale_stage_address": RegisterRole(
+                "activation_scale_stage_address",
+                1,
+                RegisterLifetime(0, 4),
+                minimum_register=address_base,
+            ),
+            "activation_lds_address": RegisterRole(
+                "activation_lds_address",
+                1,
+                RegisterLifetime(0, 4),
+                minimum_register=address_base,
+            ),
+            "activation_scale_lds_address": RegisterRole(
+                "activation_scale_lds_address",
+                1,
+                RegisterLifetime(0, 4),
+                minimum_register=address_base,
+            ),
+            "weight_lds_address": RegisterRole(
+                "weight_lds_address",
+                1,
+                RegisterLifetime(0, 4),
+                minimum_register=address_base,
+            ),
+            "weight_stage_address": RegisterRole(
+                "weight_stage_address",
+                1,
+                RegisterLifetime(1, 1),
+                minimum_register=8,
+            ),
+            "weight_scale_stage_address": RegisterRole(
+                "weight_scale_stage_address",
+                1,
+                RegisterLifetime(1, 1),
+                minimum_register=9,
+            ),
+            "temporary": RegisterRole(
+                "temporary",
+                1,
+                RegisterLifetime(0, 5),
+                minimum_register=address_base,
+            ),
+            "lane": RegisterRole(
+                "lane",
+                1,
+                RegisterLifetime(0, 5),
+                minimum_register=address_base,
+            ),
+            "wave": RegisterRole(
+                "wave",
+                1,
+                RegisterLifetime(0, 5),
+                minimum_register=address_base,
+            ),
+            "activation_row": RegisterRole(
+                "activation_row",
+                1,
+                RegisterLifetime(0, 0),
+                minimum_register=address_base,
+            ),
+            "activation_group": RegisterRole(
+                "activation_group", 1, RegisterLifetime(0, 0), minimum_register=8
+            ),
+            "activation_read_address": RegisterRole(
+                "activation_read_address",
+                1,
+                RegisterLifetime(1, 4),
+                minimum_register=address_base,
+            ),
+            "weight_row": RegisterRole(
+                "weight_row", 1, RegisterLifetime(0, 0), minimum_register=10
+            ),
+            "output_address": RegisterRole(
+                "output_address", c_width, RegisterLifetime(5, 5)
+            ),
+            "store_auxiliary": RegisterRole(
+                "store_auxiliary",
+                1,
+                RegisterLifetime(5, 5),
+                minimum_register=address_base,
+            ),
+        }
+        order = tuple(roles)
+        plan = DeterministicRegisterPlan.allocate(
+            roles,
+            order,
+            max_registers=max_registers,
+        )
+        assignments = {name: plan.assignment(name) for name in order}
+        return cls(**assignments, register_count=plan.register_count)
+
+
+@dataclass(frozen=True)
 class Q3HipTiledLdsRegisterPlan:
     """Deterministic registers for the wave-N 128x64 Q3 half-tile."""
 
@@ -3316,6 +3521,7 @@ class ForwardKernelWriterAssembly:
                     "Q3HipTiledLds",
                     "Q8RegisterTiled",
                     "Q8HipTiledLds",
+                    "Q8SmallMTiledLds",
                 }
                 else 0
             ),
@@ -3355,6 +3561,8 @@ class ForwardKernelWriterAssembly:
             return self._body_q8_register_tiled()
         if operand_source == "Q8HipTiledLds":
             return self._body_q8_hip_tiled_lds()
+        if operand_source == "Q8SmallMTiledLds":
+            return self._body_q8_small_m_tiled_lds()
         asm = Assembly()
         name = self.solution_key.kernel_name
         quant_type = self.state.contract.quant_type
@@ -4413,6 +4621,236 @@ class ForwardKernelWriterAssembly:
                     f"v_add_nc_u32 v{output_address}, {32 * size.n}, v{output_address}"
                 )
 
+    def _body_q8_small_m_tiled_lds(self) -> str:
+        """Lower an exact M32/M64 wave-N Q8 tile with split-row staging."""
+        asm = Assembly()
+        macro_tile_m = self.state.kernel_spec.macro_tile[0]
+        m_fragments = macro_tile_m // 16
+        activation_row_share = 128 // macro_tile_m
+        groups_per_lane = 4 // activation_row_share
+        registers = Q8SmallMTiledLdsRegisterPlan.allocate(m_fragments)
+        name = self.solution_key.kernel_name
+        size = self.state.problem_size
+        row_stride = self.state.packed_weight_row_bytes
+        activation_plane_stride = self.state.activation_plane_stride_bytes
+        iteration_count = self.state.activation_blocks_per_row
+        c = registers.c.first_register
+        sums = registers.sums.first_register
+        weight_payload = registers.weight_payload.first_register
+        activation_payloads = registers.activation_payloads.first_register
+        weight_scales = registers.weight_scales.first_register
+        activation_scales = registers.activation_scales.first_register
+        activation_scale_copies = registers.activation_scale_copies.first_register
+        zero_accumulator = registers.zero_accumulator.first_register
+        weight_stage_payload = registers.weight_stage_payload.first_register
+        weight_scale_address = registers.weight_scale_address.first_register
+        weight_address = registers.weight_address.first_register
+        activation_address = registers.activation_address.first_register
+        activation_scale_stage_address = (
+            registers.activation_scale_stage_address.first_register
+        )
+        activation_lds_address = registers.activation_lds_address.first_register
+        activation_scale_lds_address = (
+            registers.activation_scale_lds_address.first_register
+        )
+        weight_lds_address = registers.weight_lds_address.first_register
+        weight_stage_address = registers.weight_stage_address.first_register
+        weight_scale_stage_address = registers.weight_scale_stage_address.first_register
+        temporary = registers.temporary.first_register
+        lane = registers.lane.first_register
+        wave = registers.wave.first_register
+        activation_row = registers.activation_row.first_register
+        activation_group = registers.activation_group.first_register
+        activation_read_address = registers.activation_read_address.first_register
+        weight_row = registers.weight_row.first_register
+        output_address = registers.output_address.first_register
+        store_auxiliary = registers.store_auxiliary.first_register
+
+        activation_lds_row_stride = self.state.contract.activation_block_bytes
+        weight_lds_base = macro_tile_m * activation_lds_row_stride
+        weight_lds_row_stride = 304
+
+        asm.comment("Load pointers for an exact small-M wave-N Q8 tile.")
+        emit_pointer_kernarg_loads(asm, self.KERNARG)
+        asm.comment("Map four waves to sixteen output-feature rows each.")
+        asm.inst(f"v_bfe_u32 v{wave}, v0, 10, 10")
+        asm.inst(f"v_and_b32 v{lane}, 0x3ff, v0")
+        asm.inst(f"v_and_b32 v{temporary}, 15, v{lane}")
+        asm.inst(f"v_lshlrev_b32 v{weight_row}, 4, v{wave}")
+        asm.inst(f"v_add_nc_u32 v{weight_row}, v{weight_row}, v{temporary}")
+        asm.inst(f"v_lshlrev_b32 v{temporary}, 6, s2")
+        asm.inst(f"v_add_nc_u32 v{temporary}, v{temporary}, v{weight_row}")
+        asm.inst(f"v_mul_lo_u32 v{weight_address}, {row_stride}, v{temporary}")
+
+        asm.comment("Split each activation row across all 128 workitems.")
+        asm.inst(f"v_lshlrev_b32 v{temporary}, 5, v{wave}")
+        asm.inst(f"v_add_nc_u32 v{temporary}, v{temporary}, v{lane}")
+        asm.inst(
+            f"v_and_b32 v{activation_group}, {activation_row_share - 1}, v{temporary}"
+        )
+        asm.inst(
+            f"v_lshrrev_b32 v{activation_row}, "
+            f"{activation_row_share.bit_length() - 1}, v{temporary}"
+        )
+        if groups_per_lane > 1:
+            asm.inst(
+                f"v_lshlrev_b32 v{activation_group}, "
+                f"{groups_per_lane.bit_length() - 1}, v{activation_group}"
+            )
+        asm.inst(
+            f"v_mul_lo_u32 v{activation_address}, "
+            f"{activation_lds_row_stride}, v{activation_row}"
+        )
+        asm.inst(
+            f"v_mul_lo_u32 v{temporary}, {activation_lds_row_stride * macro_tile_m}, s3"
+        )
+        asm.inst(
+            f"v_add_nc_u32 v{activation_address}, v{temporary}, v{activation_address}"
+        )
+        asm.inst(
+            f"v_lshlrev_b32 v{activation_scale_stage_address}, 2, v{activation_group}"
+        )
+        asm.inst(
+            f"v_add_nc_u32 v{activation_scale_stage_address}, "
+            f"v{activation_address}, v{activation_scale_stage_address}"
+        )
+        asm.inst(f"v_lshlrev_b32 v{temporary}, 5, v{activation_group}")
+        asm.inst(
+            f"v_add_nc_u32 v{activation_address}, v{activation_address}, v{temporary}"
+        )
+        asm.inst(
+            f"v_mul_lo_u32 v{activation_lds_address}, "
+            f"{activation_lds_row_stride}, v{activation_row}"
+        )
+        asm.inst(
+            f"v_lshlrev_b32 v{activation_scale_lds_address}, 2, v{activation_group}"
+        )
+        asm.inst(
+            f"v_add_nc_u32 v{activation_scale_lds_address}, "
+            f"v{activation_lds_address}, v{activation_scale_lds_address}"
+        )
+        asm.inst(f"v_lshlrev_b32 v{temporary}, 5, v{activation_group}")
+        asm.inst(
+            f"v_add_nc_u32 v{activation_lds_address}, "
+            f"v{activation_lds_address}, v{temporary}"
+        )
+        asm.inst(f"v_and_b32 v{activation_read_address}, 15, v{lane}")
+        asm.inst(
+            f"v_mul_lo_u32 v{activation_read_address}, "
+            f"{activation_lds_row_stride}, v{activation_read_address}"
+        )
+        asm.inst(f"v_mul_lo_u32 v{temporary}, {weight_lds_row_stride}, v{weight_row}")
+        asm.inst(f"v_add_nc_u32 v{weight_lds_address}, {weight_lds_base}, v{temporary}")
+
+        for register in range(sums, sums + 8 * m_fragments, 2):
+            asm.inst(
+                f"v_dual_mov_b32 v{register}, 0 :: v_dual_mov_b32 v{register + 1}, 0"
+            )
+        for register in range(zero_accumulator, zero_accumulator + 8, 2):
+            asm.inst(
+                f"v_dual_mov_b32 v{register}, 0 :: v_dual_mov_b32 v{register + 1}, 0"
+            )
+        asm.inst(f"s_mov_b32 s{self.LOOP_COUNTER}, 0")
+
+        asm.label(".LForwardQ80SmallMTiledLdsBlockLoop")
+        self._emit_q8_small_m_activation_loads(
+            asm,
+            activation_address,
+            activation_scale_stage_address,
+            activation_payloads,
+            activation_scales,
+            groups_per_lane,
+        )
+        self._emit_q8_hip_weight_stage(
+            asm,
+            weight_address,
+            weight_lds_address,
+            weight_stage_address,
+            weight_scale_stage_address,
+            weight_payload,
+            weight_stage_payload,
+            weight_scales,
+            lane,
+            temporary,
+            group_base=0,
+        )
+        self._emit_q8_small_m_activation_writes(
+            asm,
+            activation_lds_address,
+            activation_scale_lds_address,
+            activation_payloads,
+            activation_scales,
+            groups_per_lane,
+        )
+        self._emit_q8_hip_weight_writes(
+            asm,
+            weight_payload,
+            weight_stage_payload,
+            weight_scales,
+            weight_scale_stage_address,
+            temporary,
+            group_base=0,
+        )
+        asm.inst("s_waitcnt lgkmcnt(0)")
+        asm.inst("s_barrier")
+        asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{lane}")
+        asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
+        asm.inst(f"v_lshlrev_b32 v{weight_scale_address}, 4, v{wave}")
+        asm.inst(
+            f"v_add_nc_u32 v{weight_scale_address}, "
+            f"v{weight_scale_address}, v{temporary}"
+        )
+        asm.inst(
+            f"v_mul_lo_u32 v{weight_scale_address}, "
+            f"{weight_lds_row_stride}, v{weight_scale_address}"
+        )
+        asm.inst(
+            f"v_add_nc_u32 v{weight_scale_address}, {weight_lds_base}, "
+            f"v{weight_scale_address}"
+        )
+        for group in range(4):
+            self._emit_q8_hip_group(
+                asm,
+                group,
+                c,
+                sums,
+                weight_payload,
+                activation_payloads,
+                weight_scales,
+                activation_scales,
+                activation_scale_copies,
+                weight_scale_address,
+                weight_lds_address,
+                activation_read_address,
+                m_fragments=m_fragments,
+                zero_accumulator=zero_accumulator,
+            )
+        asm.inst("s_barrier")
+        asm.inst(
+            f"v_add_nc_u32 v{weight_address}, "
+            f"{4 * self.state.contract.packed_weight_block_bytes}, "
+            f"v{weight_address}"
+        )
+        for address in (activation_address, activation_scale_stage_address):
+            asm.inst(f"v_add_nc_u32 v{address}, {activation_plane_stride}, v{address}")
+        asm.inst(f"s_add_u32 s{self.LOOP_COUNTER}, s{self.LOOP_COUNTER}, 1")
+        asm.inst(f"s_cmp_lt_u32 s{self.LOOP_COUNTER}, {iteration_count}")
+        asm.inst("s_cbranch_scc1 .LForwardQ80SmallMTiledLdsBlockLoop")
+
+        self._emit_q8_hip_store(
+            asm,
+            sums,
+            output_address,
+            store_auxiliary,
+            lane,
+            wave,
+            temporary,
+            size,
+            m_fragments=m_fragments,
+        )
+        emit_kernel_trailer(asm, name)
+        return asm.text()
+
     def _body_q8_hip_tiled_lds(self) -> str:
         """Lower a wave-N 128x64 Q8 tile with cooperative LDS operands."""
         asm = Assembly()
@@ -4664,6 +5102,65 @@ class ForwardKernelWriterAssembly:
         emit_kernel_trailer(asm, name)
         return asm.text()
 
+    def _emit_q8_small_m_activation_loads(
+        self,
+        asm: Assembly,
+        payload_address: int,
+        scale_address: int,
+        activation_payloads: int,
+        activation_scales: int,
+        groups_per_lane: int,
+    ) -> None:
+        """Load one lane's contiguous share of an exact small-M activation row."""
+        asm.inst(f"s_clause {3 * groups_per_lane - 1}")
+        for group in range(groups_per_lane):
+            payload = activation_payloads + 8 * group
+            asm.inst(
+                f"global_load_b128 v[{payload}:{payload + 3}], "
+                f"v{payload_address}, "
+                f"s[{self.KERNARG + 2}:{self.KERNARG + 3}] "
+                f"offset:{16 + 32 * group}"
+            )
+            asm.inst(
+                f"global_load_b128 v[{payload + 4}:{payload + 7}], "
+                f"v{payload_address}, "
+                f"s[{self.KERNARG + 2}:{self.KERNARG + 3}] "
+                f"offset:{32 + 32 * group}"
+            )
+            asm.inst(
+                f"global_load_b32 v{activation_scales + group}, "
+                f"v{scale_address}, "
+                f"s[{self.KERNARG + 2}:{self.KERNARG + 3}] offset:{4 * group}"
+            )
+
+    def _emit_q8_small_m_activation_writes(
+        self,
+        asm: Assembly,
+        payload_lds_address: int,
+        scale_lds_address: int,
+        activation_payloads: int,
+        activation_scales: int,
+        groups_per_lane: int,
+    ) -> None:
+        """Commit one lane's small-M activation-row share after its VMEM reads."""
+        trailing_weight_vmem = 6
+        for group in range(groups_per_lane):
+            wait_count = 3 * (groups_per_lane - group - 1) + trailing_weight_vmem
+            asm.inst(f"s_waitcnt vmcnt({wait_count})")
+            payload = activation_payloads + 8 * group
+            asm.inst(
+                f"ds_write_b128 v{payload_lds_address}, "
+                f"v[{payload}:{payload + 3}] offset:{16 + 32 * group}"
+            )
+            asm.inst(
+                f"ds_write_b128 v{payload_lds_address}, "
+                f"v[{payload + 4}:{payload + 7}] offset:{32 + 32 * group}"
+            )
+            asm.inst(
+                f"ds_write_b32 v{scale_lds_address}, "
+                f"v{activation_scales + group} offset:{4 * group}"
+            )
+
     def _emit_q8_hip_activation_loads(
         self,
         asm: Assembly,
@@ -4823,9 +5320,12 @@ class ForwardKernelWriterAssembly:
         activation_read_address: int,
         *,
         activation_group: int | None = None,
+        m_fragments: int = 8,
         zero_accumulator: int,
     ) -> None:
         """Read one staged Q8 group and accumulate eight activation fragments."""
+        if m_fragments not in (2, 4, 8):
+            raise ValueError("Q8 HIP-shaped group requires 2, 4, or 8 M fragments")
         activation_group = group if activation_group is None else activation_group
         weight_lds_scale_offset = 256
         weight_offset = 32 * group
@@ -4845,7 +5345,7 @@ class ForwardKernelWriterAssembly:
                 f"v{weight_scale_address} "
                 f"offset:{weight_lds_scale_offset + 608 * element + 4 * group}"
             )
-        for m_index in range(8):
+        for m_index in range(m_fragments):
             payload = activation_payloads + 8 * m_index
             activation_row_offset = (
                 16 * m_index * self.state.contract.activation_block_bytes
@@ -4865,9 +5365,10 @@ class ForwardKernelWriterAssembly:
                 f"v{activation_read_address} "
                 f"offset:{activation_row_offset + 4 * activation_group}"
             )
-        for m_index in range(8):
+        for m_index in range(m_fragments):
             scale_pair_tail = 1 if m_index % 2 == 0 else 0
-            asm.inst(f"s_waitcnt lgkmcnt({21 - 3 * (m_index + scale_pair_tail)})")
+            consumed_fragments = m_index + 1 + scale_pair_tail
+            asm.inst(f"s_waitcnt lgkmcnt({3 * (m_fragments - consumed_fragments)})")
             if m_index % 2 == 0:
                 asm.inst(
                     f"v_dual_mov_b32 v{activation_scale_copies}, "
@@ -4922,11 +5423,18 @@ class ForwardKernelWriterAssembly:
         wave: int,
         temporary: int,
         size: ProblemSize,
+        *,
+        m_fragments: int = 8,
     ) -> None:
         """Store eight wave-N fragments with one legal global clause."""
+        if m_fragments not in (2, 4, 8):
+            raise ValueError("Q8 HIP-shaped store requires 2, 4, or 8 M fragments")
         asm.comment("Store eight wave-N fragments as row-major BF16.")
         asm.inst(f"v_and_b32 v{temporary}, 15, v{lane}")
-        asm.inst(f"v_lshlrev_b32 v{output_address}, 7, s3")
+        asm.inst(
+            f"v_lshlrev_b32 v{output_address}, "
+            f"{self.state.kernel_spec.macro_tile[0].bit_length() - 1}, s3"
+        )
         asm.inst(f"v_add_nc_u32 v{output_address}, v{output_address}, v{temporary}")
         asm.inst(f"v_mul_lo_u32 v{output_address}, {2 * size.n}, v{output_address}")
         asm.inst(f"v_lshlrev_b32 v{store_auxiliary}, 6, s2")
@@ -4939,7 +5447,7 @@ class ForwardKernelWriterAssembly:
         asm.inst(
             f"v_add_nc_u32 v{output_address}, v{output_address}, v{store_auxiliary}"
         )
-        for m_index in range(8):
+        for m_index in range(m_fragments):
             address_base = output_address + 8 * m_index
             if m_index:
                 asm.inst(
@@ -4953,8 +5461,8 @@ class ForwardKernelWriterAssembly:
             fragment = sums + 8 * m_index
             for element in range(8):
                 emit_bf16_rne(asm, fragment + element, temporary)
-        asm.inst("s_clause 63")
-        for m_index in range(8):
+        asm.inst(f"s_clause {8 * m_fragments - 1}")
+        for m_index in range(m_fragments):
             address_base = output_address + 8 * m_index
             fragment = sums + 8 * m_index
             for element in range(8):

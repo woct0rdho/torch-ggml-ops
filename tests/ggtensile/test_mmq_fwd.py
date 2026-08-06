@@ -19,6 +19,7 @@ from tools.ggtensile.kernel_writer_assembly_mmq_fwd import (
     ForwardKernelWriterAssembly,
     ForwardKernelWriterError,
     Q8HipTiledLdsRegisterPlan,
+    Q8SmallMTiledLdsRegisterPlan,
 )
 from tools.ggtensile.model import (
     ForwardSolution,
@@ -127,6 +128,8 @@ def test_forward_campaign_inventory_is_exact_and_versionless(
         assert {entry.selected_solution for entry in inventory.entries} == {
             "hip_fallback",
             "hip_tiled_lds_selected",
+            "small_m32_tiled_lds_selected",
+            "small_m64_tiled_lds_selected",
         }
     assert all(
         validate_solution(key) == ()
@@ -472,6 +475,52 @@ def test_forward_writer_emits_q8_0_hip_tiled_lds_depth64_control(
     assert source.count("v_mul_lo_u32 v223, 144, v223") == 1
     assert source.count("v_mul_lo_u32 v220, 144, v220") == 0
     assert "s_cmp_lt_u32 s10, 16" in source
+
+
+@pytest.mark.parametrize(
+    ("macro_tile_m", "register_count", "wmma_count", "load_count", "read_count"),
+    (
+        (32, 91, 16, 6, 24),
+        (64, 139, 32, 8, 40),
+    ),
+)
+def test_forward_writer_emits_q8_0_small_m_tiled_lds_control(
+    tmp_path: Path,
+    macro_tile_m: int,
+    register_count: int,
+    wmma_count: int,
+    load_count: int,
+    read_count: int,
+) -> None:
+    registers = Q8SmallMTiledLdsRegisterPlan.allocate(macro_tile_m // 16)
+    assert registers.register_count == register_count
+    key = _key(
+        "Q8_0",
+        ProblemSize(macro_tile_m, 129280, 4096),
+        ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=macro_tile_m),
+    )
+    assert validate_solution(key) == ()
+    writer = ForwardKernelWriterAssembly(key, Toolchain.discover())
+    source = writer.source()
+    assembly = tmp_path / f"q8_0_small_m{macro_tile_m}_tiled_lds.s"
+    assert writer.write(assembly) == hashlib.sha256(source.encode()).hexdigest()
+    assert source.count("v_wmma_i32_16x16x16_iu8") == wmma_count
+    assert source.count("global_load_b128") == load_count
+    assert source.count("ds_read_b128") == read_count
+    assert source.count("global_store_d16_hi_b16") == wmma_count
+    assert source.count("v_dual_fmac_f32") == 4 * wmma_count
+    assert source.count("s_barrier") == 2
+    assert source.count(f"s_clause {8 * (macro_tile_m // 16) - 1}") == 1
+    assert "Split each activation row across all 128 workitems" in source
+    assert "s_cmp_lt_u32 s10, 32" in source
+
+
+def test_q8_0_small_m_tiled_lds_rejects_non_lm_head_shapes() -> None:
+    solution = ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=32)
+    key = _key("Q8_0", ProblemSize(64, 129280, 4096), solution)
+    assert any(
+        "exact for LM-head" in reason.message for reason in validate_solution(key)
+    )
 
 
 def test_forward_writer_emits_q3_k_hip_tiled_lds_control(tmp_path: Path) -> None:
@@ -959,6 +1008,32 @@ def test_q8_forward_runtime_uses_exact_hip_launch_geometry(
             0,
             None,
             id="q8-register-tiled-128x32",
+        ),
+        pytest.param(
+            _key(
+                "Q8_0",
+                ProblemSize(32, 129280, 4096),
+                ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=32),
+            ),
+            16,
+            96,
+            2,
+            24_064,
+            3,
+            id="q8-small-m32-tiled-lds",
+        ),
+        pytest.param(
+            _key(
+                "Q8_0",
+                ProblemSize(64, 129280, 4096),
+                ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=64),
+            ),
+            32,
+            144,
+            2,
+            28_672,
+            3,
+            id="q8-small-m64-tiled-lds",
         ),
         pytest.param(
             _key(

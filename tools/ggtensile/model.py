@@ -722,6 +722,23 @@ class ForwardSolution:
         return replace(cls.q8_0_hip_tiled_lds(), depth_u=64)
 
     @classmethod
+    def q8_0_small_m_tiled_lds(cls, *, macro_tile0: int) -> Self:
+        """Return an exact M32 or M64 wave-N Q8_0 LDS research control."""
+        if macro_tile0 not in (32, 64):
+            raise ValueError("Q8_0 small-M LDS control requires MT32 or MT64")
+        return replace(
+            cls.q8_0_direct_global(),
+            work_group=(32, 4, 1),
+            matrix_instruction=(16, 16, 16, 1, 1, 1, 4, 4, 1),
+            macro_tile0=macro_tile0,
+            macro_tile1=64,
+            operand_source="Q8SmallMTiledLds",
+            lds_address_hoist="SmallMTile",
+            activation_addressing="MadU24",
+            output_store="BFloat16RNEClauseTile",
+        )
+
+    @classmethod
     def q4_k_decoded_weight_lds_extraction(
         cls,
         *,

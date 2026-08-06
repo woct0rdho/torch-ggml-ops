@@ -256,7 +256,7 @@ The campaign proceeds in measurable gates:
 - screen the ordinary Q-A control with warmed rotating HIP comparisons, then confirm any gain on Q-B, attention-output B, shared gate/up, shared down, KV, and LM-head chunks before changing exact-key decisions.
 - require parity or better on every promoted exact key, strict zero-spill/resource/ABI checks, mutation and independent-reference correctness, and deterministic rebuilds.
 
-Only a measured complete dataflow may replace a fallback. The initial HIP-shaped `Q8HipTiledLds` lowering was exact and resource-qualified but missed its Q-A gate; the activation-read-address-hoisted form subsequently cleared two 25-repeat confirmations for 20 exact keys. The Q8 catalog now selects that form for 20 keys and retains HIP fallback for KV M2048 and LM-head M32/M64. This catalog promotion does not change public dispatch or the generated bundle; the initial Q8 campaign remains historical evidence and the public-boundary review is separate.
+Only a measured complete dataflow may replace a fallback. The initial HIP-shaped `Q8HipTiledLds` lowering was exact and resource-qualified but missed its Q-A gate; the activation-read-address-hoisted form subsequently cleared two 25-repeat confirmations for 20 exact keys. An exact `Q8SmallMTiledLds` family then cleared the same qualification gates for LM-head M32/M64. The Q8 catalog now selects the hoisted form for 20 keys, the two small-M forms for two keys, and retains HIP fallback only for KV M2048. This catalog promotion does not change public dispatch or the generated bundle; the initial Q8 campaign remains historical evidence and the public-boundary review is separate.
 
 ### Initial Q3_K forward exact-shape control (isolated)
 
@@ -266,7 +266,7 @@ The control is bit-exact with the direct HIP control and public path across 8,38
 
 ### Active Q8_0/Q3_K parity reopening
 
-The forward parity campaigns are reopened under an explicit premise: the existing HIP kernels demonstrate a feasible complete dataflow, so a GGTensile implementation must continue until the remaining in-contract mechanisms are either measured or classified with evidence. The Q8 catalog phase is now complete for its 20 promoted and three fallback keys. Public runtime dispatch, public bundles, and the frozen-source boundary remain separate integration decisions.
+The forward parity campaigns are reopened under an explicit premise: the existing HIP kernels demonstrate a feasible complete dataflow, so a GGTensile implementation must continue until the remaining in-contract mechanisms are either measured or classified with evidence. The Q8 research catalog phase is now complete for 22 GGTensile-selected and one HIP-fallback key: the shared hoisted LDS family covers 20 keys, exact small-M LDS controls cover LM-head M32/M64, and KV M2048 remains fallback. Public runtime dispatch, public bundles, and the frozen-source boundary remain separate integration decisions.
 
 The active order is:
 - Establish an exact HIP-shaped mapping and resource/performance floor for each format, then identify the largest non-excluded ownership or dataflow difference rather than repeating already rejected schedule-only variants.
@@ -337,7 +337,7 @@ Timing selects winners. Static issue counts, counters, code size, locality, and 
 | MMQ forward Q5_K | Six exact inventory keys selected and recursively exhausted under the current contract |
 | MMQ forward Q6_K | Three exact language-model-head keys selected; structured semantic lowering and the current writer refactor are complete for the implemented domain |
 | MMQ forward Q3_K | One exact ordinary control is correctness-qualified and faster than HIP with the retained shared-VMEM/prefetch dataflow; inventory and selected catalog remain deferred |
-| MMQ forward Q8_0 | 20 exact catalog keys select the activation-read-hoisted HIP-shaped LDS control; KV M2048 and LM-head M32/M64 retain HIP fallback; public integration is deferred |
+| MMQ forward Q8_0 | 22 exact catalog keys select GGTensile controls (20 activation-read-hoisted HIP-shaped LDS keys plus exact small-M LM-head M32/M64); only KV M2048 retains HIP fallback; public integration is deferred |
 | Grouped GGTensile | Deferred until grouped ownership and routing receive an explicit generator contract |
 | Public GGTensile runtime selection | Deferred; existing HIP bundle dispatch remains authoritative |
 

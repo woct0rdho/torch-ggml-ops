@@ -197,6 +197,8 @@ def _validate_q8_forward_solution(
         ForwardSolution.q8_0_register_tiled(wave_tile_m=4, wave_tile_n=1),
         ForwardSolution.q8_0_hip_tiled_lds(),
         ForwardSolution.q8_0_hip_tiled_lds_depth64(),
+        ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=32),
+        ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=64),
     }:
         _reject(
             reasons,
@@ -205,6 +207,17 @@ def _validate_q8_forward_solution(
             "Solution",
         )
         return
+    if solution.operand_source == "Q8SmallMTiledLds":
+        expected_size = ProblemSize(solution.macro_tile0, 129_280, 4096)
+        if problem_size != expected_size:
+            _reject(
+                reasons,
+                "problem_size.q8.small_m.exact_lm_head",
+                "Q8 small-M LDS control is exact for LM-head "
+                f"{expected_size.to_mapping()}",
+                "ProblemSize",
+            )
+            return
     _validate_forward_tile_multiples(problem_size, solution, reasons)
 
 
@@ -311,6 +324,8 @@ def _validate_forward_solution(
         ForwardSolution.q8_0_register_tiled(wave_tile_m=4, wave_tile_n=1),
         ForwardSolution.q8_0_hip_tiled_lds(),
         ForwardSolution.q8_0_hip_tiled_lds_depth64(),
+        ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=32),
+        ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=64),
     }:
         _validate_q8_forward_solution(solution_key.problem_size, solution, reasons)
         return

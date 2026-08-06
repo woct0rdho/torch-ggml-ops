@@ -16,6 +16,7 @@ from tools.ggtensile import kernel_writer_assembly_mmq_fwd as fwd_writer_module
 from tools.ggtensile.kernel_writer_assembly_mmq_fwd import (
     ForwardKernelWriterAssembly,
     ForwardKernelWriterError,
+    Q8SmallMTiledLdsRegisterPlan,
     _emit_q6_dot_phase,
     _emit_q6_scheduled_body,
 )
@@ -767,6 +768,48 @@ def test_writer_emits_single_dependency_scheduled_epilogue() -> None:
     assert validate_solution(key) == ()
     source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert source.count("v_bfe_u32 v228,") == 64
+
+
+def test_small_m_q8_helpers_reject_invalid_fragment_counts() -> None:
+    with pytest.raises(ValueError, match="two or four"):
+        Q8SmallMTiledLdsRegisterPlan.allocate(8)
+    writer = ForwardKernelWriterAssembly(
+        SolutionKey(
+            ProblemType.mmq_forward("Q8_0"),
+            ProblemSize(32, 129280, 4096),
+            ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=32),
+        ),
+        Toolchain.discover(),
+    )
+    with pytest.raises(ValueError, match="2, 4, or 8"):
+        writer._emit_q8_hip_group(
+            fwd_writer_module.Assembly(),
+            0,
+            0,
+            8,
+            16,
+            24,
+            32,
+            40,
+            44,
+            52,
+            53,
+            54,
+            m_fragments=3,
+            zero_accumulator=60,
+        )
+    with pytest.raises(ValueError, match="2, 4, or 8"):
+        writer._emit_q8_hip_store(
+            fwd_writer_module.Assembly(),
+            8,
+            70,
+            78,
+            79,
+            80,
+            81,
+            ProblemSize(32, 129280, 4096),
+            m_fragments=3,
+        )
 
 
 def test_writer_methods_have_complete_line_coverage() -> None:

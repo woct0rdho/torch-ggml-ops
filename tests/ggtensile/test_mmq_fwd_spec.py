@@ -14,6 +14,7 @@ from tools.ggtensile.mmq_fwd_spec import (
     Q6LdsLayout,
     Q6SemanticPlan,
     Q6SemanticStage,
+    Q8SmallMTiledLdsLayout,
     QuantForwardSemantics,
     ResourceLimits,
     SemanticSchedulePolicy,
@@ -188,6 +189,8 @@ def test_complete_candidate_round_trips_to_the_normal_build_solution() -> None:
         ("Q8_0", ForwardSolution.q8_0_register_tiled()),
         ("Q8_0", ForwardSolution.q8_0_hip_tiled_lds()),
         ("Q8_0", ForwardSolution.q8_0_hip_tiled_lds_depth64()),
+        ("Q8_0", ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=32)),
+        ("Q8_0", ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=64)),
     )
     for quant_type, solution in candidates:
         candidate = ForwardKernelCandidate.from_solution(quant_type, solution)
@@ -243,6 +246,14 @@ def test_complete_candidate_round_trips_to_the_normal_build_solution() -> None:
         (ForwardSolution.q8_0_register_tiled(), (137, 16, 0)),
         (ForwardSolution.q8_0_hip_tiled_lds(), (240, 16, 38_400)),
         (ForwardSolution.q8_0_hip_tiled_lds_depth64(), (240, 16, 38_400)),
+        (
+            ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=32),
+            (96, 16, 24_064),
+        ),
+        (
+            ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=64),
+            (144, 16, 28_672),
+        ),
     ),
 )
 def test_forward_resources_are_derived_from_the_kernel_spec(
@@ -252,6 +263,22 @@ def test_forward_resources_are_derived_from_the_kernel_spec(
     usage = derive_forward_resource_usage(ForwardKernelSpec.from_solution(solution))
     assert (usage.vgprs, usage.sgprs, usage.lds_bytes) == expected
     usage.admit(ResourceLimits())
+
+
+def test_q8_small_m_layout_derives_exact_lds_planes() -> None:
+    m32 = Q8SmallMTiledLdsLayout(32)
+    m64 = Q8SmallMTiledLdsLayout(64)
+    assert (m32.activation_bytes, m32.weight_base, m32.weight_bytes) == (
+        4_608,
+        4_608,
+        19_456,
+    )
+    assert m32.total_bytes == 24_064
+    assert m64.activation_bytes == m64.weight_base == 9_216
+    assert m64.weight_bytes == 19_456
+    assert m64.total_bytes == 28_672
+    with pytest.raises(ValueError, match="requires 32 or 64 rows"):
+        Q8SmallMTiledLdsLayout(128)
 
 
 def test_q6_lds_layout_derives_selected_plane_offsets() -> None:

@@ -592,6 +592,41 @@ class Q3HipTiledLdsLayout:
 
 
 @dataclass(frozen=True)
+class Q8SmallMTiledLdsLayout:
+    """Formula-derived LDS planes for an exact M32 or M64 Q8 tile."""
+
+    activation_rows: int
+    weight_rows: int = 64
+    activation_row_stride: int = Q8_1_F32_D4_BLOCK_BYTES
+    weight_row_stride: int = 304
+
+    def __post_init__(self) -> None:
+        if self.activation_rows not in (32, 64):
+            raise ValueError("Q8 small-M LDS layout requires 32 or 64 rows")
+        if (
+            min(self.weight_rows, self.activation_row_stride, self.weight_row_stride)
+            <= 0
+        ):
+            raise ValueError("Q8 small-M LDS dimensions must be positive")
+
+    @property
+    def activation_bytes(self) -> int:
+        return self.activation_rows * self.activation_row_stride
+
+    @property
+    def weight_base(self) -> int:
+        return self.activation_bytes
+
+    @property
+    def weight_bytes(self) -> int:
+        return self.weight_rows * self.weight_row_stride
+
+    @property
+    def total_bytes(self) -> int:
+        return self.activation_bytes + self.weight_bytes
+
+
+@dataclass(frozen=True)
 class DecodeSpec:
     """Candidate-selectable metadata and traversal lowering policies."""
 
@@ -713,6 +748,23 @@ def derive_forward_resource_usage(spec: "ForwardKernelSpec") -> ForwardResourceU
         if spec.geometry.depth_u not in (32, 64):
             raise ValueError("Q8 HIP-shaped LDS controls require DepthU 32 or 64")
         return ForwardResourceUsage(vgprs=240, sgprs=16, lds_bytes=38_400)
+    if operand_source == "Q8SmallMTiledLds":
+        macro_tile_m, macro_tile_n = spec.macro_tile
+        if (
+            spec.geometry.work_group != (32, 4, 1)
+            or macro_tile_m not in (32, 64)
+            or macro_tile_n != 64
+            or spec.geometry.depth_u != 32
+        ):
+            raise ValueError(
+                "Q8 small-M LDS control requires MT32/MT64 x N64, DepthU 32"
+            )
+        layout = Q8SmallMTiledLdsLayout(macro_tile_m)
+        return ForwardResourceUsage(
+            vgprs=96 if macro_tile_m == 32 else 144,
+            sgprs=16,
+            lds_bytes=layout.total_bytes,
+        )
     raise ValueError(f"unsupported forward operand source {operand_source!r}")
 
 
@@ -761,6 +813,7 @@ def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | Non
     q3_hip_tiled_lds = solution.operand_source == "Q3HipTiledLds"
     q8_register_tiled = solution.operand_source == "Q8RegisterTiled"
     q8_hip_tiled_lds = solution.operand_source == "Q8HipTiledLds"
+    q8_small_m_tiled_lds = solution.operand_source == "Q8SmallMTiledLds"
     serialized_q6_schedule = SemanticSchedulePolicy(
         traversal=solution.q6_output_traversal,
         clustering=solution.q6_stage_clustering,
@@ -781,6 +834,7 @@ def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | Non
         or q3_hip_tiled_lds
         or q8_register_tiled
         or q8_hip_tiled_lds
+        or q8_small_m_tiled_lds
         else (1, 1, 1, 1, 1)
     )
     if (
@@ -872,7 +926,10 @@ def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | Non
         or num_threads % solution.wavefront_size
     ):
         return "forward workgroup must contain a positive whole number of waves"
-    mi_wave_group = (num_threads // solution.wavefront_size, 1)
+    wave_count = num_threads // solution.wavefront_size
+    mi_wave_group = (
+        (1, wave_count) if q8_hip_tiled_lds or q8_small_m_tiled_lds else (wave_count, 1)
+    )
     ownership_divisors = (
         tile_m * mi_wave_group[0],
         tile_n * mi_wave_group[1],
@@ -905,6 +962,10 @@ class ForwardKernelSpec:
         structured_q6 = solution.operand_source == "Q6StructuredDecoded"
         decoded_staged = solution.operand_source == "DecodedWeightLdsBatch8"
         operand_source = solution.operand_source
+        q8_wave_n_tiled = operand_source in {
+            "Q8HipTiledLds",
+            "Q8SmallMTiledLds",
+        }
         serialized_q6_schedule = SemanticSchedulePolicy(
             traversal=solution.q6_output_traversal,
             clustering=solution.q6_stage_clustering,
@@ -918,7 +979,8 @@ class ForwardKernelSpec:
             raise ValueError(rejection)
         tile_m, tile_n, tile_k, blocks = solution.matrix_instruction[:4]
         num_threads = solution.num_threads
-        mi_wave_group = (num_threads // solution.wavefront_size, 1)
+        wave_count = num_threads // solution.wavefront_size
+        mi_wave_group = (1, wave_count) if q8_wave_n_tiled else (wave_count, 1)
         ownership_divisors = (
             tile_m * mi_wave_group[0],
             tile_n * mi_wave_group[1],
@@ -1006,6 +1068,7 @@ class ForwardKernelSpec:
             "Q8DirectGlobal",
             "Q8RegisterTiled",
             "Q8HipTiledLds",
+            "Q8SmallMTiledLds",
         }
         q8_register_tiled = source == "Q8RegisterTiled"
         if source not in {
@@ -1016,6 +1079,7 @@ class ForwardKernelSpec:
             "Q8DirectGlobal",
             "Q8RegisterTiled",
             "Q8HipTiledLds",
+            "Q8SmallMTiledLds",
         }:
             raise ValueError(f"unsupported forward operand source {source!r}")
         expected_semantic_schedule = (
@@ -1052,6 +1116,7 @@ class ForwardKernelSpec:
             or q3_hip_tiled_lds
             or q8_register_tiled
             or source == "Q8HipTiledLds"
+            or source == "Q8SmallMTiledLds"
             else (1, 1, 1, 1, 1)
         )
         metadata_schedule = "Serialized"

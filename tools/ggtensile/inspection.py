@@ -164,6 +164,8 @@ def inspect_artifact(
                 if solution.operand_source == "Q8RegisterTiled"
                 else 2 * solution.depth_u
                 if solution.operand_source == "Q8HipTiledLds"
+                else solution.macro_tile0 // 2
+                if solution.operand_source == "Q8SmallMTiledLds"
                 else 16
             )
         else:
@@ -195,6 +197,8 @@ def inspect_artifact(
                 )
                 else 2 * solution.depth_u // 32
                 if solution.operand_source == "Q8HipTiledLds"
+                else 2
+                if solution.operand_source == "Q8SmallMTiledLds"
                 else 0
             )
         elif solution.one_lds_buffer == 0:

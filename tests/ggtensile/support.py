@@ -226,6 +226,8 @@ MMQ_FWD_INVENTORY_CASES = (
                 "direct_global_control",
                 "register_tiled_128x32",
                 "hip_tiled_lds_selected",
+                "small_m32_tiled_lds_selected",
+                "small_m64_tiled_lds_selected",
             }
         ),
     ),
