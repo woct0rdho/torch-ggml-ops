@@ -221,7 +221,13 @@ MMQ_FWD_INVENTORY_CASES = (
         ),
         frozenset({32, 64, 128, 256, 512, 2048, 8192, 32768}),
         (("selected", 23),),
-        frozenset({"direct_global_control", "register_tiled_128x32"}),
+        frozenset(
+            {
+                "direct_global_control",
+                "register_tiled_128x32",
+                "hip_tiled_lds_selected",
+            }
+        ),
     ),
 )
 MMQ_FWD_INVENTORY_CASE_IDS = tuple(case.id for case in MMQ_FWD_INVENTORY_CASES)

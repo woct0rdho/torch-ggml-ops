@@ -73,13 +73,13 @@ Complete-call timing and prequantized multiply timing are recorded separately. T
 
 ## Current State
 
-The canonical forward model has typed Q8_0 direct-global, LDS-free register-tiled, and isolated HIP-shaped LDS controls. The register-tiled `128x32` source remains the retained research parent, but no GGTensile key is performance-promoted. The exact inventory covers all 23 keys and explicitly selects HIP fallback for production; those decisions remain authoritative after the completed HIP-shaped research control without changing public dispatch.
+The canonical forward model has typed Q8_0 direct-global, LDS-free register-tiled, and HIP-shaped LDS controls. The activation-read-hoisted `Q8HipTiledLds` source is now selected for 20 exact catalog keys after complete per-key qualification; KV M2048 and LM-head M32/M64 retain HIP fallback. These are catalog decisions only: public runtime dispatch and the generated 179-kernel bundle remain unchanged.
 
 Existing HIP controls are available through the dense forward bundle sources and dispatch in `csrc/mmq_bundle.cpp` and `csrc/mmq_core.cuh`. Existing Q8_0 GGTensile artifacts under `~/tmp/torch-ggml-ops/` are backward artifacts and are not forward baselines.
 
 Baseline preservation checkpoint: all currently valid catalog sources were regenerated before Q8 edits into `~/tmp/torch-ggml-ops/q8-fwd-baseline-sources-20260805/`. The manifest contains 447 unique valid sources: 155 Q4_K/Q5_K/Q6_K forward sources and 292 Q3_K/Q4_K/Q5_K/Q6_K/Q8_0 backward sources. Every retained Q8 change must reproduce this set byte-for-byte unless an existing-stream change is explicitly separated and qualified.
 
-The canonical 23-key inventory now records fresh same-process HIP multiply medians for every exact key. All 23 entries have `CurrentStatus: selected` and `SelectedSolution: hip_fallback`: no GGTensile candidate reaches HIP parity, so the public HIP path remains the explicit decision for every key. The timing fields are evidence for that decision, not placeholders.
+The canonical 23-key inventory records fresh same-process HIP multiply medians for every exact key. All 23 entries remain `CurrentStatus: selected`; 20 select `hip_tiled_lds_selected` and three select `hip_fallback`. The selected catalog is qualified for offline GGTensile generation, while public HIP dispatch remains the explicit runtime path until a separate bundle integration review.
 
 The initial isolated backend lowers one wave to a `16x16` output tile. It directly loads four 32-value Q8_0 blocks and one 128-value Q8_1 F32_D4 block per reduction-loop iteration, performs eight signed integer WMMAs, and applies the FP32 correction in the HIP expression order `integer_result * weight_scale * activation_scale` before BF16 RNE stores. `Q8DirectGroupRole` carries the payload and scale offsets, while `Q8DirectRegisterPlan` allocates explicit lifetime-bound roles deterministically. This branch does not use LDS and does not alter the Q4_K/Q5_K/Q6_K body methods.
 
@@ -260,10 +260,10 @@ Update this section after each coherent change. Keep detailed timing and artifac
 - LM-head five-key correctness, mutation, and chunk fallback coverage.
 - Large-margin geometry/decode/LDS/ownership search and rejected-candidate records.
 - Lower-bound and residual-bottleneck analysis.
-- Per-key HIP-fallback selection is the current production control; it is reopened for the HIP-shaped performance campaign above.
-- Complete writer line coverage and regression identity gates remain mandatory for the new isolated family.
-- The HIP-shaped `Q8HipTiledLds` control is measured and rejected for promotion: it is exact and resource-qualified, but remains slower than HIP on the complete Q-A gate.
-- The initial reopened control completed its first review and remains rejected for promotion; Q8 production selection remains HIP fallback for all 23 keys. That review is superseded for optimization by the active parity reopening below; the next final review must be run only after all newly actionable mechanisms are implemented and measured.
+- The initial per-key HIP-fallback selection was reopened for the HIP-shaped performance campaign.
+- Complete writer line coverage and regression identity gates remain mandatory for the isolated family.
+- The activation-read-address-hoisted `Q8HipTiledLds` source is selected for 20 exact catalog keys after two independent 25-repeat confirmations per key, with KV M2048 and LM-head M32/M64 retained as HIP fallback.
+- Public runtime dispatch, generated bundle packaging, and the frozen 447-source boundary remain unchanged pending a separate public integration review.
 
 ### Initial Reopened HIP-Shaped Control Result
 
@@ -332,3 +332,22 @@ The current weight scales are 608 bytes apart in LDS. Normal `ds_read2_b32` has 
 The remaining schedule-only probes are also closed. Moving each scalar activation-scale read ahead of its payloads measures `1.00534x` parent multiply and `1.00592x` complete on output B, and `1.00686x` multiply and `1.00411x` complete on Q-B. Batching all eight WMMA pairs before conversion and scale correction is exact but raises the output-B multiply median to `18.44087 ms`, versus approximately `17.5 ms` for the parent, showing that the retained per-fragment correction hides useful latency. Replacing the bank-separated scale copy with the direct same-scale VGPR assembles but fails exactness; the duplicated value in a different source bank is semantically required by the legal VOPD schedule.
 
 Finally, a typed loop-carried staging-address probe moved the invariant LDS payload and scale addresses plus the global weight-stage pointer into `v235:v237`. It removes eleven address instructions per stage invocation, inspects at 808 VALU issues and 1,116 VALU operations, and retains the declared `240 VGPR / 16 SGPR / 38,400-byte LDS` class with zero spills. The K8192 output-B rotation improves to `0.99657x` parent multiply and `0.99402x` complete, but the K1024 Q-B control regresses to `1.00145x` and `1.00189x`. The gain is below threshold, costs three additional live logical VGPRs, and is shape-specific, so the complete staging-address state is rejected. Supporting artifacts are under `/tmp/q8-{paired-activation,paired-activation-tail,weight-address-hoist,activation-scale-first,wmma-batch,scale-stage-address-hoist,stage-address-hoist}-*/`.
+
+## Final Exact-Key Promotion Review
+
+The activation-read-address hoist was qualified across all 23 inventory keys. The depth32 `Q8HipTiledLds` artifact remained in one inspected resource class: `240` VGPRs, `16` SGPRs, `38,400` LDS bytes, code-object v5, gfx1151, wave32, the 40-byte ABI, zero private bytes, and zero register spills. Across 21 tile-valid keys, the five-repeat audit found zero differing BF16 elements against both HIP multiply and the public complete path, deterministic Q8_1 producer output, and nonzero input, packed-weight, and workspace mutation responses. The independent-reference checks for shared gate/up M2048 and LM-head M128 had normalized RMSE `0.00606097` and `0.00602456`; the existing Q-A reference check remains `0.00604494`.
+
+Each of the 20 promoted keys received two serialized seven-warmup, 25-repeat rotations against the pre-hoist same-policy parent and HIP. The candidate/HIP multiply ratios below are the two confirmation values; both values must clear the 2% resource-bearing threshold.
+
+| Family | M2048 | M8192 | M32768 |
+| --- | ---: | ---: | ---: |
+| Attention Q-A | `0.9151x` / `0.9277x` | `0.8761x` / `0.8808x` | `0.9029x` / `0.8985x` |
+| Attention Q-B | `0.8871x` / `0.8865x` | `0.9077x` / `0.9051x` | `0.9049x` / `0.9092x` |
+| Attention KV | HIP fallback | `0.8953x` / `0.8944x` | `0.8827x` / `0.8803x` |
+| Attention output B | `0.8426x` / `0.8425x` | `0.8736x` / `0.8742x` | `0.8862x` / `0.8912x` |
+| Shared gate/up | `0.9172x` / `0.9087x` | `0.8903x` / `0.8879x` | `0.9086x` / `0.9069x` |
+| Shared down | `0.9046x` / `0.9042x` | `0.9013x` / `0.9012x` | `0.9191x` / `0.9199x` |
+
+The KV M2048 candidate was measured at `0.9878x` and `0.9709x` HIP multiply in its two confirmations, after a five-repeat `1.0042x` screen, so it remains HIP fallback rather than being retained on noise. LM-head M128 and M256 were confirmed at `0.8574x`/`0.8538x` and `0.8663x`/`0.8671x`; M512 was confirmed at `0.8768x`/`0.8811x`. LM-head M32/M64 are outside the `128x64` tile domain and remain explicit HIP fallback keys.
+
+The qualified catalog now contains one deterministic `hip_tiled_lds_selected` solution mapping and exact per-key fallback decisions. The generated public bundle remains at 179 kernels, public dispatch remains unchanged, and the frozen Q8 baseline comparison remains `ExpectedCount=447`, `GeneratedCount=447`, `ChangedCount=0`. The next task is a separately reviewed public-boundary integration; this campaign does not silently change runtime dispatch.

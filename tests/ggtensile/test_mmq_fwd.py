@@ -125,7 +125,8 @@ def test_forward_campaign_inventory_is_exact_and_versionless(
     assert all(entry.quant_data_type == case.quant_type for entry in inventory.entries)
     if case.quant_type == "Q8_0":
         assert {entry.selected_solution for entry in inventory.entries} == {
-            "hip_fallback"
+            "hip_fallback",
+            "hip_tiled_lds_selected",
         }
     assert all(
         validate_solution(key) == ()
