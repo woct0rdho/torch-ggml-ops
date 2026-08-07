@@ -69,6 +69,14 @@ _MMQ_BWD_CAMPAIGN_SPECS: dict[str, _CampaignSpec] = {
 }
 
 _MMQ_FWD_CAMPAIGN_SPECS: dict[str, _CampaignSpec] = {
+    "Q3_K": {
+        "families": {
+            "attention_k": ((512, 2048), "blk.3.attn_k.weight", 9),
+            "attention_q": ((8192, 2048), "blk.3.attn_q.weight", 9),
+            "attention_gate": ((4096, 2048), "blk.4.attn_gate.weight", 25),
+            "ssm_output": ((2048, 4096), "blk.4.ssm_out.weight", 25),
+        },
+    },
     "Q4_K": {
         "families": {
             "narrow": ((512, 2048), "blk.5.ffn_gate_shexp.weight", 70),
@@ -301,7 +309,7 @@ def load_inventory(path: Path) -> CampaignInventory:
             "RequireWorkspaceMutation": True,
             "FixedActivationProducer": (
                 "HIP_Q8_1_F32_D4"
-                if problem_type.quant_data_type in ("Q6_K", "Q8_0")
+                if problem_type.quant_data_type in ("Q3_K", "Q6_K", "Q8_0")
                 else "HIP_Q8_1_F16_D4S4"
             ),
         }

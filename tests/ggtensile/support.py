@@ -167,6 +167,15 @@ class GGTensileInventoryCase:
 MMQ_FWD_INVENTORY_CASES = (
     GGTensileInventoryCase(
         "fwd",
+        "Q3_K",
+        12,
+        frozenset({"attention_k", "attention_q", "attention_gate", "ssm_output"}),
+        frozenset({2048, 8192, 32768}),
+        (("open", 11), ("selected", 1)),
+        frozenset({"hip_tiled_lds_selected"}),
+    ),
+    GGTensileInventoryCase(
+        "fwd",
         "Q4_K",
         12,
         frozenset({"narrow", "shared_down", "attention_output", "query"}),

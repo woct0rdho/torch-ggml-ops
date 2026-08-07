@@ -1,5 +1,3 @@
-"""Exact-problem gfx1151 assembly generation for packed GGUF MMQ."""
-
 from .inspection import ArtifactInspection, InspectionError, inspect_artifact
 from .mmq_fwd_reference import (
     decode_q8_0_block,

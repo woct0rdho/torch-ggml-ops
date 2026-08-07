@@ -15,6 +15,7 @@ from tests.ggtensile.support import (
     load_inventory_case,
     selected_solution_keys,
 )
+from tools.build_mmq_bundle import kernel_specs
 from tools.ggtensile.kernel_writer_assembly_mmq_fwd import (
     ForwardKernelWriterAssembly,
     ForwardKernelWriterError,
@@ -34,9 +35,9 @@ from tools.ggtensile.runtime import FixedHipForwardModule, ForwardModule
 from tools.ggtensile.toolchain import Toolchain
 from tools.ggtensile.validation import validate_solution
 
-_Q5_INVENTORY_CASE = next(
-    case for case in MMQ_FWD_INVENTORY_CASES if case.quant_type == "Q5_K"
-)
+_FWD_INVENTORY_CASES = {case.quant_type: case for case in MMQ_FWD_INVENTORY_CASES}
+_Q3_INVENTORY_CASE = _FWD_INVENTORY_CASES["Q3_K"]
+_Q5_INVENTORY_CASE = _FWD_INVENTORY_CASES["Q5_K"]
 
 _Q6_SCHEDULE_ARTIFACT_SHA256 = {
     64: {
@@ -138,7 +139,10 @@ def test_forward_campaign_inventory_is_exact_and_versionless(
         for key in selected_solution_keys(inventory, catalog)
     )
     narrow = inventory.entries[0]
-    if case.quant_type == "Q6_K":
+    if case.quant_type == "Q3_K":
+        assert narrow.expected_logical_weight_shape == (512, 2048)
+        assert narrow.expected_physical_weight_shape == (512, 880)
+    elif case.quant_type == "Q6_K":
         assert narrow.expected_logical_weight_shape == (248320, 2048)
         assert narrow.expected_physical_weight_shape == (248320, 1680)
     elif case.quant_type == "Q8_0":
@@ -150,6 +154,49 @@ def test_forward_campaign_inventory_is_exact_and_versionless(
         assert narrow.expected_physical_weight_shape == (512, expected_row_bytes)
     raw = json.loads(case.inventory_path.read_text(encoding="utf-8"))
     assert "Version" not in raw and "SchemaVersion" not in raw
+
+
+def test_q3_forward_inventory_selects_only_qualified_large_query() -> None:
+    inventory, catalog = load_inventory_case(_Q3_INVENTORY_CASE)
+    selected = tuple(
+        entry for entry in inventory.entries if entry.current_status == "selected"
+    )
+    assert tuple(entry.problem_size for entry in selected) == (
+        ProblemSize(32768, 8192, 2048),
+    )
+    assert selected[0].selected_solution == "hip_tiled_lds_selected"
+    assert all(
+        entry.selected_solution == "hip_fallback"
+        for entry in inventory.entries
+        if entry.current_status == "open"
+    )
+    assert catalog["hip_tiled_lds_selected"] == ForwardSolution.q3_k_hip_tiled_lds()
+
+
+def test_q3_forward_bundle_spec_matches_selected_exact_key() -> None:
+    specs = kernel_specs()
+    selected = next(
+        spec for spec in specs if spec.cpp_id == "GGTensileDenseFwdQ3KM32768N8192K2048"
+    )
+    assert len(specs) == 180
+    assert selected.config is None
+    assert selected.enforce_resource_gate is True
+    assert selected.ggtensile_key == SolutionKey(
+        ProblemType.mmq_forward("Q3_K"),
+        ProblemSize(32768, 8192, 2048),
+        ForwardSolution.q3_k_hip_tiled_lds(),
+    )
+    assert selected.symbol == selected.ggtensile_key.kernel_name
+    source = ForwardKernelWriterAssembly(
+        selected.ggtensile_key,
+        Toolchain.discover(),
+    ).source()
+    assert hashlib.sha256(source.encode()).hexdigest() == (
+        selected.expected_source_sha256
+    )
+    assert selected.expected_code_object_sha256 == (
+        "3c1122dd270b81ba6df40bddbe8016f25509457f4251d26ac34303575bb59604"
+    )
 
 
 def test_q5_forward_inventory_selects_retained_vopd_epilogue() -> None:

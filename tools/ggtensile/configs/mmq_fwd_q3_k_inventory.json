@@ -1,0 +1,38 @@
+{
+  "ProblemType": {
+    "OperationType": "MMQForward",
+    "QuantDataType": "Q3_K",
+    "DataTypeA": "Q8_1",
+    "DataTypeB": "Q3_K",
+    "DestDataType": "BFloat16",
+    "ComputeDataType": "Float",
+    "TransposeA": false,
+    "TransposeB": true
+  },
+  "ModelFile": "Qwen3.6-35B-A3B-APEX-I-Mini.gguf",
+  "Validation": {
+    "QuantType": "Q3_K",
+    "ExactDispatch": true,
+    "MaxCandidateToHipNormalizedRmse": 0.0005,
+    "MaxCandidateToHipAbsoluteError": 0.015625,
+    "MaxIndependentNormalizedRmse": 0.04,
+    "RequireInputMutation": true,
+    "RequirePackedWeightMutation": true,
+    "RequireWorkspaceMutation": true,
+    "FixedActivationProducer": "HIP_Q8_1_F32_D4"
+  },
+  "Keys": [
+    {"Family": "attention_k", "ProblemSize": {"M": 2048, "N": 512, "K": 2048}, "RepresentativeTensor": "blk.3.attn_k.weight", "CallCount": 9, "HistoricalHipMedianMs": 1.4707380533, "CurrentStatus": "open", "SelectedSolution": "hip_fallback"},
+    {"Family": "attention_k", "ProblemSize": {"M": 8192, "N": 512, "K": 2048}, "RepresentativeTensor": "blk.3.attn_k.weight", "CallCount": 9, "HistoricalHipMedianMs": 1.9599699974, "CurrentStatus": "open", "SelectedSolution": "hip_fallback"},
+    {"Family": "attention_k", "ProblemSize": {"M": 32768, "N": 512, "K": 2048}, "RepresentativeTensor": "blk.3.attn_k.weight", "CallCount": 9, "HistoricalHipMedianMs": 4.0293049812, "CurrentStatus": "open", "SelectedSolution": "hip_fallback"},
+    {"Family": "attention_q", "ProblemSize": {"M": 2048, "N": 8192, "K": 2048}, "RepresentativeTensor": "blk.3.attn_q.weight", "CallCount": 9, "HistoricalHipMedianMs": 4.0067749023, "CurrentStatus": "open", "SelectedSolution": "hip_fallback"},
+    {"Family": "attention_q", "ProblemSize": {"M": 8192, "N": 8192, "K": 2048}, "RepresentativeTensor": "blk.3.attn_q.weight", "CallCount": 9, "HistoricalHipMedianMs": 13.5580205917, "CurrentStatus": "open", "SelectedSolution": "hip_fallback"},
+    {"Family": "attention_q", "ProblemSize": {"M": 32768, "N": 8192, "K": 2048}, "RepresentativeTensor": "blk.3.attn_q.weight", "CallCount": 9, "HistoricalHipMedianMs": 53.3983230591, "CurrentStatus": "selected", "SelectedSolution": "hip_tiled_lds_selected"},
+    {"Family": "attention_gate", "ProblemSize": {"M": 2048, "N": 4096, "K": 2048}, "RepresentativeTensor": "blk.4.attn_gate.weight", "CallCount": 25, "HistoricalHipMedianMs": 2.5752708912, "CurrentStatus": "open", "SelectedSolution": "hip_fallback"},
+    {"Family": "attention_gate", "ProblemSize": {"M": 8192, "N": 4096, "K": 2048}, "RepresentativeTensor": "blk.4.attn_gate.weight", "CallCount": 25, "HistoricalHipMedianMs": 7.2352061272, "CurrentStatus": "open", "SelectedSolution": "hip_fallback"},
+    {"Family": "attention_gate", "ProblemSize": {"M": 32768, "N": 4096, "K": 2048}, "RepresentativeTensor": "blk.4.attn_gate.weight", "CallCount": 25, "HistoricalHipMedianMs": 28.4007263184, "CurrentStatus": "open", "SelectedSolution": "hip_fallback"},
+    {"Family": "ssm_output", "ProblemSize": {"M": 2048, "N": 2048, "K": 4096}, "RepresentativeTensor": "blk.4.ssm_out.weight", "CallCount": 25, "HistoricalHipMedianMs": 3.5517890453, "CurrentStatus": "open", "SelectedSolution": "hip_fallback"},
+    {"Family": "ssm_output", "ProblemSize": {"M": 8192, "N": 2048, "K": 4096}, "RepresentativeTensor": "blk.4.ssm_out.weight", "CallCount": 25, "HistoricalHipMedianMs": 7.1419348717, "CurrentStatus": "open", "SelectedSolution": "hip_fallback"},
+    {"Family": "ssm_output", "ProblemSize": {"M": 32768, "N": 2048, "K": 4096}, "RepresentativeTensor": "blk.4.ssm_out.weight", "CallCount": 25, "HistoricalHipMedianMs": 28.4400577545, "CurrentStatus": "open", "SelectedSolution": "hip_fallback"}
+  ]
+}

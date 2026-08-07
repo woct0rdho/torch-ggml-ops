@@ -2,9 +2,9 @@
 
 ## Purpose
 
-This record covers the first isolated GGTensile MMQ forward Q3_K control on gfx1151. The control validates the Q3_K packed decoder, Q8_1 `F32_D4` workspace contract, wave32 WMMA mapping, and row-major BF16 output ownership on one exact ordinary shape. It is research evidence only. It does not add a Q3_K inventory, selected catalog, runtime dispatch entry, or public bundle kernel.
+This record covers the isolated GGTensile MMQ forward Q3_K control and its later 12-key dense expansion on gfx1151. The control validates the Q3_K packed decoder, Q8_1 `F32_D4` workspace contract, wave32 WMMA mapping, and row-major BF16 output ownership. The expansion promotes one independently qualified exact key and leaves every other key on HIP.
 
-HIP remains the correctness and timing control. The existing public HIP path remains authoritative for production selection.
+HIP remains the correctness and timing control and the exact fallback for every unselected shape.
 
 ## Exact Scope
 
@@ -113,7 +113,7 @@ Start with the exact `(2048,4096,2048)` control and use the HIP source/disassemb
 - Use one-hot and cross-coordinate tests before timing every changed mapping, then run the full exact correctness, mutation, reference, inspection, and deterministic-build gates.
 - Final Q3 qualification is complete for the retained prefetch control. Independent roots reproduce source and normalized inspection content; rebuilt objects and code objects pass the deterministic inspection checks; the final 25-repeat run is exact, mutation-sensitive, finite, and independently referenced; the focused/full suites, frozen 447-source comparison, and 179-kernel bundle check pass. Q3 remains isolated regardless of the result.
 
-The exact-shape promotion gate is met for both multiply and complete medians, but the candidate remains research-only because Q3 catalog selection, broader shape validation, and public integration are separate decisions.
+At the isolated-control stage, the exact-shape promotion gate was met for both multiply and complete medians, but the candidate remained research-only because Q3 catalog selection, broader shape validation, and public integration were separate decisions.
 
 ## Recursive Final Review
 
@@ -124,7 +124,7 @@ The final recursive review reread this record, the generic GGTensile plan, the Q
 - Contract-incompatible or deferred: prepared or dense weights, external decode workspaces, split-K, persistent/grouped traversal, producer fusion, hidden caches, public dispatch/bundle changes, copied HIP/LLVM schedules, and broader Q3 shape/catalog expansion without exact-key evidence. Additional LDS buffering would require a new ownership and residency premise rather than a schedule edit.
 - No actionable in-contract mechanism remains under the fixed exact shape, ABI, LDS layout, wave ownership, and zero-spill resource contract. The remaining measured envelope is the 144-VGPR body at 128 WMMAs, 370 LDS operations, 91 VMEM operations, 21 waits, and 1,028 VOPD instructions; every identified traffic, lifetime, scale-correction, and register-class opportunity either is retained or has an exact rejection. The final control beats HIP on both required paths, so there is no residual performance deficit requiring an unmeasured mechanism.
 
-The campaign is complete for this isolated Q3 exact shape. Production remains on HIP until a separate promotion phase validates additional exact keys and makes an explicit catalog/dispatch decision; no public boundary changed in this campaign.
+The isolated-shape campaign completed without changing the public boundary. Production remained on HIP pending a separate promotion phase with additional exact-key validation and an explicit catalog and dispatch decision.
 
 ## Dense Expansion Campaign
 
@@ -162,3 +162,74 @@ These ratios are prioritization evidence only. The regenerated attention-gate `M
 The first `K=4096` run generated, built, and inspected cleanly with the same resource envelope, but benchmarking initially stopped before launch because `FixedHipForwardModule` rejected Q3_K when `K != 2048`. The tooling oracle now selects the existing exact installed `k2048_j128_full` symbol for `K=2048` and the already bundled generic `j128` symbol for `K=4096`; focused tests lock both choices and preserve the 40,448-byte Q3 HIP LDS allocation. This is tooling-only and does not change public dispatch or the 179-kernel bundle.
 
 The resulting SSM-output `(2048,2048,4096)` run passed exact candidate/HIP and candidate/public agreement for baseline and mutations, zero producer differences, finiteness, and nonzero input, weight, and workspace mutation sensitivity. After 500 rotating warmup rounds, 25 measured repeats gave HIP multiply `2.536122 ms` and GGTensile multiply `4.378514 ms`, or `1.72646x`; complete medians were `2.547640 ms` and `4.356055 ms`, or `1.70984x`. Longer warmup did not recover the historical isolated-control operating regime. This is a correctness-retained but timing-rejected control for K=4096. No new exact key is selected; the widest `M=32768` attention-Q result advances to repeated warm qualification, while SSM output, narrow N, and short M require different ownership or geometry.
+
+### MT64 Tiled-LDS Experiment
+
+The first geometry alternative halves the activation ownership from 128 to 64 rows while retaining four N-owning waves and the 64-column output tile. Canonical Q3 ownership is now explicitly wave-N: `(MIWaveGroupM,MIWaveGroupN)=(1,4)` with four or eight M fragments for MT64 or MT128. The previous `(4,1)` projection was inconsistent with the emitted mapping but happened to produce the same MT128 static count; strict MT64 inspection exposed and corrected it. The new physical plan derives 104 VGPRs, 16 SGPRs, and 19,456 LDS bytes, compared with 144 VGPRs and 28,672 bytes for MT128. It emits 64 WMMAs, 59 VMEM operations, 274 LDS operations, 21 waits, and four clauses with zero private storage and zero spills. Only lanes 0 through 15 of each wave stage the 64 unique activation rows; full execution is restored before weight decode and every barrier. The default MT128 source remains byte-identical at SHA-256 `64a2dd8886662c810b9b99276cf65722657ac2d36080f37e2163ae106cf9a4c6`.
+
+The `(2048,512,2048)` attention-K screen passed exact HIP/public agreement, repeatability, finiteness, and all mutation gates. After 500 rotating warmup rounds, HIP and MT64 multiply medians were `1.047420 ms` and `1.847428 ms`, or `1.76379x`; complete medians were `1.058482 ms` and `1.853931 ms`, or `1.75150x`. MT64 materially reduces the control's candidate latency but remains decisively slower than HIP.
+
+The remaining narrow keys also passed the same correctness and artifact gates but rejected MT64 on timing: `M=8192` measured HIP `1.589474 ms` versus candidate `3.273259 ms` (`2.05933x` multiply, `1.58137x` complete), and `M=32768` measured HIP `3.776948 ms` versus candidate `5.404684 ms` (`1.43097x` multiply, `1.24120x` complete). The lower LDS/VGPR footprint does not compensate for predicated activation staging and reduced per-workgroup reuse. MT64 is rejected for the full narrow family; MT128 remains the only retained Q3 geometry while a different ownership/dataflow mechanism is investigated.
+
+### Rolled Scale-Group Experiment
+
+The HIP disassembly uses one 40,448-byte workgroup and 196 VGPRs but rolls its scale-group compute to 16 static WMMAs. An explicit `Q3RolledTiledLds` alternative tested whether the 3,520-line unrolled instruction footprint was the residual cause while retaining MT128, the compact half-tile LDS layout, arithmetic order, four barriers, and 144-VGPR class. Typed incremental payload, weight-scale, activation-payload, and activation-scale addresses reduced static WMMAs from 128 to 16, VALU issues from 2,757 to 869, LDS instructions from 370 to 84, and waits from 21 to seven. The artifact remained at 144 VGPRs, 16 SGPRs, and 28,672 LDS bytes with no private storage or spills.
+
+The rolled `(2048,4096,2048)` candidate passed exact HIP/public agreement, repeatability, finiteness, and mutation gates, but 500-warmup, 25-repeat medians were HIP `2.570757 ms` and candidate `4.496834 ms`, or `1.74923x` multiply; complete was `1.74477x`. It was also slightly slower than the unrolled control in the same operating regime. Static instruction footprint is not the governing deficit; loop-carried addresses and scalar group branches reduce scheduling freedom. The rolled mechanism is rejected and no key selects it.
+
+### Linear Activation-Staging Experiment
+
+An explicit `Q3LinearActivationTiledLds` alternative tested the HIP control's linear cooperative activation load pattern. Each thread staged nine 16-byte chunks at a 2,048-byte workgroup stride, making adjacent lanes access adjacent chunks while producing the same row-major LDS plane. A temporary VMEM base advanced by 4,096 bytes kept global offsets within the gfx1151 signed 13-bit range. The default source remained byte-identical and the alternative artifact retained 144 VGPRs, 16 SGPRs, 28,672 LDS bytes, four barriers, and zero private storage or spills.
+
+The linear candidate passed exact HIP/public agreement, repeatability, finiteness, and mutation gates. For `(2048,4096,2048)`, 500-warmup, 25-repeat medians were HIP `2.566249 ms` and candidate `4.474045 ms`, or `1.74342x` multiply; complete was `1.73891x`. This was indistinguishable from the strided control deficit. Activation transaction shape is not the governing limitation, so the mechanism is rejected and no key selects it.
+
+### Batched-WMMA Experiment
+
+HIP issues the eight independent M-fragment WMMAs for one Q3 scale group before converting and correcting any result, while the retained writer immediately corrected each fragment. `Q3BatchedWmmaTiledLds` widened transient C ownership from eight to 64 VGPRs and preserved each output's group accumulation order. Strict inspection reported 200 VGPRs, 16 SGPRs, 28,672 LDS bytes, four barriers, 128 static WMMAs, and no private storage or spills; the 200-VGPR result is close to the HIP control's 196.
+
+The candidate passed exact HIP/public agreement, repeatability, finiteness, and all mutation gates. For `(2048,4096,2048)`, 500-warmup, 25-repeat medians in the observed clock regime were HIP `3.893572 ms` and candidate `5.784447 ms`, or `1.48564x` multiply; complete was `1.40757x`. Batching materially narrows the ratio from roughly `1.74x`, confirming that WMMA issue order matters, but does not independently beat HIP. The standalone mechanism is rejected; the 64-result ownership is retained only as an experimental basis for dependency-derived partial LDS waits.
+
+`Q3BatchedWmmaPartialWaitTiledLds` then launched each WMMA when its activation payload became ready. Even groups used dependency-derived waits `15,13,...,1` followed by `0` for scales; odd groups used `7,6,...,0`. The 200-VGPR artifact remained spill-free and passed every correctness gate. Medians were HIP `4.006524 ms` and candidate `5.856987 ms`, or `1.46186x` multiply; complete was `1.46726x`. Partial waits provide only a modest additional gain and remain slower than HIP. The mechanism is rejected independently and carried forward only into the rolled, batched schedule experiment.
+
+The combined `Q3RolledBatchedWmmaPartialWaitTiledLds` artifact reduced static WMMAs to 16, VALU issues to 869, LDS instructions to 84, and waits to 23 while retaining 200 VGPRs and zero spills. It passed all correctness gates, but medians were HIP `3.977258 ms` and candidate `5.869282 ms`, or `1.47571x` multiply; complete was `1.47079x`. Rolling again failed to improve the batched mechanism, confirming that static footprint is not the residual limit. The combined mechanism is rejected and no key selects it.
+
+### Paired-Scale Experiment
+
+`Q3PairedScaleBatchedWmmaPartialWaitTiledLds` replaced eight scalar weight-scale reads with four `ds_read2_b32` operations and paired activation-scale reads with `ds_read2st64_b32`. The exact candidate inspected at 208 VGPRs, 16 SGPRs, 28,672 LDS bytes, 274 LDS instructions, 141 waits, and zero spills or private storage. It remained bit-exact and mutation-sensitive, but measured `5.880064 ms` versus HIP `3.916767 ms`, or `1.50125x` multiply; complete was `1.48759x`. Reducing static LDS instructions did not improve latency. The mechanism is rejected and its implementation was removed after preserving this evidence.
+
+### Timing Environment Diagnosis
+
+The retained source and code object were byte-identical across the historical and current runs. The authoritative assembly SHA-256 remained `64a2dd8886662c810b9b99276cf65722657ac2d36080f37e2163ae106cf9a4c6`, and the old and regenerated HSACOs were byte-identical. Nevertheless, the short `(2048,4096,2048)` control changed from `0.93799x` HIP multiply historically to approximately `1.72x` under the later `auto` DPM regime. Sysfs reported a 600 MHz idle state and a 2.9 GHz ceiling; direct performance-level control required unavailable elevated privileges.
+
+A sustained 64-launch qualifier raised observed SCLK from approximately 1.83 GHz to 2.53 GHz, but the source-identical control still measured `2.447658 ms` versus HIP `1.612404 ms`, or `1.51802x`. Clock ramp alone therefore does not explain the historical reversal. Short-shape promotion evidence from the later environment is rejected. Long-M kernels keep the device active long enough to produce tight repeated distributions, so final selection uses 100 rotating warmups and 101 measured repeats per exact key.
+
+### Stable 12-Key Baseline
+
+The uniform protocol completed every dense key. All candidates passed candidate/HIP and candidate/public agreement, finiteness, producer repeatability, mutation sensitivity, and strict artifact inspection. Only attention-Q at `M=32768` beat HIP multiply.
+
+| Family | `M` | HIP multiply | GGTensile multiply | GGTensile/HIP |
+| --- | ---: | ---: | ---: | ---: |
+| attention K | 2048 | `1.470738 ms` | `3.462637 ms` | `2.35435x` |
+| attention K | 8192 | `1.959970 ms` | `3.895425 ms` | `1.98749x` |
+| attention K | 32768 | `4.029305 ms` | `5.705802 ms` | `1.41608x` |
+| attention Q | 2048 | `4.006775 ms` | `5.977945 ms` | `1.49196x` |
+| attention Q | 8192 | `13.558021 ms` | `14.631325 ms` | `1.07916x` |
+| attention Q | 32768 | `53.398323 ms` | `52.925510 ms` | `0.99115x` |
+| attention gate | 2048 | `2.575271 ms` | `4.486917 ms` | `1.74231x` |
+| attention gate | 8192 | `7.235206 ms` | `8.483326 ms` | `1.17251x` |
+| attention gate | 32768 | `28.400726 ms` | `30.313105 ms` | `1.06734x` |
+| SSM output | 2048 | `3.551789 ms` | `4.866368 ms` | `1.37012x` |
+| SSM output | 8192 | `7.141935 ms` | `8.683723 ms` | `1.21588x` |
+| SSM output | 32768 | `28.440058 ms` | `30.227186 ms` | `1.06284x` |
+
+Selecting the GGTensile control for all 12 keys would regress call-count-weighted multiply latency by `11.9901%`. Exact dispatch to only `(32768,8192,2048)` changes the weighted total from `2639.432809 ms` to `2635.177496 ms`, or `0.998388x`, saving `4.255314 ms` in the measured workload. The other 11 exact entries use `hip_fallback`.
+
+### Exact Promotion
+
+Attention-Q `(32768,8192,2048)` passed two 25-repeat runs at `0.99221x` and `0.99568x` HIP multiply, a 101-repeat confirmation at `0.99115x`, and a rebuilt-public 101-repeat confirmation at `0.99185x`. The final public-environment medians were `52.881584 ms` versus HIP `53.315998 ms` for multiply and `53.250736 ms` versus `53.505711 ms` for complete, or `0.99185x` and `0.99523x`. Candidate and public outputs were bit-exact to HIP. Candidate and public independent-reference normalized RMSE was `0.006065104`, with finite output and maximum absolute error `0.046875`.
+
+The selected source is generated from `mmq_fwd_q3_k_inventory.json` and `mmq_fwd_q3_k_solutions.json`. The bundle builder enforces exact source SHA-256 `c9500b3364a5d309886548a4858987ba272928bd21b20a430707e9ccd2fe570c` for this shape. The bundled HSACO is byte-identical to the independently qualified artifact at SHA-256 `3c1122dd270b81ba6df40bddbe8016f25509457f4251d26ac34303575bb59604`. Inspection reports code-object v5, gfx1151, wave32, the 40-byte ABI, 144 VGPRs, 16 SGPRs, 28,672 static LDS bytes, zero private storage, and zero spills.
+
+Public dispatch now selects this assembly only for exact `(quant_type, M, N, K) = (Q3_K,32768,8192,2048)`. It launches with zero dynamic shared memory because LDS is statically declared by the assembly code object. A traced public call opened the selected package HSACO and remained bit-exact through all mutation gates. Every other Q3 shape preserves the existing HIP selector and dynamic-LDS launch. The source-built bundle now contains 180 kernels.
+
+All rejected experimental mechanism implementations were removed after recording their correctness, resource, and timing evidence. Production retains only the qualified `Q3HipTiledLds` lowering and the one exact selection.
