@@ -4,7 +4,7 @@
 
 GGTensile is the repository-local assembly kernel generator for packed GGUF matrix multiplication. It accepts one exact `ProblemType`, one exact `ProblemSize`, and one complete direction-specific solution, then either emits reproducible assembly or returns a structured rejection reason.
 
-This document is authoritative for the generic design, implementation principles, supported scope, and current project progress. Format-specific problem definitions, measurements, rejected mechanisms, artifact identities, and campaign chronology belong in the experiment records. The remaining forward-writer work is tracked separately in `plan_ggtensile_asm_writer_refactor.md`.
+This document is authoritative for the generic design, implementation principles, supported scope, and current project progress. Format-specific problem definitions, measurements, rejected mechanisms, artifact identities, and campaign chronology belong in the experiment records. The completed forward-writer migration and its phase evidence are recorded in `plan_ggtensile_asm_writer_refactor.md`.
 
 GGTensile uses a deliberately small ROCISA surface inspired by TensileLite: structured modules and metadata, explicit register pools, and direct assembler/linker invocation. It does not import TensileLite's solution, problem-type, search, scheduling, allocation, or library-generation machinery. Existing HIP kernels remain the correctness control, performance control, and runtime fallback.
 
@@ -138,6 +138,16 @@ QuantForwardSemantics
   scale/minimum or signed-scale fields
   high-bit reconstruction
   post-WMMA correction semantics
+
+ForwardMechanismContract
+  lowering/data-contract compatibility
+  activation and weight block domains
+  formula-derived reduction granularity
+
+ForwardPhysicalPlan
+  concrete mechanism layout and register roles
+  deterministic assignments and lifetimes
+  sole VGPR, SGPR, LDS, private, and spill usage
 ```
 
 `ForwardResourceUsage` is the shared authority for writer metadata, capability admission, and artifact inspection. Resource limits are candidate constraints; VGPR, SGPR, LDS, private-segment, and spill outcomes are derived facts.
@@ -156,14 +166,18 @@ Complete candidates round-trip through normal serialized solution inputs. Canoni
 
 ### Forward lowering
 
-The current forward writer has three implementation families:
-- direct-global Q4_K for the small direct tile.
-- shared decoded-weight-LDS Q4_K/Q5_K for the staged `128x64` family.
-- structured Q6_K with single-row and dual-row wave ownership; M256 reuses two exact dual-row tiles.
+`ForwardKernelWriterAssembly` is a small public facade. It validates one key, constructs `DerivedForwardState`, emits the code-object envelope and ABI, and performs closed dispatch. It owns no decode, LDS, WMMA, wait, or epilogue body.
 
-All forward families consume Q8_1 bytes and metadata produced upstream. Weight decode, activation-workspace staging, integer dot, correction, and output conversion are distinct semantic responsibilities even when a selected physical schedule overlaps their instructions.
+Pure planning in `mmq_fwd_physical.py` returns one concrete physical-plan type. Mechanism lowerers are organized by mechanism or data contract:
+- packed-three-bit half-tile LDS lowering for the serialized Q3 control.
+- direct packed scale/minimum lowering.
+- decoded-weight LDS plus `F16_D4S4` activation lowering shared by compatible low-nibble and high-bit formats.
+- structured signed-six-bit lowering with single-row or dual-row ownership.
+- signed-int8 direct, register-tiled, wave-N LDS, exact small-M, and compact-KV physical mechanisms.
 
-Q4_K/Q5_K use `F16_D4S4` activation metadata and scale/minimum correction. Q6_K uses `F32_D4`, signed six-bit values, signed int8 scales, and block-factor correction. These arithmetic differences remain typed quant semantics rather than conditionals scattered through orchestration.
+`F16D4S4ActivationMetadata` owns the shared activation group formula. Packed scale/minimum reconstruction is shared only by compatible correction paths, and one source-identical signed-int8 WMMA constructor is shared without merging ownership or post-WMMA arithmetic. Serialized operand-source names remain stable compatibility values even where internal classes use mechanism names.
+
+All forward families consume Q8_1 bytes and metadata produced upstream. Weight decode, activation staging, integer dot, correction, waits, and output conversion remain separate semantic responsibilities when ownership or dependency order differs.
 
 ### Backward lowering
 
@@ -171,7 +185,7 @@ Backward retains one geometry-derived allocation, reduction pipeline, WMMA lower
 
 ### Semantic stages and scheduling
 
-Lowering first constructs named stages:
+There is no universal forward stage runner. Each mechanism owns orchestration and calls a shared component only when roles, dependencies, and arithmetic order are equal. Structured Q6 constructs named semantic stages such as:
 
 ```text
 Setup
@@ -186,7 +200,7 @@ LoopCommit
 Epilogue
 ```
 
-Operations carry semantic coordinates such as row, payload plane, decode atom, K phase, output tile, LDS pair, and store batch. Dependencies are checked before emission.
+Other mechanisms retain direct typed emitters where a stage graph would only repackage their instruction order. Operations carry semantic coordinates such as row, payload plane, decode atom, K phase, output tile, LDS pair, and store batch. Dependencies are checked before emission.
 
 The second level applies explicit deterministic policies for traversal, clustering, lookahead, local-write placement, local reads, dot grouping, epilogue scope, VOPD pairing, delays, clauses, and cache behavior. Policies are complete mechanism choices, not generic heuristic scheduling. Waits derive from typed producers and first-use boundaries; redundant weaker waits are suppressed monotonically.
 
@@ -200,7 +214,7 @@ Irregular selected assignments may remain pinned when they are measured ownershi
 
 Q6 uses typed payload/address roles, 16 semantic decode atoms, explicit low/high extraction, signed-byte normalization, formula-derived LDS roles, producer-first-use VMEM waits, typed dependency delays, deterministic source-to-output register reuse, and shared dot/refill/epilogue orchestration.
 
-The residual single-row/dual-row setup, near/far read, activation-read, and refill leaves preserve selected physical traversal where no complete semantic ownership formula has yet replaced that order. They are bounded policies, not duplicate full kernels. Replacing them is deferred until Q3_K and Q8_0 forward evidence clarifies the correct cross-format abstraction.
+The residual single-row/dual-row setup, near/far read, activation-read, and refill leaves preserve selected physical traversal. The completed Q3/Q8 convergence review found no equivalent ownership contract, so these remain bounded Q6 policies rather than duplicate full kernels.
 
 ### Prohibited forward production mechanisms
 
@@ -243,20 +257,20 @@ Search explores linked neighborhoods rather than a broad Cartesian product. Gene
 
 Exact-shape constants, fixed trip counts, peeled tails, affine-address reductions, register-lifetime shortening, and legal VOPD formation are derived lowering work rather than public knobs unless complete alternate mechanisms are implemented. Their value is judged by the same correctness, resource, and timing gates as larger policies.
 
-### Q8_0 performance campaign (initial control complete; parity work reopened)
+### Q8_0 performance campaign (complete)
 
-The Q8_0 forward campaign was reopened as an isolated performance experiment. Its HIP fallback decisions remained the production control throughout, and the completed GGTensile comparison below did not meet the promotion gates.
+The Q8_0 forward campaign ran as an isolated performance experiment. HIP fallback remained the control until each exact GGTensile source cleared its qualification gates; the final research catalog selects GGTensile for all 23 required keys while public integration remains unchanged.
 
 The first mechanism is a typed HIP-shaped `I=64, J=128` workgroup: 128 wave32 threads, cooperative Q8_0 payload/scale decode into LDS, reusable Q8_1 activation rows, 32 integer WMMAs per reduction stage, and a denser output ownership/scale epilogue. This is a new dataflow boundary, not a schedule-only variation of the retained `128x32` register tile. The lowering must derive its LDS layout, ownership, local-read coordinates, accumulator roles, and resource count from the semantic tile contract; it must not copy the HIP instruction stream or import a physical schedule.
 
-The campaign proceeds in measurable gates:
+The campaign used these measurable gates:
 - document the exact HIP tile mapping and static work/resource floors from the source and disassembly.
 - implement one isolated ordinary Q8_0 control through typed Q8 roles and semantic LDS stages, then assemble, inspect, and validate it before timing.
 - match the HIP operand reuse and epilogue ownership while preserving the established integer-result, weight-scale, activation-scale arithmetic order and BF16 results.
 - screen the ordinary Q-A control with warmed rotating HIP comparisons, then confirm any gain on Q-B, attention-output B, shared gate/up, shared down, KV, and LM-head chunks before changing exact-key decisions.
 - require parity or better on every promoted exact key, strict zero-spill/resource/ABI checks, mutation and independent-reference correctness, and deterministic rebuilds.
 
-Only a measured complete dataflow may replace a fallback. The initial HIP-shaped `Q8HipTiledLds` lowering was exact and resource-qualified but missed its Q-A gate; the activation-read-address-hoisted form subsequently cleared two 25-repeat confirmations for 20 exact keys. An exact `Q8SmallMTiledLds` family then cleared the same qualification gates for LM-head M32/M64. The Q8 catalog now selects the hoisted form for 20 keys, the two small-M forms for two keys, and retains HIP fallback only for KV M2048. This catalog promotion does not change public dispatch or the generated bundle; the initial Q8 campaign remains historical evidence and the public-boundary review is separate.
+Only a measured complete dataflow may replace a fallback. The initial HIP-shaped `Q8HipTiledLds` lowering was exact and resource-qualified but missed its Q-A gate; the activation-read-address-hoisted form subsequently cleared repeated confirmations for 20 exact keys. Exact `Q8SmallMTiledLds` controls then cleared the same qualification gates for LM-head M32/M64, and the compact M64 KV mechanism cleared its repeated faster-than-HIP gate. The Q8 catalog now selects GGTensile for all 23 required exact keys with no HIP research fallback. This catalog result does not change public dispatch or the generated bundle; the public-boundary review remains separate.
 
 ### Initial Q3_K forward exact-shape control (isolated)
 
@@ -264,17 +278,11 @@ The isolated forward Q3_K control is qualified only for the ordinary exact shape
 
 The control is bit-exact with the direct HIP control and public path across 8,388,608 outputs, passes input/weight/workspace mutation and independent-reference checks, and reproduces source, object, HSACO, and normalized inspection content across two independent builds. The final warmed 25-sample medians are `0.9380x` HIP for multiply and `0.9260x` for complete execution. It remains isolated research evidence because Q3 inventory, selected catalog, runtime dispatch, and public bundle promotion are still deferred pending broader shape validation and a separate integration decision. Evidence is in [experiment_ggtensile_mmq_fwd_q3_k.md](experiment_ggtensile_mmq_fwd_q3_k.md).
 
-### Active Q8_0/Q3_K parity reopening
+### Current Q8_0/Q3_K forward status
 
-The forward parity campaigns are reopened under an explicit premise: the existing HIP kernels demonstrate a feasible complete dataflow, so a GGTensile implementation must continue until the remaining in-contract mechanisms are either measured or classified with evidence. The Q8 research catalog phase is now complete for 22 GGTensile-selected and one HIP-fallback key: the shared hoisted LDS family covers 20 keys, exact small-M LDS controls cover LM-head M32/M64, and KV M2048 remains fallback. Public runtime dispatch, public bundles, and the frozen-source boundary remain separate integration decisions.
+The Q8 research catalog is complete for all 23 required exact keys: 20 ordinary wave-N LDS selections, two exact LM-head small-M selections, and one compact-KV selection. Every selected key has repeated warmed evidence below HIP multiply. Public runtime dispatch, public bundles, and the frozen-source boundary remain separate integration decisions.
 
-The active order is:
-- Establish an exact HIP-shaped mapping and resource/performance floor for each format, then identify the largest non-excluded ownership or dataflow difference rather than repeating already rejected schedule-only variants.
-- Optimize Q8_0 across the 23 exact keys, starting with the remaining decode, operand-reuse, LDS, and epilogue gaps; retain HIP fallback until every promoted key clears its exact timing gate.
-- Optimize the isolated Q3_K ordinary control first, then expand only when a complete mechanism is correct, resource-clean, deterministic, and faster than HIP on the first exact shape.
-- Use warmed rotating measurements and independent controls. Static instruction reductions, partial-body timings, and compiler scheduling observations are diagnostic only.
-
-The recursive final review remains mandatory and is the final step of the reopened campaign. No campaign may be declared complete immediately after discovering an actionable mechanism. Every actionable finding must be implemented and measured, then followed by a fresh review that classifies all remaining ideas and explains the residual bottleneck.
+The isolated Q3_K ordinary control remains qualified and faster than HIP. Q3 inventory reconstruction, additional shape implementation, catalog expansion, runtime dispatch, and bundle work are paused until a separate campaign resumes them. Static instruction reductions, partial-body timings, and compiler scheduling observations remain diagnostic only.
 
 ### Diagnostic lower bounds and profiling
 
@@ -319,11 +327,11 @@ The standing gates are:
 - zero correctness failures.
 - byte-identical independent generation and rebuild.
 - zero private storage, spills, scratch, calls, or dynamic stack.
-- no stable regression above 1% on another exact key sharing the emitted path.
-- a stable gain above 2% for a resource-bearing mechanism.
-- neutral-to-favorable representative timing for an unconditional resource-neutral reduction.
+- repeated warmed evidence that every selected exact GGTensile multiply is faster than its exact HIP control.
+- retained-parent comparisons for every deliberate stream change, with slower candidates rejected regardless of static resource or instruction reductions.
+- representative checks on every exact key sharing an unconditional changed stream.
 
-Timing selects winners. Static issue counts, counters, code size, locality, and resources explain results but do not promote candidates by themselves. Weighted workload totals guide effort and reporting; they never authorize a slower exact key.
+There is no fixed percentage threshold. Timing selects winners. Static issue counts, counters, code size, locality, and resources explain results but do not promote candidates by themselves. Weighted workload totals guide effort and reporting; they never authorize a slower exact key.
 
 ## Current Progress
 
@@ -337,34 +345,40 @@ Timing selects winners. Static issue counts, counters, code size, locality, and 
 | MMQ forward Q5_K | Six exact inventory keys selected and recursively exhausted under the current contract |
 | MMQ forward Q6_K | Three exact language-model-head keys selected; structured semantic lowering and the current writer refactor are complete for the implemented domain |
 | MMQ forward Q3_K | One exact ordinary control is correctness-qualified and faster than HIP with the retained shared-VMEM/prefetch dataflow; inventory and selected catalog remain deferred |
-| MMQ forward Q8_0 | 22 exact catalog keys select GGTensile controls (20 activation-read-hoisted HIP-shaped LDS keys plus exact small-M LM-head M32/M64); only KV M2048 retains HIP fallback; public integration is deferred |
+| MMQ forward Q8_0 | All 23 required exact keys select faster-than-HIP GGTensile controls: 20 ordinary wave-N LDS, two exact small-M LM-head, and one compact-KV; public integration is deferred |
 | Grouped GGTensile | Deferred until grouped ownership and routing receive an explicit generator contract |
 | Public GGTensile runtime selection | Deferred; existing HIP bundle dispatch remains authoritative |
 
-Global MMQ forward format exhaustion is not complete until Q3_K and both ordinary and language-model-head Q8_0 are qualified. Ordinary Q8_0 coverage will not imply fixed-group Q8_0 coverage.
+Global MMQ forward format exhaustion is not complete until Q3_K inventory and exact-shape coverage are expanded. Ordinary Q8_0 coverage does not imply fixed-group grouped-Q8_0 coverage.
 
 ### Implemented forward architecture
 
-The completed Q4_K/Q5_K/Q6_K refactor established:
-- strict `ForwardProblemContract`, complete `ForwardKernelSpec`, `DerivedForwardState`, quant semantics, and formula-derived resource usage.
+The completed forward-writer refactor established:
+- a 104-line `ForwardKernelWriterAssembly` facade with validation, source envelope, output writing, and closed mechanism dispatch.
+- strict `ForwardProblemContract`, complete `ForwardKernelSpec`, `ForwardMechanismContract`, `DerivedForwardState`, quant semantics, and formula-derived resource usage.
+- a closed union of concrete physical plans as the sole register, LDS, and resource authority.
 - formula-based divisible-shape capability separated from exact inventories and winners.
 - canonical candidate and exact-pair manifests with linked external search neighborhoods.
-- a shared decoded-LDS Q4_K/Q5_K pipeline and semantic packed scale/minimum and Q5 high-bit reconstruction.
+- packed-three-bit, packed scale/minimum direct, decoded-weight LDS, structured-Q6, and signed-int8 lowerer modules.
+- shared `F16D4S4ActivationMetadata`, packed scale/minimum reconstruction, and a source-identical signed-int8 WMMA component at proven semantic boundaries.
+- immutable signed-int8 tiled-LDS register and scale-layout projections at the shared stage, group, and store helper boundary.
+- a shared decoded-LDS low-nibble/high-bit pipeline with a distinct high-bit reconstruction leaf.
 - one structured Q6 orchestration with typed setup/read/decode/LDS/dot/refill/epilogue boundaries.
 - 16 semantic Q6 decode atoms with deterministic lifetime-aware register reuse.
 - typed address, payload, LDS-pair, accumulator, product, output, wait, and dependency-delay roles.
 - deterministic allocation and formula-derived VGPR, SGPR, and LDS admission.
-- removal of flat Q6 bodies, raw templates, forwarding writers, post-emission scheduling, inactive fields, and physical decode leaves.
-- structural tests for forbidden schedule representations, ignored fields, raw operands, legacy reads, and pass-through helpers.
+- removal of facade-local bodies, raw templates, forwarding writers, post-emission scheduling, inactive fields, and duplicate resource/decode authorities.
+- structural tests for forbidden dependencies, ignored fields, raw operands, legacy reads, pass-through helpers, and complete lowerer/physical-plan line coverage.
 
-The retained residual Q6 setup/read/refill traversal is intentionally unchanged until the post-Q3/Q8 convergence review can define or reject a complete semantic ownership replacement. The active work and its entry criteria are in `plan_ggtensile_asm_writer_refactor.md`.
+The retained residual Q6 setup/read/refill traversal is intentionally mechanism-owned; the completed Q3/Q8 convergence review found no contract-equivalent replacement.
 
 ### Latest qualified verification snapshot
 
 The latest completed forward-refactor checkpoint records:
-- 284 focused GGTensile tests and 369 repository tests passing, with only the existing Python 3.14 PyTorch deprecation warnings.
-- Ruff, formatting, `ty check`, `compileall`, pre-commit, bundle currency, and `git diff --check` passing.
-- the gfx1151 MMQ bundle current at 179 kernels.
+- 203 focused forward tests, 306 GGTensile tests, and 391 repository tests passing, with only the 14 existing Python 3.14 PyTorch deprecation warnings.
+- all 516 baseline writer sources and all 447 preserved sources byte-identical, plus three independent 516-source regenerations identical to the baseline and each other.
+- Ruff, formatting, `ty check`, `compileall`, pre-commit, bundle currency, `git diff --check`, and complete writer-line coverage passing.
+- the gfx1151 MMQ bundle current and reproducible at 179 kernels.
 - Q6 MT64 resources of 158 VGPRs, 27 SGPRs, and 28,928 bytes of LDS.
 - Q6 MT128/M256 resources of 210 VGPRs, 27 SGPRs, and 38,400 bytes of LDS.
 - zero private storage and zero VGPR/SGPR spills for the selected Q6 artifacts.
@@ -387,7 +401,9 @@ MMQ forward records:
 - `experiment_ggtensile_mmq_fwd_q4_k.md`
 - `experiment_ggtensile_mmq_fwd_q5_k.md`
 - `experiment_ggtensile_mmq_fwd_q6_k.md`
+- `experiment_ggtensile_mmq_fwd_q8_0.md`
 - `experiment_ggtensile_mmq_fwd_q3_k.md`
+- `plan_ggtensile_asm_writer_refactor.md` (completed structural phase record)
 
 Those documents retain campaign chronology and may describe historical premises that were later superseded. This document is authoritative for the current generic architecture and coverage status; selected catalogs and artifact tests are authoritative for current exact identities.
 

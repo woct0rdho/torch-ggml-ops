@@ -5,22 +5,24 @@ import pytest
 
 from tools.ggtensile.mmq_fwd_spec import (
     DerivedForwardState,
+    F16D4S4ActivationMetadata,
     ForwardFormatTraits,
     ForwardKernelCandidate,
     ForwardKernelSpec,
     ForwardProblemContract,
     ForwardResourceUsage,
-    Q3HipTiledLdsLayout,
+    Packed3BitTiledLdsLayout,
     Q6LdsLayout,
     Q6SemanticPlan,
     Q6SemanticStage,
-    Q8KvTiledLdsLayout,
-    Q8SmallMTiledLdsLayout,
     QuantForwardSemantics,
     ResourceLimits,
     SemanticSchedulePolicy,
+    SignedInt8KvTiledLdsLayout,
+    SignedInt8SmallMTiledLdsLayout,
     derive_forward_resource_usage,
     forward_kernel_spec_rejection_reason,
+    forward_mechanism_contract,
     q6_schedule_from_kernel_spec,
     q6_schedule_from_solution,
 )
@@ -60,6 +62,32 @@ def test_forward_format_traits_are_fixed_contracts(
     assert traits.activation_layout == layout
     assert traits.activation_block_bytes == block_bytes
     assert traits.block_values == (32 if quant_type == "Q8_0" else 256)
+
+
+def test_f16_d4s4_activation_metadata_owns_group_offsets() -> None:
+    metadata = F16D4S4ActivationMetadata(144)
+    assert metadata.group(0).payload_offset == 16
+    assert metadata.group(3).payload_high_offset == 128
+    assert metadata.group(4).plane == 1
+    assert metadata.group(4).payload_offset == 16
+    assert metadata.group(7).scale_sum_offset == 12
+    with pytest.raises(ValueError, match="group must be in range"):
+        metadata.group(8)
+
+
+def test_forward_mechanism_contracts_are_data_driven() -> None:
+    decoded = forward_mechanism_contract("DecodedWeightLdsBatch8")
+    direct = forward_mechanism_contract("Global")
+    signed_int8 = forward_mechanism_contract("Q8DirectGlobal")
+    assert decoded.lowering == "DecodedWeightLds"
+    assert decoded.weight_decodes == ("DirectNibble", "DirectNibbleHighBit")
+    assert direct.lowering == "PackedScaleMinimumDirect"
+    assert direct.weight_decodes == ("DirectNibble",)
+    assert signed_int8 == forward_mechanism_contract("Q8HipTiledLds")
+    assert signed_int8.weight_block_values == 32
+    assert signed_int8.reduction_values == 128
+    with pytest.raises(ValueError, match="unsupported forward operand source"):
+        forward_mechanism_contract("Unknown")
 
 
 def test_quant_forward_semantics_describe_packed_planes() -> None:
@@ -159,6 +187,18 @@ def test_forward_derived_state_owns_shape_formulas() -> None:
     assert state.expected_packed_weight_bytes == 248320 * 1680
     assert state.expected_activation_shape == (16, 192, 144)
     assert state.expected_output_shape == (192, 248320)
+
+
+def test_signed_int8_reduction_domain_uses_one_d4_activation_block() -> None:
+    key = _key(
+        "Q8_0",
+        ProblemSize(16, 16, 128),
+        ForwardSolution.q8_0_direct_global(),
+    )
+    state = DerivedForwardState.from_solution_key(key)
+    assert state.blocks_per_weight_row == 4
+    assert state.activation_blocks_per_row == 1
+    assert state.expected_activation_shape == (1, 16, 144)
 
 
 def test_complete_candidate_round_trips_to_the_normal_build_solution() -> None:
@@ -268,8 +308,8 @@ def test_forward_resources_are_derived_from_the_kernel_spec(
 
 
 def test_q8_small_m_layout_derives_exact_lds_planes() -> None:
-    m32 = Q8SmallMTiledLdsLayout(32)
-    m64 = Q8SmallMTiledLdsLayout(64)
+    m32 = SignedInt8SmallMTiledLdsLayout(32)
+    m64 = SignedInt8SmallMTiledLdsLayout(64)
     assert (m32.activation_bytes, m32.weight_base, m32.weight_bytes) == (
         4_608,
         4_608,
@@ -280,11 +320,11 @@ def test_q8_small_m_layout_derives_exact_lds_planes() -> None:
     assert m64.weight_bytes == 19_456
     assert m64.total_bytes == 28_672
     with pytest.raises(ValueError, match="requires 32 or 64 rows"):
-        Q8SmallMTiledLdsLayout(128)
+        SignedInt8SmallMTiledLdsLayout(128)
 
 
 def test_q8_kv_layout_derives_compact_lds_planes() -> None:
-    layout = Q8KvTiledLdsLayout()
+    layout = SignedInt8KvTiledLdsLayout()
     assert layout.activation_bytes == layout.weight_base == 9_216
     assert layout.weight_row_stride == 144
     assert layout.weight_scale_offset == 128
@@ -349,7 +389,7 @@ def test_q6_lds_layout_derives_selected_plane_offsets() -> None:
 
 
 def test_q3_half_tile_lds_and_packed_groups_are_formula_derived() -> None:
-    layout = Q3HipTiledLdsLayout()
+    layout = Packed3BitTiledLdsLayout()
     assert layout.activation_bytes == 18_432
     assert layout.weight_payload_bytes == 128
     assert layout.weight_scale_bytes == 32
@@ -393,7 +433,7 @@ def test_q3_half_tile_lds_and_packed_groups_are_formula_derived() -> None:
     with pytest.raises(ValueError, match="has no signed Q3"):
         QuantForwardSemantics.for_quant_type("Q4_K").q3_signed_decode()
     with pytest.raises(ValueError, match="dimensions must be positive"):
-        Q3HipTiledLdsLayout(activation_rows=0)
+        Packed3BitTiledLdsLayout(activation_rows=0)
 
 
 def test_forward_resource_admission_rejects_each_fixed_limit() -> None:
@@ -416,6 +456,9 @@ def test_every_forward_solution_field_is_projected_or_rejected() -> None:
         ("Q6_K", ForwardSolution.q6_k_structured_decoded(macro_tile0=64)),
         ("Q8_0", ForwardSolution.q8_0_direct_global()),
         ("Q8_0", ForwardSolution.q8_0_register_tiled()),
+        ("Q8_0", ForwardSolution.q8_0_hip_tiled_lds()),
+        ("Q8_0", ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=32)),
+        ("Q8_0", ForwardSolution.q8_0_kv_tiled_lds()),
     )
 
     def different(value: object) -> object:

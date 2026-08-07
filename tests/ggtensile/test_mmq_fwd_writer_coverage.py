@@ -9,19 +9,49 @@ from typing import Any, cast
 import pytest
 
 from tests.ggtensile.support import (
+    FWD_LOWERING_SOURCE_PATHS,
+    FWD_PHYSICAL_SOURCE_PATH,
     FWD_WRITER_SOURCE_PATH,
     assert_writer_methods_have_complete_line_coverage,
 )
 from tools.ggtensile import kernel_writer_assembly_mmq_fwd as fwd_writer_module
+from tools.ggtensile import mmq_fwd_lowering_q6 as q6_lowering_module
+from tools.ggtensile import mmq_fwd_physical as q6_physical_module
+from tools.ggtensile.kernel_writer_assembly import Assembly, RegisterLifetime
 from tools.ggtensile.kernel_writer_assembly_mmq_fwd import (
     ForwardKernelWriterAssembly,
     ForwardKernelWriterError,
-    Q8SmallMTiledLdsRegisterPlan,
+)
+from tools.ggtensile.mmq_fwd_lowering_decoded_lds import DecodedWeightLdsLowering
+from tools.ggtensile.mmq_fwd_lowering_packed_direct import (
+    PackedScaleMinimumDirectLowering,
+)
+from tools.ggtensile.mmq_fwd_lowering_q6 import (
     _emit_q6_dot_phase,
     _emit_q6_scheduled_body,
 )
+from tools.ggtensile.mmq_fwd_lowering_signed_i8 import SignedInt8ForwardLowering
+from tools.ggtensile.mmq_fwd_physical import (
+    DecodedWeightLdsPhysicalPlan,
+    SignedInt8MmaGroupRole,
+    SignedInt8RegisterTiledRegisterPlan,
+    SignedInt8SmallMTiledLdsPhysicalPlan,
+    SignedInt8SmallMTiledLdsRegisterPlan,
+    SignedInt8TiledLdsRegisters,
+    SignedInt8TiledLdsScaleLayout,
+    SignedInt8WaveNTiledLdsLayout,
+    derive_forward_physical_plan,
+    q6_structured_physical_plan,
+)
 from tools.ggtensile.mmq_fwd_search import q6_schedule_candidates
-from tools.ggtensile.mmq_fwd_spec import Q6ForwardSchedule, q6_schedule_from_solution
+from tools.ggtensile.mmq_fwd_spec import (
+    ForwardKernelSpec,
+    Q6ForwardSchedule,
+    Q6LdsLayout,
+    Q6SemanticStage,
+    QuantForwardSemantics,
+    q6_schedule_from_solution,
+)
 from tools.ggtensile.model import (
     BackwardSolution,
     ForwardSolution,
@@ -31,6 +61,10 @@ from tools.ggtensile.model import (
 )
 from tools.ggtensile.toolchain import Toolchain
 from tools.ggtensile.validation import validate_solution
+
+Q6_LOWERING_SOURCE_PATH = next(
+    path for path in FWD_LOWERING_SOURCE_PATHS if path.name == "mmq_fwd_lowering_q6.py"
+)
 
 
 def _q6_schedule(macro_tile0: int) -> Q6ForwardSchedule:
@@ -124,7 +158,14 @@ def test_q6_physical_register_map_uses_complete_output_roles(
     macro_tile0: int,
     group_count: int,
 ) -> None:
-    layout = fwd_writer_module._q6_physical_layout(_q6_schedule(macro_tile0))
+    output_tile_rows = macro_tile0 // 64
+    physical = q6_structured_physical_plan(output_tile_rows)
+    layout = q6_lowering_module._q6_physical_layout(_q6_schedule(macro_tile0))
+    assert physical.output_tile_rows == output_tile_rows
+    assert physical.lds == layout.lds
+    assert physical.resources.vgprs == layout.declared_vgprs
+    assert physical.resources.sgprs == layout.declared_sgprs
+    assert physical.resources.lds_bytes == layout.lds.total_bytes
     register_map = layout.registers
     output_roles = tuple(
         role
@@ -146,16 +187,10 @@ def test_q6_physical_register_map_uses_complete_output_roles(
         (role.lifetime.first_stage, role.lifetime.last_stage) == (5, 8)
         for role in output_roles
     )
-    assert register_map.lifetime(
-        "weight_address"
-    ) == fwd_writer_module.RegisterLifetime(0, 8)
-    assert register_map.lifetime("product") == fwd_writer_module.RegisterLifetime(5, 7)
-    assert register_map.lifetime(
-        "first_stage_write_address"
-    ) == fwd_writer_module.RegisterLifetime(1, 4)
-    assert register_map.lifetime(
-        "first_stage_read_address"
-    ) == fwd_writer_module.RegisterLifetime(4, 5)
+    assert register_map.lifetime("weight_address") == RegisterLifetime(0, 8)
+    assert register_map.lifetime("product") == RegisterLifetime(5, 7)
+    assert register_map.lifetime("first_stage_write_address") == RegisterLifetime(1, 4)
+    assert register_map.lifetime("first_stage_read_address") == RegisterLifetime(4, 5)
     assert not hasattr(layout, "accumulator_transfer_prefix")
 
 
@@ -251,6 +286,7 @@ def test_q6_schedule_policy_knobs_are_explicit() -> None:
     (
         ("latency", "OpaqueLatencyTable", "latency-lowering"),
         ("pairing", "OpaqueIssueTable", "dual-issue pairing"),
+        ("wait", "OpaqueWaitPolicy", "wait-lowering"),
         ("traversal", "PhysicalRegisterOrder", "output traversal"),
         ("pressure", "SourceOrderFallback", "register-pressure"),
     ),
@@ -267,10 +303,10 @@ def test_q6_lowering_rejects_unknown_second_level_policy(
         replace(schedule.semantic_policy, **{field: value}),
     )
     with pytest.raises(ValueError, match=message):
-        if field in {"latency", "pairing"}:
-            fwd_writer_module.Q6ScheduleEmitter(schedule, "invalid")
+        if field in {"latency", "pairing", "wait"}:
+            q6_lowering_module.Q6ScheduleEmitter(schedule, "invalid")
         else:
-            fwd_writer_module._q6_physical_layout(schedule)
+            q6_lowering_module._q6_physical_layout(schedule)
 
 
 def test_q6_solution_schedule_derivation_rejects_invalid_structure() -> None:
@@ -301,13 +337,31 @@ def test_q6_schedule_rejects_unsupported_geometry_and_phase() -> None:
     with pytest.raises(ValueError, match="blocks-per-weight-row must be positive"):
         _emit_q6_scheduled_body(selected, 0)
     with pytest.raises(ValueError, match="unsupported Q6 physical layout"):
-        fwd_writer_module._q6_physical_layout(unsupported)
-    opaque_stage = fwd_writer_module.Q6SemanticStage(
+        q6_lowering_module._q6_physical_layout(unsupported)
+    with pytest.raises(ValueError, match="unsupported Q6 ownership rows"):
+        q6_physical_module.Q6OwnershipRegisterPlan.for_output_tile_rows(3)
+    ownership = q6_physical_module.Q6OwnershipRegisterPlan.for_output_tile_rows(1)
+    with pytest.raises(ValueError, match="unsupported Q6 payload atom"):
+        ownership.packed_payload(16, "ql")
+    with pytest.raises(ValueError, match="unsupported Q6 physical output rows"):
+        q6_physical_module.Q6PhysicalRegisterMap.for_output_tile_rows(3)
+    layout = q6_physical_module.Q6PhysicalLayout(1)
+    with pytest.raises(KeyError, match="missing"):
+        layout.registers.assignment("missing")
+    with pytest.raises(ValueError, match="has 0 output roles"):
+        layout.registers.group_output_roles(2)
+    with pytest.raises(ValueError, match="unsupported Q6 refill slot"):
+        layout.refill_read(-1, 0)
+    with pytest.raises(ValueError, match="unsupported Q6 decoded write atom"):
+        layout.decoded_write_address(16)
+    with pytest.raises(ValueError, match="unsupported Q6 decoded write atom"):
+        layout.decoded_write_offsets(16)
+    opaque_stage = Q6SemanticStage(
         "Opaque",  # ty: ignore[invalid-argument-type]
         (),
     )
     with pytest.raises(AssertionError, match="unhandled Q6 semantic stage"):
-        fwd_writer_module._q6_emit_semantic_stage(opaque_stage, selected, 8)
+        q6_lowering_module._q6_emit_semantic_stage(opaque_stage, selected, 8)
     with pytest.raises(ValueError, match="one input block"):
         replace(selected, matrix_instruction=(16, 16, 16, 2))
     with pytest.raises(ValueError, match="at least one dot phase"):
@@ -324,91 +378,91 @@ def test_q6_schedule_rejects_unsupported_geometry_and_phase() -> None:
 
 def test_q6_semantic_emitter_rejects_unsupported_memory_operations() -> None:
     selected = _q6_schedule(64)
-    emitter = fwd_writer_module.Q6ScheduleEmitter(selected, "invalid")
-    assert str(fwd_writer_module.Q6Vgpr(2)) == "v2"
-    assert str(fwd_writer_module.Q6Sgpr(3)) == "s3"
-    assert str(fwd_writer_module.Q6Immediate(16)) == "16"
-    assert str(fwd_writer_module.Q6Immediate(16, hexadecimal=True)) == "0x10"
-    valu = fwd_writer_module.Q6DependencyDelay("VALU_DEP", 4)
+    emitter = q6_lowering_module.Q6ScheduleEmitter(selected, "invalid")
+    assert str(q6_physical_module.Q6Vgpr(2)) == "v2"
+    assert str(q6_physical_module.Q6Sgpr(3)) == "s3"
+    assert str(q6_physical_module.Q6Immediate(16)) == "16"
+    assert str(q6_physical_module.Q6Immediate(16, hexadecimal=True)) == "0x10"
+    valu = q6_physical_module.Q6DependencyDelay("VALU_DEP", 4)
     assert str(valu) == "instid0(VALU_DEP_4)"
-    assert str(fwd_writer_module.Q6DependencyDelay("VALU_DEP", 4, "NEXT", 1)) == (
+    assert str(q6_physical_module.Q6DependencyDelay("VALU_DEP", 4, "NEXT", 1)) == (
         "instid0(VALU_DEP_4) | instskip(NEXT) | instid1(VALU_DEP_1)"
     )
     with pytest.raises(ValueError, match="VGPR must be nonnegative"):
-        fwd_writer_module.Q6Vgpr(-1)
+        q6_physical_module.Q6Vgpr(-1)
     with pytest.raises(ValueError, match="SGPR must be nonnegative"):
-        fwd_writer_module.Q6Sgpr(-1)
+        q6_physical_module.Q6Sgpr(-1)
     with pytest.raises(ValueError, match="unsupported Q6 dependency kind"):
-        fwd_writer_module.Q6DependencyDelay(cast(Any, "OPAQUE"), 1)
+        q6_physical_module.Q6DependencyDelay(cast(Any, "OPAQUE"), 1)
     with pytest.raises(ValueError, match="distance must be positive"):
-        fwd_writer_module.Q6DependencyDelay("VALU_DEP", 0)
+        q6_physical_module.Q6DependencyDelay("VALU_DEP", 0)
+    with pytest.raises(ValueError, match="distance must be positive"):
+        q6_physical_module.Q6DependencyDelay("VALU_DEP", 1, "NEXT", 0)
     with pytest.raises(ValueError, match="unsupported Q6 dependency skip"):
-        fwd_writer_module.Q6DependencyDelay("VALU_DEP", 1, cast(Any, "SKIP_ALL"), 1)
+        q6_physical_module.Q6DependencyDelay("VALU_DEP", 1, cast(Any, "SKIP_ALL"), 1)
     with pytest.raises(ValueError, match="requires skip and second"):
-        fwd_writer_module.Q6DependencyDelay("VALU_DEP", 1, "NEXT")
+        q6_physical_module.Q6DependencyDelay("VALU_DEP", 1, "NEXT")
     with pytest.raises(ValueError, match="requires skip and second"):
-        fwd_writer_module.Q6DependencyDelay("VALU_DEP", 1, second_distance=1)
+        q6_physical_module.Q6DependencyDelay("VALU_DEP", 1, second_distance=1)
+    with pytest.raises(ValueError, match="VGPR must be nonnegative"):
+        q6_physical_module.Q6HalfRegister(-1, "l")
+    with pytest.raises(ValueError, match="selector must be 'l' or 'h'"):
+        q6_physical_module.Q6HalfRegister(1, cast(Any, "x"))
     with pytest.raises(ValueError, match="unsupported Q6 global-read width: 64"):
-        fwd_writer_module.Q6GlobalRead(1, 2, width_bits=64)
+        q6_physical_module.Q6GlobalRead(1, 2, width_bits=64)
+    with pytest.raises(ValueError, match="destination must be one VGPR"):
+        q6_physical_module.Q6GlobalRead(-1, 2)
     with pytest.raises(ValueError, match="destination must be one VGPR"):
         emitter.global_read_clause(
-            (fwd_writer_module.Q6GlobalRead(cast(int, "v[1:2]"), 2),)
+            (q6_physical_module.Q6GlobalRead(cast(int, "v[1:2]"), 2),)
         )
     with pytest.raises(ValueError, match="address must be one VGPR pair"):
-        fwd_writer_module.Q6GlobalRead(1, cast(int, "v[2:3]"))
+        q6_physical_module.Q6GlobalRead(1, cast(int, "v[2:3]"))
     with pytest.raises(ValueError, match="does not match StoreVectorWidth"):
         emitter.store_bf16_clause("v[0:1]", (1, 2))
 
 
 def test_q6_semantic_emitter_derives_refill_pair_order_from_slots() -> None:
     selected = _q6_schedule(64)
-    emitter = fwd_writer_module.Q6ScheduleEmitter(selected, "refill")
-    first = fwd_writer_module.Q6GlobalRead(8, 2, local_write_slot=0)
-    second = fwd_writer_module.Q6GlobalRead(9, 2, local_write_slot=1)
+    emitter = q6_lowering_module.Q6ScheduleEmitter(selected, "refill")
+    first = q6_physical_module.Q6GlobalRead(8, 2, local_write_slot=0)
+    second = q6_physical_module.Q6GlobalRead(9, 2, local_write_slot=1)
     assert first.payload_assignment.first_register == 8
-    assert first.payload_assignment.role.lifetime == fwd_writer_module.RegisterLifetime(
-        6, 7
-    )
+    assert first.payload_assignment.role.lifetime == RegisterLifetime(6, 7)
     assert first.address_assignment.first_register == 2
     assert first.address_assignment.role.width == 2
-    assert first.address_assignment.role.lifetime == fwd_writer_module.RegisterLifetime(
-        5, 6
-    )
+    assert first.address_assignment.role.lifetime == RegisterLifetime(5, 6)
     emitter.global_read_clause((first, second))
-    emitter.commit_cooperative_global_reads(fwd_writer_module.Q6LdsLayout(1), 52)
+    emitter.commit_cooperative_global_reads(Q6LdsLayout(1), 52)
     emitted = str(emitter.module())
     assert "ds_store_2addr_stride64_b32 v52, v8, v9 offset0:1 offset1:3" in emitted
     with pytest.raises(ValueError, match="nonnegative"):
-        fwd_writer_module.Q6GlobalRead(1, 2, local_write_slot=-1)
+        q6_physical_module.Q6GlobalRead(1, 2, local_write_slot=-1)
 
-    duplicate = fwd_writer_module.Q6ScheduleEmitter(selected, "duplicate")
+    duplicate = q6_lowering_module.Q6ScheduleEmitter(selected, "duplicate")
     with pytest.raises(ValueError, match="duplicate Q6 local-write slot"):
         duplicate.global_read_clause(
             (
-                fwd_writer_module.Q6GlobalRead(8, 2, local_write_slot=0),
-                fwd_writer_module.Q6GlobalRead(9, 2, local_write_slot=0),
+                q6_physical_module.Q6GlobalRead(8, 2, local_write_slot=0),
+                q6_physical_module.Q6GlobalRead(9, 2, local_write_slot=0),
             )
         )
 
-    incomplete = fwd_writer_module.Q6ScheduleEmitter(selected, "incomplete")
+    incomplete = q6_lowering_module.Q6ScheduleEmitter(selected, "incomplete")
     incomplete.global_read_clause(
-        (fwd_writer_module.Q6GlobalRead(8, 2, local_write_slot=1),)
+        (q6_physical_module.Q6GlobalRead(8, 2, local_write_slot=1),)
     )
     with pytest.raises(ValueError, match="contiguous pairs"):
-        incomplete.commit_cooperative_global_reads(fwd_writer_module.Q6LdsLayout(1), 52)
+        incomplete.commit_cooperative_global_reads(Q6LdsLayout(1), 52)
 
 
 def test_q6_semantic_emitter_derives_vmem_waits_from_producers() -> None:
-    emitter = fwd_writer_module.Q6ScheduleEmitter(_q6_schedule(64), "waits")
+    emitter = q6_lowering_module.Q6ScheduleEmitter(_q6_schedule(64), "waits")
     reads = tuple(
-        fwd_writer_module.Q6GlobalRead(register, 2) for register in (8, 9, 10)
+        q6_physical_module.Q6GlobalRead(register, 2) for register in (8, 9, 10)
     )
-    assert reads[0].payload_assignment.role.lifetime == (
-        fwd_writer_module.RegisterLifetime(1, 4)
-    )
-    assert reads[0].address_assignment.role.lifetime == (
-        fwd_writer_module.RegisterLifetime(0, 1)
-    )
+    assert reads[0].payload_assignment.role.lifetime == (RegisterLifetime(1, 4))
+    assert reads[0].address_assignment.role.lifetime == (RegisterLifetime(0, 1))
     emitter.global_read_clause(reads)
     emitter.wait_for_global_sources((8, 9))
     emitter.wait_for_global_sources((8,))
@@ -462,13 +516,13 @@ def test_forward_writer_has_no_large_inline_assembly_collections() -> None:
         == ["opcode", "operands"]
     ]
     assert opaque_instruction_tables == []
-    assert "_q6_ordered_module" not in FWD_WRITER_SOURCE_PATH.read_text(
+    assert "_q6_ordered_module" not in Q6_LOWERING_SOURCE_PATH.read_text(
         encoding="utf-8"
     )
 
 
 def test_q6_decode_operands_are_typed_at_emission_boundary() -> None:
-    source = FWD_WRITER_SOURCE_PATH.read_text(encoding="utf-8")
+    source = Q6_LOWERING_SOURCE_PATH.read_text(encoding="utf-8")
     assert re.findall(r'"v\d+\.[lh]"', source) == []
     assert "_q6_narrow_decode_dwords" not in source
     assert "_q6_wide_decode_dwords" not in source
@@ -548,7 +602,7 @@ def test_q6_decode_operands_are_typed_at_emission_boundary() -> None:
 def test_q6_decode_plan_uses_semantic_atoms_and_pool_reuse(
     macro_tile0: int,
 ) -> None:
-    layout = fwd_writer_module._q6_physical_layout(_q6_schedule(macro_tile0))
+    layout = q6_lowering_module._q6_physical_layout(_q6_schedule(macro_tile0))
     plan = layout.decode
     assert len(plan.sources) == len(plan.outputs) == 16
     assert tuple(source.atom for source in plan.sources) == tuple(range(16))
@@ -567,7 +621,7 @@ def test_q6_decode_plan_uses_semantic_atoms_and_pool_reuse(
     )
     assert len(plan.activation_payload_registers) == 18 * layout.output_tile_rows - 2
 
-    decode = str(fwd_writer_module._q6_packed_decode(_q6_schedule(macro_tile0)))
+    decode = str(q6_lowering_module._q6_packed_decode(_q6_schedule(macro_tile0)))
     assert decode.count("v_add_nc_u32_e32") == 32
     assert decode.count("v_xor_b32_e32") == 32
     assert "0x60606060" in decode
@@ -576,7 +630,7 @@ def test_q6_decode_plan_uses_semantic_atoms_and_pool_reuse(
 
 @pytest.mark.parametrize("macro_tile0", (64, 128))
 def test_q6_ownership_plan_is_shared_by_decode_and_refill(macro_tile0: int) -> None:
-    layout = fwd_writer_module._q6_physical_layout(_q6_schedule(macro_tile0))
+    layout = q6_lowering_module._q6_physical_layout(_q6_schedule(macro_tile0))
     ownership = layout.ownership
     decode = layout.decode
     assert tuple(
@@ -601,7 +655,7 @@ def test_q6_ownership_plan_is_shared_by_decode_and_refill(macro_tile0: int) -> N
 
 def test_q6_bf16_pipeline_is_semantic_and_knob_driven() -> None:
     selected = _q6_schedule(64)
-    epilogue = str(fwd_writer_module._q6_bf16_epilogue(selected))
+    epilogue = str(q6_lowering_module._q6_bf16_epilogue(selected))
     assert epilogue.count("v_bfe_u32") == 32
     assert epilogue.count("v_or_b32_e32") == 32
     assert epilogue.count("v_cmp_u_f32_e32") == 32
@@ -613,17 +667,17 @@ def test_q6_bf16_pipeline_is_semantic_and_knob_driven() -> None:
     assert "v_bfe_u32 v47, v44, 16, 1" in epilogue
 
     width_one = str(
-        fwd_writer_module._q6_bf16_epilogue(
+        q6_lowering_module._q6_bf16_epilogue(
             replace(selected, epilogue_dependency_width=1)
         )
     )
     width_four = str(
-        fwd_writer_module._q6_bf16_epilogue(
+        q6_lowering_module._q6_bf16_epilogue(
             replace(selected, epilogue_dependency_width=4)
         )
     )
     full_tile = str(
-        fwd_writer_module._q6_bf16_epilogue(
+        q6_lowering_module._q6_bf16_epilogue(
             replace(selected, epilogue_pipeline_scope="FullTile")
         )
     )
@@ -633,7 +687,7 @@ def test_q6_bf16_pipeline_is_semantic_and_knob_driven() -> None:
 
 
 def test_forward_writer_has_no_numbered_schedule_fragments() -> None:
-    source = FWD_WRITER_SOURCE_PATH.read_text(encoding="utf-8")
+    source = Q6_LOWERING_SOURCE_PATH.read_text(encoding="utf-8")
     tree = ast.parse(source)
     q6_functions = [
         node
@@ -675,7 +729,7 @@ def test_forward_writer_has_no_numbered_schedule_fragments() -> None:
     assert "issue_slot" not in source
 
 
-def test_writer_rejects_missing_decoded_lds_layout() -> None:
+def test_decoded_lowering_uses_plan_owned_lds_layout() -> None:
     solution = ForwardSolution.q5_k_decoded_weight_lds_retained()
     key = SolutionKey(
         ProblemType.mmq_forward("Q5_K"),
@@ -683,40 +737,12 @@ def test_writer_rejects_missing_decoded_lds_layout() -> None:
         solution,
     )
     state = fwd_writer_module.DerivedForwardState.from_solution_key(key)
-    writer = ForwardKernelWriterAssembly.__new__(ForwardKernelWriterAssembly)
-    writer.solution_key = key
-    writer.state = replace(state, decoded_lds=None)
-    with pytest.raises(ForwardKernelWriterError, match="decoded LDS layout"):
-        writer._body_decoded_weight_lds()
-    with pytest.raises(ForwardKernelWriterError, match="decoded LDS layout"):
-        writer._emit_decoded_weight_lds_stage(
-            fwd_writer_module.Assembly(),
-            row_stride=176,
-            serial=238,
-            wave=236,
-            temporary=228,
-            lds_address=229,
-            auxiliary=230,
-            metadata_address=232,
-            staging_base=112,
-        )
-    with pytest.raises(ForwardKernelWriterError, match="decoded LDS layout"):
-        writer._emit_decoded_group_loop(
-            fwd_writer_module.Assembly(),
-            group_base=0,
-            weight_q=72,
-            metadata=80,
-            c_base=112,
-            low_activation_last=176,
-            high_activation_base=180,
-            activation_scale_sum_base=212,
-            scaled_dm_base=220,
-            sum_base=8,
-            lane=237,
-            lds_address=229,
-            weight_lds_base_address=234,
-            metadata_lds_base_address=232,
-        )
+    assert isinstance(state.physical_plan, DecodedWeightLdsPhysicalPlan)
+    physical = state.physical_plan
+    assert physical.layout.weight_row_stride == 304
+    assert physical.layout.total_bytes == 38_400
+    assert physical.resources.lds_bytes == physical.layout.total_bytes
+    assert physical.resources.vgprs == physical.registers.declared_vgprs == 239
 
 
 def test_writer_rejects_incomplete_decoded_epilogue_pipeline() -> None:
@@ -726,32 +752,52 @@ def test_writer_rejects_incomplete_decoded_epilogue_pipeline() -> None:
         ProblemSize(2048, 512, 2048),
         solution,
     )
-    writer = ForwardKernelWriterAssembly.__new__(ForwardKernelWriterAssembly)
-    writer.solution_key = key
+    writer = ForwardKernelWriterAssembly(key, Toolchain.discover())
     state = fwd_writer_module.DerivedForwardState.from_solution_key(key)
-    writer.state = replace(
+    state = replace(
         state,
         kernel_spec=replace(
             state.kernel_spec,
             epilogue=replace(state.kernel_spec.epilogue, pipeline=None),
         ),
     )
-    writer.toolchain = Toolchain.discover()
+    lowering = DecodedWeightLdsLowering(replace(writer.context, state=state))
     with pytest.raises(
         ForwardKernelWriterError,
         match="complete epilogue pipeline",
     ):
-        writer._emit_decoded_bf16_store(
-            fwd_writer_module.Assembly(),
-            size_n=512,
-            sum_base=8,
-            temporary=228,
-            auxiliary=230,
-            metadata_address=232,
-            wave_column_base=235,
-            lane=237,
-            serial=238,
-        )
+        lowering._emit_bf16_epilogue(Assembly())
+
+
+def test_mechanism_lowerers_and_facade_reject_unknown_sources() -> None:
+    key = SolutionKey(
+        ProblemType.mmq_forward("Q4_K"),
+        ProblemSize(2048, 512, 2048),
+        ForwardSolution.q4_k_pilot(),
+    )
+    writer = ForwardKernelWriterAssembly(key, Toolchain.discover())
+    invalid_state = replace(
+        writer.state,
+        kernel_spec=replace(
+            writer.state.kernel_spec,
+            global_memory=replace(
+                writer.state.kernel_spec.global_memory,
+                operand_source="Unknown",
+            ),
+        ),
+    )
+    invalid_context = replace(writer.context, state=invalid_state)
+    with pytest.raises(TypeError, match="unsupported direct packed operand source"):
+        PackedScaleMinimumDirectLowering(invalid_context).body()
+    with pytest.raises(
+        TypeError,
+        match="unsupported decoded-weight LDS operand source",
+    ):
+        DecodedWeightLdsLowering(invalid_context).body()
+    writer.state = invalid_state
+    writer.context = replace(writer.context, state=invalid_state)
+    with pytest.raises(TypeError, match="unsupported forward operand source"):
+        writer._body()
 
 
 def test_writer_emits_single_dependency_scheduled_epilogue() -> None:
@@ -772,7 +818,7 @@ def test_writer_emits_single_dependency_scheduled_epilogue() -> None:
 
 def test_small_m_q8_helpers_reject_invalid_fragment_counts() -> None:
     with pytest.raises(ValueError, match="two or four"):
-        Q8SmallMTiledLdsRegisterPlan.allocate(8)
+        SignedInt8SmallMTiledLdsRegisterPlan.allocate(8)
     writer = ForwardKernelWriterAssembly(
         SolutionKey(
             ProblemType.mmq_forward("Q8_0"),
@@ -781,55 +827,109 @@ def test_small_m_q8_helpers_reject_invalid_fragment_counts() -> None:
         ),
         Toolchain.discover(),
     )
+    lowering = SignedInt8ForwardLowering(writer.context)
+    physical = cast(
+        SignedInt8SmallMTiledLdsPhysicalPlan,
+        writer.context.state.physical_plan,
+    )
+    tiled_registers = SignedInt8TiledLdsRegisters.from_plan(physical.registers)
+    tiled_scale_layout = SignedInt8TiledLdsScaleLayout.from_layout(physical.layout)
     with pytest.raises(ValueError, match="2, 4, or 8"):
-        writer._emit_q8_hip_group(
-            fwd_writer_module.Assembly(),
+        lowering._emit_signed_int8_tiled_group(
+            Assembly(),
             0,
-            0,
-            8,
-            16,
-            24,
-            32,
-            40,
-            44,
-            52,
-            53,
-            54,
+            tiled_registers,
+            tiled_scale_layout,
             m_fragments=3,
-            zero_accumulator=60,
-        )
-    with pytest.raises(ValueError, match="paired-read address"):
-        writer._emit_q8_hip_group(
-            fwd_writer_module.Assembly(),
-            0,
-            0,
-            8,
-            16,
-            24,
-            32,
-            40,
-            44,
-            52,
-            53,
-            54,
-            m_fragments=2,
-            zero_accumulator=60,
-            weight_scale_element_stride=288,
-            weight_scale_pair_base_delta=1_152,
         )
     with pytest.raises(ValueError, match="2, 4, or 8"):
-        writer._emit_q8_hip_store(
-            fwd_writer_module.Assembly(),
-            8,
-            70,
-            78,
-            79,
-            80,
-            81,
+        lowering._emit_signed_int8_tiled_store(
+            Assembly(),
+            tiled_registers,
             ProblemSize(32, 129280, 4096),
             m_fragments=3,
         )
 
+    q3_writer = ForwardKernelWriterAssembly(
+        SolutionKey(
+            ProblemType.mmq_forward("Q3_K"),
+            ProblemSize(2048, 4096, 2048),
+            ForwardSolution.q3_k_hip_tiled_lds(),
+        ),
+        Toolchain.discover(),
+    )
+    with pytest.raises(TypeError, match="unsupported Q8 physical plan"):
+        SignedInt8ForwardLowering(q3_writer.context).body()
+
+
+def test_forward_physical_plans_reject_invalid_domains() -> None:
+    physical_source = FWD_PHYSICAL_SOURCE_PATH.read_text(encoding="utf-8")
+    physical_tree = ast.parse(physical_source)
+    imported_modules = {
+        node.module
+        for node in ast.walk(physical_tree)
+        if isinstance(node, ast.ImportFrom) and node.module is not None
+    }
+    assert not any(
+        module == "rocisa" or module.endswith(("toolchain", "inspection"))
+        for module in imported_modules
+    )
+    assert "Assembly(" not in physical_source
+
+    with pytest.raises(ValueError, match="index 0..3"):
+        SignedInt8MmaGroupRole.from_semantics(
+            QuantForwardSemantics.for_quant_type("Q8_0"), 4
+        )
+    invalid_signed_int8 = replace(
+        QuantForwardSemantics.for_quant_type("Q8_0"),
+        weight_bits=7,
+    )
+    with pytest.raises(ValueError, match="signed-int8 direct group"):
+        SignedInt8MmaGroupRole.from_semantics(invalid_signed_int8, 0)
+    with pytest.raises(ValueError, match="four 16x16 fragments"):
+        SignedInt8RegisterTiledRegisterPlan.allocate(1, 1)
+    with pytest.raises(ValueError, match="fixed HIP-shaped dimensions"):
+        SignedInt8WaveNTiledLdsLayout(allocation_padding_bytes=0)
+    with pytest.raises(ValueError, match="one or two output rows"):
+        q6_structured_physical_plan(3)
+
+    q3 = ForwardKernelSpec.from_solution(ForwardSolution.q3_k_hip_tiled_lds())
+    with pytest.raises(ValueError, match="Q3 HIP-shaped"):
+        derive_forward_physical_plan(
+            replace(q3, geometry=replace(q3.geometry, work_group=(32, 2, 1)))
+        )
+
+    q8_hip = ForwardKernelSpec.from_solution(ForwardSolution.q8_0_hip_tiled_lds())
+    with pytest.raises(ValueError, match="DepthU 32 or 64"):
+        derive_forward_physical_plan(
+            replace(q8_hip, geometry=replace(q8_hip.geometry, depth_u=48))
+        )
+
+    q8_small = ForwardKernelSpec.from_solution(
+        ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=32)
+    )
+    with pytest.raises(ValueError, match="MT32/MT64"):
+        derive_forward_physical_plan(
+            replace(
+                q8_small,
+                geometry=replace(q8_small.geometry, work_group=(32, 2, 1)),
+            )
+        )
+    with pytest.raises(ValueError, match="unsupported layout"):
+        derive_forward_physical_plan(
+            replace(q8_small, lds=replace(q8_small.lds, address_hoist="Unknown"))
+        )
+    with pytest.raises(ValueError, match="unsupported forward operand source"):
+        derive_forward_physical_plan(
+            replace(
+                q8_small,
+                global_memory=replace(q8_small.global_memory, operand_source="Unknown"),
+            )
+        )
+
 
 def test_writer_methods_have_complete_line_coverage() -> None:
+    for source_path in FWD_LOWERING_SOURCE_PATHS:
+        assert_writer_methods_have_complete_line_coverage(source_path)
+    assert_writer_methods_have_complete_line_coverage(FWD_PHYSICAL_SOURCE_PATH)
     assert_writer_methods_have_complete_line_coverage(FWD_WRITER_SOURCE_PATH)

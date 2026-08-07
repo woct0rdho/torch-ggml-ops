@@ -18,8 +18,10 @@ from tests.ggtensile.support import (
 from tools.ggtensile.kernel_writer_assembly_mmq_fwd import (
     ForwardKernelWriterAssembly,
     ForwardKernelWriterError,
-    Q8HipTiledLdsRegisterPlan,
-    Q8SmallMTiledLdsRegisterPlan,
+)
+from tools.ggtensile.mmq_fwd_physical import (
+    SignedInt8SmallMTiledLdsRegisterPlan,
+    SignedInt8WaveNTiledLdsRegisterPlan,
 )
 from tools.ggtensile.model import (
     ForwardSolution,
@@ -351,6 +353,25 @@ def test_q8_forward_validation_rejects_unimplemented_control_variants() -> None:
     ]
 
 
+def test_forward_reduction_multiple_follows_the_lowering_mechanism() -> None:
+    signed_int8 = _key(
+        "Q8_0",
+        ProblemSize(16, 16, 128),
+        ForwardSolution.q8_0_direct_global(),
+    )
+    assert validate_solution(signed_int8) == ()
+
+    packed_scale_minimum = _key(
+        "Q4_K",
+        ProblemSize(16, 16, 128),
+        ForwardSolution.q4_k_pilot(),
+    )
+    reasons = validate_solution(packed_scale_minimum)
+    assert [(reason.rule_id, reason.message) for reason in reasons] == [
+        ("problem_size.k.forward_tile_multiple", "K must be a positive multiple of 256")
+    ]
+
+
 def test_q3_forward_validation_rejects_unimplemented_control_variants() -> None:
     key = _key(
         "Q3_K",
@@ -424,7 +445,7 @@ def test_forward_writer_emits_q8_0_register_tiled_candidate(tmp_path: Path) -> N
 
 
 def test_forward_writer_emits_q8_0_hip_tiled_lds_control(tmp_path: Path) -> None:
-    registers = Q8HipTiledLdsRegisterPlan.allocate()
+    registers = SignedInt8WaveNTiledLdsRegisterPlan.allocate()
     assert registers.activation_read_address.first_register == (
         registers.activation_row.first_register
     )
@@ -492,7 +513,7 @@ def test_forward_writer_emits_q8_0_small_m_tiled_lds_control(
     load_count: int,
     read_count: int,
 ) -> None:
-    registers = Q8SmallMTiledLdsRegisterPlan.allocate(macro_tile_m // 16)
+    registers = SignedInt8SmallMTiledLdsRegisterPlan.allocate(macro_tile_m // 16)
     assert registers.register_count == register_count
     key = _key(
         "Q8_0",

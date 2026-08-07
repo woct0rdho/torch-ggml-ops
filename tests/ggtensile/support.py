@@ -28,12 +28,18 @@ SHARED_WRITER_SOURCE_PATH = _REPO_ROOT / "tools/ggtensile/kernel_writer_assembly
 FWD_WRITER_SOURCE_PATH = (
     _REPO_ROOT / "tools/ggtensile/kernel_writer_assembly_mmq_fwd.py"
 )
+FWD_PHYSICAL_SOURCE_PATH = _REPO_ROOT / "tools/ggtensile/mmq_fwd_physical.py"
+FWD_LOWERING_SOURCE_PATHS = tuple(
+    sorted((_REPO_ROOT / "tools/ggtensile").glob("mmq_fwd_lowering*.py"))
+)
 BWD_WRITER_SOURCE_PATH = (
     _REPO_ROOT / "tools/ggtensile/kernel_writer_assembly_mmq_bwd.py"
 )
 WRITER_SOURCE_PATHS = (
     SHARED_WRITER_SOURCE_PATH,
     FWD_WRITER_SOURCE_PATH,
+    FWD_PHYSICAL_SOURCE_PATH,
+    *FWD_LOWERING_SOURCE_PATHS,
     BWD_WRITER_SOURCE_PATH,
 )
 WRITER_EXECUTED_LINES = {path: set() for path in WRITER_SOURCE_PATHS}
@@ -72,11 +78,25 @@ def _writer_body_lines(path: Path) -> set[int]:
     tracked_classes = {
         SHARED_WRITER_SOURCE_PATH: {"Assembly"},
         FWD_WRITER_SOURCE_PATH: {"ForwardKernelWriterAssembly"},
+        FWD_PHYSICAL_SOURCE_PATH: {
+            node.name for node in tree.body if isinstance(node, ast.ClassDef)
+        },
         BWD_WRITER_SOURCE_PATH: {"_Assembly", "BackwardKernelWriterAssembly"},
     }.get(path, set())
+    if path in FWD_LOWERING_SOURCE_PATHS:
+        tracked_classes = {
+            node.name
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name != "ForwardBodyLowering"
+        }
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if path not in (SHARED_WRITER_SOURCE_PATH, FWD_WRITER_SOURCE_PATH):
+            if path not in (
+                SHARED_WRITER_SOURCE_PATH,
+                FWD_WRITER_SOURCE_PATH,
+                FWD_PHYSICAL_SOURCE_PATH,
+                *FWD_LOWERING_SOURCE_PATHS,
+            ):
                 continue
             first_body_line = node.body[0].lineno
             assert node.end_lineno is not None

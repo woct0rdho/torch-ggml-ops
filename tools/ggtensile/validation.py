@@ -1,8 +1,10 @@
 from dataclasses import dataclass, replace
 
 from .mmq_fwd_spec import (
+    ForwardMechanismContract,
     ForwardProblemContract,
     forward_kernel_spec_rejection_reason,
+    forward_mechanism_contract,
 )
 from .model import (
     BackwardSolution,
@@ -11,6 +13,7 @@ from .model import (
     ProblemType,
     SolutionKey,
 )
+from .quant_formats import QUANT_FORMATS
 
 
 @dataclass(frozen=True)
@@ -77,10 +80,11 @@ def _validate_forward_tile_multiples(
     solution: ForwardSolution,
     reasons: list[RejectReason],
 ) -> None:
+    mechanism = forward_mechanism_contract(solution.operand_source)
     for parameter, value, divisor in (
         ("M", problem_size.m, solution.macro_tile0),
         ("N", problem_size.n, solution.macro_tile1),
-        ("K", problem_size.k, 256),
+        ("K", problem_size.k, mechanism.reduction_values),
     ):
         if value <= 0 or divisor <= 0 or value % divisor:
             _reject(
@@ -115,7 +119,7 @@ def _is_forward_extraction(
     ) == replace(base, metadata_schedule="Serialized")
 
 
-def _validate_q6_forward_solution(
+def _validate_structured_q6_forward_solution(
     problem_size: ProblemSize,
     solution: ForwardSolution,
     reasons: list[RejectReason],
@@ -169,7 +173,7 @@ def _validate_q6_forward_solution(
         )
 
 
-def _validate_q3_forward_solution(
+def _validate_packed_3bit_forward_solution(
     problem_size: ProblemSize,
     solution: ForwardSolution,
     reasons: list[RejectReason],
@@ -185,7 +189,7 @@ def _validate_q3_forward_solution(
     _validate_forward_tile_multiples(problem_size, solution, reasons)
 
 
-def _validate_q8_forward_solution(
+def _validate_signed_int8_forward_solution(
     problem_size: ProblemSize,
     solution: ForwardSolution,
     reasons: list[RejectReason],
@@ -232,47 +236,78 @@ def _validate_q8_forward_solution(
     _validate_forward_tile_multiples(problem_size, solution, reasons)
 
 
-def _validate_q5_forward_solution(
+def _with_forward_contract(
+    solution: ForwardSolution,
+    contract: ForwardProblemContract,
+) -> ForwardSolution:
+    """Project one mechanism control onto an already validated data contract."""
+    return replace(
+        solution,
+        kernel_language=contract.kernel_language,
+        isa=contract.isa,
+        wavefront_size=contract.wavefront_size,
+        activation_layout=contract.activation_layout,
+        activation_block_bytes=contract.activation_block_bytes,
+        packed_weight_block_bytes=contract.packed_weight_block_bytes,
+        weight_decode=contract.weight_decode,
+        scale_arithmetic=contract.scale_arithmetic,
+        signed_weight=contract.signed_weight,
+        signed_activation=contract.signed_activation,
+        wmma_clamp=contract.wmma_clamp,
+    )
+
+
+def _validate_decoded_weight_lds_forward_solution(
     problem_size: ProblemSize,
     solution: ForwardSolution,
+    contract: ForwardProblemContract,
     reasons: list[RejectReason],
 ) -> None:
+    retained = _with_forward_contract(
+        ForwardSolution.q4_k_decoded_weight_lds_retained(),
+        contract,
+    )
     fixed = (
-        ForwardSolution.q5_k_decoded_weight_lds_retained(),
-        ForwardSolution.q5_k_decoded_weight_lds_metadata_after_low_wmma(),
+        retained,
+        replace(retained, metadata_schedule="MetadataAfterLowWmma"),
+    )
+    has_high_bit_plane = contract.weight_decode == "DirectNibbleHighBit"
+    metadata_schedules = (
+        ("IndependentExtractionMetadataAfterLowWmma",)
+        if has_high_bit_plane
+        else ("IndependentExtraction", "IndependentExtractionMetadataAfterLowWmma")
     )
     extraction = _is_forward_extraction(
         solution,
-        ForwardSolution.q5_k_decoded_weight_lds_retained(),
-        ("IndependentExtractionMetadataAfterLowWmma",),
+        retained,
+        metadata_schedules,
     )
     if solution not in fixed and not extraction:
+        message = (
+            "Q5_K forward implements retained decoded staging and explicit "
+            "extraction/epilogue policies"
+            if has_high_bit_plane
+            else "Q4_K forward implements direct global or decoded-staged "
+            "extraction/epilogue policies"
+        )
         _reject(
             reasons,
             "solution.forward.control.unimplemented",
-            "Q5_K forward implements retained decoded staging and explicit extraction/epilogue policies",
+            message,
             "Solution",
         )
         return
     _validate_forward_tile_multiples(problem_size, solution, reasons)
 
 
-def _validate_q4_forward_solution(
+def _validate_packed_scale_minimum_direct_forward_solution(
     problem_size: ProblemSize,
     solution: ForwardSolution,
+    contract: ForwardProblemContract,
     reasons: list[RejectReason],
 ) -> None:
-    fixed = (
-        ForwardSolution.q4_k_pilot(),
-        ForwardSolution.q4_k_decoded_weight_lds_retained(),
-        ForwardSolution.q4_k_decoded_weight_lds_metadata_after_low_wmma(),
-    )
-    extraction = _is_forward_extraction(
-        solution,
-        ForwardSolution.q4_k_decoded_weight_lds_retained(),
-        ("IndependentExtraction", "IndependentExtractionMetadataAfterLowWmma"),
-    )
-    if solution not in fixed and not extraction:
+    expected = _with_forward_contract(ForwardSolution.q4_k_pilot(), contract)
+    if solution != expected:
         _reject(
             reasons,
             "solution.forward.control.unimplemented",
@@ -283,17 +318,49 @@ def _validate_q4_forward_solution(
     _validate_forward_tile_multiples(problem_size, solution, reasons)
 
 
+def _validate_forward_mechanism_control(
+    mechanism: ForwardMechanismContract,
+    contract: ForwardProblemContract,
+    problem_size: ProblemSize,
+    solution: ForwardSolution,
+    reasons: list[RejectReason],
+) -> None:
+    lowering = mechanism.lowering
+    if lowering == "Packed3BitTiledLds":
+        _validate_packed_3bit_forward_solution(problem_size, solution, reasons)
+    elif lowering == "StructuredQ6":
+        _validate_structured_q6_forward_solution(problem_size, solution, reasons)
+    elif lowering == "DecodedWeightLds":
+        _validate_decoded_weight_lds_forward_solution(
+            problem_size,
+            solution,
+            contract,
+            reasons,
+        )
+    elif lowering == "PackedScaleMinimumDirect":
+        _validate_packed_scale_minimum_direct_forward_solution(
+            problem_size,
+            solution,
+            contract,
+            reasons,
+        )
+    elif lowering == "SignedInt8":
+        _validate_signed_int8_forward_solution(
+            problem_size,
+            solution,
+            reasons,
+        )
+    else:
+        raise AssertionError(f"unknown forward lowering {lowering!r}")
+
+
 def _validate_forward_solution(
     solution_key: SolutionKey, reasons: list[RejectReason]
 ) -> None:
     problem_type = solution_key.problem_type
     solution = solution_key.solution
     supported_problem_types = {
-        ProblemType.mmq_forward("Q3_K"),
-        ProblemType.mmq_forward("Q4_K"),
-        ProblemType.mmq_forward("Q5_K"),
-        ProblemType.mmq_forward("Q6_K"),
-        ProblemType.mmq_forward("Q8_0"),
+        ProblemType.mmq_forward(quant_type) for quant_type in QUANT_FORMATS
     }
     if problem_type not in supported_problem_types:
         _reject(
@@ -328,19 +395,44 @@ def _validate_forward_solution(
             source="ForwardProblemContract",
         )
         return
-    if problem_type.quant_data_type == "Q8_0" and solution not in {
-        ForwardSolution.q8_0_direct_global(),
-        ForwardSolution.q8_0_register_tiled(wave_tile_m=1, wave_tile_n=4),
-        ForwardSolution.q8_0_register_tiled(wave_tile_m=2, wave_tile_n=2),
-        ForwardSolution.q8_0_register_tiled(wave_tile_m=4, wave_tile_n=1),
-        ForwardSolution.q8_0_hip_tiled_lds(),
-        ForwardSolution.q8_0_hip_tiled_lds_depth64(),
-        ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=32),
-        ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=64),
-        ForwardSolution.q8_0_kv_tiled_lds(),
-    }:
-        _validate_q8_forward_solution(solution_key.problem_size, solution, reasons)
+    contract = ForwardProblemContract.from_solution(
+        problem_type.quant_data_type,
+        solution,
+    )
+    try:
+        mechanism = forward_mechanism_contract(solution.operand_source)
+    except ValueError as error:
+        _reject(
+            reasons,
+            "solution.forward.kernel_spec",
+            str(error),
+            "OperandSource",
+            source="ForwardMechanismContract",
+        )
         return
+    mechanism_rejection = mechanism.rejection_reason(contract)
+    if mechanism_rejection is not None:
+        _reject(
+            reasons,
+            "solution.forward.problem_contract",
+            mechanism_rejection,
+            "Solution",
+            source="ForwardMechanismContract",
+        )
+        return
+
+    problem_size = solution_key.problem_size
+    if mechanism.lowering == "SignedInt8":
+        _validate_forward_mechanism_control(
+            mechanism,
+            contract,
+            problem_size,
+            solution,
+            reasons,
+        )
+        if reasons:
+            return
+
     spec_rejection = forward_kernel_spec_rejection_reason(solution)
     if spec_rejection is not None:
         _reject(
@@ -351,18 +443,14 @@ def _validate_forward_solution(
             source="ForwardKernelSpec",
         )
         return
-
-    problem_size = solution_key.problem_size
-    if problem_type.quant_data_type == "Q3_K":
-        _validate_q3_forward_solution(problem_size, solution, reasons)
-    elif problem_type.quant_data_type == "Q6_K":
-        _validate_q6_forward_solution(problem_size, solution, reasons)
-    elif problem_type.quant_data_type == "Q8_0":
-        _validate_q8_forward_solution(problem_size, solution, reasons)
-    elif problem_type.quant_data_type == "Q5_K":
-        _validate_q5_forward_solution(problem_size, solution, reasons)
-    else:
-        _validate_q4_forward_solution(problem_size, solution, reasons)
+    if mechanism.lowering != "SignedInt8":
+        _validate_forward_mechanism_control(
+            mechanism,
+            contract,
+            problem_size,
+            solution,
+            reasons,
+        )
 
 
 def _validate_backward_problem_size(
