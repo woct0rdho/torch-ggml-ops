@@ -126,10 +126,10 @@ def test_forward_campaign_inventory_is_exact_and_versionless(
     assert all(entry.quant_data_type == case.quant_type for entry in inventory.entries)
     if case.quant_type == "Q8_0":
         assert {entry.selected_solution for entry in inventory.entries} == {
-            "hip_fallback",
             "hip_tiled_lds_selected",
             "small_m32_tiled_lds_selected",
             "small_m64_tiled_lds_selected",
+            "kv_compact_m64_tiled_lds_selected",
         }
     assert all(
         validate_solution(key) == ()
@@ -521,6 +521,38 @@ def test_q8_0_small_m_tiled_lds_rejects_non_lm_head_shapes() -> None:
     assert any(
         "exact for LM-head" in reason.message for reason in validate_solution(key)
     )
+
+
+def test_forward_writer_emits_q8_0_kv_compact_m64_tiled_lds_control(
+    tmp_path: Path,
+) -> None:
+    key = _key(
+        "Q8_0",
+        ProblemSize(2048, 512, 4096),
+        ForwardSolution.q8_0_kv_tiled_lds(),
+    )
+    assert validate_solution(key) == ()
+    writer = ForwardKernelWriterAssembly(key, Toolchain.discover())
+    source = writer.source()
+    assembly = tmp_path / "q8_0_kv_compact_m64_tiled_lds.s"
+    assert writer.write(assembly) == hashlib.sha256(source.encode()).hexdigest()
+    assert source.count("v_wmma_i32_16x16x16_iu8") == 32
+    assert source.count("global_load_b128") == 8
+    assert source.count("ds_read_b128") == 40
+    assert source.count("global_store_d16_hi_b16") == 32
+    assert source.count("s_barrier") == 2
+    assert source.count("ds_read2_b32") == 16
+    assert source.count("ds_read2st64_b32") == 0
+    assert source.count(", 1152, v128") == 1
+    assert "offset0:179 offset1:251" in source
+    assert "offset:128" in source
+    assert "offset:608" not in source
+    first_weight_load = source.index("global_load_b128 v[64:67], v8, s[4:5] offset:2")
+    first_activation_load = source.index(
+        "global_load_b128 v[72:75], v130, s[6:7] offset:16"
+    )
+    assert first_weight_load < first_activation_load
+    assert source.index("s_waitcnt vmcnt(6)") < source.index("s_waitcnt vmcnt(3)")
 
 
 def test_forward_writer_emits_q3_k_hip_tiled_lds_control(tmp_path: Path) -> None:

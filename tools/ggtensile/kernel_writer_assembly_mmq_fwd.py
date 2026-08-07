@@ -27,6 +27,8 @@ from .mmq_fwd_spec import (
     Q6LdsLayout,
     Q6SemanticPlan,
     Q6SemanticStage,
+    Q8KvTiledLdsLayout,
+    Q8SmallMTiledLdsLayout,
     QuantForwardSemantics,
     q6_schedule_from_kernel_spec,
 )
@@ -4666,9 +4668,17 @@ class ForwardKernelWriterAssembly:
         output_address = registers.output_address.first_register
         store_auxiliary = registers.store_auxiliary.first_register
 
-        activation_lds_row_stride = self.state.contract.activation_block_bytes
-        weight_lds_base = macro_tile_m * activation_lds_row_stride
-        weight_lds_row_stride = 304
+        layout = (
+            Q8KvTiledLdsLayout()
+            if self.state.kernel_spec.lds.address_hoist == "KvCompactTile"
+            else Q8SmallMTiledLdsLayout(macro_tile_m)
+        )
+        activation_lds_row_stride = layout.activation_row_stride
+        weight_lds_base = layout.weight_base
+        weight_lds_row_stride = layout.weight_row_stride
+        weight_lds_scale_offset = layout.weight_scale_offset
+        weight_scale_element_stride = layout.weight_scale_element_stride
+        weight_scale_pair_base_delta = layout.weight_scale_pair_base_delta
 
         asm.comment("Load pointers for an exact small-M wave-N Q8 tile.")
         emit_pointer_kernarg_loads(asm, self.KERNARG)
@@ -4753,14 +4763,6 @@ class ForwardKernelWriterAssembly:
         asm.inst(f"s_mov_b32 s{self.LOOP_COUNTER}, 0")
 
         asm.label(".LForwardQ80SmallMTiledLdsBlockLoop")
-        self._emit_q8_small_m_activation_loads(
-            asm,
-            activation_address,
-            activation_scale_stage_address,
-            activation_payloads,
-            activation_scales,
-            groups_per_lane,
-        )
         self._emit_q8_hip_weight_stage(
             asm,
             weight_address,
@@ -4773,11 +4775,12 @@ class ForwardKernelWriterAssembly:
             lane,
             temporary,
             group_base=0,
+            weight_lds_scale_offset=weight_lds_scale_offset,
         )
-        self._emit_q8_small_m_activation_writes(
+        self._emit_q8_small_m_activation_loads(
             asm,
-            activation_lds_address,
-            activation_scale_lds_address,
+            activation_address,
+            activation_scale_stage_address,
             activation_payloads,
             activation_scales,
             groups_per_lane,
@@ -4790,6 +4793,16 @@ class ForwardKernelWriterAssembly:
             weight_scale_stage_address,
             temporary,
             group_base=0,
+            wait_counts=(6, 0),
+        )
+        self._emit_q8_small_m_activation_writes(
+            asm,
+            activation_lds_address,
+            activation_scale_lds_address,
+            activation_payloads,
+            activation_scales,
+            groups_per_lane,
+            trailing_weight_vmem=0,
         )
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
@@ -4808,6 +4821,11 @@ class ForwardKernelWriterAssembly:
             f"v_add_nc_u32 v{weight_scale_address}, {weight_lds_base}, "
             f"v{weight_scale_address}"
         )
+        if weight_scale_pair_base_delta is not None:
+            asm.inst(
+                f"v_add_nc_u32 v{temporary}, {weight_scale_pair_base_delta}, "
+                f"v{weight_scale_address}"
+            )
         for group in range(4):
             self._emit_q8_hip_group(
                 asm,
@@ -4824,6 +4842,12 @@ class ForwardKernelWriterAssembly:
                 activation_read_address,
                 m_fragments=m_fragments,
                 zero_accumulator=zero_accumulator,
+                weight_lds_scale_offset=weight_lds_scale_offset,
+                weight_scale_element_stride=weight_scale_element_stride,
+                weight_scale_pair_base_delta=weight_scale_pair_base_delta,
+                weight_scale_pair_address=(
+                    temporary if weight_scale_pair_base_delta is not None else None
+                ),
             )
         asm.inst("s_barrier")
         asm.inst(
@@ -5141,9 +5165,9 @@ class ForwardKernelWriterAssembly:
         activation_payloads: int,
         activation_scales: int,
         groups_per_lane: int,
+        trailing_weight_vmem: int = 6,
     ) -> None:
         """Commit one lane's small-M activation-row share after its VMEM reads."""
-        trailing_weight_vmem = 6
         for group in range(groups_per_lane):
             wait_count = 3 * (groups_per_lane - group - 1) + trailing_weight_vmem
             asm.inst(f"s_waitcnt vmcnt({wait_count})")
@@ -5224,9 +5248,9 @@ class ForwardKernelWriterAssembly:
         temporary: int,
         *,
         group_base: int,
+        weight_lds_scale_offset: int = 256,
     ) -> None:
         """Stage four packed Q8_0 groups and their FP32 scales in LDS."""
-        weight_lds_scale_offset = 256
         asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{lane}")
         asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
         asm.inst(f"v_mul_lo_u32 v{weight_stage_address}, 68, v{temporary}")
@@ -5282,9 +5306,10 @@ class ForwardKernelWriterAssembly:
         lds_address: int,
         *,
         group_base: int,
+        wait_counts: tuple[int, int] = (3, 0),
     ) -> None:
         """Commit the packed-weight loads after their VMEM dependencies mature."""
-        for group, wait_count in enumerate((3, 0)):
+        for group, wait_count in enumerate(wait_counts):
             asm.inst(f"s_waitcnt vmcnt({wait_count})")
             payload = weight_payload if group == 0 else weight_stage_payload
             asm.inst(
@@ -5322,12 +5347,15 @@ class ForwardKernelWriterAssembly:
         activation_group: int | None = None,
         m_fragments: int = 8,
         zero_accumulator: int,
+        weight_lds_scale_offset: int = 256,
+        weight_scale_element_stride: int = 608,
+        weight_scale_pair_base_delta: int | None = None,
+        weight_scale_pair_address: int | None = None,
     ) -> None:
         """Read one staged Q8 group and accumulate eight activation fragments."""
         if m_fragments not in (2, 4, 8):
             raise ValueError("Q8 HIP-shaped group requires 2, 4, or 8 M fragments")
         activation_group = group if activation_group is None else activation_group
-        weight_lds_scale_offset = 256
         weight_offset = 32 * group
         asm.inst(
             f"ds_read_b128 v[{weight_payload}:{weight_payload + 3}], "
@@ -5339,12 +5367,32 @@ class ForwardKernelWriterAssembly:
             f"v{weight_lds_address} "
             f"offset:{weight_offset + 16}"
         )
-        for element in range(8):
-            asm.inst(
-                f"ds_read_b32 v{weight_scales + element}, "
-                f"v{weight_scale_address} "
-                f"offset:{weight_lds_scale_offset + 608 * element + 4 * group}"
-            )
+        if weight_scale_pair_base_delta is not None:
+            if weight_scale_pair_address is None:
+                raise ValueError("compact Q8 scale reads require a paired-read address")
+            for pair in range(4):
+                relative_element = 2 * (pair % 2)
+                address = (
+                    weight_scale_address if pair < 2 else weight_scale_pair_address
+                )
+                offset0 = (
+                    weight_lds_scale_offset
+                    + weight_scale_element_stride * relative_element
+                    + 4 * group
+                ) // 4
+                offset1 = offset0 + weight_scale_element_stride // 4
+                asm.inst(
+                    f"ds_read2_b32 "
+                    f"v[{weight_scales + 2 * pair}:{weight_scales + 2 * pair + 1}], "
+                    f"v{address} offset0:{offset0} offset1:{offset1}"
+                )
+        else:
+            for element in range(8):
+                asm.inst(
+                    f"ds_read_b32 v{weight_scales + element}, "
+                    f"v{weight_scale_address} "
+                    f"offset:{weight_lds_scale_offset + weight_scale_element_stride * element + 4 * group}"
+                )
         for m_index in range(m_fragments):
             payload = activation_payloads + 8 * m_index
             activation_row_offset = (

@@ -599,12 +599,18 @@ class Q8SmallMTiledLdsLayout:
     weight_rows: int = 64
     activation_row_stride: int = Q8_1_F32_D4_BLOCK_BYTES
     weight_row_stride: int = 304
+    weight_scale_offset: int = 256
 
     def __post_init__(self) -> None:
         if self.activation_rows not in (32, 64):
             raise ValueError("Q8 small-M LDS layout requires 32 or 64 rows")
         if (
-            min(self.weight_rows, self.activation_row_stride, self.weight_row_stride)
+            min(
+                self.weight_rows,
+                self.activation_row_stride,
+                self.weight_row_stride,
+                self.weight_scale_offset,
+            )
             <= 0
         ):
             raise ValueError("Q8 small-M LDS dimensions must be positive")
@@ -620,6 +626,59 @@ class Q8SmallMTiledLdsLayout:
     @property
     def weight_bytes(self) -> int:
         return self.weight_rows * self.weight_row_stride
+
+    @property
+    def weight_scale_element_stride(self) -> int:
+        return 2 * self.weight_row_stride
+
+    @property
+    def weight_scale_pair_base_delta(self) -> int | None:
+        return None
+
+    @property
+    def total_bytes(self) -> int:
+        return self.activation_bytes + self.weight_bytes
+
+
+@dataclass(frozen=True)
+class Q8KvTiledLdsLayout:
+    """Formula-derived compact depth-32 LDS planes for exact KV M2048."""
+
+    activation_rows: int = 64
+    weight_rows: int = 64
+    activation_row_stride: int = Q8_1_F32_D4_BLOCK_BYTES
+    weight_row_stride: int = 144
+    weight_scale_offset: int = 128
+
+    def __post_init__(self) -> None:
+        if (
+            self.activation_rows,
+            self.weight_rows,
+            self.activation_row_stride,
+            self.weight_row_stride,
+            self.weight_scale_offset,
+        ) != (64, 64, Q8_1_F32_D4_BLOCK_BYTES, 144, 128):
+            raise ValueError("Q8 KV LDS layout has fixed depth-32 dimensions")
+
+    @property
+    def activation_bytes(self) -> int:
+        return self.activation_rows * self.activation_row_stride
+
+    @property
+    def weight_base(self) -> int:
+        return self.activation_bytes
+
+    @property
+    def weight_bytes(self) -> int:
+        return self.weight_rows * self.weight_row_stride
+
+    @property
+    def weight_scale_element_stride(self) -> int:
+        return 2 * self.weight_row_stride
+
+    @property
+    def weight_scale_pair_base_delta(self) -> int:
+        return 4 * self.weight_scale_element_stride
 
     @property
     def total_bytes(self) -> int:
@@ -759,7 +818,12 @@ def derive_forward_resource_usage(spec: "ForwardKernelSpec") -> ForwardResourceU
             raise ValueError(
                 "Q8 small-M LDS control requires MT32/MT64 x N64, DepthU 32"
             )
-        layout = Q8SmallMTiledLdsLayout(macro_tile_m)
+        if spec.lds.address_hoist == "SmallMTile":
+            layout = Q8SmallMTiledLdsLayout(macro_tile_m)
+        elif spec.lds.address_hoist == "KvCompactTile" and macro_tile_m == 64:
+            layout = Q8KvTiledLdsLayout()
+        else:
+            raise ValueError("Q8 small-M LDS control has an unsupported layout")
         return ForwardResourceUsage(
             vgprs=96 if macro_tile_m == 32 else 144,
             sgprs=16,
@@ -847,6 +911,24 @@ def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | Non
         )
     if q8_hip_tiled_lds and solution.depth_u not in (32, 64):
         return "Q8 HIP-shaped LDS controls require DepthU 32 or 64"
+    if q8_hip_tiled_lds and solution.lds_address_hoist != "HipTile":
+        return "Q8 HIP-shaped LDS control has an unsupported layout"
+    if q8_small_m_tiled_lds and solution.lds_address_hoist not in {
+        "SmallMTile",
+        "KvCompactTile",
+    }:
+        return "Q8 small-M LDS control has an unsupported layout"
+    if (
+        q8_small_m_tiled_lds
+        and solution.lds_address_hoist == "KvCompactTile"
+        and (
+            solution.macro_tile0 != 64
+            or solution.macro_tile1 != 64
+            or solution.depth_u != 32
+            or solution.work_group != (32, 4, 1)
+        )
+    ):
+        return "Q8 KV compact LDS control requires WG32x4, MT64x64, and DepthU 32"
     inactive_checks: list[tuple[bool, str]] = []
     if structured_q6:
         inactive_checks.extend(

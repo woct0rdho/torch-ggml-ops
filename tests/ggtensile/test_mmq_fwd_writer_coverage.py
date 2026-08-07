@@ -798,6 +798,25 @@ def test_small_m_q8_helpers_reject_invalid_fragment_counts() -> None:
             m_fragments=3,
             zero_accumulator=60,
         )
+    with pytest.raises(ValueError, match="paired-read address"):
+        writer._emit_q8_hip_group(
+            fwd_writer_module.Assembly(),
+            0,
+            0,
+            8,
+            16,
+            24,
+            32,
+            40,
+            44,
+            52,
+            53,
+            54,
+            m_fragments=2,
+            zero_accumulator=60,
+            weight_scale_element_stride=288,
+            weight_scale_pair_base_delta=1_152,
+        )
     with pytest.raises(ValueError, match="2, 4, or 8"):
         writer._emit_q8_hip_store(
             fwd_writer_module.Assembly(),

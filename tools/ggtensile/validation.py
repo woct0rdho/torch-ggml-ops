@@ -199,6 +199,7 @@ def _validate_q8_forward_solution(
         ForwardSolution.q8_0_hip_tiled_lds_depth64(),
         ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=32),
         ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=64),
+        ForwardSolution.q8_0_kv_tiled_lds(),
     }:
         _reject(
             reasons,
@@ -207,7 +208,17 @@ def _validate_q8_forward_solution(
             "Solution",
         )
         return
-    if solution.operand_source == "Q8SmallMTiledLds":
+    if solution == ForwardSolution.q8_0_kv_tiled_lds():
+        expected_size = ProblemSize(2048, 512, 4096)
+        if problem_size != expected_size:
+            _reject(
+                reasons,
+                "problem_size.q8.kv.exact",
+                f"Q8 KV compact LDS control is exact for {expected_size.to_mapping()}",
+                "ProblemSize",
+            )
+            return
+    elif solution.operand_source == "Q8SmallMTiledLds":
         expected_size = ProblemSize(solution.macro_tile0, 129_280, 4096)
         if problem_size != expected_size:
             _reject(
@@ -326,6 +337,7 @@ def _validate_forward_solution(
         ForwardSolution.q8_0_hip_tiled_lds_depth64(),
         ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=32),
         ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=64),
+        ForwardSolution.q8_0_kv_tiled_lds(),
     }:
         _validate_q8_forward_solution(solution_key.problem_size, solution, reasons)
         return

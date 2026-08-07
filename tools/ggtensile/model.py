@@ -739,6 +739,14 @@ class ForwardSolution:
         )
 
     @classmethod
+    def q8_0_kv_tiled_lds(cls) -> Self:
+        """Return the exact KV M2048 compact depth-32 LDS control."""
+        return replace(
+            cls.q8_0_small_m_tiled_lds(macro_tile0=64),
+            lds_address_hoist="KvCompactTile",
+        )
+
+    @classmethod
     def q4_k_decoded_weight_lds_extraction(
         cls,
         *,

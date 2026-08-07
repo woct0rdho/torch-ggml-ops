@@ -14,6 +14,7 @@ from tools.ggtensile.mmq_fwd_spec import (
     Q6LdsLayout,
     Q6SemanticPlan,
     Q6SemanticStage,
+    Q8KvTiledLdsLayout,
     Q8SmallMTiledLdsLayout,
     QuantForwardSemantics,
     ResourceLimits,
@@ -254,6 +255,7 @@ def test_complete_candidate_round_trips_to_the_normal_build_solution() -> None:
             ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=64),
             (144, 16, 28_672),
         ),
+        (ForwardSolution.q8_0_kv_tiled_lds(), (144, 16, 18_432)),
     ),
 )
 def test_forward_resources_are_derived_from_the_kernel_spec(
@@ -279,6 +281,17 @@ def test_q8_small_m_layout_derives_exact_lds_planes() -> None:
     assert m64.total_bytes == 28_672
     with pytest.raises(ValueError, match="requires 32 or 64 rows"):
         Q8SmallMTiledLdsLayout(128)
+
+
+def test_q8_kv_layout_derives_compact_lds_planes() -> None:
+    layout = Q8KvTiledLdsLayout()
+    assert layout.activation_bytes == layout.weight_base == 9_216
+    assert layout.weight_row_stride == 144
+    assert layout.weight_scale_offset == 128
+    assert layout.weight_scale_element_stride == 288
+    assert layout.weight_scale_pair_base_delta == 1_152
+    assert layout.weight_bytes == 9_216
+    assert layout.total_bytes == 18_432
 
 
 def test_q6_lds_layout_derives_selected_plane_offsets() -> None:

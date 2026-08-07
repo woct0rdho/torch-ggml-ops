@@ -228,6 +228,7 @@ MMQ_FWD_INVENTORY_CASES = (
                 "hip_tiled_lds_selected",
                 "small_m32_tiled_lds_selected",
                 "small_m64_tiled_lds_selected",
+                "kv_compact_m64_tiled_lds_selected",
             }
         ),
     ),
