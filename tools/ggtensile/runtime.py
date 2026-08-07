@@ -320,7 +320,7 @@ class FixedHipForwardModule(ForwardModule):
         quant_type = solution_key.problem_type.quant_data_type
         k = solution_key.problem_size.k
         allowed_k = {
-            "Q3_K": (2048,),
+            "Q3_K": (2048, 4096),
             "Q4_K": (512, 2048, 4096),
             "Q5_K": (512, 2048),
             "Q6_K": (2048,),
@@ -336,7 +336,9 @@ class FixedHipForwardModule(ForwardModule):
         m = solution_key.problem_size.m
         j = 64 if quant_type == "Q6_K" and m == 64 else 128
         suffix = f"k{k}_j{j}_full"
-        if quant_type == "Q8_0" and m in (32, 64):
+        if quant_type == "Q3_K" and k == 4096:
+            suffix = "j128"
+        elif quant_type == "Q8_0" and m in (32, 64):
             if k != 4096:
                 raise HIPRuntimeError(
                     f"installed Q8_0 J64 control does not support K={k}"

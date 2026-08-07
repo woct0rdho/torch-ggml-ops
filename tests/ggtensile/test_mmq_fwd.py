@@ -857,6 +857,48 @@ def test_q3_forward_runtime_uses_exact_candidate_and_hip_geometry() -> None:
 
 
 @pytest.mark.parametrize(
+    ("k", "suffix"),
+    ((2048, "k2048_j128_full"), (4096, "j128")),
+)
+def test_q3_fixed_hip_runtime_selects_exact_or_generic_installed_kernel(
+    monkeypatch: pytest.MonkeyPatch,
+    k: int,
+    suffix: str,
+) -> None:
+    key = _key(
+        "Q3_K",
+        ProblemSize(2048, 2048, k),
+        ForwardSolution.q3_k_hip_tiled_lds(),
+    )
+    selected: dict[str, object] = {}
+
+    def capture_init(
+        self: ForwardModule,
+        solution_key: SolutionKey,
+        code_object: Path,
+        hip_library: Path | None = None,
+        *,
+        kernel_name: str | None = None,
+    ) -> None:
+        selected.update(
+            solution_key=solution_key,
+            code_object=code_object,
+            hip_library=hip_library,
+            kernel_name=kernel_name,
+        )
+
+    monkeypatch.setattr(ForwardModule, "__init__", capture_init)
+    code_object = Path("q3-hip-oracle.hsaco")
+    FixedHipForwardModule(key, code_object=code_object)
+    assert selected == {
+        "solution_key": key,
+        "code_object": code_object,
+        "hip_library": None,
+        "kernel_name": ("torch_ggml_ops_mmq_gfx1151_v1_dense_fwd_q3_k_" + suffix),
+    }
+
+
+@pytest.mark.parametrize(
     ("m", "macro_tile0", "grid_y"),
     (
         (64, 64, 1),

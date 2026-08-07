@@ -125,3 +125,40 @@ The final recursive review reread this record, the generic GGTensile plan, the Q
 - No actionable in-contract mechanism remains under the fixed exact shape, ABI, LDS layout, wave ownership, and zero-spill resource contract. The remaining measured envelope is the 144-VGPR body at 128 WMMAs, 370 LDS operations, 91 VMEM operations, 21 waits, and 1,028 VOPD instructions; every identified traffic, lifetime, scale-correction, and register-class opportunity either is retained or has an exact rejection. The final control beats HIP on both required paths, so there is no residual performance deficit requiring an unmeasured mechanism.
 
 The campaign is complete for this isolated Q3 exact shape. Production remains on HIP until a separate promotion phase validates additional exact keys and makes an explicit catalog/dispatch decision; no public boundary changed in this campaign.
+
+## Dense Expansion Campaign
+
+The dense campaign is reopened against the local `Qwen3.6-35B-A3B-APEX-I-Mini.gguf` model. Direct GGUF enumeration found 159 Q3_K tensors in seven logical shape classes. The dense MMQ scope contains the four 2-D matrix families whose dimensions satisfy the existing 64-column dense tile contract, each at flattened activation rows `M={2048,8192,32768}`:
+
+| Family | Logical weight `(N,K)` | Representative tensor | Tensor count | Exact keys |
+| --- | ---: | --- | ---: | ---: |
+| attention K | `(512,2048)` | `blk.3.attn_k.weight` | 9 | 3 |
+| attention Q | `(8192,2048)` | `blk.3.attn_q.weight` | 9 | 3 |
+| attention gate | `(4096,2048)` | `blk.4.attn_gate.weight` | 25 | 3 |
+| SSM output | `(2048,4096)` | `blk.4.ssm_out.weight` | 25 | 3 |
+
+The 40 three-dimensional `(256,512,2048)` expert tensors belong to grouped MMQ and are excluded from this dense campaign. The 50 `(32,2048)` SSM alpha/beta tensors do not satisfy the dense 64-column tile and installed HIP MMQ control contract. `token_embd.weight` is an embedding lookup rather than a dense MMQ call. The model output tensor is Q6_K and remains covered by its separate campaign.
+
+The initial priority follows estimated weighted matrix work before measurement: the 25-call attention-gate and SSM-output families first, then the wider nine-call attention-Q family, then attention K. Within each family the `M=32768` and `M=8192` keys receive the first optimization attention, while every exact key must independently beat HIP multiply before selection. The existing `(2048,4096,2048)` attention-gate control is a qualified seed, not evidence for another key. Baseline work will regenerate the current seed for all 12 keys, measure serial warmed HIP and GGTensile medians, and replace this estimate with measured weighted latency.
+
+### Current-Control Expansion Screen
+
+The first serial screen regenerated the final 144-VGPR prefetch control for every key. All nine `K=2048` runs passed exact candidate/HIP and candidate/public agreement, finiteness, producer repeatability, and input, packed-weight, and workspace mutation gates. Independent-reference work was intentionally deferred from this prioritization screen. Every artifact inspected at 144 VGPRs, 16 SGPRs, 28,672 LDS bytes, zero private bytes, zero spills, 128 static WMMAs, 2,757 VALU issues, 91 VMEM operations, 370 LDS operations, 21 waits, and eight clauses.
+
+| Family | `M` | HIP multiply | Control multiply | Control/HIP |
+| --- | ---: | ---: | ---: | ---: |
+| attention K | 2048 | `1.307646 ms` | `2.523370 ms` | `1.92970x` |
+| attention K | 8192 | `1.775234 ms` | `3.394456 ms` | `1.91212x` |
+| attention K | 32768 | `3.799897 ms` | `5.382511 ms` | `1.41649x` |
+| attention Q | 2048 | `3.787316 ms` | `5.427558 ms` | `1.43309x` |
+| attention Q | 8192 | `12.774316 ms` | `13.717089 ms` | `1.07380x` |
+| attention Q | 32768 | `48.742268 ms` | `48.143223 ms` | `0.98771x` |
+| attention gate | 2048 | `2.438180 ms` | `4.216428 ms` | `1.72933x` |
+| attention gate | 8192 | `6.799119 ms` | `8.019713 ms` | `1.17952x` |
+| attention gate | 32768 | `24.866899 ms` | `25.330601 ms` | `1.01865x` |
+
+These ratios are prioritization evidence only. The regenerated attention-gate `M=2048` source and code object are byte-identical to the final isolated qualification artifact, but a second 25-repeat run measured `1.72433x` instead of the prior retained `0.9380x`. A clock monitor showed the gfx1151 shader clock ramping from approximately 0.66 GHz to only 2.13 GHz during a short process despite a 2.9 GHz ceiling. The control and HIP paths respond differently to this cold operating range, so future screens use materially longer in-process warmup while remaining below five minutes per experiment.
+
+The first `K=4096` run generated, built, and inspected cleanly with the same resource envelope, but benchmarking initially stopped before launch because `FixedHipForwardModule` rejected Q3_K when `K != 2048`. The tooling oracle now selects the existing exact installed `k2048_j128_full` symbol for `K=2048` and the already bundled generic `j128` symbol for `K=4096`; focused tests lock both choices and preserve the 40,448-byte Q3 HIP LDS allocation. This is tooling-only and does not change public dispatch or the 179-kernel bundle.
+
+The resulting SSM-output `(2048,2048,4096)` run passed exact candidate/HIP and candidate/public agreement for baseline and mutations, zero producer differences, finiteness, and nonzero input, weight, and workspace mutation sensitivity. After 500 rotating warmup rounds, 25 measured repeats gave HIP multiply `2.536122 ms` and GGTensile multiply `4.378514 ms`, or `1.72646x`; complete medians were `2.547640 ms` and `4.356055 ms`, or `1.70984x`. Longer warmup did not recover the historical isolated-control operating regime. This is a correctness-retained but timing-rejected control for K=4096. No new exact key is selected; the widest `M=32768` attention-Q result advances to repeated warm qualification, while SSM output, narrow N, and short M require different ownership or geometry.
