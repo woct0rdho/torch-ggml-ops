@@ -328,3 +328,24 @@ The independent narrow `(8192,512,2048)` discriminator was implemented with ordi
 The pair-reuse body has 239 VGPRs, 16 SGPRs, 30,720-byte LDS, 32 static WMMAs, four barriers, and zero private storage or spills. It realizes four resident workgroups and removes 6 KiB of payload LDS writes and exact-trip reads per staged 64-row tile. Q5_K's remaining bottleneck is more strongly consumer-decode-bound than Q4_K: exact-trip normalization replaces 128 producer-side nibble/high-bit operations per wave/block with 320 consumer operations in the rolled loop, a net 192 vector operations plus serial dependencies immediately before WMMA. The residency and traffic gain cannot repay that work.
 
 Both legal placements exceed the 5% stop gate, so the shared-down transfer and CU-mode control are not run. The compact-LDS premise is rejected and its unselected implementation is removed. The six selected artifacts remain authoritative, and frozen Q4_K sources remain byte-identical. A fresh recursive review after the independent Q5 rejection finds no remaining actionable in-contract mechanism; reopening requires a premise that avoids consumer high-bit insertion rather than moving it.
+
+## Cross-Campaign Reopening Review
+
+The compact Q5_K rejection remains valid. Consumer-side high-bit insertion adds too much serialized work immediately before WMMA, so changing only LDS traffic, buffering, or decode placement is not a useful reopening. A separate current-parent lifetime review found a smaller address-generation premise shared with Q4_K.
+
+### Activation-base lifetime experiment
+
+The historical `v88` reuse assumption is invalid for the current writer because `v88` is an active extraction register. A first alternative that preserved the final metadata base in `v232` across decode produced NaNs when Q5 high-bit decode overwrote that register; that intermediate artifact is rejected by correctness. The corrected diagnostic reads the invariant wave predicate into `s12`, keeps metadata-base computation per block, and reuses `v236` only for the persistent activation LDS base.
+
+The corrected Q5 artifacts were exact to HIP and the retained parent, finite, mutation-sensitive, and independently referenced. They retain `239 VGPR / 16 SGPR / 38,400 LDS`, 32 WMMAs, four barriers, zero private storage, and zero spills, with one fewer static VALU issue.
+
+| Exact representative | Dynamic activation MADs saved per launch | Paired candidate/parent median A/B |
+| --- | ---: | ---: |
+| Narrow `(8192,512,2048)` | `127` | `0.99895x / 0.99674x` |
+| Shared down `(8192,2048,512)` | `31` | `0.99653x / 0.99566x` |
+
+This is a low-risk derived-lowering candidate, not a promotion or a new Q5 tuning knob. The timing signal is sub-percent and the current artifacts are diagnostic assembly. A retained implementation must be typed, preserve the frozen Q4_K assembly regression boundary, cover every writer line, and qualify each affected Q5 exact key independently.
+
+The Q5 high-bit operation floor, lane-sharing results, alternate merge forms, loop rolling/unrolling, and compact consumer-decode rejection remain closed. Any future Q5 reopening must remove consumer high-bit insertion or introduce a genuinely different ownership or instruction premise; the Q4 activation-base result does not make those mechanisms transferable automatically.
+
+The recursive final-review rule is global rather than limited to Q5, forward direction, or the six current shapes. Related Q4/Q6/Q8 or backward findings may reopen this record only after the receiving Q5 ownership, arithmetic, resource, correctness, and timing gates are independently satisfied. No contract, producer, catalog, public bundle, or dispatch change is authorized here.

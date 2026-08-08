@@ -2,7 +2,7 @@
 
 ## Current status
 
-Dense `torch_ggml_ops::mmq` forward is at its practical local stopping point on gfx1151 for the existing packed-weight, single-call operator contract.
+Dense `torch_ggml_ops::mmq` forward is at its practical local stopping point for broad legacy sweeps on gfx1151 under the existing packed-weight, single-call operator contract. The format records still carry bounded cross-campaign research reopenings, so this is not a claim that every typed codegen or schedule premise is exhausted.
 The retained implementation includes:
 - one 512-thread Q8_1 quantization workgroup per real activation row.
 - six exact DeepSeek Q8_0 wrappers covering K=1024/2048/4096/8192 and the J64 language-model-head bodies.
@@ -12,7 +12,7 @@ The retained implementation includes:
 
 Against their generic controls, exact specialization improved the complete DeepSeek matrix by `21.62%` geometrically and the complete Qwen matrix by `10.44%`. Every point improved in its sequential generic/candidate/generic bracket.
 
-No broad local tile, workgroup, unroll, prefetch, buffering, or LDS-layout sweep remains open. The remaining opportunities require model-owned activation reuse, a prepared Q6 representation, or a narrowly scoped arithmetic experiment that changes Q6 floating-point operation order.
+No broad local tile, workgroup, unroll, prefetch, buffering, or LDS-layout sweep remains open. The Q6 scheduler-policy reconstruction and typed Q4_K/Q5_K activation-base lifetime work are recorded and qualified in the GGTensile experiment records; the remaining bounded changed-premise direction is a composed Q8_0 depth32 compact-row dataflow. Model-owned activation reuse, prepared Q6 representations, and Q6 floating-point operation-order changes remain deferred contract or numerical-scope changes.
 
 Final source-of-record artifacts:
 - DeepSeek: `~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_stride76_25.json`.

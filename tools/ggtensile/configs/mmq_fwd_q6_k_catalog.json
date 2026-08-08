@@ -1,11 +1,39 @@
 {
-  "Solutions": {
-    "structured_decoded_mt64_selected": {
+  "ProblemType": {
+    "OperationType": "MMQForward",
+    "QuantDataType": "Q6_K",
+    "DataTypeA": "Q8_1",
+    "DataTypeB": "Q6_K",
+    "DestDataType": "BFloat16",
+    "ComputeDataType": "Float",
+    "TransposeA": false,
+    "TransposeB": true
+  },
+  "Solutions": [
+    {
       "KernelLanguage": "Assembly",
-      "ISA": [11, 5, 1],
+      "ISA": [
+        11,
+        5,
+        1
+      ],
       "WavefrontSize": 32,
-      "WorkGroup": [32, 4, 1],
-      "MatrixInstruction": [16, 16, 16, 1, 1, 1, 4, 4, 1],
+      "WorkGroup": [
+        32,
+        4,
+        1
+      ],
+      "MatrixInstruction": [
+        16,
+        16,
+        16,
+        1,
+        1,
+        1,
+        4,
+        4,
+        1
+      ],
       "MacroTile0": 64,
       "MacroTile1": 64,
       "DepthU": 32,
@@ -26,22 +54,38 @@
       "EpilogueTilesAhead": 8,
       "EpilogueDependencyWidth": 2,
       "EpiloguePriority": 0,
-      "Q6EpiloguePipelineScope": "StoreBatch",
-      "Q6DependencyDelayMode": "None",
       "Q6GlobalReadCachePolicy": "InvalidateL0",
-      "Q6OutputTraversal": "OutputRoleGroupMajor",
-      "Q6StageClustering": "StageDependencyOrder",
-      "Q6LatencyPolicy": "SerializedDependencyDistance",
+      "Q6OutputTraversal": "OutputRoleWavefront",
+      "Q6StageClustering": "RowBatchedDecodeOrder",
+      "Q6LatencyPolicy": "WavefrontDependencyDistance",
       "Q6PressurePolicy": "ExplicitRoleLifetime",
       "Q6WaitPolicy": "ProducerFirstUse",
       "Q6PairingPolicy": "DependencyCompatibleDualIssue"
     },
-    "structured_decoded_mt128_selected": {
+    {
       "KernelLanguage": "Assembly",
-      "ISA": [11, 5, 1],
+      "ISA": [
+        11,
+        5,
+        1
+      ],
       "WavefrontSize": 32,
-      "WorkGroup": [32, 4, 1],
-      "MatrixInstruction": [16, 16, 16, 1, 1, 1, 4, 4, 1],
+      "WorkGroup": [
+        32,
+        4,
+        1
+      ],
+      "MatrixInstruction": [
+        16,
+        16,
+        16,
+        1,
+        1,
+        1,
+        4,
+        4,
+        1
+      ],
       "MacroTile0": 128,
       "MacroTile1": 64,
       "DepthU": 32,
@@ -65,12 +109,38 @@
       "Q6EpiloguePipelineScope": "FullTile",
       "Q6DependencyDelayMode": "Explicit",
       "Q6GlobalReadCachePolicy": "InvalidateL0",
-      "Q6OutputTraversal": "OutputRoleGroupMajor",
-      "Q6StageClustering": "StageDependencyOrder",
-      "Q6LatencyPolicy": "SerializedDependencyDistance",
+      "Q6OutputTraversal": "OutputRoleWavefront",
+      "Q6StageClustering": "RowBatchedDecodeOrder",
+      "Q6LatencyPolicy": "WavefrontDependencyDistance",
       "Q6PressurePolicy": "ExplicitRoleLifetime",
       "Q6WaitPolicy": "ProducerFirstUse",
       "Q6PairingPolicy": "DependencyCompatibleDualIssue"
     }
-  }
+  ],
+  "ExactLogic": [
+    {
+      "ProblemSize": {
+        "M": 64,
+        "N": 248320,
+        "K": 2048
+      },
+      "SolutionIndex": 0
+    },
+    {
+      "ProblemSize": {
+        "M": 128,
+        "N": 248320,
+        "K": 2048
+      },
+      "SolutionIndex": 1
+    },
+    {
+      "ProblemSize": {
+        "M": 256,
+        "N": 248320,
+        "K": 2048
+      },
+      "SolutionIndex": 1
+    }
+  ]
 }

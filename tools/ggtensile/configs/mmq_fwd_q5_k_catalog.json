@@ -1,6 +1,16 @@
 {
-  "Solutions": {
-    "retained_decoded_staged": {
+  "ProblemType": {
+    "OperationType": "MMQForward",
+    "QuantDataType": "Q5_K",
+    "DataTypeA": "Q8_1",
+    "DataTypeB": "Q5_K",
+    "DestDataType": "BFloat16",
+    "ComputeDataType": "Float",
+    "TransposeA": false,
+    "TransposeB": true
+  },
+  "Solutions": [
+    {
       "KernelLanguage": "Assembly",
       "ISA": [
         11,
@@ -40,57 +50,12 @@
       "SignedWeight": true,
       "SignedActivation": true,
       "WmmaClamp": true,
-      "MetadataSchedule": "Serialized",
-      "EpilogueTilesAhead": 8,
-      "EpilogueDependencyWidth": 1,
+      "MetadataSchedule": "IndependentExtractionMetadataAfterLowWmma",
+      "EpilogueTilesAhead": 1,
+      "EpilogueDependencyWidth": 8,
       "EpiloguePriority": 0
     },
-    "retained_metadata_after_low_wmma": {
-      "KernelLanguage": "Assembly",
-      "ISA": [
-        11,
-        5,
-        1
-      ],
-      "WavefrontSize": 32,
-      "WorkGroup": [
-        128,
-        1,
-        1
-      ],
-      "MatrixInstruction": [
-        16,
-        16,
-        16,
-        1,
-        1,
-        1,
-        4,
-        4,
-        1
-      ],
-      "MacroTile0": 128,
-      "MacroTile1": 64,
-      "DepthU": 32,
-      "ActivationLayout": "F16_D4S4",
-      "ActivationBlockBytes": 144,
-      "PackedWeightBlockBytes": 176,
-      "OperandSource": "DecodedWeightLdsBatch8",
-      "WeightDecode": "DirectNibbleHighBit",
-      "LdsAddressHoist": "WeightMetadata",
-      "ActivationAddressing": "MadU24",
-      "MetadataConversion": "DirectFloat16Unsigned16",
-      "ScaleArithmetic": "FP16",
-      "OutputStore": "BFloat16RNEClauseBatch8IncrementRows",
-      "SignedWeight": true,
-      "SignedActivation": true,
-      "WmmaClamp": true,
-      "MetadataSchedule": "MetadataAfterLowWmma",
-      "EpilogueTilesAhead": 8,
-      "EpilogueDependencyWidth": 1,
-      "EpiloguePriority": 0
-    },
-    "retained_independent_extraction_metadata_after_low_wmma": {
+    {
       "KernelLanguage": "Assembly",
       "ISA": [
         11,
@@ -135,52 +100,7 @@
       "EpilogueDependencyWidth": 1,
       "EpiloguePriority": 0
     },
-    "selected_narrow_m8192_a8d1_p0": {
-      "KernelLanguage": "Assembly",
-      "ISA": [
-        11,
-        5,
-        1
-      ],
-      "WavefrontSize": 32,
-      "WorkGroup": [
-        128,
-        1,
-        1
-      ],
-      "MatrixInstruction": [
-        16,
-        16,
-        16,
-        1,
-        1,
-        1,
-        4,
-        4,
-        1
-      ],
-      "MacroTile0": 128,
-      "MacroTile1": 64,
-      "DepthU": 32,
-      "ActivationLayout": "F16_D4S4",
-      "ActivationBlockBytes": 144,
-      "PackedWeightBlockBytes": 176,
-      "OperandSource": "DecodedWeightLdsBatch8",
-      "WeightDecode": "DirectNibbleHighBit",
-      "LdsAddressHoist": "WeightMetadata",
-      "ActivationAddressing": "MadU24",
-      "MetadataConversion": "DirectFloat16Unsigned16",
-      "ScaleArithmetic": "FP16",
-      "OutputStore": "BFloat16RNEClauseBatch8IncrementRows",
-      "SignedWeight": true,
-      "SignedActivation": true,
-      "WmmaClamp": true,
-      "MetadataSchedule": "IndependentExtractionMetadataAfterLowWmma",
-      "EpilogueTilesAhead": 8,
-      "EpilogueDependencyWidth": 1,
-      "EpiloguePriority": 0
-    },
-    "selected_narrow_m32768_a7d3_p3_vopd_init": {
+    {
       "KernelLanguage": "Assembly",
       "ISA": [
         11,
@@ -226,7 +146,7 @@
       "EpiloguePriority": 3,
       "AccumulatorInitialization": "VopdPair"
     },
-    "selected_shared_down_m2048_a1d2_p2": {
+    {
       "KernelLanguage": "Assembly",
       "ISA": [
         11,
@@ -271,52 +191,7 @@
       "EpilogueDependencyWidth": 2,
       "EpiloguePriority": 2
     },
-    "selected_shared_down_m32768_a1d2_p2": {
-      "KernelLanguage": "Assembly",
-      "ISA": [
-        11,
-        5,
-        1
-      ],
-      "WavefrontSize": 32,
-      "WorkGroup": [
-        128,
-        1,
-        1
-      ],
-      "MatrixInstruction": [
-        16,
-        16,
-        16,
-        1,
-        1,
-        1,
-        4,
-        4,
-        1
-      ],
-      "MacroTile0": 128,
-      "MacroTile1": 64,
-      "DepthU": 32,
-      "ActivationLayout": "F16_D4S4",
-      "ActivationBlockBytes": 144,
-      "PackedWeightBlockBytes": 176,
-      "OperandSource": "DecodedWeightLdsBatch8",
-      "WeightDecode": "DirectNibbleHighBit",
-      "LdsAddressHoist": "WeightMetadata",
-      "ActivationAddressing": "MadU24",
-      "MetadataConversion": "DirectFloat16Unsigned16",
-      "ScaleArithmetic": "FP16",
-      "OutputStore": "BFloat16RNEClauseBatch8IncrementRows",
-      "SignedWeight": true,
-      "SignedActivation": true,
-      "WmmaClamp": true,
-      "MetadataSchedule": "IndependentExtractionMetadataAfterLowWmma",
-      "EpilogueTilesAhead": 1,
-      "EpilogueDependencyWidth": 2,
-      "EpiloguePriority": 2
-    },
-    "selected_shared_down_m8192_a1d4_p2_vopd_init": {
+    {
       "KernelLanguage": "Assembly",
       "ISA": [
         11,
@@ -361,51 +236,56 @@
       "EpilogueDependencyWidth": 4,
       "EpiloguePriority": 2,
       "AccumulatorInitialization": "VopdPair"
-    },
-    "selected_narrow_m2048_a1d8_p0": {
-      "KernelLanguage": "Assembly",
-      "ISA": [
-        11,
-        5,
-        1
-      ],
-      "WavefrontSize": 32,
-      "WorkGroup": [
-        128,
-        1,
-        1
-      ],
-      "MatrixInstruction": [
-        16,
-        16,
-        16,
-        1,
-        1,
-        1,
-        4,
-        4,
-        1
-      ],
-      "MacroTile0": 128,
-      "MacroTile1": 64,
-      "DepthU": 32,
-      "ActivationLayout": "F16_D4S4",
-      "ActivationBlockBytes": 144,
-      "PackedWeightBlockBytes": 176,
-      "OperandSource": "DecodedWeightLdsBatch8",
-      "WeightDecode": "DirectNibbleHighBit",
-      "LdsAddressHoist": "WeightMetadata",
-      "ActivationAddressing": "MadU24",
-      "MetadataConversion": "DirectFloat16Unsigned16",
-      "ScaleArithmetic": "FP16",
-      "OutputStore": "BFloat16RNEClauseBatch8IncrementRows",
-      "SignedWeight": true,
-      "SignedActivation": true,
-      "WmmaClamp": true,
-      "MetadataSchedule": "IndependentExtractionMetadataAfterLowWmma",
-      "EpilogueTilesAhead": 1,
-      "EpilogueDependencyWidth": 8,
-      "EpiloguePriority": 0
     }
-  }
+  ],
+  "ExactLogic": [
+    {
+      "ProblemSize": {
+        "M": 2048,
+        "N": 512,
+        "K": 2048
+      },
+      "SolutionIndex": 0
+    },
+    {
+      "ProblemSize": {
+        "M": 8192,
+        "N": 512,
+        "K": 2048
+      },
+      "SolutionIndex": 1
+    },
+    {
+      "ProblemSize": {
+        "M": 32768,
+        "N": 512,
+        "K": 2048
+      },
+      "SolutionIndex": 2
+    },
+    {
+      "ProblemSize": {
+        "M": 2048,
+        "N": 2048,
+        "K": 512
+      },
+      "SolutionIndex": 3
+    },
+    {
+      "ProblemSize": {
+        "M": 8192,
+        "N": 2048,
+        "K": 512
+      },
+      "SolutionIndex": 4
+    },
+    {
+      "ProblemSize": {
+        "M": 32768,
+        "N": 2048,
+        "K": 512
+      },
+      "SolutionIndex": 3
+    }
+  ]
 }

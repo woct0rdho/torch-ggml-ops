@@ -1,59 +1,16 @@
 {
-  "Solutions": {
-    "retained_m64x32x64_pad8_vopd": {
-      "KernelLanguage": "Assembly",
-      "ISA": [
-        11,
-        5,
-        1
-      ],
-      "WavefrontSize": 32,
-      "WorkGroup": [
-        32,
-        4,
-        1
-      ],
-      "MatrixInstruction": [
-        16,
-        16,
-        16,
-        1,
-        1,
-        1,
-        2,
-        4,
-        1
-      ],
-      "MacroTile0": 64,
-      "MacroTile1": 32,
-      "DepthU": 64,
-      "GlobalReadVectorWidthA": 16,
-      "GlobalReadVectorWidthB": 16,
-      "LocalReadVectorWidth": 16,
-      "PrefetchGlobalRead": 2,
-      "PrefetchLocalRead": 1,
-      "1LDSBuffer": 1,
-      "ScheduleIterAlg": 4,
-      "StorePriorityOpt": true,
-      "NumElementsPerBatchStore": 8,
-      "StoreVectorWidth": 1,
-      "WorkGroupMapping": 1,
-      "TransposeLDS": 0,
-      "LdsPadB": 8,
-      "LdsBlockSizePerPadB": 0,
-      "LdsSwizzleChunkB": 0,
-      "DecoderWidth": 16,
-      "PrefetchPackedWeight": true,
-      "PrefetchPackedWeightNext": false,
-      "PackedWeightLaneShare": 1,
-      "Q3KExtraction": "packed",
-      "Q5KExtraction": "packed",
-      "Q5KNibbleShiftHoist": false,
-      "Q5KMetadataVectorLoad": false,
-      "Q6KExtraction": "packed_vopd",
-      "Q8KExtraction": "packed"
-    },
-    "retained_m256x64x32_next_pad8_vopd": {
+  "ProblemType": {
+    "OperationType": "MMQBackward",
+    "QuantDataType": "Q3_K",
+    "DataTypeA": "BFloat16",
+    "DataTypeB": "Q3_K",
+    "DestDataType": "BFloat16",
+    "ComputeDataType": "Float",
+    "TransposeA": false,
+    "TransposeB": false
+  },
+  "Solutions": [
+    {
       "KernelLanguage": "Assembly",
       "ISA": [
         11,
@@ -86,7 +43,60 @@
       "PrefetchGlobalRead": 2,
       "PrefetchLocalRead": 1,
       "1LDSBuffer": 1,
-      "ScheduleIterAlg": 4,
+      "ScheduleIterAlg": 5,
+      "StorePriorityOpt": true,
+      "NumElementsPerBatchStore": 8,
+      "StoreVectorWidth": 1,
+      "WorkGroupMapping": 2,
+      "TransposeLDS": 0,
+      "LdsPadB": 8,
+      "LdsBlockSizePerPadB": 0,
+      "LdsSwizzleChunkB": 0,
+      "DecoderWidth": 16,
+      "PrefetchPackedWeight": true,
+      "PrefetchPackedWeightNext": false,
+      "PackedWeightLaneShare": 1,
+      "Q3KExtraction": "packed",
+      "Q5KExtraction": "packed",
+      "Q5KNibbleShiftHoist": false,
+      "Q5KMetadataVectorLoad": false,
+      "Q6KExtraction": "packed",
+      "Q8KExtraction": "packed"
+    },
+    {
+      "KernelLanguage": "Assembly",
+      "ISA": [
+        11,
+        5,
+        1
+      ],
+      "WavefrontSize": 32,
+      "WorkGroup": [
+        32,
+        4,
+        1
+      ],
+      "MatrixInstruction": [
+        16,
+        16,
+        16,
+        1,
+        1,
+        4,
+        4,
+        4,
+        1
+      ],
+      "MacroTile0": 256,
+      "MacroTile1": 64,
+      "DepthU": 32,
+      "GlobalReadVectorWidthA": 16,
+      "GlobalReadVectorWidthB": 16,
+      "LocalReadVectorWidth": 16,
+      "PrefetchGlobalRead": 2,
+      "PrefetchLocalRead": 1,
+      "1LDSBuffer": 1,
+      "ScheduleIterAlg": 5,
       "StorePriorityOpt": true,
       "NumElementsPerBatchStore": 8,
       "StoreVectorWidth": 1,
@@ -97,16 +107,16 @@
       "LdsSwizzleChunkB": 0,
       "DecoderWidth": 16,
       "PrefetchPackedWeight": true,
-      "PrefetchPackedWeightNext": true,
+      "PrefetchPackedWeightNext": false,
       "PackedWeightLaneShare": 1,
       "Q3KExtraction": "packed",
       "Q5KExtraction": "packed",
       "Q5KNibbleShiftHoist": false,
       "Q5KMetadataVectorLoad": false,
-      "Q6KExtraction": "packed_vopd",
+      "Q6KExtraction": "packed",
       "Q8KExtraction": "packed"
     },
-    "retained_m128x32x64_pad8_vopd": {
+    {
       "KernelLanguage": "Assembly",
       "ISA": [
         11,
@@ -126,20 +136,20 @@
         1,
         1,
         2,
-        2,
+        4,
         4,
         1
       ],
       "MacroTile0": 128,
-      "MacroTile1": 32,
-      "DepthU": 64,
+      "MacroTile1": 64,
+      "DepthU": 32,
       "GlobalReadVectorWidthA": 16,
       "GlobalReadVectorWidthB": 16,
       "LocalReadVectorWidth": 16,
       "PrefetchGlobalRead": 2,
       "PrefetchLocalRead": 1,
       "1LDSBuffer": 1,
-      "ScheduleIterAlg": 4,
+      "ScheduleIterAlg": 5,
       "StorePriorityOpt": true,
       "NumElementsPerBatchStore": 8,
       "StoreVectorWidth": 1,
@@ -156,8 +166,111 @@
       "Q5KExtraction": "packed",
       "Q5KNibbleShiftHoist": false,
       "Q5KMetadataVectorLoad": false,
-      "Q6KExtraction": "packed_vopd",
+      "Q6KExtraction": "packed",
+      "Q8KExtraction": "packed"
+    },
+    {
+      "KernelLanguage": "Assembly",
+      "ISA": [
+        11,
+        5,
+        1
+      ],
+      "WavefrontSize": 32,
+      "WorkGroup": [
+        32,
+        4,
+        1
+      ],
+      "MatrixInstruction": [
+        16,
+        16,
+        16,
+        1,
+        1,
+        2,
+        8,
+        4,
+        1
+      ],
+      "MacroTile0": 128,
+      "MacroTile1": 128,
+      "DepthU": 32,
+      "GlobalReadVectorWidthA": 16,
+      "GlobalReadVectorWidthB": 16,
+      "LocalReadVectorWidth": 16,
+      "PrefetchGlobalRead": 2,
+      "PrefetchLocalRead": 1,
+      "1LDSBuffer": 1,
+      "ScheduleIterAlg": 5,
+      "StorePriorityOpt": true,
+      "NumElementsPerBatchStore": 8,
+      "StoreVectorWidth": 1,
+      "WorkGroupMapping": 1,
+      "TransposeLDS": 0,
+      "LdsPadB": 8,
+      "LdsBlockSizePerPadB": 0,
+      "LdsSwizzleChunkB": 0,
+      "DecoderWidth": 16,
+      "PrefetchPackedWeight": true,
+      "PrefetchPackedWeightNext": false,
+      "PackedWeightLaneShare": 1,
+      "Q3KExtraction": "packed",
+      "Q5KExtraction": "packed",
+      "Q5KNibbleShiftHoist": false,
+      "Q5KMetadataVectorLoad": false,
+      "Q6KExtraction": "packed",
       "Q8KExtraction": "packed"
     }
-  }
+  ],
+  "ExactLogic": [
+    {
+      "ProblemSize": {
+        "M": 2048,
+        "N": 2048,
+        "K": 512
+      },
+      "SolutionIndex": 0
+    },
+    {
+      "ProblemSize": {
+        "M": 8192,
+        "N": 2048,
+        "K": 512
+      },
+      "SolutionIndex": 1
+    },
+    {
+      "ProblemSize": {
+        "M": 32768,
+        "N": 2048,
+        "K": 512
+      },
+      "SolutionIndex": 1
+    },
+    {
+      "ProblemSize": {
+        "M": 2048,
+        "N": 2048,
+        "K": 8192
+      },
+      "SolutionIndex": 2
+    },
+    {
+      "ProblemSize": {
+        "M": 8192,
+        "N": 2048,
+        "K": 8192
+      },
+      "SolutionIndex": 2
+    },
+    {
+      "ProblemSize": {
+        "M": 32768,
+        "N": 2048,
+        "K": 8192
+      },
+      "SolutionIndex": 3
+    }
+  ]
 }

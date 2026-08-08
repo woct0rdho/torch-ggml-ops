@@ -88,9 +88,9 @@ Contractual invalid states use explicit rejection reasons. Natural programming e
 
 ### Completion requires recursive review
 
-Every campaign and structural refactor ends with a fresh recursive review of the plan, implementation, generated artifacts, selected and rejected evidence, target ISA, and related kernel work. Findings are classified as duplicate or closed, contract-incompatible, unsupported, deferred with an explicit prerequisite, or actionable.
+Every campaign and structural refactor ends with a fresh recursive review of the plan, implementation, generated artifacts, selected and rejected evidence, target ISA, and related kernel work. The review is global across forward and backward directions, problem types, quant types, and exact shapes; a local completion statement is scoped to the contract and inventory it actually qualified, not a waiver for related work. Findings are classified as duplicate or closed, contract-incompatible, unsupported, deferred with an explicit prerequisite, or actionable.
 
-An actionable finding must be implemented and qualified before the review is repeated. Completion is valid only when a fresh pass finds no actionable in-contract mechanism.
+An actionable finding must be implemented and qualified before the review is repeated. Completion is valid only when a fresh global pass finds no actionable in-contract mechanism. A result from one direction, quant type, or shape may transfer as evidence to another, but never as an automatic selection: the receiving semantics, ownership, lifetimes, synchronization, arithmetic order, resources, and exact-key gates must be re-derived and tested.
 
 ## Model and Identity
 
@@ -105,6 +105,12 @@ An actionable finding must be implemented and qualified before the review is rep
 - `KernelArtifact`: symbol, source/object/code-object paths, source identity, ABI, launch geometry, and inspected resources.
 
 Named defaults are explicit and remain part of canonical identity. Parsing is strict and generation never mutates a solution.
+
+### Deployment catalogs
+
+`tools/ggtensile/configs/` contains one `mmq_<direction>_<quant>_catalog.json` deployment file per supported direction and quant type. Each file has only three root fields: the canonical `ProblemType`, a deduplicated list of complete `Solutions`, and `ExactLogic` entries that map an exact `ProblemSize` to a solution index. Every listed solution must be referenced by at least one exact key. An absent key has no GGTensile deployment decision and falls back outside this catalog.
+
+Deployment catalogs do not contain model names, tensor labels, family names, call counts, benchmark medians, experiment status, historical controls, candidate names, or rejected alternatives. Experiment chronology and current research status belong in the corresponding Markdown record. Immutable benchmark reports may contain their own workload and timing context, but they are evidence rather than deployment logic.
 
 ### Forward contract layers
 
@@ -257,6 +263,12 @@ Search explores linked neighborhoods rather than a broad Cartesian product. Gene
 
 Exact-shape constants, fixed trip counts, peeled tails, affine-address reductions, register-lifetime shortening, and legal VOPD formation are derived lowering work rather than public knobs unless complete alternate mechanisms are implemented. Their value is judged by the same correctness, resource, and timing gates as larger policies.
 
+### Cross-campaign reopening policy
+
+The forward records currently carry two bounded changed premises for later work: a typed invariant activation-LDS-base lifetime for Q4_K/Q5_K, and a composed Q8_0 depth32 compact-row dataflow using the later weight-first and paired-scale findings. The Q6_K scheduler-oracle behavior has been reconstructed as a typed row/role wavefront, qualified on all three exact keys, and promoted in the research catalog. These experiments do not change a contract, public dispatch path, or bundle.
+
+The same review rule applies when a finding crosses a direction or format boundary. Shared vocabulary such as affine address hoisting, dependency-derived waits, load clustering, or explicit register lifetimes may be reused only after the receiving lowering proves the corresponding physical roles and resource envelope. A failed experiment must remain recorded with its failure reason, even when a later changed premise makes a bounded re-test reasonable.
+
 ### Q8_0 performance campaign (complete)
 
 The Q8_0 forward campaign ran as an isolated performance experiment. HIP fallback remained the control until each exact GGTensile source cleared its qualification gates; the final research catalog selects GGTensile for all 23 required keys while public integration remains unchanged.
@@ -341,15 +353,15 @@ There is no fixed percentage threshold. Timing selects winners. Static issue cou
 | --- | --- |
 | Shared generator, toolchain, inspection, runtime, and campaign infrastructure | Implemented for the current gfx1151 exact-key workflow |
 | MMQ backward | Required `Q3_K`, `Q4_K`, `Q5_K`, `Q6_K`, and `Q8_0` campaigns complete; 50 exact inventory keys are selected |
-| MMQ forward Q4_K | Lowering and 12-key research coverage implemented; the canonical inventory currently records 2 selected and 10 open keys |
-| MMQ forward Q5_K | Six exact inventory keys selected and recursively exhausted under the current contract |
-| MMQ forward Q6_K | Three exact language-model-head keys selected; structured semantic lowering and the current writer refactor are complete for the implemented domain |
+| MMQ forward Q4_K | Twelve exact research identities qualified; the typed activation-base lifetime is accepted, with the conditional loop-form review and public wiring deferred |
+| MMQ forward Q5_K | Six exact inventory keys selected; the compact/high-bit body and shared Q4/Q5 activation-base lifetime are qualified, with public wiring deferred |
+| MMQ forward Q6_K | Three exact language-model-head keys select the typed row/role wavefront; the default policy remains implemented, and public wiring is deferred |
 | MMQ forward Q3_K | Dense 12-key inventory complete; all 12 exact keys select the typed full-weight research candidate, while public wiring remains deferred to the 179-kernel HIP bundle |
-| MMQ forward Q8_0 | All 23 required exact keys select and publicly dispatch faster-than-HIP GGTensile controls: 20 ordinary wave-N LDS, two exact small-M LM-head, and one compact-KV |
+| MMQ forward Q8_0 | All 23 required exact keys select research GGTensile controls; public wiring remains deferred, and one bounded compact-depth32 cross-key review is open |
 | Grouped GGTensile | Deferred until grouped ownership and routing receive an explicit generator contract |
 | Public GGTensile runtime selection | Deferred; existing HIP bundle dispatch remains authoritative |
 
-Global MMQ forward format exhaustion is not complete until the active Q3_K campaign reaches its recursive final review. Ordinary Q8_0 coverage does not imply fixed-group grouped-Q8_0 coverage.
+Global MMQ forward format exhaustion is not complete while any format record or cross-campaign review has an actionable in-contract premise. Ordinary Q8_0 coverage does not imply fixed-group grouped-Q8_0 coverage, and completion in one direction or quant type does not close a related direction or quant type automatically.
 
 ### Implemented forward architecture
 

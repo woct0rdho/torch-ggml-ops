@@ -277,3 +277,26 @@ The prior recursive review found no remaining actionable in-contract mechanism u
 The compact raw-payload plus decoded-metadata row above is the materially new layout and ownership premise required by that review. It preserves `128x64` output ownership rather than repeating `128x32`, and its pending status prevents a new exhaustion claim until it is measured and the recursive review is repeated.
 
 Transformed assembly, lower-bound sources, rejected buffering prototypes, profiler output, and one-off timing screens remain diagnostic unless represented by a generated strict solution identity and revalidated through the gates above. Public dispatch and bundle integration remain untouched.
+
+## Cross-Campaign Reopening Review
+
+The prior compact-LDS rejection remains valid for the fully decoded Q4_K body: reducing the row representation without removing consumer nibble expansion moved work onto the WMMA critical path and exceeded the stop gate. A new current-parent register and lifetime review nevertheless found a separate resource-neutral address premise that was not covered by the historical closure.
+
+### Activation-base lifetime experiment
+
+The historical `v88` assumption does not describe the current writer. In the current Q4 output body, `v88` is an active `v_bfe_u32` extraction destination and cannot be reused. A first current-parent transform instead kept the final metadata base in `v232` across the decode stage. That artifact produced NaNs because Q4 decode clobbers `v232` before the group loop; it is rejected as a lifetime error, despite passing static resource inspection.
+
+The corrected diagnostic transform reads the invariant wave predicate into `s12`, preserves the per-block metadata-base recomputation, and reuses `v236` for the persistent activation LDS base. It removes the rolled activation-base MADs without changing the Q8_1 `F16_D4S4` producer, arithmetic order, ABI, synchronization, or output mapping. The four representative artifacts were exact to HIP and the retained parent, finite, mutation-sensitive, and within the independent-reference envelope. Each remains at `239 VGPR / 16 SGPR / 38,400 LDS`, with 32 WMMAs, four barriers, zero private storage, and zero spills; static VALU issue count falls by one.
+
+| Exact representative | Dynamic activation MADs saved per launch | Paired candidate/parent median A/B |
+| --- | ---: | ---: |
+| Attention output `(8192,2048,4096)` | `255` | `0.99617x / 0.99574x` |
+| Shared down `(8192,2048,512)` | `31` | `0.99903x / 0.99893x` |
+
+The result is promising as a derived lowering change, not as a new solution knob. The measured movement is sub-percent and the artifacts are assembly diagnostics, so no catalog or public selection changes follow from this screen. The next implementation premise is a typed `DecodedWeightLdsRegisterPlan` lifetime alias, followed by writer-line coverage, deterministic rebuilds, and independent exact-key qualification across every affected Q4 identity.
+
+### Conditional loop-form follow-up
+
+The earlier single eight-group loop was only approximately `0.3%` favorable after confirmation and was closed under an older parent. A current-parent composition with the typed activation-base lifetime is a bounded reopening because both changes remove address or loop-control issue without changing resources. If pursued, `GroupLoopForm={TwoByFour,OneByEight}` must be a real linked typed lowering; a post-emission text rewrite is not sufficient. Q5 loop results do not transfer automatically.
+
+The recursive final-review rule remains global. It covers forward and backward records, all supported quant types, and every exact shape, and it may reopen a locally complete Q4 record when another direction or format supplies a valid changed premise. No contract, producer, catalog, public bundle, or dispatch change is authorized by this review entry.

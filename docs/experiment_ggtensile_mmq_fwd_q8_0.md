@@ -79,7 +79,7 @@ Existing HIP controls are available through the dense forward bundle sources and
 
 Baseline preservation checkpoint: all currently valid catalog sources were regenerated before Q8 edits into `~/tmp/torch-ggml-ops/q8-fwd-baseline-sources-20260805/`. The manifest contains 447 unique valid sources: 155 Q4_K/Q5_K/Q6_K forward sources and 292 Q3_K/Q4_K/Q5_K/Q6_K/Q8_0 backward sources. Every retained Q8 change must reproduce this set byte-for-byte unless an existing-stream change is explicitly separated and qualified.
 
-The canonical 23-key inventory records fresh same-process HIP multiply medians for every exact key. All 23 entries remain `CurrentStatus: selected`; 20 select `hip_tiled_lds_selected`, two select the exact LM-head small-M controls, and one selects `kv_compact_m64_tiled_lds_selected`. The selected catalog is qualified for offline GGTensile generation, while public HIP dispatch remains the explicit runtime path until a separate bundle integration review.
+This experiment record preserves the fresh same-process HIP multiply medians and selection chronology for all 23 exact keys. The deployment catalog contains only four deduplicated winner specifications and the 23 exact mappings: 20 use the HIP-shaped LDS mechanism, two use exact LM-head small-M controls, and one uses the compact M64 KV control. The catalog is qualified for offline GGTensile generation, while public HIP dispatch remains the explicit runtime path until a separate bundle integration review.
 
 The initial isolated backend lowers one wave to a `16x16` output tile. It directly loads four 32-value Q8_0 blocks and one 128-value Q8_1 F32_D4 block per reduction-loop iteration, performs eight signed integer WMMAs, and applies the FP32 correction in the HIP expression order `integer_result * weight_scale * activation_scale` before BF16 RNE stores. `SignedInt8MmaGroupRole` carries the payload and scale offsets, while `SignedInt8DirectRegisterPlan` allocates explicit lifetime-bound roles deterministically. This branch does not use LDS and does not alter the Q4_K/Q5_K/Q6_K body methods.
 
@@ -410,3 +410,24 @@ The final recursive review finds no actionable in-contract multiply mechanism. T
 Final gates pass with 196 focused forward tests, 299 complete GGTensile tests, and 384 full-repository tests with the existing 14 warnings. Ruff, formatting, `ty`, compileall, pre-commit, writer line coverage, and `git diff --check` pass. Frozen regeneration remains `447/447/0`, and the public bundle remains current at 179 kernels.
 
 The final Q8 research catalog contains 23 selected GGTensile entries and no inventory fallback: the 20 ordinary/depth32 HIP-shaped mappings, exact LM-head M32/M64 mappings, and `kv_compact_m64_tiled_lds_selected` for `(M,N,K)=(2048,512,4096)`. Every selected exact shape has repeated multiply evidence below HIP. Unsupported shapes continue to reject to HIP. The public bundle remains at 179 kernels, public dispatch remains unchanged, and the frozen Q8 source comparison remains `ExpectedCount=447`, `GeneratedCount=447`, `ChangedCount=0`. Q8_0 forward is complete; Q3_K remains isolated until its separate implementation campaign.
+
+## Cross-Campaign Reopening Review
+
+The final compact-KV result remains valid for its exact selected key. A later cross-format review identified one bounded changed premise that was not measured before the compact M128 rejection: the rejected M128 compact row was tested before the later weight-first VMEM order, direct paired weight-scale reads, and invariant paired-scale-base hoist were established on compact M64.
+
+### Compact depth32 row composition
+
+The candidate to revisit is a typed `CompactDepth32WeightRows` dataflow combining:
+- a 144-byte depth32 weight row rather than the padded 304-byte row;
+- weight-first global-read and LDS-write ordering;
+- legal paired weight-scale reads using a second LDS base;
+- invariant hoisting of that second base;
+- the existing wave-N ownership, integer WMMA sequence, correction order, and BF16 epilogue.
+
+The old M128 compact candidate used `240 VGPR / 27,648 LDS` and lost in two serialized rotations, so this is not a presumptive generalization. First test one ordinary high-cost output-B key and one short-K Q-B key, then the exact LM-head M32/M64 shapes. Require exact-key correctness, mutations, finiteness, strict resources, deterministic rebuilds, and warmed parent/HIP comparisons before any catalog decision. The existing KV result does not authorize neighboring shapes.
+
+The current `KvCompactTile` name and exact `(2048,512,4096)` validation combine mechanism capability with selection qualification. If the composed layout survives, split those concepts into a formula-derived depth32 compact layout and an explicit exact-key inventory, while retaining independent qualification for every shape. Do not remove the exact-key boundary merely to make the implementation appear generic.
+
+The Q8 candidate-domain tooling is also incomplete: manual candidate domains currently cover Q4_K, Q5_K, and Q6_K, but not Q8_0. A future Q8 search domain should expose only linked complete mechanisms such as row layout, ownership, read order, and scale-read form; it should not reopen the already rejected DepthU64, terminal-barrier, transposed-scale, or broad geometry searches without a new premise.
+
+The recursive final-review rule remains global rather than limited to Q8 forward. It rereads related Q3/Q4/Q5/Q6 and backward evidence, and findings may transfer across directions, quant types, and shapes only after the receiving physical layout, lane ownership, synchronization, arithmetic, resource, and exact-key gates are satisfied. This entry changes no contract, catalog, public dispatch, or bundle.

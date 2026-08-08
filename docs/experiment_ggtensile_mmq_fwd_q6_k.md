@@ -245,7 +245,7 @@ Both confirmations reject performance promotion for all three exact keys. The 32
 
 The measured bottleneck is the packed low/high Q6 decode, signed-scale application, and FP32 epilogue issue path; shared M256 staging removes duplicate weight staging but does not remove the per-output-row scale and arithmetic work. A 32-value-group rewrite was not retained because preserving exact per-group scale lifetimes and accumulation order would require a new register/epilogue regime rather than a bounded schedule edit.
 
-The controls are therefore correctness-qualified and cataloged, but not performance-promoted. `CurrentStatus` remains open for all three exact keys because none reaches HIP parity. The final recursive exhaustion review remains pending until the remaining representation premise is classified and any newly actionable optimization is resolved.
+The controls are therefore correctness-qualified and cataloged, but not performance-promoted. All three exact keys remained open at this checkpoint because none reached HIP parity. The final recursive exhaustion review remained pending until the representation premise was classified and newly actionable optimization was resolved.
 
 ### LDS issue controls and compact raw-payload representation
 
@@ -295,7 +295,7 @@ A later M64-only review removed all 47 compiler `s_delay_alu` hints. The candida
 
 ### Structured emitter maintenance
 
-Production generation now composes the Q6_K `rocisa.code.Module` components directly in `kernel_writer_assembly_mmq_fwd.py`, alongside the Q4_K and Q5_K forward lowering. A flat Tensile-style schedule state exposes `MacroTile`, `WorkGroup`, `MatrixInstruction`, `MIWaveGroup`, `MIWaveTile`, `DepthU`, `GlobalReadVectorWidthA/B`, `LocalReadVectorWidth`, `PrefetchGlobalRead`, `PrefetchLocalRead`, `1LDSBuffer`, `ScheduleGlobalRead`, `ScheduleLocalWrite`, `ScheduleIterAlg`, `ClusterLocalRead`, `StoreVectorWidth`, `EpilogueDependencyWidth`, `EpiloguePipelineScope`, and `StoreRemapVectorWidth`, plus the measured dependency-delay and global-read cache policies. Geometry consistency is derived and checked rather than duplicated: the matrix instruction, wave group, and wave tile must produce the selected macro tile; the workgroup must contain the selected wave group; and `DepthU` must match the matrix-instruction K depth and dot phases. The iteration fields are validated as one coupled schedule point rather than independent booleans. A bounded offline candidate enumerator forks only named delay, cache, BF16 dependency-width, and BF16 pipeline-scope choices. Candidate search is not part of generation: one complete schedule state lowers directly and deterministically to one stream.
+Production generation now composes the Q6_K `rocisa.code.Module` components directly in `kernel_writer_assembly_mmq_fwd.py`, alongside the Q4_K and Q5_K forward lowering. A flat Tensile-style schedule state exposes `MacroTile`, `WorkGroup`, `MatrixInstruction`, `MIWaveGroup`, `MIWaveTile`, `DepthU`, `GlobalReadVectorWidthA/B`, `LocalReadVectorWidth`, `PrefetchGlobalRead`, `PrefetchLocalRead`, `1LDSBuffer`, `ScheduleGlobalRead`, `ScheduleLocalWrite`, `ScheduleIterAlg`, `ClusterLocalRead`, `StoreVectorWidth`, `EpilogueDependencyWidth`, `EpiloguePipelineScope`, and `StoreRemapVectorWidth`, plus the measured dependency-delay and global-read cache policies. Geometry consistency is derived and checked rather than duplicated: the matrix instruction, wave group, and wave tile must produce the selected macro tile; the workgroup must contain the selected wave group; and `DepthU` must match the matrix-instruction K depth and dot phases. The iteration fields are validated as one coupled schedule point rather than independent booleans. A bounded offline candidate enumerator forks only complete named semantic, delay, cache, BF16 dependency-width, and BF16 pipeline-scope choices. Candidate search is not part of generation: one complete schedule state lowers directly and deterministically to one stream.
 
 All Q6 body components lower through a semantic schedule emitter built on the same shared `Assembly` primitive as Q4_K/Q5_K. It constructs work-item mapping, argument loads, 64-bit pointer additions, global-read clauses, global-to-LDS write batches, packed six-bit reconstruction, barriers, local stage commits, generated dot phases, NaN-preserving BF16 conversion, and vector-width-controlled output-store clauses. J64 uses a `1x4` wave tile, no dependency-delay hints, a two-value BF16 dependency window, and `StoreBatch` pipeline scope. J128 uses a `2x4` wave tile, explicit selected dependency-delay hints, the same two-value dependency window, and `FullTile` scope so rounding and NaN preparation can cross store-clause boundaries. The accumulator order, output-index register, scratch-ring base, and store grouping are declarative physical relationships. There are no numbered epilogue batches, absolute issue slots, raw assembly blocks, external instruction data, generic rescheduler, source-order fallback, or build-time HIP/LLVM pass. Compiler output remains only an offline migration, analysis, and benchmarking oracle.
 
@@ -311,13 +311,85 @@ Offline compiler-oracle experiments reopened the physical scheduling premise wit
 
 LLVM remains an offline oracle only. Its max-ILP strategy uses pressure heuristics, clustering, physical-register bias, and an original-node-order fallback, while post scheduling changes VOPD formation. None of those opaque mechanisms may enter GGTensile generation. The actionable work is to express the useful behavior as named stage traversal, load clustering, decode ordering, local-write deferral, BF16 scope, latency spacing, fixed-register pressure, and explicit VOPD policies. Offline search may choose a complete discrete point; generation must directly lower that point without a local optimizer or hidden tie breaker.
 
+The reconstruction now exposes two complete six-field policies. The existing default remains `OutputRoleGroupMajor`, `StageDependencyOrder`, `SerializedDependencyDistance`, `ExplicitRoleLifetime`, `ProducerFirstUse`, and `DependencyCompatibleDualIssue`. The selected alternative changes the first three fields to `OutputRoleWavefront`, `RowBatchedDecodeOrder`, and `WavefrontDependencyDistance`. Validation, solution serialization, candidate hashing, and bounded neighborhood enumeration accept only the two complete tuples; partial or unknown combinations remain rejected.
+
+The wavefront lowering is hazard-aware and decode-local. It first shifts every destructive packed-QH source, walks the physical high-role handoff in atom order, completes each low merge before that atom's QH register is reused, and then applies the independent signed-normalization frontiers. It uses the existing `Q6DecodeRegisterPlan`, output registers, LDS write order, and stage lifetimes. It adds no scheduler, allocator, register repair, raw instruction table, or compiler pass.
+
+Two independent warmed rotating confirmations produced:
+
+| M | Parent A ms | Wavefront A ms | A/parent | Parent B ms | Wavefront B ms | B/parent |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 64 | 3.981262 | 3.930113 | 0.987153x | 4.040238 | 3.959504 | 0.980018x |
+| 128 | 7.400774 | 7.349287 | 0.993043x | 7.457979 | 7.359931 | 0.986853x |
+| 256 | 14.831588 | 14.701471 | 0.991227x | 15.076605 | 14.915268 | 0.989299x |
+
+Every full exact-shape candidate matched both the selected parent and installed HIP control bit-for-bit, including negated-input, packed-weight-mutation, and Q8_1-workspace-mutation runs over `15,892,480`, `31,784,960`, and `63,569,920` BF16 outputs. All outputs were finite, producer repetition changed zero bytes, and every mutation changed output. Reduced exact correctness checks against independently dequantized BF16 GEMM measured normalized RMSE `0.006142` at M64 and `0.006089` at M128, identical to the public control.
+
+M64 remains at 158 VGPR, 27 SGPR, and 28,928-byte LDS; M128/M256 remain at 210 VGPR, 27 SGPR, and 38,400-byte LDS. All have zero private bytes, spills, scratch instructions, calls, and dynamic stack. Repeated source generation, assembly, and linking reproduced source, object, and HSACO hashes exactly. The strict deployment catalog therefore selects the M64 wavefront specification and shares the M128 wavefront specification between M128 and M256. The default schedule remains implemented and deterministically tested, while public dispatch, generated bundle tables, and installed HIP code remain unchanged.
+
+### Producer-readiness overlap
+
+The oracle-parity continuation first corrected the static comparison to isolate the kernel symbol and stop treating linked device-library bodies as part of the LLVM candidate. The typed and LLVM M64 kernels both contain 107 VMEM operations, 75 LDS operations, eight WMMAs, four barriers, and 13 clauses; M128 contains 175 VMEM operations, 105 LDS operations, 16 WMMAs, four barriers, and 18-19 clauses. The typed body is smaller overall. The useful difference is therefore issue placement and readiness distance, not missing memory or matrix work.
+
+Three temporary deterministic variants targeted the coarse initial `vmcnt(0)`. `wavefront-factor` began decode once the packed payload and Q6 factor were ready, then waited before signed-scale and Q8_1 LDS stores. `wavefront-stream` added monotonic producer-index waits for the existing QH/QL decode frontier and deferred the independent factor conversion. `group-stream` applied the same readiness waits to the default atom-major decode. All variants preserved the physical register map and produced zero differing BF16 elements from the selected parent.
+
+Serial rotating nine-repeat screens rejected the mechanism:
+
+| M | Parent ms | Group stream / parent | Wavefront factor / parent | Wavefront stream / parent |
+| ---: | ---: | ---: | ---: | ---: |
+| 64 | 3.971232 | 1.002771x | 1.000326x | 1.000344x |
+| 128 | 7.418838 | 1.003395x | 0.999692x | 0.998277x |
+
+The largest observed gain was only 0.17% at M128 and M64 did not improve. Fine-grained producer waits alone do not close the approximately 4-5% M64 and 1-2% M128 gaps to the best LLVM machine-scheduler oracle, so no readiness policy or production lowering was added. Artifacts are retained under `q6-readiness-overlap/`.
+
+The oracle trace also showed decoded LDS stores beginning before all later signed-normalization instructions had issued. Three temporary typed variants interleaved the existing B32 signed-add/XOR pairs with their corresponding decoded LDS store, in batches of one, two, or four output roles. This retained the existing `Q6DecodeRegisterPlan`, physical output registers, LDS offsets, and barrier ownership; all candidates matched the wavefront parent at zero differing BF16 elements.
+
+The M64 nine-repeat medians were `1.013435x`, `1.015569x`, and `1.016646x` parent latency for batches one, two, and four. M128 medians were `1.013926x`, `1.009071x`, and `1.008277x`. The store issue does not repay the additional LDS/VALU interleaving in the typed B32 representation, so the candidate lowering was not retained. Artifacts are retained under `q6-decode-store-interleave/`.
+
+### Dot-frontier issue order
+
+The next typed oracle-parity experiment targeted the hot inner dot loop rather than the packed decode. The LLVM trace skews product-scale issue order, carries one late product multiply into an early accumulator update on J64, and places the J128 factor loads before the eight signed scale reads. Temporary lowering-only variants expressed those behaviors as deterministic dot-frontier policies while retaining the selected wavefront physical register map, LDS addresses, WMMA sequence, accumulator ownership, and exact output contract:
+- M64 `scale-frontier` reordered the pointer-update/product-scale frontier; `scale-carry` additionally folded the final independent product multiply into a legal existing VOPD accumulator pair and emitted the displaced accumulator update as a scalar FMAC.
+- M128 `factor-first` moved factor LDS reads before scale reads; `factor-first-scale` combined that load order with the M128 product-scale frontier; and `factor-first-scale-ready` also removed the now-redundant accumulator LDS wait chain after the scale frontier had reached `lgkmcnt(0)`.
+
+All six candidates assembled and linked. The first six-way screen was accidentally run concurrently for M64 and M128 on the same GPU, so its timing ratios are discarded; its only retained result is the zero-difference correctness check. A serial 12-warmup/9-repeat screen found no material gain:
+
+| M | Parent ms | Best candidate | Best / parent | Candidate family |
+| ---: | ---: | ---: | ---: | --- |
+| 64 | 3.970453 | 3.955621 | 0.996264x | `scale-carry` |
+| 128 | 7.359631 | 7.348888 | 0.998540x | `scale-frontier` |
+
+The serial 20-warmup/25-repeat confirmation reduced both margins further: M64 `scale-carry` was `0.997820x` of parent latency and M128 `scale-frontier` was `0.997778x`. Every candidate produced zero differing BF16 elements from the selected parent. The scale/frontier, carried-multiply, factor-read ordering, and reduced-wait mechanisms are therefore rejected as noise-scale under the fixed physical map. Generated artifacts remain under `~/tmp/torch-ggml-ops/q6-dot-frontier/`; the temporary builder is `build_q6_dot_frontier.py`.
+
+### Kernel-only issue counters
+
+A kernel-only rocprofv3 pass then loaded the selected typed HSACO and the LLVM max-ILP HSACO under the same validated Q6 launch state, alternated them in one process, and filtered by their distinct kernel symbols. This avoids attributing linked device-library bodies or unrelated producer work to the comparison. Counter collection was run in three serial passes; profiler dispatch times are not used as timing evidence.
+
+| M | Kernel | `SQ_INSTS_VALU` | `SQ_INST_CYCLES_VALU` | `SQ_INSTS_DUAL_VALU_WAVE32` | `SQ_INSTS_LDS` | `SQ_CYCLES` |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 64 | typed wavefront | 256,405,920 | 449,335,040 | 76,234,240 | 35,385,600 | 207,837,840 |
+| 64 | LLVM max-ILP | 301,336,320 | 494,265,440 | 71,035,040 | 35,385,600 | 210,162,280 |
+| 128 | typed wavefront | 469,619,680 | 853,320,640 | 137,972,800 | 49,539,840 | 397,480,380 |
+| 128 | LLVM max-ILP | 507,519,520 | 891,220,480 | 139,804,160 | 49,539,840 | 406,050,160 |
+
+The typed and LLVM kernels therefore issue identical LDS volume, identical SALU/SMEM volume, and identical measured LDS-bank-conflict counts. LLVM instead executes more scalar VALU operations and more VALU issue cycles at both shapes; M64 also forms fewer dual-VALU instructions. M128 has a smaller dual-VALU difference, but still spends more VALU cycles. The same-process pass does not identify one universally dominant wait counter—M64 has lower LLVM `SQ_WAIT_INST_LDS`, while M128 has higher LLVM LDS-wait activity - so readiness alone is not a sufficient production policy. The remaining gap is best classified as issue mix and fine-grained address/VALU placement rather than missing LDS work or bank conflicts. Counter artifacts and the profiling helper remain under `~/tmp/torch-ggml-ops/q6-counter-pair-both-j64/`, `~/tmp/torch-ggml-ops/q6-counter-pair-both-j128/`, and `profile_q6_counter_pair.py`.
+
 ### Recursive exhaustion review
 
-The earlier review after the M64 delay-free confirmation closed the fixed transferred-schedule premise. Its retained and rejected classifications remain useful evidence, but the offline scheduler-oracle result creates a new actionable premise and invalidates a final Q6 exhaustion claim until deterministic reconstruction is complete. Current classifications are:
-- Retained and measured: fixed-LDS J64/J128 ownership, structured `(32,4,1)` launches, two J128 row tiles for M256, M64 delay-hint removal, and the semantic BF16 pipelines.
-- Rejected by timing: paired activation-scale reads and decoded stores, compact raw payload, expanded transposed scales, global-L0 invalidation removal, J128 delay removal, alternate decoded geometries, dedicated decoder waves, no-cluster schedules, disabled post scheduling, and low-register-only policies.
+The earlier review after the M64 delay-free confirmation closed the fixed transferred-schedule premise. The typed reconstruction qualified a deterministic scheduler policy, but the stronger oracle-parity continuation remains open because M64 and M128 still trail the best LLVM machine-scheduler candidates. Current classifications are:
+- Retained and measured: fixed-LDS J64/J128 ownership, structured `(32,4,1)` launches, two J128 row tiles for M256, M64 delay-hint removal, semantic BF16 pipelines, and the selected row/role decode wavefront.
+- Rejected by timing: paired activation-scale reads and decoded stores, compact raw payload, expanded transposed scales, coarse producer-readiness overlap, global-L0 invalidation removal, J128 delay removal, alternate decoded geometries, dedicated decoder waves, no-cluster schedules, disabled post scheduling, and low-register-only policies.
 - Correctness or contract-incompatible: NaN-path simplification for arbitrary packed data, reordered effective scales, prepared weights, shared decode workspaces, producer fusion, persistent/grouped traversal, public dispatch changes, and build-time invocation of LLVM scheduling or allocation passes.
-- Actionable: deterministic semantic reconstruction of the promising J64 and J128 schedule behavior, followed by exact correctness, M64/M128/M256 resource, and warmed timing qualification.
 - Deferred with explicit prerequisites: Q3_K/Q8_0 forward campaigns before any global forward-exhaustion claim.
 
-The selected exact keys remain production-safe while this work proceeds. Q6 performance and structural exhaustion are not final until the new schedule premise is either promoted through all gates or rejected with measured deterministic candidates.
+The selected Q6 exact keys are qualified under the fixed packed-weight and Q8_1 producer contract. A global forward-exhaustion claim remains deferred until the separate Q3_K and Q8_0 campaigns are closed.
+
+## Cross-Campaign Schedule Result
+
+The deterministic scheduler-oracle result changed the implementation premise, not the packed-data contract. The semantic policy fields now describe two distinct direct lowerings, and the selected wavefront policy passed exact correctness, mutation, resource, deterministic-build, and repeated timing gates for M64, M128, and M256.
+
+M256 did not inherit the J128 result automatically. It remained a separate default-policy control until two full-shape 25-repeat comparisons and exact mutation qualification independently supported the same wavefront policy. This preserves the campaign rule that a shared geometry does not imply a shared selection without shape-specific evidence.
+
+The earlier shared decoded M256 ownership remains a conditional follow-up. It saved staging work against two J128 calls but was approximately `4%` behind HIP under the older semantic schedule. It may be reconsidered only after a deterministic J64/J128 policy is implemented and then composed with the full M256 ownership, resource, synchronization, and exact-key gates. The current MT64/MT128 validation boundary is implementation-era for this research path, but removing it without a real MT256 physical plan would be unsound.
+
+No effective-scale arithmetic reorder, prepared representation, shared decode workspace, producer fusion, or model-owned contract change is part of this reopening. The recursive final-review rule is global: it spans forward and backward directions, all quant types, and all exact shapes. A scheduler or lifetime finding from another format may transfer only when its semantic dependencies and physical resource envelope are re-derived for Q6; a Q6 result may likewise become evidence for another format without silently becoming a selection.
