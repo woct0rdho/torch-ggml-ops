@@ -272,17 +272,17 @@ The campaign used these measurable gates:
 
 Only a measured complete dataflow may replace a fallback. The initial HIP-shaped `Q8HipTiledLds` lowering was exact and resource-qualified but missed its Q-A gate; the activation-read-address-hoisted form subsequently cleared repeated confirmations for 20 exact keys. Exact `Q8SmallMTiledLds` controls then cleared the same qualification gates for LM-head M32/M64, and the compact M64 KV mechanism cleared its repeated faster-than-HIP gate. The Q8 catalog now selects GGTensile for all 23 required exact keys with no HIP research fallback. This catalog result does not change public dispatch or the generated bundle; the public-boundary review remains separate.
 
-### Initial Q3_K forward exact-shape control (isolated)
+### Current Q3_K forward campaign
 
-The isolated forward Q3_K control is qualified only for the ordinary exact shape `(M,N,K)=(2048,4096,2048)`, representative tensor `blk.4.attn_gate.weight`. It uses the 110-byte Q3_K block format, Q8_1 `F32_D4` activations, a wave32 `(32,4,1)` workgroup, a `128x64` macro tile, decoded Q3 rows in LDS, integer WMMA accumulation, FP32 scale correction, and BF16 RNE stores. The final shared-VMEM plus loop-carried weight-prefetch lowering is resource-clean at 144 VGPRs, 16 SGPRs, and 28,672 bytes of LDS, with zero private storage and spills.
+The dense Q3_K inventory contains 12 exact keys across attention K, attention Q, attention gate, and SSM output at `M={2048,8192,32768}`. The typed `Q3FullWeightTiledLds` lowering is independently qualified on every exact key. It uses the 110-byte Q3_K block format, Q8_1 `F32_D4` activations, wave32 workgroup `(32,4,1)`, a `128x64` macro tile, a 336-byte padded decoded-weight LDS row, integer WMMA accumulation, FP32 scale correction, and BF16 RNE stores. The research catalog selects the typed candidate for all 12 exact keys; public dispatch remains on HIP and the generated bundle remains at 179 kernels.
 
-The control is bit-exact with the direct HIP control and public path across 8,388,608 outputs, passes input/weight/workspace mutation and independent-reference checks, and reproduces source, object, HSACO, and normalized inspection content across two independent builds. The final warmed 25-sample medians are `0.9380x` HIP for multiply and `0.9260x` for complete execution. It remains isolated research evidence because Q3 inventory, selected catalog, runtime dispatch, and public bundle promotion are still deferred pending broader shape validation and a separate integration decision. Evidence is in [experiment_ggtensile_mmq_fwd_q3_k.md](experiment_ggtensile_mmq_fwd_q3_k.md).
+Two independent 100-warmup/101-repeat rotating confirmations favored GGTensile on every exact key. Per-key speedups were between `1.0700x` and `1.0896x`, and call-count-weighted speedups were `1.0745x` and `1.0755x`. All 12 keys passed exact HIP/public agreement, independent-reference, finiteness, mutation, deterministic-producer, deterministic-rebuild, and zero-spill/resource gates. The experiment record reports the corresponding effective TFLOPS-equivalent rates.
 
-### Current Q8_0/Q3_K forward status
+The recursive Q3 review is complete. MT64, rolled, linear-staging, batched-WMMA, partial-wait, paired-scale, compact-row, extra-barrier, cache-invalidation, dual-plane, phased-correction, fragment/bank, paired-sum, and final-tail alternatives were either correctness/resource-invalid or failed repeated timing. Prepared weights, dense shadows, external decode storage, split-K, persistent/grouped traversal, producer fusion, hidden caches, and public dispatch changes remain outside the contract. No actionable in-contract optimization remains for the 12 exact research keys.
 
-The Q8 research catalog is complete for all 23 required exact keys: 20 ordinary wave-N LDS selections, two exact LM-head small-M selections, and one compact-KV selection. Every selected key has repeated warmed evidence below HIP multiply. Public runtime dispatch, public bundles, and the frozen-source boundary remain separate integration decisions.
+### Current Q8_0 forward status
 
-The isolated Q3_K ordinary control remains qualified and faster than HIP. Q3 inventory reconstruction, additional shape implementation, catalog expansion, runtime dispatch, and bundle work are paused until a separate campaign resumes them. Static instruction reductions, partial-body timings, and compiler scheduling observations remain diagnostic only.
+Q8 production coverage is complete for all 23 required exact keys: 20 ordinary wave-N LDS selections, two exact LM-head small-M selections, and one compact-KV selection. Every selected key has repeated warmed evidence below HIP multiply and is integrated through exact public bundle dispatch.
 
 ### Diagnostic lower bounds and profiling
 
@@ -344,12 +344,12 @@ There is no fixed percentage threshold. Timing selects winners. Static issue cou
 | MMQ forward Q4_K | Lowering and 12-key research coverage implemented; the canonical inventory currently records 2 selected and 10 open keys |
 | MMQ forward Q5_K | Six exact inventory keys selected and recursively exhausted under the current contract |
 | MMQ forward Q6_K | Three exact language-model-head keys selected; structured semantic lowering and the current writer refactor are complete for the implemented domain |
-| MMQ forward Q3_K | One exact ordinary control is correctness-qualified and faster than HIP with the retained shared-VMEM/prefetch dataflow; inventory and selected catalog remain deferred |
-| MMQ forward Q8_0 | All 23 required exact keys select faster-than-HIP GGTensile controls: 20 ordinary wave-N LDS, two exact small-M LM-head, and one compact-KV; public integration is deferred |
+| MMQ forward Q3_K | Dense 12-key inventory complete; all 12 exact keys select the typed full-weight research candidate, while public wiring remains deferred to the 179-kernel HIP bundle |
+| MMQ forward Q8_0 | All 23 required exact keys select and publicly dispatch faster-than-HIP GGTensile controls: 20 ordinary wave-N LDS, two exact small-M LM-head, and one compact-KV |
 | Grouped GGTensile | Deferred until grouped ownership and routing receive an explicit generator contract |
 | Public GGTensile runtime selection | Deferred; existing HIP bundle dispatch remains authoritative |
 
-Global MMQ forward format exhaustion is not complete until Q3_K inventory and exact-shape coverage are expanded. Ordinary Q8_0 coverage does not imply fixed-group grouped-Q8_0 coverage.
+Global MMQ forward format exhaustion is not complete until the active Q3_K campaign reaches its recursive final review. Ordinary Q8_0 coverage does not imply fixed-group grouped-Q8_0 coverage.
 
 ### Implemented forward architecture
 

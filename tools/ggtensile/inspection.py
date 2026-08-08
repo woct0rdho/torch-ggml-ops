@@ -155,7 +155,7 @@ def inspect_artifact(
                 solution.macro_tile0 // 8
                 if solution.operand_source == "Q6StructuredDecoded"
                 else 128
-                if solution.operand_source == "Q3HipTiledLds"
+                if solution.operand_source in {"Q3HipTiledLds", "Q3FullWeightTiledLds"}
                 else 32
                 if solution.operand_source == "DecodedWeightLdsBatch8"
                 else 8
@@ -194,6 +194,7 @@ def inspect_artifact(
                     "Q6StructuredDecoded",
                     "DecodedWeightLdsBatch8",
                     "Q3HipTiledLds",
+                    "Q3FullWeightTiledLds",
                 )
                 else 2 * solution.depth_u // 32
                 if solution.operand_source == "Q8HipTiledLds"

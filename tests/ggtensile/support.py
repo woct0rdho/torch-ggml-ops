@@ -171,8 +171,8 @@ MMQ_FWD_INVENTORY_CASES = (
         12,
         frozenset({"attention_k", "attention_q", "attention_gate", "ssm_output"}),
         frozenset({2048, 8192, 32768}),
-        (("open", 11), ("selected", 1)),
-        frozenset({"hip_tiled_lds_selected"}),
+        (("selected", 12),),
+        frozenset({"full_weight_typed_qualified", "hip_tiled_lds_selected"}),
     ),
     GGTensileInventoryCase(
         "fwd",

@@ -156,46 +156,26 @@ def test_forward_campaign_inventory_is_exact_and_versionless(
     assert "Version" not in raw and "SchemaVersion" not in raw
 
 
-def test_q3_forward_inventory_selects_only_qualified_large_query() -> None:
+def test_q3_forward_inventory_selects_all_qualified_exact_keys() -> None:
     inventory, catalog = load_inventory_case(_Q3_INVENTORY_CASE)
     selected = tuple(
         entry for entry in inventory.entries if entry.current_status == "selected"
     )
-    assert tuple(entry.problem_size for entry in selected) == (
-        ProblemSize(32768, 8192, 2048),
+    assert tuple(entry.problem_size for entry in selected) == tuple(
+        entry.problem_size for entry in inventory.entries
     )
-    assert selected[0].selected_solution == "hip_tiled_lds_selected"
     assert all(
-        entry.selected_solution == "hip_fallback"
-        for entry in inventory.entries
-        if entry.current_status == "open"
+        entry.selected_solution == "full_weight_typed_qualified" for entry in selected
     )
     assert catalog["hip_tiled_lds_selected"] == ForwardSolution.q3_k_hip_tiled_lds()
+    assert catalog["full_weight_typed_qualified"] == (
+        ForwardSolution.q3_k_full_weight_tiled_lds()
+    )
 
 
-def test_q3_forward_bundle_spec_matches_selected_exact_key() -> None:
-    specs = kernel_specs()
-    selected = next(
-        spec for spec in specs if spec.cpp_id == "GGTensileDenseFwdQ3KM32768N8192K2048"
-    )
-    assert len(specs) == 180
-    assert selected.config is None
-    assert selected.enforce_resource_gate is True
-    assert selected.ggtensile_key == SolutionKey(
-        ProblemType.mmq_forward("Q3_K"),
-        ProblemSize(32768, 8192, 2048),
-        ForwardSolution.q3_k_hip_tiled_lds(),
-    )
-    assert selected.symbol == selected.ggtensile_key.kernel_name
-    source = ForwardKernelWriterAssembly(
-        selected.ggtensile_key,
-        Toolchain.discover(),
-    ).source()
-    assert hashlib.sha256(source.encode()).hexdigest() == (
-        selected.expected_source_sha256
-    )
-    assert selected.expected_code_object_sha256 == (
-        "3c1122dd270b81ba6df40bddbe8016f25509457f4251d26ac34303575bb59604"
+def test_q3_forward_public_bundle_remains_unwired() -> None:
+    assert all(
+        not spec.cpp_id.startswith("GGTensileDenseFwdQ3K") for spec in kernel_specs()
     )
 
 
@@ -430,6 +410,23 @@ def test_q3_forward_validation_rejects_unimplemented_control_variants() -> None:
     reasons = validate_solution(key)
     assert {reason.rule_id for reason in reasons} == {
         "solution.forward.q3.control.unimplemented"
+    }
+
+
+def test_q3_full_weight_control_is_limited_to_exact_dense_inventory() -> None:
+    solution = ForwardSolution.q3_k_full_weight_tiled_lds()
+    supported = (
+        ProblemSize(m, n, k)
+        for m in (2048, 8192, 32768)
+        for n, k in ((512, 2048), (8192, 2048), (4096, 2048), (2048, 4096))
+    )
+    assert all(
+        validate_solution(_key("Q3_K", size=size, solution=solution)) == ()
+        for size in supported
+    )
+    rejected = validate_solution(_key("Q3_K", ProblemSize(2048, 1024, 2048), solution))
+    assert {reason.rule_id for reason in rejected} == {
+        "problem_size.q3.full_weight.inventory"
     }
 
 
@@ -1059,6 +1056,19 @@ def test_q8_forward_runtime_uses_exact_hip_launch_geometry(
             28_672,
             8,
             id="q3-hip-tiled-lds-control",
+        ),
+        pytest.param(
+            _key(
+                "Q3_K",
+                ProblemSize(32768, 4096, 2048),
+                ForwardSolution.q3_k_full_weight_tiled_lds(),
+            ),
+            128,
+            200,
+            4,
+            39_936,
+            8,
+            id="q3-full-weight-typed-qualified",
         ),
         pytest.param(
             _key(solution=ForwardSolution.q4_k_pilot()),

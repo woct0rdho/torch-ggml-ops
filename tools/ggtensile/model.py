@@ -548,6 +548,19 @@ class ForwardSolution:
         )
 
     @classmethod
+    def q3_k_full_weight_tiled_lds(cls) -> Self:
+        """Return the typed full-256-value Q3_K LDS mechanism."""
+        return replace(
+            cls.q3_k_hip_tiled_lds(),
+            operand_source="Q3FullWeightTiledLds",
+            lds_address_hoist="Q3FullTile336",
+            activation_addressing="ScalarPlaneBase",
+            metadata_conversion="Float16DToFloat32Signed6ScaleShared",
+            scale_arithmetic="Int32ScaleF32",
+            metadata_schedule="Q3FullTileSharedDecode",
+        )
+
+    @classmethod
     def q4_k_decoded_weight_lds_retained(cls) -> Self:
         return cls(
             kernel_language="Assembly",
@@ -866,6 +879,8 @@ class ForwardSolution:
             return 19_456 + 9_472 * output_rows_per_wave
         if self.operand_source == "DecodedWeightLdsBatch8":
             return 38_400
+        if self.operand_source == "Q3FullWeightTiledLds":
+            return 39_936
         return 0
 
     def to_mapping(self) -> dict[str, object]:

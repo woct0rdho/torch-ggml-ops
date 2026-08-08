@@ -26,6 +26,7 @@ from tools.ggtensile.mmq_fwd_lowering_decoded_lds import DecodedWeightLdsLowerin
 from tools.ggtensile.mmq_fwd_lowering_packed_direct import (
     PackedScaleMinimumDirectLowering,
 )
+from tools.ggtensile.mmq_fwd_lowering_q3_full import FullWeightQ3TiledLdsLowering
 from tools.ggtensile.mmq_fwd_lowering_q6 import (
     _emit_q6_dot_phase,
     _emit_q6_scheduled_body,
@@ -33,6 +34,7 @@ from tools.ggtensile.mmq_fwd_lowering_q6 import (
 from tools.ggtensile.mmq_fwd_lowering_signed_i8 import SignedInt8ForwardLowering
 from tools.ggtensile.mmq_fwd_physical import (
     DecodedWeightLdsPhysicalPlan,
+    Q3FullWeightTiledLdsRegisterPlan,
     SignedInt8MmaGroupRole,
     SignedInt8RegisterTiledRegisterPlan,
     SignedInt8SmallMTiledLdsPhysicalPlan,
@@ -862,6 +864,26 @@ def test_small_m_q8_helpers_reject_invalid_fragment_counts() -> None:
         SignedInt8ForwardLowering(q3_writer.context).body()
 
 
+def test_writer_emits_typed_q3_full_weight_control() -> None:
+    solution = ForwardSolution.q3_k_full_weight_tiled_lds()
+    key = SolutionKey(
+        ProblemType.mmq_forward("Q3_K"),
+        ProblemSize(32768, 4096, 2048),
+        solution,
+    )
+    assert validate_solution(key) == ()
+    writer = ForwardKernelWriterAssembly(key, Toolchain.discover())
+    source = writer.source()
+    assert source.count("v_wmma_i32_16x16x16_iu8") == 128
+    assert source.count("s_barrier") == 4
+    assert "s_mul_i32 s11, 18432, s3" in source
+    assert "v_mul_lo_u32 v179, 336, v176" in source
+    with pytest.raises(ValueError, match="starts at half zero"):
+        FullWeightQ3TiledLdsLowering(writer.context)._emit_weight_prefetch(
+            Assembly(), half=1
+        )
+
+
 def test_forward_physical_plans_reject_invalid_domains() -> None:
     physical_source = FWD_PHYSICAL_SOURCE_PATH.read_text(encoding="utf-8")
     physical_tree = ast.parse(physical_source)
@@ -893,10 +915,27 @@ def test_forward_physical_plans_reject_invalid_domains() -> None:
     with pytest.raises(ValueError, match="one or two output rows"):
         q6_structured_physical_plan(3)
 
+    q3_registers = Q3FullWeightTiledLdsRegisterPlan.allocate()
+    with pytest.raises(ValueError, match="count is inconsistent"):
+        replace(q3_registers, register_count=199)
+    with pytest.raises(ValueError, match="exceeds the plan"):
+        replace(
+            q3_registers,
+            wave=replace(q3_registers.wave, first_register=200),
+        )
+
     q3 = ForwardKernelSpec.from_solution(ForwardSolution.q3_k_hip_tiled_lds())
     with pytest.raises(ValueError, match="Q3 HIP-shaped"):
         derive_forward_physical_plan(
             replace(q3, geometry=replace(q3.geometry, work_group=(32, 2, 1)))
+        )
+
+    q3_full = ForwardKernelSpec.from_solution(
+        ForwardSolution.q3_k_full_weight_tiled_lds()
+    )
+    with pytest.raises(ValueError, match="Q3 full-weight"):
+        derive_forward_physical_plan(
+            replace(q3_full, geometry=replace(q3_full.geometry, work_group=(32, 2, 1)))
         )
 
     q8_hip = ForwardKernelSpec.from_solution(ForwardSolution.q8_0_hip_tiled_lds())

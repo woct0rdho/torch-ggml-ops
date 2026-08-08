@@ -12,6 +12,7 @@ from tools.ggtensile.mmq_fwd_spec import (
     ForwardProblemContract,
     ForwardResourceUsage,
     Packed3BitTiledLdsLayout,
+    Q3FullWeightTiledLdsLayout,
     Q6LdsLayout,
     Q6SemanticPlan,
     Q6SemanticStage,
@@ -205,6 +206,7 @@ def test_complete_candidate_round_trips_to_the_normal_build_solution() -> None:
     candidates = (
         ("Q4_K", ForwardSolution.q4_k_pilot()),
         ("Q3_K", ForwardSolution.q3_k_hip_tiled_lds()),
+        ("Q3_K", ForwardSolution.q3_k_full_weight_tiled_lds()),
         ("Q4_K", ForwardSolution.q4_k_decoded_weight_lds_retained()),
         (
             "Q4_K",
@@ -271,6 +273,7 @@ def test_complete_candidate_round_trips_to_the_normal_build_solution() -> None:
     (
         (ForwardSolution.q4_k_pilot(), (88, 16, 0)),
         (ForwardSolution.q3_k_hip_tiled_lds(), (144, 16, 28_672)),
+        (ForwardSolution.q3_k_full_weight_tiled_lds(), (200, 16, 39_936)),
         (
             ForwardSolution.q4_k_decoded_weight_lds_retained(),
             (239, 16, 38_400),
@@ -398,6 +401,15 @@ def test_q3_half_tile_lds_and_packed_groups_are_formula_derived() -> None:
     assert layout.weight_bytes == 10_240
     assert layout.total_bytes == 28_672
 
+    full = Q3FullWeightTiledLdsLayout()
+    assert full.activation_bytes == 18_432
+    assert full.weight_base == 18_432
+    assert full.weight_payload_bytes == 256
+    assert full.weight_scale_total_bytes == 64
+    assert full.weight_padding_bytes == 16
+    assert full.weight_bytes == 21_504
+    assert full.total_bytes == 39_936
+
     semantics = QuantForwardSemantics.for_quant_type("Q3_K")
     first = semantics.q3_payload_group(0)
     assert (
@@ -434,6 +446,8 @@ def test_q3_half_tile_lds_and_packed_groups_are_formula_derived() -> None:
         QuantForwardSemantics.for_quant_type("Q4_K").q3_signed_decode()
     with pytest.raises(ValueError, match="dimensions must be positive"):
         Packed3BitTiledLdsLayout(activation_rows=0)
+    with pytest.raises(ValueError, match="fixed dimensions"):
+        Q3FullWeightTiledLdsLayout(weight_row_stride=320)
 
 
 def test_forward_resource_admission_rejects_each_fixed_limit() -> None:
@@ -450,6 +464,7 @@ def test_forward_resource_admission_rejects_each_fixed_limit() -> None:
 def test_every_forward_solution_field_is_projected_or_rejected() -> None:
     representatives = (
         ("Q3_K", ForwardSolution.q3_k_hip_tiled_lds()),
+        ("Q3_K", ForwardSolution.q3_k_full_weight_tiled_lds()),
         ("Q4_K", ForwardSolution.q4_k_pilot()),
         ("Q4_K", ForwardSolution.q4_k_decoded_weight_lds_retained()),
         ("Q5_K", ForwardSolution.q5_k_decoded_weight_lds_retained()),

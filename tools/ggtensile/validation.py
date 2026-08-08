@@ -189,6 +189,35 @@ def _validate_packed_3bit_forward_solution(
     _validate_forward_tile_multiples(problem_size, solution, reasons)
 
 
+def _validate_q3_full_weight_forward_solution(
+    problem_size: ProblemSize,
+    solution: ForwardSolution,
+    reasons: list[RejectReason],
+) -> None:
+    if solution != ForwardSolution.q3_k_full_weight_tiled_lds():
+        _reject(
+            reasons,
+            "solution.forward.q3.full_weight.control.unimplemented",
+            "Q3_K full-weight forward implements one typed ownership schedule",
+            "Solution",
+        )
+        return
+    supported_sizes = frozenset(
+        ProblemSize(m, n, k)
+        for m in (2_048, 8_192, 32_768)
+        for n, k in ((512, 2_048), (8_192, 2_048), (4_096, 2_048), (2_048, 4_096))
+    )
+    if problem_size not in supported_sizes:
+        _reject(
+            reasons,
+            "problem_size.q3.full_weight.inventory",
+            "Q3_K full-weight control implements the exact dense inventory keys",
+            "ProblemSize",
+        )
+        return
+    _validate_forward_tile_multiples(problem_size, solution, reasons)
+
+
 def _validate_signed_int8_forward_solution(
     problem_size: ProblemSize,
     solution: ForwardSolution,
@@ -328,6 +357,8 @@ def _validate_forward_mechanism_control(
     lowering = mechanism.lowering
     if lowering == "Packed3BitTiledLds":
         _validate_packed_3bit_forward_solution(problem_size, solution, reasons)
+    elif lowering == "Packed3BitFullWeightTiledLds":
+        _validate_q3_full_weight_forward_solution(problem_size, solution, reasons)
     elif lowering == "StructuredQ6":
         _validate_structured_q6_forward_solution(problem_size, solution, reasons)
     elif lowering == "DecodedWeightLds":

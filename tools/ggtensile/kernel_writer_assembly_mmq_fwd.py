@@ -11,6 +11,7 @@ from .mmq_fwd_lowering import ForwardKernelWriterError, ForwardLoweringContext
 from .mmq_fwd_lowering_decoded_lds import DecodedWeightLdsLowering
 from .mmq_fwd_lowering_packed_3bit import Packed3BitTiledLdsLowering
 from .mmq_fwd_lowering_packed_direct import PackedScaleMinimumDirectLowering
+from .mmq_fwd_lowering_q3_full import FullWeightQ3TiledLdsLowering
 from .mmq_fwd_lowering_q6 import Q6StructuredLowering
 from .mmq_fwd_lowering_signed_i8 import SignedInt8ForwardLowering
 from .mmq_fwd_spec import (
@@ -61,6 +62,7 @@ class ForwardKernelWriterAssembly:
                 in {
                     "Q6StructuredDecoded",
                     "Q3HipTiledLds",
+                    "Q3FullWeightTiledLds",
                     "Q8RegisterTiled",
                     "Q8HipTiledLds",
                     "Q8SmallMTiledLds",
@@ -95,6 +97,8 @@ class ForwardKernelWriterAssembly:
             return Q6StructuredLowering(self.context).body()
         if operand_source == "Q3HipTiledLds":
             return Packed3BitTiledLdsLowering(self.context).body()
+        if operand_source == "Q3FullWeightTiledLds":
+            return FullWeightQ3TiledLdsLowering(self.context).body()
         if operand_source == PackedScaleMinimumDirectLowering.OPERAND_SOURCE:
             return PackedScaleMinimumDirectLowering(self.context).body()
         if operand_source == DecodedWeightLdsLowering.OPERAND_SOURCE:

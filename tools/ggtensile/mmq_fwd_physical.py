@@ -18,6 +18,7 @@ from .mmq_fwd_spec import (
     ForwardKernelSpec,
     ForwardResourceUsage,
     Packed3BitTiledLdsLayout,
+    Q3FullWeightTiledLdsLayout,
     Q6LdsLayout,
     QuantForwardSemantics,
     SignedInt8KvTiledLdsLayout,
@@ -845,6 +846,138 @@ class Packed3BitTiledLdsRegisterPlan:
             register_count=plan.register_count,
             declared_vgprs=declared_vgprs,
         )
+
+
+@dataclass(frozen=True)
+class Q3FullWeightTiledLdsRegisterPlan:
+    """Explicit typed register ownership for the full-weight Q3 tile."""
+
+    sums: RegisterAssignment
+    activation_stage: RegisterAssignment
+    weight_low_raw: RegisterAssignment
+    weight_high_raw: RegisterAssignment
+    weight_low1_raw: RegisterAssignment
+    weight_metadata: RegisterAssignment
+    decoded_payload: RegisterAssignment
+    decode_auxiliary: RegisterAssignment
+    decode_d: RegisterAssignment
+    decode_scale: RegisterAssignment
+    weight_stage_address: RegisterAssignment
+    half_shift: RegisterAssignment
+    c: RegisterAssignment
+    zero_accumulator: RegisterAssignment
+    weight_payload: RegisterAssignment
+    activation_payload: RegisterAssignment
+    weight_scales: RegisterAssignment
+    activation_scale: RegisterAssignment
+    weight_scale_address: RegisterAssignment
+    output_address: RegisterAssignment
+    weight_address: RegisterAssignment
+    activation_address: RegisterAssignment
+    activation_lds_address: RegisterAssignment
+    activation_read_address: RegisterAssignment
+    weight_lds_address: RegisterAssignment
+    temporary: RegisterAssignment
+    lane: RegisterAssignment
+    wave: RegisterAssignment
+    register_count: int
+    declared_vgprs: int
+
+    def __post_init__(self) -> None:
+        assignments = (
+            self.sums,
+            self.activation_stage,
+            self.weight_low_raw,
+            self.weight_high_raw,
+            self.weight_low1_raw,
+            self.weight_metadata,
+            self.decoded_payload,
+            self.decode_auxiliary,
+            self.decode_d,
+            self.decode_scale,
+            self.weight_stage_address,
+            self.half_shift,
+            self.c,
+            self.zero_accumulator,
+            self.weight_payload,
+            self.activation_payload,
+            self.weight_scales,
+            self.activation_scale,
+            self.weight_scale_address,
+            self.output_address,
+            self.weight_address,
+            self.activation_address,
+            self.activation_lds_address,
+            self.activation_read_address,
+            self.weight_lds_address,
+            self.temporary,
+            self.lane,
+            self.wave,
+        )
+        if self.register_count != self.declared_vgprs or self.register_count <= 0:
+            raise ValueError("Q3 full-weight register count is inconsistent")
+        if any(
+            assignment.first_register < 0
+            or assignment.first_register + assignment.role.width > self.register_count
+            for assignment in assignments
+        ):
+            raise ValueError("Q3 full-weight register assignment exceeds the plan")
+
+    @staticmethod
+    def _fixed(
+        name: str,
+        width: int,
+        first: int,
+        first_stage: int,
+        last_stage: int,
+    ) -> RegisterAssignment:
+        return RegisterAssignment(
+            RegisterRole(name, width, RegisterLifetime(first_stage, last_stage)),
+            first,
+        )
+
+    @classmethod
+    def allocate(cls) -> Q3FullWeightTiledLdsRegisterPlan:
+        fixed = cls._fixed
+        return cls(
+            sums=fixed("sums", 64, 0, 0, 5),
+            activation_stage=fixed("activation_stage", 36, 64, 1, 1),
+            weight_low_raw=fixed("weight_low_raw", 4, 105, 1, 2),
+            weight_high_raw=fixed("weight_high_raw", 4, 110, 1, 2),
+            weight_low1_raw=fixed("weight_low1_raw", 4, 114, 1, 2),
+            weight_metadata=fixed("weight_metadata", 4, 100, 1, 2),
+            decoded_payload=fixed("decoded_payload", 4, 126, 2, 2),
+            decode_auxiliary=fixed("decode_auxiliary", 2, 131, 2, 2),
+            decode_d=fixed("decode_d", 1, 130, 2, 2),
+            decode_scale=fixed("decode_scale", 1, 132, 2, 2),
+            weight_stage_address=fixed("weight_stage_address", 1, 109, 1, 2),
+            half_shift=fixed("half_shift", 1, 104, 1, 2),
+            c=fixed("c", 8, 96, 3, 3),
+            zero_accumulator=fixed("zero_accumulator", 8, 183, 0, 3),
+            weight_payload=fixed("weight_payload", 4, 164, 3, 3),
+            activation_payload=fixed("activation_payload", 32, 64, 3, 3),
+            weight_scales=fixed("weight_scales", 8, 168, 3, 3),
+            activation_scale=fixed("activation_scale", 8, 192, 3, 3),
+            weight_scale_address=fixed("weight_scale_address", 1, 179, 3, 3),
+            output_address=fixed("output_address", 1, 64, 5, 5),
+            weight_address=fixed("weight_address", 1, 191, 0, 5),
+            activation_address=fixed("activation_address", 1, 162, 0, 5),
+            activation_lds_address=fixed("activation_lds_address", 1, 162, 0, 5),
+            activation_read_address=fixed("activation_read_address", 1, 161, 0, 3),
+            weight_lds_address=fixed("weight_lds_address", 1, 178, 0, 5),
+            temporary=fixed("temporary", 2, 176, 0, 5),
+            lane=fixed("lane", 1, 163, 0, 5),
+            wave=fixed("wave", 1, 160, 0, 5),
+            register_count=200,
+            declared_vgprs=200,
+        )
+
+
+@dataclass(frozen=True)
+class Q3FullWeightTiledLdsPhysicalPlan:
+    layout: Q3FullWeightTiledLdsLayout
+    registers: Q3FullWeightTiledLdsRegisterPlan
+    resources: ForwardResourceUsage
 
 
 @dataclass(frozen=True)
@@ -2061,6 +2194,7 @@ ForwardPhysicalPlan: TypeAlias = (
     | DecodedWeightLdsPhysicalPlan
     | Q6StructuredPhysicalPlan
     | Packed3BitTiledLdsPhysicalPlan
+    | Q3FullWeightTiledLdsPhysicalPlan
     | SignedInt8DirectPhysicalPlan
     | SignedInt8RegisterTiledPhysicalPlan
     | SignedInt8WaveNTiledLdsPhysicalPlan
@@ -2096,6 +2230,20 @@ def packed_3bit_tiled_lds_physical_plan() -> Packed3BitTiledLdsPhysicalPlan:
     )
 
 
+def q3_full_weight_tiled_lds_physical_plan() -> Q3FullWeightTiledLdsPhysicalPlan:
+    layout = Q3FullWeightTiledLdsLayout()
+    registers = Q3FullWeightTiledLdsRegisterPlan.allocate()
+    return Q3FullWeightTiledLdsPhysicalPlan(
+        layout=layout,
+        registers=registers,
+        resources=ForwardResourceUsage(
+            vgprs=registers.declared_vgprs,
+            sgprs=16,
+            lds_bytes=layout.total_bytes,
+        ),
+    )
+
+
 def derive_forward_physical_plan(spec: ForwardKernelSpec) -> ForwardPhysicalPlan:
     """Derive one complete mechanism plan without emitting instructions."""
     operand_source = spec.global_memory.operand_source
@@ -2106,6 +2254,10 @@ def derive_forward_physical_plan(spec: ForwardKernelSpec) -> ForwardPhysicalPlan
         if spec.geometry.work_group != (32, 4, 1) or spec.macro_tile != (128, 64):
             raise ValueError("Q3 HIP-shaped LDS control requires a 128x64 tile")
         return packed_3bit_tiled_lds_physical_plan()
+    if operand_source == "Q3FullWeightTiledLds":
+        if spec.geometry.work_group != (32, 4, 1) or spec.macro_tile != (128, 64):
+            raise ValueError("Q3 full-weight LDS control requires a 128x64 tile")
+        return q3_full_weight_tiled_lds_physical_plan()
     if operand_source == "DecodedWeightLdsBatch8":
         layout = DecodedLdsLayout.for_activation_block_bytes(
             mechanism.activation_block_bytes

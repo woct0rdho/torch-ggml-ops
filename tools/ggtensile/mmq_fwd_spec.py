@@ -648,6 +648,68 @@ class Packed3BitTiledLdsLayout:
 
 
 @dataclass(frozen=True)
+class Q3FullWeightTiledLdsLayout:
+    """Formula-derived LDS planes for the full 256-value Q3_K tile."""
+
+    activation_rows: int = 128
+    weight_rows: int = 64
+    activation_row_stride: int = Q8_1_F32_D4_BLOCK_BYTES
+    half_payload_bytes: int = 128
+    half_payload_stride: int = 160
+    weight_scale_offset: int = 128
+    weight_scale_bytes: int = 32
+    weight_row_stride: int = 336
+
+    def __post_init__(self) -> None:
+        if (
+            self.activation_rows,
+            self.weight_rows,
+            self.activation_row_stride,
+            self.half_payload_bytes,
+            self.half_payload_stride,
+            self.weight_scale_offset,
+            self.weight_scale_bytes,
+            self.weight_row_stride,
+        ) != (128, 64, Q8_1_F32_D4_BLOCK_BYTES, 128, 160, 128, 32, 336):
+            raise ValueError("Q3 full-weight LDS layout has fixed dimensions")
+        if (
+            self.weight_scale_offset + self.weight_scale_bytes
+            > self.half_payload_stride
+        ):
+            raise ValueError("Q3 full-weight scale plane overlaps half payload stride")
+        if 2 * self.half_payload_stride > self.weight_row_stride:
+            raise ValueError("Q3 full-weight row does not fit its padded stride")
+
+    @property
+    def activation_bytes(self) -> int:
+        return self.activation_rows * self.activation_row_stride
+
+    @property
+    def weight_base(self) -> int:
+        return self.activation_bytes
+
+    @property
+    def weight_payload_bytes(self) -> int:
+        return 2 * self.half_payload_bytes
+
+    @property
+    def weight_scale_total_bytes(self) -> int:
+        return 2 * self.weight_scale_bytes
+
+    @property
+    def weight_padding_bytes(self) -> int:
+        return self.weight_row_stride - 2 * self.half_payload_stride
+
+    @property
+    def weight_bytes(self) -> int:
+        return self.weight_rows * self.weight_row_stride
+
+    @property
+    def total_bytes(self) -> int:
+        return self.activation_bytes + self.weight_bytes
+
+
+@dataclass(frozen=True)
 class SignedInt8SmallMTiledLdsLayout:
     """Formula-derived LDS planes for an exact M32 or M64 signed-int8 tile."""
 
@@ -813,6 +875,12 @@ def packed_3bit_tiled_lds_resource_usage() -> ForwardResourceUsage:
     return packed_3bit_tiled_lds_physical_plan().resources
 
 
+def q3_full_weight_tiled_lds_resource_usage() -> ForwardResourceUsage:
+    from .mmq_fwd_physical import q3_full_weight_tiled_lds_physical_plan
+
+    return q3_full_weight_tiled_lds_physical_plan().resources
+
+
 def derive_forward_resource_usage(spec: "ForwardKernelSpec") -> ForwardResourceUsage:
     from .mmq_fwd_physical import derive_forward_physical_plan
 
@@ -867,6 +935,7 @@ class ForwardMechanismContract:
         "DecodedWeightLds",
         "StructuredQ6",
         "Packed3BitTiledLds",
+        "Packed3BitFullWeightTiledLds",
         "SignedInt8",
     ]
     activation_layout: str
@@ -945,6 +1014,17 @@ _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
             scale_arithmetic="Int32ScaleF32",
             arithmetic_contracts=("SignedQ3Int8ScaleIntegerWmmaF32Correction",),
         ),
+        "Q3FullWeightTiledLds": ForwardMechanismContract(
+            lowering="Packed3BitFullWeightTiledLds",
+            activation_layout="F32_D4",
+            activation_block_bytes=Q8_1_F32_D4_BLOCK_BYTES,
+            weight_block_values=256,
+            reduction_values=2 * Q8_1_D4_BLOCK_VALUES,
+            wmma_clamp=False,
+            weight_decodes=("DirectQ3Signed",),
+            scale_arithmetic="Int32ScaleF32",
+            arithmetic_contracts=("SignedQ3Int8ScaleIntegerWmmaF32Correction",),
+        ),
         "Q8DirectGlobal": _SIGNED_INT8_CONTRACT,
         "Q8RegisterTiled": _SIGNED_INT8_CONTRACT,
         "Q8HipTiledLds": _SIGNED_INT8_CONTRACT,
@@ -967,6 +1047,7 @@ def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | Non
     structured_q6 = solution.operand_source == "Q6StructuredDecoded"
     decoded_staged = solution.operand_source == "DecodedWeightLdsBatch8"
     packed_3bit_tiled_lds = solution.operand_source == "Q3HipTiledLds"
+    full_weight_q3 = solution.operand_source == "Q3FullWeightTiledLds"
     signed_int8_register_tiled = solution.operand_source == "Q8RegisterTiled"
     signed_int8_wave_n_tiled_lds = solution.operand_source == "Q8HipTiledLds"
     signed_int8_small_m_tiled_lds = solution.operand_source == "Q8SmallMTiledLds"
@@ -988,6 +1069,7 @@ def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | Non
         if structured_q6
         or decoded_staged
         or packed_3bit_tiled_lds
+        or full_weight_q3
         or signed_int8_register_tiled
         or signed_int8_wave_n_tiled_lds
         or signed_int8_small_m_tiled_lds
@@ -1040,6 +1122,31 @@ def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | Non
                 (
                     solution.accumulator_initialization == "ScalarCopy",
                     "accumulator initialization is inactive for structured Q6",
+                ),
+            )
+        )
+    elif full_weight_q3:
+        inactive_checks.extend(
+            (
+                (
+                    solution.metadata_schedule == "Q3FullTileSharedDecode",
+                    "metadata schedule is not the typed Q3 full-tile schedule",
+                ),
+                (
+                    solution.epilogue_tiles_ahead == 8
+                    and solution.epilogue_dependency_width == 1
+                    and solution.epilogue_priority == 0,
+                    "epilogue pipeline is inactive for full-weight Q3",
+                ),
+                (
+                    solution.accumulator_initialization == "ScalarCopy",
+                    "accumulator initialization is inactive for full-weight Q3",
+                ),
+                (
+                    solution.q6_epilogue_pipeline_scope == "StoreBatch"
+                    and solution.q6_dependency_delay_mode == "None"
+                    and solution.q6_global_read_cache_policy == "Default",
+                    "Q6 policies are inactive for full-weight Q3",
                 ),
             )
         )
@@ -1137,6 +1244,7 @@ class ForwardKernelSpec:
     def from_solution(cls, solution: ForwardSolution) -> "ForwardKernelSpec":
         structured_q6 = solution.operand_source == "Q6StructuredDecoded"
         decoded_staged = solution.operand_source == "DecodedWeightLdsBatch8"
+        full_weight_q3 = solution.operand_source == "Q3FullWeightTiledLds"
         operand_source = solution.operand_source
         signed_int8_wave_n_tiled = operand_source in {
             "Q8HipTiledLds",
@@ -1201,7 +1309,9 @@ class ForwardKernelSpec:
             decode=DecodeSpec(
                 metadata_conversion=solution.metadata_conversion,
                 metadata_schedule=(
-                    solution.metadata_schedule if decoded_staged else None
+                    solution.metadata_schedule
+                    if decoded_staged or full_weight_q3
+                    else None
                 ),
             ),
             epilogue=EpilogueSpec(
@@ -1240,12 +1350,14 @@ class ForwardKernelSpec:
         decoded_staged = source == "DecodedWeightLdsBatch8"
         structured_q6 = source == "Q6StructuredDecoded"
         packed_3bit_tiled_lds = source == "Q3HipTiledLds"
+        full_weight_q3 = source == "Q3FullWeightTiledLds"
         signed_int8_register_tiled = source == "Q8RegisterTiled"
         if source not in {
             "Global",
             "DecodedWeightLdsBatch8",
             "Q6StructuredDecoded",
             "Q3HipTiledLds",
+            "Q3FullWeightTiledLds",
             "Q8DirectGlobal",
             "Q8RegisterTiled",
             "Q8HipTiledLds",
@@ -1276,12 +1388,13 @@ class ForwardKernelSpec:
             if structured_q6
             or decoded_staged
             or packed_3bit_tiled_lds
+            or full_weight_q3
             or signed_int8_register_tiled
             or source == "Q8HipTiledLds"
             or source == "Q8SmallMTiledLds"
             else (1, 1, 1, 1, 1)
         )
-        metadata_schedule = "Serialized"
+        metadata_schedule = "Q3FullTileSharedDecode" if full_weight_q3 else "Serialized"
         epilogue_tiles_ahead = 8
         epilogue_dependency_width = 1
         epilogue_priority = 0
@@ -1312,6 +1425,10 @@ class ForwardKernelSpec:
             accumulator_initialization = (
                 self.instruction_policy.accumulator_initialization
             )
+        elif full_weight_q3:
+            if self.decode.metadata_schedule != "Q3FullTileSharedDecode":
+                raise ValueError("full-weight Q3 requires its typed decode schedule")
+            metadata_schedule = self.decode.metadata_schedule
         elif structured_q6:
             assert pipeline is not None
             if pipeline.scope is None:
