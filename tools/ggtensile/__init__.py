@@ -1,3 +1,4 @@
+from .campaign import CatalogEntry, CatalogError, DeploymentCatalog, load_catalog
 from .inspection import ArtifactInspection, InspectionError, inspect_artifact
 from .mmq_fwd_reference import (
     decode_q8_0_block,
@@ -53,8 +54,11 @@ __all__ = [
     "ArtifactInspection",
     "BackwardModule",
     "BackwardSolution",
+    "CatalogEntry",
+    "CatalogError",
     "DecodeSpec",
     "DecodedLdsLayout",
+    "DeploymentCatalog",
     "DerivedForwardState",
     "EpiloguePipelineSpec",
     "EpilogueSpec",
@@ -93,6 +97,7 @@ __all__ = [
     "decode_q8_0_rows",
     "derive_forward_resource_usage",
     "inspect_artifact",
+    "load_catalog",
     "q8_0_matmul_reference",
     "validate_solution",
 ]

@@ -1,5 +1,4 @@
 import json
-from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 
@@ -15,9 +14,8 @@ from tests.ggtensile.support import (
     selected_solution_keys,
 )
 from tools.ggtensile.campaign import (
-    CampaignError,
-    load_inventory,
-    load_solution_catalog,
+    CatalogError,
+    load_catalog,
 )
 from tools.ggtensile.cli import ManifestError
 from tools.ggtensile.cli import main as ggtensile_cli_main
@@ -37,7 +35,6 @@ from tools.ggtensile.validation import validate_solution
 from tools.run_ggtensile_mmq_bwd_campaign import main as campaign_main
 
 _BWD_INVENTORY_CASES = {case.quant_type: case for case in MMQ_BWD_INVENTORY_CASES}
-_Q4_INVENTORY = _BWD_INVENTORY_CASES["Q4_K"].inventory_path
 _Q4_CATALOG = _BWD_INVENTORY_CASES["Q4_K"].catalog_path
 
 
@@ -49,11 +46,11 @@ def _pilot_key() -> SolutionKey:
     )
 
 
-def _selected_solution(quant_type: str, name: str) -> BackwardSolution:
-    inventory, catalog = load_inventory_case(_BWD_INVENTORY_CASES[quant_type])
-    solution = catalog[name]
+def _selected_solution(quant_type: str, problem_size: ProblemSize) -> BackwardSolution:
+    catalog = load_inventory_case(_BWD_INVENTORY_CASES[quant_type])
+    solution = catalog.entry_for(problem_size).solution
     assert isinstance(solution, BackwardSolution)
-    assert inventory.problem_type == ProblemType.mmq_backward(quant_type)
+    assert catalog.problem_type == ProblemType.mmq_backward(quant_type)
     return solution
 
 
@@ -65,23 +62,26 @@ def _selected_solution(quant_type: str, name: str) -> BackwardSolution:
 def test_backward_campaign_inventory_is_exact_and_versionless(
     case: GGTensileInventoryCase,
 ) -> None:
-    inventory, catalog = load_inventory_case(case)
-    assert inventory.problem_type == case.problem_type
-    assert len(inventory.entries) == case.entry_count
-    assert {entry.family for entry in inventory.entries} == case.families
-    assert {entry.problem_size.m for entry in inventory.entries} == case.m_values
-    assert Counter(entry.current_status for entry in inventory.entries) == dict(
-        case.status_counts
-    )
-    assert set(catalog) == case.solution_names
-    assert {entry.selected_solution for entry in inventory.entries} == set(catalog)
-    assert all(entry.quant_data_type == case.quant_type for entry in inventory.entries)
-    assert all(
-        validate_solution(key) == ()
-        for key in selected_solution_keys(inventory, catalog)
-    )
-    raw = json.loads(case.inventory_path.read_text(encoding="utf-8"))
-    assert "Version" not in raw and "SchemaVersion" not in raw
+    catalog = load_inventory_case(case)
+    assert catalog.problem_type == case.problem_type
+    assert len(catalog.entries) == case.entry_count
+    assert len(catalog.solutions) == case.solution_count
+    assert {entry.problem_size.m for entry in catalog.entries} == case.m_values
+    assert all(entry.quant_data_type == case.quant_type for entry in catalog.entries)
+    assert all(validate_solution(key) == () for key in selected_solution_keys(catalog))
+    raw = json.loads(case.catalog_path.read_text(encoding="utf-8"))
+    assert catalog.to_mapping() == raw
+    assert set(raw) == {"ProblemType", "Solutions", "ExactLogic"}
+    forbidden = {
+        "Family",
+        "RepresentativeTensor",
+        "CallCount",
+        "HistoricalHipMedianMs",
+        "CurrentStatus",
+        "SelectedSolution",
+    }
+    serialized = json.dumps(raw)
+    assert not any(field in serialized for field in forbidden)
 
 
 @pytest.mark.parametrize(
@@ -99,25 +99,25 @@ def test_backward_inventory_reports_expected_packed_shapes(
     logical_shape: tuple[int, int],
     physical_shape: tuple[int, int],
 ) -> None:
-    inventory, _ = load_inventory_case(_BWD_INVENTORY_CASES[quant_type])
-    entry = next(entry for entry in inventory.entries if entry.problem_size == size)
+    catalog = load_inventory_case(_BWD_INVENTORY_CASES[quant_type])
+    entry = catalog.entry_for(size)
     assert entry.expected_logical_weight_shape == logical_shape
     assert entry.expected_physical_weight_shape == physical_shape
 
 
 def test_q6_k_campaign_inventory_selects_exact_lm_head_solutions() -> None:
-    inventory, catalog = load_inventory_case(_BWD_INVENTORY_CASES["Q6_K"])
+    catalog = load_inventory_case(_BWD_INVENTORY_CASES["Q6_K"])
     assert all(
         entry.expected_logical_weight_shape == (248320, 2048)
-        for entry in inventory.entries
+        for entry in catalog.entries
     )
     assert all(
         entry.expected_physical_weight_shape == (248320, 1680)
-        for entry in inventory.entries
+        for entry in catalog.entries
     )
-    retained_m64 = catalog["retained_m64x32x64_pad8_vopd"]
-    retained_m128 = catalog["retained_m128x32x64_pad8_vopd"]
-    retained_m256 = catalog["retained_m256x64x32_next_pad8_vopd"]
+    retained_m64 = catalog.entry_for(ProblemSize(64, 2048, 248320)).solution
+    retained_m128 = catalog.entry_for(ProblemSize(128, 2048, 248320)).solution
+    retained_m256 = catalog.entry_for(ProblemSize(256, 2048, 248320)).solution
     assert isinstance(retained_m64, BackwardSolution)
     assert isinstance(retained_m128, BackwardSolution)
     assert isinstance(retained_m256, BackwardSolution)
@@ -128,16 +128,16 @@ def test_q6_k_campaign_inventory_selects_exact_lm_head_solutions() -> None:
 
 
 def test_q8_0_campaign_inventory_covers_ordinary_and_lm_head_keys() -> None:
-    inventory, _ = load_inventory_case(_BWD_INVENTORY_CASES["Q8_0"])
-    ordinary = tuple(entry for entry in inventory.entries if entry.family != "lm_head")
-    lm_head = tuple(entry for entry in inventory.entries if entry.family == "lm_head")
+    catalog = load_inventory_case(_BWD_INVENTORY_CASES["Q8_0"])
+    lm_head = tuple(
+        entry
+        for entry in catalog.entries
+        if (entry.problem_size.n, entry.problem_size.k) == (4096, 129280)
+    )
+    ordinary = tuple(entry for entry in catalog.entries if entry not in lm_head)
     assert len(ordinary) == 18
     assert len(lm_head) == 5
-    assert {
-        sum(entry.call_count for entry in ordinary if entry.problem_size.m == m)
-        for m in (2048, 8192, 32768)
-    } == {301}
-    q_a = next(entry for entry in ordinary if entry.family == "attention_q_a")
+    q_a = catalog.entry_for(ProblemSize(2048, 4096, 1024))
     assert q_a.expected_physical_weight_shape == (1024, 4352)
     assert lm_head[0].expected_physical_weight_shape == (129280, 4352)
 
@@ -164,13 +164,8 @@ def test_q3_k_packed_decoder_uses_wave32_vopd_scale_pairs() -> None:
 
 
 def test_q6_k_packed_vopd_decoder_pairs_adjacent_values() -> None:
-    inventory, catalog = load_inventory_case(_BWD_INVENTORY_CASES["Q6_K"])
-    entry = next(item for item in inventory.entries if item.problem_size.m == 64)
-    key = SolutionKey(
-        inventory.problem_type,
-        entry.problem_size,
-        catalog[entry.selected_solution],
-    )
+    catalog = load_inventory_case(_BWD_INVENTORY_CASES["Q6_K"])
+    key = catalog.entry_for(ProblemSize(64, 2048, 248320)).solution_key
     assert isinstance(key.solution, BackwardSolution)
     assert key.solution.q6_k_extraction == "packed_vopd"
     assert validate_solution(key) == ()
@@ -257,13 +252,13 @@ def test_backward_quant_types_have_distinct_problem_and_solution_identity() -> N
     )
 
 
-def test_q4_k_campaign_inventory_rejects_schema_version(tmp_path: Path) -> None:
-    inventory_path = tmp_path / "inventory.json"
-    value = json.loads(_Q4_INVENTORY.read_text())
+def test_q4_k_deployment_catalog_rejects_schema_version(tmp_path: Path) -> None:
+    catalog_path = tmp_path / "catalog.json"
+    value = json.loads(_Q4_CATALOG.read_text())
     value["SchemaVersion"] = 1
-    inventory_path.write_text(json.dumps(value))
-    with pytest.raises(CampaignError, match="invalid inventory keys"):
-        load_inventory(inventory_path)
+    catalog_path.write_text(json.dumps(value))
+    with pytest.raises(CatalogError, match="invalid deployment catalog keys"):
+        load_catalog(catalog_path)
 
 
 def test_q4_k_campaign_prepare_is_serial_and_immutable(tmp_path: Path) -> None:
@@ -279,24 +274,27 @@ def test_q4_k_campaign_prepare_is_serial_and_immutable(tmp_path: Path) -> None:
     summary = json.loads((root / "prepare.json").read_text())
     assert summary["Phase"] == "Prepare"
     assert summary["Status"] == "Accepted"
-    assert summary["SolutionCatalog"] == str(_Q4_CATALOG.resolve())
+    assert summary["Catalog"] == str(_Q4_CATALOG.resolve())
     assert "Solution" not in summary
     assert len(summary["Entries"]) == 1
-    assert summary["Entries"][0]["SelectedSolution"] == ("retained_128x128_pipeline")
+    selected_key = (
+        load_catalog(_Q4_CATALOG).entry_for(ProblemSize(2048, 512, 2048)).solution_key
+    )
+    assert summary["Entries"][0]["SolutionHash"] == selected_key.hash
+    assert summary["Entries"][0]["KernelName"] == selected_key.kernel_name
     artifact = root / "m2048_n512_k2048"
     assert (artifact / "generate.json").is_file()
     assert (artifact / "build.json").is_file()
     assert (artifact / "inspect.json").is_file()
-    with pytest.raises(CampaignError, match="refusing to overwrite artifact root"):
+    with pytest.raises(CatalogError, match="refusing to overwrite artifact root"):
         campaign_main(arguments)
 
 
 def test_q4_k_campaign_prepare_accepts_explicit_solution(tmp_path: Path) -> None:
     solution_path = tmp_path / "solution.json"
-    solution = load_solution_catalog(
-        _Q4_CATALOG,
-        problem_type=ProblemType.mmq_backward("Q4_K"),
-    )["retained_128x128_pipeline"]
+    solution = (
+        load_catalog(_Q4_CATALOG).entry_for(ProblemSize(2048, 512, 2048)).solution
+    )
     solution_path.write_text(json.dumps(solution.to_mapping()))
     root = tmp_path / "campaign"
     assert (
@@ -315,7 +313,7 @@ def test_q4_k_campaign_prepare_accepts_explicit_solution(tmp_path: Path) -> None
     )
     summary = json.loads((root / "prepare.json").read_text())
     assert summary["Solution"] == str(solution_path.resolve())
-    assert "SolutionCatalog" not in summary
+    assert summary["Catalog"] == str(_Q4_CATALOG.resolve())
 
 
 def test_pilot_solution_identity_and_round_trip() -> None:
@@ -415,7 +413,7 @@ def test_writer_enables_and_flattens_packed_workitem_xy() -> None:
             SolutionKey(
                 ProblemType.mmq_backward("Q3_K"),
                 ProblemSize(2048, 2048, 512),
-                _selected_solution("Q3_K", "retained_256x64_pad8_sia5"),
+                _selected_solution("Q3_K", ProblemSize(8192, 2048, 512)),
             ),
             243,
             5120,

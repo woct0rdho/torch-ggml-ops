@@ -5,6 +5,7 @@ import json
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -12,12 +13,11 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.ggtensile.campaign import (
-    CampaignEntry,
-    CampaignError,
-    CampaignInventory,
-    load_inventory,
+    CatalogEntry,
+    CatalogError,
+    DeploymentCatalog,
+    load_catalog,
     load_solution,
-    load_solution_catalog,
 )
 from tools.ggtensile.cli import main as ggtensile_cli_main
 from tools.ggtensile.model import BackwardSolution, ProblemSize, SolutionKey
@@ -25,14 +25,144 @@ from tools.ggtensile.validation import validate_solution
 
 BENCHMARK = REPO_ROOT / "tools" / "benchmark_ggtensile_mmq_bwd.py"
 CONFIG_DIR = REPO_ROOT / "tools" / "ggtensile" / "configs"
-DEFAULT_INVENTORY = CONFIG_DIR / "mmq_bwd_q4_k_inventory.json"
-DEFAULT_SOLUTION_CATALOG = CONFIG_DIR / "mmq_bwd_q4_k_solutions.json"
+DEFAULT_CATALOG = CONFIG_DIR / "mmq_bwd_q4_k_catalog.json"
 DEFAULT_MODEL = Path.home() / "models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf"
 _PHASE_PROTOCOL = {
     "correctness": ("Correctness", 2, 1),
     "screen": ("Screen", 10, 9),
     "confirmation": ("Confirmation", 10, 25),
 }
+
+
+CampaignError = CatalogError
+
+
+@dataclass(frozen=True)
+class CampaignEntry:
+    """Benchmark context kept outside the deployment catalog."""
+
+    catalog_entry: CatalogEntry
+    family: str
+    representative_tensor: str
+    call_count: int
+
+    @property
+    def problem_size(self) -> ProblemSize:
+        return self.catalog_entry.problem_size
+
+    @property
+    def solution(self) -> BackwardSolution:
+        solution = self.catalog_entry.solution
+        if not isinstance(solution, BackwardSolution):
+            raise CampaignError("MMQ backward campaign requires backward solutions")
+        return solution
+
+    @property
+    def slug(self) -> str:
+        size = self.problem_size
+        return f"m{size.m}_n{size.n}_k{size.k}"
+
+
+_BWD_WORKLOADS: dict[
+    str, tuple[tuple[str, tuple[int, int], str, int, tuple[int, ...]], ...]
+] = {
+    "Q3_K": (
+        ("narrow", (2048, 512), "blk.3.attn_k.weight", 9, (2048, 8192, 32768)),
+        ("query", (2048, 8192), "blk.3.attn_q.weight", 9, (2048, 8192, 32768)),
+    ),
+    "Q4_K": (
+        ("narrow", (2048, 512), "blk.5.ffn_gate_shexp.weight", 70, (2048, 8192, 32768)),
+        (
+            "shared_down",
+            (512, 2048),
+            "blk.5.ffn_down_shexp.weight",
+            30,
+            (2048, 8192, 32768),
+        ),
+        (
+            "attention_output",
+            (4096, 2048),
+            "blk.3.attn_output.weight",
+            10,
+            (2048, 8192, 32768),
+        ),
+        ("query", (2048, 8192), "blk.39.attn_q.weight", 1, (2048, 8192, 32768)),
+    ),
+    "Q5_K": (
+        ("narrow", (2048, 512), "blk.0.ffn_gate_shexp.weight", 21, (2048, 8192, 32768)),
+        (
+            "shared_down",
+            (512, 2048),
+            "blk.0.ffn_down_shexp.weight",
+            10,
+            (2048, 8192, 32768),
+        ),
+    ),
+    "Q6_K": (("lm_head", (2048, 248320), "output.weight", 1, (64, 128, 256)),),
+    "Q8_0": (
+        (
+            "attention_q_a",
+            (4096, 1024),
+            "blk.0.attn_q_a.weight",
+            43,
+            (2048, 8192, 32768),
+        ),
+        (
+            "attention_q_b",
+            (1024, 32768),
+            "blk.0.attn_q_b.weight",
+            43,
+            (2048, 8192, 32768),
+        ),
+        ("attention_kv", (4096, 512), "blk.0.attn_kv.weight", 43, (2048, 8192, 32768)),
+        (
+            "attention_output_b",
+            (8192, 4096),
+            "blk.0.attn_output_b.weight",
+            43,
+            (2048, 8192, 32768),
+        ),
+        (
+            "shared_gate_up",
+            (4096, 2048),
+            "blk.0.ffn_gate_shexp.weight",
+            86,
+            (2048, 8192, 32768),
+        ),
+        (
+            "shared_down",
+            (2048, 4096),
+            "blk.0.ffn_down_shexp.weight",
+            43,
+            (2048, 8192, 32768),
+        ),
+        ("lm_head", (4096, 129280), "output.weight", 1, (32, 64, 128, 256, 512)),
+    ),
+}
+
+
+def _campaign_entries(catalog: DeploymentCatalog) -> tuple[CampaignEntry, ...]:
+    workloads = _BWD_WORKLOADS.get(catalog.problem_type.quant_data_type)
+    if workloads is None:
+        raise CampaignError(
+            f"no backward campaign workload is defined for "
+            f"{catalog.problem_type.quant_data_type}"
+        )
+    by_shape = {
+        (n, k): (family, tensor, calls, m_values)
+        for family, (n, k), tensor, calls, m_values in workloads
+    }
+    entries: list[CampaignEntry] = []
+    for catalog_entry in catalog.entries:
+        size = catalog_entry.problem_size
+        workload = by_shape.get((size.n, size.k))
+        if workload is None or size.m not in workload[3]:
+            raise CampaignError(
+                f"catalog key has no backward workload descriptor: {size.to_mapping()}"
+            )
+        family, tensor, calls, _ = workload
+        entries.append(CampaignEntry(catalog_entry, family, tensor, calls))
+    return tuple(entries)
 
 
 def _problem_size(value: str) -> ProblemSize:
@@ -43,7 +173,7 @@ def _problem_size(value: str) -> ProblemSize:
 
 
 def _add_selection_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--inventory", type=Path, default=DEFAULT_INVENTORY)
+    parser.add_argument("--catalog", type=Path, default=DEFAULT_CATALOG)
     parser.add_argument("--family", action="append", default=[])
     parser.add_argument("--key", type=_problem_size, action="append", default=[])
     parser.add_argument("--artifact-root", type=Path, required=True)
@@ -59,12 +189,6 @@ def _parser() -> argparse.ArgumentParser:
     _add_selection_arguments(prepare)
     solution_source = prepare.add_mutually_exclusive_group()
     solution_source.add_argument("--solution", type=Path)
-    solution_source.add_argument(
-        "--solution-catalog",
-        type=Path,
-        const=DEFAULT_SOLUTION_CATALOG,
-        nargs="?",
-    )
 
     for command in _PHASE_PROTOCOL:
         phase = subparsers.add_parser(command)
@@ -84,7 +208,7 @@ def _write_json_exclusive(path: Path, value: Mapping[str, object]) -> None:
 
 def _prepare(
     arguments: argparse.Namespace,
-    inventory: CampaignInventory,
+    catalog: DeploymentCatalog,
     entries: tuple[CampaignEntry, ...],
 ) -> int:
     root = arguments.artifact_root.resolve()
@@ -92,32 +216,20 @@ def _prepare(
         raise CampaignError(f"refusing to overwrite artifact root {root}")
     source_mapping: dict[str, object]
     if arguments.solution is None:
-        catalog_path = arguments.solution_catalog or DEFAULT_SOLUTION_CATALOG
-        catalog = load_solution_catalog(
-            catalog_path,
-            problem_type=inventory.problem_type,
-        )
-        missing = sorted(
-            {entry.selected_solution for entry in entries} - catalog.keys()
-        )
-        if missing:
-            raise CampaignError(
-                f"selected solutions are missing from catalog: {missing}"
-            )
-        solutions = [catalog[entry.selected_solution] for entry in entries]
-        source_mapping = {"SolutionCatalog": str(catalog_path.resolve())}
+        solutions = [entry.solution for entry in entries]
+        source_mapping = {"Catalog": str(arguments.catalog.resolve())}
     else:
         solution_path = arguments.solution
         solution = load_solution(
             solution_path,
-            problem_type=inventory.problem_type,
+            problem_type=catalog.problem_type,
         )
         if not isinstance(solution, BackwardSolution):
             raise CampaignError("MMQ backward campaign requires a backward solution")
         solutions = [solution] * len(entries)
         source_mapping = {"Solution": str(solution_path.resolve())}
     keys = [
-        SolutionKey(inventory.problem_type, entry.problem_size, solution)
+        SolutionKey(catalog.problem_type, entry.problem_size, solution)
         for entry, solution in zip(entries, solutions, strict=True)
     ]
     rejected = [
@@ -157,7 +269,8 @@ def _prepare(
                 "ProblemSize": entry.problem_size.to_mapping(),
                 "RepresentativeTensor": entry.representative_tensor,
                 "CallCount": entry.call_count,
-                "SelectedSolution": entry.selected_solution,
+                "SolutionHash": key.hash,
+                "KernelName": key.kernel_name,
                 "ArtifactDirectory": str(artifact),
                 "GenerateManifest": str(artifact / "generate.json"),
                 "BuildManifest": str(artifact / "build.json"),
@@ -170,7 +283,7 @@ def _prepare(
         {
             "Phase": "Prepare",
             "Status": "Accepted",
-            "Inventory": str(arguments.inventory.resolve()),
+            "Catalog": str(arguments.catalog.resolve()),
             **source_mapping,
             "Entries": prepared,
         },
@@ -238,7 +351,7 @@ def _run_benchmark(command: list[str], *, entry: CampaignEntry) -> None:
 
 def _measure(
     arguments: argparse.Namespace,
-    inventory: CampaignInventory,
+    catalog: DeploymentCatalog,
     entries: tuple[CampaignEntry, ...],
 ) -> int:
     phase_name, warmup, repeats = _PHASE_PROTOCOL[arguments.command]
@@ -325,7 +438,6 @@ def _measure(
             "ProblemSize": entry.problem_size.to_mapping(),
             "RepresentativeTensor": entry.representative_tensor,
             "CallCount": entry.call_count,
-            "HistoricalHipMedianMs": entry.historical_hip_median_ms,
             "HipMedianMs": hip_ms,
             "CandidateMedianMs": candidate_ms,
             "CandidateToHipLatency": candidate_ms / hip_ms,
@@ -339,7 +451,7 @@ def _measure(
     summary: dict[str, object] = {
         "Phase": phase_name,
         "Status": "Accepted",
-        "Inventory": str(arguments.inventory.resolve()),
+        "Catalog": str(arguments.catalog.resolve()),
         "Model": str(arguments.model.resolve()),
         "Protocol": {
             "Warmup": warmup,
@@ -365,13 +477,31 @@ def _measure(
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
-    inventory = load_inventory(arguments.inventory)
-    entries = inventory.selected(
-        families=tuple(arguments.family), sizes=tuple(arguments.key)
+    catalog = load_catalog(arguments.catalog)
+    campaign_entries = _campaign_entries(catalog)
+    family_filter = set(arguments.family)
+    unknown_families = family_filter - {entry.family for entry in campaign_entries}
+    if unknown_families:
+        raise CampaignError(f"unknown families: {sorted(unknown_families)}")
+    size_filter = set(arguments.key)
+    unknown_sizes = [
+        size.to_mapping()
+        for size in arguments.key
+        if size not in {entry.problem_size for entry in campaign_entries}
+    ]
+    if unknown_sizes:
+        raise CampaignError(f"sizes are not in the deployment catalog: {unknown_sizes}")
+    entries = tuple(
+        entry
+        for entry in campaign_entries
+        if (not family_filter or entry.family in family_filter)
+        and (not size_filter or entry.problem_size in size_filter)
     )
+    if not entries:
+        raise CampaignError("campaign selection is empty")
     if arguments.command == "prepare":
-        return _prepare(arguments, inventory, entries)
-    return _measure(arguments, inventory, entries)
+        return _prepare(arguments, catalog, entries)
+    return _measure(arguments, catalog, entries)
 
 
 if __name__ == "__main__":

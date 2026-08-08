@@ -918,11 +918,27 @@ class SemanticSchedulePolicy:
         )
 
     @classmethod
+    def structured_q6_wavefront(cls) -> "SemanticSchedulePolicy":
+        """Return the typed row/role decode-wavefront policy."""
+        return cls(
+            traversal="OutputRoleWavefront",
+            clustering="RowBatchedDecodeOrder",
+            latency="WavefrontDependencyDistance",
+            pressure="ExplicitRoleLifetime",
+            wait="ProducerFirstUse",
+            pairing="DependencyCompatibleDualIssue",
+        )
+
+    @classmethod
+    def supported_structured_q6(cls) -> tuple["SemanticSchedulePolicy", ...]:
+        return (cls.structured_q6(), cls.structured_q6_wavefront())
+
+    @classmethod
     def inactive(cls) -> "SemanticSchedulePolicy":
         return cls(None, None, None, None, None, None)
 
     def require_structured_q6(self) -> None:
-        if self != self.structured_q6():
+        if self not in self.supported_structured_q6():
             raise ValueError("unsupported structured-Q6 semantic schedule policy")
 
 
@@ -1060,7 +1076,10 @@ def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | Non
         pairing=solution.q6_pairing_policy,
     )
     if structured_q6:
-        if serialized_q6_schedule != SemanticSchedulePolicy.structured_q6():
+        if (
+            serialized_q6_schedule
+            not in SemanticSchedulePolicy.supported_structured_q6()
+        ):
             return "unsupported structured-Q6 semantic schedule policy"
     elif serialized_q6_schedule != SemanticSchedulePolicy.structured_q6():
         return "Q6 semantic schedule is inactive for this lowering"
@@ -1364,12 +1383,11 @@ class ForwardKernelSpec:
             "Q8SmallMTiledLds",
         }:
             raise ValueError(f"unsupported forward operand source {source!r}")
-        expected_semantic_schedule = (
-            SemanticSchedulePolicy.structured_q6()
-            if structured_q6
-            else SemanticSchedulePolicy.inactive()
-        )
-        if self.semantic_schedule != expected_semantic_schedule:
+        if structured_q6:
+            supported_schedules = SemanticSchedulePolicy.supported_structured_q6()
+        else:
+            supported_schedules = (SemanticSchedulePolicy.inactive(),)
+        if self.semantic_schedule not in supported_schedules:
             raise ValueError(
                 "forward semantic schedule does not match the lowering family"
             )
@@ -1645,7 +1663,10 @@ class Q6SemanticPlan:
 
     @classmethod
     def from_schedule(cls, schedule: "Q6ForwardSchedule") -> "Q6SemanticPlan":
-        if schedule.semantic_policy.clustering != "StageDependencyOrder":
+        if schedule.semantic_policy.clustering not in {
+            "StageDependencyOrder",
+            "RowBatchedDecodeOrder",
+        }:
             raise ValueError("unsupported Q6 semantic-stage clustering policy")
         if len(schedule.dot_register_shifts) != 2:
             raise ValueError("structured Q6 currently requires exactly two dot phases")

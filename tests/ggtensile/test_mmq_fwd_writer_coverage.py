@@ -251,8 +251,8 @@ def test_q6_schedule_policy_knobs_are_explicit() -> None:
 
     j64_candidates = q6_schedule_candidates(64)
     j128_candidates = q6_schedule_candidates(128)
-    assert len(j64_candidates) == 16
-    assert len(j128_candidates) == 32
+    assert len(j64_candidates) == 32
+    assert len(j128_candidates) == 64
     assert {candidate.global_read_cache_policy for candidate in j64_candidates} == {
         "Default",
         "InvalidateL0",
@@ -290,6 +290,7 @@ def test_q6_schedule_policy_knobs_are_explicit() -> None:
         ("pairing", "OpaqueIssueTable", "dual-issue pairing"),
         ("wait", "OpaqueWaitPolicy", "wait-lowering"),
         ("traversal", "PhysicalRegisterOrder", "output traversal"),
+        ("clustering", "OpaqueClustering", "semantic-stage clustering"),
         ("pressure", "SourceOrderFallback", "register-pressure"),
     ),
 )
@@ -628,6 +629,38 @@ def test_q6_decode_plan_uses_semantic_atoms_and_pool_reuse(
     assert decode.count("v_xor_b32_e32") == 32
     assert "0x60606060" in decode
     assert "0x80808080" in decode
+
+
+@pytest.mark.parametrize("macro_tile0", (64, 128))
+def test_q6_wavefront_decode_preserves_register_handoffs(
+    macro_tile0: int,
+) -> None:
+    schedule = replace(
+        _q6_schedule(macro_tile0),
+        semantic_policy=replace(
+            _q6_schedule(macro_tile0).semantic_policy,
+            traversal="OutputRoleWavefront",
+            clustering="RowBatchedDecodeOrder",
+            latency="WavefrontDependencyDistance",
+        ),
+    )
+    decode = str(q6_lowering_module._q6_packed_decode(schedule))
+    lines = [line.strip() for line in decode.splitlines()]
+    qh_shift_positions = [
+        index
+        for index, line in enumerate(lines)
+        if line.startswith("v_lshrrev_b32_e32") and ("v42" in line or "v69" in line)
+    ]
+    assert len(qh_shift_positions) == 16
+    first_high_extract = next(
+        index
+        for index, line in enumerate(lines)
+        if line.startswith("v_lshrrev_b32_e32")
+        and ("v123, 4, v10" in line or "v173, 4, v112" in line)
+    )
+    assert max(qh_shift_positions) < first_high_extract
+    assert decode.count("v_add_nc_u32_e32") == 32
+    assert decode.count("v_xor_b32_e32") == 32
 
 
 @pytest.mark.parametrize("macro_tile0", (64, 128))

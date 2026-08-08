@@ -1,8 +1,8 @@
 import hashlib
 import json
-from collections import Counter
 from dataclasses import fields, replace
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -38,6 +38,7 @@ from tools.ggtensile.validation import validate_solution
 _FWD_INVENTORY_CASES = {case.quant_type: case for case in MMQ_FWD_INVENTORY_CASES}
 _Q3_INVENTORY_CASE = _FWD_INVENTORY_CASES["Q3_K"]
 _Q5_INVENTORY_CASE = _FWD_INVENTORY_CASES["Q5_K"]
+_Q6_INVENTORY_CASE = _FWD_INVENTORY_CASES["Q6_K"]
 
 _Q6_SCHEDULE_ARTIFACT_SHA256 = {
     64: {
@@ -54,6 +55,18 @@ _Q6_SCHEDULE_ARTIFACT_SHA256 = {
         "source": "e46cf7f0c91e9af5dd4801ce5394e510b587f8d02fc61e58b253a08b6e09ad16",
         "text": "655c33ae070ff214998a32c7075d629aa9635c3deb90b0581deef19f3e8f8956",
         "hsaco": "13f6621814702ef832f67597f49fc506b3e9fbd9235711dd596f427a2f89cf4a",
+    },
+}
+_Q6_WAVEFRONT_ARTIFACT_SHA256 = {
+    64: {
+        "source": "b6ea810db285e2db70932e44ee83f572f7eaab64bbf99b1fb6ac61ecdf5935ad",
+        "text": "acba1aef19be4ebbbf0e7f0930a42b12a9597bfcd2630acf7916f40b58b487ef",
+        "hsaco": "986e78b7e065845b8902d32f67b7691e642fae1136ee62386f1b79a7f3a55af6",
+    },
+    128: {
+        "source": "98652abf23a9fb794353bfec40c2a374198d084917c92b107760aece655c612a",
+        "text": "997bfabcac5a8674aad5dfbdb223a74f76b787191573c72df258afa314ae8fde",
+        "hsaco": "d724079f31a1a341b3aa25969451a4a8d43b2538ba5c244f611e3eaa57cad2a6",
     },
 }
 
@@ -117,28 +130,31 @@ def _key(
 def test_forward_campaign_inventory_is_exact_and_versionless(
     case: GGTensileInventoryCase,
 ) -> None:
-    inventory, catalog = load_inventory_case(case)
-    assert inventory.problem_type == case.problem_type
-    assert len(inventory.entries) == case.entry_count
-    assert {entry.family for entry in inventory.entries} == case.families
-    assert {entry.problem_size.m for entry in inventory.entries} == case.m_values
-    assert Counter(entry.current_status for entry in inventory.entries) == dict(
-        case.status_counts
+    catalog = load_inventory_case(case)
+    assert catalog.problem_type == case.problem_type
+    assert len(catalog.entries) == case.entry_count
+    assert len(catalog.solutions) == case.solution_count
+    assert {entry.problem_size.m for entry in catalog.entries} == case.m_values
+    assert all(entry.quant_data_type == case.quant_type for entry in catalog.entries)
+    assert all(isinstance(entry.solution, ForwardSolution) for entry in catalog.entries)
+    solutions = tuple(
+        cast(ForwardSolution, entry.solution) for entry in catalog.entries
     )
-    assert set(catalog) == case.solution_names
-    assert all(entry.quant_data_type == case.quant_type for entry in inventory.entries)
     if case.quant_type == "Q8_0":
-        assert {entry.selected_solution for entry in inventory.entries} == {
-            "hip_tiled_lds_selected",
-            "small_m32_tiled_lds_selected",
-            "small_m64_tiled_lds_selected",
-            "kv_compact_m64_tiled_lds_selected",
-        }
-    assert all(
-        validate_solution(key) == ()
-        for key in selected_solution_keys(inventory, catalog)
-    )
-    narrow = inventory.entries[0]
+        assert (
+            sum(solution.operand_source == "Q8HipTiledLds" for solution in solutions)
+            == 20
+        )
+        assert (
+            sum(solution.lds_address_hoist == "SmallMTile" for solution in solutions)
+            == 2
+        )
+        assert (
+            sum(solution.lds_address_hoist == "KvCompactTile" for solution in solutions)
+            == 1
+        )
+    assert all(validate_solution(key) == () for key in selected_solution_keys(catalog))
+    narrow = catalog.entries[0]
     if case.quant_type == "Q3_K":
         assert narrow.expected_logical_weight_shape == (512, 2048)
         assert narrow.expected_physical_weight_shape == (512, 880)
@@ -152,25 +168,26 @@ def test_forward_campaign_inventory_is_exact_and_versionless(
         assert narrow.expected_logical_weight_shape == (512, 2048)
         expected_row_bytes = {"Q4_K": 1152, "Q5_K": 1408}[case.quant_type]
         assert narrow.expected_physical_weight_shape == (512, expected_row_bytes)
-    raw = json.loads(case.inventory_path.read_text(encoding="utf-8"))
-    assert "Version" not in raw and "SchemaVersion" not in raw
+    raw = json.loads(case.catalog_path.read_text(encoding="utf-8"))
+    assert catalog.to_mapping() == raw
+    assert set(raw) == {"ProblemType", "Solutions", "ExactLogic"}
+    forbidden = {
+        "Family",
+        "RepresentativeTensor",
+        "CallCount",
+        "HistoricalHipMedianMs",
+        "CurrentStatus",
+        "SelectedSolution",
+    }
+    serialized = json.dumps(raw)
+    assert not any(field in serialized for field in forbidden)
 
 
 def test_q3_forward_inventory_selects_all_qualified_exact_keys() -> None:
-    inventory, catalog = load_inventory_case(_Q3_INVENTORY_CASE)
-    selected = tuple(
-        entry for entry in inventory.entries if entry.current_status == "selected"
-    )
-    assert tuple(entry.problem_size for entry in selected) == tuple(
-        entry.problem_size for entry in inventory.entries
-    )
-    assert all(
-        entry.selected_solution == "full_weight_typed_qualified" for entry in selected
-    )
-    assert catalog["hip_tiled_lds_selected"] == ForwardSolution.q3_k_hip_tiled_lds()
-    assert catalog["full_weight_typed_qualified"] == (
-        ForwardSolution.q3_k_full_weight_tiled_lds()
-    )
+    catalog = load_inventory_case(_Q3_INVENTORY_CASE)
+    assert len(catalog.entries) == 12
+    assert len(catalog.solutions) == 1
+    assert catalog.solutions[0] == ForwardSolution.q3_k_full_weight_tiled_lds()
 
 
 def test_q3_forward_public_bundle_remains_unwired() -> None:
@@ -179,9 +196,27 @@ def test_q3_forward_public_bundle_remains_unwired() -> None:
     )
 
 
+def test_q6_forward_catalog_selects_wavefront_by_exact_shape() -> None:
+    catalog = load_inventory_case(_Q6_INVENTORY_CASE)
+    by_m = {
+        entry.problem_size.m: cast(ForwardSolution, entry.solution)
+        for entry in catalog.entries
+    }
+    assert by_m[64].q6_output_traversal == "OutputRoleWavefront"
+    assert by_m[128].q6_output_traversal == "OutputRoleWavefront"
+    assert by_m[256].q6_output_traversal == "OutputRoleWavefront"
+    assert by_m[64].q6_stage_clustering == "RowBatchedDecodeOrder"
+    assert by_m[128].q6_latency_policy == "WavefrontDependencyDistance"
+    assert by_m[256].q6_latency_policy == "WavefrontDependencyDistance"
+
+
 def test_q5_forward_inventory_selects_retained_vopd_epilogue() -> None:
-    _, catalog = load_inventory_case(_Q5_INVENTORY_CASE)
-    selected = catalog["selected_narrow_m32768_a7d3_p3_vopd_init"]
+    catalog = load_inventory_case(_Q5_INVENTORY_CASE)
+    selected = next(
+        entry.solution
+        for entry in catalog.entries
+        if entry.problem_size == ProblemSize(32768, 512, 2048)
+    )
     assert isinstance(selected, ForwardSolution)
     assert selected.epilogue_tiles_ahead == 7
     assert selected.epilogue_dependency_width == 3
@@ -333,6 +368,27 @@ def test_forward_validation_accepts_noncatalog_tile_aligned_sizes(
 )
 def test_forward_validation_rejects_nondivisible_sizes(size: ProblemSize) -> None:
     assert validate_solution(_key(size=size))
+
+
+def test_q6_forward_validation_accepts_wavefront_policy() -> None:
+    solution = replace(
+        ForwardSolution.q6_k_structured_decoded(macro_tile0=64),
+        q6_output_traversal="OutputRoleWavefront",
+        q6_stage_clustering="RowBatchedDecodeOrder",
+        q6_latency_policy="WavefrontDependencyDistance",
+    )
+    assert (
+        validate_solution(_key("Q6_K", ProblemSize(64, 248320, 2048), solution)) == ()
+    )
+
+
+def test_q6_forward_validation_rejects_unknown_semantic_policy() -> None:
+    solution = replace(
+        ForwardSolution.q6_k_structured_decoded(macro_tile0=64),
+        q6_output_traversal="UnknownTraversal",
+    )
+    reasons = validate_solution(_key("Q6_K", ProblemSize(64, 248320, 2048), solution))
+    assert [reason.rule_id for reason in reasons] == ["solution.forward.kernel_spec"]
 
 
 def test_q6_forward_validation_rejects_q4_control() -> None:
@@ -654,11 +710,15 @@ def test_forward_writer_emits_retained_decoded_staged_control() -> None:
     assert source.count("v_wmma_i32_16x16x16_iu8") == 32
     assert source.count("s_barrier") == 4
     assert source.count("v_cvt_f16_u16_e32") == 16
-    assert source.count("v_mad_u32_u24 v80, 144, v237, s15") == 2
+    assert source.count("v_mad_u32_u24 v80, 144, v237, s15") == 0
+    assert source.count("v_mad_u32_u24 v236, 144, v237, s15") == 1
+    assert source.count("v_add_nc_u32 v229, s14, v236") == 2
+    assert source.count("v_add_nc_u32 v80, s14, v236") == 2
     assert source.count("s_clause 7") == 8
     assert source.count("v_mul_lo_u32 v232, 1024") == 1
     assert source.count("v_add_nc_u32 v232, 16384, v232") == 7
     assert "v_add_nc_u32 v229, s14, v234" in source
+    assert "v_lshlrev_b32 v232, 4, s12" in source
     assert "v_add_nc_u32 v80, s14, v232" in source
 
 
@@ -1216,6 +1276,42 @@ def test_q8_forward_runtime_uses_exact_hip_launch_geometry(
         pytest.param(
             _key(
                 "Q6_K",
+                ProblemSize(64, 248320, 2048),
+                replace(
+                    ForwardSolution.q6_k_structured_decoded(macro_tile0=64),
+                    q6_output_traversal="OutputRoleWavefront",
+                    q6_stage_clustering="RowBatchedDecodeOrder",
+                    q6_latency_policy="WavefrontDependencyDistance",
+                ),
+            ),
+            8,
+            158,
+            4,
+            28_928,
+            13,
+            id="q6-wavefront-m64",
+        ),
+        pytest.param(
+            _key(
+                "Q6_K",
+                ProblemSize(128, 248320, 2048),
+                replace(
+                    ForwardSolution.q6_k_structured_decoded(macro_tile0=128),
+                    q6_output_traversal="OutputRoleWavefront",
+                    q6_stage_clustering="RowBatchedDecodeOrder",
+                    q6_latency_policy="WavefrontDependencyDistance",
+                ),
+            ),
+            16,
+            210,
+            4,
+            38_400,
+            19,
+            id="q6-wavefront-m128",
+        ),
+        pytest.param(
+            _key(
+                "Q6_K",
                 ProblemSize(256, 248320, 2048),
                 ForwardSolution.q6_k_structured_decoded(macro_tile0=128),
             ),
@@ -1290,7 +1386,11 @@ def test_forward_artifact_passes_strict_inspection(
         isinstance(key.solution, ForwardSolution)
         and key.solution.operand_source == "Q6StructuredDecoded"
     ):
-        expected_hashes = _Q6_SCHEDULE_ARTIFACT_SHA256.get(key.problem_size.m)
+        expected_hashes = (
+            _Q6_WAVEFRONT_ARTIFACT_SHA256
+            if key.solution.q6_output_traversal == "OutputRoleWavefront"
+            else _Q6_SCHEDULE_ARTIFACT_SHA256
+        ).get(key.problem_size.m)
         if expected_hashes is not None:
             code_object = tmp_path / "kernel.hsaco"
             text_section = tmp_path / "kernel.text"

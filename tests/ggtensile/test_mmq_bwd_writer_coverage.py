@@ -49,9 +49,9 @@ def _key(
 def test_writer_emits_every_selected_production_kernel(
     case: GGTensileInventoryCase,
 ) -> None:
-    inventory, catalog = load_inventory_case(case)
+    catalog = load_inventory_case(case)
     emitted: set[str] = set()
-    for key in selected_solution_keys(inventory, catalog):
+    for key in selected_solution_keys(catalog):
         source = BackwardKernelWriterAssembly(key, Toolchain.discover()).source()
         assert f".globl {key.kernel_name}" in source
         emitted.add(key.hash)

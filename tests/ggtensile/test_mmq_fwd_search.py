@@ -64,10 +64,10 @@ def test_generic_manual_profile_keeps_shape_and_linked_domains_explicit() -> Non
     assert len(domains) == 1
     assert domains[0].kernel_spec.macro_tile == (64, 64)
     candidates = candidate_neighbors(domains[0].seed, domains[0].knob_groups)
-    assert len(candidates) == 16
+    assert len(candidates) == 32
     assert all(not explain_invalid(item, "Q6_K", shape) for item in candidates)
     seed = ForwardSolution.q6_k_structured_decoded(macro_tile0=64)
-    assert len(candidate_neighbors(seed, ("InstructionPolicy",))) == 2
+    assert len(candidate_neighbors(seed, ("InstructionPolicy",))) == 4
     assert forward_candidate_hash(seed, "Q6_K") == forward_candidate_hash(seed, "Q6_K")
     assert explain_invalid(seed, "Q6_K", ProblemSize(65, 248320, 2048))
     with pytest.raises(ValueError, match="Q4_K, Q5_K, and Q6_K"):
@@ -95,12 +95,15 @@ def test_q6_manual_neighborhoods_are_linked_and_deterministic() -> None:
     j64 = _q6_schedule(64)
     j128 = _q6_schedule(128)
     assert q6_schedule_neighbors(j64, ()) == (j64,)
-    assert len(q6_schedule_neighbors(j64, ("InstructionPolicy",))) == 2
-    assert len(q6_schedule_neighbors(j128, ("InstructionPolicy",))) == 4
+    assert len(q6_schedule_neighbors(j64, ("InstructionPolicy",))) == 4
+    assert len(q6_schedule_neighbors(j128, ("InstructionPolicy",))) == 8
     assert len(q6_schedule_neighbors(j64, ("Epilogue",))) == 8
-    assert len(q6_schedule_candidates(64)) == 16
-    assert len(q6_schedule_candidates(128)) == 32
+    assert len(q6_schedule_candidates(64)) == 32
+    assert len(q6_schedule_candidates(128)) == 64
     assert q6_schedule_candidates(64) == q6_schedule_candidates(64)
+    assert {
+        candidate.semantic_policy.traversal for candidate in q6_schedule_candidates(64)
+    } == {"OutputRoleGroupMajor", "OutputRoleWavefront"}
 
 
 def test_q6_manual_candidate_uses_normal_solution_and_writer_path() -> None:
@@ -170,7 +173,7 @@ def test_q6_manual_enumeration_writes_normal_solution_keys(tmp_path: Path) -> No
     ]
     assert ggtensile_cli_main(arguments) == 0
     index = json.loads((root / "index.json").read_text(encoding="utf-8"))
-    assert index["CandidateCount"] == 2
+    assert index["CandidateCount"] == 4
     for entry in index["Candidates"]:
         candidate_dir = root / entry["Directory"]
         key = SolutionKey.from_json_file(candidate_dir / "solution-key.json")

@@ -2021,6 +2021,7 @@ class DecodedWeightLdsRegisterPlan:
     output_column: RegisterAssignment
     wave_column_base: RegisterAssignment
     wave: RegisterAssignment
+    activation_base: RegisterAssignment
     lane: RegisterAssignment
     serial: RegisterAssignment
     register_count: int
@@ -2099,7 +2100,10 @@ class DecodedWeightLdsRegisterPlan:
                 "wave_column_base", 1, RegisterLifetime(0, 5), minimum_register=235
             ),
             "wave": RegisterRole(
-                "wave", 1, RegisterLifetime(0, 4), minimum_register=236
+                "wave", 1, RegisterLifetime(0, 0), minimum_register=236
+            ),
+            "activation_base": RegisterRole(
+                "activation_base", 1, RegisterLifetime(1, 4), minimum_register=236
             ),
             "lane": RegisterRole(
                 "lane", 1, RegisterLifetime(0, 5), minimum_register=237

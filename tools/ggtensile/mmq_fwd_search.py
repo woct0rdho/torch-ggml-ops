@@ -15,6 +15,7 @@ from .mmq_fwd_spec import (
     ForwardKernelCandidate,
     ForwardKernelSpec,
     Q6ForwardSchedule,
+    SemanticSchedulePolicy,
     q6_schedule_from_solution,
 )
 from .model import (
@@ -75,6 +76,12 @@ def q6_solution_with_schedule(
         q6_epilogue_pipeline_scope=schedule.epilogue_pipeline_scope,
         q6_dependency_delay_mode=schedule.dependency_delay_mode,
         q6_global_read_cache_policy=schedule.global_read_cache_policy,
+        q6_output_traversal=schedule.semantic_policy.traversal,
+        q6_stage_clustering=schedule.semantic_policy.clustering,
+        q6_latency_policy=schedule.semantic_policy.latency,
+        q6_pressure_policy=schedule.semantic_policy.pressure,
+        q6_wait_policy=schedule.semantic_policy.wait,
+        q6_pairing_policy=schedule.semantic_policy.pairing,
     )
     if q6_schedule_from_solution(solution) != schedule:
         raise ValueError("Q6 schedule geometry does not match the base solution")
@@ -176,11 +183,13 @@ def q6_schedule_neighbors(
     cache_policies = (seed.global_read_cache_policy,)
     dependency_widths = (seed.epilogue_dependency_width,)
     pipeline_scopes = (seed.epilogue_pipeline_scope,)
+    semantic_policies = (seed.semantic_policy,)
     if "InstructionPolicy" in knob_groups:
         dependency_delay_modes = (
             ("None", "Explicit") if seed.macro_tile0 == 128 else ("None",)
         )
         cache_policies = ("Default", "InvalidateL0")
+        semantic_policies = SemanticSchedulePolicy.supported_structured_q6()
     if "Epilogue" in knob_groups:
         dependency_widths = (1, 2, 4, 8)
         pipeline_scopes = ("StoreBatch", "FullTile")
@@ -188,12 +197,14 @@ def q6_schedule_neighbors(
     candidates = (
         replace(
             seed,
+            semantic_policy=semantic_policy,
             dependency_delay_mode=dependency_delay_mode,
             global_read_cache_policy=cache_policy,
             epilogue_dependency_width=dependency_width,
             epilogue_pipeline_scope=pipeline_scope,
         )
-        for dependency_delay_mode, cache_policy, dependency_width, pipeline_scope in product(
+        for semantic_policy, dependency_delay_mode, cache_policy, dependency_width, pipeline_scope in product(
+            semantic_policies,
             dependency_delay_modes,
             cache_policies,
             dependency_widths,

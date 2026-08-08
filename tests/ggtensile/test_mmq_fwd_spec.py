@@ -228,6 +228,15 @@ def test_complete_candidate_round_trips_to_the_normal_build_solution() -> None:
         ),
         ("Q6_K", ForwardSolution.q6_k_structured_decoded(macro_tile0=64)),
         ("Q6_K", ForwardSolution.q6_k_structured_decoded(macro_tile0=128)),
+        (
+            "Q6_K",
+            replace(
+                ForwardSolution.q6_k_structured_decoded(macro_tile0=64),
+                q6_output_traversal="OutputRoleWavefront",
+                q6_stage_clustering="RowBatchedDecodeOrder",
+                q6_latency_policy="WavefrontDependencyDistance",
+            ),
+        ),
         ("Q8_0", ForwardSolution.q8_0_direct_global()),
         ("Q8_0", ForwardSolution.q8_0_register_tiled()),
         ("Q8_0", ForwardSolution.q8_0_hip_tiled_lds()),
@@ -258,6 +267,24 @@ def test_complete_candidate_round_trips_to_the_normal_build_solution() -> None:
             candidate.kernel_spec,
             resource_limits=ResourceLimits(max_vgprs=200),
         ).to_solution(candidate.problem_contract)
+    wavefront = ForwardKernelCandidate.from_solution(
+        "Q6_K",
+        replace(
+            ForwardSolution.q6_k_structured_decoded(macro_tile0=64),
+            q6_output_traversal="OutputRoleWavefront",
+            q6_stage_clustering="RowBatchedDecodeOrder",
+            q6_latency_policy="WavefrontDependencyDistance",
+        ),
+    )
+    assert wavefront.kernel_spec.semantic_schedule == (
+        SemanticSchedulePolicy.structured_q6_wavefront()
+    )
+    assert wavefront.to_solution() == replace(
+        ForwardSolution.q6_k_structured_decoded(macro_tile0=64),
+        q6_output_traversal="OutputRoleWavefront",
+        q6_stage_clustering="RowBatchedDecodeOrder",
+        q6_latency_policy="WavefrontDependencyDistance",
+    )
     with pytest.raises(ValueError, match="semantic schedule does not match"):
         replace(
             candidate.kernel_spec,

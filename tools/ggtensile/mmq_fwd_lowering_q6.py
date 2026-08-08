@@ -16,6 +16,7 @@ from .mmq_fwd_lowering import ForwardLoweringContext
 from .mmq_fwd_physical import (
     Q6AddressAdd,
     Q6AddressBatch,
+    Q6DecodeRegisterPlan,
     Q6DependencyDelay,
     Q6GlobalRead,
     Q6HalfRegister,
@@ -32,6 +33,7 @@ from .mmq_fwd_spec import (
     Q6LdsLayout,
     Q6SemanticPlan,
     Q6SemanticStage,
+    Q6SignedDecodeSpec,
     QuantForwardSemantics,
     q6_schedule_from_kernel_spec,
 )
@@ -48,7 +50,10 @@ class Q6ScheduleEmitter:
     """Semantic lowering for physically ordered Q6 schedule components."""
 
     def __init__(self, schedule: "Q6ForwardSchedule", name: str) -> None:
-        if schedule.semantic_policy.latency != "SerializedDependencyDistance":
+        if schedule.semantic_policy.latency not in {
+            "SerializedDependencyDistance",
+            "WavefrontDependencyDistance",
+        }:
             raise ValueError("unsupported Q6 latency-lowering policy")
         if schedule.semantic_policy.pairing != "DependencyCompatibleDualIssue":
             raise ValueError("unsupported Q6 dual-issue pairing policy")
@@ -366,8 +371,16 @@ def _q6_epilogue_scratch_base(
 
 
 def _q6_physical_layout(schedule: Q6ForwardSchedule) -> Q6PhysicalLayout:
-    if schedule.semantic_policy.traversal != "OutputRoleGroupMajor":
+    if schedule.semantic_policy.traversal not in {
+        "OutputRoleGroupMajor",
+        "OutputRoleWavefront",
+    }:
         raise ValueError("unsupported Q6 output traversal policy")
+    if schedule.semantic_policy.clustering not in {
+        "StageDependencyOrder",
+        "RowBatchedDecodeOrder",
+    }:
+        raise ValueError("unsupported Q6 semantic-stage clustering policy")
     if schedule.semantic_policy.pressure != "ExplicitRoleLifetime":
         raise ValueError("unsupported Q6 register-pressure policy")
     mi_wave_tile_m = schedule.mi_wave_tile[0]
@@ -1063,6 +1076,9 @@ def _q6_packed_decode(schedule: Q6ForwardSchedule) -> code.Module:
         Q6HalfRegister(plan.factor_source_register, "l"),
     )
     lane_shift = Q6Vgpr(plan.lane_shift_register)
+    if schedule.semantic_policy.traversal == "OutputRoleWavefront":
+        _q6_emit_decode_wavefront(emitter, plan, semantics, lane_shift)
+        return emitter.module()
     for source, output in zip(plan.sources, plan.outputs, strict=True):
         ql = source.low_payload.first_register
         qh = source.high_payload.first_register
@@ -1086,6 +1102,69 @@ def _q6_packed_decode(schedule: Q6ForwardSchedule) -> code.Module:
                 f"v{register}, {hex(semantics.signed_xor)}, v{register}",
             )
     return emitter.module()
+
+
+def _q6_emit_decode_wavefront(
+    emitter: Q6ScheduleEmitter,
+    plan: Q6DecodeRegisterPlan,
+    semantics: Q6SignedDecodeSpec,
+    lane_shift: Q6Vgpr,
+) -> None:
+    """Emit the fixed hazard-aware row/role decode frontier.
+
+    The physical plan intentionally reuses each atom's packed QH register for the
+    next output high role.  All destructive QH shifts therefore form the first
+    frontier, the high-role handoff is walked in atom order, and the independent
+    low merge and signed normalization frontiers are deferred until their inputs
+    are no longer needed.
+    """
+    # Keep the helper's inputs at the semantic boundary without introducing an
+    # instruction scheduler or a register-repair fallback.
+    sources = plan.sources
+    outputs = plan.outputs
+    signed = semantics
+    for source in sources:
+        qh = source.high_payload.first_register
+        emitter.shift_right_dword(qh, lane_shift, qh)
+
+    for source, output in zip(sources, outputs, strict=True):
+        ql = source.low_payload.first_register
+        qh = source.high_payload.first_register
+        low = output.low.first_register
+        high = output.high.first_register
+        emitter.shift_right_dword(high, signed.high_bits_shift, ql)
+        emitter.mask_dword(high, hex(signed.low_nibble_mask), high)
+        emitter.mask_dword(low, hex(signed.low_nibble_mask), ql)
+        emitter.merge_q6_dword(high, qh, high)
+        emitter.shift_left_dword(qh, signed.high_bits_shift, qh)
+        # This low merge must precede the next role's high-result handoff,
+        # which reuses the current role's packed QH register.
+        emitter.merge_q6_dword(low, qh, low)
+
+    for output in outputs:
+        emitter.inst(
+            "v_add_nc_u32_e32",
+            f"v{output.low.first_register}, {hex(signed.signed_add)}, "
+            f"v{output.low.first_register}",
+        )
+    for output in outputs:
+        emitter.inst(
+            "v_add_nc_u32_e32",
+            f"v{output.high.first_register}, {hex(signed.signed_add)}, "
+            f"v{output.high.first_register}",
+        )
+    for output in outputs:
+        emitter.inst(
+            "v_xor_b32_e32",
+            f"v{output.low.first_register}, {hex(signed.signed_xor)}, "
+            f"v{output.low.first_register}",
+        )
+    for output in outputs:
+        emitter.inst(
+            "v_xor_b32_e32",
+            f"v{output.high.first_register}, {hex(signed.signed_xor)}, "
+            f"v{output.high.first_register}",
+        )
 
 
 def _q6_decoded_lds_writes(schedule: Q6ForwardSchedule) -> code.Module:

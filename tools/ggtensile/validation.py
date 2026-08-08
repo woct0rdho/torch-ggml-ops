@@ -142,6 +142,12 @@ def _validate_structured_q6_forward_solution(
             q6_epilogue_pipeline_scope=structured.q6_epilogue_pipeline_scope,
             q6_dependency_delay_mode=structured.q6_dependency_delay_mode,
             q6_global_read_cache_policy=structured.q6_global_read_cache_policy,
+            q6_output_traversal=structured.q6_output_traversal,
+            q6_stage_clustering=structured.q6_stage_clustering,
+            q6_latency_policy=structured.q6_latency_policy,
+            q6_pressure_policy=structured.q6_pressure_policy,
+            q6_wait_policy=structured.q6_wait_policy,
+            q6_pairing_policy=structured.q6_pairing_policy,
         )
         == structured
     )

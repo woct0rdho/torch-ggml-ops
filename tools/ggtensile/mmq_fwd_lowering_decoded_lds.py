@@ -55,7 +55,6 @@ class DecodedWeightLdsLowering:
         decode_scratch = registers.decode_scratch.first_register
         row_stride = self.context.state.packed_weight_row_bytes
         serial = registers.serial.first_register
-        wave = registers.wave.first_register
         temporary = registers.temporary.first_register
         lds_address = registers.lds_address.first_register
         auxiliary = registers.auxiliary.first_register
@@ -111,7 +110,6 @@ class DecodedWeightLdsLowering:
         asm.inst(f"v_add_nc_u32 v{lds_address}, {weight_lds_base}, v{lds_address}")
 
         metadata_base = staging_base + 32
-        asm.inst(f"v_readfirstlane_b32 s12, v{wave}")
         asm.inst("s_cmp_lt_u32 s12, 2")
         asm.inst(f"s_cbranch_scc0 .LForward{quant_label}DecodedMetadataLoadDone")
         asm.inst(f"v_lshlrev_b32 v{metadata_address}, 6, s2")
@@ -368,6 +366,7 @@ class DecodedWeightLdsLowering:
         output_column = registers.output_column.first_register
         wave_column_base = registers.wave_column_base.first_register
         wave = registers.wave.first_register
+        activation_base = registers.activation_base.first_register
         lane = registers.lane.first_register
         serial = registers.serial.first_register
         quant_label = quant_type.replace("_", "")
@@ -421,13 +420,18 @@ class DecodedWeightLdsLowering:
         asm.inst(f"s_mov_b32 s{self.LOOP_COUNTER}, 0")
         asm.inst(f"s_mov_b32 s{self.SCALAR_TEMPORARY}, 0")
         asm.inst("s_mov_b32 s15, 512")
+        asm.inst(f"v_readfirstlane_b32 s12, v{wave}")
+        asm.inst(
+            f"v_mad_u32_u24 v{activation_base}, "
+            f"{activation_metadata.block_bytes}, v{lane}, s15"
+        )
 
         asm.label(f".LForward{quant_label}HipStagedBlockLoop")
         self._emit_weight_decode_stage(asm)
 
         asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{serial}")
         asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
-        asm.inst(f"v_lshlrev_b32 v{metadata_address}, 4, v{wave}")
+        asm.inst(f"v_lshlrev_b32 v{metadata_address}, 4, s12")
         asm.inst(f"v_add_nc_u32 v{metadata_address}, v{temporary}, v{metadata_address}")
         asm.inst(
             f"v_mul_lo_u32 v{metadata_address}, {decoded_lds.metadata_row_stride}, "
@@ -637,8 +641,8 @@ class DecodedWeightLdsLowering:
         high_activation_base = registers.high_activation.first_register
         activation_scale_sum_base = registers.activation_scale_sum.first_register
         scaled_dm_base = registers.scaled_dm.first_register
-        lane = registers.lane.first_register
         lds_address = registers.lds_address.first_register
+        activation_base = registers.activation_base.first_register
         weight_lds_base_address = registers.output_column.first_register
         metadata_lds_base_address = registers.metadata_lds_address.first_register
         activation_metadata = self._decoded_physical.layout.activation_metadata
@@ -665,10 +669,7 @@ class DecodedWeightLdsLowering:
             f"ds_read_b128 v[{weight_q + 4}:{weight_q + 7}], v{lds_address} offset:16"
         )
 
-        asm.inst(
-            f"v_mad_u32_u24 v{metadata}, {activation_metadata.block_bytes}, v{lane}, s15"
-        )
-        asm.inst(f"v_add_nc_u32 v{lds_address}, s14, v{metadata}")
+        asm.inst(f"v_add_nc_u32 v{lds_address}, s14, v{activation_base}")
         for tile in range(8):
             low_activation = (
                 c_base + 8 * (tile + 1) if tile < 7 else low_activation_last
@@ -686,7 +687,7 @@ class DecodedWeightLdsLowering:
 
         def emit_metadata_reads() -> None:
             asm.inst("s_lshl_b32 s14, s13, 2")
-            asm.inst(f"v_add_nc_u32 v{metadata}, s14, v{metadata}")
+            asm.inst(f"v_add_nc_u32 v{metadata}, s14, v{activation_base}")
             for tile in range(0, 8, 2):
                 asm.inst(
                     f"ds_read2st64_b32 v[{activation_scale_sum_base + tile}:"
