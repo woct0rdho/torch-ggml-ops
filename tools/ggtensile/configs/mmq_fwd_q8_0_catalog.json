@@ -79,51 +79,6 @@
         4,
         1
       ],
-      "MacroTile0": 64,
-      "MacroTile1": 64,
-      "DepthU": 32,
-      "ActivationLayout": "F32_D4",
-      "ActivationBlockBytes": 144,
-      "PackedWeightBlockBytes": 34,
-      "OperandSource": "Q8SmallMTiledLds",
-      "WeightDecode": "DirectSignedInt8",
-      "LdsAddressHoist": "KvCompactTile",
-      "ActivationAddressing": "MadU24",
-      "MetadataConversion": "Float16DToFloat32",
-      "ScaleArithmetic": "Int32ScaleF32",
-      "OutputStore": "BFloat16RNEClauseTile",
-      "SignedWeight": true,
-      "SignedActivation": true,
-      "WmmaClamp": false,
-      "MetadataSchedule": "Serialized",
-      "EpilogueTilesAhead": 8,
-      "EpilogueDependencyWidth": 1,
-      "EpiloguePriority": 0
-    },
-    {
-      "KernelLanguage": "Assembly",
-      "ISA": [
-        11,
-        5,
-        1
-      ],
-      "WavefrontSize": 32,
-      "WorkGroup": [
-        32,
-        4,
-        1
-      ],
-      "MatrixInstruction": [
-        16,
-        16,
-        16,
-        1,
-        1,
-        1,
-        4,
-        4,
-        1
-      ],
       "MacroTile0": 32,
       "MacroTile1": 64,
       "DepthU": 32,
@@ -189,6 +144,51 @@
       "EpilogueTilesAhead": 8,
       "EpilogueDependencyWidth": 1,
       "EpiloguePriority": 0
+    },
+    {
+      "KernelLanguage": "Assembly",
+      "ISA": [
+        11,
+        5,
+        1
+      ],
+      "WavefrontSize": 32,
+      "WorkGroup": [
+        32,
+        4,
+        1
+      ],
+      "MatrixInstruction": [
+        16,
+        16,
+        16,
+        1,
+        1,
+        1,
+        4,
+        4,
+        1
+      ],
+      "MacroTile0": 128,
+      "MacroTile1": 64,
+      "DepthU": 32,
+      "ActivationLayout": "F32_D4",
+      "ActivationBlockBytes": 144,
+      "PackedWeightBlockBytes": 34,
+      "OperandSource": "Q8HipTiledLds",
+      "WeightDecode": "DirectSignedInt8",
+      "LdsAddressHoist": "CompactDepth32WeightRows",
+      "ActivationAddressing": "MadU24",
+      "MetadataConversion": "Float16DToFloat32",
+      "ScaleArithmetic": "Int32ScaleF32",
+      "OutputStore": "BFloat16RNEClause64",
+      "SignedWeight": true,
+      "SignedActivation": true,
+      "WmmaClamp": false,
+      "MetadataSchedule": "Serialized",
+      "EpilogueTilesAhead": 8,
+      "EpilogueDependencyWidth": 1,
+      "EpiloguePriority": 0
     }
   ],
   "ExactLogic": [
@@ -206,7 +206,7 @@
         "N": 1024,
         "K": 4096
       },
-      "SolutionIndex": 0
+      "SolutionIndex": 3
     },
     {
       "ProblemSize": {
@@ -214,7 +214,7 @@
         "N": 1024,
         "K": 4096
       },
-      "SolutionIndex": 0
+      "SolutionIndex": 3
     },
     {
       "ProblemSize": {
@@ -222,7 +222,7 @@
         "N": 32768,
         "K": 1024
       },
-      "SolutionIndex": 0
+      "SolutionIndex": 3
     },
     {
       "ProblemSize": {
@@ -230,7 +230,7 @@
         "N": 32768,
         "K": 1024
       },
-      "SolutionIndex": 0
+      "SolutionIndex": 3
     },
     {
       "ProblemSize": {
@@ -238,7 +238,7 @@
         "N": 32768,
         "K": 1024
       },
-      "SolutionIndex": 0
+      "SolutionIndex": 3
     },
     {
       "ProblemSize": {
@@ -246,7 +246,7 @@
         "N": 512,
         "K": 4096
       },
-      "SolutionIndex": 1
+      "SolutionIndex": 3
     },
     {
       "ProblemSize": {
@@ -254,7 +254,7 @@
         "N": 512,
         "K": 4096
       },
-      "SolutionIndex": 0
+      "SolutionIndex": 3
     },
     {
       "ProblemSize": {
@@ -262,7 +262,7 @@
         "N": 512,
         "K": 4096
       },
-      "SolutionIndex": 0
+      "SolutionIndex": 3
     },
     {
       "ProblemSize": {
@@ -270,7 +270,7 @@
         "N": 4096,
         "K": 8192
       },
-      "SolutionIndex": 0
+      "SolutionIndex": 3
     },
     {
       "ProblemSize": {
@@ -278,7 +278,7 @@
         "N": 4096,
         "K": 8192
       },
-      "SolutionIndex": 0
+      "SolutionIndex": 3
     },
     {
       "ProblemSize": {
@@ -286,7 +286,7 @@
         "N": 4096,
         "K": 8192
       },
-      "SolutionIndex": 0
+      "SolutionIndex": 3
     },
     {
       "ProblemSize": {
@@ -294,7 +294,7 @@
         "N": 2048,
         "K": 4096
       },
-      "SolutionIndex": 0
+      "SolutionIndex": 3
     },
     {
       "ProblemSize": {
@@ -302,7 +302,7 @@
         "N": 2048,
         "K": 4096
       },
-      "SolutionIndex": 0
+      "SolutionIndex": 3
     },
     {
       "ProblemSize": {
@@ -310,7 +310,7 @@
         "N": 2048,
         "K": 4096
       },
-      "SolutionIndex": 0
+      "SolutionIndex": 3
     },
     {
       "ProblemSize": {
@@ -318,7 +318,7 @@
         "N": 4096,
         "K": 2048
       },
-      "SolutionIndex": 0
+      "SolutionIndex": 3
     },
     {
       "ProblemSize": {
@@ -326,7 +326,7 @@
         "N": 4096,
         "K": 2048
       },
-      "SolutionIndex": 0
+      "SolutionIndex": 3
     },
     {
       "ProblemSize": {
@@ -334,7 +334,7 @@
         "N": 4096,
         "K": 2048
       },
-      "SolutionIndex": 0
+      "SolutionIndex": 3
     },
     {
       "ProblemSize": {
@@ -342,7 +342,7 @@
         "N": 129280,
         "K": 4096
       },
-      "SolutionIndex": 2
+      "SolutionIndex": 1
     },
     {
       "ProblemSize": {
@@ -350,7 +350,7 @@
         "N": 129280,
         "K": 4096
       },
-      "SolutionIndex": 3
+      "SolutionIndex": 2
     },
     {
       "ProblemSize": {
@@ -358,7 +358,7 @@
         "N": 129280,
         "K": 4096
       },
-      "SolutionIndex": 0
+      "SolutionIndex": 3
     },
     {
       "ProblemSize": {
@@ -366,7 +366,7 @@
         "N": 129280,
         "K": 4096
       },
-      "SolutionIndex": 0
+      "SolutionIndex": 3
     },
     {
       "ProblemSize": {
@@ -374,7 +374,7 @@
         "N": 129280,
         "K": 4096
       },
-      "SolutionIndex": 0
+      "SolutionIndex": 3
     }
   ]
 }

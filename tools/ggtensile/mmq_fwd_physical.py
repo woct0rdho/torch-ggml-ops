@@ -21,6 +21,7 @@ from .mmq_fwd_spec import (
     Q3FullWeightTiledLdsLayout,
     Q6LdsLayout,
     QuantForwardSemantics,
+    SignedInt8CompactDepth32TiledLdsLayout,
     SignedInt8KvTiledLdsLayout,
     SignedInt8SmallMTiledLdsLayout,
     forward_mechanism_contract,
@@ -1040,7 +1041,8 @@ class SignedInt8TiledLdsScaleLayout:
         cls,
         layout: SignedInt8WaveNTiledLdsLayout
         | SignedInt8SmallMTiledLdsLayout
-        | SignedInt8KvTiledLdsLayout,
+        | SignedInt8KvTiledLdsLayout
+        | SignedInt8CompactDepth32TiledLdsLayout,
     ) -> SignedInt8TiledLdsScaleLayout:
         return cls(
             weight_scale_offset=layout.weight_scale_offset,
@@ -2176,13 +2178,15 @@ class SignedInt8RegisterTiledPhysicalPlan:
 
 @dataclass(frozen=True)
 class SignedInt8WaveNTiledLdsPhysicalPlan:
-    layout: SignedInt8WaveNTiledLdsLayout
+    layout: SignedInt8WaveNTiledLdsLayout | SignedInt8CompactDepth32TiledLdsLayout
     registers: SignedInt8WaveNTiledLdsRegisterPlan
     resources: ForwardResourceUsage
 
 
 SignedInt8SmallLdsLayout: TypeAlias = (
-    SignedInt8SmallMTiledLdsLayout | SignedInt8KvTiledLdsLayout
+    SignedInt8SmallMTiledLdsLayout
+    | SignedInt8KvTiledLdsLayout
+    | SignedInt8CompactDepth32TiledLdsLayout
 )
 
 
@@ -2301,9 +2305,15 @@ def derive_forward_physical_plan(spec: ForwardKernelSpec) -> ForwardPhysicalPlan
     if operand_source == "Q8HipTiledLds":
         if spec.geometry.depth_u not in (32, 64):
             raise ValueError("Q8 HIP-shaped LDS controls require DepthU 32 or 64")
-        layout = SignedInt8WaveNTiledLdsLayout(
-            activation_row_stride=mechanism.activation_block_bytes
-        )
+        if spec.lds.address_hoist == "CompactDepth32WeightRows":
+            layout = SignedInt8CompactDepth32TiledLdsLayout(
+                activation_rows=spec.macro_tile[0],
+                activation_row_stride=mechanism.activation_block_bytes,
+            )
+        else:
+            layout = SignedInt8WaveNTiledLdsLayout(
+                activation_row_stride=mechanism.activation_block_bytes
+            )
         registers = SignedInt8WaveNTiledLdsRegisterPlan.allocate()
         return SignedInt8WaveNTiledLdsPhysicalPlan(
             layout,
@@ -2330,6 +2340,11 @@ def derive_forward_physical_plan(spec: ForwardKernelSpec) -> ForwardPhysicalPlan
     elif spec.lds.address_hoist == "KvCompactTile" and macro_tile_m == 64:
         layout = SignedInt8KvTiledLdsLayout(
             activation_row_stride=mechanism.activation_block_bytes
+        )
+    elif spec.lds.address_hoist == "CompactDepth32WeightRows":
+        layout = SignedInt8CompactDepth32TiledLdsLayout(
+            activation_rows=macro_tile_m,
+            activation_row_stride=mechanism.activation_block_bytes,
         )
     else:
         raise ValueError("Q8 small-M LDS control has an unsupported layout")

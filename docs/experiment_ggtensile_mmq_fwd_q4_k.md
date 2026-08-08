@@ -251,22 +251,35 @@ The current common research identity combines selective weight and metadata LDS-
 
 ### Final multiply result
 
-The table uses only the prequantized HIP and GGTensile multiply bodies; fixed Q8_1 quantization is excluded. Logical throughput is `2*M*N*K/(median_ms*1e9)`. Speedup is `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile. A/B are the two independent rotating 25-repeat confirmations.
+The table uses only the prequantized HIP and GGTensile multiply bodies. Both consume the same workspace from the same fixed `torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f16_d4s4` kernel; activation quantization is excluded from every throughput and speedup below. Logical throughput is `2*M*N*K/(median_ms*1e9)`. Speedup is `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile. Each value combines the two independent rotating 25-repeat confirmations by averaging their median times; the largest per-key A/B speed difference was `0.65` percentage points.
 
-| Family | `(M,N,K)` | Selected schedule | HIP TFLOPS A/B | GGTensile TFLOPS A/B | Speedup vs HIP A/B |
+| Family | `(M,N,K)` | Selected schedule | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP |
 | --- | ---: | --- | ---: | ---: | ---: |
-| Narrow | `(2048,512,2048)` | common `a8d1-p0` | `23.981/23.817` | `24.320/24.130` | `1.0142x/1.0131x` |
-| Narrow | `(8192,512,2048)` | common `a8d1-p0` | `27.957/27.936` | `28.608/28.634` | `1.0233x/1.0250x` |
-| Narrow | `(32768,512,2048)` | `a4d4-p2` | `28.128/28.241` | `28.872/29.077` | `1.0265x/1.0296x` |
-| Shared down | `(2048,2048,512)` | `a1d2-p2` | `24.653/24.377` | `25.206/25.081` | `1.0224x/1.0289x` |
-| Shared down | `(8192,2048,512)` | `a1d4-p2` | `26.970/27.024` | `27.853/27.905` | `1.0327x/1.0326x` |
-| Shared down | `(32768,2048,512)` | `a1d2-p2` | `27.220/27.020` | `28.144/28.063` | `1.0339x/1.0386x` |
-| Attention output | `(2048,2048,4096)` | common `a8d1-p0` | `28.242/28.029` | `29.149/28.952` | `1.0321x/1.0329x` |
-| Attention output | `(8192,2048,4096)` | common `a8d1-p0` | `28.387/28.268` | `29.140/29.102` | `1.0265x/1.0295x` |
-| Attention output | `(32768,2048,4096)` | common `a8d1-p0` | `28.509/28.505` | `29.249/29.200` | `1.0259x/1.0244x` |
-| Query | `(2048,8192,2048)` | `a1d2-p2` | `28.159/28.016` | `29.163/29.044` | `1.0356x/1.0367x` |
-| Query | `(8192,8192,2048)` | `a4d4-p2` | `28.225/28.280` | `29.233/29.341` | `1.0357x/1.0375x` |
-| Query | `(32768,8192,2048)` | `a2d2-p2` | `28.359/28.168` | `29.312/29.060` | `1.0336x/1.0317x` |
+| Narrow | `(2048,512,2048)` | common `a8d1-p0` | `23.899` | `24.225` | `1.0136x` |
+| Narrow | `(8192,512,2048)` | common `a8d1-p0` | `27.946` | `28.621` | `1.0241x` |
+| Narrow | `(32768,512,2048)` | `a4d4-p2` | `28.184` | `28.974` | `1.0280x` |
+| Shared down | `(2048,2048,512)` | `a1d2-p2` | `24.514` | `25.144` | `1.0257x` |
+| Shared down | `(8192,2048,512)` | `a1d4-p2` | `26.997` | `27.879` | `1.0327x` |
+| Shared down | `(32768,2048,512)` | `a1d2-p2` | `27.120` | `28.104` | `1.0363x` |
+| Attention output | `(2048,2048,4096)` | common `a8d1-p0` | `28.135` | `29.050` | `1.0325x` |
+| Attention output | `(8192,2048,4096)` | common `a8d1-p0` | `28.328` | `29.121` | `1.0280x` |
+| Attention output | `(32768,2048,4096)` | common `a8d1-p0` | `28.507` | `29.224` | `1.0252x` |
+| Query | `(2048,8192,2048)` | `a1d2-p2` | `28.087` | `29.104` | `1.0362x` |
+| Query | `(8192,8192,2048)` | `a4d4-p2` | `28.252` | `29.287` | `1.0366x` |
+| Query | `(32768,8192,2048)` | `a2d2-p2` | `28.263` | `29.185` | `1.0326x` |
+
+#### Same-Producer Complete-Call Diagnostic
+
+The separate complete-call audit used one loaded F16_D4S4 producer instance and one workspace for each HIP/GGTensile pair. Multiply and complete phases were timed separately with sustained batches, alternating order, and two reversed 25-repeat passes. The table reports `HIP complete median / GGTensile complete median`; no complete-call value contributes to the final multiply table above.
+
+| Family | M2048 complete A/B | M8192 complete A/B | M32768 complete A/B |
+| --- | ---: | ---: | ---: |
+| Narrow | `1.0091x/1.0116x` | `1.0160x/1.0165x` | `1.0225x/1.0228x` |
+| Shared down | `1.0296x/0.9685x` | `1.0178x/1.0174x` | `1.0343x/1.0341x` |
+| Attention output | `1.0226x/1.0146x` | `1.0287x/1.0273x` | `1.0268x/1.0264x` |
+| Query | `1.0210x/1.0217x` | `1.0396x/1.0410x` | `1.0388x/1.0376x` |
+
+No Q4 family has the broad reduction seen in low-N Q8. Shared-down M8192 showed the largest repeatable initial-pass dilution, with within-audit reductions of `0.99` and `0.57` speedup percentage points. Shared-down M2048 is timing-context sensitive: the initial complete ratios split at `1.0296x/0.9685x`, and two longer 51-repeat confirmations measured `0.9855x/0.9745x`; it must be treated as complete-call parity with unresolved direction, not as a precise end-to-end speedup. Narrow M2048 longer confirmations remained faster at `1.0171x/1.0219x`. Full evidence is in `~/tmp/torch-ggml-ops/fwd-complete-audit-q4-{a,b}.json` and `fwd-complete-audit-q4-short-{c,d}.json`.
 
 Independent metadata extraction and the local-read schedule compose with the seven exact schedules shown above: all shared-down and query sizes plus narrow M32768.
 
@@ -298,5 +311,14 @@ The result is promising as a derived lowering change, not as a new solution knob
 ### Conditional loop-form follow-up
 
 The earlier single eight-group loop was only approximately `0.3%` favorable after confirmation and was closed under an older parent. A current-parent composition with the typed activation-base lifetime is a bounded reopening because both changes remove address or loop-control issue without changing resources. If pursued, `GroupLoopForm={TwoByFour,OneByEight}` must be a real linked typed lowering; a post-emission text rewrite is not sufficient. Q5 loop results do not transfer automatically.
+
+The follow-up was implemented as a linked typed `OneByEight` lowering and screened against each exact selected M8192 parent. The candidate dynamically executes the same eight groups, preserves the midpoint activation restage and synchronization, and is bit-exact to both the parent and installed HIP. It remains at `239 VGPR / 16 SGPR / 38,400 LDS`, with zero private storage and spills. Reusing one body reduces the static counts from 32 to 16 WMMAs, four to three barriers, 858 to 617 VALU issues, 141 to 105 VMEM instructions, and 104 to 60 LDS instructions; those reductions describe code footprint, not dynamic work.
+
+| Exact representative | Parent ms | One-by-eight ms | Candidate/parent |
+| --- | ---: | ---: | ---: |
+| Attention output `(8192,2048,4096)` | `4.780266` | `4.779639` | `0.99987x` |
+| Shared down `(8192,2048,512)` | `0.849491` | `0.845782` | `0.99563x` |
+
+These serialized nine-repeat screens reproduce the historical noise-scale result rather than establish a changed-premise gain. Attention output is effectively flat, and the sub-percent shared-down movement is below the confirmation threshold and inside the observed run variance. Broader exact-key qualification is not warranted; the unselected loop-form field and lowering are removed, and `TwoByFour` remains the only production form. Reopening this direction again requires a premise that reduces dynamic work or creates measurable overlap, not another static-body composition.
 
 The recursive final-review rule remains global. It covers forward and backward records, all supported quant types, and every exact shape, and it may reopen a locally complete Q4 record when another direction or format supplies a valid changed premise. No contract, producer, catalog, public bundle, or dispatch change is authorized by this review entry.

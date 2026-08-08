@@ -143,6 +143,13 @@ def test_forward_campaign_inventory_is_exact_and_versionless(
     if case.quant_type == "Q8_0":
         assert (
             sum(solution.operand_source == "Q8HipTiledLds" for solution in solutions)
+            == 21
+        )
+        assert (
+            sum(
+                solution.lds_address_hoist == "CompactDepth32WeightRows"
+                for solution in solutions
+            )
             == 20
         )
         assert (
@@ -150,8 +157,11 @@ def test_forward_campaign_inventory_is_exact_and_versionless(
             == 2
         )
         assert (
+            sum(solution.lds_address_hoist == "HipTile" for solution in solutions) == 1
+        )
+        assert (
             sum(solution.lds_address_hoist == "KvCompactTile" for solution in solutions)
-            == 1
+            == 0
         )
     assert all(validate_solution(key) == () for key in selected_solution_keys(catalog))
     narrow = catalog.entries[0]
@@ -431,7 +441,7 @@ def test_q8_forward_validation_rejects_unimplemented_control_variants() -> None:
     assert [(reason.rule_id, reason.message) for reason in reasons] == [
         (
             "solution.forward.q8.control.unimplemented",
-            "Q8_0 forward currently implements direct, register-tiled, and HIP-shaped LDS controls",
+            "Q8_0 forward currently implements direct, register-tiled, and typed LDS controls",
         )
     ]
 
@@ -674,6 +684,51 @@ def test_forward_writer_emits_q8_0_kv_compact_m64_tiled_lds_control(
     )
     assert first_weight_load < first_activation_load
     assert source.index("s_waitcnt vmcnt(6)") < source.index("s_waitcnt vmcnt(3)")
+
+
+def test_forward_writer_emits_q8_0_compact_depth32_weight_first_control(
+    tmp_path: Path,
+) -> None:
+    key = _key(
+        "Q8_0",
+        ProblemSize(8192, 4096, 8192),
+        ForwardSolution.q8_0_compact_depth32_tiled_lds(),
+    )
+    assert validate_solution(key) == ()
+    writer = ForwardKernelWriterAssembly(key, Toolchain.discover())
+    source = writer.source()
+    assembly = tmp_path / "q8_0_compact_depth32_weight_first.s"
+    assert writer.write(assembly) == hashlib.sha256(source.encode()).hexdigest()
+    assert source.count("v_wmma_i32_16x16x16_iu8") == 64
+    assert source.count("global_load_b128") == 12
+    assert source.count("ds_read2_b32") == 16
+    assert source.count("s_barrier") == 2
+    assert source.index("global_load_b128 v[128:131]") < source.index(
+        "global_load_b128 v[136:139]"
+    )
+    assert "1152, v" in source
+
+
+def test_forward_writer_emits_q8_0_compact_depth32_small_m_control(
+    tmp_path: Path,
+) -> None:
+    key = _key(
+        "Q8_0",
+        ProblemSize(64, 129280, 4096),
+        ForwardSolution.q8_0_compact_depth32_tiled_lds(macro_tile0=64),
+    )
+    assert validate_solution(key) == ()
+    writer = ForwardKernelWriterAssembly(key, Toolchain.discover())
+    source = writer.source()
+    assembly = tmp_path / "q8_0_compact_depth32_small_m.s"
+    assert writer.write(assembly) == hashlib.sha256(source.encode()).hexdigest()
+    assert source.count("v_wmma_i32_16x16x16_iu8") == 32
+    assert source.count("global_load_b128") == 8
+    assert source.count("ds_read2_b32") == 16
+    assert source.count("global_store_d16_hi_b16") == 32
+    assert source.count("s_barrier") == 2
+    assert source.count("s_clause 5") == 2
+    assert "1152, v" in source
 
 
 def test_forward_writer_emits_q3_k_hip_tiled_lds_control(tmp_path: Path) -> None:

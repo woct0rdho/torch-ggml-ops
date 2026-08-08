@@ -73,13 +73,13 @@ Complete-call timing and prequantized multiply timing are recorded separately. T
 
 ## Current State
 
-The canonical catalog has typed Q8_0 direct-global, LDS-free register-tiled, HIP-shaped LDS, and exact small-M LDS controls. The activation-read-hoisted `Q8HipTiledLds` source is selected for 20 exact catalog keys, exact `Q8SmallMTiledLds` sources are selected for LM-head M32 and M64, and the compact M64 source is selected for attention KV M2048. These are catalog decisions only: public runtime dispatch and the generated 179-kernel bundle remain unchanged.
+The canonical catalog has typed Q8_0 direct-global, LDS-free register-tiled, HIP-shaped LDS, exact small-M LDS, and compact depth32 row controls. The composed `CompactDepth32WeightRows` source is selected for 20 exact catalog keys; the ordinary Q-A M2048 key remains on `HipTile`, and LM-head M32/M64 remain on their exact small-M controls. Public runtime dispatch and the generated 179-kernel bundle remain unchanged.
 
 Existing HIP controls are available through the dense forward bundle sources and dispatch in `csrc/mmq_bundle.cpp` and `csrc/mmq_core.cuh`. Existing Q8_0 GGTensile artifacts under `~/tmp/torch-ggml-ops/` are backward artifacts and are not forward baselines.
 
 Baseline preservation checkpoint: all currently valid catalog sources were regenerated before Q8 edits into `~/tmp/torch-ggml-ops/q8-fwd-baseline-sources-20260805/`. The manifest contains 447 unique valid sources: 155 Q4_K/Q5_K/Q6_K forward sources and 292 Q3_K/Q4_K/Q5_K/Q6_K/Q8_0 backward sources. Every retained Q8 change must reproduce this set byte-for-byte unless an existing-stream change is explicitly separated and qualified.
 
-This experiment record preserves the fresh same-process HIP multiply medians and selection chronology for all 23 exact keys. The deployment catalog contains only four deduplicated winner specifications and the 23 exact mappings: 20 use the HIP-shaped LDS mechanism, two use exact LM-head small-M controls, and one uses the compact M64 KV control. The catalog is qualified for offline GGTensile generation, while public HIP dispatch remains the explicit runtime path until a separate bundle integration review.
+This experiment record preserves the fresh same-process HIP multiply medians and selection chronology for all 23 exact keys. The deployment catalog contains four deduplicated winner specifications and 23 exact mappings: 20 use the composed compact depth32 row mechanism, one uses the ordinary HIP-shaped LDS mechanism, and two use exact LM-head small-M controls. The catalog is qualified for offline GGTensile generation, while public HIP dispatch remains the explicit runtime path until a separate bundle integration review.
 
 The initial isolated backend lowers one wave to a `16x16` output tile. It directly loads four 32-value Q8_0 blocks and one 128-value Q8_1 F32_D4 block per reduction-loop iteration, performs eight signed integer WMMAs, and applies the FP32 correction in the HIP expression order `integer_result * weight_scale * activation_scale` before BF16 RNE stores. `SignedInt8MmaGroupRole` carries the payload and scale offsets, while `SignedInt8DirectRegisterPlan` allocates explicit lifetime-bound roles deterministically. This branch does not use LDS and does not alter the Q4_K/Q5_K/Q6_K body methods.
 
@@ -271,7 +271,7 @@ The isolated `Q8HipTiledLds` lowering uses a wave32 workgroup `(32,4,1)`, a `128
 
 The full Q-A gate `(M,N,K)=(2048,1024,4096)` is bit-exact with HIP multiply and the public complete path across all 2,097,152 outputs. Input, packed-weight, and workspace mutations remain sensitive, and the independent packed/dequantized reference remains within normalized RMSE `0.00604494` with maximum absolute error `0.0625`. Strict inspection reports code-object v5, gfx1151, wave32, the 40-byte ABI, `240` VGPRs, `16` SGPRs, `38,400` bytes of LDS, zero private bytes, zero VGPR/SGPR spills, `64` WMMAs, and `2` barriers.
 
-The final warmed rotating 25-sample comparison measured a `0.675784 ms` HIP complete median versus `0.685826 ms` GGTensile complete (`1.01486x`), and a `0.617289 ms` HIP multiply median versus `0.644354 ms` GGTensile multiply (`1.04384x`). The candidate therefore misses both parity gates and does not satisfy the greater-than-2% promotion gate for a resource-bearing mechanism. The implementation and tests remain as isolated evidence for the dataflow, but no Q8 key changes selection.
+The then-final warmed rotating 25-sample comparison measured a `0.675784 ms` HIP complete median versus `0.685826 ms` GGTensile complete (`1.01486x`), and a `0.617289 ms` HIP multiply median versus `0.644354 ms` GGTensile multiply (`1.04384x`). At that stage the candidate appeared to miss both parity gates, so no Q8 key changed selection. The Q-A measurement-error reconciliation below supersedes this single-enqueue timing conclusion while preserving it as historical evidence.
 
 The initial phase gates are complete: focused coverage and the full repository suite pass (`160` and `359` tests respectively, with the existing `14` warnings), Ruff/formatting/`ty`/compileall/pre-commit pass, the public bundle remains current at `179` kernels, frozen pre-Q8 regeneration reports `447/447` byte-identical sources, and two independent CLI rebuilds reproduced matching generated source and normalized inspection results. Detailed artifacts are under `/tmp/q8-hip-test-artifact/` and `/tmp/q8-hip-deterministic-{a,b}/`.
 
@@ -333,7 +333,7 @@ The remaining schedule-only probes are also closed. Moving each scalar activatio
 
 Finally, a typed loop-carried staging-address probe moved the invariant LDS payload and scale addresses plus the global weight-stage pointer into `v235:v237`. It removes eleven address instructions per stage invocation, inspects at 808 VALU issues and 1,116 VALU operations, and retains the declared `240 VGPR / 16 SGPR / 38,400-byte LDS` class with zero spills. The K8192 output-B rotation improves to `0.99657x` parent multiply and `0.99402x` complete, but the K1024 Q-B control regresses to `1.00145x` and `1.00189x`. The gain is below threshold, costs three additional live logical VGPRs, and is shape-specific, so the complete staging-address state is rejected. Supporting artifacts are under `/tmp/q8-{paired-activation,paired-activation-tail,weight-address-hoist,activation-scale-first,wmma-batch,scale-stage-address-hoist,stage-address-hoist}-*/`.
 
-## Final Exact-Key Promotion Review
+## Historical Exact-Key Promotion Review
 
 The activation-read-address hoist was qualified across all 23 inventory keys. The depth32 `Q8HipTiledLds` artifact remained in one inspected resource class: `240` VGPRs, `16` SGPRs, `38,400` LDS bytes, code-object v5, gfx1151, wave32, the 40-byte ABI, zero private bytes, and zero register spills. Across 21 tile-valid keys, the five-repeat audit found zero differing BF16 elements against both HIP multiply and the public complete path, deterministic Q8_1 producer output, and nonzero input, packed-weight, and workspace mutation responses. The independent-reference checks for shared gate/up M2048 and LM-head M128 had normalized RMSE `0.00606097` and `0.00602456`; the existing Q-A reference check remains `0.00604494`.
 
@@ -405,11 +405,11 @@ The changed compact premise triggered a second recursive review. Pairing activat
 
 The final qualification artifact has 84 LDS instructions, 443 VALU issues, 599 VALU operations, 32 WMMAs, 44 VMEM instructions, 22 waits, three clauses, and two barriers. Strict inspection reports code-object v5, gfx1151, wave32, the 40-byte ABI, `144 VGPR`, `16 SGPR`, `18,432` LDS bytes, zero private storage, and zero spills. It is bit-exact with HIP multiply and public complete output across 1,048,576 BF16 elements, remains exact under input, packed-weight, and workspace mutations, and has independent-reference normalized RMSE `0.00604597`. A fresh nine-repeat qualification measured `0.95025x` HIP multiply and `0.92284x` complete. Two clean final roots reproduce assembly, object, code object, solution key, and inspection byte-for-byte.
 
-The final recursive review finds no actionable in-contract multiply mechanism. The retained source combines the best measured M64 ownership, minimum aligned compact row, three-workgroup LDS residency, weight-first VMEM schedule, direct paired weight-scale reads, and invariant paired-read address. Remaining changes either lost multiply performance, failed correctness/resources, duplicate a measured mechanism, or require prohibited prepared weights, external workspaces, split-K, persistent/grouped execution, producer fusion, hidden caches, or public-dispatch changes.
+The pre-composition recursive review found no actionable in-contract multiply mechanism. Its retained source combined the best measured M64 ownership, minimum aligned compact row, three-workgroup LDS residency, weight-first VMEM schedule, direct paired weight-scale reads, and invariant paired-read address. This was the valid pre-reopening checkpoint; the bounded M128/ordinary composition review below supersedes its exact-key catalog conclusions.
 
-Final gates pass with 196 focused forward tests, 299 complete GGTensile tests, and 384 full-repository tests with the existing 14 warnings. Ruff, formatting, `ty`, compileall, pre-commit, writer line coverage, and `git diff --check` pass. Frozen regeneration remains `447/447/0`, and the public bundle remains current at 179 kernels.
+The pre-composition gates passed with the then-current focused/full suite, frozen-source, and public-bundle checks. Those historical counts remain recorded here; the current final verification is recorded in the compact-depth32 requalification section below.
 
-The final Q8 research catalog contains 23 selected GGTensile entries and no inventory fallback: the 20 ordinary/depth32 HIP-shaped mappings, exact LM-head M32/M64 mappings, and `kv_compact_m64_tiled_lds_selected` for `(M,N,K)=(2048,512,4096)`. Every selected exact shape has repeated multiply evidence below HIP. Unsupported shapes continue to reject to HIP. The public bundle remains at 179 kernels, public dispatch remains unchanged, and the frozen Q8 source comparison remains `ExpectedCount=447`, `GeneratedCount=447`, `ChangedCount=0`. Q8_0 forward is complete; Q3_K remains isolated until its separate implementation campaign.
+The pre-composition Q8 research catalog had 23 selected GGTensile entries and no inventory fallback. That catalog state is superseded by the exact-key decisions in the compact-depth32 requalification section: 20 compact-row mappings, one ordinary `HipTile` control, and two LM-head small-M mappings. Public dispatch and the generated bundle remain unchanged, and unsupported shapes continue to reject to HIP.
 
 ## Cross-Campaign Reopening Review
 
@@ -430,4 +430,101 @@ The current `KvCompactTile` name and exact `(2048,512,4096)` validation combine 
 
 The Q8 candidate-domain tooling is also incomplete: manual candidate domains currently cover Q4_K, Q5_K, and Q6_K, but not Q8_0. A future Q8 search domain should expose only linked complete mechanisms such as row layout, ownership, read order, and scale-read form; it should not reopen the already rejected DepthU64, terminal-barrier, transposed-scale, or broad geometry searches without a new premise.
 
-The recursive final-review rule remains global rather than limited to Q8 forward. It rereads related Q3/Q4/Q5/Q6 and backward evidence, and findings may transfer across directions, quant types, and shapes only after the receiving physical layout, lane ownership, synchronization, arithmetic, resource, and exact-key gates are satisfied. This entry changes no contract, catalog, public dispatch, or bundle.
+The recursive final-review rule remains global rather than limited to Q8 forward. It rereads related Q3/Q4/Q5/Q6 and backward evidence, and findings may transfer across directions, quant types, and shapes only after the receiving physical layout, lane ownership, synchronization, arithmetic, resource, and exact-key gates are satisfied. The bounded compact-depth32 reopening below satisfies those gates for its retained exact keys and updates the research catalog only; public dispatch and bundle integration remain separate work.
+
+## Compact Depth32 Row Composition Requalification
+
+The bounded reopening tested the changed premise identified above: the earlier common M128 compact-row source was measured before the later compact-M64 dataflow had established weight-first staging, legal paired weight-scale reads, and the invariant second scale base. The new typed identity is `ForwardSolution.q8_0_compact_depth32_tiled_lds()` with `LdsAddressHoist="CompactDepth32WeightRows"`. It retains the existing wave-N ownership, WG32x4, N64, DepthU32, signed WMMA correction order, and BF16 epilogue while changing only the typed LDS row layout and linked staging/read order.
+
+For M128, the formula-derived layout is 144-byte activation rows followed by 64 144-byte weight rows: 18,432 activation bytes, a 9,216-byte weight plane, weight scales at byte offset 128, 288-byte scale-element stride, and a 1,152-byte paired-scale base delta. Total LDS falls from 38,400 to 27,648 bytes. The same identity derives 13,824 bytes for M32 and 18,432 bytes for M64; those small-M variants were tested separately and rejected on timing. The M128 artifact inspects at 240 VGPRs, 16 SGPRs, zero private bytes, zero spills, 64 WMMAs, two barriers, 82 VMEM instructions, 138 LDS instructions, 40 waits, and three clauses. The parent has the same VGPR/SGPR class but 38,400 LDS bytes and 154 LDS instructions. All retained artifacts use the exact 40-byte ABI, code-object v5, gfx1151, and wave32.
+
+The two ordinary gate representatives were bit-exact against both the selected parent and installed HIP across every BF16 output. The Q8_1 producer repeated deterministically; all outputs were finite; input, packed-weight, and workspace mutations changed the candidate output while the mutated candidate remained bit-exact with HIP. The output-B mutation record is `~/tmp/torch-ggml-ops/q8-compact-depth32-all/attention_output_b-m8192-n4096-k8192/mutation.json`; the Q-B record is `~/tmp/torch-ggml-ops/q8-compact-depth32-all/attention_q_b-m8192-n32768-k1024/mutation.json`.
+
+The ordinary nine-repeat screen was followed by two serialized seven-warmup, 25-repeat rotations for every favorable exact key. Launch order alternated within one process between HIP, parent, and candidate; the second rotation reversed the order. Every comparison reported zero differing BF16 elements for candidate/parent, candidate/HIP, and parent/HIP. The retained candidate/parent median ratios are summarized below; the two values are the independent rotations.
+
+| Family | M2048 | M8192 | M32768 |
+| --- | ---: | ---: | ---: |
+| Attention Q-A | `HipTile` parent retained | `0.9784x` / `0.9747x` | `0.9598x` / `0.9806x` |
+| Attention Q-B | `0.9624x` / `0.9481x` | `0.9514x` / `0.9589x` | `0.9577x` / `0.9560x` |
+| Attention KV | `0.7504x` / `0.6673x` | `0.9863x` / `0.9890x` | `0.9688x` / `0.9659x` |
+| Attention output B | `0.9497x` / `0.9756x` | `0.9727x` / `0.9625x` | `0.9644x` / `0.9663x` |
+| Shared gate/up | `0.9803x` / `0.9923x` | `0.9705x` / `0.9778x` | `0.9744x` / `0.9643x` |
+| Shared down | `0.9758x` / `0.9749x` | `0.9724x` / `0.9708x` | `0.9631x` / `0.9655x` |
+
+The corresponding candidate/HIP ratios were below one in both rotations for every retained key. The largest absolute gains are on Q-B and output-B, while KV M2048 is a distinct ownership replacement: its compact M128 candidate beat the selected compact-M64 parent in both direct rotations and beat HIP in both, despite the earlier M128 source rejection. This is admissible evidence for this exact key only; it does not generalize neighboring keys without their own entries and comparisons.
+
+LM-head M128, M256, and M512 also passed two reversed 25-repeat rotations, with candidate/parent ratios of `0.9651x` / `0.9570x`, `0.9449x` / `0.9688x`, and `0.9626x` / `0.9549x`. The exact compact M32 and M64 probes remained rejected at `1.0171x` and `1.0140x` parent in their nine-repeat screens, so the existing small-M catalog mappings remain unchanged. The Q-A M2048 compact candidate likewise regressed to `1.0375x` of its existing `HipTile` parent, so the ordinary mapping remained selected. The later measurement-error review below qualifies that retained parent directly against HIP.
+
+A deterministic rebuild of the representative M128 output-B and Q-B artifacts reproduced identical generated source, object, and HSACO hashes; every 21-case static build passed inspection with zero private bytes and zero spills. The production catalog now contains four deduplicated solutions and 23 exact mappings: 20 `CompactDepth32WeightRows` mappings, one `HipTile` mapping for Q-A M2048, and the two exact small-M LM mappings. The catalog round-trips through `load_catalog()` with no unreferenced solution indices. This is the selected production research state; public dispatch, generated bundle packaging, and installed HIP remain unchanged.
+
+The compact-depth32 reopening is closed. Its changed premise was implemented, independently qualified across every retained exact key, and fully reviewed. Remaining Q8 findings are either the explicitly rejected small-M/short-M controls, exact-key timing controls, or mechanisms already closed in the preceding Q8 record. The missing Q8 search-domain enumeration is deferred tooling work, not an unmeasured kernel mechanism. No new in-contract mechanism remains actionable in this composition.
+
+## Q-A Measurement-Error Reconciliation
+
+The last apparent multiply deficit was the retained `Q8HipTiledLds` key `(M,N,K)=(2048,1024,4096)`. A fresh catalog build reproduced the previously timed source and HSACO byte-for-byte. The existing strict result remains exact to HIP and public output, deterministic, independently referenced, mutation-sensitive, code-object-v5, gfx1151, wave32, 40-byte ABI, `240 VGPR / 16 SGPR / 38,400 LDS`, and zero private bytes or spills.
+
+The timing decision follows EvoTensile's noisy-measurement model: median log time, robust log scale `max(stdev, 1.4826*MAD, IQR/1.349)`, median standard error `1.253314*sigma/sqrt(n)`, `90%` confidence, and the default `2%` practical-equivalence zone. The older single-enqueue runs measured arithmetic candidate/HIP median ratios of `1.01381x` and `1.01236x`, but their confidence intervals were too broad to establish a slowdown. Pooling all 50 samples produced an independent-arm interval of `0.98160x-1.04551x` and a paired interval of `0.99498x-1.05396x`. That evidence is unresolved, not a valid fallback result.
+
+Two additional single-enqueue processes used 200 warmup launches and 80 samples per arm. Their arithmetic candidate/HIP median ratios moved to `0.99728x` and `0.99882x`. The pooled independent-arm interval `0.98116x-1.01577x` resolves as equivalent within `2%`; the paired interval `0.99602x-1.02675x` remains unresolved because individual-launch log noise is still large. Thus even the single-enqueue protocol provides no evidence that GGTensile is slower.
+
+Final confirmation used 20 warmup batches, 80 samples per arm, and 10 enqueues per timed sample, with alternating backend order and a fresh reversed-order process. The fixed Q8_1 producer ran once before timing, so these are prequantized multiply bodies only.
+
+| Confirmation | HIP median | GGTensile median | HIP/GGTensile speedup | Independent candidate/HIP 90% CI | Paired candidate/HIP 90% CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| A | `0.603805 ms` | `0.545028 ms` | `1.1078x` | `0.89881x-0.90651x` | `0.90078x-0.90578x` |
+| B, reversed | `0.612754 ms` | `0.556184 ms` | `1.1017x` | `0.90383x-0.91154x` | `0.90546x-0.91013x` |
+
+Both confirmations are confidently faster than HIP beyond the `2%` zone in both analyses and in both launch-order strata. The measurement controls resolve as equivalent: candidate-vs-candidate paired CI `0.99932x-1.00431x`, and HIP-vs-HIP `0.99815x-1.00243x`. The pooled 160-sample candidate/HIP interval is `0.90381x-0.90729x`, well outside those control floors. The retained Q-A `HipTile` mapping therefore passes the multiply gate; there is no real residual slowdown and no optimization reopening is justified. Full samples and calculations are under `~/tmp/torch-ggml-ops/q8-qa-hot-{pair-a,pair-b,candidate-control,hip-control}.json`, `q8-qa-single-hot-{a,b}.json`, and `q8-qa-measurement-error.json`.
+
+## Final Multiply Result
+
+The final matrix follows the authoritative catalog's `(M,N,K)` orientation and reports prequantized multiply bodies only. HIP and GGTensile consume the same workspace from the same fixed `torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f32_d4` kernel; activation production is excluded from every throughput and speedup below. Logical throughput is `2*M*N*K/(median_ms*1e9)`, and speedup is `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile. Stable rows combine the two independent warmed rotating 25-repeat confirmations by averaging their median times. Q-A M2048 retains both 80-sample, ten-enqueue hot confirmations because they supersede the unresolved single-enqueue control. Other A/B values are retained only where the speed difference exceeds one percentage point and therefore warrants tighter benchmarking.
+
+| Family | `(M,N,K)` | Final path | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP | Evidence |
+| --- | ---: | --- | ---: | ---: | ---: | --- |
+| Attention Q-A | `(2048,1024,4096)` | `HipTile` | `28.453/28.037` | `31.521/30.889` | `1.1078x/1.1017x` | A/B; 80x10 hot confirmation |
+| Attention Q-A | `(8192,1024,4096)` | `CompactDepth32WeightRows` | `27.619` | `31.239` | `1.1311x` | consolidated A/B |
+| Attention Q-A | `(32768,1024,4096)` | `CompactDepth32WeightRows` | `28.703` | `32.621` | `1.1365x` | consolidated A/B |
+| Attention Q-B | `(2048,32768,1024)` | `CompactDepth32WeightRows` | `25.875` | `30.198` | `1.1671x` | consolidated A/B |
+| Attention Q-B | `(8192,32768,1024)` | `CompactDepth32WeightRows` | `26.702` | `30.853` | `1.1554x` | consolidated A/B |
+| Attention Q-B | `(32768,32768,1024)` | `CompactDepth32WeightRows` | `26.812` | `30.760` | `1.1472x` | consolidated A/B |
+| Attention K/V | `(2048,512,4096)` | `CompactDepth32WeightRows` | `16.601/15.498` | `18.020/17.124` | `1.0855x/1.1049x` | A/B; tighter benchmark |
+| Attention K/V | `(8192,512,4096)` | `CompactDepth32WeightRows` | `27.719/27.307` | `29.147/29.266` | `1.0515x/1.0717x` | A/B; tighter benchmark |
+| Attention K/V | `(32768,512,4096)` | `CompactDepth32WeightRows` | `28.115` | `32.124` | `1.1426x` | consolidated A/B |
+| Attention output-B | `(2048,4096,8192)` | `CompactDepth32WeightRows` | `26.166` | `31.727` | `1.2125x` | consolidated A/B |
+| Attention output-B | `(8192,4096,8192)` | `CompactDepth32WeightRows` | `27.488` | `32.429` | `1.1798x` | consolidated A/B |
+| Attention output-B | `(32768,4096,8192)` | `CompactDepth32WeightRows` | `27.819` | `32.426` | `1.1656x` | consolidated A/B |
+| Shared gate/up | `(2048,2048,4096)` | `CompactDepth32WeightRows` | `27.638/27.815` | `29.480/29.228` | `1.0666x/1.0508x` | A/B; tighter benchmark |
+| Shared gate/up | `(8192,2048,4096)` | `CompactDepth32WeightRows` | `28.599` | `32.411` | `1.1333x` | consolidated A/B |
+| Shared gate/up | `(32768,2048,4096)` | `CompactDepth32WeightRows` | `29.088` | `32.834` | `1.1288x` | consolidated A/B |
+| Shared down | `(2048,4096,2048)` | `CompactDepth32WeightRows` | `27.141` | `29.124` | `1.0731x` | consolidated A/B |
+| Shared down | `(8192,4096,2048)` | `CompactDepth32WeightRows` | `28.512` | `32.084` | `1.1253x` | consolidated A/B |
+| Shared down | `(32768,4096,2048)` | `CompactDepth32WeightRows` | `28.750` | `32.372` | `1.1260x` | consolidated A/B |
+| LM head | `(32,129280,4096)` | `SmallM32` | `11.934` | `13.102` | `1.0978x` | consolidated A/B |
+| LM head | `(64,129280,4096)` | `SmallM64` | `22.813/22.935` | `25.482/25.360` | `1.1170x/1.1057x` | A/B; tighter benchmark |
+| LM head | `(128,129280,4096)` | `CompactDepth32WeightRows` | `26.505` | `31.752` | `1.1979x` | consolidated A/B |
+| LM head | `(256,129280,4096)` | `CompactDepth32WeightRows` | `26.830/27.059` | `31.984/32.643` | `1.1921x/1.2064x` | A/B; tighter benchmark |
+| LM head | `(512,129280,4096)` | `CompactDepth32WeightRows` | `27.270` | `32.461` | `1.1904x` | consolidated A/B |
+
+The Q-A M2048 compact candidate remains rejected at `1.0375x` of the retained `HipTile` source. The measurement-error reconciliation qualifies that existing source directly against HIP, so no kernel or catalog identity changes. Historical complete-call matrices remain in the chronology above and are not mixed into this multiply-only final table.
+
+The rows retaining A/B values are Q-A M2048, KV M2048, KV M8192, shared gate/up M2048, LM-head M64, and LM-head M256. Q-A retains A/B because of the protocol reconciliation; the other spreads exceed the one-percentage-point reporting threshold and should receive a tighter benchmark before treating the consolidated speed as a precise point estimate.
+
+### Same-Producer Complete-Call Diagnostic
+
+A separate catalog-wide audit timed quantization plus multiply with one loaded F32_D4 producer instance and one workspace shared by each HIP/GGTensile pair. Multiply and complete phases were separated; short kernels used sustained batches; backend order alternated; and the second 25-repeat pass reversed mode and backend order. The table reports `HIP complete median / GGTensile complete median`. These diagnostic runs use a different sustained timing context from the immutable promotion evidence, so their complete ratios and within-run reductions must not be combined numerically with the final multiply table above.
+
+| Family | M2048 complete A/B | M8192 complete A/B | M32768 complete A/B |
+| --- | ---: | ---: | ---: |
+| Attention Q-A | `1.0897x/1.0852x` | `1.1537x/1.1540x` | `1.1331x/1.1337x` |
+| Attention Q-B | `1.1880x/1.1872x` | `1.1978x/1.1998x` | `1.2072x/1.2079x` |
+| Attention K/V | `1.0520x/1.0465x` | `1.1101x/1.1115x` | `1.1178x/1.1184x` |
+| Attention output-B | `1.2491x/1.2496x` | `1.2270x/1.2270x` | `1.2235x/1.2215x` |
+| Shared gate/up | `1.1137x/1.1146x` | `1.1492x/1.1494x` | `1.1465x/1.1468x` |
+| Shared down | `1.1356x/1.1337x` | `1.1474x/1.1460x` | `1.1480x/1.1450x` |
+
+| LM-head M | M32 | M64 | M128 | M256 | M512 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Complete speedup A/B | `1.0464x/1.0459x` | `1.0185x/1.0208x` | `1.2374x/1.2365x` | `1.2367x/1.2350x` | `1.2411x/1.2404x` |
+
+The notable reduction is concentrated in low-N ordinary families, where producer work is large relative to multiply work. Attention K/V M8192 lost `2.90` and `3.16` speedup percentage points within the two audit passes, while M32768 lost `4.47` and `4.51` points. Q-A lost `1.54/1.64`, `1.72/1.59`, and `2.07/1.47` points for M2048/M8192/M32768. Smaller but repeatable reductions appeared for K/V M2048 (`0.96/0.86` points), shared gate/up M2048 (`1.42/1.49`) and M32768 (`1.22/1.16`), and shared down M2048 (`1.11/1.20`). Q-B and LM-head ratios barely moved, and output-B retained approximately `1.22-1.25x` complete speedup. Full medians, means, standard deviations, MADs, outliers, order splits, and samples are in `~/tmp/torch-ggml-ops/fwd-complete-audit-q8-{a,b}.json`.

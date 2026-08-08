@@ -730,6 +730,17 @@ class ForwardSolution:
         )
 
     @classmethod
+    def q8_0_compact_depth32_tiled_lds(cls, *, macro_tile0: int = 128) -> Self:
+        """Return the typed compact depth-32 wave-N LDS control."""
+        if macro_tile0 == 128:
+            base = cls.q8_0_hip_tiled_lds()
+        elif macro_tile0 in (32, 64):
+            base = cls.q8_0_small_m_tiled_lds(macro_tile0=macro_tile0)
+        else:
+            raise ValueError("Q8 compact depth-32 control requires MT32/MT64/MT128")
+        return replace(base, lds_address_hoist="CompactDepth32WeightRows")
+
+    @classmethod
     def q8_0_hip_tiled_lds_depth64(cls) -> Self:
         """Return the two-activation-plane Q8_0 LDS research control."""
         return replace(cls.q8_0_hip_tiled_lds(), depth_u=64)

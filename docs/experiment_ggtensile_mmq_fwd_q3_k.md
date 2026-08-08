@@ -137,6 +137,8 @@ The dense campaign is reopened against the local `Qwen3.6-35B-A3B-APEX-I-Mini.gg
 | attention gate | `(4096,2048)` | `blk.4.attn_gate.weight` | 25 | 3 |
 | SSM output | `(2048,4096)` | `blk.4.ssm_out.weight` | 25 | 3 |
 
+This 12-key forward scope is deliberately broader than the current native-MMQ call inventory in `test_no_unsloth`. That integration assigns 160 ordinary projections to native forward/backward MMQ while its GatedDeltaNet/recurrent-layout projections remain on the generic GGUF compatibility path. Accordingly, `QWEN_DENSE_CASES` contains the Q3_K attention-K and attention-Q families but not the Q3_K attention-gate and SSM-output families. The latter six exact keys remain valid raw-packed HIP/GGTensile forward research controls for real checkpoint tensors, but are not layout-qualified GatedDeltaNet calls: `attn_gate` maps to `in_proj_z` and requires an output value-head permutation, while `ssm_out` maps to `out_proj` and requires an input value-head permutation. They do not imply six missing backward production keys or production integration without a permutation-aware MMQ path. Restricting the comparison to the current native benchmark inventory gives six Q3_K keys in each direction.
+
 The 40 three-dimensional `(256,512,2048)` expert tensors belong to grouped MMQ and are excluded from this dense campaign. The 50 `(32,2048)` SSM alpha/beta tensors do not satisfy the dense 64-column tile and installed HIP MMQ control contract. `token_embd.weight` is an embedding lookup rather than a dense MMQ call. The model output tensor is Q6_K and remains covered by its separate campaign.
 
 The initial priority follows estimated weighted matrix work before measurement: the 25-call attention-gate and SSM-output families first, then the wider nine-call attention-Q family, then attention K. Within each family the `M=32768` and `M=8192` keys receive the first optimization attention, while every exact key must independently beat HIP multiply before selection. The existing `(2048,4096,2048)` attention-gate control is a qualified seed, not evidence for another key. Baseline work will regenerate the current seed for all 12 keys, measure serial warmed HIP and GGTensile medians, and replace this estimate with measured weighted latency.
@@ -325,41 +327,37 @@ speedup = HIP median_ms / GGTensile median_ms
 
 The TFLOPS values are an effective dense-operation rate for comparison. Q3_K uses integer WMMA accumulation and FP32 scale correction, so they are not a claim that the kernel executes native FP32 fused multiply-add instructions.
 
-Run A:
+The table below consolidates the two independent confirmations for all 12 research-catalog keys by averaging their median times before calculating throughput. It reports prequantized multiply bodies only. HIP and GGTensile consume the same workspace produced by the same fixed `torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f32_d4` kernel; activation production is excluded from every throughput, speedup, and weighted result in this table. The largest per-key A/B speed difference was `0.71` percentage points, so no row requires separate precision-warning reporting here.
 
-| Family | M | N | K | HIP ms | HIP TFLOPS-eq | GGTensile ms | GGTensile TFLOPS-eq | Speedup vs HIP |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| attention K | 2048 | 512 | 2048 | 0.212513 | 20.210 | 0.196734 | 21.831 | 1.08021x |
-| attention K | 8192 | 512 | 2048 | 0.761084 | 22.573 | 0.708009 | 24.265 | 1.07496x |
-| attention K | 32768 | 512 | 2048 | 3.002010 | 22.891 | 2.781559 | 24.705 | 1.07925x |
-| attention Q | 2048 | 8192 | 2048 | 2.988109 | 22.998 | 2.792357 | 24.610 | 1.07010x |
-| attention Q | 8192 | 8192 | 2048 | 11.860503 | 23.176 | 11.067318 | 24.837 | 1.07167x |
-| attention Q | 32768 | 8192 | 2048 | 47.580341 | 23.109 | 44.279305 | 24.831 | 1.07455x |
-| attention gate | 2048 | 4096 | 2048 | 1.518511 | 22.627 | 1.403740 | 24.477 | 1.08176x |
-| attention gate | 8192 | 4096 | 2048 | 5.954988 | 23.080 | 5.561356 | 24.713 | 1.07078x |
-| attention gate | 32768 | 4096 | 2048 | 23.747124 | 23.150 | 22.147079 | 24.823 | 1.07225x |
-| SSM output | 2048 | 2048 | 4096 | 1.529714 | 22.462 | 1.405908 | 24.440 | 1.08806x |
-| SSM output | 8192 | 2048 | 4096 | 6.001223 | 22.902 | 5.565976 | 24.693 | 1.07820x |
-| SSM output | 32768 | 2048 | 4096 | 23.487139 | 23.407 | 21.830744 | 25.183 | 1.07587x |
+| Family | `(M,N,K)` | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP |
+| --- | ---: | ---: | ---: | ---: |
+| attention K | `(2048,512,2048)` | `20.770` | `22.419` | `1.0794x` |
+| attention K | `(8192,512,2048)` | `22.598` | `24.277` | `1.0743x` |
+| attention K | `(32768,512,2048)` | `22.957` | `24.695` | `1.0757x` |
+| attention Q | `(2048,8192,2048)` | `22.936` | `24.570` | `1.0712x` |
+| attention Q | `(8192,8192,2048)` | `23.346` | `25.000` | `1.0709x` |
+| attention Q | `(32768,8192,2048)` | `23.078` | `24.799` | `1.0746x` |
+| attention gate | `(2048,4096,2048)` | `22.771` | `24.654` | `1.0827x` |
+| attention gate | `(8192,4096,2048)` | `23.007` | `24.661` | `1.0719x` |
+| attention gate | `(32768,4096,2048)` | `23.102` | `24.775` | `1.0724x` |
+| SSM output | `(2048,2048,4096)` | `22.597` | `24.605` | `1.0888x` |
+| SSM output | `(8192,2048,4096)` | `23.070` | `24.909` | `1.0797x` |
+| SSM output | `(32768,2048,4096)` | `23.199` | `24.987` | `1.0771x` |
 
-Run B used the independent deterministic rebuild and the reversed launch-order rotation:
+The effective call-count-weighted speedup is `1.0750x`. This is research-catalog evidence only. The Q3 inventory records the exact qualified candidates, while `csrc/mmq_bundle.cpp`, `csrc/generated/mmq_bundle_table.cuh`, and public runtime dispatch remain unchanged at the 179-kernel HIP bundle.
 
-| Family | M | N | K | HIP ms | HIP TFLOPS-eq | GGTensile ms | GGTensile TFLOPS-eq | Speedup vs HIP |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| attention K | 2048 | 512 | 2048 | 0.201069 | 21.361 | 0.186414 | 23.040 | 1.07861x |
-| attention K | 8192 | 512 | 2048 | 0.759417 | 22.622 | 0.707294 | 24.290 | 1.07369x |
-| attention K | 32768 | 512 | 2048 | 2.984819 | 23.023 | 2.783813 | 24.685 | 1.07221x |
-| attention Q | 2048 | 8192 | 2048 | 3.004088 | 22.875 | 2.801410 | 24.530 | 1.07235x |
-| attention Q | 8192 | 8192 | 2048 | 11.687331 | 23.519 | 10.922523 | 25.166 | 1.07002x |
-| attention Q | 32768 | 8192 | 2048 | 47.707127 | 23.047 | 44.394245 | 24.767 | 1.07462x |
-| attention gate | 2048 | 4096 | 2048 | 1.499275 | 22.918 | 1.383588 | 24.834 | 1.08361x |
-| attention gate | 8192 | 4096 | 2048 | 5.992367 | 22.936 | 5.584771 | 24.610 | 1.07298x |
-| attention gate | 32768 | 4096 | 2048 | 23.847000 | 23.053 | 22.233656 | 24.726 | 1.07256x |
-| SSM output | 2048 | 2048 | 4096 | 1.511326 | 22.735 | 1.387041 | 24.772 | 1.08960x |
-| SSM output | 8192 | 2048 | 4096 | 5.913688 | 23.241 | 5.469110 | 25.130 | 1.08129x |
-| SSM output | 32768 | 2048 | 4096 | 23.907846 | 22.995 | 22.172792 | 24.794 | 1.07825x |
+#### Same-Producer Complete-Call Diagnostic
 
-Across the two runs, all 12 speedup ratios exceed `1.0x`; the per-run call-count-weighted GGTensile/HIP time ratios are `0.93067` and `0.92978`, equivalent to weighted speedups of approximately `1.0745x` and `1.0755x`. This is research-catalog evidence only. The Q3 inventory records the exact qualified candidates, while `csrc/mmq_bundle.cpp`, `csrc/generated/mmq_bundle_table.cuh`, and public runtime dispatch remain unchanged at the 179-kernel HIP bundle.
+A separate catalog-wide audit timed quantization plus multiply without changing the multiply-only selection objective. Each HIP/GGTensile pair used one loaded F32_D4 producer instance and one shared workspace. Multiply and complete phases were separated, short kernels used sustained batches, launch order alternated, and two 25-repeat passes reversed mode and backend order. These complete-call speedups are `HIP complete median / GGTensile complete median`; they are diagnostic and do not replace the immutable multiply medians above.
+
+| Family | M2048 complete A/B | M8192 complete A/B | M32768 complete A/B |
+| --- | ---: | ---: | ---: |
+| attention K | `1.0708x/1.0748x` | `1.0567x/1.0581x` | `1.0570x/1.0568x` |
+| attention Q | `1.0691x/1.0722x` | `1.0726x/1.0731x` | `1.0725x/1.0777x` |
+| attention gate | `1.0770x/1.0778x` | `1.0711x/1.0752x` | `1.0715x/1.0739x` |
+| SSM output | `1.0838x/1.0869x` | `1.0721x/1.0733x` | `1.0724x/1.0767x` |
+
+Producer inclusion has one coherent Q3 effect: the low-N attention-K family loses some of its within-audit multiply speedup. The M8192 reductions were `0.97` and `0.99` speedup percentage points, and M32768 measured `0.72` and `0.94` points. M2048 measured `0.90` and `0.35` points. Other families showed no repeatable reduction; several complete ratios moved slightly upward with timing context. Full medians, means, standard deviations, MADs, outliers, order splits, and samples are in `~/tmp/torch-ggml-ops/fwd-complete-audit-q3-{a,b}.json`.
 
 ### Final Full-Weight Review
 
@@ -372,3 +370,7 @@ The final review classified the remaining alternatives as already rejected by co
 The Q3 full-weight campaign remains closed for its 12 exact keys. The later cross-format review found no new Q3-specific reopening: invariant activation-base addressing and lifetime-derived weight-scale bases are already represented in `Q3FullWeightTiledLds`, and the full-weight ownership, 336-byte padded row, and four-barrier schedule cannot transfer to another quant type without matching packed layout, lane ownership, synchronization, register lifetimes, correction order, and resource residency.
 
 The recursive final-review rule is global rather than a per-format, per-direction, or per-shape waiver. A fresh review must reread the related forward and backward records, HIP and GGTensile evidence, target ISA, generated artifacts, and exact inventories. A finding discovered in another problem type, direction, quant type, or shape may reopen this record when it supplies a changed premise; Q3 evidence may transfer outward only after the receiving ownership and contract are independently implemented and qualified. This boundary does not authorize prepared weights, external workspaces, producer fusion, arithmetic-contract changes, public dispatch, or other contract changes.
+
+## Post-Q8 Global Review
+
+The Q8_0 compact-depth32 row composition was reread as a possible cross-format premise. It does not transfer to Q3_K: Q3 owns a 336-byte full-weight row containing two packed halves, distinct low/high metadata roles, and a four-barrier decode/WMMA schedule. The Q3 full-weight ownership, persistent zero, activation-base and scale lifetimes, and the tested compact-row, paired-scale, wait, tail, and fragment alternatives remain independently qualified or rejected. No new Q3-specific in-contract mechanism is actionable, and the 12 exact research mappings remain unchanged.

@@ -19,6 +19,7 @@ from tools.ggtensile.mmq_fwd_spec import (
     QuantForwardSemantics,
     ResourceLimits,
     SemanticSchedulePolicy,
+    SignedInt8CompactDepth32TiledLdsLayout,
     SignedInt8KvTiledLdsLayout,
     SignedInt8SmallMTiledLdsLayout,
     derive_forward_resource_usage,
@@ -316,6 +317,10 @@ def test_complete_candidate_round_trips_to_the_normal_build_solution() -> None:
         (ForwardSolution.q8_0_direct_global(), (88, 16, 0)),
         (ForwardSolution.q8_0_register_tiled(), (137, 16, 0)),
         (ForwardSolution.q8_0_hip_tiled_lds(), (240, 16, 38_400)),
+        (
+            ForwardSolution.q8_0_compact_depth32_tiled_lds(),
+            (240, 16, 27_648),
+        ),
         (ForwardSolution.q8_0_hip_tiled_lds_depth64(), (240, 16, 38_400)),
         (
             ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=32),
@@ -362,6 +367,15 @@ def test_q8_kv_layout_derives_compact_lds_planes() -> None:
     assert layout.weight_scale_pair_base_delta == 1_152
     assert layout.weight_bytes == 9_216
     assert layout.total_bytes == 18_432
+
+
+def test_q8_compact_depth32_layout_derives_wave_n_lds_planes() -> None:
+    layout = SignedInt8CompactDepth32TiledLdsLayout(128)
+    assert layout.activation_bytes == layout.weight_base == 18_432
+    assert layout.weight_bytes == 9_216
+    assert layout.weight_scale_element_stride == 288
+    assert layout.weight_scale_pair_base_delta == 1_152
+    assert layout.total_bytes == 27_648
 
 
 def test_q6_lds_layout_derives_selected_plane_offsets() -> None:

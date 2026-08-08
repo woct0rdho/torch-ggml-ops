@@ -804,6 +804,52 @@ class SignedInt8KvTiledLdsLayout:
 
 
 @dataclass(frozen=True)
+class SignedInt8CompactDepth32TiledLdsLayout:
+    """Formula-derived compact signed-int8 LDS planes for depth-32 tiles."""
+
+    activation_rows: int
+    weight_rows: int = 64
+    activation_row_stride: int = Q8_1_F32_D4_BLOCK_BYTES
+    weight_row_stride: int = 144
+    weight_scale_offset: int = 128
+
+    def __post_init__(self) -> None:
+        if self.activation_rows not in (32, 64, 128):
+            raise ValueError("Q8 compact depth-32 layout requires 32, 64, or 128 rows")
+        if (
+            self.weight_rows,
+            self.activation_row_stride,
+            self.weight_row_stride,
+            self.weight_scale_offset,
+        ) != (64, Q8_1_F32_D4_BLOCK_BYTES, 144, 128):
+            raise ValueError("Q8 compact depth-32 layout has fixed row dimensions")
+
+    @property
+    def activation_bytes(self) -> int:
+        return self.activation_rows * self.activation_row_stride
+
+    @property
+    def weight_base(self) -> int:
+        return self.activation_bytes
+
+    @property
+    def weight_bytes(self) -> int:
+        return self.weight_rows * self.weight_row_stride
+
+    @property
+    def weight_scale_element_stride(self) -> int:
+        return 2 * self.weight_row_stride
+
+    @property
+    def weight_scale_pair_base_delta(self) -> int:
+        return 4 * self.weight_scale_element_stride
+
+    @property
+    def total_bytes(self) -> int:
+        return self.activation_bytes + self.weight_bytes
+
+
+@dataclass(frozen=True)
 class DecodeSpec:
     """Candidate-selectable metadata and traversal lowering policies."""
 
@@ -1104,11 +1150,15 @@ def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | Non
         )
     if signed_int8_wave_n_tiled_lds and solution.depth_u not in (32, 64):
         return "Q8 HIP-shaped LDS controls require DepthU 32 or 64"
-    if signed_int8_wave_n_tiled_lds and solution.lds_address_hoist != "HipTile":
+    if signed_int8_wave_n_tiled_lds and solution.lds_address_hoist not in {
+        "HipTile",
+        "CompactDepth32WeightRows",
+    }:
         return "Q8 HIP-shaped LDS control has an unsupported layout"
     if signed_int8_small_m_tiled_lds and solution.lds_address_hoist not in {
         "SmallMTile",
         "KvCompactTile",
+        "CompactDepth32WeightRows",
     }:
         return "Q8 small-M LDS control has an unsupported layout"
     if (
@@ -1122,6 +1172,13 @@ def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | Non
         )
     ):
         return "Q8 KV compact LDS control requires WG32x4, MT64x64, and DepthU 32"
+    if solution.lds_address_hoist == "CompactDepth32WeightRows" and (
+        solution.depth_u != 32
+        or solution.work_group != (32, 4, 1)
+        or solution.macro_tile0 not in (32, 64, 128)
+        or solution.macro_tile1 != 64
+    ):
+        return "Q8 compact depth-32 control requires WG32x4, MT32/MT64/MT128 x N64"
     inactive_checks: list[tuple[bool, str]] = []
     if structured_q6:
         inactive_checks.extend(

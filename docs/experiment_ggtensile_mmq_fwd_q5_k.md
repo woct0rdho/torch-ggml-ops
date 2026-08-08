@@ -205,7 +205,7 @@ Narrow M2048 remains `a1d8-p0`: it cleared the former complete-call gate, met th
 
 `AccumulatorInitialization=VopdPair` represents a real emitted path rather than a post-generation patch. It replaces 72 scalar accumulator clears/copies with 36 legal `v_dual_mov_b32` instructions, using `v0` and `v1` as distinct source banks after the first zero pair. It is retained only on exact keys with repeatable evidence: narrow M32768 and shared-down M8192. Narrow M2048 and shared-down M2048/M32768 transfer controls were neutral or inconsistent and remain scalar-copy identities.
 
-### Former six-key confirmation
+### Historical six-key confirmation (A/B diagnostic)
 
 The native selected artifacts are bit-exact to the installed HIP multiply, finite, mutation-sensitive for input, packed weight, and Q8_1 workspace, and retain independent-reference NRMSE near `0.0137-0.0138`. Every artifact uses 239 VGPRs, 16 SGPRs, 38,400-byte LDS, 32 static WMMAs, four barriers, eight output clauses, and zero private bytes, spills, scratch, calls, or dynamic stack.
 
@@ -264,20 +264,31 @@ For narrow M2048, the original 64-point power-of-two grid, a focused 60-point no
 
 ### Final multiply-only result
 
-This is the authoritative prequantized multiply result for all six production keys. Each A/B entry is an independent warmed 25-repeat rotation containing exactly the HIP multiply and selected GGTensile multiply. Logical throughput is `2*M*N*K/(median_ms*1e9)`, and speedup is `HIP median time / GGTensile median time`.
+This is the authoritative prequantized multiply result for all six production keys. Each value combines the two independent warmed 25-repeat rotations, each containing exactly the HIP multiply and selected GGTensile multiply, by averaging their median times. Both multiplies consume one workspace produced by the same fixed `torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f16_d4s4` kernel; quantization is excluded from every throughput and speedup below. Logical throughput is `2*M*N*K/(median_ms*1e9)`, and speedup is `HIP median time / GGTensile median time`. The largest per-key A/B speed difference was `0.53` percentage points.
 
-| Family | `(M,N,K)` | Final identity | HIP TFLOPS A/B | GGTensile TFLOPS A/B | Speedup vs HIP A/B | Paired bootstrap 95% CI, us A/B |
-| --- | ---: | --- | ---: | ---: | ---: | ---: |
-| Narrow | `(2048,512,2048)` | `a1d8-p0` | `24.184/24.462` | `24.110/24.438` | `0.9970x/0.9990x` | `[-0.120,0.430]/[-0.650,0.080]` |
-| Narrow | `(8192,512,2048)` | `a8d1-p0` | `27.235/27.211` | `28.216/28.047` | `1.0360x/1.0307x` | `[-22.980,-19.220]/[-20.809,-18.059]` |
-| Narrow | `(32768,512,2048)` | `a7d3-p3`, VOPD | `28.021/27.962` | `27.990/27.968` | `0.9989x/1.0002x` | `[-5.681,7.100]/[-7.710,3.740]` |
-| Shared down | `(2048,2048,512)` | `a1d2-p2` | `23.871/24.587` | `24.494/25.261` | `1.0261x/1.0274x` | `[-5.330,-3.970]/[-5.350,-4.110]` |
-| Shared down | `(8192,2048,512)` | `a1d4-p2`, VOPD | `26.846/27.004` | `27.247/27.383` | `1.0149x/1.0141x` | `[-13.980,-8.161]/[-11.880,-7.570]` |
-| Shared down | `(32768,2048,512)` | `a1d2-p2` | `27.294/26.894` | `27.762/27.362` | `1.0172x/1.0174x` | `[-49.850,-35.029]/[-49.828,-34.180]` |
+| Family | `(M,N,K)` | Final identity | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP |
+| --- | ---: | --- | ---: | ---: | ---: |
+| Narrow | `(2048,512,2048)` | `a1d8-p0` | `24.322` | `24.273` | `0.9980x` |
+| Narrow | `(8192,512,2048)` | `a8d1-p0` | `27.223` | `28.131` | `1.0334x` |
+| Narrow | `(32768,512,2048)` | `a7d3-p3`, VOPD | `27.992` | `27.979` | `0.9996x` |
+| Shared down | `(2048,2048,512)` | `a1d2-p2` | `24.223` | `24.871` | `1.0268x` |
+| Shared down | `(8192,2048,512)` | `a1d4-p2`, VOPD | `26.924` | `27.315` | `1.0145x` |
+| Shared down | `(32768,2048,512)` | `a1d2-p2` | `27.092` | `27.560` | `1.0173x` |
 
-Narrow M2048 and M32768 satisfy the stated measurement-error exception: their small latency deficits are not statistically distinguishable from HIP because both paired intervals include zero in both confirmations. Narrow M8192 and all shared-down keys are faster than HIP in both medians with intervals entirely below zero. Every candidate output was bit-exact to the HIP multiply; strict correctness, finite-output, independent-reference, and mutation checks remain satisfied.
+Narrow M2048 and M32768 satisfy the stated measurement-error exception: their small latency deficits are not statistically distinguishable from HIP in the underlying paired confirmations. Narrow M8192 and all shared-down keys are faster than HIP in both medians. Every candidate output was bit-exact to the HIP multiply; strict correctness, finite-output, independent-reference, and mutation checks remain satisfied.
 
 The final selected artifacts, correctness reports, inspection reports, and dedicated confirmation reports are consolidated under `~/tmp/torch-ggml-ops/ggtensile-fwd-q5-k/retained-multiply-authoritative/`. Two independent rebuilds reproduced all six solution keys, generated assemblies, and code objects byte-for-byte.
+
+### Same-Producer Complete-Call Diagnostic
+
+The separate complete-call audit used one loaded F16_D4S4 producer instance and one shared workspace per HIP/GGTensile pair. It separated multiply and complete phases, used sustained batches for short keys, alternated backend order, and reversed mode order in a second 25-repeat pass. The ratios below are `HIP complete median / GGTensile complete median`; they do not replace the dedicated multiply-only medians above.
+
+| Family | M2048 complete A/B | M8192 complete A/B | M32768 complete A/B |
+| --- | ---: | ---: | ---: |
+| Narrow | `0.9920x/0.9938x` | `1.0213x/1.0225x` | `1.0043x/1.0052x` |
+| Shared down | `1.0086x/0.9820x` | `0.9984x/0.9977x` | `1.0172x/1.0172x` |
+
+Producer inclusion leaves the narrow M8192 gain visible but reduces it to about `1.022x` complete. Shared-down M8192 moves from the authoritative `1.0145x` multiply result to complete-call parity at `0.9984x/0.9977x`. The two M2048 rows are context-sensitive under sustained batching: longer 51-repeat complete confirmations were `0.9877x/1.0021x` for narrow and `0.9646x/1.0136x` for shared down. Those rows support only a parity conclusion for the complete path. Full samples and order splits are in `~/tmp/torch-ggml-ops/fwd-complete-audit-q5-{a,b}.json` and `fwd-complete-audit-q5-short-{c,d}.json`.
 
 ### HIP/GGTensile issue evidence
 
@@ -349,3 +360,7 @@ This is a low-risk derived-lowering candidate, not a promotion or a new Q5 tunin
 The Q5 high-bit operation floor, lane-sharing results, alternate merge forms, loop rolling/unrolling, and compact consumer-decode rejection remain closed. Any future Q5 reopening must remove consumer high-bit insertion or introduce a genuinely different ownership or instruction premise; the Q4 activation-base result does not make those mechanisms transferable automatically.
 
 The recursive final-review rule is global rather than limited to Q5, forward direction, or the six current shapes. Related Q4/Q6/Q8 or backward findings may reopen this record only after the receiving Q5 ownership, arithmetic, resource, correctness, and timing gates are independently satisfied. No contract, producer, catalog, public bundle, or dispatch change is authorized here.
+
+## Post-Q8 Global Review
+
+The Q8_0 compact-depth32 row composition was reread as a possible Q5_K transfer. It does not change Q5's residual premise: Q5 consumer-side high-bit insertion remains the quantified critical-path floor, and the prior compact-LDS discriminator already showed that removing LDS traffic cannot repay the added decode work. Q5's typed activation-base lifetime is already represented and qualified; the Q8 weight-first and paired-scale layout is not compatible with Q5's packed high-bit ownership without a new decoder/dataflow premise. No actionable Q5-specific in-contract mechanism remains, and all six exact research selections remain unchanged.

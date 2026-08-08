@@ -812,6 +812,7 @@ class SignedInt8ForwardLowering:
         activation_lds_row_stride = layout.activation_row_stride
         weight_lds_base = layout.weight_base
         weight_lds_row_stride = layout.weight_row_stride
+        compact_depth32 = layout.weight_scale_pair_base_delta is not None
 
         asm.comment("Load pointers for the HIP-shaped wave-N Q8 tile.")
         emit_pointer_kernarg_loads(asm, self.KERNARG)
@@ -865,31 +866,60 @@ class SignedInt8ForwardLowering:
         asm.inst(f"s_mov_b32 s{self.LOOP_COUNTER}, 0")
 
         asm.label(".LForwardQ80HipTiledLdsBlockLoop")
-        self._emit_signed_int8_tiled_activation_loads(
-            asm,
-            tiled_registers,
-            registers.activation_address,
-            registers.activation_address,
-            4,
-        )
-        self._emit_signed_int8_tiled_weight_stage(
-            asm,
-            tiled_registers,
-            tiled_scale_layout,
-            group_base=0,
-        )
-        self._emit_signed_int8_tiled_activation_writes(
-            asm,
-            tiled_registers,
-            registers.activation_lds_address,
-            registers.activation_lds_address,
-            4,
-        )
-        self._emit_signed_int8_tiled_weight_writes(
-            asm,
-            tiled_registers,
-            group_base=0,
-        )
+        if compact_depth32:
+            self._emit_signed_int8_tiled_weight_stage(
+                asm,
+                tiled_registers,
+                tiled_scale_layout,
+                group_base=0,
+            )
+            self._emit_signed_int8_tiled_activation_loads(
+                asm,
+                tiled_registers,
+                registers.activation_address,
+                registers.activation_address,
+                4,
+            )
+            self._emit_signed_int8_tiled_weight_writes(
+                asm,
+                tiled_registers,
+                group_base=0,
+                wait_counts=(12, 0),
+            )
+            self._emit_signed_int8_tiled_activation_writes(
+                asm,
+                tiled_registers,
+                registers.activation_lds_address,
+                registers.activation_lds_address,
+                4,
+                trailing_vmem=0,
+            )
+        else:
+            self._emit_signed_int8_tiled_activation_loads(
+                asm,
+                tiled_registers,
+                registers.activation_address,
+                registers.activation_address,
+                4,
+            )
+            self._emit_signed_int8_tiled_weight_stage(
+                asm,
+                tiled_registers,
+                tiled_scale_layout,
+                group_base=0,
+            )
+            self._emit_signed_int8_tiled_activation_writes(
+                asm,
+                tiled_registers,
+                registers.activation_lds_address,
+                registers.activation_lds_address,
+                4,
+            )
+            self._emit_signed_int8_tiled_weight_writes(
+                asm,
+                tiled_registers,
+                group_base=0,
+            )
         if groups_per_iteration == 8:
             self._emit_signed_int8_tiled_weight_stage(
                 asm,
@@ -919,6 +949,11 @@ class SignedInt8ForwardLowering:
             f"v_add_nc_u32 v{weight_scale_address}, {weight_lds_base}, "
             f"v{weight_scale_address}"
         )
+        if compact_depth32:
+            asm.inst(
+                f"v_add_nc_u32 v{temporary}, "
+                f"{layout.weight_scale_pair_base_delta}, v{weight_scale_address}"
+            )
         for group in range(4):
             self._emit_signed_int8_tiled_group(
                 asm,

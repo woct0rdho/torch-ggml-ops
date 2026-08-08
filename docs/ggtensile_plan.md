@@ -282,7 +282,7 @@ The campaign used these measurable gates:
 - screen the ordinary Q-A control with warmed rotating HIP comparisons, then confirm any gain on Q-B, attention-output B, shared gate/up, shared down, KV, and LM-head chunks before changing exact-key decisions.
 - require parity or better on every promoted exact key, strict zero-spill/resource/ABI checks, mutation and independent-reference correctness, and deterministic rebuilds.
 
-Only a measured complete dataflow may replace a fallback. The initial HIP-shaped `Q8HipTiledLds` lowering was exact and resource-qualified but missed its Q-A gate; the activation-read-address-hoisted form subsequently cleared repeated confirmations for 20 exact keys. Exact `Q8SmallMTiledLds` controls then cleared the same qualification gates for LM-head M32/M64, and the compact M64 KV mechanism cleared its repeated faster-than-HIP gate. The Q8 catalog now selects GGTensile for all 23 required exact keys with no HIP research fallback. This catalog result does not change public dispatch or the generated bundle; the public-boundary review remains separate.
+Only a measured complete dataflow may replace a fallback. The initial single-enqueue `Q8HipTiledLds` timing was later shown to be unresolved under the EvoTensile log-noise model, not a valid Q-A failure. Two reversed 80-sample, ten-enqueue hot confirmations measured the retained Q-A M2048 source at `1.1078x` and `1.1017x` HIP multiply speedup, with `90%` confidence intervals beyond the default `2%` equivalence zone and equivalent candidate/candidate and HIP/HIP controls. The composed `CompactDepth32WeightRows` form separately cleared two reversed 25-repeat confirmations on 20 exact keys, including the former compact-KV fallback. Exact `Q8SmallMTiledLds` controls remain selected for LM-head M32/M64. The Q8 catalog therefore selects 20 compact-row, one HIP-shaped, and two small-M research entries. This catalog result does not change public dispatch or the generated bundle; the public-boundary review remains separate.
 
 ### Current Q3_K forward campaign
 
@@ -294,7 +294,11 @@ The recursive Q3 review is complete. MT64, rolled, linear-staging, batched-WMMA,
 
 ### Current Q8_0 forward status
 
-Q8 production coverage is complete for all 23 required exact keys: 20 ordinary wave-N LDS selections, two exact LM-head small-M selections, and one compact-KV selection. Every selected key has repeated warmed evidence below HIP multiply and is integrated through exact public bundle dispatch.
+Q8 production research coverage is complete for all 23 required exact keys: 20 `CompactDepth32WeightRows` selections, one ordinary `HipTile` selection for Q-A M2048, and two exact LM-head small-M selections. Every retained GGTensile key has exact output, mutation, zero-spill, and deterministic-build qualification. The compact and small-M keys retain their exact-key confirmations; Q-A M2048 has two reversed `80 x 10` hot confirmations plus same-artifact measurement controls. No Q8 research key remains slower than HIP under its authoritative multiply protocol. Public dispatch and bundle integration remain deferred.
+
+### Post-Q8 global recursive review
+
+The fresh review reread the Q3_K and Q5_K forward records after the Q8 compact-row composition. Q3 remains closed: its full-weight 336-byte row, ownership, four-barrier schedule, and tested traffic/lifetime alternatives have no compatible changed premise from signed-int8 Q8. Q5 remains closed: consumer-side high-bit insertion is still the quantified residual floor, compact consumer decode already failed its exact narrow discriminator, and the typed activation-base lifetime is already qualified. Q8’s 144-byte signed-int8 row does not remove or relocate that Q5 critical-path work. No actionable in-contract Q3_K or Q5_K mechanism remains; public wiring and grouped ownership remain separate deferred boundaries.
 
 ### Diagnostic lower bounds and profiling
 
@@ -357,7 +361,7 @@ There is no fixed percentage threshold. Timing selects winners. Static issue cou
 | MMQ forward Q5_K | Six exact inventory keys selected; the compact/high-bit body and shared Q4/Q5 activation-base lifetime are qualified, with public wiring deferred |
 | MMQ forward Q6_K | Three exact language-model-head keys select the typed row/role wavefront; the default policy remains implemented, and public wiring is deferred |
 | MMQ forward Q3_K | Dense 12-key inventory complete; all 12 exact keys select the typed full-weight research candidate, while public wiring remains deferred to the 179-kernel HIP bundle |
-| MMQ forward Q8_0 | All 23 required exact keys select research GGTensile controls; public wiring remains deferred, and one bounded compact-depth32 cross-key review is open |
+| MMQ forward Q8_0 | All 23 exact keys have final research decisions: 20 compact-depth32 selections, one ordinary HIP-shaped control, and two LM-head small-M controls; public wiring remains deferred |
 | Grouped GGTensile | Deferred until grouped ownership and routing receive an explicit generator contract |
 | Public GGTensile runtime selection | Deferred; existing HIP bundle dispatch remains authoritative |
 

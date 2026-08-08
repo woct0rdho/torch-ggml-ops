@@ -235,6 +235,9 @@ def _validate_signed_int8_forward_solution(
         ForwardSolution.q8_0_register_tiled(wave_tile_m=2, wave_tile_n=2),
         ForwardSolution.q8_0_register_tiled(wave_tile_m=4, wave_tile_n=1),
         ForwardSolution.q8_0_hip_tiled_lds(),
+        ForwardSolution.q8_0_compact_depth32_tiled_lds(macro_tile0=32),
+        ForwardSolution.q8_0_compact_depth32_tiled_lds(macro_tile0=64),
+        ForwardSolution.q8_0_compact_depth32_tiled_lds(macro_tile0=128),
         ForwardSolution.q8_0_hip_tiled_lds_depth64(),
         ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=32),
         ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=64),
@@ -243,7 +246,7 @@ def _validate_signed_int8_forward_solution(
         _reject(
             reasons,
             "solution.forward.q8.control.unimplemented",
-            "Q8_0 forward currently implements direct, register-tiled, and HIP-shaped LDS controls",
+            "Q8_0 forward currently implements direct, register-tiled, and typed LDS controls",
             "Solution",
         )
         return
