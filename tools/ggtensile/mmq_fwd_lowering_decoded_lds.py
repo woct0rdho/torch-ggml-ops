@@ -15,7 +15,6 @@ from .mmq_fwd_lowering_metadata import emit_packed_scale_minimum
 from .mmq_fwd_lowering_mma import emit_signed_i8_wmma
 from .mmq_fwd_physical import (
     DecodedWeightLdsPhysicalPlan,
-    DecodedWeightLdsRegisterPlan,
 )
 
 
@@ -30,14 +29,6 @@ class DecodedWeightLdsLowering:
     LOOP_COUNTER: ClassVar[int] = 10
     SCALAR_TEMPORARY: ClassVar[int] = 11
 
-    @property
-    def _decoded_physical(self) -> DecodedWeightLdsPhysicalPlan:
-        return cast(DecodedWeightLdsPhysicalPlan, self.context.state.physical_plan)
-
-    @property
-    def _decoded_registers(self) -> DecodedWeightLdsRegisterPlan:
-        return self._decoded_physical.registers
-
     def body(self) -> str:
         operand_source = self.context.state.kernel_spec.global_memory.operand_source
         if operand_source != self.OPERAND_SOURCE:
@@ -50,8 +41,12 @@ class DecodedWeightLdsLowering:
         self,
         asm: Assembly,
     ) -> None:
-        decoded_lds = self._decoded_physical.layout
-        registers = self._decoded_registers
+        physical = cast(
+            DecodedWeightLdsPhysicalPlan,
+            self.context.state.physical_plan,
+        )
+        decoded_lds = physical.layout
+        registers = physical.registers
         decode_scratch = registers.decode_scratch.first_register
         row_stride = self.context.state.packed_weight_row_bytes
         serial = registers.serial.first_register
@@ -352,7 +347,10 @@ class DecodedWeightLdsLowering:
     def _body(self) -> str:
         """Lower decoded-weight LDS staging and rolled four-group batches."""
         asm = Assembly()
-        physical = self._decoded_physical
+        physical = cast(
+            DecodedWeightLdsPhysicalPlan,
+            self.context.state.physical_plan,
+        )
         registers = physical.registers
         name = self.context.solution_key.kernel_name
         quant_type = self.context.state.contract.quant_type
@@ -468,7 +466,10 @@ class DecodedWeightLdsLowering:
         self,
         asm: Assembly,
     ) -> None:
-        registers = self._decoded_registers
+        registers = cast(
+            DecodedWeightLdsPhysicalPlan,
+            self.context.state.physical_plan,
+        ).registers
         size_n = self.context.state.problem_size.n
         sum_base = registers.sums.first_register
         temporary = registers.temporary.first_register
@@ -547,7 +548,10 @@ class DecodedWeightLdsLowering:
         self,
         asm: Assembly,
     ) -> None:
-        registers = self._decoded_registers
+        registers = cast(
+            DecodedWeightLdsPhysicalPlan,
+            self.context.state.physical_plan,
+        ).registers
         size_n = self.context.state.problem_size.n
         temporary = registers.temporary.first_register
         auxiliary = registers.auxiliary.first_register
@@ -570,7 +574,10 @@ class DecodedWeightLdsLowering:
         *,
         tile: int,
     ) -> None:
-        registers = self._decoded_registers
+        registers = cast(
+            DecodedWeightLdsPhysicalPlan,
+            self.context.state.physical_plan,
+        ).registers
         sum_base = registers.sums.first_register
         output_address = registers.output_address.first_register
         asm.inst("s_clause 7")
@@ -586,7 +593,10 @@ class DecodedWeightLdsLowering:
         self,
         asm: Assembly,
     ) -> None:
-        physical = self._decoded_physical
+        physical = cast(
+            DecodedWeightLdsPhysicalPlan,
+            self.context.state.physical_plan,
+        )
         registers = physical.registers
         activation_plane_address = registers.activation_plane_address.first_register
         serial = registers.serial.first_register
@@ -633,7 +643,11 @@ class DecodedWeightLdsLowering:
         *,
         group_base: int,
     ) -> None:
-        registers = self._decoded_registers
+        physical = cast(
+            DecodedWeightLdsPhysicalPlan,
+            self.context.state.physical_plan,
+        )
+        registers = physical.registers
         weight_q = registers.weight_payload.first_register
         metadata = registers.metadata_addresses.first_register
         c_base = registers.c_fragments.first_register
@@ -645,7 +659,7 @@ class DecodedWeightLdsLowering:
         activation_base = registers.activation_base.first_register
         weight_lds_base_address = registers.output_column.first_register
         metadata_lds_base_address = registers.metadata_lds_address.first_register
-        activation_metadata = self._decoded_physical.layout.activation_metadata
+        activation_metadata = physical.layout.activation_metadata
         quant_type = self.context.state.contract.quant_type
         quant_label = quant_type.replace("_", "")
         label = f".LForward{quant_label}DecodedGroupLoop{group_base}"
@@ -715,7 +729,7 @@ class DecodedWeightLdsLowering:
                     f"v{metadata + element // 2} offset0:0 offset1:152"
                 )
 
-        decoded_lds = self._decoded_physical.layout
+        decoded_lds = physical.layout
         metadata_group_stride = decoded_lds.metadata_group_stride
         metadata_schedule = self.context.state.kernel_spec.decode.metadata_schedule
         deferred_metadata = metadata_schedule in (
@@ -740,7 +754,10 @@ class DecodedWeightLdsLowering:
         *,
         deferred_metadata_emitter: Callable[[], None] | None = None,
     ) -> None:
-        registers = self._decoded_registers
+        registers = cast(
+            DecodedWeightLdsPhysicalPlan,
+            self.context.state.physical_plan,
+        ).registers
         zero_accumulator = registers.zero_accumulator.first_register
         weight_q = registers.weight_payload.first_register
         c_base = registers.c_fragments.first_register

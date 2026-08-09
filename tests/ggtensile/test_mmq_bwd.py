@@ -152,6 +152,7 @@ def test_q3_k_packed_decoder_uses_wave32_vopd_scale_pairs() -> None:
             schedule_iter_alg=5,
             store_priority_opt=True,
             q3_k_extraction="packed",
+            q3_k_pairing="Full",
         ),
     )
     assert validate_solution(key) == ()
@@ -198,7 +199,12 @@ def test_q6_k_rejects_geometry_with_no_decoder_rows() -> None:
 
 
 def test_lds_row_padding_is_strict_and_quant_aware() -> None:
-    padded = replace(BackwardSolution.pilot(), lds_pad_b=8, lds_swizzle_chunk_b=0)
+    padded = replace(
+        BackwardSolution.pilot(),
+        lds_pad_b=8,
+        lds_swizzle_chunk_b=0,
+        q3_k_pairing="Partial",
+    )
     key = SolutionKey(
         ProblemType.mmq_backward("Q3_K"),
         ProblemSize(2048, 2048, 512),
@@ -381,14 +387,166 @@ def test_writer_strength_reduces_power_of_two_row_strides() -> None:
     )
 
 
-def test_validation_rejects_nonproduction_n() -> None:
-    key = SolutionKey(
+def test_validation_accepts_formula_n_and_rejects_partial_quant_blocks() -> None:
+    compatible = SolutionKey(
         ProblemType.mmq_backward("Q4_K"),
         ProblemSize(128, 1024, 512),
         BackwardSolution.pilot(),
     )
-    assert {reason.rule_id for reason in validate_solution(key)} == {
-        "problem_size.n.production"
+    assert validate_solution(compatible) == ()
+
+    partial = replace(compatible, problem_size=ProblemSize(128, 1000, 512))
+    assert "problem_size.n.quant_block" in {
+        reason.rule_id for reason in validate_solution(partial)
+    }
+
+
+def test_q3_pairing_is_explicit_shape_independent_and_strict() -> None:
+    catalog = load_inventory_case(_BWD_INVENTORY_CASES["Q3_K"])
+    selected = {}
+    for entry in catalog.entries:
+        assert isinstance(entry.solution, BackwardSolution)
+        selected[(entry.problem_size.m, entry.problem_size.k)] = (
+            entry.solution.q3_k_pairing
+        )
+    assert selected == {
+        (2048, 512): "Full",
+        (8192, 512): "Partial",
+        (32768, 512): "Full",
+        (2048, 8192): "Full",
+        (8192, 8192): "Full",
+        (32768, 8192): "Full",
+    }
+
+    full = _selected_solution("Q3_K", ProblemSize(32768, 2048, 512))
+    first = SolutionKey(
+        ProblemType.mmq_backward("Q3_K"), ProblemSize(8192, 2048, 512), full
+    )
+    second = replace(first, problem_size=ProblemSize(32768, 2048, 512))
+    assert validate_solution(first) == validate_solution(second) == ()
+    first_source = BackwardKernelWriterAssembly(first, Toolchain.discover()).source()
+    second_source = BackwardKernelWriterAssembly(second, Toolchain.discover()).source()
+    assert first_source.replace(first.kernel_name, "<KERNEL>") == second_source.replace(
+        second.kernel_name, "<KERNEL>"
+    )
+
+    inactive = replace(full, q3_k_pairing="Inactive")
+    assert "solution.q3.packed.pairing" in {
+        reason.rule_id
+        for reason in validate_solution(replace(first, solution=inactive))
+    }
+    scalar_full = replace(full, q3_k_extraction="scalar", q3_k_pairing="Full")
+    assert "solution.q3.scalar.pairing" in {
+        reason.rule_id
+        for reason in validate_solution(replace(first, solution=scalar_full))
+    }
+    q4_with_q3_policy = SolutionKey(
+        ProblemType.mmq_backward("Q4_K"),
+        ProblemSize(128, 256, 128),
+        replace(BackwardSolution.pilot(), q3_k_pairing="Partial"),
+    )
+    assert "solution.q3.controls.inert" in {
+        reason.rule_id for reason in validate_solution(q4_with_q3_policy)
+    }
+
+
+def test_backward_decoder_capabilities_generalize_compact_geometry_only() -> None:
+    compact = replace(
+        BackwardSolution.pilot(),
+        work_group=(32, 2, 1),
+        matrix_instruction=(16, 16, 16, 1, 1, 1, 4, 2, 1),
+        macro_tile0=32,
+        macro_tile1=64,
+        prefetch_global_read=2,
+        schedule_iter_alg=4,
+        lds_pad_b=8,
+    )
+    shape = ProblemSize(32, 256, 128)
+    for quant_type in ("Q4_K", "Q5_K"):
+        assert (
+            validate_solution(
+                SolutionKey(ProblemType.mmq_backward(quant_type), shape, compact)
+            )
+            == ()
+        )
+
+    padded_depth64 = replace(compact, depth_u=64)
+    for quant_type in ("Q4_K", "Q5_K"):
+        reasons = validate_solution(
+            SolutionKey(ProblemType.mmq_backward(quant_type), shape, padded_depth64)
+        )
+        assert "solution.depthu64.padded.decoder" in {
+            reason.rule_id for reason in reasons
+        }
+
+    q3_full_rows4 = replace(padded_depth64, q3_k_pairing="Full")
+    reasons = validate_solution(
+        SolutionKey(ProblemType.mmq_backward("Q3_K"), shape, q3_full_rows4)
+    )
+    assert "solution.q3.full_pairing.decoder_rows" in {
+        reason.rule_id for reason in reasons
+    }
+    q3_lane_share = replace(compact, q3_k_pairing="Partial", packed_weight_lane_share=2)
+    reasons = validate_solution(
+        SolutionKey(ProblemType.mmq_backward("Q3_K"), shape, q3_lane_share)
+    )
+    assert "solution.decoder.packedweightlaneshare" in {
+        reason.rule_id for reason in reasons
+    }
+
+
+def test_backward_deep_pipeline_geometry_is_formula_derived() -> None:
+    compact = replace(
+        BackwardSolution.pilot(),
+        work_group=(32, 2, 1),
+        matrix_instruction=(16, 16, 16, 1, 1, 1, 4, 2, 1),
+        macro_tile0=32,
+        macro_tile1=64,
+        prefetch_global_read=2,
+        schedule_iter_alg=4,
+        lds_pad_b=8,
+    )
+    compact_key = SolutionKey(
+        ProblemType.mmq_backward("Q4_K"),
+        ProblemSize(32, 256, 128),
+        compact,
+    )
+    assert validate_solution(compact_key) == ()
+
+    too_narrow = replace(
+        compact,
+        matrix_instruction=(16, 16, 16, 1, 1, 1, 2, 2, 1),
+        macro_tile1=32,
+    )
+    assert "solution.scheduleiteralg.geometry" in {
+        reason.rule_id
+        for reason in validate_solution(replace(compact_key, solution=too_narrow))
+    }
+
+    four_wave = replace(
+        compact,
+        work_group=(32, 4, 1),
+        matrix_instruction=(16, 16, 16, 1, 1, 4, 4, 4, 1),
+        macro_tile0=256,
+        macro_tile1=64,
+        lds_pad_b=0,
+        lds_swizzle_chunk_b=8,
+    )
+    four_wave_key = SolutionKey(
+        ProblemType.mmq_backward("Q4_K"),
+        ProblemSize(256, 256, 128),
+        four_wave,
+    )
+    assert validate_solution(four_wave_key) == ()
+
+    over_capacity = replace(
+        four_wave,
+        matrix_instruction=(16, 16, 16, 1, 1, 4, 8, 4, 1),
+        macro_tile1=128,
+    )
+    assert "solution.scheduleiteralg.geometry" in {
+        reason.rule_id
+        for reason in validate_solution(replace(four_wave_key, solution=over_capacity))
     }
 
 
@@ -413,7 +571,10 @@ def test_writer_enables_and_flattens_packed_workitem_xy() -> None:
             SolutionKey(
                 ProblemType.mmq_backward("Q3_K"),
                 ProblemSize(2048, 2048, 512),
-                _selected_solution("Q3_K", ProblemSize(8192, 2048, 512)),
+                replace(
+                    _selected_solution("Q3_K", ProblemSize(8192, 2048, 512)),
+                    q3_k_pairing="Full",
+                ),
             ),
             243,
             5120,
@@ -616,14 +777,16 @@ def test_build_and_inspect_q8_0_depth_u64_compact_geometry(tmp_path: Path) -> No
         solution,
     )
     assert validate_solution(key) == ()
-    q4_reasons = validate_solution(
+    q4_control = validate_solution(
         SolutionKey(
             ProblemType.mmq_backward("Q4_K"),
             ProblemSize(64, 4096, 129280),
             solution,
         )
     )
-    assert any(reason.rule_id == "solution.depthu64.q8_pad8" for reason in q4_reasons)
+    assert {reason.rule_id for reason in q4_control} >= {
+        "solution.depthu64.padded.decoder"
+    }
     toolchain = Toolchain.discover()
     artifact = build_and_inspect(
         key,
@@ -656,12 +819,15 @@ def test_build_and_inspect_q8_0_two_wave_m32_geometry(tmp_path: Path) -> None:
         solution,
     )
     assert validate_solution(key) == ()
-    assert validate_solution(
-        SolutionKey(
-            ProblemType.mmq_backward("Q4_K"),
-            ProblemSize(32, 4096, 129280),
-            solution,
+    assert (
+        validate_solution(
+            SolutionKey(
+                ProblemType.mmq_backward("Q4_K"),
+                ProblemSize(32, 4096, 129280),
+                solution,
+            )
         )
+        == ()
     )
     toolchain = Toolchain.discover()
     artifact = build_and_inspect(

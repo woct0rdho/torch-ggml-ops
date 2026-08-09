@@ -479,7 +479,7 @@ def test_q3_forward_validation_rejects_unimplemented_control_variants() -> None:
     }
 
 
-def test_q3_full_weight_control_is_limited_to_exact_dense_inventory() -> None:
+def test_q3_full_weight_control_accepts_formula_compatible_shapes() -> None:
     solution = ForwardSolution.q3_k_full_weight_tiled_lds()
     supported = (
         ProblemSize(m, n, k)
@@ -490,9 +490,10 @@ def test_q3_full_weight_control_is_limited_to_exact_dense_inventory() -> None:
         validate_solution(_key("Q3_K", size=size, solution=solution)) == ()
         for size in supported
     )
-    rejected = validate_solution(_key("Q3_K", ProblemSize(2048, 1024, 2048), solution))
+    assert validate_solution(_key("Q3_K", ProblemSize(640, 704, 768), solution)) == ()
+    rejected = validate_solution(_key("Q3_K", ProblemSize(641, 704, 768), solution))
     assert {reason.rule_id for reason in rejected} == {
-        "problem_size.q3.full_weight.inventory"
+        "problem_size.m.forward_tile_multiple"
     }
 
 
@@ -646,12 +647,9 @@ def test_forward_writer_emits_q8_0_small_m_tiled_lds_control(
     assert "s_cmp_lt_u32 s10, 32" in source
 
 
-def test_q8_0_small_m_tiled_lds_rejects_non_lm_head_shapes() -> None:
+def test_q8_0_small_m_tiled_lds_accepts_formula_compatible_shapes() -> None:
     solution = ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=32)
-    key = _key("Q8_0", ProblemSize(64, 129280, 4096), solution)
-    assert any(
-        "exact for LM-head" in reason.message for reason in validate_solution(key)
-    )
+    assert validate_solution(_key("Q8_0", ProblemSize(96, 704, 384), solution)) == ()
 
 
 def test_forward_writer_emits_q8_0_kv_compact_m64_tiled_lds_control(

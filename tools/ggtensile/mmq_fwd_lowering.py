@@ -1,7 +1,6 @@
-"""Format-neutral context and protocol for MMQ forward body lowerings."""
+"""Format-neutral context for MMQ forward body lowerings."""
 
 from dataclasses import dataclass
-from typing import Protocol
 
 from .mmq_fwd_spec import DerivedForwardState
 from .model import SolutionKey
@@ -17,9 +16,3 @@ class ForwardLoweringContext:
 
     solution_key: SolutionKey
     state: DerivedForwardState
-
-
-class ForwardBodyLowering(Protocol):
-    """A mechanism lowerer that emits only a kernel body."""
-
-    def body(self) -> str: ...

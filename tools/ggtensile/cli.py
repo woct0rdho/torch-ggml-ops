@@ -49,7 +49,9 @@ def _parser() -> argparse.ArgumentParser:
 
     enumerate_forward = subparsers.add_parser("enumerate-forward")
     enumerate_forward.add_argument(
-        "--quant-type", choices=("Q4_K", "Q5_K", "Q6_K"), required=True
+        "--quant-type",
+        choices=("Q3_K", "Q4_K", "Q5_K", "Q6_K", "Q8_0"),
+        required=True,
     )
     enumerate_forward.add_argument("--m", type=int, required=True)
     enumerate_forward.add_argument("--n", type=int, required=True)

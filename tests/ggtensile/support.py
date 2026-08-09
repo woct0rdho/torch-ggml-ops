@@ -28,12 +28,24 @@ FWD_LOWERING_SOURCE_PATHS = tuple(
 BWD_WRITER_SOURCE_PATH = (
     _REPO_ROOT / "tools/ggtensile/kernel_writer_assembly_mmq_bwd.py"
 )
+BWD_PHYSICAL_SOURCE_PATHS = tuple(
+    sorted((_REPO_ROOT / "tools/ggtensile").glob("mmq_bwd_physical*.py"))
+)
+BWD_LOWERING_SOURCE_PATHS = tuple(
+    sorted((_REPO_ROOT / "tools/ggtensile").glob("mmq_bwd_lowering*.py"))
+)
+BWD_IMPLEMENTATION_SOURCE_PATHS = tuple(
+    path
+    for path in sorted((_REPO_ROOT / "tools/ggtensile").glob("mmq_bwd_*.py"))
+    if path.name != "mmq_bwd_search.py"
+)
 WRITER_SOURCE_PATHS = (
     SHARED_WRITER_SOURCE_PATH,
     FWD_WRITER_SOURCE_PATH,
     FWD_PHYSICAL_SOURCE_PATH,
     *FWD_LOWERING_SOURCE_PATHS,
     BWD_WRITER_SOURCE_PATH,
+    *BWD_IMPLEMENTATION_SOURCE_PATHS,
 )
 WRITER_EXECUTED_LINES = {path: set() for path in WRITER_SOURCE_PATHS}
 _WRITER_LINES_BY_FILENAME = {
@@ -68,11 +80,21 @@ def _writer_body_lines(path: Path) -> set[int]:
     tree = ast.parse(source, filename=str(path))
     executable = _code_lines(compile(source, str(path), "exec"))
     body_lines: set[int] = set()
+    protocol_classes = {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.ClassDef)
+        and any(
+            isinstance(base, ast.Name) and base.id == "Protocol" for base in node.bases
+        )
+    }
     tracked_classes = {
         SHARED_WRITER_SOURCE_PATH: {"Assembly"},
         FWD_WRITER_SOURCE_PATH: {"ForwardKernelWriterAssembly"},
         FWD_PHYSICAL_SOURCE_PATH: {
-            node.name for node in tree.body if isinstance(node, ast.ClassDef)
+            node.name
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name not in protocol_classes
         },
         BWD_WRITER_SOURCE_PATH: {"_Assembly", "BackwardKernelWriterAssembly"},
     }.get(path, set())
@@ -82,6 +104,10 @@ def _writer_body_lines(path: Path) -> set[int]:
             for node in tree.body
             if isinstance(node, ast.ClassDef) and node.name != "ForwardBodyLowering"
         }
+    if path in BWD_IMPLEMENTATION_SOURCE_PATHS:
+        tracked_classes = {
+            node.name for node in tree.body if isinstance(node, ast.ClassDef)
+        }
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             if path not in (
@@ -89,6 +115,7 @@ def _writer_body_lines(path: Path) -> set[int]:
                 FWD_WRITER_SOURCE_PATH,
                 FWD_PHYSICAL_SOURCE_PATH,
                 *FWD_LOWERING_SOURCE_PATHS,
+                *BWD_IMPLEMENTATION_SOURCE_PATHS,
             ):
                 continue
             first_body_line = node.body[0].lineno
@@ -192,7 +219,7 @@ MMQ_BWD_INVENTORY_CASES = (
         "Q3_K",
         6,
         frozenset({2048, 8192, 32768}),
-        4,
+        5,
     ),
     GGTensileInventoryCase(
         "bwd",

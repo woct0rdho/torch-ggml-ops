@@ -17,39 +17,6 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
-class ForwardFormatTraits:
-    """Packed-format and activation-workspace facts fixed by quant type."""
-
-    quant_type: str
-    block_values: int
-    packed_weight_block_bytes: int
-    activation_layout: str
-    activation_block_bytes: int
-    wmma_clamp: bool
-    weight_decode: str
-    scale_arithmetic: str
-    arithmetic_contract: str
-
-    @classmethod
-    def for_quant_type(cls, quant_type: str) -> "ForwardFormatTraits":
-        try:
-            quant_format = QUANT_FORMATS[quant_type]
-        except KeyError:
-            raise ValueError(f"unsupported MMQ forward quant type {quant_type!r}")
-        return cls(
-            quant_type=quant_type,
-            block_values=quant_format.block_values,
-            packed_weight_block_bytes=quant_format.block_bytes,
-            activation_layout=quant_format.activation_layout,
-            activation_block_bytes=quant_format.activation_block_bytes,
-            wmma_clamp=quant_format.wmma_clamp,
-            weight_decode=quant_format.weight_decode,
-            scale_arithmetic=quant_format.scale_arithmetic,
-            arithmetic_contract=quant_format.arithmetic_contract,
-        )
-
-
-@dataclass(frozen=True)
 class PayloadPlaneSpec:
     """One semantic field in a packed 256-value weight block."""
 
@@ -393,7 +360,10 @@ class ForwardProblemContract:
         quant_type: str,
         solution: ForwardSolution,
     ) -> str | None:
-        traits = ForwardFormatTraits.for_quant_type(quant_type)
+        try:
+            traits = QUANT_FORMATS[quant_type]
+        except KeyError:
+            raise ValueError(f"unsupported MMQ forward quant type {quant_type!r}")
         checks = (
             (
                 solution.activation_layout == traits.activation_layout,
@@ -404,7 +374,7 @@ class ForwardProblemContract:
                 "forward activation block bytes do not match quant-format contract",
             ),
             (
-                solution.packed_weight_block_bytes == traits.packed_weight_block_bytes,
+                solution.packed_weight_block_bytes == traits.block_bytes,
                 "forward packed-weight bytes do not match quant-format contract",
             ),
             (
@@ -438,14 +408,17 @@ class ForwardProblemContract:
         quant_type: str,
         solution: ForwardSolution,
     ) -> "ForwardProblemContract":
-        traits = ForwardFormatTraits.for_quant_type(quant_type)
+        try:
+            traits = QUANT_FORMATS[quant_type]
+        except KeyError:
+            raise ValueError(f"unsupported MMQ forward quant type {quant_type!r}")
         rejection = cls.rejection_reason(quant_type, solution)
         if rejection is not None:
             raise ValueError(rejection)
         return cls(
-            quant_type=traits.quant_type,
+            quant_type=quant_type,
             block_values=traits.block_values,
-            packed_weight_block_bytes=traits.packed_weight_block_bytes,
+            packed_weight_block_bytes=traits.block_bytes,
             activation_layout=traits.activation_layout,
             activation_block_bytes=traits.activation_block_bytes,
             kernel_language=solution.kernel_language,
@@ -759,51 +732,6 @@ class SignedInt8SmallMTiledLdsLayout:
 
 
 @dataclass(frozen=True)
-class SignedInt8KvTiledLdsLayout:
-    """Formula-derived compact signed-int8 LDS planes for exact KV M2048."""
-
-    activation_rows: int = 64
-    weight_rows: int = 64
-    activation_row_stride: int = Q8_1_F32_D4_BLOCK_BYTES
-    weight_row_stride: int = 144
-    weight_scale_offset: int = 128
-
-    def __post_init__(self) -> None:
-        if (
-            self.activation_rows,
-            self.weight_rows,
-            self.activation_row_stride,
-            self.weight_row_stride,
-            self.weight_scale_offset,
-        ) != (64, 64, Q8_1_F32_D4_BLOCK_BYTES, 144, 128):
-            raise ValueError("Q8 KV LDS layout has fixed depth-32 dimensions")
-
-    @property
-    def activation_bytes(self) -> int:
-        return self.activation_rows * self.activation_row_stride
-
-    @property
-    def weight_base(self) -> int:
-        return self.activation_bytes
-
-    @property
-    def weight_bytes(self) -> int:
-        return self.weight_rows * self.weight_row_stride
-
-    @property
-    def weight_scale_element_stride(self) -> int:
-        return 2 * self.weight_row_stride
-
-    @property
-    def weight_scale_pair_base_delta(self) -> int:
-        return 4 * self.weight_scale_element_stride
-
-    @property
-    def total_bytes(self) -> int:
-        return self.activation_bytes + self.weight_bytes
-
-
-@dataclass(frozen=True)
 class SignedInt8CompactDepth32TiledLdsLayout:
     """Formula-derived compact signed-int8 LDS planes for depth-32 tiles."""
 
@@ -909,24 +837,6 @@ class ForwardResourceUsage:
             raise ValueError("forward candidate requires private storage or spills")
 
 
-def structured_q6_resource_usage(mi_wave_tile_m: int) -> ForwardResourceUsage:
-    from .mmq_fwd_physical import q6_structured_physical_plan
-
-    return q6_structured_physical_plan(mi_wave_tile_m).resources
-
-
-def packed_3bit_tiled_lds_resource_usage() -> ForwardResourceUsage:
-    from .mmq_fwd_physical import packed_3bit_tiled_lds_physical_plan
-
-    return packed_3bit_tiled_lds_physical_plan().resources
-
-
-def q3_full_weight_tiled_lds_resource_usage() -> ForwardResourceUsage:
-    from .mmq_fwd_physical import q3_full_weight_tiled_lds_physical_plan
-
-    return q3_full_weight_tiled_lds_physical_plan().resources
-
-
 def derive_forward_resource_usage(spec: "ForwardKernelSpec") -> ForwardResourceUsage:
     from .mmq_fwd_physical import derive_forward_physical_plan
 
@@ -1008,6 +918,20 @@ class ForwardMechanismContract:
     weight_decodes: tuple[str, ...]
     scale_arithmetic: str
     arithmetic_contracts: tuple[str, ...]
+    physical_plan: Literal[
+        "PackedScaleMinimumDirect",
+        "DecodedWeightLds",
+        "StructuredQ6",
+        "Packed3BitTiledLds",
+        "Packed3BitFullWeightTiledLds",
+        "SignedInt8Direct",
+        "SignedInt8RegisterTiled",
+        "SignedInt8WaveNTiledLds",
+        "SignedInt8SmallMTiledLds",
+    ]
+    ownership: Literal["WaveM", "WaveN"] = "WaveM"
+    uses_workitem_id: bool = False
+    extended_legacy_matrix: bool = False
 
     def rejection_reason(self, contract: ForwardProblemContract) -> str | None:
         checks = (
@@ -1034,6 +958,8 @@ _PACKED_SCALE_MINIMUM_CONTRACT = ForwardMechanismContract(
     weight_decodes=("DirectNibble", "DirectNibbleHighBit"),
     scale_arithmetic="FP16",
     arithmetic_contracts=("SignedKQuantIntegerWmmaFP16ScaleMinimumCorrection",),
+    physical_plan="DecodedWeightLds",
+    extended_legacy_matrix=True,
 )
 _SIGNED_INT8_CONTRACT = ForwardMechanismContract(
     lowering="SignedInt8",
@@ -1045,6 +971,7 @@ _SIGNED_INT8_CONTRACT = ForwardMechanismContract(
     weight_decodes=("DirectSignedInt8",),
     scale_arithmetic="Int32ScaleF32",
     arithmetic_contracts=("SignedQ8Int8ScaleIntegerWmmaF32Correction",),
+    physical_plan="SignedInt8Direct",
 )
 _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
     {
@@ -1052,6 +979,8 @@ _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
             _PACKED_SCALE_MINIMUM_CONTRACT,
             lowering="PackedScaleMinimumDirect",
             weight_decodes=("DirectNibble",),
+            physical_plan="PackedScaleMinimumDirect",
+            extended_legacy_matrix=False,
         ),
         "DecodedWeightLdsBatch8": _PACKED_SCALE_MINIMUM_CONTRACT,
         "Q6StructuredDecoded": ForwardMechanismContract(
@@ -1064,6 +993,9 @@ _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
             weight_decodes=("DirectQ6Signed",),
             scale_arithmetic="Int32ScaleF32",
             arithmetic_contracts=("SignedQ6Int8ScaleIntegerWmmaF32Correction",),
+            physical_plan="StructuredQ6",
+            uses_workitem_id=True,
+            extended_legacy_matrix=True,
         ),
         "Q3HipTiledLds": ForwardMechanismContract(
             lowering="Packed3BitTiledLds",
@@ -1075,6 +1007,9 @@ _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
             weight_decodes=("DirectQ3Signed",),
             scale_arithmetic="Int32ScaleF32",
             arithmetic_contracts=("SignedQ3Int8ScaleIntegerWmmaF32Correction",),
+            physical_plan="Packed3BitTiledLds",
+            uses_workitem_id=True,
+            extended_legacy_matrix=True,
         ),
         "Q3FullWeightTiledLds": ForwardMechanismContract(
             lowering="Packed3BitFullWeightTiledLds",
@@ -1086,11 +1021,31 @@ _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
             weight_decodes=("DirectQ3Signed",),
             scale_arithmetic="Int32ScaleF32",
             arithmetic_contracts=("SignedQ3Int8ScaleIntegerWmmaF32Correction",),
+            physical_plan="Packed3BitFullWeightTiledLds",
+            uses_workitem_id=True,
+            extended_legacy_matrix=True,
         ),
         "Q8DirectGlobal": _SIGNED_INT8_CONTRACT,
-        "Q8RegisterTiled": _SIGNED_INT8_CONTRACT,
-        "Q8HipTiledLds": _SIGNED_INT8_CONTRACT,
-        "Q8SmallMTiledLds": _SIGNED_INT8_CONTRACT,
+        "Q8RegisterTiled": replace(
+            _SIGNED_INT8_CONTRACT,
+            physical_plan="SignedInt8RegisterTiled",
+            uses_workitem_id=True,
+            extended_legacy_matrix=True,
+        ),
+        "Q8HipTiledLds": replace(
+            _SIGNED_INT8_CONTRACT,
+            physical_plan="SignedInt8WaveNTiledLds",
+            ownership="WaveN",
+            uses_workitem_id=True,
+            extended_legacy_matrix=True,
+        ),
+        "Q8SmallMTiledLds": replace(
+            _SIGNED_INT8_CONTRACT,
+            physical_plan="SignedInt8SmallMTiledLds",
+            ownership="WaveN",
+            uses_workitem_id=True,
+            extended_legacy_matrix=True,
+        ),
     }
 )
 
@@ -1106,13 +1061,17 @@ def forward_mechanism_contract(operand_source: str) -> ForwardMechanismContract:
 
 
 def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | None:
-    structured_q6 = solution.operand_source == "Q6StructuredDecoded"
-    decoded_staged = solution.operand_source == "DecodedWeightLdsBatch8"
-    packed_3bit_tiled_lds = solution.operand_source == "Q3HipTiledLds"
-    full_weight_q3 = solution.operand_source == "Q3FullWeightTiledLds"
-    signed_int8_register_tiled = solution.operand_source == "Q8RegisterTiled"
-    signed_int8_wave_n_tiled_lds = solution.operand_source == "Q8HipTiledLds"
-    signed_int8_small_m_tiled_lds = solution.operand_source == "Q8SmallMTiledLds"
+    try:
+        mechanism = forward_mechanism_contract(solution.operand_source)
+    except ValueError as error:
+        return str(error)
+    structured_q6 = mechanism.lowering == "StructuredQ6"
+    decoded_staged = mechanism.lowering == "DecodedWeightLds"
+    full_weight_q3 = mechanism.lowering == "Packed3BitFullWeightTiledLds"
+    signed_int8_wave_n_tiled_lds = mechanism.physical_plan == "SignedInt8WaveNTiledLds"
+    signed_int8_small_m_tiled_lds = (
+        mechanism.physical_plan == "SignedInt8SmallMTiledLds"
+    )
     serialized_q6_schedule = SemanticSchedulePolicy(
         traversal=solution.q6_output_traversal,
         clustering=solution.q6_stage_clustering,
@@ -1130,15 +1089,7 @@ def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | Non
     elif serialized_q6_schedule != SemanticSchedulePolicy.structured_q6():
         return "Q6 semantic schedule is inactive for this lowering"
     expected_legacy_suffix = (
-        (1, 1, 4, 4, 1)
-        if structured_q6
-        or decoded_staged
-        or packed_3bit_tiled_lds
-        or full_weight_q3
-        or signed_int8_register_tiled
-        or signed_int8_wave_n_tiled_lds
-        or signed_int8_small_m_tiled_lds
-        else (1, 1, 1, 1, 1)
+        (1, 1, 4, 4, 1) if mechanism.extended_legacy_matrix else (1, 1, 1, 1, 1)
     )
     if (
         len(solution.matrix_instruction) != 9
@@ -1157,21 +1108,9 @@ def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | Non
         return "Q8 HIP-shaped LDS control has an unsupported layout"
     if signed_int8_small_m_tiled_lds and solution.lds_address_hoist not in {
         "SmallMTile",
-        "KvCompactTile",
         "CompactDepth32WeightRows",
     }:
         return "Q8 small-M LDS control has an unsupported layout"
-    if (
-        signed_int8_small_m_tiled_lds
-        and solution.lds_address_hoist == "KvCompactTile"
-        and (
-            solution.macro_tile0 != 64
-            or solution.macro_tile1 != 64
-            or solution.depth_u != 32
-            or solution.work_group != (32, 4, 1)
-        )
-    ):
-        return "Q8 KV compact LDS control requires WG32x4, MT64x64, and DepthU 32"
     if solution.lds_address_hoist == "CompactDepth32WeightRows" and (
         solution.depth_u != 32
         or solution.work_group != (32, 4, 1)
@@ -1285,9 +1224,7 @@ def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | Non
         return "forward workgroup must contain a positive whole number of waves"
     wave_count = num_threads // solution.wavefront_size
     mi_wave_group = (
-        (1, wave_count)
-        if signed_int8_wave_n_tiled_lds or signed_int8_small_m_tiled_lds
-        else (wave_count, 1)
+        (1, wave_count) if mechanism.ownership == "WaveN" else (wave_count, 1)
     )
     ownership_divisors = (
         tile_m * mi_wave_group[0],
@@ -1318,14 +1255,11 @@ class ForwardKernelSpec:
 
     @classmethod
     def from_solution(cls, solution: ForwardSolution) -> "ForwardKernelSpec":
-        structured_q6 = solution.operand_source == "Q6StructuredDecoded"
-        decoded_staged = solution.operand_source == "DecodedWeightLdsBatch8"
-        full_weight_q3 = solution.operand_source == "Q3FullWeightTiledLds"
         operand_source = solution.operand_source
-        signed_int8_wave_n_tiled = operand_source in {
-            "Q8HipTiledLds",
-            "Q8SmallMTiledLds",
-        }
+        mechanism = forward_mechanism_contract(operand_source)
+        structured_q6 = mechanism.lowering == "StructuredQ6"
+        decoded_staged = mechanism.lowering == "DecodedWeightLds"
+        full_weight_q3 = mechanism.lowering == "Packed3BitFullWeightTiledLds"
         serialized_q6_schedule = SemanticSchedulePolicy(
             traversal=solution.q6_output_traversal,
             clustering=solution.q6_stage_clustering,
@@ -1340,7 +1274,9 @@ class ForwardKernelSpec:
         tile_m, tile_n, tile_k, blocks = solution.matrix_instruction[:4]
         num_threads = solution.num_threads
         wave_count = num_threads // solution.wavefront_size
-        mi_wave_group = (1, wave_count) if signed_int8_wave_n_tiled else (wave_count, 1)
+        mi_wave_group = (
+            (1, wave_count) if mechanism.ownership == "WaveN" else (wave_count, 1)
+        )
         ownership_divisors = (
             tile_m * mi_wave_group[0],
             tile_n * mi_wave_group[1],
@@ -1423,23 +1359,10 @@ class ForwardKernelSpec:
         if self.resource_limits != ResourceLimits():
             raise ValueError("forward resource limits are a fixed gfx1151 contract")
         source = self.global_memory.operand_source
-        decoded_staged = source == "DecodedWeightLdsBatch8"
-        structured_q6 = source == "Q6StructuredDecoded"
-        packed_3bit_tiled_lds = source == "Q3HipTiledLds"
-        full_weight_q3 = source == "Q3FullWeightTiledLds"
-        signed_int8_register_tiled = source == "Q8RegisterTiled"
-        if source not in {
-            "Global",
-            "DecodedWeightLdsBatch8",
-            "Q6StructuredDecoded",
-            "Q3HipTiledLds",
-            "Q3FullWeightTiledLds",
-            "Q8DirectGlobal",
-            "Q8RegisterTiled",
-            "Q8HipTiledLds",
-            "Q8SmallMTiledLds",
-        }:
-            raise ValueError(f"unsupported forward operand source {source!r}")
+        mechanism = forward_mechanism_contract(source)
+        decoded_staged = mechanism.lowering == "DecodedWeightLds"
+        structured_q6 = mechanism.lowering == "StructuredQ6"
+        full_weight_q3 = mechanism.lowering == "Packed3BitFullWeightTiledLds"
         if structured_q6:
             supported_schedules = SemanticSchedulePolicy.supported_structured_q6()
         else:
@@ -1459,15 +1382,7 @@ class ForwardKernelSpec:
                 "forward epilogue pipeline does not match the lowering family"
             )
         legacy_suffix = (
-            (1, 1, 4, 4, 1)
-            if structured_q6
-            or decoded_staged
-            or packed_3bit_tiled_lds
-            or full_weight_q3
-            or signed_int8_register_tiled
-            or source == "Q8HipTiledLds"
-            or source == "Q8SmallMTiledLds"
-            else (1, 1, 1, 1, 1)
+            (1, 1, 4, 4, 1) if mechanism.extended_legacy_matrix else (1, 1, 1, 1, 1)
         )
         metadata_schedule = "Q3FullTileSharedDecode" if full_weight_q3 else "Serialized"
         epilogue_tiles_ahead = 8
@@ -1684,75 +1599,6 @@ class Q6LdsLayout:
         )
 
 
-Q6SemanticStageKind = Literal[
-    "Setup",
-    "GlobalRead",
-    "Decode",
-    "LocalWrite",
-    "BarrierLocalRead",
-    "Dot",
-    "Refill",
-    "Epilogue",
-]
-
-
-@dataclass(frozen=True)
-class Q6SemanticStage:
-    """One named stage and its explicit dependencies in the Q6 pipeline."""
-
-    kind: Q6SemanticStageKind
-    dependencies: tuple[int, ...]
-    phase: int | None = None
-
-    def __post_init__(self) -> None:
-        if self.kind == "Dot":
-            if self.phase is None or self.phase < 0:
-                raise ValueError("Q6 dot stage requires a nonnegative phase")
-        elif self.phase is not None:
-            raise ValueError("only Q6 dot stages may carry a phase")
-
-
-@dataclass(frozen=True)
-class Q6SemanticPlan:
-    """Dependency-checked first-level stage plan for one Q6 lowering."""
-
-    stages: tuple[Q6SemanticStage, ...]
-
-    @classmethod
-    def from_schedule(cls, schedule: "Q6ForwardSchedule") -> "Q6SemanticPlan":
-        if schedule.semantic_policy.clustering not in {
-            "StageDependencyOrder",
-            "RowBatchedDecodeOrder",
-        }:
-            raise ValueError("unsupported Q6 semantic-stage clustering policy")
-        if len(schedule.dot_register_shifts) != 2:
-            raise ValueError("structured Q6 currently requires exactly two dot phases")
-        stages = (
-            Q6SemanticStage("Setup", ()),
-            Q6SemanticStage("GlobalRead", (0,)),
-            Q6SemanticStage("Decode", (1,)),
-            Q6SemanticStage("LocalWrite", (2,)),
-            Q6SemanticStage("BarrierLocalRead", (3,)),
-            Q6SemanticStage("Dot", (4,), phase=0),
-            Q6SemanticStage("Refill", (5,)),
-            Q6SemanticStage("Dot", (6,), phase=1),
-            Q6SemanticStage("Epilogue", (7,)),
-        )
-        plan = cls(stages)
-        plan.validate()
-        return plan
-
-    def validate(self) -> None:
-        for index, stage in enumerate(self.stages):
-            if any(
-                dependency < 0 or dependency >= index
-                for dependency in stage.dependencies
-            ):
-                raise ValueError(
-                    "Q6 semantic stage dependency must precede its consumer"
-                )
-
-
 @dataclass(frozen=True)
 class Q6DotPhase:
     """One derived K phase in a structured Q6 lowering."""
@@ -1844,7 +1690,9 @@ class Q6ForwardSchedule:
 
     @property
     def resource_usage(self) -> ForwardResourceUsage:
-        return structured_q6_resource_usage(self.mi_wave_tile[0])
+        from .mmq_fwd_physical import q6_structured_physical_plan
+
+        return q6_structured_physical_plan(self.mi_wave_tile[0]).resources
 
     def phase(self, phase: int) -> Q6DotPhase:
         if phase not in range(len(self.dot_register_shifts)):
@@ -2016,10 +1864,6 @@ class DerivedForwardState:
             activation_weight_block_stride_bytes=2 * activation_plane_stride,
             grid=(size.n // macro_tile_n, size.m // macro_tile_m, 1),
         )
-
-    @property
-    def lds_bytes(self) -> int:
-        return self.resources.lds_bytes
 
     @property
     def expected_packed_weight_bytes(self) -> int:

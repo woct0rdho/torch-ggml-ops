@@ -16,6 +16,7 @@ from .mmq_fwd_spec import (
     ForwardKernelSpec,
     Q6ForwardSchedule,
     SemanticSchedulePolicy,
+    forward_mechanism_contract,
     q6_schedule_from_solution,
 )
 from .model import (
@@ -251,9 +252,14 @@ def explain_invalid(
 
 
 def _candidate_quant_type(candidate: ForwardSolution) -> str:
-    if candidate.operand_source == "Q6StructuredDecoded":
+    lowering = forward_mechanism_contract(candidate.operand_source).lowering
+    if lowering == "StructuredQ6":
         return "Q6_K"
-    if candidate.operand_source == "DecodedWeightLdsBatch8":
+    if lowering in ("Packed3BitTiledLds", "Packed3BitFullWeightTiledLds"):
+        return "Q3_K"
+    if lowering == "SignedInt8":
+        return "Q8_0"
+    if lowering == "DecodedWeightLds":
         if candidate.weight_decode == "DirectNibble":
             return "Q4_K"
         if candidate.weight_decode == "DirectNibbleHighBit":
@@ -281,6 +287,12 @@ def candidate_neighbors(
             q6_groups,
         )
         candidates = tuple(q6_solution_with_schedule(seed, item) for item in schedules)
+    elif quant_type in ("Q3_K", "Q8_0"):
+        if knob_groups:
+            raise ValueError(
+                f"{quant_type} exposes complete implemented policies without free knob groups"
+            )
+        candidates = (seed,)
     else:
         unknown = sorted(
             set(knob_groups) - {"InstructionPolicy", "Epilogue", "Metadata"}
@@ -379,8 +391,29 @@ def candidate_domains(
             ),
         )
         knob_groups = ("Metadata", "Epilogue", "InstructionPolicy")
+    elif quant_type == "Q3_K":
+        seeds = (
+            ForwardSolution.q3_k_hip_tiled_lds(),
+            ForwardSolution.q3_k_full_weight_tiled_lds(),
+        )
+        knob_groups = ()
+    elif quant_type == "Q8_0":
+        seeds = (
+            ForwardSolution.q8_0_direct_global(),
+            ForwardSolution.q8_0_register_tiled(),
+            ForwardSolution.q8_0_hip_tiled_lds(),
+            ForwardSolution.q8_0_hip_tiled_lds_depth64(),
+            ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=32),
+            ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=64),
+            ForwardSolution.q8_0_compact_depth32_tiled_lds(macro_tile0=32),
+            ForwardSolution.q8_0_compact_depth32_tiled_lds(macro_tile0=64),
+            ForwardSolution.q8_0_compact_depth32_tiled_lds(macro_tile0=128),
+        )
+        knob_groups = ()
     else:
-        raise ValueError("manual forward domains implement Q4_K, Q5_K, and Q6_K")
+        raise ValueError(
+            "manual forward domains implement Q3_K, Q4_K, Q5_K, Q6_K, and Q8_0"
+        )
     for seed in seeds:
         if explain_invalid(seed, quant_type, shape):
             continue

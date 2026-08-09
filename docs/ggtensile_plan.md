@@ -370,14 +370,14 @@ Global MMQ forward format exhaustion is not complete while any format record or 
 ### Implemented forward architecture
 
 The completed forward-writer refactor established:
-- a 104-line `ForwardKernelWriterAssembly` facade with validation, source envelope, output writing, and closed mechanism dispatch.
+- a thin `ForwardKernelWriterAssembly` facade with validation, source envelope, output writing, and closed mechanism dispatch.
 - strict `ForwardProblemContract`, complete `ForwardKernelSpec`, `ForwardMechanismContract`, `DerivedForwardState`, quant semantics, and formula-derived resource usage.
 - a closed union of concrete physical plans as the sole register, LDS, and resource authority.
 - formula-based divisible-shape capability separated from exact inventories and winners.
 - canonical candidate and exact-pair manifests with linked external search neighborhoods.
 - packed-three-bit, packed scale/minimum direct, decoded-weight LDS, structured-Q6, and signed-int8 lowerer modules.
 - shared `F16D4S4ActivationMetadata`, packed scale/minimum reconstruction, and a source-identical signed-int8 WMMA component at proven semantic boundaries.
-- immutable signed-int8 tiled-LDS register and scale-layout projections at the shared stage, group, and store helper boundary.
+- read-only signed-int8 tiled-LDS register and scale-layout protocols at the shared stage, group, and store helper boundary; concrete physical plans cross that boundary without field-copy adapters.
 - a shared decoded-LDS low-nibble/high-bit pipeline with a distinct high-bit reconstruction leaf.
 - one structured Q6 orchestration with typed setup/read/decode/LDS/dot/refill/epilogue boundaries.
 - 16 semantic Q6 decode atoms with deterministic lifetime-aware register reuse.
@@ -388,17 +388,35 @@ The completed forward-writer refactor established:
 
 The retained residual Q6 setup/read/refill traversal is intentionally mechanism-owned; the completed Q3/Q8 convergence review found no contract-equivalent replacement.
 
+### Implemented backward architecture
+
+The completed bidirectional writer refactor also established:
+- a thin `BackwardKernelWriterAssembly` facade over `DerivedBackwardState`, `BackwardKernelSpec`, and one pure `BackwardPhysicalPlan`.
+- one common BF16-WMMA/pipeline lowerer and one substantial packed-weight reader/decoder component rather than five forwarding writer classes.
+- typed register, decoder, address, LDS, and resource plans as the sole lowering and inspection authority for the 50 selected backward keys.
+- shared Q4/Q5 packed metadata addressing and scale/minimum preparation, with Q5 high-bit reconstruction retained as a distinct leaf.
+- strict serialized Q3 `Inactive`/`Partial`/`Full` pairing policy with no exact-size instruction branch.
+- formula-derived quant-block, tile, decoder-row, workgroup-mapping, WMMA, deep-pipeline geometry, LDS, and physical-capacity admission.
+- typed quant mechanism capabilities for lane sharing, padded DepthU64, decoded-B pipelines, SIA3, and next-packed prefetch.
+- linked bounded decoder, complete-pipeline, and LDS-layout search neighborhoods filtered through normal validation.
+- typed pending-zero VOPD formation at known coordinate sites; ordinary instruction formatting neither parses nor rewrites emitted text.
+- complete structural and executable-line coverage for every current and future `mmq_bwd_*.py` physical/lowering module discovered by convention.
+
 ### Latest qualified verification snapshot
 
-The latest completed forward-refactor checkpoint records:
-- 203 focused forward tests, 306 GGTensile tests, and 391 repository tests passing, with only the 14 existing Python 3.14 PyTorch deprecation warnings.
-- all 516 baseline writer sources and all 447 preserved sources byte-identical, plus three independent 516-source regenerations identical to the baseline and each other.
-- Ruff, formatting, `ty check`, `compileall`, pre-commit, bundle currency, `git diff --check`, and complete writer-line coverage passing.
-- the gfx1151 MMQ bundle current and reproducible at 179 kernels.
+The latest completed bidirectional-refactor checkpoint records:
+- 350 GGTensile tests and 435 repository tests passing, with only the 14 existing Python 3.14 PyTorch deprecation warnings.
+- all 56 selected forward and 50 selected backward artifacts regenerated from two independent final source roots and identical to each other and the Phase 12 checkpoint in source, object, code object, normalized disassembly, symbols, ABI, metadata, resources, waits, barriers, clauses, and VOPD counts.
+- normalized-disassembly digest `5145bdbe0a52ce3220c0b93829764dbbb3e6788ede48fb7f64b373ae063f5dec` for the complete 106-artifact set.
+- explicit Q3 pairing migration evidence for 50 changed backward identities and 56 unchanged forward identities, with normalized source, disassembly, and inspection identity.
+- historical 516/447 source archives retained as pre-refreshed evidence; the 106 exact selected artifacts are the current identity authority.
+- Ruff, formatting, `ty check`, `compileall`, pre-commit, bundle currency, `git diff --check`, structural guards, and complete writer-line coverage passing.
+- the gfx1151 MMQ bundle current at 179 kernels, with its previously qualified reproducible build unchanged by this refactor.
 - Q6 MT64 resources of 158 VGPRs, 27 SGPRs, and 28,928 bytes of LDS.
 - Q6 MT128/M256 resources of 210 VGPRs, 27 SGPRs, and 38,400 bytes of LDS.
 - zero private storage and zero VGPR/SGPR spills for the selected Q6 artifacts.
-- exact HIP/public agreement, finite output, independent-reference qualification, mutation sensitivity, deterministic rebuilds, blind divisible-shape coverage, and warmed confirmation for the selected Q6 paths.
+- exact HIP/public agreement, finite output, independent-reference qualification, mutation sensitivity, deterministic rebuilds, blind formula-compatible coverage, and warmed confirmation for the selected forward paths.
+- six blind backward controls spanning both Q3 pairing policies and Q4_K/Q5_K/Q6_K/Q8_0, each bit-exact to installed HIP and independent dequantized BF16 matmul, deterministic, mutation-sensitive, code-object-v5, and spill/private-storage free.
 
 Exact source identities and normalized executable/code-object checks remain in artifact tests and experiment evidence rather than this generic design document.
 

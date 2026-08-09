@@ -36,115 +36,13 @@ class FullWeightQ3TiledLdsLowering:
         )
         return physical.registers
 
-    def _register(self, role: str) -> int:
-        return getattr(self._registers, role).first_register
-
-    @property
-    def WEIGHT_RAW_BASE(self) -> int:
-        return self._register("weight_metadata")
-
-    @property
-    def WEIGHT_LOW0(self) -> int:
-        return self._register("weight_low_raw")
-
-    @property
-    def WEIGHT_HIGH(self) -> int:
-        return self._register("weight_high_raw")
-
-    @property
-    def WEIGHT_LOW1(self) -> int:
-        return self._register("weight_low1_raw")
-
-    @property
-    def DECODED(self) -> int:
-        return self._register("decoded_payload")
-
-    @property
-    def DECODE_AUX(self) -> int:
-        return self._register("decode_auxiliary")
-
-    @property
-    def DECODE_D(self) -> int:
-        return self._register("decode_d")
-
-    @property
-    def DECODE_SCALE(self) -> int:
-        return self._register("decode_scale")
-
-    @property
-    def WEIGHT_STAGE_ADDRESS(self) -> int:
-        return self._register("weight_stage_address")
-
-    @property
-    def HALF_SHIFT(self) -> int:
-        return self._register("half_shift")
-
-    @property
-    def WEIGHT_LDS_ADDRESS(self) -> int:
-        return self._register("weight_lds_address")
-
-    @property
-    def WEIGHT_SCALE_BASE(self) -> int:
-        return self._register("weight_scale_address")
-
-    @property
-    def TEMPORARY(self) -> int:
-        return self._register("temporary")
-
-    @property
-    def LANE(self) -> int:
-        return self._register("lane")
-
-    @property
-    def WAVE(self) -> int:
-        return self._register("wave")
-
-    @property
-    def ACTIVATION_LDS_ADDRESS(self) -> int:
-        return self._register("activation_lds_address")
-
-    @property
-    def ACTIVATION_READ_ADDRESS(self) -> int:
-        return self._register("activation_read_address")
-
-    @property
-    def WEIGHT_ADDRESS(self) -> int:
-        return self._register("weight_address")
-
-    @property
-    def SUMS(self) -> int:
-        return self._register("sums")
-
-    @property
-    def ACTIVATION_STAGE(self) -> int:
-        return self._register("activation_stage")
-
-    @property
-    def C(self) -> int:
-        return self._register("c")
-
-    @property
-    def WEIGHT_PAYLOAD(self) -> int:
-        return self._register("weight_payload")
-
-    @property
-    def WEIGHT_SCALES(self) -> int:
-        return self._register("weight_scales")
-
-    @property
-    def ACTIVATION_SCALES(self) -> int:
-        return self._register("activation_scale")
-
-    @property
-    def ZERO(self) -> int:
-        return self._register("zero_accumulator")
-
     def body(self) -> str:
         physical = cast(
             Q3FullWeightTiledLdsPhysicalPlan,
             self.context.state.physical_plan,
         )
         layout = physical.layout
+        registers = physical.registers
         state = self.context.state
         asm = Assembly()
         name = self.context.solution_key.kernel_name
@@ -155,60 +53,76 @@ class FullWeightQ3TiledLdsLowering:
         asm.comment("Load pointers for the typed full-weight Q3 tile.")
         emit_pointer_kernarg_loads(asm, self.KERNARG)
         asm.comment("Map each wave to sixteen output-feature rows.")
-        asm.inst(f"v_bfe_u32 v{self.WAVE}, v0, 10, 10")
-        asm.inst(f"v_and_b32 v{self.LANE}, 0x3ff, v0")
+        asm.inst(f"v_bfe_u32 v{registers.wave.first_register}, v0, 10, 10")
+        asm.inst(f"v_and_b32 v{registers.lane.first_register}, 0x3ff, v0")
         asm.comment("Hoist the invariant activation LDS lane base.")
-        asm.inst(f"v_and_b32 v{self.ACTIVATION_READ_ADDRESS}, 15, v{self.LANE}")
         asm.inst(
-            f"v_mul_lo_u32 v{self.ACTIVATION_READ_ADDRESS}, "
-            f"{layout.activation_row_stride}, v{self.ACTIVATION_READ_ADDRESS}"
-        )
-        asm.inst(f"v_and_b32 v{self.TEMPORARY}, 15, v{self.LANE}")
-        asm.inst(f"v_lshlrev_b32 v{self.TEMPORARY + 1}, 4, v{self.WAVE}")
-        asm.inst(
-            f"v_add_nc_u32 v{self.TEMPORARY}, v{self.TEMPORARY + 1}, v{self.TEMPORARY}"
-        )
-        asm.inst(f"v_lshlrev_b32 v{self.TEMPORARY + 1}, 6, s2")
-        asm.inst(
-            f"v_add_nc_u32 v{self.TEMPORARY}, v{self.TEMPORARY + 1}, v{self.TEMPORARY}"
+            f"v_and_b32 v{registers.activation_read_address.first_register}, 15, v{registers.lane.first_register}"
         )
         asm.inst(
-            f"v_mul_lo_u32 v{self.WEIGHT_ADDRESS}, {row_stride}, v{self.TEMPORARY}"
+            f"v_mul_lo_u32 v{registers.activation_read_address.first_register}, "
+            f"{layout.activation_row_stride}, v{registers.activation_read_address.first_register}"
+        )
+        asm.inst(
+            f"v_and_b32 v{registers.temporary.first_register}, 15, v{registers.lane.first_register}"
+        )
+        asm.inst(
+            f"v_lshlrev_b32 v{registers.temporary.first_register + 1}, 4, v{registers.wave.first_register}"
+        )
+        asm.inst(
+            f"v_add_nc_u32 v{registers.temporary.first_register}, v{registers.temporary.first_register + 1}, v{registers.temporary.first_register}"
+        )
+        asm.inst(f"v_lshlrev_b32 v{registers.temporary.first_register + 1}, 6, s2")
+        asm.inst(
+            f"v_add_nc_u32 v{registers.temporary.first_register}, v{registers.temporary.first_register + 1}, v{registers.temporary.first_register}"
+        )
+        asm.inst(
+            f"v_mul_lo_u32 v{registers.weight_address.first_register}, {row_stride}, v{registers.temporary.first_register}"
         )
 
         asm.comment("Build global and LDS addresses for all activation rows.")
-        asm.inst(f"v_lshlrev_b32 v{self.TEMPORARY}, 5, v{self.WAVE}")
-        asm.inst(f"v_add_nc_u32 v{self.TEMPORARY}, v{self.LANE}, v{self.TEMPORARY}")
         asm.inst(
-            f"v_mul_lo_u32 v{self.ACTIVATION_LDS_ADDRESS}, "
-            f"{layout.activation_row_stride}, v{self.TEMPORARY}"
+            f"v_lshlrev_b32 v{registers.temporary.first_register}, 5, v{registers.wave.first_register}"
+        )
+        asm.inst(
+            f"v_add_nc_u32 v{registers.temporary.first_register}, v{registers.lane.first_register}, v{registers.temporary.first_register}"
+        )
+        asm.inst(
+            f"v_mul_lo_u32 v{registers.activation_lds_address.first_register}, "
+            f"{layout.activation_row_stride}, v{registers.temporary.first_register}"
         )
         asm.inst(
             f"s_mul_i32 s{self.ACTIVATION_PLANE_SGPR}, {layout.activation_bytes}, s3"
         )
 
         asm.comment("Build one decoded-weight LDS row per output feature.")
-        asm.inst(f"v_and_b32 v{self.TEMPORARY}, 15, v{self.LANE}")
-        asm.inst(f"v_lshlrev_b32 v{self.TEMPORARY + 1}, 4, v{self.WAVE}")
         asm.inst(
-            f"v_add_nc_u32 v{self.TEMPORARY}, v{self.TEMPORARY + 1}, v{self.TEMPORARY}"
+            f"v_and_b32 v{registers.temporary.first_register}, 15, v{registers.lane.first_register}"
         )
         asm.inst(
-            f"v_mul_lo_u32 v{self.WEIGHT_LDS_ADDRESS}, "
-            f"{layout.weight_row_stride}, v{self.TEMPORARY}"
+            f"v_lshlrev_b32 v{registers.temporary.first_register + 1}, 4, v{registers.wave.first_register}"
         )
         asm.inst(
-            f"v_add_nc_u32 v{self.WEIGHT_LDS_ADDRESS}, {layout.weight_base}, "
-            f"v{self.WEIGHT_LDS_ADDRESS}"
+            f"v_add_nc_u32 v{registers.temporary.first_register}, v{registers.temporary.first_register + 1}, v{registers.temporary.first_register}"
+        )
+        asm.inst(
+            f"v_mul_lo_u32 v{registers.weight_lds_address.first_register}, "
+            f"{layout.weight_row_stride}, v{registers.temporary.first_register}"
+        )
+        asm.inst(
+            f"v_add_nc_u32 v{registers.weight_lds_address.first_register}, {layout.weight_base}, "
+            f"v{registers.weight_lds_address.first_register}"
         )
 
-        for register in range(self.SUMS, self.SUMS + 64):
+        for register in range(
+            registers.sums.first_register, registers.sums.first_register + 64
+        ):
             asm.inst(f"v_mov_b32 v{register}, 0")
         asm.comment("Initialize one persistent zero source for all Q3 WMMAs.")
         for element in range(0, 8, 2):
             asm.inst(
-                f"v_dual_mov_b32 v{self.ZERO + element}, 0 :: "
-                f"v_dual_mov_b32 v{self.ZERO + element + 1}, 0"
+                f"v_dual_mov_b32 v{registers.zero_accumulator.first_register + element}, 0 :: "
+                f"v_dual_mov_b32 v{registers.zero_accumulator.first_register + element + 1}, 0"
             )
         self._emit_weight_prefetch(asm, half=0)
         self._emit_weight_scale_bases(asm, layout)
@@ -245,9 +159,9 @@ class FullWeightQ3TiledLdsLowering:
         asm.inst(f"s_cmp_lt_u32 s{self.LOOP_COUNTER}, {blocks}")
         asm.inst("s_cbranch_scc0 .LForwardQ3KFullWeightEnd")
         asm.inst(
-            f"v_add_nc_u32 v{self.WEIGHT_ADDRESS}, "
+            f"v_add_nc_u32 v{registers.weight_address.first_register}, "
             f"{self.context.state.contract.packed_weight_block_bytes}, "
-            f"v{self.WEIGHT_ADDRESS}"
+            f"v{registers.weight_address.first_register}"
         )
         self._emit_weight_prefetch(asm, half=0)
         asm.inst("s_branch .LForwardQ3KFullWeightBlockLoop")
@@ -261,17 +175,18 @@ class FullWeightQ3TiledLdsLowering:
         asm: Assembly,
         layout: Q3FullWeightTiledLdsLayout,
     ) -> None:
+        registers = self._registers
         asm.comment("Stage 128 contiguous Q8_1 F32_D4 rows into LDS.")
-        base = self.ACTIVATION_STAGE
+        base = registers.activation_stage.first_register
         asm.inst(
-            f"v_add_nc_u32 v{self.TEMPORARY}, s{self.ACTIVATION_PLANE_SGPR}, "
-            f"v{self.ACTIVATION_LDS_ADDRESS}"
+            f"v_add_nc_u32 v{registers.temporary.first_register}, s{self.ACTIVATION_PLANE_SGPR}, "
+            f"v{registers.activation_lds_address.first_register}"
         )
         for chunk in range(layout.activation_row_stride // 16):
             payload = base + 4 * chunk
             asm.inst(
                 f"global_load_b128 v[{payload}:{payload + 3}], "
-                f"v{self.TEMPORARY}, s[6:7] offset:{16 * chunk}"
+                f"v{registers.temporary.first_register}, s[6:7] offset:{16 * chunk}"
             )
 
     def _emit_activation_stores(
@@ -279,39 +194,45 @@ class FullWeightQ3TiledLdsLowering:
         asm: Assembly,
         layout: Q3FullWeightTiledLdsLayout,
     ) -> None:
-        base = self.ACTIVATION_STAGE
+        registers = self._registers
+        base = registers.activation_stage.first_register
         for chunk in range(layout.activation_row_stride // 16):
             payload = base + 4 * chunk
             asm.inst(
-                f"ds_write_b128 v{self.ACTIVATION_LDS_ADDRESS}, "
+                f"ds_write_b128 v{registers.activation_lds_address.first_register}, "
                 f"v[{payload}:{payload + 3}] offset:{16 * chunk}"
             )
 
     def _emit_weight_prefetch(self, asm: Assembly, *, half: int) -> None:
+        registers = self._registers
         if half != 0:
             raise ValueError("full-weight prefetch currently starts at half zero")
         asm.comment("Prefetch Q3_K half 0 raw operands for the next block.")
-        asm.inst(f"v_bfe_u32 v{self.TEMPORARY}, v{self.LANE}, 4, 1")
-        asm.inst(f"v_lshlrev_b32 v{self.TEMPORARY + 1}, 4, v{self.TEMPORARY}")
         asm.inst(
-            f"v_add_nc_u32 v{self.WEIGHT_STAGE_ADDRESS}, "
-            f"v{self.TEMPORARY + 1}, v{self.WEIGHT_ADDRESS}"
+            f"v_bfe_u32 v{registers.temporary.first_register}, v{registers.lane.first_register}, 4, 1"
         )
         asm.inst(
-            f"global_load_b128 v[{self.WEIGHT_LOW0}:{self.WEIGHT_LOW0 + 3}], "
-            f"v{self.WEIGHT_STAGE_ADDRESS}, s[4:5] offset:32"
+            f"v_lshlrev_b32 v{registers.temporary.first_register + 1}, 4, v{registers.temporary.first_register}"
         )
         asm.inst(
-            f"global_load_b128 v[{self.WEIGHT_HIGH}:{self.WEIGHT_HIGH + 3}], "
-            f"v{self.WEIGHT_STAGE_ADDRESS}, s[4:5] offset:0"
+            f"v_add_nc_u32 v{registers.weight_stage_address.first_register}, "
+            f"v{registers.temporary.first_register + 1}, v{registers.weight_address.first_register}"
         )
         asm.inst(
-            f"global_load_b128 v[{self.WEIGHT_RAW_BASE}:{self.WEIGHT_RAW_BASE + 3}], "
-            f"v{self.WEIGHT_ADDRESS}, s[4:5] offset:94"
+            f"global_load_b128 v[{registers.weight_low_raw.first_register}:{registers.weight_low_raw.first_register + 3}], "
+            f"v{registers.weight_stage_address.first_register}, s[4:5] offset:32"
         )
         asm.inst(
-            f"global_load_b128 v[{self.WEIGHT_LOW1}:{self.WEIGHT_LOW1 + 3}], "
-            f"v{self.WEIGHT_STAGE_ADDRESS}, s[4:5] offset:64"
+            f"global_load_b128 v[{registers.weight_high_raw.first_register}:{registers.weight_high_raw.first_register + 3}], "
+            f"v{registers.weight_stage_address.first_register}, s[4:5] offset:0"
+        )
+        asm.inst(
+            f"global_load_b128 v[{registers.weight_metadata.first_register}:{registers.weight_metadata.first_register + 3}], "
+            f"v{registers.weight_address.first_register}, s[4:5] offset:94"
+        )
+        asm.inst(
+            f"global_load_b128 v[{registers.weight_low1_raw.first_register}:{registers.weight_low1_raw.first_register + 3}], "
+            f"v{registers.weight_stage_address.first_register}, s[4:5] offset:64"
         )
 
     def _emit_weight_scale_bases(
@@ -319,27 +240,32 @@ class FullWeightQ3TiledLdsLowering:
         asm: Assembly,
         layout: Q3FullWeightTiledLdsLayout,
     ) -> None:
+        registers = self._registers
         asm.comment(
             "Hoist invariant weight-scale LDS row bases across both halves and all K blocks."
         )
-        asm.inst(f"v_bfe_u32 v{self.TEMPORARY}, v{self.LANE}, 4, 1")
-        asm.inst(f"v_lshlrev_b32 v{self.TEMPORARY + 1}, 4, v{self.WAVE}")
         asm.inst(
-            f"v_add_nc_u32 v{self.TEMPORARY}, v{self.TEMPORARY + 1}, v{self.TEMPORARY}"
+            f"v_bfe_u32 v{registers.temporary.first_register}, v{registers.lane.first_register}, 4, 1"
         )
         asm.inst(
-            f"v_mul_lo_u32 v{self.WEIGHT_SCALE_BASE}, "
-            f"{layout.weight_row_stride}, v{self.TEMPORARY}"
+            f"v_lshlrev_b32 v{registers.temporary.first_register + 1}, 4, v{registers.wave.first_register}"
         )
         asm.inst(
-            f"v_add_nc_u32 v{self.WEIGHT_SCALE_BASE}, {layout.weight_base}, "
-            f"v{self.WEIGHT_SCALE_BASE}"
+            f"v_add_nc_u32 v{registers.temporary.first_register}, v{registers.temporary.first_register + 1}, v{registers.temporary.first_register}"
+        )
+        asm.inst(
+            f"v_mul_lo_u32 v{registers.weight_scale_address.first_register}, "
+            f"{layout.weight_row_stride}, v{registers.temporary.first_register}"
+        )
+        asm.inst(
+            f"v_add_nc_u32 v{registers.weight_scale_address.first_register}, {layout.weight_base}, "
+            f"v{registers.weight_scale_address.first_register}"
         )
         for index in range(1, 4):
             asm.inst(
-                f"v_add_nc_u32 v{self.WEIGHT_SCALE_BASE + index}, "
+                f"v_add_nc_u32 v{registers.weight_scale_address.first_register + index}, "
                 f"{index * 4 * layout.weight_row_stride}, "
-                f"v{self.WEIGHT_SCALE_BASE}"
+                f"v{registers.weight_scale_address.first_register}"
             )
 
     def _emit_weight_decode(
@@ -350,29 +276,40 @@ class FullWeightQ3TiledLdsLowering:
         half: int,
         wait_for_vmem: bool,
     ) -> None:
+        registers = self._registers
         asm.comment(
             f"Decode Q3_K half {half} into signed int8 payloads and FP32 scales."
         )
-        asm.inst(f"v_bfe_u32 v{self.TEMPORARY}, v{self.LANE}, 4, 1")
-        asm.inst(f"v_lshlrev_b32 v{self.TEMPORARY + 1}, 4, v{self.TEMPORARY}")
         asm.inst(
-            f"v_add_nc_u32 v{self.WEIGHT_STAGE_ADDRESS}, "
-            f"v{self.TEMPORARY + 1}, v{self.WEIGHT_ADDRESS}"
+            f"v_bfe_u32 v{registers.temporary.first_register}, v{registers.lane.first_register}, 4, 1"
         )
-        asm.inst(f"v_lshlrev_b32 v{self.HALF_SHIFT}, 3, v{self.TEMPORARY}")
+        asm.inst(
+            f"v_lshlrev_b32 v{registers.temporary.first_register + 1}, 4, v{registers.temporary.first_register}"
+        )
+        asm.inst(
+            f"v_add_nc_u32 v{registers.weight_stage_address.first_register}, "
+            f"v{registers.temporary.first_register + 1}, v{registers.weight_address.first_register}"
+        )
+        asm.inst(
+            f"v_lshlrev_b32 v{registers.half_shift.first_register}, 3, v{registers.temporary.first_register}"
+        )
         if wait_for_vmem:
             asm.inst("s_waitcnt vmcnt(9)")
         asm.inst(
-            f"v_add_nc_u32 v{self.WEIGHT_STAGE_ADDRESS}, "
-            f"v{self.TEMPORARY + 1}, v{self.WEIGHT_LDS_ADDRESS}"
+            f"v_add_nc_u32 v{registers.weight_stage_address.first_register}, "
+            f"v{registers.temporary.first_register + 1}, v{registers.weight_lds_address.first_register}"
         )
         if half:
             asm.inst(
-                f"v_add_nc_u32 v{self.WEIGHT_STAGE_ADDRESS}, "
-                f"{layout.half_payload_stride}, v{self.WEIGHT_STAGE_ADDRESS}"
+                f"v_add_nc_u32 v{registers.weight_stage_address.first_register}, "
+                f"{layout.half_payload_stride}, v{registers.weight_stage_address.first_register}"
             )
-        low_base = self.WEIGHT_LOW0 if half == 0 else self.WEIGHT_LOW1
-        high_base = self.WEIGHT_HIGH
+        low_base = (
+            registers.weight_low_raw.first_register
+            if half == 0
+            else registers.weight_low1_raw.first_register
+        )
+        high_base = registers.weight_high_raw.first_register
         for local_group in range(4):
             # Q3 payload groups are interleaved by two logical groups per lane.
             # The top bit wraps after groups 0 and 2, so derive its position from
@@ -381,43 +318,47 @@ class FullWeightQ3TiledLdsLowering:
             low_shift = 2 * local_group
             high_shift = (logical_group + 6) % 8
             for item in range(4):
-                destination = self.DECODED + item
+                destination = registers.decoded_payload.first_register + item
                 asm.inst(
                     f"v_lshrrev_b32 v{destination}, {low_shift}, v{low_base + item}"
                 )
                 asm.inst(f"v_and_b32 v{destination}, 0x03030303, v{destination}")
                 if high_shift >= 6:
                     asm.inst(
-                        f"v_lshlrev_b32 v{self.DECODE_AUX}, "
+                        f"v_lshlrev_b32 v{registers.decode_auxiliary.first_register}, "
                         f"{8 - high_shift}, v{high_base + item}"
                     )
                 else:
                     asm.inst(
-                        f"v_lshrrev_b32 v{self.DECODE_AUX}, {high_shift}, "
+                        f"v_lshrrev_b32 v{registers.decode_auxiliary.first_register}, {high_shift}, "
                         f"v{high_base + item}"
                     )
                 asm.inst(
-                    f"v_and_or_b32 v{destination}, v{self.DECODE_AUX}, "
+                    f"v_and_or_b32 v{destination}, v{registers.decode_auxiliary.first_register}, "
                     f"0x04040404, v{destination}"
                 )
                 asm.inst(f"v_add_nc_u32 v{destination}, 0x7c7c7c7c, v{destination}")
                 asm.inst(f"v_xor_b32 v{destination}, 0x80808080, v{destination}")
             asm.inst(
-                f"ds_write_b128 v{self.WEIGHT_STAGE_ADDRESS}, "
-                f"v[{self.DECODED}:{self.DECODED + 3}] "
+                f"ds_write_b128 v{registers.weight_stage_address.first_register}, "
+                f"v[{registers.decoded_payload.first_register}:{registers.decoded_payload.first_register + 3}] "
                 f"offset:{32 * local_group}"
             )
 
-        asm.inst(f"v_cvt_f32_f16 v{self.DECODE_D}, v{self.WEIGHT_RAW_BASE + 3}.h")
-        asm.inst(f"v_lshlrev_b32 v{self.TEMPORARY + 1}, 2, v{self.TEMPORARY}")
         asm.inst(
-            f"v_add_nc_u32 v{self.WEIGHT_STAGE_ADDRESS}, "
-            f"v{self.TEMPORARY + 1}, v{self.WEIGHT_LDS_ADDRESS}"
+            f"v_cvt_f32_f16 v{registers.decode_d.first_register}, v{registers.weight_metadata.first_register + 3}.h"
+        )
+        asm.inst(
+            f"v_lshlrev_b32 v{registers.temporary.first_register + 1}, 2, v{registers.temporary.first_register}"
+        )
+        asm.inst(
+            f"v_add_nc_u32 v{registers.weight_stage_address.first_register}, "
+            f"v{registers.temporary.first_register + 1}, v{registers.weight_lds_address.first_register}"
         )
         if half:
             asm.inst(
-                f"v_add_nc_u32 v{self.WEIGHT_STAGE_ADDRESS}, "
-                f"{layout.half_payload_stride}, v{self.WEIGHT_STAGE_ADDRESS}"
+                f"v_add_nc_u32 v{registers.weight_stage_address.first_register}, "
+                f"{layout.half_payload_stride}, v{registers.weight_stage_address.first_register}"
             )
         semantics = self.context.state.semantics
         metadata_load_offset = semantics.payload_plane("scales").byte_offset - 2
@@ -433,37 +374,45 @@ class FullWeightQ3TiledLdsLowering:
             high_word = high_byte // 4
             low_bit = 8 * (low_byte % 4) + low_field.bit_offset
             high_bit = 8 * (high_byte % 4) + high_field.bit_offset
-            asm.inst(f"v_add_nc_u32 v{self.DECODE_AUX}, {low_bit}, v{self.HALF_SHIFT}")
             asm.inst(
-                f"v_lshrrev_b32 v{self.DECODE_SCALE}, v{self.DECODE_AUX}, "
-                f"v{self.WEIGHT_RAW_BASE + low_word}"
+                f"v_add_nc_u32 v{registers.decode_auxiliary.first_register}, {low_bit}, v{registers.half_shift.first_register}"
             )
             asm.inst(
-                f"v_and_b32 v{self.DECODE_SCALE}, "
-                f"{(1 << low_field.bit_count) - 1}, v{self.DECODE_SCALE}"
-            )
-            asm.inst(f"v_add_nc_u32 v{self.DECODE_AUX}, {high_bit}, v{self.HALF_SHIFT}")
-            asm.inst(
-                f"v_lshrrev_b32 v{self.DECODE_AUX}, v{self.DECODE_AUX}, "
-                f"v{self.WEIGHT_RAW_BASE + high_word}"
+                f"v_lshrrev_b32 v{registers.decode_scale.first_register}, v{registers.decode_auxiliary.first_register}, "
+                f"v{registers.weight_metadata.first_register + low_word}"
             )
             asm.inst(
-                f"v_and_b32 v{self.DECODE_AUX}, "
-                f"{(1 << high_field.bit_count) - 1}, v{self.DECODE_AUX}"
+                f"v_and_b32 v{registers.decode_scale.first_register}, "
+                f"{(1 << low_field.bit_count) - 1}, v{registers.decode_scale.first_register}"
             )
             asm.inst(
-                f"v_lshl_or_b32 v{self.DECODE_SCALE}, v{self.DECODE_AUX}, "
-                f"{high_field.destination_shift}, v{self.DECODE_SCALE}"
-            )
-            asm.inst(f"v_sub_nc_u32 v{self.DECODE_SCALE}, v{self.DECODE_SCALE}, 32")
-            asm.inst(f"v_cvt_f32_i32 v{self.DECODE_SCALE}, v{self.DECODE_SCALE}")
-            asm.inst(
-                f"v_mul_f32 v{self.DECODE_SCALE}, v{self.DECODE_D}, "
-                f"v{self.DECODE_SCALE}"
+                f"v_add_nc_u32 v{registers.decode_auxiliary.first_register}, {high_bit}, v{registers.half_shift.first_register}"
             )
             asm.inst(
-                f"ds_write_b32 v{self.WEIGHT_STAGE_ADDRESS}, "
-                f"v{self.DECODE_SCALE} offset:{layout.weight_scale_offset + 8 * local_group}"
+                f"v_lshrrev_b32 v{registers.decode_auxiliary.first_register}, v{registers.decode_auxiliary.first_register}, "
+                f"v{registers.weight_metadata.first_register + high_word}"
+            )
+            asm.inst(
+                f"v_and_b32 v{registers.decode_auxiliary.first_register}, "
+                f"{(1 << high_field.bit_count) - 1}, v{registers.decode_auxiliary.first_register}"
+            )
+            asm.inst(
+                f"v_lshl_or_b32 v{registers.decode_scale.first_register}, v{registers.decode_auxiliary.first_register}, "
+                f"{high_field.destination_shift}, v{registers.decode_scale.first_register}"
+            )
+            asm.inst(
+                f"v_sub_nc_u32 v{registers.decode_scale.first_register}, v{registers.decode_scale.first_register}, 32"
+            )
+            asm.inst(
+                f"v_cvt_f32_i32 v{registers.decode_scale.first_register}, v{registers.decode_scale.first_register}"
+            )
+            asm.inst(
+                f"v_mul_f32 v{registers.decode_scale.first_register}, v{registers.decode_d.first_register}, "
+                f"v{registers.decode_scale.first_register}"
+            )
+            asm.inst(
+                f"ds_write_b32 v{registers.weight_stage_address.first_register}, "
+                f"v{registers.decode_scale.first_register} offset:{layout.weight_scale_offset + 8 * local_group}"
             )
 
     def _emit_compute_half(
@@ -473,6 +422,7 @@ class FullWeightQ3TiledLdsLowering:
         *,
         half: int,
     ) -> None:
+        registers = self._registers
         waits_even = (15, 14, 5, 4, 3, 2, 1, 0)
         waits_odd = (11, 10, 5, 4, 3, 2, 1, 0)
         pair_order = ((0, 3), (1, 2), (4, 7), (5, 6))
@@ -480,46 +430,46 @@ class FullWeightQ3TiledLdsLowering:
             group_spec = self.context.state.semantics.q3_payload_group(group)
             asm.comment(f"Q3_K half group {group}: signed WMMA and FP32 correction.")
             asm.inst(
-                f"ds_read_b128 v[{self.ACTIVATION_STAGE}:{self.ACTIVATION_STAGE + 3}], "
-                f"v{self.ACTIVATION_READ_ADDRESS} "
+                f"ds_read_b128 v[{registers.activation_stage.first_register}:{registers.activation_stage.first_register + 3}], "
+                f"v{registers.activation_read_address.first_register} "
                 f"offset:{group_spec.activation_payload_offset}"
             )
             asm.inst(
-                f"ds_read_b128 v[{self.WEIGHT_PAYLOAD}:{self.WEIGHT_PAYLOAD + 3}], "
-                f"v{self.WEIGHT_LDS_ADDRESS} offset:{layout.half_payload_stride * half + 16 * group}"
+                f"ds_read_b128 v[{registers.weight_payload.first_register}:{registers.weight_payload.first_register + 3}], "
+                f"v{registers.weight_lds_address.first_register} offset:{layout.half_payload_stride * half + 16 * group}"
             )
             asm.inst(
-                f"ds_read_b128 v[{self.ACTIVATION_STAGE + 4}:{self.ACTIVATION_STAGE + 7}], "
-                f"v{self.ACTIVATION_READ_ADDRESS} "
+                f"ds_read_b128 v[{registers.activation_stage.first_register + 4}:{registers.activation_stage.first_register + 7}], "
+                f"v{registers.activation_read_address.first_register} "
                 f"offset:{16 * layout.activation_row_stride + group_spec.activation_payload_offset}"
             )
             weight_offset0 = 32 + 40 * half + group
             weight_offset1 = 200 + 40 * half + group
             for index in range(4):
-                base = self.WEIGHT_SCALE_BASE + index
-                destination = self.WEIGHT_SCALES + 2 * index
+                base = registers.weight_scale_address.first_register + index
+                destination = registers.weight_scales.first_register + 2 * index
                 asm.inst(
                     f"ds_read2_b32 v[{destination}:{destination + 1}], v{base} "
                     f"offset0:{weight_offset0} offset1:{weight_offset1}"
                 )
             if group % 2 == 0:
                 asm.inst(
-                    f"v_add_nc_u32 v{self.TEMPORARY}, {4 * (group // 2)}, "
-                    f"v{self.ACTIVATION_READ_ADDRESS}"
+                    f"v_add_nc_u32 v{registers.temporary.first_register}, {4 * (group // 2)}, "
+                    f"v{registers.activation_read_address.first_register}"
                 )
                 for index, (offset0, offset1) in enumerate(
                     ((0, 9), (18, 27), (36, 45), (54, 63))
                 ):
-                    destination = self.ACTIVATION_SCALES + 2 * index
+                    destination = registers.activation_scale.first_register + 2 * index
                     asm.inst(
                         f"ds_read2st64_b32 v[{destination}:{destination + 1}], "
-                        f"v{self.TEMPORARY} offset0:{offset0} offset1:{offset1}"
+                        f"v{registers.temporary.first_register} offset0:{offset0} offset1:{offset1}"
                     )
             for m_index in range(2, 8):
-                payload = self.ACTIVATION_STAGE + 4 * m_index
+                payload = registers.activation_stage.first_register + 4 * m_index
                 asm.inst(
                     f"ds_read_b128 v[{payload}:{payload + 3}], "
-                    f"v{self.ACTIVATION_READ_ADDRESS} "
+                    f"v{registers.activation_read_address.first_register} "
                     f"offset:{16 * m_index * layout.activation_row_stride + group_spec.activation_payload_offset}"
                 )
             for wait, m_index in zip(
@@ -529,10 +479,10 @@ class FullWeightQ3TiledLdsLowering:
                 asm.inst(f"s_waitcnt lgkmcnt({wait})")
                 emit_signed_i8_wmma(
                     asm,
-                    destination=self.C + 8 * m_index,
-                    weight=self.WEIGHT_PAYLOAD,
-                    activation=self.ACTIVATION_STAGE + 4 * m_index,
-                    accumulator=self.ZERO,
+                    destination=registers.c.first_register + 8 * m_index,
+                    weight=registers.weight_payload.first_register,
+                    activation=registers.activation_stage.first_register + 4 * m_index,
+                    accumulator=registers.zero_accumulator.first_register,
                     clamp=False,
                 )
             for first, second in pair_order:
@@ -544,68 +494,80 @@ class FullWeightQ3TiledLdsLowering:
         first: int,
         second: int,
     ) -> None:
+        registers = self._registers
         for fragment in (first, second):
-            base = self.C + 8 * fragment
+            base = registers.c.first_register + 8 * fragment
             for element in range(8):
                 asm.inst(f"v_cvt_f32_i32 v{base + element}, v{base + element}")
             for element in range(0, 8, 2):
                 asm.inst(
                     f"v_dual_mul_f32 v{base + element}, "
-                    f"v{self.WEIGHT_SCALES + element}, v{base + element} :: "
+                    f"v{registers.weight_scales.first_register + element}, v{base + element} :: "
                     f"v_dual_mul_f32 v{base + element + 1}, "
-                    f"v{self.WEIGHT_SCALES + element + 1}, "
+                    f"v{registers.weight_scales.first_register + element + 1}, "
                     f"v{base + element + 1}"
                 )
-        first_sum = self.SUMS + 8 * first
-        second_sum = self.SUMS + 8 * second
-        first_scale = self.ACTIVATION_SCALES + first
-        second_scale = self.ACTIVATION_SCALES + second
-        second_base = self.C + 8 * second
+        first_sum = registers.sums.first_register + 8 * first
+        second_sum = registers.sums.first_register + 8 * second
+        first_scale = registers.activation_scale.first_register + first
+        second_scale = registers.activation_scale.first_register + second
+        second_base = registers.c.first_register + 8 * second
         for element in range(8):
             asm.inst(
                 f"v_dual_fmac_f32 v{first_sum + element}, v{first_scale}, "
-                f"v{self.C + 8 * first + element} :: "
+                f"v{registers.c.first_register + 8 * first + element} :: "
                 f"v_dual_fmac_f32 v{second_sum + (element ^ 3)}, v{second_scale}, "
                 f"v{second_base + (element ^ 3)}"
             )
 
     def _emit_store(self, asm: Assembly) -> None:
+        registers = self._registers
         size = self.context.state.problem_size
         asm.comment("Store the Q3 wave-N fragments as row-major BF16.")
-        asm.inst(f"v_and_b32 v{self.TEMPORARY}, 15, v{self.LANE}")
-        asm.inst(f"v_lshlrev_b32 v{self.TEMPORARY + 1}, 7, s3")
         asm.inst(
-            f"v_add_nc_u32 v{self.TEMPORARY}, v{self.TEMPORARY + 1}, v{self.TEMPORARY}"
+            f"v_and_b32 v{registers.temporary.first_register}, 15, v{registers.lane.first_register}"
+        )
+        asm.inst(f"v_lshlrev_b32 v{registers.temporary.first_register + 1}, 7, s3")
+        asm.inst(
+            f"v_add_nc_u32 v{registers.temporary.first_register}, v{registers.temporary.first_register + 1}, v{registers.temporary.first_register}"
         )
         asm.inst(
-            f"v_mul_lo_u32 v{self.ACTIVATION_STAGE}, {2 * size.n}, v{self.TEMPORARY}"
+            f"v_mul_lo_u32 v{registers.output_address.first_register}, {2 * size.n}, v{registers.temporary.first_register}"
         )
-        asm.inst(f"v_bfe_u32 v{self.TEMPORARY}, v{self.LANE}, 4, 1")
-        asm.inst(f"v_lshlrev_b32 v{self.TEMPORARY + 1}, 4, v{self.WAVE}")
         asm.inst(
-            f"v_add_nc_u32 v{self.TEMPORARY}, v{self.TEMPORARY + 1}, v{self.TEMPORARY}"
+            f"v_bfe_u32 v{registers.temporary.first_register}, v{registers.lane.first_register}, 4, 1"
         )
-        asm.inst(f"v_lshlrev_b32 v{self.TEMPORARY + 1}, 6, s2")
         asm.inst(
-            f"v_add_nc_u32 v{self.TEMPORARY}, v{self.TEMPORARY + 1}, v{self.TEMPORARY}"
+            f"v_lshlrev_b32 v{registers.temporary.first_register + 1}, 4, v{registers.wave.first_register}"
         )
-        asm.inst(f"v_lshlrev_b32 v{self.TEMPORARY}, 1, v{self.TEMPORARY}")
         asm.inst(
-            f"v_add_nc_u32 v{self.ACTIVATION_STAGE}, v{self.TEMPORARY}, "
-            f"v{self.ACTIVATION_STAGE}"
+            f"v_add_nc_u32 v{registers.temporary.first_register}, v{registers.temporary.first_register + 1}, v{registers.temporary.first_register}"
+        )
+        asm.inst(f"v_lshlrev_b32 v{registers.temporary.first_register + 1}, 6, s2")
+        asm.inst(
+            f"v_add_nc_u32 v{registers.temporary.first_register}, v{registers.temporary.first_register + 1}, v{registers.temporary.first_register}"
+        )
+        asm.inst(
+            f"v_lshlrev_b32 v{registers.temporary.first_register}, 1, v{registers.temporary.first_register}"
+        )
+        asm.inst(
+            f"v_add_nc_u32 v{registers.output_address.first_register}, v{registers.temporary.first_register}, "
+            f"v{registers.output_address.first_register}"
         )
         for m_index in range(8):
-            fragment = self.SUMS + 8 * m_index
+            fragment = registers.sums.first_register + 8 * m_index
             for element in range(8):
-                emit_bf16_rne(asm, fragment + element, self.TEMPORARY)
+                emit_bf16_rne(
+                    asm, fragment + element, registers.temporary.first_register
+                )
             asm.inst("s_clause 7")
             for element in range(8):
                 asm.inst(
-                    f"global_store_d16_hi_b16 v{self.ACTIVATION_STAGE}, "
+                    f"global_store_d16_hi_b16 v{registers.output_address.first_register}, "
                     f"v{fragment + element}, s[8:9] offset:{4 * element}"
                 )
             if m_index != 7:
                 asm.inst(
-                    f"v_add_nc_u32 v{self.ACTIVATION_STAGE}, {32 * size.n}, "
-                    f"v{self.ACTIVATION_STAGE}"
+                    f"v_add_nc_u32 v{registers.output_address.first_register}, {32 * size.n}, "
+                    f"v{registers.output_address.first_register}"
                 )

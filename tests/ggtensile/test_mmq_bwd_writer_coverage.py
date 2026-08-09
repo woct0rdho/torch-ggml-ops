@@ -1,10 +1,11 @@
 """Targeted branch and complete executable-line coverage for the backward writer."""
 
-from dataclasses import replace
+from dataclasses import asdict, fields, replace
 
 import pytest
 
 from tests.ggtensile.support import (
+    BWD_IMPLEMENTATION_SOURCE_PATHS,
     BWD_WRITER_SOURCE_PATH,
     MMQ_BWD_INVENTORY_CASE_IDS,
     MMQ_BWD_INVENTORY_CASES,
@@ -18,7 +19,16 @@ from tools.ggtensile.kernel_writer_assembly_mmq_bwd import (
     BackwardDiagnosticMode,
     BackwardKernelWriterAssembly,
     BackwardKernelWriterError,
-    _Assembly,
+)
+from tools.ggtensile.mmq_bwd_emission import _Assembly
+from tools.ggtensile.mmq_bwd_physical import (
+    _FirstFitRegisters,
+    derive_backward_physical_plan,
+)
+from tools.ggtensile.mmq_bwd_spec import (
+    BackwardKernelSpec,
+    DerivedBackwardState,
+    backward_mechanism_contract,
 )
 from tools.ggtensile.model import (
     BackwardSolution,
@@ -155,9 +165,10 @@ def _targeted_writer_keys() -> tuple[SolutionKey, ...]:
                 schedule_iter_alg=4,
                 prefetch_global_read=2,
                 lds_swizzle_chunk_b=8,
+                q3_k_pairing="Partial",
             ),
         ),
-        _key("Q3_K", (128, 2048, 8192), pilot),
+        _key("Q3_K", (128, 2048, 8192), replace(pilot, q3_k_pairing="Full")),
         _key(
             "Q4_K",
             (128, 2048, 512),
@@ -240,8 +251,14 @@ def test_writer_emits_repaired_q6_lane_share_and_depth64_layouts() -> None:
     depth64_key = _targeted_writer_keys()[10]
     writer = BackwardKernelWriterAssembly(depth64_key, Toolchain.discover())
     row_stride = 2 * depth64_key.solution.depth_u
-    assert writer._decoded_lds_store_location(0, 1, 32)[1] == 64
-    assert writer._decoded_lds_store_location(2, 1, 32)[1] == 2 * row_stride + 64
+    plan = writer.physical
+    assert (
+        plan.lds.decoded_store_location(plan.registers, plan.address, 0, 1, 32)[1] == 64
+    )
+    assert (
+        plan.lds.decoded_store_location(plan.registers, plan.address, 2, 1, 32)[1]
+        == 2 * row_stride + 64
+    )
 
 
 def test_writer_emits_repaired_q5_sia3_and_depth64_pipeline_state() -> None:
@@ -334,7 +351,97 @@ def test_writer_rejects_forward_solution_schema(
     monkeypatch.setattr(bwd_writer_module, "validate_solution", lambda _: ())
     with pytest.raises(BackwardKernelWriterError, match="requires BackwardSolution"):
         BackwardKernelWriterAssembly(key, Toolchain.discover())
+    with pytest.raises(TypeError, match="requires BackwardSolution"):
+        DerivedBackwardState.from_solution_key(key)
+
+
+def test_physical_plan_covers_allocator_and_periodic_lds_padding() -> None:
+    with pytest.raises(ValueError, match="unknown backward quant mechanism"):
+        backward_mechanism_contract("Q2_K")
+
+    allocator = _FirstFitRegisters(0, 0)
+    assert allocator.allocate(1) == 0
+    with pytest.raises(ValueError, match="cannot allocate"):
+        allocator.allocate(1)
+
+    key = _targeted_writer_keys()[0]
+    assert isinstance(key.solution, BackwardSolution)
+    solution = replace(
+        key.solution,
+        lds_pad_b=1,
+        lds_block_size_per_pad_b=128,
+    )
+    padded_key = replace(key, solution=solution)
+    plan = derive_backward_physical_plan(
+        DerivedBackwardState.from_solution_key(padded_key)
+    )
+    bytes_unpadded = 2 * solution.macro_tile1 * solution.depth_u
+    single_buffer = bytes_unpadded + 2 * (bytes_unpadded // 128)
+    expected = single_buffer * (2 if solution.one_lds_buffer == 0 else 1)
+    assert plan.resources.lds_num_bytes == expected
+
+
+def test_backward_solution_fields_project_into_kernel_spec_or_reject() -> None:
+    baseline = BackwardSolution.pilot()
+    alternatives: dict[str, object] = {
+        "kernel_language": "HIP",
+        "isa": (11, 5, 0),
+        "wavefront_size": 64,
+        "work_group": (32, 2, 1),
+        "matrix_instruction": (16, 16, 16, 1, 1, 1, 4, 2, 1),
+        "macro_tile0": 32,
+        "macro_tile1": 64,
+        "depth_u": 64,
+        "global_read_vector_width_a": 8,
+        "global_read_vector_width_b": 8,
+        "local_read_vector_width": 8,
+        "prefetch_global_read": 2,
+        "prefetch_local_read": 2,
+        "one_lds_buffer": 0,
+        "schedule_iter_alg": 3,
+        "store_priority_opt": False,
+        "num_elements_per_batch_store": 4,
+        "store_vector_width": 2,
+        "work_group_mapping": 2,
+        "transpose_lds": 1,
+        "lds_pad_b": 8,
+        "lds_block_size_per_pad_b": 128,
+        "lds_swizzle_chunk_b": 8,
+        "decoder_width": 8,
+        "prefetch_packed_weight": False,
+        "prefetch_packed_weight_next": True,
+        "packed_weight_lane_share": 2,
+        "q3_k_extraction": "scalar",
+        "q3_k_pairing": "Partial",
+        "q5_k_extraction": "scalar",
+        "q5_k_nibble_shift_hoist": True,
+        "q5_k_metadata_vector_load": True,
+        "q6_k_extraction": "scalar",
+        "q8_0_extraction": "scalar",
+    }
+    assert set(alternatives) == {field.name for field in fields(BackwardSolution)}
+
+    baseline_spec = asdict(BackwardKernelSpec.from_solution(baseline))
+    for field, value in alternatives.items():
+        candidate = replace(baseline, **{field: value})
+        projection = asdict(BackwardKernelSpec.from_solution(candidate))
+        if field == "kernel_language":
+            assert projection == baseline_spec
+            reasons = validate_solution(
+                SolutionKey(
+                    ProblemType.mmq_backward("Q4_K"),
+                    ProblemSize(128, 256, 128),
+                    candidate,
+                )
+            )
+            assert "solution.kernellanguage.unimplemented" in {
+                reason.rule_id for reason in reasons
+            }
+        else:
+            assert projection != baseline_spec, field
 
 
 def test_writer_methods_have_complete_line_coverage() -> None:
+    for source_path in BWD_IMPLEMENTATION_SOURCE_PATHS:
+        assert_writer_methods_have_complete_line_coverage(source_path)
     assert_writer_methods_have_complete_line_coverage(BWD_WRITER_SOURCE_PATH)

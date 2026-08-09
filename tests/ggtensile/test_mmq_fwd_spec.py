@@ -3,10 +3,10 @@ from typing import Any, cast
 
 import pytest
 
+from tools.ggtensile import mmq_fwd_lowering_q6 as q6_lowering_module
 from tools.ggtensile.mmq_fwd_spec import (
     DerivedForwardState,
     F16D4S4ActivationMetadata,
-    ForwardFormatTraits,
     ForwardKernelCandidate,
     ForwardKernelSpec,
     ForwardProblemContract,
@@ -14,13 +14,10 @@ from tools.ggtensile.mmq_fwd_spec import (
     Packed3BitTiledLdsLayout,
     Q3FullWeightTiledLdsLayout,
     Q6LdsLayout,
-    Q6SemanticPlan,
-    Q6SemanticStage,
     QuantForwardSemantics,
     ResourceLimits,
     SemanticSchedulePolicy,
     SignedInt8CompactDepth32TiledLdsLayout,
-    SignedInt8KvTiledLdsLayout,
     SignedInt8SmallMTiledLdsLayout,
     derive_forward_resource_usage,
     forward_kernel_spec_rejection_reason,
@@ -35,6 +32,7 @@ from tools.ggtensile.model import (
     ProblemType,
     SolutionKey,
 )
+from tools.ggtensile.quant_formats import QUANT_FORMATS
 
 
 def _key(
@@ -55,12 +53,12 @@ def _key(
         ("Q8_0", "F32_D4", 144),
     ),
 )
-def test_forward_format_traits_are_fixed_contracts(
+def test_forward_quant_formats_are_fixed_contracts(
     quant_type: str,
     layout: str,
     block_bytes: int,
 ) -> None:
-    traits = ForwardFormatTraits.for_quant_type(quant_type)
+    traits = QUANT_FORMATS[quant_type]
     assert traits.activation_layout == layout
     assert traits.activation_block_bytes == block_bytes
     assert traits.block_values == (32 if quant_type == "Q8_0" else 256)
@@ -85,7 +83,15 @@ def test_forward_mechanism_contracts_are_data_driven() -> None:
     assert decoded.weight_decodes == ("DirectNibble", "DirectNibbleHighBit")
     assert direct.lowering == "PackedScaleMinimumDirect"
     assert direct.weight_decodes == ("DirectNibble",)
-    assert signed_int8 == forward_mechanism_contract("Q8HipTiledLds")
+    signed_int8_lds = forward_mechanism_contract("Q8HipTiledLds")
+    assert signed_int8_lds.activation_layout == signed_int8.activation_layout
+    assert signed_int8_lds.weight_decodes == signed_int8.weight_decodes
+    assert signed_int8.physical_plan == "SignedInt8Direct"
+    assert signed_int8.ownership == "WaveM"
+    assert not signed_int8.uses_workitem_id
+    assert signed_int8_lds.physical_plan == "SignedInt8WaveNTiledLds"
+    assert signed_int8_lds.ownership == "WaveN"
+    assert signed_int8_lds.uses_workitem_id
     assert signed_int8.weight_block_values == 32
     assert signed_int8.reduction_values == 128
     with pytest.raises(ValueError, match="unsupported forward operand source"):
@@ -179,7 +185,7 @@ def test_forward_derived_state_owns_shape_formulas() -> None:
     assert state.mi_wave_tile == (1, 4)
     assert state.accumulator_count == 32
     assert state.k_phases_per_iteration == 2
-    assert state.lds_bytes == 28_928
+    assert state.resources.lds_bytes == 28_928
     assert state.blocks_per_weight_row == 8
     assert state.activation_blocks_per_row == 16
     assert state.packed_weight_row_bytes == 1680
@@ -358,17 +364,6 @@ def test_q8_small_m_layout_derives_exact_lds_planes() -> None:
         SignedInt8SmallMTiledLdsLayout(128)
 
 
-def test_q8_kv_layout_derives_compact_lds_planes() -> None:
-    layout = SignedInt8KvTiledLdsLayout()
-    assert layout.activation_bytes == layout.weight_base == 9_216
-    assert layout.weight_row_stride == 144
-    assert layout.weight_scale_offset == 128
-    assert layout.weight_scale_element_stride == 288
-    assert layout.weight_scale_pair_base_delta == 1_152
-    assert layout.weight_bytes == 9_216
-    assert layout.total_bytes == 18_432
-
-
 def test_q8_compact_depth32_layout_derives_wave_n_lds_planes() -> None:
     layout = SignedInt8CompactDepth32TiledLdsLayout(128)
     assert layout.activation_bytes == layout.weight_base == 18_432
@@ -376,6 +371,19 @@ def test_q8_compact_depth32_layout_derives_wave_n_lds_planes() -> None:
     assert layout.weight_scale_element_stride == 288
     assert layout.weight_scale_pair_base_delta == 1_152
     assert layout.total_bytes == 27_648
+    m64 = SignedInt8CompactDepth32TiledLdsLayout(64)
+    assert m64.activation_bytes == m64.weight_base == 9_216
+    assert m64.weight_bytes == 9_216
+    assert m64.total_bytes == 18_432
+
+
+def test_q8_kv_factory_uses_the_canonical_compact_m64_identity() -> None:
+    assert ForwardSolution.q8_0_kv_tiled_lds() == (
+        ForwardSolution.q8_0_compact_depth32_tiled_lds(macro_tile0=64)
+    )
+    assert ForwardSolution.q8_0_kv_tiled_lds().lds_address_hoist == (
+        "CompactDepth32WeightRows"
+    )
 
 
 def test_q6_lds_layout_derives_selected_plane_offsets() -> None:
@@ -577,31 +585,15 @@ def test_forward_kernel_spec_rejects_inactive_legacy_fields() -> None:
         ForwardKernelSpec.from_solution(replace(direct, epilogue_priority=1))
 
 
-def test_q6_semantic_plan_has_explicit_ordered_dependencies() -> None:
+def test_q6_schedule_requires_two_explicit_dot_phases() -> None:
     schedule = q6_schedule_from_solution(
         ForwardSolution.q6_k_structured_decoded(macro_tile0=128)
     )
-    plan = Q6SemanticPlan.from_schedule(schedule)
-    assert tuple(stage.kind for stage in plan.stages) == (
-        "Setup",
-        "GlobalRead",
-        "Decode",
-        "LocalWrite",
-        "BarrierLocalRead",
-        "Dot",
-        "Refill",
-        "Dot",
-        "Epilogue",
-    )
-    assert tuple(stage.phase for stage in plan.stages if stage.kind == "Dot") == (0, 1)
-    with pytest.raises(ValueError, match="must precede"):
-        Q6SemanticPlan((Q6SemanticStage("Setup", (0,)),)).validate()
-    with pytest.raises(ValueError, match="requires a nonnegative phase"):
-        Q6SemanticStage("Dot", ())
-    with pytest.raises(ValueError, match="only Q6 dot stages"):
-        Q6SemanticStage("Setup", (), phase=0)
+    assert schedule.dot_register_shifts == (0, 1)
     with pytest.raises(ValueError, match="exactly two dot phases"):
-        Q6SemanticPlan.from_schedule(replace(schedule, dot_register_shifts=(0,)))
+        q6_lowering_module._emit_q6_scheduled_body(
+            replace(schedule, dot_register_shifts=(0,))
+        )
 
 
 def test_q6_schedule_is_derived_from_the_canonical_kernel_spec() -> None:

@@ -6,6 +6,19 @@ from typing import Any
 
 import yaml
 
+from .mmq_bwd_physical import derive_backward_physical_plan
+from .mmq_bwd_spec import DerivedBackwardState
+from .mmq_fwd_physical import (
+    DecodedWeightLdsPhysicalPlan,
+    Packed3BitTiledLdsPhysicalPlan,
+    Q3FullWeightTiledLdsPhysicalPlan,
+    Q6StructuredPhysicalPlan,
+    SignedInt8DirectPhysicalPlan,
+    SignedInt8RegisterTiledPhysicalPlan,
+    SignedInt8SmallMTiledLdsPhysicalPlan,
+    SignedInt8WaveNTiledLdsPhysicalPlan,
+    derive_forward_physical_plan,
+)
 from .mmq_fwd_spec import ForwardKernelSpec, derive_forward_resource_usage
 from .model import ForwardSolution, SolutionKey
 from .toolchain import Toolchain
@@ -151,21 +164,27 @@ def inspect_artifact(
     expected_wmmas = expected_wmma_count
     if expected_wmmas is None:
         if isinstance(solution, ForwardSolution):
+            physical = derive_forward_physical_plan(
+                ForwardKernelSpec.from_solution(solution)
+            )
             expected_wmmas = (
                 solution.macro_tile0 // 8
-                if solution.operand_source == "Q6StructuredDecoded"
+                if isinstance(physical, Q6StructuredPhysicalPlan)
                 else 128
-                if solution.operand_source in {"Q3HipTiledLds", "Q3FullWeightTiledLds"}
+                if isinstance(
+                    physical,
+                    (Packed3BitTiledLdsPhysicalPlan, Q3FullWeightTiledLdsPhysicalPlan),
+                )
                 else 32
-                if solution.operand_source == "DecodedWeightLdsBatch8"
+                if isinstance(physical, DecodedWeightLdsPhysicalPlan)
                 else 8
-                if solution.operand_source == "Q8DirectGlobal"
+                if isinstance(physical, SignedInt8DirectPhysicalPlan)
                 else 32
-                if solution.operand_source == "Q8RegisterTiled"
+                if isinstance(physical, SignedInt8RegisterTiledPhysicalPlan)
                 else 2 * solution.depth_u
-                if solution.operand_source == "Q8HipTiledLds"
+                if isinstance(physical, SignedInt8WaveNTiledLdsPhysicalPlan)
                 else solution.macro_tile0 // 2
-                if solution.operand_source == "Q8SmallMTiledLds"
+                if isinstance(physical, SignedInt8SmallMTiledLdsPhysicalPlan)
                 else 16
             )
         else:
@@ -187,19 +206,24 @@ def inspect_artifact(
     expected_barriers = expected_barrier_count
     if expected_barriers is None:
         if isinstance(solution, ForwardSolution):
+            physical = derive_forward_physical_plan(
+                ForwardKernelSpec.from_solution(solution)
+            )
             expected_barriers = (
                 4
-                if solution.operand_source
-                in (
-                    "Q6StructuredDecoded",
-                    "DecodedWeightLdsBatch8",
-                    "Q3HipTiledLds",
-                    "Q3FullWeightTiledLds",
+                if isinstance(
+                    physical,
+                    (
+                        Q6StructuredPhysicalPlan,
+                        DecodedWeightLdsPhysicalPlan,
+                        Packed3BitTiledLdsPhysicalPlan,
+                        Q3FullWeightTiledLdsPhysicalPlan,
+                    ),
                 )
                 else 2 * solution.depth_u // 32
-                if solution.operand_source == "Q8HipTiledLds"
+                if isinstance(physical, SignedInt8WaveNTiledLdsPhysicalPlan)
                 else 2
-                if solution.operand_source == "Q8SmallMTiledLds"
+                if isinstance(physical, SignedInt8SmallMTiledLdsPhysicalPlan)
                 else 0
             )
         elif solution.one_lds_buffer == 0:
@@ -296,83 +320,17 @@ def _validate_metadata(
     if isinstance(solution, ForwardSolution):
         _validate_forward_metadata(kernel, solution, errors)
         return
-    m_tiles = solution.matrix_instruction[5]
-    decoder_threads = min(solution.num_threads, 128)
-    decoder_rows = (
-        solution.depth_u
-        * solution.macro_tile1
-        // (decoder_threads * solution.decoder_width)
-    )
-    n_tiles = solution.matrix_instruction[6]
-
-    def allocate(cursor: int, count: int, alignment: int = 1) -> int:
-        aligned = (cursor + alignment - 1) // alignment * alignment
-        return aligned + count
-
-    expected_vgprs = allocate(0, 8 * m_tiles * n_tiles, 8)
-    expected_vgprs = allocate(
-        expected_vgprs,
-        8 * m_tiles * solution.prefetch_global_read,
-        4,
-    )
-    expected_vgprs = allocate(expected_vgprs, 16 * solution.prefetch_local_read, 4)
-    quant_type = solution_key.problem_type.quant_data_type
-    payload_registers = 4 if quant_type in ("Q4_K", "Q8_0") else 8
-    expected_vgprs = allocate(expected_vgprs, payload_registers * decoder_rows, 4)
-    expected_vgprs = allocate(expected_vgprs, decoder_rows)
-    metadata_registers = (
-        2
-        if quant_type == "Q3_K"
-        else 0
-        if quant_type == "Q8_0"
-        else 1
-        if quant_type == "Q6_K"
-        else 3
-    )
-    expected_vgprs = allocate(expected_vgprs, metadata_registers * decoder_rows)
-    if solution.lds_swizzle_chunk_b:
-        expected_vgprs = allocate(expected_vgprs, 32 // solution.lds_swizzle_chunk_b)
-    extended_a_state = solution.schedule_iter_alg in (4, 5) and (
-        solution.matrix_instruction[5] > 2
-    )
-    address_registers = 8
-    if extended_a_state:
-        address_registers = 6 + solution.matrix_instruction[5]
-        if quant_type in ("Q3_K", "Q6_K"):
-            address_registers += 2
-    expected_vgprs = allocate(expected_vgprs, address_registers, 2)
-    expected_vgprs = allocate(
-        expected_vgprs,
-        max(
-            11
-            if quant_type == "Q3_K" and solution.q3_k_extraction == "packed"
-            else 7 + 2 * decoder_rows
-            if quant_type == "Q6_K" and solution.q6_k_extraction == "packed_vopd"
-            else 7,
-            (
-                5
-                if quant_type == "Q8_0" and solution.q8_0_extraction == "packed_vopd"
-                else 3
-            )
-            + 2 * decoder_rows,
-        ),
-    )
-    if (quant_type == "Q3_K" and n_tiles == 4) or (
-        quant_type == "Q8_0" and n_tiles == 4 and decoder_rows % 2 == 1
-    ):
-        # RegisterPool reuses the single hole before the temporary range.
-        pass
-    else:
-        expected_vgprs = allocate(expected_vgprs, 1)
+    state = DerivedBackwardState.from_solution_key(solution_key)
+    physical = derive_backward_physical_plan(state)
     expected = {
-        ".kernarg_segment_size": 40,
+        ".kernarg_segment_size": state.contract.kernarg_segment_size,
         ".kernarg_segment_align": 8,
-        ".group_segment_fixed_size": solution.lds_num_bytes,
-        ".private_segment_fixed_size": 0,
-        ".max_flat_workgroup_size": solution.num_threads,
-        ".wavefront_size": solution.wavefront_size,
-        ".vgpr_count": expected_vgprs,
-        ".sgpr_count": 16,
+        ".group_segment_fixed_size": physical.resources.lds_num_bytes,
+        ".private_segment_fixed_size": physical.resources.private_segment_bytes,
+        ".max_flat_workgroup_size": state.spec.geometry.num_threads,
+        ".wavefront_size": state.spec.geometry.wavefront_size,
+        ".vgpr_count": physical.resources.total_vgprs,
+        ".sgpr_count": physical.resources.total_sgprs,
         ".vgpr_spill_count": 0,
         ".sgpr_spill_count": 0,
     }

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, TypeAlias
+from typing import Literal, Protocol, TypeAlias
 
 from .kernel_writer_assembly import (
     DeterministicRegisterPlan,
@@ -22,7 +22,6 @@ from .mmq_fwd_spec import (
     Q6LdsLayout,
     QuantForwardSemantics,
     SignedInt8CompactDepth32TiledLdsLayout,
-    SignedInt8KvTiledLdsLayout,
     SignedInt8SmallMTiledLdsLayout,
     forward_mechanism_contract,
 )
@@ -656,63 +655,74 @@ class SignedInt8SmallMTiledLdsRegisterPlan:
         )
 
 
-@dataclass(frozen=True)
-class SignedInt8TiledLdsRegisters:
-    """Shared semantic register projection for signed-int8 tiled-LDS emitters."""
+class SignedInt8TiledLdsRegisters(Protocol):
+    """Register roles required by shared signed-int8 tiled-LDS emitters."""
 
-    c: RegisterAssignment
-    sums: RegisterAssignment
-    weight_payload: RegisterAssignment
-    activation_payloads: RegisterAssignment
-    weight_scales: RegisterAssignment
-    activation_scales: RegisterAssignment
-    activation_scale_copies: RegisterAssignment
-    zero_accumulator: RegisterAssignment
-    weight_stage_payload: RegisterAssignment
-    weight_scale_address: RegisterAssignment
-    weight_address: RegisterAssignment
-    activation_address: RegisterAssignment
-    activation_lds_address: RegisterAssignment
-    weight_lds_address: RegisterAssignment
-    weight_stage_address: RegisterAssignment
-    weight_scale_stage_address: RegisterAssignment
-    temporary: RegisterAssignment
-    lane: RegisterAssignment
-    wave: RegisterAssignment
-    activation_read_address: RegisterAssignment
-    output_address: RegisterAssignment
-    store_auxiliary: RegisterAssignment
+    @property
+    def c(self) -> RegisterAssignment: ...
 
-    @classmethod
-    def from_plan(
-        cls,
-        plan: SignedInt8WaveNTiledLdsRegisterPlan
-        | SignedInt8SmallMTiledLdsRegisterPlan,
-    ) -> SignedInt8TiledLdsRegisters:
-        return cls(
-            c=plan.c,
-            sums=plan.sums,
-            weight_payload=plan.weight_payload,
-            activation_payloads=plan.activation_payloads,
-            weight_scales=plan.weight_scales,
-            activation_scales=plan.activation_scales,
-            activation_scale_copies=plan.activation_scale_copies,
-            zero_accumulator=plan.zero_accumulator,
-            weight_stage_payload=plan.weight_stage_payload,
-            weight_scale_address=plan.weight_scale_address,
-            weight_address=plan.weight_address,
-            activation_address=plan.activation_address,
-            activation_lds_address=plan.activation_lds_address,
-            weight_lds_address=plan.weight_lds_address,
-            weight_stage_address=plan.weight_stage_address,
-            weight_scale_stage_address=plan.weight_scale_stage_address,
-            temporary=plan.temporary,
-            lane=plan.lane,
-            wave=plan.wave,
-            activation_read_address=plan.activation_read_address,
-            output_address=plan.output_address,
-            store_auxiliary=plan.store_auxiliary,
-        )
+    @property
+    def sums(self) -> RegisterAssignment: ...
+
+    @property
+    def weight_payload(self) -> RegisterAssignment: ...
+
+    @property
+    def activation_payloads(self) -> RegisterAssignment: ...
+
+    @property
+    def weight_scales(self) -> RegisterAssignment: ...
+
+    @property
+    def activation_scales(self) -> RegisterAssignment: ...
+
+    @property
+    def activation_scale_copies(self) -> RegisterAssignment: ...
+
+    @property
+    def zero_accumulator(self) -> RegisterAssignment: ...
+
+    @property
+    def weight_stage_payload(self) -> RegisterAssignment: ...
+
+    @property
+    def weight_scale_address(self) -> RegisterAssignment: ...
+
+    @property
+    def weight_address(self) -> RegisterAssignment: ...
+
+    @property
+    def activation_address(self) -> RegisterAssignment: ...
+
+    @property
+    def activation_lds_address(self) -> RegisterAssignment: ...
+
+    @property
+    def weight_lds_address(self) -> RegisterAssignment: ...
+
+    @property
+    def weight_stage_address(self) -> RegisterAssignment: ...
+
+    @property
+    def weight_scale_stage_address(self) -> RegisterAssignment: ...
+
+    @property
+    def temporary(self) -> RegisterAssignment: ...
+
+    @property
+    def lane(self) -> RegisterAssignment: ...
+
+    @property
+    def wave(self) -> RegisterAssignment: ...
+
+    @property
+    def activation_read_address(self) -> RegisterAssignment: ...
+
+    @property
+    def output_address(self) -> RegisterAssignment: ...
+
+    @property
+    def store_auxiliary(self) -> RegisterAssignment: ...
 
 
 @dataclass(frozen=True)
@@ -1028,27 +1038,25 @@ class SignedInt8WaveNTiledLdsLayout:
         return self.activation_bytes + self.weight_bytes + self.allocation_padding_bytes
 
 
-@dataclass(frozen=True)
-class SignedInt8TiledLdsScaleLayout:
+class SignedInt8TiledLdsScaleLayout(Protocol):
     """Scale-plane facts shared by ordinary, small-M, and compact-KV LDS."""
 
-    weight_scale_offset: int
-    weight_scale_element_stride: int
-    weight_scale_pair_base_delta: int | None
+    @property
+    def weight_scale_offset(self) -> int: ...
 
-    @classmethod
-    def from_layout(
-        cls,
-        layout: SignedInt8WaveNTiledLdsLayout
-        | SignedInt8SmallMTiledLdsLayout
-        | SignedInt8KvTiledLdsLayout
-        | SignedInt8CompactDepth32TiledLdsLayout,
-    ) -> SignedInt8TiledLdsScaleLayout:
-        return cls(
-            weight_scale_offset=layout.weight_scale_offset,
-            weight_scale_element_stride=layout.weight_scale_element_stride,
-            weight_scale_pair_base_delta=layout.weight_scale_pair_base_delta,
-        )
+    @property
+    def weight_scale_element_stride(self) -> int: ...
+
+    @property
+    def weight_scale_pair_base_delta(self) -> int | None: ...
+
+
+@dataclass(frozen=True)
+class SignedInt8TiledLdsPolicy:
+    """Independent staging and scale-read policies for a tiled Q8 layout."""
+
+    stage_order: Literal["Interleaved", "WeightThenActivation"]
+    scale_read: Literal["Scalar", "PairedHoistedSecondBase"]
 
 
 _Q6_PHYSICAL_SEMANTICS = QuantForwardSemantics.for_quant_type("Q6_K")
@@ -2148,14 +2156,6 @@ class Q6StructuredPhysicalPlan:
     layout: Q6PhysicalLayout
     resources: ForwardResourceUsage
 
-    @property
-    def output_tile_rows(self) -> int:
-        return self.layout.output_tile_rows
-
-    @property
-    def lds(self) -> Q6LdsLayout:
-        return self.layout.lds
-
 
 @dataclass(frozen=True)
 class Packed3BitTiledLdsPhysicalPlan:
@@ -2180,13 +2180,12 @@ class SignedInt8RegisterTiledPhysicalPlan:
 class SignedInt8WaveNTiledLdsPhysicalPlan:
     layout: SignedInt8WaveNTiledLdsLayout | SignedInt8CompactDepth32TiledLdsLayout
     registers: SignedInt8WaveNTiledLdsRegisterPlan
+    policy: SignedInt8TiledLdsPolicy
     resources: ForwardResourceUsage
 
 
 SignedInt8SmallLdsLayout: TypeAlias = (
-    SignedInt8SmallMTiledLdsLayout
-    | SignedInt8KvTiledLdsLayout
-    | SignedInt8CompactDepth32TiledLdsLayout
+    SignedInt8SmallMTiledLdsLayout | SignedInt8CompactDepth32TiledLdsLayout
 )
 
 
@@ -2194,6 +2193,7 @@ SignedInt8SmallLdsLayout: TypeAlias = (
 class SignedInt8SmallMTiledLdsPhysicalPlan:
     layout: SignedInt8SmallLdsLayout
     registers: SignedInt8SmallMTiledLdsRegisterPlan
+    policy: SignedInt8TiledLdsPolicy
     resources: ForwardResourceUsage
 
 
@@ -2256,17 +2256,18 @@ def derive_forward_physical_plan(spec: ForwardKernelSpec) -> ForwardPhysicalPlan
     """Derive one complete mechanism plan without emitting instructions."""
     operand_source = spec.global_memory.operand_source
     mechanism = forward_mechanism_contract(operand_source)
-    if operand_source == "Q6StructuredDecoded":
+    plan_kind = mechanism.physical_plan
+    if plan_kind == "StructuredQ6":
         return q6_structured_physical_plan(spec.ownership.mi_wave_tile[0])
-    if operand_source == "Q3HipTiledLds":
+    if plan_kind == "Packed3BitTiledLds":
         if spec.geometry.work_group != (32, 4, 1) or spec.macro_tile != (128, 64):
             raise ValueError("Q3 HIP-shaped LDS control requires a 128x64 tile")
         return packed_3bit_tiled_lds_physical_plan()
-    if operand_source == "Q3FullWeightTiledLds":
+    if plan_kind == "Packed3BitFullWeightTiledLds":
         if spec.geometry.work_group != (32, 4, 1) or spec.macro_tile != (128, 64):
             raise ValueError("Q3 full-weight LDS control requires a 128x64 tile")
         return q3_full_weight_tiled_lds_physical_plan()
-    if operand_source == "DecodedWeightLdsBatch8":
+    if plan_kind == "DecodedWeightLds":
         layout = DecodedLdsLayout.for_activation_block_bytes(
             mechanism.activation_block_bytes
         )
@@ -2280,20 +2281,20 @@ def derive_forward_physical_plan(spec: ForwardKernelSpec) -> ForwardPhysicalPlan
                 layout.total_bytes,
             ),
         )
-    if operand_source == "Global":
+    if plan_kind == "PackedScaleMinimumDirect":
         registers = PackedScaleMinimumDirectRegisterPlan.allocate()
         return PackedScaleMinimumDirectPhysicalPlan(
             F16D4S4ActivationMetadata(mechanism.activation_block_bytes),
             registers,
             ForwardResourceUsage(registers.declared_vgprs, 16, 0),
         )
-    if operand_source == "Q8DirectGlobal":
+    if plan_kind == "SignedInt8Direct":
         registers = SignedInt8DirectRegisterPlan.allocate()
         return SignedInt8DirectPhysicalPlan(
             registers,
             ForwardResourceUsage(registers.declared_vgprs, 16, 0),
         )
-    if operand_source == "Q8RegisterTiled":
+    if plan_kind == "SignedInt8RegisterTiled":
         wave_tile_m, wave_tile_n = spec.ownership.mi_wave_tile
         registers = SignedInt8RegisterTiledRegisterPlan.allocate(
             wave_tile_m, wave_tile_n
@@ -2302,7 +2303,7 @@ def derive_forward_physical_plan(spec: ForwardKernelSpec) -> ForwardPhysicalPlan
             registers,
             ForwardResourceUsage(registers.declared_vgprs, 16, 0),
         )
-    if operand_source == "Q8HipTiledLds":
+    if plan_kind == "SignedInt8WaveNTiledLds":
         if spec.geometry.depth_u not in (32, 64):
             raise ValueError("Q8 HIP-shaped LDS controls require DepthU 32 or 64")
         if spec.lds.address_hoist == "CompactDepth32WeightRows":
@@ -2310,20 +2311,27 @@ def derive_forward_physical_plan(spec: ForwardKernelSpec) -> ForwardPhysicalPlan
                 activation_rows=spec.macro_tile[0],
                 activation_row_stride=mechanism.activation_block_bytes,
             )
+            policy = SignedInt8TiledLdsPolicy(
+                "WeightThenActivation", "PairedHoistedSecondBase"
+            )
         else:
             layout = SignedInt8WaveNTiledLdsLayout(
                 activation_row_stride=mechanism.activation_block_bytes
             )
+            policy = SignedInt8TiledLdsPolicy("Interleaved", "Scalar")
         registers = SignedInt8WaveNTiledLdsRegisterPlan.allocate()
         return SignedInt8WaveNTiledLdsPhysicalPlan(
             layout,
             registers,
+            policy,
             ForwardResourceUsage(
                 registers.declared_vgprs,
                 16,
                 layout.total_bytes,
             ),
         )
+    if plan_kind != "SignedInt8SmallMTiledLds":
+        raise AssertionError(f"unhandled forward physical plan {plan_kind!r}")
     macro_tile_m, macro_tile_n = spec.macro_tile
     if (
         spec.geometry.work_group != (32, 4, 1)
@@ -2337,14 +2345,14 @@ def derive_forward_physical_plan(spec: ForwardKernelSpec) -> ForwardPhysicalPlan
             macro_tile_m,
             activation_row_stride=mechanism.activation_block_bytes,
         )
-    elif spec.lds.address_hoist == "KvCompactTile" and macro_tile_m == 64:
-        layout = SignedInt8KvTiledLdsLayout(
-            activation_row_stride=mechanism.activation_block_bytes
-        )
+        policy = SignedInt8TiledLdsPolicy("WeightThenActivation", "Scalar")
     elif spec.lds.address_hoist == "CompactDepth32WeightRows":
         layout = SignedInt8CompactDepth32TiledLdsLayout(
             activation_rows=macro_tile_m,
             activation_row_stride=mechanism.activation_block_bytes,
+        )
+        policy = SignedInt8TiledLdsPolicy(
+            "WeightThenActivation", "PairedHoistedSecondBase"
         )
     else:
         raise ValueError("Q8 small-M LDS control has an unsupported layout")
@@ -2352,6 +2360,7 @@ def derive_forward_physical_plan(spec: ForwardKernelSpec) -> ForwardPhysicalPlan
     return SignedInt8SmallMTiledLdsPhysicalPlan(
         layout,
         registers,
+        policy,
         ForwardResourceUsage(
             registers.declared_vgprs,
             16,

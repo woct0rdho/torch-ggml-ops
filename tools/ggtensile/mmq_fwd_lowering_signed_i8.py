@@ -20,6 +20,7 @@ from .mmq_fwd_physical import (
     SignedInt8RegisterTiledRegisterPlan,
     SignedInt8RegisterTileRole,
     SignedInt8SmallMTiledLdsPhysicalPlan,
+    SignedInt8TiledLdsPolicy,
     SignedInt8TiledLdsRegisters,
     SignedInt8TiledLdsScaleLayout,
     SignedInt8WaveNTiledLdsPhysicalPlan,
@@ -606,12 +607,15 @@ class SignedInt8ForwardLowering:
         weight_row = registers.weight_row.first_register
 
         layout = physical.layout
-        tiled_registers = SignedInt8TiledLdsRegisters.from_plan(registers)
-        tiled_scale_layout = SignedInt8TiledLdsScaleLayout.from_layout(layout)
+        policy = physical.policy
+        if policy.stage_order != "WeightThenActivation":
+            raise ValueError("Q8 small-M lowering requires weight-first staging")
+        tiled_registers: SignedInt8TiledLdsRegisters = registers
+        tiled_scale_layout: SignedInt8TiledLdsScaleLayout = layout
         activation_lds_row_stride = layout.activation_row_stride
         weight_lds_base = layout.weight_base
         weight_lds_row_stride = layout.weight_row_stride
-        weight_scale_pair_base_delta = layout.weight_scale_pair_base_delta
+        paired_scale_reads = policy.scale_read == "PairedHoistedSecondBase"
 
         asm.comment("Load pointers for an exact small-M wave-N Q8 tile.")
         emit_pointer_kernarg_loads(asm, self.KERNARG)
@@ -740,7 +744,10 @@ class SignedInt8ForwardLowering:
             f"v_add_nc_u32 v{weight_scale_address}, {weight_lds_base}, "
             f"v{weight_scale_address}"
         )
-        if weight_scale_pair_base_delta is not None:
+        if paired_scale_reads:
+            weight_scale_pair_base_delta = layout.weight_scale_pair_base_delta
+            if weight_scale_pair_base_delta is None:
+                raise ValueError("paired Q8 scale reads require a second-base delta")
             asm.inst(
                 f"v_add_nc_u32 v{temporary}, {weight_scale_pair_base_delta}, "
                 f"v{weight_scale_address}"
@@ -751,6 +758,7 @@ class SignedInt8ForwardLowering:
                 group,
                 tiled_registers,
                 tiled_scale_layout,
+                policy,
                 m_fragments=m_fragments,
             )
         asm.inst("s_barrier")
@@ -782,8 +790,9 @@ class SignedInt8ForwardLowering:
         )
         registers = physical.registers
         layout = physical.layout
-        tiled_registers = SignedInt8TiledLdsRegisters.from_plan(registers)
-        tiled_scale_layout = SignedInt8TiledLdsScaleLayout.from_layout(layout)
+        policy = physical.policy
+        tiled_registers: SignedInt8TiledLdsRegisters = registers
+        tiled_scale_layout: SignedInt8TiledLdsScaleLayout = layout
         name = self.context.solution_key.kernel_name
         size = self.context.state.problem_size
         row_stride = self.context.state.packed_weight_row_bytes
@@ -812,7 +821,7 @@ class SignedInt8ForwardLowering:
         activation_lds_row_stride = layout.activation_row_stride
         weight_lds_base = layout.weight_base
         weight_lds_row_stride = layout.weight_row_stride
-        compact_depth32 = layout.weight_scale_pair_base_delta is not None
+        weight_first = policy.stage_order == "WeightThenActivation"
 
         asm.comment("Load pointers for the HIP-shaped wave-N Q8 tile.")
         emit_pointer_kernarg_loads(asm, self.KERNARG)
@@ -866,7 +875,7 @@ class SignedInt8ForwardLowering:
         asm.inst(f"s_mov_b32 s{self.LOOP_COUNTER}, 0")
 
         asm.label(".LForwardQ80HipTiledLdsBlockLoop")
-        if compact_depth32:
+        if weight_first:
             self._emit_signed_int8_tiled_weight_stage(
                 asm,
                 tiled_registers,
@@ -894,7 +903,7 @@ class SignedInt8ForwardLowering:
                 4,
                 trailing_vmem=0,
             )
-        else:
+        elif policy.stage_order == "Interleaved":
             self._emit_signed_int8_tiled_activation_loads(
                 asm,
                 tiled_registers,
@@ -920,6 +929,8 @@ class SignedInt8ForwardLowering:
                 tiled_registers,
                 group_base=0,
             )
+        else:
+            raise ValueError(f"unsupported Q8 stage order {policy.stage_order!r}")
         if groups_per_iteration == 8:
             self._emit_signed_int8_tiled_weight_stage(
                 asm,
@@ -949,10 +960,13 @@ class SignedInt8ForwardLowering:
             f"v_add_nc_u32 v{weight_scale_address}, {weight_lds_base}, "
             f"v{weight_scale_address}"
         )
-        if compact_depth32:
+        if policy.scale_read == "PairedHoistedSecondBase":
+            weight_scale_pair_base_delta = layout.weight_scale_pair_base_delta
+            if weight_scale_pair_base_delta is None:
+                raise ValueError("paired Q8 scale reads require a second-base delta")
             asm.inst(
                 f"v_add_nc_u32 v{temporary}, "
-                f"{layout.weight_scale_pair_base_delta}, v{weight_scale_address}"
+                f"{weight_scale_pair_base_delta}, v{weight_scale_address}"
             )
         for group in range(4):
             self._emit_signed_int8_tiled_group(
@@ -960,6 +974,7 @@ class SignedInt8ForwardLowering:
                 group,
                 tiled_registers,
                 tiled_scale_layout,
+                policy,
             )
         if groups_per_iteration == 8:
             asm.inst(
@@ -990,6 +1005,7 @@ class SignedInt8ForwardLowering:
                     group,
                     tiled_registers,
                     tiled_scale_layout,
+                    policy,
                     activation_group=group - 4,
                 )
         asm.inst("s_barrier")
@@ -1184,6 +1200,7 @@ class SignedInt8ForwardLowering:
         group: int,
         registers: SignedInt8TiledLdsRegisters,
         layout: SignedInt8TiledLdsScaleLayout,
+        policy: SignedInt8TiledLdsPolicy,
         *,
         activation_group: int | None = None,
         m_fragments: int = 8,
@@ -1215,7 +1232,9 @@ class SignedInt8ForwardLowering:
             f"v{weight_lds_address} "
             f"offset:{weight_offset + 16}"
         )
-        if layout.weight_scale_pair_base_delta is not None:
+        if policy.scale_read == "PairedHoistedSecondBase":
+            if layout.weight_scale_pair_base_delta is None:
+                raise ValueError("paired Q8 scale reads require a second-base delta")
             for pair in range(4):
                 relative_element = 2 * (pair % 2)
                 address = weight_scale_address if pair < 2 else temporary
@@ -1230,13 +1249,15 @@ class SignedInt8ForwardLowering:
                     f"v[{weight_scales + 2 * pair}:{weight_scales + 2 * pair + 1}], "
                     f"v{address} offset0:{offset0} offset1:{offset1}"
                 )
-        else:
+        elif policy.scale_read == "Scalar":
             for element in range(8):
                 asm.inst(
                     f"ds_read_b32 v{weight_scales + element}, "
                     f"v{weight_scale_address} "
                     f"offset:{layout.weight_scale_offset + layout.weight_scale_element_stride * element + 4 * group}"
                 )
+        else:
+            raise ValueError(f"unsupported Q8 scale-read policy {policy.scale_read!r}")
         for m_index in range(m_fragments):
             payload = activation_payloads + 8 * m_index
             activation_row_offset = (

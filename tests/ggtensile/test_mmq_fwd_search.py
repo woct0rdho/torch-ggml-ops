@@ -70,8 +70,28 @@ def test_generic_manual_profile_keeps_shape_and_linked_domains_explicit() -> Non
     assert len(candidate_neighbors(seed, ("InstructionPolicy",))) == 4
     assert forward_candidate_hash(seed, "Q6_K") == forward_candidate_hash(seed, "Q6_K")
     assert explain_invalid(seed, "Q6_K", ProblemSize(65, 248320, 2048))
-    with pytest.raises(ValueError, match="Q4_K, Q5_K, and Q6_K"):
-        candidate_domains("Q8_0", shape)
+    with pytest.raises(ValueError, match="Q3_K, Q4_K, Q5_K, Q6_K, and Q8_0"):
+        candidate_domains("Q2_K", shape)
+
+
+def test_q3_q8_domains_expose_only_complete_implemented_policies() -> None:
+    q3_shape = ProblemSize(128, 64, 256)
+    q3_domains = candidate_domains("Q3_K", q3_shape)
+    assert len(q3_domains) == 2
+    assert all(domain.knob_groups == () for domain in q3_domains)
+    assert all(
+        candidate_neighbors(domain.seed, ()) == (domain.seed,) for domain in q3_domains
+    )
+
+    q8_shape = ProblemSize(64, 64, 128)
+    q8_domains = candidate_domains("Q8_0", q8_shape)
+    assert q8_domains
+    assert all(domain.knob_groups == () for domain in q8_domains)
+    assert all(
+        not explain_invalid(domain.seed, "Q8_0", q8_shape) for domain in q8_domains
+    )
+    with pytest.raises(ValueError, match="without free knob groups"):
+        candidate_neighbors(q8_domains[0].seed, ("Epilogue",))
 
 
 def test_decoded_weight_lds_domains_expose_only_implemented_policies() -> None:

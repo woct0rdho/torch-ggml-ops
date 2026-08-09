@@ -1,5 +1,11 @@
 from dataclasses import dataclass, replace
 
+from .mmq_bwd_physical import derive_backward_physical_plan
+from .mmq_bwd_spec import (
+    BackwardQ3Pairing,
+    DerivedBackwardState,
+    backward_mechanism_contract,
+)
 from .mmq_fwd_spec import (
     ForwardMechanismContract,
     ForwardProblemContract,
@@ -45,7 +51,7 @@ def _reject(
 def _validate_backward_problem_type(
     problem_type: ProblemType, reasons: list[RejectReason]
 ) -> None:
-    if problem_type.quant_data_type not in {"Q3_K", "Q4_K", "Q5_K", "Q6_K", "Q8_0"}:
+    if problem_type.quant_data_type not in QUANT_FORMATS:
         _reject(
             reasons,
             "problem_type.quant_data_type.unsupported",
@@ -208,19 +214,6 @@ def _validate_q3_full_weight_forward_solution(
             "Solution",
         )
         return
-    supported_sizes = frozenset(
-        ProblemSize(m, n, k)
-        for m in (2_048, 8_192, 32_768)
-        for n, k in ((512, 2_048), (8_192, 2_048), (4_096, 2_048), (2_048, 4_096))
-    )
-    if problem_size not in supported_sizes:
-        _reject(
-            reasons,
-            "problem_size.q3.full_weight.inventory",
-            "Q3_K full-weight control implements the exact dense inventory keys",
-            "ProblemSize",
-        )
-        return
     _validate_forward_tile_multiples(problem_size, solution, reasons)
 
 
@@ -250,27 +243,6 @@ def _validate_signed_int8_forward_solution(
             "Solution",
         )
         return
-    if solution == ForwardSolution.q8_0_kv_tiled_lds():
-        expected_size = ProblemSize(2048, 512, 4096)
-        if problem_size != expected_size:
-            _reject(
-                reasons,
-                "problem_size.q8.kv.exact",
-                f"Q8 KV compact LDS control is exact for {expected_size.to_mapping()}",
-                "ProblemSize",
-            )
-            return
-    elif solution.operand_source == "Q8SmallMTiledLds":
-        expected_size = ProblemSize(solution.macro_tile0, 129_280, 4096)
-        if problem_size != expected_size:
-            _reject(
-                reasons,
-                "problem_size.q8.small_m.exact_lm_head",
-                "Q8 small-M LDS control is exact for LM-head "
-                f"{expected_size.to_mapping()}",
-                "ProblemSize",
-            )
-            return
     _validate_forward_tile_multiples(problem_size, solution, reasons)
 
 
@@ -512,21 +484,28 @@ def _validate_backward_problem_size(
                 parameter,
                 source="ProblemSize",
             )
-    allowed_n = (512, 2048, 4096)
-    if problem_type.quant_data_type == "Q3_K":
-        allowed_n = (2048,)
-    elif problem_type.quant_data_type == "Q5_K":
-        allowed_n = (512, 2048)
-    elif problem_type.quant_data_type == "Q6_K":
-        allowed_n = (2048,)
-    elif problem_type.quant_data_type == "Q8_0":
-        allowed_n = (1024, 2048, 4096, 8192)
-    if problem_size.n not in allowed_n:
+    quant_format = QUANT_FORMATS[problem_type.quant_data_type]
+    if problem_size.n % quant_format.block_values:
         _reject(
             reasons,
-            "problem_size.n.production",
-            f"{problem_type.quant_data_type} MMQ campaign requires N=in_features in {allowed_n}",
+            "problem_size.n.quant_block",
+            "N must contain complete packed-weight quant blocks",
             "N",
+            "QuantDataType",
+            source="ProblemSize",
+        )
+    if problem_type.quant_data_type == "Q8_0":
+        compatible_n_tile = solution.macro_tile1 % quant_format.block_values == 0
+    else:
+        compatible_n_tile = quant_format.block_values % solution.macro_tile1 == 0
+    if solution.macro_tile1 > 0 and not compatible_n_tile:
+        _reject(
+            reasons,
+            "problem_size.n.decoder_tile",
+            "MacroTile1 must preserve complete decoder ownership within a quant block",
+            "N",
+            "MacroTile1",
+            "QuantDataType",
             source="ProblemSize",
         )
     for parameter, value, divisor, divisor_name in (
@@ -714,6 +693,13 @@ def _validate_backward_solution_parameters(
             "Q3KExtraction must be 'packed' or 'scalar'",
             "Q3KExtraction",
         )
+    if solution.q3_k_pairing not in tuple(item.value for item in BackwardQ3Pairing):
+        _reject(
+            reasons,
+            "solution.q3kpairing.unimplemented",
+            "Q3KPairing must be 'Inactive', 'Partial', or 'Full'",
+            "Q3KPairing",
+        )
     if solution.q5_k_extraction not in ("packed", "scalar"):
         _reject(
             reasons,
@@ -771,31 +757,22 @@ def _validate_backward_solution_parameters(
             "PackedWeightLaneShare",
             "PrefetchPackedWeightNext",
         )
-    if solution.schedule_iter_alg in (4, 5) and (
-        solution.macro_tile0,
-        solution.macro_tile1,
-        solution.num_threads,
-    ) not in (
-        (32, 64, 64),
-        (32, 128, 64),
-        (64, 32, 128),
-        (64, 64, 128),
-        (64, 128, 128),
-        (128, 32, 128),
-        (128, 64, 128),
-        (128, 128, 128),
-        (256, 32, 128),
-        (256, 64, 128),
-    ):
-        _reject(
-            reasons,
-            "solution.scheduleiteralg.geometry",
-            "ScheduleIterAlg=4 or 5 requires a supported compact or four-wave geometry",
-            "ScheduleIterAlg",
-            "MacroTile0",
-            "MacroTile1",
-            "WorkGroup",
-        )
+    if solution.schedule_iter_alg in (4, 5) and len(solution.matrix_instruction) == 9:
+        m_repeats = solution.matrix_instruction[5]
+        n_repeats = solution.matrix_instruction[6]
+        wave_count = solution.matrix_instruction[7]
+        compact_geometry = wave_count == 2 and m_repeats == 1 and n_repeats >= 4
+        four_wave_geometry = wave_count == 4 and m_repeats * n_repeats <= 16
+        if not compact_geometry and not four_wave_geometry:
+            _reject(
+                reasons,
+                "solution.scheduleiteralg.geometry",
+                "ScheduleIterAlg=4 or 5 requires a supported compact or four-wave geometry",
+                "ScheduleIterAlg",
+                "MacroTile0",
+                "MacroTile1",
+                "WorkGroup",
+            )
     if solution.work_group_mapping not in (1, 2, 4, 8, 128, 256):
         _reject(
             reasons,
@@ -804,40 +781,24 @@ def _validate_backward_solution_parameters(
             "WorkGroupMapping",
         )
 
-    allowed_geometries = {
-        ((16, 16, 16, 1, 1, 1, 4, 2, 1), 32, 64, 32, (32, 2, 1)),
-        ((16, 16, 16, 1, 1, 1, 4, 2, 1), 32, 64, 64, (32, 2, 1)),
-        ((16, 16, 16, 1, 1, 1, 8, 2, 1), 32, 128, 32, (32, 2, 1)),
-        ((16, 16, 16, 1, 1, 1, 2, 4, 1), 64, 32, 32, (32, 4, 1)),
-        ((16, 16, 16, 1, 1, 1, 2, 4, 1), 64, 32, 64, (32, 4, 1)),
-        ((16, 16, 16, 1, 1, 1, 4, 4, 1), 64, 64, 32, (32, 4, 1)),
-        ((16, 16, 16, 1, 1, 1, 4, 4, 1), 64, 64, 64, (32, 4, 1)),
-        ((16, 16, 16, 1, 1, 1, 8, 4, 1), 64, 128, 32, (32, 4, 1)),
-        ((16, 16, 16, 1, 1, 2, 2, 4, 1), 128, 32, 64, (32, 4, 1)),
-        ((16, 16, 16, 1, 1, 2, 4, 4, 1), 128, 64, 32, (32, 4, 1)),
-        ((16, 16, 16, 1, 1, 2, 4, 4, 1), 128, 64, 64, (32, 4, 1)),
-        ((16, 16, 16, 1, 1, 2, 8, 4, 1), 128, 128, 32, (32, 4, 1)),
-        ((16, 16, 16, 1, 1, 2, 8, 4, 1), 128, 128, 64, (32, 4, 1)),
-        ((16, 16, 16, 1, 1, 4, 2, 4, 1), 256, 32, 64, (32, 4, 1)),
-        ((16, 16, 16, 1, 1, 4, 4, 4, 1), 256, 64, 32, (32, 4, 1)),
-        ((16, 16, 16, 1, 1, 4, 4, 4, 1), 256, 64, 64, (32, 4, 1)),
-        ((16, 16, 16, 1, 1, 2, 8, 8, 1), 256, 128, 32, (32, 8, 1)),
-    }
-    geometry = (
-        solution.matrix_instruction,
-        solution.macro_tile0,
-        solution.macro_tile1,
-        solution.depth_u,
-        solution.work_group,
+    instruction = solution.matrix_instruction
+    geometry_supported = (
+        len(instruction) == 9
+        and instruction[:5] == (16, 16, 16, 1, 1)
+        and instruction[5] in (1, 2, 4)
+        and instruction[6] in (2, 4, 8)
+        and instruction[7] in (2, 4, 8)
+        and instruction[8] == 1
+        and solution.work_group == (32, instruction[7], 1)
+        and solution.depth_u in (32, 64)
     )
-    if geometry not in allowed_geometries:
+    if not geometry_supported:
         _reject(
             reasons,
             "solution.geometry.unimplemented",
-            "MMQ backward writer implements the selected 32x64, 32x128, 64x32, 64x64, 64x128, 128x32, 128x64, 128x128, 256x32, 256x64, and 256x128 DepthU32/64 geometries",
+            "MMQ backward requires wave32 BF16 WMMA tiles with power-of-two 1/2/4 M repeats, 2/4/8 N repeats, 2/4/8 waves, and DepthU 32 or 64",
             "MatrixInstruction",
-            "MacroTile0",
-            "MacroTile1",
+            "DepthU",
             "WorkGroup",
         )
 
@@ -866,24 +827,6 @@ def _validate_backward_solution_parameters(
             "WorkGroup",
             source="SolutionStructs",
         )
-    expected_lds = (
-        2
-        * (solution.depth_u + solution.lds_pad_b)
-        * solution.macro_tile1
-        * (2 if solution.one_lds_buffer == 0 else 1)
-    )
-    if solution.lds_num_bytes != expected_lds:
-        _reject(
-            reasons,
-            "solution.lds_num_bytes",
-            "LdsNumBytes must hold the selected decoded-B buffer count",
-            "MacroTile1",
-            "DepthU",
-            "1LDSBuffer",
-            "LdsPadB",
-            "LdsBlockSizePerPadB",
-            source="SolutionStructs",
-        )
 
 
 def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
@@ -902,53 +845,42 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
         return tuple(reasons)
     _validate_backward_problem_type(solution_key.problem_type, reasons)
     _validate_backward_solution_parameters(solution_key.solution, reasons)
-    if (
-        solution_key.solution.num_threads == 64
-        or (
-            solution_key.solution.macro_tile0 == 64
-            and solution_key.solution.macro_tile1 == 64
-        )
-    ) and solution_key.problem_type.quant_data_type not in ("Q6_K", "Q8_0"):
-        _reject(
-            reasons,
-            "solution.work_group.small_m_quant",
-            "small-M 32x64, 32x128, and 64x64 geometries are implemented only for Q6_K and Q8_0",
-            "WorkGroup",
-            source="ProblemType",
-        )
+    quant_type = solution_key.problem_type.quant_data_type
+    if quant_type not in QUANT_FORMATS:
+        return tuple(reasons)
+    mechanism = backward_mechanism_contract(quant_type)
     if (
         solution_key.solution.depth_u == 64
         and solution_key.solution.lds_pad_b in (8, 16, 24)
-        and solution_key.problem_type.quant_data_type not in ("Q6_K", "Q8_0")
+        and not mechanism.padded_depth64
     ):
         _reject(
             reasons,
-            "solution.depthu64.q8_pad8",
-            "DepthU64 with unswizzled row padding is implemented only for Q6_K and Q8_0",
+            "solution.depthu64.padded.decoder",
+            "the selected decoder does not implement DepthU64 row padding",
             "DepthU",
             "LdsPadB",
             source="ProblemType",
         )
-    if (
-        solution_key.problem_type.quant_data_type == "Q8_0"
-        and solution_key.solution.packed_weight_lane_share != 1
+    if solution_key.solution.packed_weight_lane_share not in (
+        mechanism.lane_share_values
     ):
         _reject(
             reasons,
-            "solution.q8.packedweightlaneshare",
-            "Q8_0 currently requires independent packed payload loads",
+            "solution.decoder.packedweightlaneshare",
+            "PackedWeightLaneShare is not implemented by the selected decoder",
             "PackedWeightLaneShare",
             source="ProblemType",
         )
     if (
         solution_key.solution.one_lds_buffer == 0
         and solution_key.solution.macro_tile1 == 64
-        and solution_key.problem_type.quant_data_type not in ("Q4_K", "Q6_K")
+        and not mechanism.pipeline_n64
     ):
         _reject(
             reasons,
             "solution.pipeline.n64.quant",
-            "128x64 decoded-B pipelining is implemented only for Q4_K and Q6_K",
+            "the selected decoder does not implement N64 decoded-B pipelining",
             "1LDSBuffer",
             "MacroTile1",
             source="ProblemType",
@@ -956,12 +888,12 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
     if (
         solution_key.solution.one_lds_buffer == 0
         and solution_key.solution.schedule_iter_alg == 3
-        and solution_key.problem_type.quant_data_type != "Q5_K"
+        and not mechanism.pipeline_sia3
     ):
         _reject(
             reasons,
             "solution.pipeline.sia3.quant",
-            "SIA3 decoded-B pipelining is implemented only for Q5_K",
+            "the selected decoder does not implement SIA3 decoded-B pipelining",
             "1LDSBuffer",
             "ScheduleIterAlg",
             source="ProblemType",
@@ -969,12 +901,12 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
     if (
         solution_key.solution.one_lds_buffer == 0
         and solution_key.solution.depth_u == 64
-        and solution_key.problem_type.quant_data_type != "Q5_K"
+        and not mechanism.pipeline_depth64
     ):
         _reject(
             reasons,
             "solution.pipeline.depthu64.quant",
-            "DepthU64 decoded-B pipelining is implemented only for Q5_K",
+            "the selected decoder does not implement DepthU64 decoded-B pipelining",
             "1LDSBuffer",
             "DepthU",
             source="ProblemType",
@@ -982,12 +914,12 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
     if (
         solution_key.solution.depth_u == 64
         and solution_key.solution.prefetch_packed_weight_next
-        and solution_key.problem_type.quant_data_type != "Q6_K"
+        and not mechanism.next_packed_depth64
     ):
         _reject(
             reasons,
             "solution.depthu64.prefetchpacked.quant",
-            "DepthU64 next-packed-tile prefetch is implemented only for Q6_K",
+            "the selected decoder does not implement DepthU64 next-packed-tile prefetch",
             "DepthU",
             "PrefetchPackedWeightNext",
             source="ProblemType",
@@ -1037,14 +969,58 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             "Q5KMetadataVectorLoad",
             source="ProblemType",
         )
-    if solution_key.problem_type.quant_data_type != "Q3_K" and (
+    if quant_type == "Q3_K":
+        pairing = solution_key.solution.q3_k_pairing
+        extraction = solution_key.solution.q3_k_extraction
+        if extraction == "packed" and pairing not in (
+            BackwardQ3Pairing.PARTIAL.value,
+            BackwardQ3Pairing.FULL.value,
+        ):
+            _reject(
+                reasons,
+                "solution.q3.packed.pairing",
+                "packed Q3_K extraction requires explicit Partial or Full pairing",
+                "Q3KExtraction",
+                "Q3KPairing",
+                source="ProblemType",
+            )
+        if extraction == "scalar" and pairing != BackwardQ3Pairing.INACTIVE.value:
+            _reject(
+                reasons,
+                "solution.q3.scalar.pairing",
+                "scalar Q3_K extraction requires Q3KPairing='Inactive'",
+                "Q3KExtraction",
+                "Q3KPairing",
+                source="ProblemType",
+            )
+        decoder_threads = min(solution_key.solution.num_threads, 128)
+        decoder_rows = (
+            solution_key.solution.depth_u
+            * solution_key.solution.macro_tile1
+            // (decoder_threads * solution_key.solution.decoder_width)
+        )
+        if pairing == BackwardQ3Pairing.FULL.value and decoder_rows > 2:
+            _reject(
+                reasons,
+                "solution.q3.full_pairing.decoder_rows",
+                "Full Q3_K pairing supports at most two decoder rows",
+                "Q3KPairing",
+                "DecoderWidth",
+                "DepthU",
+                "MacroTile1",
+                "WorkGroup",
+                source="BackwardMechanismContract",
+            )
+    elif (
         solution_key.solution.q3_k_extraction != "packed"
+        or solution_key.solution.q3_k_pairing != BackwardQ3Pairing.INACTIVE.value
     ):
         _reject(
             reasons,
             "solution.q3.controls.inert",
             "Q3-specific controls are valid only for Q3_K",
             "Q3KExtraction",
+            "Q3KPairing",
             source="ProblemType",
         )
     _validate_backward_problem_size(
@@ -1053,4 +1029,28 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
         solution_key.solution,
         reasons,
     )
+    try:
+        physical = derive_backward_physical_plan(
+            DerivedBackwardState.from_solution_key(solution_key)
+        )
+    except (IndexError, ValueError, ZeroDivisionError) as error:
+        _reject(
+            reasons,
+            "solution.physical.capacity",
+            f"backward physical planning failed: {error}",
+            "Solution",
+            source="BackwardPhysicalPlan",
+        )
+    else:
+        if physical.resources.lds_num_bytes > 65536:
+            _reject(
+                reasons,
+                "solution.lds.capacity",
+                "backward physical LDS use exceeds 64 KiB",
+                "DepthU",
+                "MacroTile1",
+                "LdsPadB",
+                "1LDSBuffer",
+                source="BackwardPhysicalPlan",
+            )
     return tuple(reasons)

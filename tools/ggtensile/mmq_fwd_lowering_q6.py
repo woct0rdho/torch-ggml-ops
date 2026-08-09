@@ -31,8 +31,6 @@ from .mmq_fwd_spec import (
     Q6DotPhase,
     Q6ForwardSchedule,
     Q6LdsLayout,
-    Q6SemanticPlan,
-    Q6SemanticStage,
     Q6SignedDecodeSpec,
     QuantForwardSemantics,
     q6_schedule_from_kernel_spec,
@@ -207,40 +205,6 @@ class Q6ScheduleEmitter:
         self.inst(
             "v_and_or_b32",
             f"v{destination}, 0x30303030, v{high}, v{low}",
-        )
-
-    def convert_f32_f16(self, destination: int, source: Q6HalfRegister) -> None:
-        self.inst("v_cvt_f32_f16_e64", f"v{destination}, {source}")
-
-    def extract_bf16_round_bit(self, destination: int, source: int) -> None:
-        self.inst("v_bfe_u32", f"v{destination}, v{source}, 16, 1")
-
-    def bf16_nan_payload(self, destination: int, source: int) -> None:
-        self.inst("v_or_b32_e32", f"v{destination}, 0x400000, v{source}")
-
-    def compare_unordered(self, source: int) -> None:
-        self.inst("v_cmp_u_f32_e32", f"vcc_lo, v{source}, v{source}")
-
-    def round_bf16(
-        self,
-        destination: int,
-        round_bit: int,
-        source: int,
-    ) -> None:
-        self.inst(
-            "v_add3_u32",
-            f"v{destination}, v{round_bit}, v{source}, 0x7fff",
-        )
-
-    def select_bf16(
-        self,
-        destination: int,
-        rounded: int,
-        nan_payload: int,
-    ) -> None:
-        self.inst(
-            "v_cndmask_b32_e32",
-            f"v{destination}, v{rounded}, v{nan_payload}, vcc_lo",
         )
 
     def store_bf16_clause(self, address: str, registers: tuple[int, ...]) -> None:
@@ -546,11 +510,13 @@ def _q6_emit_dot_product_scale(
     pointer: str | None = None,
 ) -> None:
     register = layout.product_base - phase.register_shift + local
-    multiply = f"v_dual_mul_f32 v{register}, v{_q6_dot_product_scale(phase, layout, local)}, v{register}"
+    operands = (
+        f"v{register}, v{_q6_dot_product_scale(phase, layout, local)}, v{register}"
+    )
     if pointer is None:
-        emitter.instruction(multiply.replace("v_dual_mul_f32", "v_mul_f32_e32", 1))
+        emitter.inst("v_mul_f32_e32", operands)
     else:
-        emitter.instruction(f"{multiply} :: {pointer}")
+        emitter.inst("v_dual_mul_f32", f"{operands} :: {pointer}")
 
 
 def _q6_emit_dot_product_scales(
@@ -667,41 +633,24 @@ def _emit_q6_dot_phase(schedule: Q6ForwardSchedule, phase_index: int) -> code.Mo
     return emitter.module()
 
 
-def _q6_emit_semantic_stage(
-    stage: Q6SemanticStage,
-    schedule: Q6ForwardSchedule,
-    blocks_per_weight_row: int,
-) -> code.Module:
-    if stage.kind == "Setup":
-        return _q6_lane_and_address_setup(schedule)
-    if stage.kind == "GlobalRead":
-        return _q6_cooperative_global_loads(schedule)
-    if stage.kind == "Decode":
-        return _q6_packed_decode(schedule)
-    if stage.kind == "LocalWrite":
-        return _q6_decoded_lds_writes(schedule)
-    if stage.kind == "BarrierLocalRead":
-        return _q6_first_stage_barrier(schedule)
-    if stage.kind == "Dot":
-        assert stage.phase is not None
-        return _emit_q6_dot_phase(schedule, stage.phase)
-    if stage.kind == "Refill":
-        return _q6_second_stage_loads(schedule)
-    if stage.kind == "Epilogue":
-        return _q6_bf16_epilogue(schedule, blocks_per_weight_row)
-    raise AssertionError(f"unhandled Q6 semantic stage {stage.kind}")
-
-
 def _emit_q6_scheduled_body(
     schedule: Q6ForwardSchedule,
     blocks_per_weight_row: int = 8,
 ) -> code.Module:
     if blocks_per_weight_row <= 0:
         raise ValueError("Q6 blocks-per-weight-row must be positive")
-    plan = Q6SemanticPlan.from_schedule(schedule)
+    if len(schedule.dot_register_shifts) != 2:
+        raise ValueError("structured Q6 currently requires exactly two dot phases")
     body = code.Module("Q6StructuredDecoded")
-    for stage in plan.stages:
-        body.add(_q6_emit_semantic_stage(stage, schedule, blocks_per_weight_row))
+    body.add(_q6_lane_and_address_setup(schedule))
+    body.add(_q6_cooperative_global_loads(schedule))
+    body.add(_q6_packed_decode(schedule))
+    body.add(_q6_decoded_lds_writes(schedule))
+    body.add(_q6_first_stage_barrier(schedule))
+    body.add(_emit_q6_dot_phase(schedule, 0))
+    body.add(_q6_second_stage_loads(schedule))
+    body.add(_emit_q6_dot_phase(schedule, 1))
+    body.add(_q6_bf16_epilogue(schedule, blocks_per_weight_row))
     return body
 
 
@@ -1071,9 +1020,9 @@ def _q6_packed_decode(schedule: Q6ForwardSchedule) -> code.Module:
     semantics = _Q6_SEMANTICS.q6_signed_decode()
     emitter = Q6ScheduleEmitter(schedule, "packed_decode")
     emitter.wait_vmem(0)
-    emitter.convert_f32_f16(
-        plan.factor_register,
-        Q6HalfRegister(plan.factor_source_register, "l"),
+    emitter.inst(
+        "v_cvt_f32_f16_e64",
+        f"v{plan.factor_register}, {Q6HalfRegister(plan.factor_source_register, 'l')}",
     )
     lane_shift = Q6Vgpr(plan.lane_shift_register)
     if schedule.semantic_policy.traversal == "OutputRoleWavefront":
@@ -1420,34 +1369,42 @@ def _q6_emit_bf16_pipeline(
         if not full_tile:
             _q6_emit_epilogue_store_address(emitter)
         for index, source in enumerate(sources[:width]):
-            emitter.extract_bf16_round_bit(scratch_base + index, source)
-            emitter.bf16_nan_payload(scratch_base + width + index, source)
+            emitter.inst(
+                "v_bfe_u32",
+                f"v{scratch_base + index}, v{source}, 16, 1",
+            )
+            emitter.inst(
+                "v_or_b32_e32",
+                f"v{scratch_base + width + index}, 0x400000, v{source}",
+            )
         if full_tile and segment_index == 0:
             _q6_emit_epilogue_store_address(emitter)
         for index, source in enumerate(sources):
             slot = index % width
             future = index + width
-            emitter.compare_unordered(source)
-            emitter.round_bf16(source, scratch_base + slot, source)
+            emitter.inst("v_cmp_u_f32_e32", f"vcc_lo, v{source}, v{source}")
+            emitter.inst(
+                "v_add3_u32",
+                f"v{source}, v{scratch_base + slot}, v{source}, 0x7fff",
+            )
             if future < len(sources):
-                emitter.extract_bf16_round_bit(
-                    scratch_base + slot,
-                    sources[future],
+                emitter.inst(
+                    "v_bfe_u32",
+                    f"v{scratch_base + slot}, v{sources[future]}, 16, 1",
                 )
             if emitter.schedule.dependency_delay_mode == "Explicit":
                 dependency_distance = 2 if future < len(sources) else 1
                 emitter.dependency_delay(
                     Q6DependencyDelay("VALU_DEP", dependency_distance)
                 )
-            emitter.select_bf16(
-                source,
-                source,
-                scratch_base + width + slot,
+            emitter.inst(
+                "v_cndmask_b32_e32",
+                f"v{source}, v{source}, v{scratch_base + width + slot}, vcc_lo",
             )
             if future < len(sources):
-                emitter.bf16_nan_payload(
-                    scratch_base + width + slot,
-                    sources[future],
+                emitter.inst(
+                    "v_or_b32_e32",
+                    f"v{scratch_base + width + slot}, 0x400000, v{sources[future]}",
                 )
             global_index = segment_index * store_width + index
             if full_tile and (global_index + 1) % store_width == 0:

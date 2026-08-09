@@ -16,6 +16,7 @@ from .mmq_fwd_lowering_q6 import Q6StructuredLowering
 from .mmq_fwd_lowering_signed_i8 import SignedInt8ForwardLowering
 from .mmq_fwd_spec import (
     DerivedForwardState,
+    forward_mechanism_contract,
 )
 from .model import ForwardSolution, SolutionKey
 from .toolchain import Toolchain
@@ -56,18 +57,10 @@ class ForwardKernelWriterAssembly:
             codeObjectVersion="5",
             groupSegmentSize=self.state.resources.lds_bytes,
             sgprWorkGroup=(1, 1, 0),
-            vgprWorkItem=(
-                1
-                if self.state.kernel_spec.global_memory.operand_source
-                in {
-                    "Q6StructuredDecoded",
-                    "Q3HipTiledLds",
-                    "Q3FullWeightTiledLds",
-                    "Q8RegisterTiled",
-                    "Q8HipTiledLds",
-                    "Q8SmallMTiledLds",
-                }
-                else 0
+            vgprWorkItem=int(
+                forward_mechanism_contract(
+                    self.state.kernel_spec.global_memory.operand_source
+                ).uses_workitem_id
             ),
             flatWorkGroupSize=self.state.num_threads,
             totalVgprs=self.state.resources.vgprs,
@@ -93,16 +86,20 @@ class ForwardKernelWriterAssembly:
 
     def _body(self) -> str:
         operand_source = self.state.kernel_spec.global_memory.operand_source
-        if operand_source == "Q6StructuredDecoded":
+        try:
+            lowering = forward_mechanism_contract(operand_source).lowering
+        except ValueError as error:
+            raise TypeError(str(error)) from None
+        if lowering == "StructuredQ6":
             return Q6StructuredLowering(self.context).body()
-        if operand_source == "Q3HipTiledLds":
+        if lowering == "Packed3BitTiledLds":
             return Packed3BitTiledLdsLowering(self.context).body()
-        if operand_source == "Q3FullWeightTiledLds":
+        if lowering == "Packed3BitFullWeightTiledLds":
             return FullWeightQ3TiledLdsLowering(self.context).body()
-        if operand_source == PackedScaleMinimumDirectLowering.OPERAND_SOURCE:
+        if lowering == "PackedScaleMinimumDirect":
             return PackedScaleMinimumDirectLowering(self.context).body()
-        if operand_source == DecodedWeightLdsLowering.OPERAND_SOURCE:
+        if lowering == "DecodedWeightLds":
             return DecodedWeightLdsLowering(self.context).body()
-        if operand_source in SignedInt8ForwardLowering.OPERAND_SOURCES:
+        if lowering == "SignedInt8":
             return SignedInt8ForwardLowering(self.context).body()
         raise TypeError(f"unsupported forward operand source {operand_source!r}")

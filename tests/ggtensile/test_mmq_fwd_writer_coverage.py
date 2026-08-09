@@ -39,9 +39,11 @@ from tools.ggtensile.mmq_fwd_physical import (
     SignedInt8RegisterTiledRegisterPlan,
     SignedInt8SmallMTiledLdsPhysicalPlan,
     SignedInt8SmallMTiledLdsRegisterPlan,
+    SignedInt8TiledLdsPolicy,
     SignedInt8TiledLdsRegisters,
     SignedInt8TiledLdsScaleLayout,
     SignedInt8WaveNTiledLdsLayout,
+    SignedInt8WaveNTiledLdsPhysicalPlan,
     derive_forward_physical_plan,
     q6_structured_physical_plan,
 )
@@ -50,7 +52,6 @@ from tools.ggtensile.mmq_fwd_spec import (
     ForwardKernelSpec,
     Q6ForwardSchedule,
     Q6LdsLayout,
-    Q6SemanticStage,
     QuantForwardSemantics,
     q6_schedule_from_solution,
 )
@@ -163,8 +164,8 @@ def test_q6_physical_register_map_uses_complete_output_roles(
     output_tile_rows = macro_tile0 // 64
     physical = q6_structured_physical_plan(output_tile_rows)
     layout = q6_lowering_module._q6_physical_layout(_q6_schedule(macro_tile0))
-    assert physical.output_tile_rows == output_tile_rows
-    assert physical.lds == layout.lds
+    assert physical.layout.output_tile_rows == output_tile_rows
+    assert physical.layout.lds == layout.lds
     assert physical.resources.vgprs == layout.declared_vgprs
     assert physical.resources.sgprs == layout.declared_sgprs
     assert physical.resources.lds_bytes == layout.lds.total_bytes
@@ -359,12 +360,6 @@ def test_q6_schedule_rejects_unsupported_geometry_and_phase() -> None:
         layout.decoded_write_address(16)
     with pytest.raises(ValueError, match="unsupported Q6 decoded write atom"):
         layout.decoded_write_offsets(16)
-    opaque_stage = Q6SemanticStage(
-        "Opaque",  # ty: ignore[invalid-argument-type]
-        (),
-    )
-    with pytest.raises(AssertionError, match="unhandled Q6 semantic stage"):
-        q6_lowering_module._q6_emit_semantic_stage(opaque_stage, selected, 8)
     with pytest.raises(ValueError, match="one input block"):
         replace(selected, matrix_instruction=(16, 16, 16, 2))
     with pytest.raises(ValueError, match="at least one dot phase"):
@@ -804,7 +799,9 @@ def test_writer_rejects_incomplete_decoded_epilogue_pipeline() -> None:
         lowering._emit_bf16_epilogue(Assembly())
 
 
-def test_mechanism_lowerers_and_facade_reject_unknown_sources() -> None:
+def test_mechanism_lowerers_and_facade_reject_unknown_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     key = SolutionKey(
         ProblemType.mmq_forward("Q4_K"),
         ProblemSize(2048, 512, 2048),
@@ -831,6 +828,17 @@ def test_mechanism_lowerers_and_facade_reject_unknown_sources() -> None:
         DecodedWeightLdsLowering(invalid_context).body()
     writer.state = invalid_state
     writer.context = replace(writer.context, state=invalid_state)
+    with pytest.raises(TypeError, match="unsupported forward operand source"):
+        writer._body()
+    mechanism = fwd_writer_module.forward_mechanism_contract("Global")
+    monkeypatch.setattr(
+        fwd_writer_module,
+        "forward_mechanism_contract",
+        lambda _: replace(
+            mechanism,
+            lowering="Opaque",
+        ),
+    )
     with pytest.raises(TypeError, match="unsupported forward operand source"):
         writer._body()
 
@@ -867,14 +875,15 @@ def test_small_m_q8_helpers_reject_invalid_fragment_counts() -> None:
         SignedInt8SmallMTiledLdsPhysicalPlan,
         writer.context.state.physical_plan,
     )
-    tiled_registers = SignedInt8TiledLdsRegisters.from_plan(physical.registers)
-    tiled_scale_layout = SignedInt8TiledLdsScaleLayout.from_layout(physical.layout)
+    tiled_registers: SignedInt8TiledLdsRegisters = physical.registers
+    tiled_scale_layout: SignedInt8TiledLdsScaleLayout = physical.layout
     with pytest.raises(ValueError, match="2, 4, or 8"):
         lowering._emit_signed_int8_tiled_group(
             Assembly(),
             0,
             tiled_registers,
             tiled_scale_layout,
+            physical.policy,
             m_fragments=3,
         )
     with pytest.raises(ValueError, match="2, 4, or 8"):
@@ -895,6 +904,121 @@ def test_small_m_q8_helpers_reject_invalid_fragment_counts() -> None:
     )
     with pytest.raises(TypeError, match="unsupported Q8 physical plan"):
         SignedInt8ForwardLowering(q3_writer.context).body()
+
+
+def test_signed_int8_tiled_policies_reject_inconsistent_internal_state() -> None:
+    small_writer = ForwardKernelWriterAssembly(
+        SolutionKey(
+            ProblemType.mmq_forward("Q8_0"),
+            ProblemSize(32, 129280, 4096),
+            ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=32),
+        ),
+        Toolchain.discover(),
+    )
+    small = cast(
+        SignedInt8SmallMTiledLdsPhysicalPlan,
+        small_writer.context.state.physical_plan,
+    )
+
+    def small_lowering(policy: SignedInt8TiledLdsPolicy) -> SignedInt8ForwardLowering:
+        state = replace(
+            small_writer.context.state,
+            physical_plan=replace(small, policy=policy),
+        )
+        return SignedInt8ForwardLowering(replace(small_writer.context, state=state))
+
+    with pytest.raises(ValueError, match="requires weight-first staging"):
+        small_lowering(
+            SignedInt8TiledLdsPolicy(
+                "Opaque",  # ty: ignore[invalid-argument-type]
+                "Scalar",
+            )
+        ).body()
+    with pytest.raises(ValueError, match="require a second-base delta"):
+        small_lowering(
+            SignedInt8TiledLdsPolicy(
+                "WeightThenActivation",
+                "PairedHoistedSecondBase",
+            )
+        ).body()
+
+    wave_writer = ForwardKernelWriterAssembly(
+        SolutionKey(
+            ProblemType.mmq_forward("Q8_0"),
+            ProblemSize(2048, 1024, 4096),
+            ForwardSolution.q8_0_hip_tiled_lds(),
+        ),
+        Toolchain.discover(),
+    )
+    wave = cast(
+        SignedInt8WaveNTiledLdsPhysicalPlan,
+        wave_writer.context.state.physical_plan,
+    )
+
+    def wave_lowering(policy: SignedInt8TiledLdsPolicy) -> SignedInt8ForwardLowering:
+        state = replace(
+            wave_writer.context.state,
+            physical_plan=replace(wave, policy=policy),
+        )
+        return SignedInt8ForwardLowering(replace(wave_writer.context, state=state))
+
+    with pytest.raises(ValueError, match="unsupported Q8 stage order"):
+        wave_lowering(
+            SignedInt8TiledLdsPolicy(
+                "Opaque",  # ty: ignore[invalid-argument-type]
+                "Scalar",
+            )
+        ).body()
+    with pytest.raises(ValueError, match="require a second-base delta"):
+        wave_lowering(
+            SignedInt8TiledLdsPolicy(
+                "Interleaved",
+                "PairedHoistedSecondBase",
+            )
+        ).body()
+
+    lowering = SignedInt8ForwardLowering(wave_writer.context)
+    registers: SignedInt8TiledLdsRegisters = wave.registers
+    layout: SignedInt8TiledLdsScaleLayout = wave.layout
+    with pytest.raises(ValueError, match="require a second-base delta"):
+        lowering._emit_signed_int8_tiled_group(
+            Assembly(),
+            0,
+            registers,
+            layout,
+            SignedInt8TiledLdsPolicy(
+                "Interleaved",
+                "PairedHoistedSecondBase",
+            ),
+        )
+    with pytest.raises(ValueError, match="unsupported Q8 scale-read policy"):
+        lowering._emit_signed_int8_tiled_group(
+            Assembly(),
+            0,
+            registers,
+            layout,
+            SignedInt8TiledLdsPolicy(
+                "Interleaved",
+                "Opaque",  # ty: ignore[invalid-argument-type]
+            ),
+        )
+
+
+def test_forward_physical_planner_rejects_unknown_descriptor_kind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spec = ForwardKernelSpec.from_solution(ForwardSolution.q8_0_direct_global())
+    mechanism = q6_physical_module.forward_mechanism_contract("Q8DirectGlobal")
+    monkeypatch.setattr(
+        q6_physical_module,
+        "forward_mechanism_contract",
+        lambda _: replace(
+            mechanism,
+            physical_plan="Opaque",
+        ),
+    )
+    with pytest.raises(AssertionError, match="unhandled forward physical plan"):
+        derive_forward_physical_plan(spec)
 
 
 def test_writer_emits_typed_q3_full_weight_control() -> None:

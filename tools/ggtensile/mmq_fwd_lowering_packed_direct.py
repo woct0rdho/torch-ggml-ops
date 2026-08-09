@@ -14,7 +14,6 @@ from .mmq_fwd_lowering_metadata import emit_packed_scale_minimum
 from .mmq_fwd_lowering_mma import emit_signed_i8_wmma
 from .mmq_fwd_physical import (
     PackedScaleMinimumDirectPhysicalPlan,
-    PackedScaleMinimumDirectRegisterPlan,
 )
 
 
@@ -28,17 +27,6 @@ class PackedScaleMinimumDirectLowering:
     KERNARG: ClassVar[int] = 4
     LOOP_COUNTER: ClassVar[int] = 10
 
-    @property
-    def _direct_physical(self) -> PackedScaleMinimumDirectPhysicalPlan:
-        return cast(
-            PackedScaleMinimumDirectPhysicalPlan,
-            self.context.state.physical_plan,
-        )
-
-    @property
-    def _direct_registers(self) -> PackedScaleMinimumDirectRegisterPlan:
-        return self._direct_physical.registers
-
     def body(self) -> str:
         operand_source = self.context.state.kernel_spec.global_memory.operand_source
         if operand_source != self.OPERAND_SOURCE:
@@ -48,8 +36,12 @@ class PackedScaleMinimumDirectLowering:
         return self._body_global()
 
     def _body_global(self) -> str:
-        registers = self._direct_registers
-        activation_metadata = self._direct_physical.activation_metadata
+        physical = cast(
+            PackedScaleMinimumDirectPhysicalPlan,
+            self.context.state.physical_plan,
+        )
+        registers = physical.registers
+        activation_metadata = physical.activation_metadata
         asm = Assembly()
         name = self.context.solution_key.kernel_name
         quant_type = self.context.state.contract.quant_type
@@ -163,8 +155,12 @@ class PackedScaleMinimumDirectLowering:
         return asm.text()
 
     def _emit_group(self, asm: Assembly, group: int) -> None:
-        registers = self._direct_registers
-        activation_group = self._direct_physical.activation_metadata.group(group)
+        physical = cast(
+            PackedScaleMinimumDirectPhysicalPlan,
+            self.context.state.physical_plan,
+        )
+        registers = physical.registers
+        activation_group = physical.activation_metadata.group(group)
         weight_q_offset, weight_q_offset_high = (
             self.context.state.semantics.low_payload_group_offsets(group)
         )
@@ -232,7 +228,10 @@ class PackedScaleMinimumDirectLowering:
         self._emit_scaled_accumulate(asm, group)
 
     def _emit_scaled_accumulate(self, asm: Assembly, group: int) -> None:
-        registers = self._direct_registers
+        registers = cast(
+            PackedScaleMinimumDirectPhysicalPlan,
+            self.context.state.physical_plan,
+        ).registers
         asm.comment("Reproduce Q4_K FP16 scale/min construction before FP32 sums.")
         asm.inst(
             f"v_cvt_f32_f16 v{registers.activation_d.first_register}, v{registers.activation_scale_sum.first_register}"
@@ -290,7 +289,10 @@ class PackedScaleMinimumDirectLowering:
             )
 
     def _emit_store(self, asm: Assembly) -> None:
-        registers = self._direct_registers
+        registers = cast(
+            PackedScaleMinimumDirectPhysicalPlan,
+            self.context.state.physical_plan,
+        ).registers
         size = self.context.state.problem_size
         asm.comment("Store the gfx11 J-major C fragments as row-major BF16 output.")
         asm.inst(
