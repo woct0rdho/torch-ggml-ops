@@ -1717,6 +1717,17 @@ class Q6PhysicalLayout:
     """Selected physical role layout derived from per-wave output ownership."""
 
     output_tile_rows: int
+    m_wave_groups: int = 1
+
+    def __post_init__(self) -> None:
+        if self.output_tile_rows not in (1, 2):
+            raise ValueError(
+                f"unsupported Q6 physical output rows: {self.output_tile_rows}"
+            )
+        if self.m_wave_groups not in (1, 2):
+            raise ValueError(f"unsupported Q6 M-wave groups: {self.m_wave_groups}")
+        if self.m_wave_groups == 2 and self.output_tile_rows != 2:
+            raise ValueError("shared Q6 M-wave ownership requires two rows per wave")
 
     @property
     def registers(self) -> Q6PhysicalRegisterMap:
@@ -1728,7 +1739,19 @@ class Q6PhysicalLayout:
 
     @property
     def lds(self) -> Q6LdsLayout:
-        return Q6LdsLayout(self.output_tile_rows)
+        return Q6LdsLayout(self.output_tile_rows, self.m_wave_groups)
+
+    @property
+    def macro_tile0(self) -> int:
+        return 64 * self.output_tile_rows * self.m_wave_groups
+
+    @property
+    def macro_rows_per_wave_group(self) -> int:
+        return 64 * self.output_tile_rows
+
+    @property
+    def activation_row_dwords(self) -> int:
+        return Q8_1_F32_D4_BLOCK_BYTES // 4
 
     @property
     def ownership(self) -> Q6OwnershipRegisterPlan:
@@ -1847,7 +1870,7 @@ class Q6PhysicalLayout:
 
     @property
     def loop_exit_annotation(self) -> str:
-        macro_tile_m = 64 * self.output_tile_rows
+        macro_tile_m = self.macro_tile0
         exit_index = 68 + 88 * self.output_tile_rows
         return (
             "; %bb.5:                                ; "
@@ -2210,15 +2233,34 @@ ForwardPhysicalPlan: TypeAlias = (
 )
 
 
-def q6_structured_physical_plan(output_tile_rows: int) -> Q6StructuredPhysicalPlan:
+def q6_structured_physical_plan(
+    output_tile_rows: int,
+    wave_group_m: int = 4,
+    physical_plan: str = "CanonicalRegisterRoles",
+) -> Q6StructuredPhysicalPlan:
     if output_tile_rows not in (1, 2):
         raise ValueError("structured Q6 implements one or two output rows per wave")
-    layout = Q6PhysicalLayout(output_tile_rows)
+    if wave_group_m not in (4, 8):
+        raise ValueError("structured Q6 implements four or eight M-owned waves")
+    if physical_plan not in {
+        "CanonicalRegisterRoles",
+        "WideScalarCarryFrontier",
+    }:
+        raise ValueError(f"unsupported structured Q6 physical plan: {physical_plan}")
+    if physical_plan == "WideScalarCarryFrontier" and (
+        output_tile_rows != 1 or wave_group_m != 4
+    ):
+        raise ValueError("wide scalar-carry frontier requires four-wave MT64")
+    layout = Q6PhysicalLayout(output_tile_rows, wave_group_m // 4)
     return Q6StructuredPhysicalPlan(
         layout=layout,
         resources=ForwardResourceUsage(
             vgprs=layout.declared_vgprs,
-            sgprs=layout.declared_sgprs,
+            sgprs=(
+                33
+                if physical_plan == "WideScalarCarryFrontier"
+                else layout.declared_sgprs
+            ),
             lds_bytes=layout.lds.total_bytes,
         ),
     )
@@ -2258,7 +2300,11 @@ def derive_forward_physical_plan(spec: ForwardKernelSpec) -> ForwardPhysicalPlan
     mechanism = forward_mechanism_contract(operand_source)
     plan_kind = mechanism.physical_plan
     if plan_kind == "StructuredQ6":
-        return q6_structured_physical_plan(spec.ownership.mi_wave_tile[0])
+        return q6_structured_physical_plan(
+            spec.ownership.mi_wave_tile[0],
+            spec.ownership.mi_wave_group[0],
+            spec.instruction_policy.q6_physical_plan or "CanonicalRegisterRoles",
+        )
     if plan_kind == "Packed3BitTiledLds":
         if spec.geometry.work_group != (32, 4, 1) or spec.macro_tile != (128, 64):
             raise ValueError("Q3 HIP-shaped LDS control requires a 128x64 tile")

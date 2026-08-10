@@ -849,6 +849,7 @@ class InstructionPolicy:
 
     accumulator_initialization: str | None
     dependency_delay_mode: str | None
+    q6_physical_plan: str | None
 
 
 @dataclass(frozen=True)
@@ -1086,8 +1087,21 @@ def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | Non
             not in SemanticSchedulePolicy.supported_structured_q6()
         ):
             return "unsupported structured-Q6 semantic schedule policy"
+        if solution.q6_physical_plan not in {
+            "CanonicalRegisterRoles",
+            "WideScalarCarryFrontier",
+        }:
+            return "unsupported structured-Q6 physical plan"
+        if solution.q6_physical_plan == "WideScalarCarryFrontier" and (
+            solution.macro_tile0 != 64
+            or serialized_q6_schedule
+            != SemanticSchedulePolicy.structured_q6_wavefront()
+        ):
+            return "wide scalar-carry frontier requires wavefront MT64"
     elif serialized_q6_schedule != SemanticSchedulePolicy.structured_q6():
         return "Q6 semantic schedule is inactive for this lowering"
+    elif solution.q6_physical_plan != "CanonicalRegisterRoles":
+        return "Q6 physical plan is inactive for this lowering"
     expected_legacy_suffix = (
         (1, 1, 4, 4, 1) if mechanism.extended_legacy_matrix else (1, 1, 1, 1, 1)
     )
@@ -1337,6 +1351,7 @@ class ForwardKernelSpec:
                 dependency_delay_mode=(
                     solution.q6_dependency_delay_mode if structured_q6 else None
                 ),
+                q6_physical_plan=(solution.q6_physical_plan if structured_q6 else None),
             ),
             semantic_schedule=(
                 serialized_q6_schedule
@@ -1398,6 +1413,7 @@ class ForwardKernelSpec:
         q6_pressure_policy = "ExplicitRoleLifetime"
         q6_wait_policy = "ProducerFirstUse"
         q6_pairing_policy = "DependencyCompatibleDualIssue"
+        q6_physical_plan = "CanonicalRegisterRoles"
         if decoded_staged:
             assert pipeline is not None
             if pipeline.tiles_ahead is None or pipeline.priority is None:
@@ -1437,6 +1453,9 @@ class ForwardKernelSpec:
             q6_pressure_policy = cast(str, self.semantic_schedule.pressure)
             q6_wait_policy = cast(str, self.semantic_schedule.wait)
             q6_pairing_policy = cast(str, self.semantic_schedule.pairing)
+            if self.instruction_policy.q6_physical_plan is None:
+                raise ValueError("structured Q6 requires a physical plan")
+            q6_physical_plan = self.instruction_policy.q6_physical_plan
         solution = ForwardSolution(
             kernel_language=contract.kernel_language,
             isa=contract.isa,
@@ -1473,6 +1492,7 @@ class ForwardKernelSpec:
             q6_pressure_policy=q6_pressure_policy,
             q6_wait_policy=q6_wait_policy,
             q6_pairing_policy=q6_pairing_policy,
+            q6_physical_plan=q6_physical_plan,
         )
         if (
             ForwardProblemContract.from_solution(contract.quant_type, solution)
@@ -1513,10 +1533,13 @@ class Q6LdsLayout:
     """Formula-derived Q6 LDS planes and stage offsets."""
 
     output_rows_per_wave: int
+    m_wave_groups: int = 1
 
     def __post_init__(self) -> None:
-        if self.output_rows_per_wave <= 0:
-            raise ValueError("Q6 LDS output rows per wave must be positive")
+        if self.output_rows_per_wave <= 0 or self.m_wave_groups <= 0:
+            raise ValueError(
+                "Q6 LDS output rows per wave and M-wave groups must be positive"
+            )
 
     @property
     def stage_stride_bytes(self) -> int:
@@ -1524,6 +1547,10 @@ class Q6LdsLayout:
 
     @property
     def total_bytes(self) -> int:
+        return 19_456 + self.stage_stride_bytes * self.m_wave_groups
+
+    @property
+    def activation_wave_group_stride_bytes(self) -> int:
         return 19_456 + self.stage_stride_bytes
 
     @property
@@ -1619,6 +1646,7 @@ class Q6ForwardSchedule:
     mi_wave_group: tuple[int, int]
     mi_wave_tile: tuple[int, int]
     semantic_policy: SemanticSchedulePolicy
+    physical_plan: Literal["CanonicalRegisterRoles", "WideScalarCarryFrontier"]
     epilogue_dependency_width: int
     epilogue_pipeline_scope: Literal["StoreBatch", "FullTile"]
     dot_register_shifts: tuple[int, ...]
@@ -1632,6 +1660,16 @@ class Q6ForwardSchedule:
             raise ValueError("Q6 matrix instruction implements one input block")
         if not self.dot_register_shifts:
             raise ValueError("Q6 requires at least one dot phase")
+        if self.physical_plan not in {
+            "CanonicalRegisterRoles",
+            "WideScalarCarryFrontier",
+        }:
+            raise ValueError(f"unsupported Q6 physical plan: {self.physical_plan}")
+        if self.physical_plan == "WideScalarCarryFrontier" and (
+            self.macro_tile0 != 64
+            or self.semantic_policy != SemanticSchedulePolicy.structured_q6_wavefront()
+        ):
+            raise ValueError("wide scalar-carry frontier requires wavefront MT64")
         if (
             self.epilogue_dependency_width not in (1, 2, 4, 8)
             or self.store_vector_width % self.epilogue_dependency_width
@@ -1692,7 +1730,9 @@ class Q6ForwardSchedule:
     def resource_usage(self) -> ForwardResourceUsage:
         from .mmq_fwd_physical import q6_structured_physical_plan
 
-        return q6_structured_physical_plan(self.mi_wave_tile[0]).resources
+        return q6_structured_physical_plan(
+            self.mi_wave_tile[0], self.mi_wave_group[0], self.physical_plan
+        ).resources
 
     def phase(self, phase: int) -> Q6DotPhase:
         if phase not in range(len(self.dot_register_shifts)):
@@ -1712,15 +1752,20 @@ def q6_schedule_from_kernel_spec(spec: ForwardKernelSpec) -> Q6ForwardSchedule:
     if pipeline is None or pipeline.scope is None:
         raise ValueError("structured Q6 requires an epilogue pipeline")
     delay_mode = spec.instruction_policy.dependency_delay_mode
+    physical_plan = spec.instruction_policy.q6_physical_plan
     cache_policy = spec.global_memory.global_read_cache_policy
-    if delay_mode is None or cache_policy is None:
-        raise ValueError("structured Q6 requires delay and cache policies")
+    if delay_mode is None or cache_policy is None or physical_plan is None:
+        raise ValueError("structured Q6 requires delay, cache, and physical policies")
     _, _, tile_k, _ = spec.geometry.matrix_instruction
     return Q6ForwardSchedule(
         matrix_instruction=spec.geometry.matrix_instruction,
         mi_wave_group=spec.ownership.mi_wave_group,
         mi_wave_tile=spec.ownership.mi_wave_tile,
         semantic_policy=spec.semantic_schedule,
+        physical_plan=cast(
+            Literal["CanonicalRegisterRoles", "WideScalarCarryFrontier"],
+            physical_plan,
+        ),
         epilogue_dependency_width=pipeline.dependency_width,
         epilogue_pipeline_scope=cast(Literal["StoreBatch", "FullTile"], pipeline.scope),
         dot_register_shifts=tuple(range(spec.geometry.depth_u // tile_k)),

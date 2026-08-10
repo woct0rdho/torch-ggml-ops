@@ -118,12 +118,16 @@ def test_q6_manual_neighborhoods_are_linked_and_deterministic() -> None:
     assert len(q6_schedule_neighbors(j64, ("InstructionPolicy",))) == 4
     assert len(q6_schedule_neighbors(j128, ("InstructionPolicy",))) == 8
     assert len(q6_schedule_neighbors(j64, ("Epilogue",))) == 8
-    assert len(q6_schedule_candidates(64)) == 32
+    assert len(q6_schedule_candidates(64)) == 48
     assert len(q6_schedule_candidates(128)) == 64
     assert q6_schedule_candidates(64) == q6_schedule_candidates(64)
     assert {
         candidate.semantic_policy.traversal for candidate in q6_schedule_candidates(64)
     } == {"OutputRoleGroupMajor", "OutputRoleWavefront"}
+    assert {candidate.physical_plan for candidate in q6_schedule_candidates(64)} == {
+        "CanonicalRegisterRoles",
+        "WideScalarCarryFrontier",
+    }
 
 
 def test_q6_manual_candidate_uses_normal_solution_and_writer_path() -> None:

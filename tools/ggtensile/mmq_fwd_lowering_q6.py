@@ -112,6 +112,32 @@ class Q6ScheduleEmitter:
             self.dependency_delay(address.delay_after_high)
 
     def add_u64_batch(self, addresses: tuple[Q6AddressAdd, ...]) -> None:
+        if (
+            self.schedule.physical_plan == "WideScalarCarryFrontier"
+            and len(addresses) > 1
+        ):
+            if len(addresses) > 8:
+                raise ValueError(
+                    "Q6 scalar-carry frontier supports at most eight addresses"
+                )
+            carry_base = 25
+            for index, address in enumerate(addresses):
+                self.inst(
+                    "v_add_co_u32",
+                    f"v{address.destination}, s{carry_base + index}, "
+                    f"{address.left}, {address.right}",
+                )
+                if address.delay_after_low is not None:
+                    self.dependency_delay(address.delay_after_low)
+            for index, address in enumerate(addresses):
+                self.inst(
+                    "v_add_co_ci_u32_e64",
+                    f"v{address.destination + 1}, null, {address.high_left}, "
+                    f"{address.high}, s{carry_base + index}",
+                )
+                if address.delay_after_high is not None:
+                    self.dependency_delay(address.delay_after_high)
+            return
         for address in addresses:
             self.add_u64(address)
 
@@ -352,7 +378,14 @@ def _q6_physical_layout(schedule: Q6ForwardSchedule) -> Q6PhysicalLayout:
         raise ValueError(
             f"unsupported Q6 physical layout for MIWaveTileM={mi_wave_tile_m}"
         )
-    return q6_structured_physical_plan(mi_wave_tile_m).layout
+    wave_group_m = schedule.mi_wave_group[0]
+    if wave_group_m not in (4, 8) or schedule.mi_wave_group[1] != 1:
+        raise ValueError(
+            f"unsupported Q6 M-wave ownership for MIWaveGroup={schedule.mi_wave_group}"
+        )
+    return q6_structured_physical_plan(
+        mi_wave_tile_m, wave_group_m, schedule.physical_plan
+    ).layout
 
 
 def _q6_dot_fragment_register(layout: Q6PhysicalLayout, tile: int) -> tuple[int, int]:
@@ -690,10 +723,17 @@ def _q6_lane_and_address_setup(schedule: Q6ForwardSchedule) -> code.Module:
     emitter = Q6ScheduleEmitter(schedule, "lane_and_address_setup")
     layout = _q6_physical_layout(schedule)
     _q6_emit_lane_setup_annotations(emitter, layout)
+    if layout.m_wave_groups == 2:
+        emitter.inst("v_readfirstlane_b32", "s25, v0")
+        emitter.inst("s_and_b32", "s25, s25, 0x1000")
+        emitter.inst("s_lshr_b32", "s25, s25, 5")
+        emitter.inst("s_lshl_b32", "s26, s25, 5")
+        emitter.inst("s_sub_u32", "s26, 0, s26")
+        emitter.inst("v_add_nc_u32_e32", "v0, s26, v0")
     if layout.output_tile_rows == 1:
         _q6_emit_single_row_lane_and_address_setup(emitter)
     else:
-        _q6_emit_dual_row_lane_and_address_setup(emitter)
+        _q6_emit_dual_row_lane_and_address_setup(emitter, layout)
     _q6_emit_scalar_setup_tail(emitter, schedule)
     return emitter.module()
 
@@ -1020,6 +1060,9 @@ def _q6_packed_decode(schedule: Q6ForwardSchedule) -> code.Module:
     semantics = _Q6_SEMANTICS.q6_signed_decode()
     emitter = Q6ScheduleEmitter(schedule, "packed_decode")
     emitter.wait_vmem(0)
+    if layout.m_wave_groups == 2:
+        emitter.inst("s_cmp_eq_u32", "s25, 0")
+        emitter.inst("s_cbranch_scc0", ".LQ6SharedDecodeDone")
     emitter.inst(
         "v_cvt_f32_f16_e64",
         f"v{plan.factor_register}, {Q6HalfRegister(plan.factor_source_register, 'l')}",
@@ -1027,6 +1070,8 @@ def _q6_packed_decode(schedule: Q6ForwardSchedule) -> code.Module:
     lane_shift = Q6Vgpr(plan.lane_shift_register)
     if schedule.semantic_policy.traversal == "OutputRoleWavefront":
         _q6_emit_decode_wavefront(emitter, plan, semantics, lane_shift)
+        if layout.m_wave_groups == 2:
+            emitter.annotation(".LQ6SharedDecodeDone:")
         return emitter.module()
     for source, output in zip(plan.sources, plan.outputs, strict=True):
         ql = source.low_payload.first_register
@@ -1050,6 +1095,8 @@ def _q6_packed_decode(schedule: Q6ForwardSchedule) -> code.Module:
                 "v_xor_b32_e32",
                 f"v{register}, {hex(semantics.signed_xor)}, v{register}",
             )
+    if layout.m_wave_groups == 2:
+        emitter.annotation(".LQ6SharedDecodeDone:")
     return emitter.module()
 
 
@@ -1121,6 +1168,9 @@ def _q6_decoded_lds_writes(schedule: Q6ForwardSchedule) -> code.Module:
     plan = layout.decode
     lds = layout.lds
     emitter = Q6ScheduleEmitter(schedule, "decoded_lds_writes")
+    if layout.m_wave_groups == 2:
+        emitter.inst("s_cmp_eq_u32", "s25, 0")
+        emitter.inst("s_cbranch_scc0", ".LQ6SharedActivationWrites")
     for output in plan.outputs:
         offset0, offset1 = layout.decoded_write_offsets(output.atom)
         emitter.local_write_pair(
@@ -1138,6 +1188,8 @@ def _q6_decoded_lds_writes(schedule: Q6ForwardSchedule) -> code.Module:
     )
     emitter.local_write(plan.scale_write_address_base, 3, lds.scale_read_base)
     emitter.local_write(plan.scale_write_address_base + 1, 4, lds.scale_read_base)
+    if layout.m_wave_groups == 2:
+        emitter.annotation(".LQ6SharedActivationWrites:")
     payloads = plan.activation_payload_registers
     for pair in range(len(payloads) // 2):
         emitter.local_write_cooperative_pair(
@@ -1196,7 +1248,7 @@ def _q6_begin_second_stage(
     emitter: Q6ScheduleEmitter,
     layout: Q6PhysicalLayout,
 ) -> None:
-    macro_tile_m = 64 * layout.output_tile_rows
+    macro_tile_m = layout.macro_tile0
     emitter.annotation(
         "; %bb.3:                                ; "
         f"%_ZL18mmq_vec_dot_targetIL9ggml_type14ELi{macro_tile_m}"
@@ -1436,6 +1488,7 @@ def _q6_bf16_epilogue(
 
 def _q6_emit_dual_row_lane_and_address_setup(
     emitter: Q6ScheduleEmitter,
+    layout: Q6PhysicalLayout,
 ) -> None:
     emitter.inst("v_and_b32_e32", "v1, 0x3ff, v0")
     emitter.dual_zero(14, "v_dual_and_b32", "v3, 0x70, v0")
@@ -1556,6 +1609,15 @@ def _q6_emit_dual_row_lane_and_address_setup(
             f"v{right}, 0",
         )
     emitter.inst("v_mov_b32_e32", "v105, 0")
+    if layout.m_wave_groups == 2:
+        address_scale = (
+            layout.lds.activation_wave_group_stride_bytes
+            // layout.macro_rows_per_wave_group
+        )
+        emitter.inst("s_mul_i32", f"s26, s25, {address_scale}")
+        emitter.inst("v_add_nc_u32_e32", "v77, s26, v77")
+        emitter.inst("v_add_nc_u32_e32", "v79, s26, v79")
+        emitter.inst("v_add_nc_u32_e32", "v61, s25, v61")
 
 
 def _q6_emit_dual_row_near_weight_reads(
@@ -1729,6 +1791,13 @@ def _q6_emit_dual_row_far_weight_reads(
         )
     )
     emitter.inst("v_mad_u64_u32", "v[2:3], null, s24, 36, v[1:2]")
+    if layout.m_wave_groups == 2:
+        emitter.inst(
+            "s_mul_i32",
+            f"s26, s25, {layout.activation_row_dwords}",
+        )
+        emitter.inst("v_add_co_u32", "v2, vcc_lo, s26, v2")
+        emitter.inst("v_add_co_ci_u32_e64", "v3, null, 0, v3, vcc_lo")
     emitter.inst(
         "v_mad_u64_u32",
         f"v[135:136], null, {packed_block_bytes}, v73, s[18:19]",

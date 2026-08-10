@@ -130,11 +130,11 @@ def _validate_structured_q6_forward_solution(
     solution: ForwardSolution,
     reasons: list[RejectReason],
 ) -> None:
-    if solution.macro_tile0 not in (64, 128):
+    if solution.macro_tile0 not in (64, 128, 256):
         _reject(
             reasons,
             "solution.forward.q6.control.unimplemented",
-            "Q6_K forward implements structured MT64 or MT128 controls",
+            "Q6_K forward implements structured MT64, MT128, or MT256 controls",
             "Solution",
         )
         return
@@ -154,6 +154,7 @@ def _validate_structured_q6_forward_solution(
             q6_pressure_policy=structured.q6_pressure_policy,
             q6_wait_policy=structured.q6_wait_policy,
             q6_pairing_policy=structured.q6_pairing_policy,
+            q6_physical_plan=structured.q6_physical_plan,
         )
         == structured
     )
@@ -161,7 +162,7 @@ def _validate_structured_q6_forward_solution(
         _reject(
             reasons,
             "solution.forward.q6.control.unimplemented",
-            "Q6_K forward implements structured MT64 or MT128 controls",
+            "Q6_K forward implements structured MT64, MT128, or MT256 controls",
             "Solution",
         )
         return
@@ -173,6 +174,15 @@ def _validate_structured_q6_forward_solution(
         or solution.q6_dependency_delay_mode not in ("None", "Explicit")
         or solution.q6_global_read_cache_policy not in ("Default", "InvalidateL0")
         or (solution.macro_tile0 == 64 and solution.q6_dependency_delay_mode != "None")
+        or solution.q6_physical_plan
+        not in {"CanonicalRegisterRoles", "WideScalarCarryFrontier"}
+        or (
+            solution.q6_physical_plan == "WideScalarCarryFrontier"
+            and (
+                solution.macro_tile0 != 64
+                or solution.q6_output_traversal != "OutputRoleWavefront"
+            )
+        )
     ):
         _reject(
             reasons,
@@ -182,6 +192,7 @@ def _validate_structured_q6_forward_solution(
             "Q6EpiloguePipelineScope",
             "Q6DependencyDelayMode",
             "Q6GlobalReadCachePolicy",
+            "Q6PhysicalPlan",
         )
 
 

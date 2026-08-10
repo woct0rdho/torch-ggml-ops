@@ -28,6 +28,7 @@ from tools.ggtensile.mmq_fwd_lowering_packed_direct import (
 )
 from tools.ggtensile.mmq_fwd_lowering_q3_full import FullWeightQ3TiledLdsLowering
 from tools.ggtensile.mmq_fwd_lowering_q6 import (
+    Q6ScheduleEmitter,
     _emit_q6_dot_phase,
     _emit_q6_scheduled_body,
 )
@@ -35,6 +36,11 @@ from tools.ggtensile.mmq_fwd_lowering_signed_i8 import SignedInt8ForwardLowering
 from tools.ggtensile.mmq_fwd_physical import (
     DecodedWeightLdsPhysicalPlan,
     Q3FullWeightTiledLdsRegisterPlan,
+    Q6AddressAdd,
+    Q6DependencyDelay,
+    Q6Immediate,
+    Q6PhysicalLayout,
+    Q6Vgpr,
     SignedInt8MmaGroupRole,
     SignedInt8RegisterTiledRegisterPlan,
     SignedInt8SmallMTiledLdsPhysicalPlan,
@@ -215,6 +221,7 @@ def test_q6_schedule_policy_knobs_are_explicit() -> None:
         "mi_wave_group",
         "mi_wave_tile",
         "semantic_policy",
+        "physical_plan",
         "epilogue_dependency_width",
         "epilogue_pipeline_scope",
         "dot_register_shifts",
@@ -252,7 +259,7 @@ def test_q6_schedule_policy_knobs_are_explicit() -> None:
 
     j64_candidates = q6_schedule_candidates(64)
     j128_candidates = q6_schedule_candidates(128)
-    assert len(j64_candidates) == 32
+    assert len(j64_candidates) == 48
     assert len(j128_candidates) == 64
     assert {candidate.global_read_cache_policy for candidate in j64_candidates} == {
         "Default",
@@ -282,6 +289,62 @@ def test_q6_schedule_policy_knobs_are_explicit() -> None:
         "StoreBatch",
         "FullTile",
     }
+
+
+def test_q6_shared_mt256_and_wide_scalar_carry_plans_are_emitted() -> None:
+    mt256 = _q6_schedule(256)
+    shared_source = str(_emit_q6_scheduled_body(mt256, 8))
+    assert "s_and_b32 s25, s25, 0x1000" in shared_source
+    assert "s_cbranch_scc0 .LQ6SharedDecodeDone" in shared_source
+    shared_wavefront = replace(
+        mt256,
+        semantic_policy=mt256.semantic_policy.structured_q6_wavefront(),
+    )
+    assert ".LQ6SharedDecodeDone:" in str(_emit_q6_scheduled_body(shared_wavefront, 8))
+
+    wide = replace(
+        _q6_schedule(64),
+        semantic_policy=mt256.semantic_policy.structured_q6_wavefront(),
+        physical_plan="WideScalarCarryFrontier",
+    )
+    wide_source = str(_emit_q6_scheduled_body(wide, 8))
+    assert "v_add_co_u32 v4, s25, v2, v53" in wide_source
+    assert "v_add_co_ci_u32_e64 v5, null, 0, v3, s25" in wide_source
+
+
+def test_q6_scalar_carry_frontier_rejects_an_oversized_address_batch() -> None:
+    schedule = replace(
+        _q6_schedule(64),
+        semantic_policy=_q6_schedule(256).semantic_policy.structured_q6_wavefront(),
+        physical_plan="WideScalarCarryFrontier",
+    )
+    emitter = Q6ScheduleEmitter(schedule, "oversized")
+    addresses = tuple(
+        Q6AddressAdd(index * 2, Q6Immediate(index), Q6Vgpr(0), Q6Vgpr(1))
+        for index in range(9)
+    )
+    with pytest.raises(ValueError, match="at most eight addresses"):
+        emitter.add_u64_batch(addresses)
+    delayed = (
+        Q6AddressAdd(
+            0,
+            Q6Immediate(1),
+            Q6Vgpr(0),
+            Q6Vgpr(1),
+            delay_after_low=Q6DependencyDelay("VALU_DEP", 1),
+        ),
+        Q6AddressAdd(
+            2,
+            Q6Immediate(2),
+            Q6Vgpr(0),
+            Q6Vgpr(1),
+            delay_after_high=Q6DependencyDelay("VALU_DEP", 1),
+        ),
+    )
+    explicit = replace(schedule, dependency_delay_mode="Explicit")
+    delayed_emitter = Q6ScheduleEmitter(explicit, "delayed")
+    delayed_emitter.add_u64_batch(delayed)
+    assert str(delayed_emitter.module()).count("s_delay_alu") == 2
 
 
 @pytest.mark.parametrize(
@@ -328,8 +391,12 @@ def test_q6_solution_schedule_derivation_rejects_invalid_structure() -> None:
 
 
 def test_q6_schedule_rejects_unsupported_geometry_and_phase() -> None:
-    with pytest.raises(ValueError, match="implements MT64 or MT128"):
-        _q6_schedule(256)
+    shared_m256 = _q6_schedule(256)
+    assert shared_m256.work_group == (32, 8, 1)
+    assert shared_m256.macro_tile == (256, 64)
+    assert shared_m256.resource_usage.lds_bytes == 57_344
+    with pytest.raises(ValueError, match="implements MT64, MT128, or MT256"):
+        _q6_schedule(192)
     with pytest.raises(ValueError, match="unsupported Q6 dot phase: 2"):
         _q6_schedule(64).phase(2)
     selected = _q6_schedule(64)
@@ -342,6 +409,21 @@ def test_q6_schedule_rejects_unsupported_geometry_and_phase() -> None:
         _emit_q6_scheduled_body(selected, 0)
     with pytest.raises(ValueError, match="unsupported Q6 physical layout"):
         q6_lowering_module._q6_physical_layout(unsupported)
+    invalid_wave_group = replace(selected, mi_wave_group=(2, 2))
+    with pytest.raises(ValueError, match="unsupported Q6 M-wave ownership"):
+        q6_lowering_module._q6_physical_layout(invalid_wave_group)
+    with pytest.raises(ValueError, match="unsupported Q6 physical output rows"):
+        Q6PhysicalLayout(3)
+    with pytest.raises(ValueError, match="unsupported Q6 M-wave groups"):
+        Q6PhysicalLayout(2, 3)
+    with pytest.raises(ValueError, match="requires two rows per wave"):
+        Q6PhysicalLayout(1, 2)
+    with pytest.raises(ValueError, match="four or eight M-owned waves"):
+        q6_structured_physical_plan(1, 2)
+    with pytest.raises(ValueError, match="unsupported structured Q6 physical plan"):
+        q6_structured_physical_plan(1, 4, "OpaquePlan")
+    with pytest.raises(ValueError, match="requires four-wave MT64"):
+        q6_structured_physical_plan(2, 4, "WideScalarCarryFrontier")
     with pytest.raises(ValueError, match="unsupported Q6 ownership rows"):
         q6_physical_module.Q6OwnershipRegisterPlan.for_output_tile_rows(3)
     ownership = q6_physical_module.Q6OwnershipRegisterPlan.for_output_tile_rows(1)

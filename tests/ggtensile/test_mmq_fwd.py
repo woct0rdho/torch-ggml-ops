@@ -271,7 +271,7 @@ def test_forward_solution_identity_normalizes_scalar_accumulator_initialization(
     None
 ):
     mapping = ForwardSolution.q4_k_pilot().to_mapping()
-    assert len(mapping) == len(fields(ForwardSolution)) - 10
+    assert len(mapping) == len(fields(ForwardSolution)) - 11
     assert "AccumulatorInitialization" not in mapping
     assert "Q6EpiloguePipelineScope" not in mapping
     assert "Q6DependencyDelayMode" not in mapping
@@ -283,7 +283,7 @@ def test_forward_solution_identity_normalizes_scalar_accumulator_initialization(
         accumulator_initialization="VopdPair",
     )
     vopd_mapping = vopd.to_mapping()
-    assert len(vopd_mapping) == len(fields(ForwardSolution)) - 9
+    assert len(vopd_mapping) == len(fields(ForwardSolution)) - 10
     assert vopd_mapping["AccumulatorInitialization"] == "VopdPair"
     assert ForwardSolution.from_mapping(vopd_mapping) == vopd
 
@@ -298,7 +298,7 @@ def test_forward_solution_identity_normalizes_scalar_accumulator_initialization(
     assert structured_mapping["Q6PressurePolicy"] == "ExplicitRoleLifetime"
     assert structured_mapping["Q6WaitPolicy"] == "ProducerFirstUse"
     assert structured_mapping["Q6PairingPolicy"] == "DependencyCompatibleDualIssue"
-    assert len(structured_mapping) == len(fields(ForwardSolution)) - 1
+    assert len(structured_mapping) == len(fields(ForwardSolution)) - 2
     assert ForwardSolution.from_mapping(structured_mapping) == structured
 
     for policy in (

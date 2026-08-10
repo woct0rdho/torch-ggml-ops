@@ -308,6 +308,8 @@ The corrected diagnostic transform reads the invariant wave predicate into `s12`
 
 The result is promising as a derived lowering change, not as a new solution knob. The measured movement is sub-percent and the artifacts are assembly diagnostics, so no catalog or public selection changes follow from this screen. The next implementation premise is a typed `DecodedWeightLdsRegisterPlan` lifetime alias, followed by writer-line coverage, deterministic rebuilds, and independent exact-key qualification across every affected Q4 identity.
 
+That premise was completed by the later typed-writer work. `DecodedWeightLdsRegisterPlan` now owns the `activation_base` lifetime alias, the active decoded-LDS lowering consumes it directly, and the selected Q4 exact identities passed the subsequent deterministic artifact and repository qualification gates with catalog mappings unchanged. The paragraph above is campaign chronology, not open implementation work.
+
 ### Conditional loop-form follow-up
 
 The earlier single eight-group loop was only approximately `0.3%` favorable after confirmation and was closed under an older parent. A current-parent composition with the typed activation-base lifetime is a bounded reopening because both changes remove address or loop-control issue without changing resources. If pursued, `GroupLoopForm={TwoByFour,OneByEight}` must be a real linked typed lowering; a post-emission text rewrite is not sufficient. Q5 loop results do not transfer automatically.
@@ -322,3 +324,7 @@ The follow-up was implemented as a linked typed `OneByEight` lowering and screen
 These serialized nine-repeat screens reproduce the historical noise-scale result rather than establish a changed-premise gain. Attention output is effectively flat, and the sub-percent shared-down movement is below the confirmation threshold and inside the observed run variance. Broader exact-key qualification is not warranted; the unselected loop-form field and lowering are removed, and `TwoByFour` remains the only production form. Reopening this direction again requires a premise that reduces dynamic work or creates measurable overlap, not another static-body composition.
 
 The recursive final-review rule remains global. It covers forward and backward records, all supported quant types, and every exact shape, and it may reopen a locally complete Q4 record when another direction or format supplies a valid changed premise. No contract, producer, catalog, public bundle, or dispatch change is authorized by this review entry.
+
+## Candidate-Domain Evidence Boundary
+
+The automated forward candidate domain is a bounded deterministic enumerator of complete implemented policies, not evidence that the kernel is exhausted. Its linked metadata, epilogue, and instruction-policy neighborhoods do not replace the historical geometry, layout, pipeline, and exact-key campaigns. Q4 closure remains grounded in the exact artifacts, rejection records, measurements, and recursive manual review above. A domain omission is actionable only when it exposes an implemented or implementable in-contract mechanism with an exact target and qualification gate.

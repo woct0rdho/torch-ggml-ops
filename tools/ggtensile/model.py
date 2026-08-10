@@ -458,6 +458,7 @@ class ForwardSolution:
     q6_pressure_policy: str = "ExplicitRoleLifetime"
     q6_wait_policy: str = "ProducerFirstUse"
     q6_pairing_policy: str = "DependencyCompatibleDualIssue"
+    q6_physical_plan: str = "CanonicalRegisterRoles"
 
     _KEYS: ClassVar[frozenset[str]] = frozenset(
         {
@@ -496,6 +497,7 @@ class ForwardSolution:
             "Q6PressurePolicy",
             "Q6WaitPolicy",
             "Q6PairingPolicy",
+            "Q6PhysicalPlan",
         }
     )
 
@@ -641,13 +643,13 @@ class ForwardSolution:
 
     @classmethod
     def q6_k_structured_decoded(cls, *, macro_tile0: int) -> Self:
-        if macro_tile0 not in (64, 128):
-            raise ValueError("structured Q6_K forward implements MT64 or MT128")
+        if macro_tile0 not in (64, 128, 256):
+            raise ValueError("structured Q6_K forward implements MT64, MT128, or MT256")
         return cls(
             kernel_language="Assembly",
             isa=(11, 5, 1),
             wavefront_size=32,
-            work_group=(32, 4, 1),
+            work_group=(32, 8 if macro_tile0 == 256 else 4, 1),
             matrix_instruction=(16, 16, 16, 1, 1, 1, 4, 4, 1),
             macro_tile0=macro_tile0,
             macro_tile1=64,
@@ -809,6 +811,7 @@ class ForwardSolution:
                 "Q6EpiloguePipelineScope": "StoreBatch",
                 "Q6DependencyDelayMode": "None",
                 "Q6GlobalReadCachePolicy": "Default",
+                "Q6PhysicalPlan": "CanonicalRegisterRoles",
             }
             if value.get("OperandSource") != "Q6StructuredDecoded":
                 defaults.update(
@@ -881,6 +884,7 @@ class ForwardSolution:
             q6_pressure_policy=_string(item["Q6PressurePolicy"], "Q6PressurePolicy"),
             q6_wait_policy=_string(item["Q6WaitPolicy"], "Q6WaitPolicy"),
             q6_pairing_policy=_string(item["Q6PairingPolicy"], "Q6PairingPolicy"),
+            q6_physical_plan=_string(item["Q6PhysicalPlan"], "Q6PhysicalPlan"),
         )
 
     @property
@@ -965,6 +969,8 @@ class ForwardSolution:
         for key, value, default in q6_policy_fields:
             if self.operand_source == "Q6StructuredDecoded" or value != default:
                 mapping[key] = value
+        if self.q6_physical_plan != "CanonicalRegisterRoles":
+            mapping["Q6PhysicalPlan"] = self.q6_physical_plan
         return mapping
 
 

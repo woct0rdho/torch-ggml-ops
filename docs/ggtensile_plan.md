@@ -1,10 +1,10 @@
-# GGTensile Design and Progress
+# GGTensile Design
 
 ## Purpose
 
 GGTensile is the repository-local assembly kernel generator for packed GGUF matrix multiplication. It accepts one exact `ProblemType`, one exact `ProblemSize`, and one complete direction-specific solution, then either emits reproducible assembly or returns a structured rejection reason.
 
-This document is authoritative for the generic design, implementation principles, supported scope, and current project progress. Format-specific problem definitions, measurements, rejected mechanisms, artifact identities, and campaign chronology belong in the experiment records. The completed forward-writer migration and its phase evidence are recorded in `plan_ggtensile_asm_writer_refactor.md`.
+This document is authoritative for the generic design, implementation principles, supported scope, and current implementation status. Format-specific problem definitions, measurements, rejected mechanisms, artifact identities, and campaign chronology belong in the experiment records. Durable contracts from the completed forward and backward writer refactors are incorporated here; phase-by-phase migration logs are historical evidence rather than design authority.
 
 GGTensile uses a deliberately small ROCISA surface inspired by TensileLite: structured modules and metadata, explicit register pools, and direct assembler/linker invocation. It does not import TensileLite's solution, problem-type, search, scheduling, allocation, or library-generation machinery. Existing HIP kernels remain the correctness control, performance control, and runtime fallback.
 
@@ -15,11 +15,14 @@ The current backend targets gfx1151, code-object version 5, wave32, and WMMA V1.
 The project boundary is:
 - exact positive problem sizes supplied at generation time.
 - explicit complete solution identity with no silent repair or inferred tuning values.
+- stable public forward and backward writer constructors plus `source()` and `write()` behavior.
+- the exact 40-byte MMQ kernel ABI, code-object v5 metadata, and wave32 launch contract.
 - authoritative packed GGUF weights, decoded inside the generated kernel unless a separate public representation contract is designed.
 - shape dimensions exactly divisible by the selected ownership, vector widths, and reduction depth; edge tiles reject.
 - exact-key runtime applicability and HIP fallback for every mismatch.
 - formula-derived resource admission under the target VGPR, SGPR, LDS, and code-object constraints.
 - zero private storage, spills, scratch instructions, calls, and dynamic stack.
+- unchanged public HIP dispatch and 179-kernel bundle unless a separate integration review promotes exact GGTensile artifacts.
 - no split reduction, atomics, persistent traversal, prepared-weight cache, hidden dense shadow, or external decode workspace unless the mechanism receives an explicit model, ABI, lifetime, validation, and dispatch contract.
 
 Unsupported problems and solutions are normal validation results, not generator failures. Broader ISAs, edge handling, new operations, grouped ownership, prepared representations, and multi-kernel reductions are separate expansion projects rather than implicit capabilities.
@@ -39,6 +42,178 @@ The MMQ union is `Q3_K`, `Q4_K`, `Q5_K`, `Q6_K`, and `Q8_0`. The grouped union i
 
 `Q6_K` has no current grouped production workload. `Q2_K`, `IQ2_XXS`, and `IQ2_S` have no current required ordinary MMQ campaign. Ordinary `IQ2_S` tests and production inventory are intentionally excluded. Fixed-group `Q8_0` is a distinct grouped contract and is not implied by ordinary `Q8_0` coverage.
 
+### Initial routed forward campaign
+
+The first grouped expansion is forward `grouped_mmq`: routed, non-fixed, and one projection per call. It covers `Q2_K`, `Q3_K`, `Q4_K`, `Q5_K`, `IQ2_XXS`, and `IQ2_S`. `Q8_0` is excluded because its required grouped workload is the separate fixed-group output-A contract. `Q6_K` is excluded because no current grouped production workload uses it.
+
+The production disposition belongs to an exact format/shape target, not to a quant format in isolation:
+- retained non-paired targets are down projections whose final production operator remains `grouped_mmq`.
+- paired-successor precursors are gate/up projections qualified one projection at a time in this campaign. They establish the packed decoder, arithmetic, ownership, and artifact controls, but are not final production selections for those calls. A later `grouped_mmq_pair` campaign must supersede them and independently qualify shared Q8_1 workspace ownership, two packed weights, two output destinations, synchronization, resources, correctness, and complete-call timing.
+
+`IQ2_S` intentionally appears in both categories: `(N,K)=(2048,512)` is a retained single-routed down target, while `(N,K)=(512,2048)` is a paired-successor gate/up precursor.
+
+For expert group `g`, the logical matrix operation is
+
+```text
+A_g[M_g,K] x W_g^T[K,N] -> C_g[M_g,N]
+```
+
+where `M_g` is the runtime row count for that active expert and `R = sum_g(M_g)` is the aggregate routed-row count. Every routed weight bank has 256 logical experts with shape `[256,N,K]`; the physical packed bank is `[256,N,packed_row_bytes]`.
+
+Define the required aggregate row sets as `R_qwen = {16384, 65536, 262144}` and `R_deepseek = {12288, 49152, 196608}`. Each `(R_set,N,K)` entry below denotes three required operator-level `(R,N,K)` workload keys.
+
+| Disposition | Workload | Quant | Expert `(N,K)` | Physical packed weights | Required aggregate `(R,N,K)` |
+| --- | --- | --- | ---: | ---: | ---: |
+| Retained non-paired | Qwen down outer main | `Q4_K` | `(2048,512)` | `[256,2048,288]` | `(R_qwen,2048,512)` |
+| Retained non-paired | Qwen down outer edge | `Q5_K` | `(2048,512)` | `[256,2048,352]` | `(R_qwen,2048,512)` |
+| Retained non-paired | Qwen down middle | `IQ2_S` | `(2048,512)` | `[256,2048,164]` | `(R_qwen,2048,512)` |
+| Retained non-paired | DeepSeek down | `Q2_K` | `(4096,2048)` | `[256,4096,672]` | `(R_deepseek,4096,2048)` |
+| Superseded by paired | Qwen gate/up outer | `Q3_K` | `(512,2048)` | `[256,512,880]` per projection | `(R_qwen,512,2048)` |
+| Superseded by paired | Qwen gate/up middle | `IQ2_S` | `(512,2048)` | `[256,512,656]` per projection | `(R_qwen,512,2048)` |
+| Superseded by paired | DeepSeek gate/up | `IQ2_XXS` | `(2048,4096)` | `[256,2048,1056]` per projection | `(R_deepseek,2048,4096)` |
+
+The routed-row sets derive from sequence length 2,048 and the model top-k. Uniform routing gives the following concrete per-expert matrix heights:
+
+| Model | Top-k | Physical batch | Aggregate `R` | Uniform `M_g` for 256 experts |
+| --- | ---: | ---: | ---: | ---: |
+| Qwen | 8 | 1 | 16,384 | 64 |
+| Qwen | 8 | 4 | 65,536 | 256 |
+| Qwen | 8 | 16 | 262,144 | 1,024 |
+| DeepSeek | 6 | 1 | 12,288 | 48 |
+| DeepSeek | 6 | 4 | 49,152 | 192 |
+| DeepSeek | 6 | 16 | 196,608 | 768 |
+
+The initial inventory therefore contains 21 quant/aggregate-shape workload keys. Every key must be exercised under uniform, skewed, sparse, and boundary routing. Each paired-successor key must be checked independently with both the gate and up packed tensors even though they share one format/shape identity. Uniform, skewed, and boundary use all 256 experts; sparse uses 192, 224, and 240 active experts at physical batches 1, 4, and 16. Boundary routing includes `M_g` around 1, 16, 64, and 128, so a uniform `M_g` is benchmark context rather than an edge-free capability assumption.
+
+`N` and `K` remain exact production dimensions, but `M_g` is metadata-driven and may not be a tile multiple. Grouped lowering must bounds-check row ownership and tails; this is an explicit grouped contract expansion and does not relax edge-tile rejection for the existing ordinary MMQ writers. Distribution names and model labels are evidence metadata, never candidate or dispatch inputs; the grouped problem contract must represent any required row and group bounds directly.
+
+### Captured routing corpus and weighting
+
+Static model inspection, aggregate `active_experts` counts, and one captured training batch are not sufficient to define a representative grouped-MMQ workload. They are sufficient to reject a single fixed synthetic distribution and to establish the required corpus schema, but performance promotion must use per-layer route histograms captured from real training states.
+
+The current forward-only pilot captured the same 2,048-token dataset samples through the real model paths. Qwen used 16 shuffled B1 microbatches at seed `19260817` with the zero-adapter base and checkpoint `7400`; four of those samples were replayed with compact route selections to measure exact route drift. DeepSeek used 16 shuffled B1 microbatches at the same seed with zero-initialized rank-4 adapters, and the existing one-step audit supplies a same-batch before/after update comparison.
+
+| Model/state | Router population | Captured B1 result | Aggregate result |
+| --- | --- | --- | --- |
+| Qwen checkpoint `7400` | 40 learned routers, top-8 | `M_g` maximum range `516-2047`, median `1675`; active experts `73-256`, median `192`; layer-max padding inflation median `18.22x`, maximum `29.15x` | B16 sum of 16 real B1 histograms: active experts `226-256`, median `253`; `M_g` maximum `10399-31956`, median `24928`; layer-max padding inflation median `24.00x` |
+| DeepSeek zero-B initial state | 40 learned top-6 routers plus 3 hash routers | learned active experts `178-253`, median `235`; learned `M_g` maximum `477-1982`, median `1074`; learned layer-max padding inflation median `20.08x`, maximum `37.64x`; hash routers always use all 256 experts with `M_g` maximum `168-291` | B16 sum of 16 real B1 histograms: learned active experts `248-256`, median `255`; learned `M_g` maximum `10162-26070`, median `14969.5`; layer-max padding inflation median `19.34x`, maximum `33.95x` |
+
+These measurements are workload evidence, not dispatch constants. The Qwen base-to-checkpoint replay changed `67.6%` of token-layer top-8 expert sets and `12.4%` of route memberships across four paired samples; ordered slots changed `53.0%`. The DeepSeek one-step audit changed route histograms in `40/43` layers, with a histogram-derived assignment lower bound of `1.4%` at the median and `2.1%` at the maximum. Repeated checkpoint replay without an update was histogram-identical, so the route changes are model-state effects rather than collector nondeterminism.
+
+The benchmark corpus therefore has one record per `(model, checkpoint, physical batch, router kind, layer, sample, projection, quant-shape key)` containing the full `rows_per_expert[256]`, selected-token count, top-k, dataset/sample identity, and training-state metadata. Aggregate B4 and B16 histograms may be formed by summing independent B1 records when examples are independent; direct B4/B16 captures remain preferred whenever their physical batch behavior is itself under evaluation. Gate, up, and down projections in one layer reuse the layer's expert assignments and offsets, but retain separate timing records because their `(N,K)`, quantization, paired ownership, and output behavior differ.
+
+Realistic ranking uses frequency-weighted histograms stratified by model, checkpoint or training phase, router kind, layer, physical batch, and projection/shape family. The layer and projection invocation frequencies must be explicit; a model-wide average histogram is not a substitute. A captured pilot is not training-wide evidence: the Qwen checkpoint `7400` and the DeepSeek zero-B initial corpus must be extended with multiple dataset batches at early, middle, and late checkpoints, plus same-batch before/after-update captures where router trainability is in question. Multiple data seeds are required before claiming dataset-wide frequency weights.
+
+Uniform, skewed, sparse, and boundary distributions remain mandatory correctness and robustness controls for every exact workload key. They must not replace captured histograms for performance ranking. In particular, fixing every logical `M_g` to a layer maximum is unsupported: the observed distributions contain many small experts beside one or a few large experts, and maximum padding can issue an order of magnitude more rows than the useful route work. Grouped lowering and dispatch must consume the actual per-expert row metadata; distribution labels and model names remain evidence metadata only.
+
+Pilot artifacts are retained outside the repository under `~/tmp/test_no_unsloth/qwen_routes_*`, `~/tmp/test_no_unsloth/deepseek_routes_*`, and the corresponding `*_route_capture_analysis.json` files. They are reproducible evidence and not runtime inputs or public dispatch policy.
+
+### Fitted model-level routing prior
+
+The model-level prior fit is stored outside the repository at `~/tmp/test_no_unsloth/model_level_route_prior_fit_v2.json` with the human-readable report at `~/tmp/test_no_unsloth/model_level_route_prior_fit_v2.md`. The generator and validation are `~/tmp/test_no_unsloth/fit_model_level_route_prior_v2.py`. The fit pools layers, depth, and base/checkpoint states; none is an input to the prior. The only physical-size input is `T = physical_batch * sequence_length`.
+
+For Qwen and DeepSeek learned routers, sample active support and ranked skew as follows:
+
+```text
+x = log(T / 2048)
+y_A = a0 + a_log_tokens*x + epsilon_A
+A = round(257*sigmoid(y_A) - 0.5), clipped to [top_k, 256]
+log(alpha) = b0 + b_log_tokens*x + b_active_residual*epsilon_A + epsilon_alpha
+q_r = min(1, C*(r + shift)^(-alpha)), 1 <= r <= A
+q_r = 0, r > A
+sum(q_r) = top_k
+```
+
+For both non-hash priors, write `StudentT(nu,loc,scale)` for a location-scale Student-t variate and sample each residual as `clip(StudentT(nu,loc,scale),lo,hi)`. The complete residual laws are:
+
+| Model | Residual | `nu` | `loc` | `scale` | Clip `[lo,hi]` |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Qwen | `epsilon_A` | `8.3978226526` | `-0.0335118652` | `0.9830493404` | `[-2.5036492445,3.7809143778]` |
+| Qwen | `epsilon_alpha` | `5.2038953632` | `0.0054814884` | `0.1025706842` | `[-0.4463245132,0.3833201702]` |
+| DeepSeek learned | `epsilon_A` | `33.5987235964` | `-0.0013194870` | `0.8328268568` | `[-1.6829685257,2.7587218851]` |
+| DeepSeek learned | `epsilon_alpha` | `5.1551932778` | `-0.0071110386` | `0.0923527684` | `[-0.3180690433,0.3604795507]` |
+
+After solving for the unadjusted inclusion vector `q`, apply the fitted head multiplier `h` exactly as follows:
+
+```text
+q1_adjusted = min(1, h*q1)
+q_r_adjusted = q_r*(top_k-q1_adjusted)/(top_k-q1), r = 2..A
+```
+
+This transfers mass to rank 1 while preserving `sum(q_r)=top_k`. Constrained largest-remainder rounding of `T*q_r` produces `M_g`, and a uniform random permutation assigns ranks to the 256 expert identifiers. The fitted Qwen parameters are `shift=11.5465232873`, `h=1.1255020052`, `a0=1.3568429238`, `a_log_tokens=1.1367804236`, `b0=0.7376182182`, `b_log_tokens=-0.0215993943`, and `b_active_residual=-0.1730074363`. The fitted DeepSeek learned parameters are `shift=6.3223820835`, `h=1.0643729189`, `a0=2.2468973539`, `a_log_tokens=0.8906164814`, `b0=0.4081577973`, `b_log_tokens=-0.0211298377`, and `b_active_residual=-0.0754167931`. Qwen uses top-k 8; DeepSeek learned routers use top-k 6.
+
+The active-residual coefficient preserves the observed coupling between support and skew: layers with fewer active experts are also more concentrated. Its ablation leaves coarse physical-batch medians similar, but makes support and alpha conditionally independent. In the pooled fit, observed active/alpha correlations are `-0.778` for Qwen and `-0.616` for DeepSeek learned routers; removing the term reduces log-alpha regression `R^2` from `0.702` to `0.011` for Qwen and from `0.257` to `0.031` for DeepSeek. The coefficient therefore remains in the realistic prior. It may be omitted only in an explicitly lower-fidelity compact fallback after kernel-ranking sensitivity is checked.
+
+DeepSeek hash routers are a separate `3/43` component and have a simpler structural formula than a ranked power law. Let `n_v` be the number of occurrences of physical token ID `v` among the `T=B*S` positions passed through the router, and let `H_l(v,j)` be slot `j` of hash layer `l`'s frozen `tid2eid[v]` row. Then the exact row count is
+
+```text
+M_l,e = sum_v n_v * sum_(j=1..6) 1[H_l(v,j) = e]
+```
+
+This equation explains the observed shape: one frequent token adds the same multiplicity to six experts, producing a correlated six-expert head that an independent rank or count law misses. When input IDs and `tid2eid` are available, use this exact projection rather than a fitted route prior. For an exchangeable benchmark with an unavailable hash table, sample a captured token-frequency histogram `n_v`, assign each token type one fixed uniform six-expert subset `H(v)`, reuse that mapping across all samples aggregated into the same synthetic layer, and randomly permute expert identities. Do not resample `H(v)` independently per microbatch; that would erase the persistent load from frequent token IDs.
+
+The 16 captured S2048 samples contained a median `979` unique token IDs per sample, with 5th-95th percentile range `837-1137`; maximum token multiplicity had median `173.5` and range `123.5-215.8`. The exchangeable token-hash projection gave the following prior-predictive medians:
+
+| Hash metric | B1 observed / projected | B4 observed / projected | B16 observed / projected |
+| --- | ---: | ---: | ---: |
+| Active experts | `256 / 256` | `256 / 256` | `256 / 256` |
+| `max(M_g)/T` | `0.111 / 0.115` | `0.106 / 0.109` | `0.098 / 0.105` |
+| Effective experts | `181.5 / 180.7` | `195.0 / 193.8` | `200.9 / 198.9` |
+| Maximum-padding inflation | `4.73x / 4.90x` | `4.54x / 4.64x` | `4.20x / 4.46x` |
+
+A one-parameter symmetric Dirichlet-multinomial and a one-parameter logistic-normal multinomial are not adequate replacements. Matching the Dirichlet model jointly to head and bulk metrics selected per-expert concentration `1.8119` but predicted only `165.6` effective experts at B16 versus `200.9` observed. Matching a logistic-normal body with `sigma=0.5005` predicted B16 `max(M_g)/T=0.0833` versus `0.0984` observed. A token-frequency Zipf fit, `p_v proportional to r^-0.6864`, had mean/median token-histogram TV `0.101/0.096` and does not retain special-token spikes by itself.
+
+For future synthetic benchmark generation where input IDs and `tid2eid` are unavailable, use the following capture-free four-coefficient row prior. It models the row-load object observed by grouped MMQ; it is not an exact replacement for token hashing. Let `T >= 2048`, `B=T/2048`, `E=256`, and `k=6`:
+
+```text
+kappa_B = B*(kappa_rho + 1) - 1
+rho ~ Beta(mu_rho*kappa_B, (1-mu_rho)*kappa_B)
+a(T) = a0 * B^beta
+u ~ Dirichlet(a(T) * 1_E)
+H = a uniform k-subset of {0,..,E-1}
+p_e = (1-rho)*u_e + (rho/k)*1[e in H]
+M = bounded_largest_remainder( k*T*p, lower=1, upper=T )
+```
+
+The fitted coefficients are:
+
+| Coefficient | Value |
+| --- | ---: |
+| `mu_rho` | `0.0765686035` |
+| `kappa_rho` | `111.4009102046` |
+| `a0` | `6.6600305083` |
+| `beta` | `0.4771750368` |
+
+`rho` represents the persistent mass of a dominant repeated token; its beta concentration makes that mass variation decrease as physical tokens aggregate. `H` represents the six experts selected by that token. The symmetric Dirichlet body absorbs the remaining token-frequency and hash-map collisions. Uniform expert identities are valid only under the current exchangeable grouped-MMQ contract; paired projections should reuse one generated `M` profile.
+
+Prior-predictive medians from the independent initial capture, with the route-identical checkpoint retained only as an integrity check, are:
+
+| `T` | Metric | Observed | Formula |
+| ---: | --- | ---: | ---: |
+| `2048` | `max(M_g)/T` | `0.11084` | `0.10742` |
+| `2048` | effective experts | `181.53` | `188.69` |
+| `8192` | `max(M_g)/T` | `0.10638` | `0.10583` |
+| `8192` | effective experts | `195.04` | `195.78` |
+| `32768` | `max(M_g)/T` | `0.09845` | `0.10373` |
+| `32768` | effective experts | `200.87` | `200.44` |
+
+The B1/B4 discrepancies are under `4%` for the two independent shape metrics; the B16 maximum is `5.4%` high with only three distinct hash-layer profiles, so it is not used to add another coefficient. The sampler always emits all 256 experts, `sum(M_g)=6T`, and `M_g<=T`. The fit and capture-free implementation are `~/tmp/test_no_unsloth/fit_hash_head_body_prior.py` and `~/tmp/test_no_unsloth/sample_hash_head_body_prior.py`, with coefficients in `~/tmp/test_no_unsloth/hash_head_body_prior_fit.json`.
+
+The selected hierarchy is therefore exact token-hash projection when token IDs are known, this four-coefficient head-plus-body prior for capture-free candidate search, and the captured token/ranked profiles for ranking-sensitivity checks and final promotion. The formula must not be treated as proof of production frequency weighting until the planned multi-seed and multi-checkpoint corpus exists.
+
+Prior-predictive medians for the fitted non-hash priors, reported as `(active experts, max(M_g)/T, effective experts, maximum-padding inflation)`, are:
+
+| Component and `T` | Observed | Prior |
+| --- | --- | --- |
+| Qwen, B1/S2048 | `(200, 0.811, 26.4, 18.6x)` | `(202, 0.799, 27.6, 18.1x)` |
+| Qwen, B4/S2048 | `(241, 0.758, 29.0, 21.8x)` | `(243, 0.752, 30.1, 22.0x)` |
+| Qwen, B16/S2048 | `(254, 0.748, 29.5, 23.7x)` | `(254, 0.719, 32.0, 22.7x)` |
+| DeepSeek learned, B1/S2048 | `(230, 0.537, 34.4, 19.9x)` | `(232, 0.503, 37.3, 18.9x)` |
+| DeepSeek learned, B4/S2048 | `(249, 0.486, 38.2, 19.8x)` | `(249, 0.471, 40.9, 19.3x)` |
+| DeepSeek learned, B16/S2048 | `(254, 0.479, 39.6, 20.0x)` | `(254, 0.446, 44.0, 18.8x)` |
+
+The Qwen equal-total-token partition check used B1/S2048, B2/S1024, and B4/S512 in both base and checkpoint `7400`; the prior remained compatible with the observed active-count, head-load, and effective-expert distributions. DeepSeek sequence-length extrapolation remains untested because the audited attention path requires `S=2048`. The pooled prior is a benchmark model, not evidence that learned routing is training-step invariant: Qwen base versus checkpoint active-support KS was `p=0.99` and alpha-shape KS was `p=0.097`; DeepSeek learned alpha-shape KS was `p=0.097`, but active support differed at B16 (`p=0.014`). Therefore production frequency weighting still requires early, middle, and late checkpoints across multiple data seeds. Until those captures exist, use the pooled prior for candidate ranking and retain checkpoint-stratified histograms for final promotion.
+
 ## Design Principles
 
 ### Exact contracts, no repair
@@ -49,7 +224,7 @@ Every accepted serialized field must affect canonical identity and lowering, or 
 
 ### Deterministic, self-contained generation
 
-Production generation does not search, benchmark, invoke HIP or LLVM code generation, consult measured winners, run an allocator or scheduler, repair register pressure, or fall back to source or insertion order. Search, profiling, compiler experiments, and GPU timing are offline evidence only.
+Production generation does not search, benchmark, invoke HIP or LLVM code generation, consult measured winners, run an optimizing allocator or heuristic scheduler, repair register pressure, or fall back to source or insertion order. Formula-derived and deterministic lifetime-aware register assignment remains part of pure physical planning. Search, profiling, compiler experiments, and GPU timing are offline evidence only.
 
 The same complete input must produce byte-identical source. Assembly, linking, and inspection then verify deterministic object and code-object translation.
 
@@ -88,7 +263,7 @@ Contractual invalid states use explicit rejection reasons. Natural programming e
 
 ### Completion requires recursive review
 
-Every campaign and structural refactor ends with a fresh recursive review of the plan, implementation, generated artifacts, selected and rejected evidence, target ISA, and related kernel work. The review is global across forward and backward directions, problem types, quant types, and exact shapes; a local completion statement is scoped to the contract and inventory it actually qualified, not a waiver for related work. Findings are classified as duplicate or closed, contract-incompatible, unsupported, deferred with an explicit prerequisite, or actionable.
+Every campaign and structural refactor ends with a fresh recursive review of the design contract, implementation, generated artifacts, selected and rejected evidence, target ISA, and related kernel work. The review is global across forward and backward directions, problem types, quant types, and exact shapes; a local completion statement is scoped to the contract and inventory it actually qualified, not a waiver for related work. Findings are classified as duplicate or closed, contract-incompatible, unsupported, deferred with an explicit prerequisite, or actionable.
 
 An actionable finding must be implemented and qualified before the review is repeated. Completion is valid only when a fresh global pass finds no actionable in-contract mechanism. A result from one direction, quant type, or shape may transfer as evidence to another, but never as an automatic selection: the receiving semantics, ownership, lifetimes, synchronization, arithmetic order, resources, and exact-key gates must be re-derived and tested.
 
@@ -105,6 +280,10 @@ An actionable finding must be implemented and qualified before the review is rep
 - `KernelArtifact`: symbol, source/object/code-object paths, source identity, ABI, launch geometry, and inspected resources.
 
 Named defaults are explicit and remain part of canonical identity. Parsing is strict and generation never mutates a solution.
+
+### Public writer boundary
+
+`ForwardKernelWriterAssembly` and `BackwardKernelWriterAssembly` are the only public assembly-writer entry points. Each preserves its established constructor, diagnostics, `source()`, and `write()` behavior. A facade may validate a key, construct canonical derived state, initialize ROCISA, emit the fixed code-object envelope and signature, dispatch to one validated lowerer, and translate errors at the public boundary. It must not own quant-format register constants, LDS offsets, decoder loops, WMMA loops, waits, barriers, epilogues, resource arithmetic, or a generic fallback body.
 
 ### Deployment catalogs
 
@@ -146,7 +325,10 @@ QuantForwardSemantics
   post-WMMA correction semantics
 
 ForwardMechanismContract
-  lowering/data-contract compatibility
+  lowering and concrete physical-plan kind
+  workitem-ID use and wave-M/wave-N ownership
+  legacy serialized compatibility facts
+  data-contract compatibility
   activation and weight block domains
   formula-derived reduction granularity
 
@@ -160,6 +342,32 @@ ForwardPhysicalPlan
 
 For gfx1151, admission and inspection account for the 64 KiB workgroup LDS ceiling and wave32's 24-VGPR allocation granularity. A logical high-water register index is not substituted for the allocated resource count reported in kernel metadata.
 
+### Backward contract layers
+
+Backward follows the same separation without sharing the forward algorithm:
+
+```text
+BackwardProblemContract
+  quant format, packed block, BF16 inputs and output
+  ISA, wavefront, ABI, and arithmetic contract
+
+BackwardKernelSpec
+  geometry, memory, decode, pipeline, and store policy
+  strict Q3 pairing and linked mechanism capability
+
+DerivedBackwardState
+  exact grid, reduction trips, packed strides, and derived resources
+
+BackwardMechanismContract
+  decoder, LDS, schedule, lane-sharing, and prefetch capability
+
+BackwardPhysicalPlan
+  register, decoder, address, LDS, workgroup, and resource plans
+  sole physical authority consumed by lowering and inspection
+```
+
+Quant-specific reader/decoder leaves produce the common BF16 weight representation. The common backward lowerer owns the BF16-WMMA pipeline and stores. Q4_K and Q5_K share packed metadata addressing and scale/minimum preparation while Q5_K high-bit reconstruction remains a distinct leaf.
+
 ### Canonical candidates
 
 Complete candidates round-trip through normal serialized solution inputs. Canonical hashes exclude problem shape so a candidate may be tested on another formula-compatible shape; exact-pair manifests preserve the shape-specific evidence. Family-inactive legacy fields reject before hashing.
@@ -170,6 +378,24 @@ Complete candidates round-trip through normal serialized solution inputs. Canoni
 
 `kernel_writer_assembly.py` owns the direction-neutral assembly module, ROCISA setup, source writing, pointer and address primitives, BF16 RNE emission, metadata/trailer emission, and deterministic register-pool mechanism. Direction writers own their algorithms and do not forward through compatibility writers.
 
+### Responsibility map
+
+| Module or module family | Sole responsibility |
+| --- | --- |
+| `kernel_writer_assembly_mmq_fwd.py` | Forward public facade, fixed source envelope, signature, and closed dispatch |
+| `mmq_fwd_spec.py` | Forward problem/mechanism contracts, complete kernel specification, quant semantics, and typed policy state |
+| `mmq_fwd_physical.py` | Pure closed forward physical-plan union, register/LDS roles, deterministic assignments, and resources |
+| `mmq_fwd_lowering*.py` | Substantive mechanism orchestration and final instruction emission; no public writer or revalidation |
+| `kernel_writer_assembly_mmq_bwd.py` | Backward public facade, fixed source envelope, signature, and closed dispatch |
+| `mmq_bwd_spec.py` | Backward contracts, complete specification, derived state, and mechanism capabilities |
+| `mmq_bwd_physical.py` | One pure backward register/decoder/address/LDS/resource authority |
+| `mmq_bwd_lowering_quant.py` | Quant-specific packed readers and BF16 decoder leaves |
+| `mmq_bwd_lowering.py` | Common backward BF16-WMMA pipeline, synchronization, and stores |
+| `mmq_bwd_emission.py` | Typed bounded pending-zero VOPD formation at known eligible sites |
+| `inspection.py` | Artifact verification against plan-derived launch and resource facts; no allocation replay |
+
+Specification and physical-planning modules are pure: they do not import ROCISA, invoke the toolchain, benchmark, or emit instructions. Lowerers consume canonical typed state and concrete plans; they do not read inventories, selected catalogs, tensor names, benchmark reports, or runtime winner maps.
+
 ### Forward lowering
 
 `ForwardKernelWriterAssembly` is a small public facade. It validates one key, constructs `DerivedForwardState`, emits the code-object envelope and ABI, and performs closed dispatch. It owns no decode, LDS, WMMA, wait, or epilogue body.
@@ -179,19 +405,42 @@ Pure planning in `mmq_fwd_physical.py` returns one concrete physical-plan type. 
 - direct packed scale/minimum lowering.
 - decoded-weight LDS plus `F16_D4S4` activation lowering shared by compatible low-nibble and high-bit formats.
 - structured signed-six-bit lowering with single-row or dual-row ownership.
-- signed-int8 direct, register-tiled, wave-N LDS, exact small-M, and compact-KV physical mechanisms.
+- signed-int8 direct, register-tiled, wave-N LDS, exact small-M, and compact-depth32 physical mechanisms.
 
 `F16D4S4ActivationMetadata` owns the shared activation group formula. Packed scale/minimum reconstruction is shared only by compatible correction paths, and one source-identical signed-int8 WMMA constructor is shared without merging ownership or post-WMMA arithmetic. Serialized operand-source names remain stable compatibility values even where internal classes use mechanism names.
 
 All forward families consume Q8_1 bytes and metadata produced upstream. Weight decode, activation staging, integer dot, correction, waits, and output conversion remain separate semantic responsibilities when ownership or dependency order differs.
 
+The concrete forward mechanism boundaries are:
+
+| Mechanism family | Physical ownership retained by the mechanism |
+| --- | --- |
+| Packed three-bit half/full-weight LDS | Q3 payload planes, signed group scales, half/full decode ownership, 336-byte full rows, and four-barrier traversal |
+| Direct packed scale/minimum | One-wave global reads, nibble decode, scale/minimum correction, and scalar output traversal |
+| Decoded-weight LDS | Q4/Q5 decoded rows, F16_D4S4 activation staging, metadata schedule, clamp, and epilogue; Q5 high bits remain format-specific |
+| Structured Q6 | Single/dual-row ownership, optional exact MT256 wave groups, near/far reads, signed decode, refill traversal, and typed delays |
+| Signed-int8 direct/register/tiled | Direct/register ownership or ordinary, compact-depth32, and exact small-M LDS layouts with their own stage and scale-read policy |
+
+There is intentionally no universal physical pipeline. Q3, Q6, and Q8 may share an F32_D4 activation contract while retaining different packed layouts, reduction depths, lane ownership, LDS rows, correction arithmetic, synchronization, and register lifetimes.
+
 ### Backward lowering
 
 Backward retains one geometry-derived allocation, reduction pipeline, WMMA lowering, and store path. Quant-specific global-read and decoder leaves produce the common BF16 weight representation. This convergence point is why five backward formats can share a smaller common body without forcing the forward integer-WMMA algorithm into the same design.
 
+### Shared component criteria
+
+A semantic component is shared only when all of these are true:
+- at least two mechanisms have the same typed input and output roles.
+- producer, first-use, barrier, lifetime, and arithmetic-order requirements are equal.
+- the abstraction owns a reusable formula or invariant and removes duplicated derivation.
+- selected streams remain identical, or a deliberate stream change passes the full qualification gates.
+- the component does not consult exact shapes, selected winners, timing evidence, or schedule tables.
+
+Similar instruction spelling is not sufficient evidence. Q3 signed group-scale correction, Q4/Q5 scale/minimum correction, Q6 signed-scale/block-factor correction, and Q8 scale multiplication remain distinct correction leaves.
+
 ### Semantic stages and scheduling
 
-There is no universal forward stage runner. Each mechanism owns orchestration and calls a shared component only when roles, dependencies, and arithmetic order are equal. Structured Q6 constructs named semantic stages such as:
+There is no universal forward stage runner. Each mechanism owns orchestration and calls a shared component only when roles, dependencies, and arithmetic order are equal. Structured Q6 directly calls typed emitters corresponding to semantic phases such as:
 
 ```text
 Setup
@@ -206,7 +455,7 @@ LoopCommit
 Epilogue
 ```
 
-Other mechanisms retain direct typed emitters where a stage graph would only repackage their instruction order. Operations carry semantic coordinates such as row, payload plane, decode atom, K phase, output tile, LDS pair, and store batch. Dependencies are checked before emission.
+These names describe semantic ownership, not a stored stage graph or instruction schedule. Other mechanisms retain direct typed emitters where a stage abstraction would only repackage instruction order. Operations carry semantic coordinates such as row, payload plane, decode atom, K phase, output tile, LDS pair, and store batch. Dependencies are checked before emission.
 
 The second level applies explicit deterministic policies for traversal, clustering, lookahead, local-write placement, local reads, dot grouping, epilogue scope, VOPD pairing, delays, clauses, and cache behavior. Policies are complete mechanism choices, not generic heuristic scheduling. Waits derive from typed producers and first-use boundaries; redundant weaker waits are suppressed monotonically.
 
@@ -222,9 +471,9 @@ Q6 uses typed payload/address roles, 16 semantic decode atoms, explicit low/high
 
 The residual single-row/dual-row setup, near/far read, activation-read, and refill leaves preserve selected physical traversal. The completed Q3/Q8 convergence review found no equivalent ownership contract, so these remain bounded Q6 policies rather than duplicate full kernels.
 
-### Prohibited forward production mechanisms
+### Prohibited production mechanisms
 
-The refactored forward lowering may not use:
+Neither direction may use:
 - raw assembly templates or large assembly-string collections.
 - sibling forwarding writers or compatibility aliases.
 - external instruction data, opcode tables, rank tables, or absolute issue maps.
@@ -234,7 +483,7 @@ The refactored forward lowering may not use:
 - post-emission textual filtering or VOPD reconstruction.
 - accepted fields that affect neither lowering nor validation.
 
-Backward currently retains its direction-specific deferred-zero/VOPD assembly emitter. That selected backward mechanism is not a precedent for reintroducing textual scheduling into forward lowering; changing it belongs to a separate backward structural project with its own identity and performance gates.
+Backward pending-zero pairing is a typed bounded operation invoked only at known eligible coordinates. Ordinary instruction formatting never parses or rewrites emitted text.
 
 ## Tuning and Search
 
@@ -263,42 +512,15 @@ Search explores linked neighborhoods rather than a broad Cartesian product. Gene
 
 Exact-shape constants, fixed trip counts, peeled tails, affine-address reductions, register-lifetime shortening, and legal VOPD formation are derived lowering work rather than public knobs unless complete alternate mechanisms are implemented. Their value is judged by the same correctness, resource, and timing gates as larger policies.
 
-### Cross-campaign reopening policy
+### Candidate-domain evidence boundary
 
-The forward records currently carry two bounded changed premises for later work: a typed invariant activation-LDS-base lifetime for Q4_K/Q5_K, and a composed Q8_0 depth32 compact-row dataflow using the later weight-first and paired-scale findings. The Q6_K scheduler-oracle behavior has been reconstructed as a typed row/role wavefront, qualified on all three exact keys, and promoted in the research catalog. These experiments do not change a contract, public dispatch path, or bundle.
+Automated domains are bounded deterministic enumerators of complete implemented policies. They are useful for identity, validation, and reproducible candidate construction, but they do not prove optimization exhaustion and need not reproduce every selected exact-key composition. A missing domain value is actionable performance work only when it identifies an implementable in-contract mechanism with an exact target, plausible gain path, and qualification gate. Otherwise it is tooling scope.
 
-The same review rule applies when a finding crosses a direction or format boundary. Shared vocabulary such as affine address hoisting, dependency-derived waits, load clustering, or explicit register lifetimes may be reused only after the receiving lowering proves the corresponding physical roles and resource envelope. A failed experiment must remain recorded with its failure reason, even when a later changed premise makes a bounded re-test reasonable.
+### Cross-campaign transfer policy
 
-### Q8_0 performance campaign (complete)
+The same review rule applies when a finding crosses direction, format, or shape boundaries. Shared vocabulary such as affine address hoisting, dependency-derived waits, load clustering, or explicit register lifetimes may be reused only after the receiving lowering proves the corresponding semantics, physical roles, synchronization, arithmetic order, and resource envelope. A result may transfer as evidence, never as an automatic selection. Failed experiments remain recorded with their failure reasons even when a later changed premise justifies a bounded retest.
 
-The Q8_0 forward campaign ran as an isolated performance experiment. HIP fallback remained the control until each exact GGTensile source cleared its qualification gates; the final research catalog selects GGTensile for all 23 required keys while public integration remains unchanged.
-
-The first mechanism is a typed HIP-shaped `I=64, J=128` workgroup: 128 wave32 threads, cooperative Q8_0 payload/scale decode into LDS, reusable Q8_1 activation rows, 32 integer WMMAs per reduction stage, and a denser output ownership/scale epilogue. This is a new dataflow boundary, not a schedule-only variation of the retained `128x32` register tile. The lowering must derive its LDS layout, ownership, local-read coordinates, accumulator roles, and resource count from the semantic tile contract; it must not copy the HIP instruction stream or import a physical schedule.
-
-The campaign used these measurable gates:
-- document the exact HIP tile mapping and static work/resource floors from the source and disassembly.
-- implement one isolated ordinary Q8_0 control through typed Q8 roles and semantic LDS stages, then assemble, inspect, and validate it before timing.
-- match the HIP operand reuse and epilogue ownership while preserving the established integer-result, weight-scale, activation-scale arithmetic order and BF16 results.
-- screen the ordinary Q-A control with warmed rotating HIP comparisons, then confirm any gain on Q-B, attention-output B, shared gate/up, shared down, KV, and LM-head chunks before changing exact-key decisions.
-- require parity or better on every promoted exact key, strict zero-spill/resource/ABI checks, mutation and independent-reference correctness, and deterministic rebuilds.
-
-Only a measured complete dataflow may replace a fallback. The initial single-enqueue `Q8HipTiledLds` timing was later shown to be unresolved under the EvoTensile log-noise model, not a valid Q-A failure. Two reversed 80-sample, ten-enqueue hot confirmations measured the retained Q-A M2048 source at `1.1078x` and `1.1017x` HIP multiply speedup, with `90%` confidence intervals beyond the default `2%` equivalence zone and equivalent candidate/candidate and HIP/HIP controls. The composed `CompactDepth32WeightRows` form separately cleared two reversed 25-repeat confirmations on 20 exact keys, including the former compact-KV fallback. Exact `Q8SmallMTiledLds` controls remain selected for LM-head M32/M64. The Q8 catalog therefore selects 20 compact-row, one HIP-shaped, and two small-M research entries. This catalog result does not change public dispatch or the generated bundle; the public-boundary review remains separate.
-
-### Current Q3_K forward campaign
-
-The dense Q3_K inventory contains 12 exact keys across attention K, attention Q, attention gate, and SSM output at `M={2048,8192,32768}`. The typed `Q3FullWeightTiledLds` lowering is independently qualified on every exact key. It uses the 110-byte Q3_K block format, Q8_1 `F32_D4` activations, wave32 workgroup `(32,4,1)`, a `128x64` macro tile, a 336-byte padded decoded-weight LDS row, integer WMMA accumulation, FP32 scale correction, and BF16 RNE stores. The research catalog selects the typed candidate for all 12 exact keys; public dispatch remains on HIP and the generated bundle remains at 179 kernels.
-
-Two independent 100-warmup/101-repeat rotating confirmations favored GGTensile on every exact key. Per-key speedups were between `1.0700x` and `1.0896x`, and call-count-weighted speedups were `1.0745x` and `1.0755x`. All 12 keys passed exact HIP/public agreement, independent-reference, finiteness, mutation, deterministic-producer, deterministic-rebuild, and zero-spill/resource gates. The experiment record reports the corresponding effective TFLOPS-equivalent rates.
-
-The recursive Q3 review is complete. MT64, rolled, linear-staging, batched-WMMA, partial-wait, paired-scale, compact-row, extra-barrier, cache-invalidation, dual-plane, phased-correction, fragment/bank, paired-sum, and final-tail alternatives were either correctness/resource-invalid or failed repeated timing. Prepared weights, dense shadows, external decode storage, split-K, persistent/grouped traversal, producer fusion, hidden caches, and public dispatch changes remain outside the contract. No actionable in-contract optimization remains for the 12 exact research keys.
-
-### Current Q8_0 forward status
-
-Q8 production research coverage is complete for all 23 required exact keys: 20 `CompactDepth32WeightRows` selections, one ordinary `HipTile` selection for Q-A M2048, and two exact LM-head small-M selections. Every retained GGTensile key has exact output, mutation, zero-spill, and deterministic-build qualification. The compact and small-M keys retain their exact-key confirmations; Q-A M2048 has two reversed `80 x 10` hot confirmations plus same-artifact measurement controls. No Q8 research key remains slower than HIP under its authoritative multiply protocol. Public dispatch and bundle integration remain deferred.
-
-### Post-Q8 global recursive review
-
-The fresh review reread the Q3_K and Q5_K forward records after the Q8 compact-row composition. Q3 remains closed: its full-weight 336-byte row, ownership, four-barrier schedule, and tested traffic/lifetime alternatives have no compatible changed premise from signed-int8 Q8. Q5 remains closed: consumer-side high-bit insertion is still the quantified residual floor, compact consumer decode already failed its exact narrow discriminator, and the typed activation-base lifetime is already qualified. Q8’s 144-byte signed-int8 row does not remove or relocate that Q5 critical-path work. No actionable in-contract Q3_K or Q5_K mechanism remains; public wiring and grouped ownership remain separate deferred boundaries.
+Current exact performance results, rejected alternatives, and cross-campaign review conclusions live in the ten MMQ experiment records. They are intentionally not duplicated in this design document.
 
 ### Diagnostic lower bounds and profiling
 
@@ -321,6 +543,18 @@ Each phase refuses to overwrite an existing artifact. Manifests are strict. Sour
 ### Structural migrations
 
 When behavior is intended to remain unchanged, compare generated source, executable text, metadata, symbols, resources, and code objects exactly. Preserve ABI, launch ownership, waits, VOPD pairings, LDS offsets, barriers, and resource envelopes.
+
+Independent roots must reproduce byte-identical source, object, and code object. Executable identity discharges a new timing run for a purely structural move; a change that cannot preserve source and executable identity must be split from the migration and qualified as a deliberate stream change.
+
+### Canonical identity migrations
+
+Adding, removing, or canonicalizing a serialized field may change solution hashes and symbols while preserving the body. Such a migration must:
+- record every old/new key and symbol mapping.
+- compare source after symbol normalization and compare executable text, metadata, ABI, and resources exactly.
+- update catalogs and manifests deliberately with no hidden compatibility alias.
+- run direction-appropriate correctness, independent-reference, mutation, determinism, and forbidden-storage gates.
+
+An identity migration may not conceal an instruction-stream change. If normalized source or executable behavior differs, the deliberate-stream rules apply.
 
 ### Deliberate stream changes
 
@@ -349,7 +583,60 @@ The standing gates are:
 
 There is no fixed percentage threshold. Timing selects winners. Static issue counts, counters, code size, locality, and resources explain results but do not promote candidates by themselves. Weighted workload totals guide effort and reporting; they never authorize a slower exact key.
 
-## Current Progress
+## Structural Design Invariants
+
+### Ownership and dependency rules
+
+- Every validated mechanism maps to exactly one substantial lowerer and one concrete physical plan; unknown mechanisms reject before emission.
+- Contract/specification state, physical planning, mechanism emission, exact selection, and public dispatch have separate owners.
+- Register assignment, LDS layout, decoder rows, address state, waits, launch metadata, and resources derive once and are consumed by validation, lowering, and inspection.
+- Capability validation contains formulas and typed capability predicates, never production-shape lists, model/tensor names, or selected winners.
+- Accepted fields project into canonical state and lowering or reject as inactive. No two accepted compatibility values may produce the same canonical lowering.
+- Lowerers never parse or rewrite emitted instructions, choose instruction policy from exact problem size, or import selection and benchmark state.
+- All current and future physical/lowering modules participate automatically in forbidden-dependency, structural-pattern, and executable-line coverage.
+
+### Abstraction rule
+
+Delete a helper when it only forwards one call, returns one nested attribute, copies a typed record field-for-field, or wraps one instruction at one call site. Retain it when it enforces a reusable invariant, owns a nontrivial formula, tracks dependencies or lifetimes, is a stable public operation, or removes substantive contract-equivalent duplication.
+
+Do not add base lowerer classes, one-method sibling writers, callable registries, generic visitors, or an instruction IR merely to reduce visible repetition. A thin facade plus explicit mechanism lowerers is preferable to a generic pipeline that stores or reconstructs selected schedules.
+
+### Required structural guards
+
+Tests must enforce:
+- no inventory, catalog, benchmark, or runtime imports from lowerers and physical planners.
+- no ROCISA or toolchain dependency from pure specification and planning modules.
+- no duplicated resource allocation in inspection.
+- no raw assembly templates, opcode/issue tables, rank lists, source-order fallbacks, exact-shape instruction switches, or post-emission rewriting.
+- no field-copy adapters at shared component boundaries and no unused or pass-through abstractions.
+- complete writer-line coverage for every mechanism and preservation of both directions after shared assembly changes.
+
+Repository gates include focused writer/spec/validation/search tests, complete GGTensile and repository suites, Ruff, formatting, `ty check`, compileall, pre-commit, bundle currency, deterministic artifact checks, and `git diff --check`.
+
+## Non-Goals
+
+GGTensile does not implicitly provide:
+- deployment selection from broader formula capability.
+- public runtime or bundle promotion from research qualification alone.
+- retuning as part of a structural migration.
+- one universal physical tile, LDS layout, stage graph, register plan, decoder, or epilogue.
+- a generic scheduler, ready list, learned ranker, opaque cost model, repair path, hidden allocation policy, or online tuning.
+- prepared weights, dense shadows, external decode workspaces, split-K, Stream-K, persistent/grouped traversal, producer fusion, hidden caches, or multi-kernel fixup without explicit public contracts.
+- cosmetic file splitting that preserves duplicate derivation or facade-local physical knowledge.
+
+## Completion Criteria
+
+The writer architecture is complete when:
+- both public writers are thin facades with no mechanism body, register allocator, decoder, pipeline implementation, or textual scheduling.
+- each accepted mechanism has one concrete physical plan and one substantial explicit lowerer.
+- shared mechanism facts have one typed authority across facade, validation, planning, inspection, and search.
+- physical roles cross component boundaries as typed assignments or protocols; raw register numbers remain local to final emission where unavoidable.
+- capability is formula-based and deployment applicability remains exact-catalog-owned.
+- selected and frozen streams are byte-identical across structural changes, or every deliberate exception passes full correctness, artifact, determinism, and timing qualification.
+- all selected forward and backward keys, currently 56 and 50 respectively, retain qualified behavior and public fallback remains intact.
+- a fresh global recursive review finds no actionable in-contract structural mechanism.
+
+## Current Implementation Status
 
 ### Coverage status
 
@@ -357,15 +644,15 @@ There is no fixed percentage threshold. Timing selects winners. Static issue cou
 | --- | --- |
 | Shared generator, toolchain, inspection, runtime, and campaign infrastructure | Implemented for the current gfx1151 exact-key workflow |
 | MMQ backward | Required `Q3_K`, `Q4_K`, `Q5_K`, `Q6_K`, and `Q8_0` campaigns complete; 50 exact inventory keys are selected |
-| MMQ forward Q4_K | Twelve exact research identities qualified; the typed activation-base lifetime is accepted, with the conditional loop-form review and public wiring deferred |
+| MMQ forward Q4_K | Twelve exact research identities qualified; the typed activation-base lifetime is accepted, `OneByEight` is rejected, and public wiring is deferred |
 | MMQ forward Q5_K | Six exact inventory keys selected; the compact/high-bit body and shared Q4/Q5 activation-base lifetime are qualified, with public wiring deferred |
-| MMQ forward Q6_K | Three exact language-model-head keys select the typed row/role wavefront; the default policy remains implemented, and public wiring is deferred |
+| MMQ forward Q6_K | Three exact language-model-head keys select the typed row/role wavefront; shared MT256 and `WideScalarCarryFrontier` are independently rejected, and public wiring is deferred |
 | MMQ forward Q3_K | Dense 12-key inventory complete; all 12 exact keys select the typed full-weight research candidate, while public wiring remains deferred to the 179-kernel HIP bundle |
 | MMQ forward Q8_0 | All 23 exact keys have final research decisions: 20 compact-depth32 selections, one ordinary HIP-shaped control, and two LM-head small-M controls; public wiring remains deferred |
-| Grouped GGTensile | Deferred until grouped ownership and routing receive an explicit generator contract |
+| Grouped GGTensile forward | Initial non-fixed, non-paired routed campaign scoped to six formats and 21 quant/aggregate-shape workload keys; grouped writer, ownership, search, and qualification are not yet implemented |
 | Public GGTensile runtime selection | Deferred; existing HIP bundle dispatch remains authoritative |
 
-Global MMQ forward format exhaustion is not complete while any format record or cross-campaign review has an actionable in-contract premise. Ordinary Q8_0 coverage does not imply fixed-group grouped-Q8_0 coverage, and completion in one direction or quant type does not close a related direction or quant type automatically.
+The ten direct MMQ forward and backward format campaigns are currently exhausted under the fixed exact-key contract: the separate post-Q6 physical-plan review found no actionable in-contract premise. This conclusion does not close grouped MMQ, public dispatch, model-owned representations, or other explicitly separate integration scopes. A genuinely changed premise still reopens the affected campaign under its exact correctness, resource, reproducibility, and timing gates.
 
 ### Implemented forward architecture
 
@@ -404,10 +691,11 @@ The completed bidirectional writer refactor also established:
 
 ### Latest qualified verification snapshot
 
-The latest completed bidirectional-refactor checkpoint records:
-- 350 GGTensile tests and 435 repository tests passing, with only the 14 existing Python 3.14 PyTorch deprecation warnings.
-- all 56 selected forward and 50 selected backward artifacts regenerated from two independent final source roots and identical to each other and the Phase 12 checkpoint in source, object, code object, normalized disassembly, symbols, ABI, metadata, resources, waits, barriers, clauses, and VOPD counts.
+The latest qualified repository state records:
+- 352 GGTensile tests and 437 repository tests passing, with only the 14 existing Python 3.14 PyTorch deprecation warnings.
+- all 56 selected forward and 50 selected backward artifacts regenerated from two independent roots and matching the reviewed post-migration baseline in source, object, code object, normalized disassembly, symbols, ABI, metadata, resources, waits, barriers, clauses, and VOPD counts.
 - normalized-disassembly digest `5145bdbe0a52ce3220c0b93829764dbbb3e6788ede48fb7f64b373ae063f5dec` for the complete 106-artifact set.
+- the canonical Q8 compact-M64 identity migration from `ggsol_13768a4d22953b59` to `ggsol_11f54a8999dc20e6`, with symbol-normalized source and executable identity.
 - explicit Q3 pairing migration evidence for 50 changed backward identities and 56 unchanged forward identities, with normalized source, disassembly, and inspection identity.
 - historical 516/447 source archives retained as pre-refreshed evidence; the 106 exact selected artifacts are the current identity authority.
 - Ruff, formatting, `ty check`, `compileall`, pre-commit, bundle currency, `git diff --check`, structural guards, and complete writer-line coverage passing.
@@ -417,6 +705,12 @@ The latest completed bidirectional-refactor checkpoint records:
 - zero private storage and zero VGPR/SGPR spills for the selected Q6 artifacts.
 - exact HIP/public agreement, finite output, independent-reference qualification, mutation sensitivity, deterministic rebuilds, blind formula-compatible coverage, and warmed confirmation for the selected forward paths.
 - six blind backward controls spanning both Q3 pairing policies and Q4_K/Q5_K/Q6_K/Q8_0, each bit-exact to installed HIP and independent dequantized BF16 matmul, deterministic, mutation-sensitive, code-object-v5, and spill/private-storage free.
+- a resource-clean shared-MT256 Q6 control rejected at `1.0332x` selected-parent latency and `1.0289x` HIP latency.
+- a resource-clean M64 `WideScalarCarryFrontier` Q6 control rejected at `1.00054x` selected-parent latency; its failed screen correctly prevented M128 derivation and 25-repeat confirmation.
+
+### Post-Q6 physical-plan review
+
+After those two Q6 experiments were rejected, a separate read-only pass classified every apparent opening across all ten experiment records, the strict catalogs, current forward/backward lowering and physical plans, bounded search domains, bundle state, and target exclusions. Remaining items are retained and measured, evidence-rejected, contract-incompatible or deferred, or stale chronology/tooling-only. No newly actionable in-contract mechanism has an exact target and credible qualification path. The strict 56-forward/50-backward catalog state and 179-kernel public bundle remain unchanged.
 
 Exact source identities and normalized executable/code-object checks remain in artifact tests and experiment evidence rather than this generic design document.
 
@@ -437,9 +731,8 @@ MMQ forward records:
 - `experiment_ggtensile_mmq_fwd_q6_k.md`
 - `experiment_ggtensile_mmq_fwd_q8_0.md`
 - `experiment_ggtensile_mmq_fwd_q3_k.md`
-- `plan_ggtensile_asm_writer_refactor.md` (completed structural phase record)
 
-Those documents retain campaign chronology and may describe historical premises that were later superseded. This document is authoritative for the current generic architecture and coverage status; selected catalogs and artifact tests are authoritative for current exact identities.
+These records retain campaign chronology and may describe historical premises that were later superseded. This document is authoritative for the current generic architecture and coverage status; selected catalogs and artifact tests are authoritative for current exact identities.
 
 ## Integration and Expansion
 
@@ -447,7 +740,7 @@ Each generated artifact owns one exact problem symbol. Runtime selection may use
 
 Public GGTensile integration remains deferred until a useful production set is selected, packaging and identity are stable, exact dispatch engineering is complete, and end-to-end workloads pass correctness and weighted performance validation. Experimental force controls are not public policy.
 
-Grouped GGTensile remains a separate design project. Paired routed, single routed, row-task, and fixed-group ownership require explicit routing, task, memory, synchronization, and fallback contracts. Ordinary coverage of an overlapping format does not count as grouped coverage.
+Grouped GGTensile remains a separate design project, but its first forward campaign is now scoped by the routed single-projection inventory above. Retained down targets stay non-paired; gate/up precursor targets must later be superseded by paired artifacts rather than treated as completed production coverage. Paired routed, single routed, row-task, and fixed-group ownership still require explicit routing, task, memory, synchronization, resource, and fallback contracts. Ordinary coverage of an overlapping format does not count as grouped coverage.
 
 Prepared weights, compact alternate public layouts, BF16 shadows, paired projections, persistent workgroups, split reduction, GSU, Stream-K, and multi-kernel fixup require model-visible ownership, lifetime, invalidation, memory accounting, ABI, and fallback design. They are not hidden extensions of the current exact single-kernel backend.
 

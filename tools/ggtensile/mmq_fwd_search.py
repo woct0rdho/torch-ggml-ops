@@ -27,7 +27,7 @@ from .model import (
 )
 from .validation import RejectReason, validate_solution
 
-Q6SearchKnobGroup = Literal["InstructionPolicy", "Epilogue"]
+Q6SearchKnobGroup = Literal["InstructionPolicy", "Epilogue", "PhysicalPlan"]
 ForwardSearchKnobGroup = Literal["InstructionPolicy", "Epilogue", "Metadata"]
 
 
@@ -83,6 +83,7 @@ def q6_solution_with_schedule(
         q6_pressure_policy=schedule.semantic_policy.pressure,
         q6_wait_policy=schedule.semantic_policy.wait,
         q6_pairing_policy=schedule.semantic_policy.pairing,
+        q6_physical_plan=schedule.physical_plan,
     )
     if q6_schedule_from_solution(solution) != schedule:
         raise ValueError("Q6 schedule geometry does not match the base solution")
@@ -176,7 +177,9 @@ def q6_schedule_neighbors(
     Only implemented domains are exposed. The result consists of complete schedules;
     code generation receives one result and performs no search or repair.
     """
-    unknown = sorted(set(knob_groups) - {"InstructionPolicy", "Epilogue"})
+    unknown = sorted(
+        set(knob_groups) - {"InstructionPolicy", "Epilogue", "PhysicalPlan"}
+    )
     if unknown:
         raise ValueError(f"unsupported Q6 search knob groups: {unknown}")
 
@@ -185,6 +188,7 @@ def q6_schedule_neighbors(
     dependency_widths = (seed.epilogue_dependency_width,)
     pipeline_scopes = (seed.epilogue_pipeline_scope,)
     semantic_policies = (seed.semantic_policy,)
+    physical_plans = (seed.physical_plan,)
     if "InstructionPolicy" in knob_groups:
         dependency_delay_modes = (
             ("None", "Explicit") if seed.macro_tile0 == 128 else ("None",)
@@ -194,23 +198,29 @@ def q6_schedule_neighbors(
     if "Epilogue" in knob_groups:
         dependency_widths = (1, 2, 4, 8)
         pipeline_scopes = ("StoreBatch", "FullTile")
+    if "PhysicalPlan" in knob_groups and seed.macro_tile0 == 64:
+        physical_plans = ("CanonicalRegisterRoles", "WideScalarCarryFrontier")
 
     candidates = (
         replace(
             seed,
             semantic_policy=semantic_policy,
+            physical_plan=physical_plan,
             dependency_delay_mode=dependency_delay_mode,
             global_read_cache_policy=cache_policy,
             epilogue_dependency_width=dependency_width,
             epilogue_pipeline_scope=pipeline_scope,
         )
-        for semantic_policy, dependency_delay_mode, cache_policy, dependency_width, pipeline_scope in product(
+        for semantic_policy, physical_plan, dependency_delay_mode, cache_policy, dependency_width, pipeline_scope in product(
             semantic_policies,
+            physical_plans,
             dependency_delay_modes,
             cache_policies,
             dependency_widths,
             pipeline_scopes,
         )
+        if physical_plan == "CanonicalRegisterRoles"
+        or semantic_policy == SemanticSchedulePolicy.structured_q6_wavefront()
     )
     unique = {q6_candidate_hash(candidate): candidate for candidate in candidates}
     return tuple(unique[digest] for digest in sorted(unique))
@@ -221,7 +231,7 @@ def q6_schedule_candidates(macro_tile0: int) -> tuple[Q6ForwardSchedule, ...]:
     selected = ForwardSolution.q6_k_structured_decoded(macro_tile0=macro_tile0)
     return q6_schedule_neighbors(
         q6_schedule_from_solution(selected),
-        ("InstructionPolicy", "Epilogue"),
+        ("InstructionPolicy", "Epilogue", "PhysicalPlan"),
     )
 
 

@@ -168,7 +168,7 @@ def inspect_artifact(
                 ForwardKernelSpec.from_solution(solution)
             )
             expected_wmmas = (
-                solution.macro_tile0 // 8
+                8 * physical.layout.output_tile_rows
                 if isinstance(physical, Q6StructuredPhysicalPlan)
                 else 128
                 if isinstance(
