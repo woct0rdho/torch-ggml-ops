@@ -1,7 +1,5 @@
 """Pure physical derivation for MMQ backward assembly kernels."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 
 from .mmq_bwd_spec import BackwardQ3Pairing, DerivedBackwardState

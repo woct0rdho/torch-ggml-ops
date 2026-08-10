@@ -1,7 +1,5 @@
 """Typed problem and solution state for MMQ backward assembly lowering."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from enum import Enum
 
@@ -51,7 +49,7 @@ class BackwardProblemContract:
     code_object_version: int = 5
 
     @classmethod
-    def from_solution_key(cls, solution_key: SolutionKey) -> BackwardProblemContract:
+    def from_solution_key(cls, solution_key: SolutionKey):
         return cls(
             problem_size=solution_key.problem_size,
             quant_type=solution_key.problem_type.quant_data_type,
@@ -125,7 +123,7 @@ class BackwardKernelSpec:
     store: BackwardStoreSpec
 
     @classmethod
-    def from_solution(cls, solution: BackwardSolution) -> BackwardKernelSpec:
+    def from_solution(cls, solution: BackwardSolution):
         return cls(
             geometry=BackwardGeometrySpec(
                 isa=solution.isa,
@@ -181,7 +179,7 @@ class DerivedBackwardState:
     spec: BackwardKernelSpec
 
     @classmethod
-    def from_solution_key(cls, solution_key: SolutionKey) -> DerivedBackwardState:
+    def from_solution_key(cls, solution_key: SolutionKey):
         solution = solution_key.solution
         if not isinstance(solution, BackwardSolution):
             raise TypeError("MMQ backward state requires BackwardSolution")

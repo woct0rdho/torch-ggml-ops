@@ -62,6 +62,7 @@ constexpr int64_t kQuantWorkspaceBlockBytes = 144;
 constexpr int64_t kQuantWorkspaceBlockValues = 4 * QK8_1;
 constexpr int64_t kForwardSmallRows = 64;
 constexpr int64_t kBackwardTaskRows = 128;
+constexpr int64_t kQualifiedIQ2SRowTaskRows = 16384;
 
 struct GroupedMMQShape {
     int rows;
@@ -286,9 +287,12 @@ Tensor new_grouped_workspace(const Tensor & input, const GroupedMMQShape & shape
         ScalarType::Byte);
 }
 
-bool use_grouped_row_tasks(const GroupedMMQShape & shape) {
+bool use_grouped_row_tasks(
+        const GroupedMMQShape & shape, int64_t quant_type, bool paired) {
     return shape.out_features == 512 && shape.in_features == 2048 &&
-        shape.rows >= shape.num_groups * (2 * kForwardSmallRows);
+        (shape.rows >= shape.num_groups * (2 * kForwardSmallRows) ||
+         (paired && quant_type == GGML_TYPE_IQ2_S &&
+          shape.rows == kQualifiedIQ2SRowTaskRows));
 }
 
 int grouped_row_task_capacity(const GroupedMMQShape & shape) {
@@ -311,9 +315,11 @@ Tensor new_grouped_row_task_workspace(
 bool use_grouped_backward_row_tasks(
         const GroupedMMQShape & shape, int64_t quant_type) {
     return shape.out_features == 2048 && shape.in_features == 512 &&
-        shape.rows >= shape.num_groups * kBackwardTaskRows &&
         (quant_type == GGML_TYPE_Q4_K || quant_type == GGML_TYPE_Q5_K ||
-         quant_type == GGML_TYPE_IQ2_S);
+         quant_type == GGML_TYPE_IQ2_S) &&
+        (shape.rows >= shape.num_groups * kBackwardTaskRows ||
+         (quant_type == GGML_TYPE_IQ2_S &&
+          shape.rows == kQualifiedIQ2SRowTaskRows));
 }
 
 int grouped_backward_row_task_capacity(const GroupedMMQShape & shape) {
@@ -949,7 +955,7 @@ Tensor grouped_mmq_cuda(
         shape.rows,
         shape.in_features,
         stream);
-    if (use_grouped_row_tasks(shape)) {
+    if (use_grouped_row_tasks(shape, quant_type, false)) {
         Tensor task_workspace = new_grouped_row_task_workspace(input, shape);
         auto * task_pointer = static_cast<int32_t *>(task_workspace.mutable_data_ptr());
         const int max_tasks = grouped_row_task_capacity(shape);
@@ -1058,7 +1064,7 @@ std::tuple<Tensor, Tensor> grouped_mmq_pair_cuda(
         shape.rows,
         shape.in_features,
         stream);
-    if (use_grouped_row_tasks(shape)) {
+    if (use_grouped_row_tasks(shape, quant_type, true)) {
         Tensor task_workspace = new_grouped_row_task_workspace(input, shape);
         auto * task_pointer = static_cast<int32_t *>(task_workspace.mutable_data_ptr());
         const int max_tasks = grouped_row_task_capacity(shape);

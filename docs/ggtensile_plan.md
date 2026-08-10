@@ -199,6 +199,47 @@ Prior-predictive medians from the independent initial capture, with the route-id
 
 The B1/B4 discrepancies are under `4%` for the two independent shape metrics; the B16 maximum is `5.4%` high with only three distinct hash-layer profiles, so it is not used to add another coefficient. The sampler always emits all 256 experts, `sum(M_g)=6T`, and `M_g<=T`. The fit and capture-free implementation are `~/tmp/test_no_unsloth/fit_hash_head_body_prior.py` and `~/tmp/test_no_unsloth/sample_hash_head_body_prior.py`, with coefficients in `~/tmp/test_no_unsloth/hash_head_body_prior_fit.json`.
 
+### Hash-prior corpus sensitivity
+
+The four-coefficient hash prior is corpus-sensitive. A controlled comparison kept the existing Chinese baseline at exactly its original 16 shuffled B1 samples, used a streaming WikiText-2 English sample stopped after exactly 16 blocks, and generated exactly 16 blocks of uniform random model token IDs. No full Chinese or English dataset iteration was used. All three corpora were projected through the same three frozen GGUF `tid2eid` tables; the 48 Chinese projections reproduced the recorded route rows exactly.
+
+The English sample read 588 streaming records to obtain 32,768 tokens, used 99.85% predominantly-ASCII text, and used the same local DeepSeek tokenizer. The random control sampled uniformly from the complete valid model vocabulary `[0,129280)` with seed `20260812`. The refitted coefficients are:
+
+| Corpus | `mu_rho` | `kappa_rho` | `a0` | `beta` |
+| --- | ---: | ---: | ---: | ---: |
+| Chinese baseline | `0.0765686` | `111.401` | `6.66003` | `0.477175` |
+| English WikiText-2 | `0.0477295` | `289.340` | `2.68470` | `0.0833506` |
+| Uniform random IDs | `0.0001831` | `2002.111` | `47.4263` | `0.650482` |
+
+The English result is not just a smaller Chinese head. Its most frequent token is `the`, but space, punctuation, and other function-word tokens are also frequent, so the single persistent six-expert head in the compact formula absorbs several real heads into its body term. A 4,000-replicate conditional block bootstrap found that the English changes in `mu_rho`, `a0`, and `beta` excluded zero; the beta-concentration difference was too noisy to distinguish with only 16 blocks. The random control has no meaningful lexical head; its tiny fitted `mu_rho` is a finite-sample tie-break rather than a semantic feature.
+
+All three corpora activated all 256 experts. Exact projected medians were:
+
+| Corpus | `B` | `max(M_g)/T` | Effective experts | Maximum-padding inflation |
+| --- | ---: | ---: | ---: | ---: |
+| Chinese | 1 | `0.11084` | `181.53` | `4.73x` |
+| Chinese | 4 | `0.10638` | `195.04` | `4.54x` |
+| Chinese | 16 | `0.09845` | `200.87` | `4.20x` |
+| English | 1 | `0.09692` | `178.07` | `4.14x` |
+| English | 4 | `0.09094` | `183.57` | `3.88x` |
+| English | 16 | `0.08813` | `185.92` | `3.76x` |
+| Random | 1 | `0.03369` | `250.31` | `1.44x` |
+| Random | 4 | `0.02887` | `254.14` | `1.23x` |
+| Random | 16 | `0.02682` | `255.07` | `1.14x` |
+
+Applying the Chinese prior unchanged to the English B16 shape predicted median `max(M_g)/T=0.10381` and `200.42` effective experts versus exact `0.08813` and `185.92`. Applied to random IDs it predicted `0.10373` and `200.52` versus exact `0.02682` and `255.07`. The refitted English and random priors recovered their respective B16 medians within about `2.5%` for both metrics, but remain exchangeable shape approximations rather than exact token-hash behavior.
+
+The shape difference can affect grouped-MMQ comparator ranking. Exact medoids were replayed on gfx1151 through the retained DeepSeek `IQ2_XXS` gate/up pair and `Q2_K` down paths. The ratio is packed grouped-MMQ throughput divided by the BF16 AITER reference throughput, so values above `1` favor the packed path:
+
+| DeepSeek B16 target | Chinese | English | Random |
+| --- | ---: | ---: | ---: |
+| `IQ2_XXS` pair, reversed-order 25-repeat confirmation | `0.942x` | `1.031x` | `0.854x` |
+| `Q2_K` down, 9-repeat replay | `0.698x` | `0.747x` | `0.537x` |
+
+The first row is a genuine ownership crossover: English makes the packed path faster while Chinese and random favor the AITER comparator. A hash-only B16 AITER configuration screen independently selected `BLOCK_SIZE_M=128`/`GROUP_SIZE=8` for Chinese and random, but `BLOCK_SIZE_M=64`/`GROUP_SIZE=8` for English on the down shape. This is comparator and ranking evidence only. Reweighting the existing five learned medoids at `40/43` and replacing only the hash component at `3/43` left the existing full-model down winner unchanged for all three corpora; the random-control margin was only about `1 ms` and is not promotion evidence.
+
+Therefore exact token/table projection remains authoritative when token IDs are available. The Chinese four-coefficient fit remains a capture-free search prior for the current evidence set, not a language-universal production distribution. English and uniform-random profiles are mandatory sensitivity controls for future candidate ranking, while full captured histograms and multi-seed, multi-checkpoint natural-language captures remain required for any production frequency weighting or dispatch change. The comparison implementation, token archive, exact medoids, and GPU reports are recorded under `~/tmp/test_no_unsloth/hash_router_corpus_*`, `~/tmp/test_no_unsloth/benchmark_hash_*`, and `~/tmp/torch-ggml-ops/hash-router-corpus-replay/`.
+
 The selected hierarchy is therefore exact token-hash projection when token IDs are known, this four-coefficient head-plus-body prior for capture-free candidate search, and the captured token/ranked profiles for ranking-sensitivity checks and final promotion. The formula must not be treated as proof of production frequency weighting until the planned multi-seed and multi-checkpoint corpus exists.
 
 Prior-predictive medians for the fitted non-hash priors, reported as `(active experts, max(M_g)/T, effective experts, maximum-padding inflation)`, are:
@@ -213,6 +254,18 @@ Prior-predictive medians for the fitted non-hash priors, reported as `(active ex
 | DeepSeek learned, B16/S2048 | `(254, 0.479, 39.6, 20.0x)` | `(254, 0.446, 44.0, 18.8x)` |
 
 The Qwen equal-total-token partition check used B1/S2048, B2/S1024, and B4/S512 in both base and checkpoint `7400`; the prior remained compatible with the observed active-count, head-load, and effective-expert distributions. DeepSeek sequence-length extrapolation remains untested because the audited attention path requires `S=2048`. The pooled prior is a benchmark model, not evidence that learned routing is training-step invariant: Qwen base versus checkpoint active-support KS was `p=0.99` and alpha-shape KS was `p=0.097`; DeepSeek learned alpha-shape KS was `p=0.097`, but active support differed at B16 (`p=0.014`). Therefore production frequency weighting still requires early, middle, and late checkpoints across multiple data seeds. Until those captures exist, use the pooled prior for candidate ranking and retain checkpoint-stratified histograms for final promotion.
+
+### Grouped MMQ AITER comparator boundary
+
+The grouped-MMQ learned-router prior is now connected to an offline AITER comparator screen, not to GGTensile generation or runtime dispatch. The screen covered all 24 Qwen/DeepSeek batch-shape targets with a bounded candidate domain: current exact config, one-field neighbors, cross-batch retained configs, and archived uniform-route candidates. Five weighted medoids per learned family and five per DeepSeek hash family compressed 512 coefficient-only samples while preserving physical expert identities. Captured learned medoids, exact DeepSeek token/hash projections, and `uniform`/`skewed`/`sparse`/`boundary` routes remained independent controls.
+
+The screen initially produced 12 pooled candidates above 2% with component checks. After captured and synthetic 25-repeat controls, six exact GMM keys were promoted in `bench/aiter_gmm_heuristics.py`: DeepSeek B4 forward pair; Qwen B1 forward down and backward pair; and Qwen B16 forward down, backward down, and backward pair. The Qwen B16 backward-pair entry was selected by a bounded compromise screen after the first prior winner failed synthetic controls. All six passed boundary-heavy GPU correctness, old/new bitwise identity, mutation sensitivity, and reversed-order 25-repeat confirmation on prior, captured, and synthetic corpora. Six other initial targets retained current configs because their finalists regressed mandatory controls or had no robust compromise.
+
+The exact-key table remains a comparator authority only. The installed AITER `aiter.ops.triton._triton_kernels.gmm.get_config` accepts shape parameters but returns an architecture-level JSON default; its source still marks shape lookup as a TODO, and the installed package has no `gfx1151-GMM.json`. Explicit benchmark configs therefore come from the repository table, whose layout-sensitive fail-closed behavior is tested by `tests/test_aiter_gmm_heuristics.py`.
+
+Retuned learned/hash replays held archived HIP medians fixed when attributing ratio changes. The Qwen forward weighted ratios moved `1.529/1.257/0.900 -> 1.516/1.257/0.881x`, Qwen backward moved `1.143/1.302/1.153 -> 1.029/1.302/1.066x`, and DeepSeek routed forward moved `1.894/1.284/1.223 -> 1.894/1.081/1.223x` for B1/B4/B16. These are comparator-replay screening results with correctness rows 64, not final claims about HIP kernel ranking.
+
+A subsequent existing-HIP ownership screen compared current dispatch with the already packaged row-task bodies over five prior, five captured, and four synthetic Qwen B1 profiles. Exact paired IQ2_S forward and single-down IQ2_S backward at aggregate rows 16,384 passed nine-repeat screening, reversed-order 25-repeat confirmation, every-profile `>0.99x` controls, and bitwise identity. Q3_K forward missed the captured `>1.02x` gate; Q4_K and Q5_K backward regressed synthetic controls. Production therefore adds only the two exact IQ2_S dispatch decisions, with no new kernel or host inspection of `expert_offsets`. Holding promoted AITER and unaffected archived HIP medians fixed, the B1 ratios move `1.5162 -> 1.5627x` forward and `1.0291 -> 1.0822x` backward; B4/B16 are unchanged. The focused existing-path review is complete. A new tail-aware device/hybrid mechanism remains deferred because current host dispatch cannot observe expert maxima without crossing the device-routing boundary.
 
 ## Design Principles
 
@@ -650,6 +703,8 @@ The writer architecture is complete when:
 | MMQ forward Q3_K | Dense 12-key inventory complete; all 12 exact keys select the typed full-weight research candidate, while public wiring remains deferred to the 179-kernel HIP bundle |
 | MMQ forward Q8_0 | All 23 exact keys have final research decisions: 20 compact-depth32 selections, one ordinary HIP-shaped control, and two LM-head small-M controls; public wiring remains deferred |
 | Grouped GGTensile forward | Initial non-fixed, non-paired routed campaign scoped to six formats and 21 quant/aggregate-shape workload keys; grouped writer, ownership, search, and qualification are not yet implemented |
+| Grouped MMQ AITER comparator | Prior-aware bounded screen, captured/synthetic controls, six exact table replacements, and comparator-only replay complete |
+| Grouped MMQ learned-B1 HIP ownership | Existing-path screen complete; exact IQ2_S forward-pair and backward-down row-task dispatches retained, while Q3_K/Q4_K/Q5_K controls are rejected |
 | Public GGTensile runtime selection | Deferred; existing HIP bundle dispatch remains authoritative |
 
 The ten direct MMQ forward and backward format campaigns are currently exhausted under the fixed exact-key contract: the separate post-Q6 physical-plan review found no actionable in-contract premise. This conclusion does not close grouped MMQ, public dispatch, model-owned representations, or other explicitly separate integration scopes. A genuinely changed premise still reopens the affected campaign under its exact correctness, resource, reproducibility, and timing gates.
@@ -694,7 +749,6 @@ The completed bidirectional writer refactor also established:
 The latest qualified repository state records:
 - 352 GGTensile tests and 437 repository tests passing, with only the 14 existing Python 3.14 PyTorch deprecation warnings.
 - all 56 selected forward and 50 selected backward artifacts regenerated from two independent roots and matching the reviewed post-migration baseline in source, object, code object, normalized disassembly, symbols, ABI, metadata, resources, waits, barriers, clauses, and VOPD counts.
-- normalized-disassembly digest `5145bdbe0a52ce3220c0b93829764dbbb3e6788ede48fb7f64b373ae063f5dec` for the complete 106-artifact set.
 - the canonical Q8 compact-M64 identity migration from `ggsol_13768a4d22953b59` to `ggsol_11f54a8999dc20e6`, with symbol-normalized source and executable identity.
 - explicit Q3 pairing migration evidence for 50 changed backward identities and 56 unchanged forward identities, with normalized source, disassembly, and inspection identity.
 - historical 516/447 source archives retained as pre-refreshed evidence; the 106 exact selected artifacts are the current identity authority.

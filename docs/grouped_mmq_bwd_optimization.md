@@ -2,9 +2,9 @@
 
 ## Current status
 
-Grouped MMQ backward is production-tuned for the current Qwen and DeepSeek GGUF representations on gfx1151. The exact FP32-accumulator pass is complete. The approximate-accumulator controls below are also complete. None met the combined numerical, resource, and latency requirements.
+Grouped MMQ backward is production-tuned for the current Qwen and DeepSeek GGUF representations on gfx1151. The exact FP32-accumulator pass is complete. A new coefficient-only full retune is planned below but has not changed production. The approximate-accumulator controls below are also complete. None met the combined numerical, resource, and latency requirements.
 
-Current source-of-record artifacts use the target-specific tuned AITER configurations:
+The baseline source-of-record artifacts for the pre-prior screen use the target-specific tuned AITER configurations:
 
 ```text
 Qwen:     ~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_aiter_tuned_9.json
@@ -20,6 +20,107 @@ Latest outcome:
 - The complete gfx1151 bundle contains 179 kernels, including 32 grouped-backward entries. HSACOs are generated from source and are not committed.
 - Direct BF16-C, BF16 slab, and normalized FP16-C controls are complete and rejected. Production continues to dispatch exact FP32 accumulation.
 - Prepared-weight work remains a separate model-owned project with explicit lifetime, invalidation, memory, cold-start, and sharing requirements.
+
+The exact comparator table was subsequently retuned against learned-route priors, captured route medoids, and the mandatory synthetic controls. The retuned Qwen backward replay is:
+
+```text
+~/tmp/torch-ggml-ops/aiter-prior-replay-retuned/qwen_learned_backward.json
+~/tmp/torch-ggml-ops/aiter-prior-replay-retuned/comparator_only_analysis.json
+```
+
+## Prior-aware AITER comparator retune
+
+The 24-target AITER screen used the bounded current/neighbor/cross-batch/archive candidate domain, five weighted learned medoids per Qwen/DeepSeek family, five hash medoids per DeepSeek family, and the `40/43` learned plus `3/43` hash objective. Finalists were then checked over captured Qwen and DeepSeek learned states, exact DeepSeek token/`tid2eid` hash projections, and the mandatory `uniform`, `skewed`, `sparse`, and `boundary` controls. Promotion required correctness, a stable greater-than-2% prior gain, no greater-than-1% route/profile regression, and reversed-order 25-repeat controls on all three corpora.
+
+Three exact backward keys were promoted. Tuples are ordered `(BLOCK_SIZE_M, BLOCK_SIZE_K, BLOCK_SIZE_N, GROUP_SIZE, GRID_DIM, num_warps, num_stages)`:
+
+| Key and workload | Previous tuple | Promoted tuple |
+|---|---|---|
+| Qwen B1 gate/up pair `(16384,512,2048,False)` | `(64,32,64,8,256,8,1)` | `(64,32,64,8,256,2,1)` |
+| Qwen B16 gate/up pair `(262144,512,2048,False)` | `(64,32,256,8,40,8,2)` | `(64,32,256,8,40,8,1)` |
+| Qwen B16 down `(262144,2048,512,False)` | `(64,32,256,8,160,8,3)` | `(64,32,128,1,80,8,2)` |
+
+The GPU qualification used boundary-heavy nonuniform groups. All three promoted outputs were bitwise identical to the replaced configs, passed independent per-group BF16 reference checks, and changed under a one-element input mutation. The evidence is retained in:
+
+```text
+~/tmp/torch-ggml-ops/aiter-prior-config-correctness.json
+~/tmp/torch-ggml-ops/aiter_captured_control_profiles.json
+~/tmp/torch-ggml-ops/aiter_synthetic_control_profiles.json
+~/tmp/torch-ggml-ops/aiter-compromise-screen/summary.json
+~/tmp/torch-ggml-ops/aiter-compromise-confirm-prior/summary.json
+~/tmp/torch-ggml-ops/aiter-compromise-confirm-captured/summary.json
+~/tmp/torch-ggml-ops/aiter-compromise-confirm-synthetic/summary.json
+```
+
+Holding archived HIP medians fixed and replacing only changed AITER medians moved the model-call-weighted Qwen backward ratios from `1.143/1.302/1.153x` to `1.029/1.302/1.066x` at B1/B4/B16. DeepSeek backward has no promoted key and remains unchanged. The initial pooled winners that lost uniform or boundary controls were rejected; no table entry was changed from the prior screen alone.
+
+The installed AITER `get_config` accepts `(M,K,N,G)` but returns an architecture-level default and currently does not use shape lookup. Because the installed package lacks a `gfx1151-GMM.json` and benchmark calls pass explicit configs, `bench/aiter_gmm_heuristics.py:gmm_config` remains the exact benchmark-owned authority. Unsupported keys fail closed and exact layout separation is tested in `tests/test_aiter_gmm_heuristics.py`.
+
+## Learned-B1 HIP ownership retune
+
+The learned-route corpus reopened the existing B1 serial/row-task choice for Qwen single-down backward. Five prior medoids had maximum expert heights of `800-2048`; five captured medoids reached `801-1960`, even when aggregate average rows stayed below the 128-row task gate. An isolated build compared the current predicate with the existing M-major 128-row task body across those ten profiles and the four mandatory synthetic controls. It did not add a new kernel or read device offsets on the host.
+
+In the nine-repeat screen, IQ2_S prior/captured/synthetic gains were `1.1600/1.1369/1.1075x`. Reversed-order 25-repeat confirmation measured `1.1680/1.1298/1.1017x`; the minimum profile was `0.9903x`, and every output was bitwise identical. Q4_K and Q5_K retained current dispatch: despite prior gains above `1.21x`, their synthetic aggregates fell to `0.9637x` and `0.9572x`, with worst profiles of `0.8481x` and `0.8927x`.
+
+Production now selects the existing row-task body for the exact IQ2_S single-down backward key `(rows,N,K)=(16384,2048,512)`. Other quant types and row counts retain the average-row predicate. The 179-kernel bundle and all kernel resources are unchanged. The post-change replay measured a `1.2600x` key gain. Holding promoted AITER medians and unaffected archived HIP medians fixed moved the model-call-weighted Qwen B1 backward ratio from `1.0291x` to `1.0822x`; B4/B16 remain `1.3023/1.0664x`.
+
+```text
+~/tmp/torch-ggml-ops/hip-b1-rowtask-screen-9.json
+~/tmp/torch-ggml-ops/hip-b1-rowtask-confirm-25.json
+~/tmp/torch-ggml-ops/hip-b1-rowtask-retuned/qwen_learned_backward.json
+~/tmp/torch-ggml-ops/hip-b1-rowtask-retuned/hip_only_analysis.json
+```
+
+## Coefficient-only full HIP retuning plan
+
+Status: planned. This is the backward half of the coefficient-only campaign defined in `docs/grouped_mmq_fwd_optimization.md`; it is not a promotion claim. The current dispatch and 179-kernel bundle remain authoritative until an exact backward key passes this section's gates.
+
+The fitted prior covers the seven routed production families and the fixed Q8_0 family below at physical batches 1, 4, and 16. Generic bundle wrappers without Qwen or DeepSeek prior mass remain correctness/resource fallbacks rather than weighted tuning targets. Existing ABI-compatible bodies are still eligible during the dispatch stage.
+
+| Production family | Current arithmetic choices | First retuning surface | Reopen only after that surface closes |
+|---|---|---|---|
+| Qwen Q3_K fused pair `(N,K)=(512,2048)` | M64/N64 and M128/N64 | M ownership threshold and existing-body selection | decoder width, LDS padding, decode/WMMA schedule |
+| Qwen IQ2_S fused pair `(512,2048)` | M64/N64 and M128/N64 | M ownership threshold and existing-body selection | IQ2_S decode and accumulation schedule |
+| Qwen Q4_K down `(2048,512)` | M64/N64, M128/N64, row-task M128/N128 | serial/row-task ownership, M geometry, task rows | decode preload and inactive-M mechanism |
+| Qwen Q5_K down `(2048,512)` | M64/N64, row-task M128/N128 | serial/row-task ownership and task rows | N64/N128 decode path and swizzle |
+| Qwen IQ2_S down `(2048,512)` | M64/N64, M128/N64, row-task M128/N128 | serial/row-task ownership, M geometry, task rows | IQ2_S decode, swizzle, inactive-M mechanism |
+| DeepSeek IQ2_XXS fused pair `(2048,4096)` | M64/N64 | bounded M/N geometry neighbors | decode width, LDS swizzle, pair-load schedule |
+| DeepSeek Q2_K down `(4096,2048)` | M64/N64 U1, M128/N64 U1/U2 | M ownership and reduction-unroll selection | Q2_K decode/load schedule |
+| DeepSeek fixed Q8_0 output A `(1024,4096)` | generic and M256/N64 tiled | existing-body selection, M, decoder width, swizzle | Q8_0 decode/load and store schedule |
+
+As in forward, the work is deliberately split into dispatch, geometry, and mechanism levels. Dispatch among current HSACOs changes no device instructions. Typed geometry candidates may vary N tiles, M tiles per wave, row-task height, decoder width, reduction unroll, LDS padding/swizzle, and the implemented inactive-M predicate only in combinations supported by the body. Geometry fields that determine launch dimensions, shared-tile types, or task coverage are linked and validated together. Decode reordering, prefetch, vectorization, WMMA issue order, accumulator organization, and store scheduling are mechanism changes, not `constexpr` retuning.
+
+The 128-thread/four-wave specialized workgroup, WMMA 16x16x16 instruction, FP32 accumulation, fused pair's single accumulator/result/rounding contract, packed GGUF layout, and device-resident route ABI are frozen. The 256-thread generic fallback is an existing control, not a free thread-count coordinate. Approximate BF16/FP16 accumulator variants remain closed by the numerical campaigns already recorded below.
+
+### Prior and tool contract
+
+Backward uses the same planned self-contained `tools/tune_grouped_mmq_prior.py` as forward. The script embeds the exact Qwen learned, DeepSeek learned, and capture-free DeepSeek hash state from [Fitted model-level routing prior](ggtensile_plan.md#fitted-model-level-routing-prior). It depends only on `T = physical_batch * 2048`, deterministically creates disjoint 512-draw search and confirmation banks and five weighted physical-ID medoids per bank, router component, and batch, and locally generates `uniform`, `skewed`, `sparse`, and `boundary` controls. The exact seeds, normalized-L1 k-medoids rule, deterministic tie breaking, and serialized profile fields are shared with the forward contract. It reads packed weights from the requested GGUF models but reads no route capture, checkpoint report, adapter state, or file under `~/tmp` or `~/test_no_unsloth`. This campaign builds and tunes HIP kernels only; no stage generates or qualifies GGTensile kernels.
+
+Qwen row sums are `{16384,65536,262144}` and DeepSeek routed row sums are `{12288,49152,196608}`. DeepSeek learned and hash profiles are measured and gated separately; `40/43` plus `3/43` weighting is ranking/reporting metadata only. The coefficient-only hash profile is explicitly a surrogate for exact token/`tid2eid` projection. Fixed output A has no route profile and is measured at token rows `{2048,8192,32768}`. Captured routes can be optional external replay evidence, but search and promotion remain reproducible without them.
+
+The script owns profile generation, candidate manifests, timing, correctness, and confirmation. A candidate record includes exact operator/quant/shape/batch, source and transitive-include hashes, typed geometry and mechanism state, launch dimensions, compiler identity and arguments, HSACO/disassembly/metadata hashes, VGPR/SGPR/LDS/private resources, profile seeds and group vectors, timing samples, and rejection reason. There is no hidden source mutation or environment-controlled production selector.
+
+### HIP compiler boundary
+
+Backward headers currently encode several geometries as shared constants and named bodies. The campaign must not edit one of those constants in place and rebuild all wrappers. That would confound the intended parameter with unrelated `hipcc` register-allocation and scheduling movement. Missing fields are first moved into typed `GroupedBackwardConfig` state and emitted as explicit template arguments. Each candidate wrapper then compiles alone into a content-addressed HSACO while the frozen production baseline remains byte-identical.
+
+Finalists compile twice in clean directories and must have identical generated source, HSACO, disassembly, metadata, and resource reports. A formatting-only source variant is a separate compiler candidate. Every artifact with private bytes, VGPR/SGPR spills, scratch instructions, calls, or dynamic stack is rejected before timing. A pinned compiler is part of the selected identity; a toolchain change requires requalification. Candidate loading remains tool-owned and does not alter the public operator or production dispatch path.
+
+### Backward campaign stages
+
+| Stage | Work | Exit condition |
+|---|---|---|
+| B0 | Generate coefficient-only medoids/controls and freeze complete-call plus arithmetic baselines for all eight families and three batches | Profiles are byte-reproducible and current artifacts reproduce |
+| B1 | Screen every ABI-compatible existing body at each exact `(operator,quant,R,N,K)` key, including serial/task and M64/M128/U1/U2 choices | No existing-body winner remains above the promotion floor |
+| B2 | Run bounded typed coordinate search and small linked crosses over M/N tiles, task rows, decoder width, reduction unroll, LDS layout, and supported inactive-M policy | Finalists are correct, resource-clean, and deterministic |
+| B3 | Open one named HIP decode/load/WMMA/store mechanism at a time only for material residual losses | Mechanism gain is isolated from geometry and source-form noise |
+| B4 | Run reversed-order confirmation, independent references, mutation checks, all controls, and clean rebuild identity; then update exact dispatch/catalogs | Every promotion gate passes for the exact key |
+
+Promotion requires a stable greater-than-2% aggregate gain on the disjoint confirmation medoids, minimum individual search/confirmation profile and router-component speedup of `0.99x`, at least `0.99x` on each mandatory synthetic control, and reversed-order 25-repeat confirmation. Complete public-operator timing includes output allocation and row-task setup. Arithmetic-only timing is diagnostic. No aggregate model score may hide a regression in one production family.
+
+Correctness uses the independent per-group FP32-accumulating reference, old/new output comparison where applicable, input/gradient and packed-weight mutation sensitivity, zero-length/inactive experts, non-multiple M tails, and route changes. Fused pair candidates must preserve one FP32 accumulation of both projections and one BF16 rounding; comparing two separately rounded single calls is not an admissible reference for exact pair semantics.
+
+Promotion must not introduce host inspection of `expert_offsets`, model/router/checkpoint dispatch dimensions, hidden synchronization, atomics where the retained body is atomics-free, prepared weights, or a changed public ABI. The final campaign report includes all rejected candidates, reruns the complete forward/backward and dense controls for shared code, verifies `tools/build_mmq_bundle.py --check`, records artifact hashes, and updates this document with the resulting bundle count.
 
 ## Latest results
 
@@ -247,7 +348,7 @@ Dispatch uses only host-visible shape, quant type, total rows, and group count. 
 | Qwen IQ2_S pair | M64/N64/K32 below `128 * num_groups`, M128/N64/K32 otherwise |
 | Qwen Q4_K down | M64/N64 below 80 rows/group, M128/N64 at 80-127, M128/N128 row tasks at 128+ |
 | Qwen Q5_K down | M64/N64 below 128 rows/group, M128/N128 row tasks at 128+ |
-| Qwen IQ2_S down | M64/N64 below 80 rows/group, M128/N64 at 80-127, M128/N128 row tasks at 128+ |
+| Qwen IQ2_S down | M64/N64 below 80 rows/group, M128/N64 at 80-127, M128/N128 row tasks at 128+ or exact aggregate rows 16,384 |
 | DeepSeek IQ2_XXS pair | M64/N64/K32, width-16 decode, swizzle4 at all route sizes |
 | DeepSeek Q2_K down | M64/U1 below 128 rows/group, M128/U2 at 128-511, M128/U1 at 512+ |
 | DeepSeek fixed Q8_0 | M256/N64/K32, width-16 decode, no swizzle at all batches |
@@ -286,7 +387,7 @@ DeepSeek-specific choices:
 
 Qwen large single-down paths use an atomics-free 256-thread prefix-sum setup to build device-resident 128-row tasks. Setup averages approximately `0.004 ms`, so caching route tasks is not a meaningful optimization target.
 
-M-major ordering is required. N-major ordering nearly doubled B16 latency. Pair and small-row paths stay serial. DeepSeek Q2_K stays serial because it already exposes 32 N workgroups per expert and thousands of workgroups overall. Adding row tasks would not remove rounded tail arithmetic.
+M-major ordering is required. N-major ordering nearly doubled B16 latency. Pair backward and ordinary small-row paths stay serial; exact IQ2_S aggregate rows 16,384 use the separately qualified row-task exception. DeepSeek Q2_K stays serial because it already exposes 32 N workgroups per expert and thousands of workgroups overall. Adding row tasks would not remove rounded tail arithmetic.
 
 ### Code-object resources
 

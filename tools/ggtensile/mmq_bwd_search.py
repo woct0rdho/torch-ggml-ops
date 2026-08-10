@@ -1,7 +1,5 @@
 """Deterministic linked candidate neighborhoods for MMQ backward assembly."""
 
-from __future__ import annotations
-
 import hashlib
 import json
 from dataclasses import dataclass, replace

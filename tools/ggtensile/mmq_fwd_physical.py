@@ -1,7 +1,5 @@
 """Pure physical planning for MMQ forward assembly lowerings."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Literal, Protocol, TypeAlias
 
@@ -39,11 +37,7 @@ class SignedInt8MmaGroupRole:
     activation_scale_offset: int
 
     @classmethod
-    def from_semantics(
-        cls,
-        semantics: QuantForwardSemantics,
-        index: int,
-    ) -> SignedInt8MmaGroupRole:
+    def from_semantics(cls, semantics: QuantForwardSemantics, index: int):
         if index not in range(4):
             raise ValueError("signed-int8 direct group requires index 0..3")
         if (
@@ -88,7 +82,7 @@ class SignedInt8DirectRegisterPlan:
     declared_vgprs: int
 
     @classmethod
-    def allocate(cls) -> SignedInt8DirectRegisterPlan:
+    def allocate(cls):
         roles = {
             "c": RegisterRole("c", 8, RegisterLifetime(2, 3), minimum_register=0),
             "sums": RegisterRole("sums", 8, RegisterLifetime(0, 5), minimum_register=8),
@@ -154,11 +148,7 @@ class SignedInt8RegisterTileRole:
     fragment_index: int
 
     @classmethod
-    def all(
-        cls,
-        wave_tile_m: int,
-        wave_tile_n: int,
-    ) -> tuple[SignedInt8RegisterTileRole, ...]:
+    def all(cls, wave_tile_m: int, wave_tile_n: int):
         return tuple(
             cls(m_index, n_index, wave_tile_n * m_index + n_index)
             for m_index in range(wave_tile_m)
@@ -191,11 +181,7 @@ class SignedInt8RegisterTiledRegisterPlan:
     declared_vgprs: int
 
     @classmethod
-    def allocate(
-        cls,
-        wave_tile_m: int,
-        wave_tile_n: int,
-    ) -> SignedInt8RegisterTiledRegisterPlan:
+    def allocate(cls, wave_tile_m: int, wave_tile_n: int):
         if wave_tile_m * wave_tile_n != 4:
             raise ValueError("Q8 register tile must own four 16x16 fragments per wave")
         weight_payloads = 8 * wave_tile_n
@@ -330,7 +316,7 @@ class SignedInt8WaveNTiledLdsRegisterPlan:
     declared_vgprs: int
 
     @classmethod
-    def allocate(cls) -> SignedInt8WaveNTiledLdsRegisterPlan:
+    def allocate(cls):
         roles = {
             "c": RegisterRole("c", 64, RegisterLifetime(2, 3), minimum_register=0),
             "sums": RegisterRole(
@@ -480,7 +466,7 @@ class SignedInt8SmallMTiledLdsRegisterPlan:
     declared_vgprs: int
 
     @classmethod
-    def allocate(cls, m_fragments: int) -> SignedInt8SmallMTiledLdsRegisterPlan:
+    def allocate(cls, m_fragments: int):
         if m_fragments not in (2, 4):
             raise ValueError("Q8 small-M register plan requires two or four fragments")
         c_width = 8 * m_fragments
@@ -760,7 +746,7 @@ class Packed3BitTiledLdsRegisterPlan:
     declared_vgprs: int
 
     @classmethod
-    def allocate(cls) -> Packed3BitTiledLdsRegisterPlan:
+    def allocate(cls):
         roles = {
             "sums": RegisterRole("sums", 64, RegisterLifetime(0, 5)),
             "activation_stage": RegisterRole(
@@ -948,7 +934,7 @@ class Q3FullWeightTiledLdsRegisterPlan:
         )
 
     @classmethod
-    def allocate(cls) -> Q3FullWeightTiledLdsRegisterPlan:
+    def allocate(cls):
         fixed = cls._fixed
         return cls(
             sums=fixed("sums", 64, 0, 0, 5),
@@ -1186,7 +1172,7 @@ class Q6OwnershipRegisterPlan:
     refill_payloads: tuple[RegisterAssignment, ...]
 
     @classmethod
-    def for_output_tile_rows(cls, output_tile_rows: int) -> Q6OwnershipRegisterPlan:
+    def for_output_tile_rows(cls, output_tile_rows: int):
         source_pairs = {
             1: (
                 (10, 122),
@@ -1374,7 +1360,7 @@ class Q6DecodeRegisterPlan:
     activation_payload_registers: tuple[int, ...]
 
     @classmethod
-    def for_output_tile_rows(cls, output_tile_rows: int) -> Q6DecodeRegisterPlan:
+    def for_output_tile_rows(cls, output_tile_rows: int):
         ownership = Q6OwnershipRegisterPlan.for_output_tile_rows(output_tile_rows)
         source_assignments = tuple(
             (
@@ -1571,7 +1557,7 @@ class Q6PhysicalRegisterMap:
     output_roles: tuple[Q6AccumulatorOutputRole, ...]
 
     @classmethod
-    def for_output_tile_rows(cls, output_tile_rows: int) -> Q6PhysicalRegisterMap:
+    def for_output_tile_rows(cls, output_tile_rows: int):
         if output_tile_rows == 1:
             accumulator_registers = (
                 32,
@@ -1941,7 +1927,7 @@ class PackedScaleMinimumDirectRegisterPlan:
     declared_vgprs: int
 
     @classmethod
-    def allocate(cls) -> PackedScaleMinimumDirectRegisterPlan:
+    def allocate(cls):
         roles = {
             "c": RegisterRole("c", 8, RegisterLifetime(2, 3), minimum_register=0),
             "sums": RegisterRole("sums", 8, RegisterLifetime(0, 5), minimum_register=8),
@@ -2061,7 +2047,7 @@ class DecodedWeightLdsRegisterPlan:
     declared_vgprs: int
 
     @classmethod
-    def allocate(cls) -> DecodedWeightLdsRegisterPlan:
+    def allocate(cls):
         roles = {
             "zero_accumulator": RegisterRole(
                 "zero_accumulator", 8, RegisterLifetime(0, 3), minimum_register=0
