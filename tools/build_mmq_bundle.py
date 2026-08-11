@@ -692,9 +692,19 @@ def _grouped_backward_spec(
     suffix: str,
     kind: GroupedBackwardKind,
     quant_type: QuantType | None = None,
+    *,
+    n_tiles: int = 0,
+    m_tiles_per_wave: int = 0,
+    reduction_unroll: int = 0,
     enforce_resource_gate: bool = False,
 ) -> KernelSpec:
-    config = GroupedBackwardConfig(kind=kind, quant_type=quant_type)
+    config = GroupedBackwardConfig(
+        kind=kind,
+        quant_type=quant_type,
+        n_tiles=n_tiles,
+        m_tiles_per_wave=m_tiles_per_wave,
+        reduction_unroll=reduction_unroll,
+    )
     return KernelSpec(cpp_id, suffix, config, enforce_resource_gate)
 
 
@@ -836,6 +846,30 @@ def _grouped_backward_specs() -> list[KernelSpec]:
     return specs
 
 
+def _tuned_grouped_backward_specs() -> list[KernelSpec]:
+    return [
+        _grouped_backward_spec(
+            "GroupedBwdTunedPairIQ2XXSN2048K4096M128N64",
+            "grouped_bwd_tuned_pair_iq2_xxs_n2048_k4096_mt128_nt64",
+            GroupedBackwardKind.TUNED_DEEPSEEK_PAIR,
+            QuantType.IQ2_XXS,
+            n_tiles=4,
+            m_tiles_per_wave=2,
+            reduction_unroll=1,
+            enforce_resource_gate=True,
+        ),
+        _grouped_backward_spec(
+            "GroupedBwdTunedFixedQ80G8K4096M192N64",
+            "grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64",
+            GroupedBackwardKind.TUNED_FIXED_Q8_0,
+            n_tiles=4,
+            m_tiles_per_wave=3,
+            reduction_unroll=1,
+            enforce_resource_gate=True,
+        ),
+    ]
+
+
 def kernel_specs() -> tuple[KernelSpec, ...]:
     specs: list[KernelSpec] = [
         _forward_spec(
@@ -939,7 +973,8 @@ def kernel_specs() -> tuple[KernelSpec, ...]:
     specs.extend(_dense_backward_specs())
     specs.extend(_grouped_backward_specs())
     specs.extend(_db8_dense_backward_specs())
-    assert len(specs) == 179
+    specs.extend(_tuned_grouped_backward_specs())
+    assert len(specs) == 181
     assert len({spec.cpp_id for spec in specs}) == len(specs)
     assert len({spec.symbol for spec in specs}) == len(specs)
     return tuple(specs)

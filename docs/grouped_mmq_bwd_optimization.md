@@ -2,22 +2,22 @@
 
 ## Current status
 
-Grouped MMQ backward is production-tuned for the current Qwen and DeepSeek GGUF representations on gfx1151. The exact FP32-accumulator pass is complete. A new coefficient-only full retune is planned below but has not changed production. The approximate-accumulator controls below are also complete. None met the combined numerical, resource, and latency requirements.
+Grouped MMQ backward is production-tuned for the current Qwen and DeepSeek GGUF representations on gfx1151. The exact FP32-accumulator pass, prior-aware AITER comparator retune, and coefficient-only full HIP retune are complete. The approximate-accumulator controls are also complete; none met the combined numerical, resource, and latency requirements. Bottleneck attribution is complete from representative profiler controls plus family-specific geometry, mechanism, resource, and source evidence; not every exact production key has a separate hardware-counter run.
 
-The baseline source-of-record artifacts for the pre-prior screen use the target-specific tuned AITER configurations:
+The final benchmark authorities are:
 
 ```text
-Qwen:     ~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_aiter_tuned_9.json
-DeepSeek: ~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_aiter_tuned_9.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_prior_retuned_final_9.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_deepseek_prior_retuned_final_9.json
 ```
 
 Latest outcome:
-- Qwen packed kernels win 33/60 individual case, batch, and routing points against predecoded BF16 AITER GMM.
-- Both Qwen fused gate/up families win all 24 points. The checkpoint-weighted Qwen estimate wins all 12 batch/routing combinations by `1.165-1.724x`.
-- DeepSeek fixed Q8_0 wins 3/3 against BF16 BMM. Routed IQ2_XXS wins 7/12 and routed Q2_K wins 5/12 against predecoded BF16 AITER.
-- Including fixed output A, the checkpoint-weighted DeepSeek estimate wins all B1 points by `1.247-1.324x`, is near parity at B4 (`0.979-1.014x`), and trails at B16 (`0.704-0.718x`).
-- Every retained specialized kernel has zero private storage, zero VGPR spills, zero SGPR spills, and no dynamic stack.
-- The complete gfx1151 bundle contains 179 kernels, including 32 grouped-backward entries. HSACOs are generated from source and are not committed.
+- Qwen packed kernels win `33/60` case, batch, and mandatory-control points against the promoted BF16 AITER GMM table. Both fused gate/up families win all 24 points.
+- DeepSeek routed IQ2_XXS wins `8/12` and routed Q2_K wins `5/12`; fixed Q8_0 wins `3/3` against BF16 BMM.
+- The coefficient-only campaign promoted DeepSeek IQ2_XXS pair M128/N64 only at aggregate rows `49,152` and `196,608`, plus fixed Q8_0 M192/N64 only at `32,768` tokens. Qwen and DeepSeek Q2_K retain their prior bodies.
+- Reversed-order 25-repeat confirmation measured IQ2_XXS speedups of `1.1678x` at B4 and `1.1644x` at B16, with a `1.0562x` worst profile/control. Fixed Q8_0 B16 confirmed at `1.03227x`.
+- Independent production qualification reached maximum sampled normalized RMSE `0.00027772` and minimum cosine `0.99999994`; all gradient, packed-weight, inactive-expert, projection, and fixed-group mutation gates passed.
+- Both new kernels are wave32, call-free, scratch-free, zero-private, zero-spill, and stack-free. The complete gfx1151 bundle contains 181 kernels, including 34 grouped-backward entries.
 - Direct BF16-C, BF16 slab, and normalized FP16-C controls are complete and rejected. Production continues to dispatch exact FP32 accumulation.
 - Prepared-weight work remains a separate model-owned project with explicit lifetime, invalidation, memory, cold-start, and sharing requirements.
 
@@ -62,7 +62,7 @@ The learned-route corpus reopened the existing B1 serial/row-task choice for Qwe
 
 In the nine-repeat screen, IQ2_S prior/captured/synthetic gains were `1.1600/1.1369/1.1075x`. Reversed-order 25-repeat confirmation measured `1.1680/1.1298/1.1017x`; the minimum profile was `0.9903x`, and every output was bitwise identical. Q4_K and Q5_K retained current dispatch: despite prior gains above `1.21x`, their synthetic aggregates fell to `0.9637x` and `0.9572x`, with worst profiles of `0.8481x` and `0.8927x`.
 
-Production now selects the existing row-task body for the exact IQ2_S single-down backward key `(rows,N,K)=(16384,2048,512)`. Other quant types and row counts retain the average-row predicate. The 179-kernel bundle and all kernel resources are unchanged. The post-change replay measured a `1.2600x` key gain. Holding promoted AITER medians and unaffected archived HIP medians fixed moved the model-call-weighted Qwen B1 backward ratio from `1.0291x` to `1.0822x`; B4/B16 remain `1.3023/1.0664x`.
+Production now selects the existing row-task body for the exact IQ2_S single-down backward key `(rows,N,K)=(16384,2048,512)`. Other quant types and row counts retain the average-row predicate. At that campaign stage, the 179-kernel bundle and all kernel resources were unchanged. The post-change replay measured a `1.2600x` key gain. Holding promoted AITER medians and unaffected archived HIP medians fixed moved the model-call-weighted Qwen B1 backward ratio from `1.0291x` to `1.0822x`; B4/B16 remain `1.3023/1.0664x`.
 
 ```text
 ~/tmp/torch-ggml-ops/hip-b1-rowtask-screen-9.json
@@ -71,9 +71,9 @@ Production now selects the existing row-task body for the exact IQ2_S single-dow
 ~/tmp/torch-ggml-ops/hip-b1-rowtask-retuned/hip_only_analysis.json
 ```
 
-## Coefficient-only full HIP retuning plan
+## Coefficient-only full HIP retuning campaign
 
-Status: planned. This is the backward half of the coefficient-only campaign defined in `docs/grouped_mmq_fwd_optimization.md`; it is not a promotion claim. The current dispatch and 179-kernel bundle remain authoritative until an exact backward key passes this section's gates.
+Status: complete. This is the backward half of the coefficient-only campaign defined in `docs/grouped_mmq_fwd_optimization.md`. The final production bundle contains exactly two qualified backward additions and 181 kernels total.
 
 The fitted prior covers the seven routed production families and the fixed Q8_0 family below at physical batches 1, 4, and 16. Generic bundle wrappers without Qwen or DeepSeek prior mass remain correctness/resource fallbacks rather than weighted tuning targets. Existing ABI-compatible bodies are still eligible during the dispatch stage.
 
@@ -84,9 +84,25 @@ The fitted prior covers the seven routed production families and the fixed Q8_0 
 | Qwen Q4_K down `(2048,512)` | M64/N64, M128/N64, row-task M128/N128 | serial/row-task ownership, M geometry, task rows | decode preload and inactive-M mechanism |
 | Qwen Q5_K down `(2048,512)` | M64/N64, row-task M128/N128 | serial/row-task ownership and task rows | N64/N128 decode path and swizzle |
 | Qwen IQ2_S down `(2048,512)` | M64/N64, M128/N64, row-task M128/N128 | serial/row-task ownership, M geometry, task rows | IQ2_S decode, swizzle, inactive-M mechanism |
-| DeepSeek IQ2_XXS fused pair `(2048,4096)` | M64/N64 | bounded M/N geometry neighbors | decode width, LDS swizzle, pair-load schedule |
+| DeepSeek IQ2_XXS fused pair `(2048,4096)` | M64/N64 at B1; qualified M128/N64 at routed rows 49,152 and 196,608 | exact-row ownership and M geometry | decode width, LDS swizzle, pair-load schedule |
 | DeepSeek Q2_K down `(4096,2048)` | M64/N64 U1, M128/N64 U1/U2 | M ownership and reduction-unroll selection | Q2_K decode/load schedule |
-| DeepSeek fixed Q8_0 output A `(1024,4096)` | generic and M256/N64 tiled | existing-body selection, M, decoder width, swizzle | Q8_0 decode/load and store schedule |
+| DeepSeek fixed Q8_0 output A `(1024,4096)` | M256/N64 except M192/N64 at 32,768 tokens | exact-token ownership and M geometry | Q8_0 decode/load and store schedule |
+
+The bounded search screened every existing Qwen and DeepSeek body before compiling 24 typed geometry candidates. Twenty-two candidates were resource-clean; the two promoted finalists were the only new geometries that passed the strict timing and control gates. DeepSeek IQ2_XXS pair M128/N64 confirmed at `1.1678x` and `1.1644x` for B4/B16, with every learned, hash, and mandatory control above `1.05x`. Fixed Q8_0 M192/N64 confirmed at `1.0322713651x` at B16; B1 regressed and B4 remained below the promotion floor.
+
+Production adds `GroupedBwdTunedPairIQ2XXSN2048K4096M128N64` and `GroupedBwdTunedFixedQ80G8K4096M192N64`. IQ2_XXS dispatch uses the tuned pair only for exact aggregate rows `49152` and `196608`; fixed Q8_0 dispatch uses M192 only for exact `tokens == 32768`. All other existing dispatch thresholds and kernel identities remain unchanged.
+
+Campaign and production evidence:
+
+```text
+~/tmp/torch-ggml-ops/grouped-bwd-candidate-resources.json
+~/tmp/torch-ggml-ops/grouped-bwd-finalists/deepseek_iq2xxs_m128_confirmation_25.json
+~/tmp/torch-ggml-ops/grouped-bwd-finalists/deepseek_fixed_m192_b16_confirmation_25.json
+~/tmp/torch-ggml-ops/grouped-bwd-finalists/finalist-correctness.json
+~/tmp/torch-ggml-ops/grouped-bwd-production-final-correctness.json
+~/tmp/torch-ggml-ops/grouped-bwd-production-final-resources.json
+~/tmp/torch-ggml-ops/grouped-bwd-production-final-rebuild.json
+```
 
 As in forward, the work is deliberately split into dispatch, geometry, and mechanism levels. Dispatch among current HSACOs changes no device instructions. Typed geometry candidates may vary N tiles, M tiles per wave, row-task height, decoder width, reduction unroll, LDS padding/swizzle, and the implemented inactive-M predicate only in combinations supported by the body. Geometry fields that determine launch dimensions, shared-tile types, or task coverage are linked and validated together. Decode reordering, prefetch, vectorization, WMMA issue order, accumulator organization, and store scheduling are mechanism changes, not `constexpr` retuning.
 
@@ -94,7 +110,7 @@ The 128-thread/four-wave specialized workgroup, WMMA 16x16x16 instruction, FP32 
 
 ### Prior and tool contract
 
-Backward uses the same planned self-contained `tools/tune_grouped_mmq_prior.py` as forward. The script embeds the exact Qwen learned, DeepSeek learned, and capture-free DeepSeek hash state from [Fitted model-level routing prior](ggtensile_plan.md#fitted-model-level-routing-prior). It depends only on `T = physical_batch * 2048`, deterministically creates disjoint 512-draw search and confirmation banks and five weighted physical-ID medoids per bank, router component, and batch, and locally generates `uniform`, `skewed`, `sparse`, and `boundary` controls. The exact seeds, normalized-L1 k-medoids rule, deterministic tie breaking, and serialized profile fields are shared with the forward contract. It reads packed weights from the requested GGUF models but reads no route capture, checkpoint report, adapter state, or file under `~/tmp` or `~/test_no_unsloth`. This campaign builds and tunes HIP kernels only; no stage generates or qualifies GGTensile kernels.
+Backward uses the same self-contained `tools/tune_grouped_mmq_prior.py` as forward. The script embeds the exact Qwen learned, DeepSeek learned, and capture-free DeepSeek hash state from [Fitted model-level routing prior](ggtensile_plan.md#fitted-model-level-routing-prior). It depends only on `T = physical_batch * 2048`, deterministically creates disjoint 512-draw search and confirmation banks and five weighted physical-ID medoids per bank, router component, and batch, and locally generates `uniform`, `skewed`, `sparse`, and `boundary` controls. The exact seeds, normalized-L1 k-medoids rule, deterministic tie breaking, and serialized profile fields are shared with the forward contract. It reads packed weights from the requested GGUF models but reads no route capture, checkpoint report, adapter state, or file under `~/tmp` or `~/test_no_unsloth`. This campaign built and tuned HIP kernels only; no stage generated or qualified GGTensile kernels.
 
 Qwen row sums are `{16384,65536,262144}` and DeepSeek routed row sums are `{12288,49152,196608}`. DeepSeek learned and hash profiles are measured and gated separately; `40/43` plus `3/43` weighting is ranking/reporting metadata only. The coefficient-only hash profile is explicitly a surrogate for exact token/`tid2eid` projection. Fixed output A has no route profile and is measured at token rows `{2048,8192,32768}`. Captured routes can be optional external replay evidence, but search and promotion remain reproducible without them.
 
@@ -106,7 +122,7 @@ Backward headers currently encode several geometries as shared constants and nam
 
 Finalists compile twice in clean directories and must have identical generated source, HSACO, disassembly, metadata, and resource reports. A formatting-only source variant is a separate compiler candidate. Every artifact with private bytes, VGPR/SGPR spills, scratch instructions, calls, or dynamic stack is rejected before timing. A pinned compiler is part of the selected identity; a toolchain change requires requalification. Candidate loading remains tool-owned and does not alter the public operator or production dispatch path.
 
-### Backward campaign stages
+### Executed backward campaign stages
 
 | Stage | Work | Exit condition |
 |---|---|---|
@@ -122,7 +138,47 @@ Correctness uses the independent per-group FP32-accumulating reference, old/new 
 
 Promotion must not introduce host inspection of `expert_offsets`, model/router/checkpoint dispatch dimensions, hidden synchronization, atomics where the retained body is atomics-free, prepared weights, or a changed public ABI. The final campaign report includes all rejected candidates, reruns the complete forward/backward and dense controls for shared code, verifies `tools/build_mmq_bundle.py --check`, records artifact hashes, and updates this document with the resulting bundle count.
 
-## Latest results
+## Final benchmark results
+
+The authoritative final matrices use warmup 3, nine sequential repeats, correctness rows 256, and all four mandatory routing distributions. The table below displays the uniform-route result per logical matrix shape; skewed, sparse, and boundary rows remain in the JSON authorities. Logical shapes use `(M,N,K)`. Paired gate/up executes two matrices with one fused FP32 accumulation, while fixed output A executes eight independent group matrices. Ratios above `1.000x` favor packed HIP.
+
+| Model/operator | GGUF type | B | Full logical shape `(M,N,K)` | Packed TFLOPS | Reference | HIP/reference |
+|---|---|---:|---:|---:|---|---:|
+| Qwen paired gate/up | Q3_K | 1 | `2 x (16384,512,2048)` | 19.09 | AITER GMM | `2.392x` |
+| Qwen paired gate/up | Q3_K | 4 | `2 x (65536,512,2048)` | 26.09 | AITER GMM | `1.922x` |
+| Qwen paired gate/up | Q3_K | 16 | `2 x (262144,512,2048)` | 24.54 | AITER GMM | `1.501x` |
+| Qwen paired gate/up | IQ2_S | 1 | `2 x (16384,512,2048)` | 17.26 | AITER GMM | `2.158x` |
+| Qwen paired gate/up | IQ2_S | 4 | `2 x (65536,512,2048)` | 26.02 | AITER GMM | `1.899x` |
+| Qwen paired gate/up | IQ2_S | 16 | `2 x (262144,512,2048)` | 24.17 | AITER GMM | `1.479x` |
+| Qwen down | IQ2_S | 1 | `(16384,2048,512)` | 9.12 | AITER GMM | `0.824x` |
+| Qwen down | IQ2_S | 4 | `(65536,2048,512)` | 13.95 | AITER GMM | `0.738x` |
+| Qwen down | IQ2_S | 16 | `(262144,2048,512)` | 16.55 | AITER GMM | `0.742x` |
+| Qwen down | Q4_K | 1 | `(16384,2048,512)` | 9.70 | AITER GMM | `0.869x` |
+| Qwen down | Q4_K | 4 | `(65536,2048,512)` | 13.56 | AITER GMM | `0.808x` |
+| Qwen down | Q4_K | 16 | `(262144,2048,512)` | 17.19 | AITER GMM | `0.758x` |
+| Qwen down | Q5_K | 1 | `(16384,2048,512)` | 9.38 | AITER GMM | `0.849x` |
+| Qwen down | Q5_K | 4 | `(65536,2048,512)` | 14.54 | AITER GMM | `0.789x` |
+| Qwen down | Q5_K | 16 | `(262144,2048,512)` | 17.37 | AITER GMM | `0.761x` |
+| DeepSeek fixed output A | Q8_0 | 1 | `8 x (2048,1024,4096)` | 22.74 | BF16 BMM | `1.228x` |
+| DeepSeek fixed output A | Q8_0 | 4 | `8 x (8192,1024,4096)` | 22.34 | BF16 BMM | `1.155x` |
+| DeepSeek fixed output A | Q8_0 | 16 | `8 x (32768,1024,4096)` | 23.82 | BF16 BMM | `1.202x` |
+| DeepSeek paired gate/up | IQ2_XXS | 1 | `2 x (12288,2048,4096)` | 13.99 | AITER GMM | `1.513x` |
+| DeepSeek paired gate/up | IQ2_XXS | 4 | `2 x (49152,2048,4096)` | 17.59 | AITER GMM | `1.172x` |
+| DeepSeek paired gate/up | IQ2_XXS | 16 | `2 x (196608,2048,4096)` | 18.15 | AITER GMM | `0.698x` |
+| DeepSeek down | Q2_K | 1 | `(12288,4096,2048)` | 11.43 | AITER GMM | `1.162x` |
+| DeepSeek down | Q2_K | 4 | `(49152,4096,2048)` | 17.19 | AITER GMM | `0.849x` |
+| DeepSeek down | Q2_K | 16 | `(196608,4096,2048)` | 19.20 | AITER GMM | `0.712x` |
+
+Qwen wins `33/60` comparisons. DeepSeek routed kernels win `13/24` comparisons and fixed Q8_0 wins `3/3`. The final model-call-weighted ratios span `1.287-1.569x`, `1.358-1.775x`, and `1.106-1.180x` for Qwen B1/B4/B16; DeepSeek spans `1.288-1.396x`, `1.076-1.124x`, and `0.759-0.782x`. Standard-matrix BF16-reference NRMSE is at most `0.002878` for Qwen and `0.002869` for routed DeepSeek; fixed Q8_0 is approximately `5.2e-5` against BF16 BMM. The independent sampled-FP32 finalist qualification is stricter for the promoted rows and is recorded separately below.
+
+Final benchmark JSON authorities:
+
+```text
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_prior_retuned_final_9.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_deepseek_prior_retuned_final_9.json
+```
+
+## Historical pre-retune results
 
 ### Qwen
 
@@ -324,16 +380,16 @@ PYTHONPATH=. python bench/benchmark_grouped_mmq_bwd.py \
   --model-family qwen \
   --batches 1,4,16 \
   --distributions uniform,skewed,sparse,boundary \
-  --warmup 3 --repeats 9 \
-  --output ~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_aiter_tuned_9.json
+  --warmup 3 --repeats 9 --correctness-rows 256 \
+  --output ~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_prior_retuned_final_9.json
 
 PYTHONPATH=. python bench/benchmark_grouped_mmq_bwd.py \
   --model ~/models/ds4/DeepSeek-V4-Flash-IQ2XXS.gguf \
   --model-family deepseek \
   --batches 1,4,16 \
   --distributions uniform,skewed,sparse,boundary \
-  --warmup 3 --repeats 9 \
-  --output ~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_aiter_tuned_9.json
+  --warmup 3 --repeats 9 --correctness-rows 256 \
+  --output ~/tmp/torch-ggml-ops/grouped_mmq_bwd_deepseek_prior_retuned_final_9.json
 ```
 
 ## Production implementation
@@ -349,9 +405,9 @@ Dispatch uses only host-visible shape, quant type, total rows, and group count. 
 | Qwen Q4_K down | M64/N64 below 80 rows/group, M128/N64 at 80-127, M128/N128 row tasks at 128+ |
 | Qwen Q5_K down | M64/N64 below 128 rows/group, M128/N128 row tasks at 128+ |
 | Qwen IQ2_S down | M64/N64 below 80 rows/group, M128/N64 at 80-127, M128/N128 row tasks at 128+ or exact aggregate rows 16,384 |
-| DeepSeek IQ2_XXS pair | M64/N64/K32, width-16 decode, swizzle4 at all route sizes |
+| DeepSeek IQ2_XXS pair | M64/N64/K32 at B1; M128/N64/K32 only at exact aggregate rows 49,152 and 196,608; width-16 decode and swizzle4 |
 | DeepSeek Q2_K down | M64/U1 below 128 rows/group, M128/U2 at 128-511, M128/U1 at 512+ |
-| DeepSeek fixed Q8_0 | M256/N64/K32, width-16 decode, no swizzle at all batches |
+| DeepSeek fixed Q8_0 | M256/N64/K32 except M192/N64/K32 at exact token count 32,768; width-16 decode and no swizzle |
 | Unsupported type or shape | Generic grouped compatibility kernel |
 
 Every selected kernel remains bounded-correct for nonuniform groups. Average rows per group is only a host-visible dispatch hint.
@@ -379,7 +435,7 @@ Qwen-specific choices:
 - IQ2_S row-task suppression is disabled because its route-level result was unstable.
 
 DeepSeek-specific choices:
-- IQ2_XXS pair uses two separate weight LDS tiles, width-16 decode, swizzle4, and inactive-M consumer suppression.
+- IQ2_XXS pair uses two separate weight LDS tiles, width-16 decode, swizzle4, inactive-M consumer suppression, and M64/M128 ownership selected only by exact aggregate rows.
 - Q2_K uses width-16 decode that shares each scale/min group and packed shift. Inactive-M consumer suppression is enabled in all three production wrappers.
 - Fixed Q8_0 preserves token-major public layout and stages one unswizzled N64/K32 weight tile per fixed group.
 
@@ -408,18 +464,22 @@ Current specialized resources:
 | Qwen IQ2_S down M128/N64 | 161 | 30 | 4,096 |
 | Qwen IQ2_S row task M128/N128 | 238 | 24 | 8,192 |
 | DeepSeek IQ2_XXS pair M64/N64 | 209 | 54 | 8,192 |
+| DeepSeek IQ2_XXS pair M128/N64 | 239 | 54 | 8,192 |
 | DeepSeek Q2_K M64/N64/U1 | 102 | 30 | 4,096 |
 | DeepSeek Q2_K M128/N64/U1 | 146 | 31 | 4,096 |
 | DeepSeek Q2_K M128/N64/U2 | 160 | 31 | 4,096 |
 | DeepSeek fixed Q8_0 M256/N64 | 209 | 23 | 4,096 |
+| DeepSeek fixed Q8_0 M192/N64 | 173 | 22 | 4,096 |
 
-Every listed kernel has zero private bytes, zero VGPR/SGPR spills, and `uses_dynamic_stack: false`.
+Every listed kernel has zero private bytes, zero VGPR/SGPR spills, no scratch or call instructions, wavefront size 32, and `uses_dynamic_stack: false`.
 
 ### Correctness and allocation
 
 Qwen and DeepSeek single-projection samples are exact against their packed or independently dequantized BF16 references. Q2_K has zero NRMSE. Differing-element counts with zero absolute error are signed-zero differences.
 
 Fused Qwen and DeepSeek pairs remain in the expected one-rounding envelope, approximately `0.00286` NRMSE against two separately rounded BF16 projections plus addition. Fixed Q8_0 is approximately `5e-5` NRMSE against BF16 BMM.
+
+The production-finalist qualification additionally sampled an independent FP32-accumulating reference at routed rows 49,152 and 196,608 and fixed tokens 32,768. Maximum normalized RMSE was `0.0002777186`, minimum cosine was `0.99999994`, both pair projections and packed weights were mutation-sensitive, inactive experts were bitwise inert, and fixed gradient/weight mutations changed only their own group.
 
 Qwen fused pair incremental allocation remains output-only:
 
@@ -430,6 +490,35 @@ Qwen fused pair incremental allocation remains output-only:
 | 16 | 1,024 MiB | 3,072 MiB |
 
 Qwen row-task metadata adds only about 9-10 KiB at batch 4 and 27-28 KiB at batch 16.
+
+## Bottleneck attribution
+
+Grouped backward has no activation-quantization launch. It consumes BF16 cotangents directly, cooperatively decodes forward-layout GGUF weights into BF16 LDS tiles, performs FP32 WMMA accumulation, and writes BF16 `dX`. Relative to AITER or BMM, the extra work is therefore packed-weight decode and layout conversion, grouped work decomposition, and any reuse lost to the packed representation.
+
+The retained profiler controls establish two family-wide negatives:
+
+| Profile point | Occupancy | L2 hit | `ALUStalledByLDS` |
+|---|---:|---:|---:|
+| Q3_K pair B16 uniform | `43.45%` | `58.24%` | `0.16%` |
+| Q4_K down B4 skewed | `30.85%` | `82.45%` | `0.77%` |
+
+Device task construction is approximately `0.004 ms`, selected kernels have zero private storage and spills, and the representative LDS-stall percentages are below one percent. Route-task setup, scratch traffic, spilling, and a saturated LDS interface are therefore not first-order explanations for the remaining losses. These profiler values are retained causal controls, not current latency authorities and not measurements for every format.
+
+Family-level attribution is:
+
+| Family | Current bottleneck conclusion |
+|---|---|
+| Qwen Q3_K pair | The fused M64/M128 N64/K32 bodies beat AITER at every final point. Padded LDS rows, pair accumulation, and ownership are closed. Decode and accumulator resources remain the theoretical ceiling, but there is no material current deficit to reopen. |
+| Qwen IQ2_S pair | The fused bodies also win every final point. Width-16 decode shares grid/sign/scale work; width-8 duplicated scale work and loader groups and regressed. The M128 body already uses `219` VGPRs, so wider ownership requires a new lower-state decoder rather than another tile sweep. |
+| Qwen Q4_K/Q5_K down | The large-route deficits remain after M-major row tasks, width-16 decode, format-specific swizzles, bounded prefetch, and inactive-M controls. For Q4_K, the measured high L2 hit and low LDS stalls rule out cache misses and LDS banking as primary causes; negligible task setup and zero spills apply to both formats. Repeated packed scale/min decode is the residual Q4_K cost. Q5_K adds high-bit reconstruction, reaches `234` VGPRs in the row-task body, and is attributed from source and campaign controls rather than the Q4_K counter values. |
+| Qwen IQ2_S down | Grid lookup, sign reconstruction, shared scale extraction, and `d` application are repeated for every staged weight tile. Pair and down require different swizzles; width-8, M256/N64, and inactive-M suppression all regressed. The remaining loss is format decode and representation cost, not an untested generic scheduling rule. |
+| DeepSeek IQ2_XXS pair | M128/N64 materially improves B4/B16, but B16 remains below AITER. Each K32 step decodes two independent packed weights into separate LDS tiles before one FP32 pair accumulation. The retained body uses `239` VGPRs; M192 previously failed private/spill gates. The remaining limit is two-weight IQ2_XXS decode plus pair accumulator pressure. |
+| DeepSeek Q2_K down | Width-16 decode already shares each scale/min group and packed shift, inactive-M suppression is enabled, and M64/M128 plus U1/U2 ownership are selected by route size. N128 and row-task variants lost. Since serial dispatch already exposes 32 N workgroups per expert, more task descriptors do not remove the repeated Q2_K decode. The remaining B4/B16 gap is packed scale/min reconstruction and limited N64 reuse. |
+| DeepSeek fixed Q8_0 | The retained M256/M192 bodies beat BF16 BMM at all final points. Wider decode, swizzle4, and M512 lost. No current bottleneck justifies reopening this family. |
+
+The evidence boundary is deliberate. The Q3_K/Q4_K profiler controls support the conclusions about task setup, spills, L2 behavior, and the LDS interface. IQ2_S, Q5_K, IQ2_XXS, Q2_K, and fixed Q8_0 are attributed from complete-call controls, resource failures, accepted/rejected geometry and mechanism experiments, and the exact decoder dataflow. The table does not assign uncollected counter percentages to those families.
+
+FP32 accumulation is part of the remaining resource floor, not an optional optimization knob. Direct BF16-C was numerically invalid, BF16-state slabs spilled or regressed, and normalized FP16-C remained `33.3%` slower even without its scale scan. Any wider-N or persistent design must first reduce decode/accumulator state while retaining FP32 accuracy.
 
 ## Remaining work
 
@@ -445,7 +534,7 @@ The following neighborhoods are closed by direct controls:
 - K64, two-LDS buffering, GSU, split-K, grouped Stream-K, and direct-to-VGPR variants.
 - Broad swizzle, decoder-width, prefetch, and extraction sweeps.
 - DeepSeek Q2_K N128 and row-task variants.
-- DeepSeek IQ2_XXS width32, M128, and larger swizzles.
+- DeepSeek IQ2_XXS width32, M192, and larger swizzles. M128 is retained only at the two qualified aggregate row counts.
 - Fixed Q8_0 wider decode, swizzle4, and M512.
 - Qwen IQ2_S inactive-M row-task suppression.
 
@@ -542,7 +631,7 @@ Artifacts:
 
 P3 introduced exact `(N,K)=(2048,4096)` M64/N64/K32 pair ownership and cooperative width16 decode. The decoder shares each packed word, two grid lookups, parity-adjusted signs, and scale across sixteen values.
 
-An early decoder took the address of a local packed word and created an 8-byte private segment. Shift/mask extraction restored a register-only body. M128 remained at 8 private bytes and was rejected before timing.
+An early decoder took the address of a local packed word and created an 8-byte private segment. Shift/mask extraction restored a register-only M64 body. The contemporaneous M128 source form also retained 8 private bytes and was rejected before timing. The later typed coefficient-only campaign generated a distinct M128 wrapper that compiled with zero private storage and is now retained at the two exact qualified row counts.
 
 Layout controls:
 - Width32 had mixed movement: two B1 wins but sparse/boundary and B4 regressions with no legal host-visible separator. Width16 was retained.
@@ -699,14 +788,7 @@ Q4_K dense shared-down: 5.148 ms packed versus 4.223 ms BF16
 Q5_K dense shared-down: 5.547 ms packed versus 4.210 ms BF16
 ```
 
-Representative profiling found approximately `0.004 ms` task construction, low LDS stalls, high Q4_K L2 hit rate, and zero scratch/private storage. This closes task construction, LDS buffering, and spill removal as explanations.
-
-| Historical profile point | OccupancyPercent | L2CacheHit | ALUStalledByLDS |
-| --- | ---: | ---: | ---: |
-| Q3_K pair B16 uniform | 43.45 | 58.24 | 0.16 |
-| Q4_K down B4 skewed | 30.85 | 82.45 | 0.77 |
-
-Profiler timing is intentionally not the latency source of record because collection perturbs execution. Event medians in the JSON matrices remain authoritative.
+The retained profiler controls are summarized in [Bottleneck attribution](#bottleneck-attribution). Profiler timing is intentionally not the latency source of record because collection perturbs execution. Event medians in the JSON matrices remain authoritative.
 
 The transient BF16 and persistent shadow controls were rejected for the latency and memory reasons recorded under Remaining work.
 
@@ -749,13 +831,14 @@ A standalone all-ones K16 chain explained the BF16 failure: output increased by 
 | Qwen IQ2_S | Shared pair/down swizzle | Opposite measured preferences. Keep layouts separate |
 | Qwen Q5_K | Universal swizzle8 | Regressed B1. Retain only for row tasks |
 | Qwen IQ2_S | Inactive-M row-task suppression | Mixed route movement and two regressions |
-| DeepSeek IQ2_XXS | M128/N64 | 8-byte private segment failed the gate |
+| DeepSeek IQ2_XXS | Early M128/N64 source form | 8-byte private segment failed the historical gate; superseded by the later resource-clean typed finalist |
+| DeepSeek IQ2_XXS | M192/N64 | 32 private bytes, 7 VGPR spills, and scratch instructions failed the coefficient-only resource gate |
 | DeepSeek IQ2_XXS | Width32 | Mixed route movement with no legal host separator |
 | DeepSeek IQ2_XXS | Swizzle0 or swizzle16 | Swizzle4 was uniformly faster. Swizzle16 lost 24-39% |
 | DeepSeek Q2_K | U4 | Lost to U2 by 1.2-4.3% |
 | DeepSeek Q2_K | N128/U1 | 255-VGPR cliff and 3.06% geometric regression |
 | DeepSeek Q2_K | Row tasks | Sufficient N-grid parallelism. No reduction in rounded tail work |
-| DeepSeek fixed Q8_0 | M64/M128 | M256 won sequential controls |
+| DeepSeek fixed Q8_0 | M64/M128 | M256 remains selected at B1/B4; neither candidate met the promotion threshold there |
 | DeepSeek fixed Q8_0 | Width32 or swizzle4 | Regressed all target batches |
 | DeepSeek fixed Q8_0 | M512 | Accumulator growth would exceed the VGPR warning budget |
 | Representation | Transient BF16 | Slower optimistic floor plus 512 MiB per projection |
@@ -787,13 +870,14 @@ Do not replace fused pairs with two public outputs plus `torch.add`. That change
 ## Validation and packaging
 
 Final validation after consolidation and the retained controls:
-- `88 passed, 14 warnings` from the complete GPU suite.
+- `453 passed, 14 warnings` from the complete repository suite.
+- `51 passed, 14 warnings` from the focused grouped-MMQ GPU and typed-config suite.
 - Ruff and compileall pass.
 - `git diff --check` passes.
 - The in-tree extension builds successfully.
-- All resource-gated kernels pass zero-private, zero-spill, and no-dynamic-stack checks.
-- Two independent all-core builds pass `--verify-reproducible`.
-- Bundle freshness reports 179 current kernels.
+- Both new resource-gated kernels pass wave32, zero-private, zero-spill, scratch-free, call-free, and no-dynamic-stack checks.
+- Two independent clean no-ccache builds pass `--verify-reproducible --jobs 4`.
+- Bundle freshness reports 181 current kernels.
 - Qwen 60-point and DeepSeek 27-point final acceptance matrices pass correctness.
 
 Validation commands:
@@ -803,7 +887,7 @@ PYTHONPATH=. pytest -q
 ruff check .
 python -m compileall -q bench tools torch_ggml_ops tests
 python tools/build_mmq_bundle.py --check
-python tools/build_mmq_bundle.py --force --jobs "$(nproc)" --verify-reproducible
+python tools/build_mmq_bundle.py --verify-reproducible --jobs 4
 git diff --check
 ```
 
@@ -811,12 +895,12 @@ The concrete-wrapper conversion established byte-identical HSACOs for all 118 th
 
 Earlier apparent B1 movements above 1% were checked against rebuilt byte-identical Q4_K, Q5_K, and IQ2_S artifacts. Sequential warmed 25-repeat controls still ranged from `-2.21%` to `+0.61%`, confirming timing variance rather than an ISA regression. Byte-identical timing movement must not reopen a semantic optimization decision.
 
-The current bundle has 32 grouped-backward entries:
+The current bundle has 34 grouped-backward entries:
 - Seven generic singles.
 - Seven generic pairs.
 - One generic fixed Q8_0 entry.
 - Twelve Qwen geometry-specific entries.
-- Five DeepSeek geometry-specific entries.
+- Seven DeepSeek geometry-specific entries, including the two coefficient-only finalists.
 
 `setup.py build_ext` generates the source-derived bundle and prunes stale artifacts. Local wheels may contain generated HSACOs. Git and source distributions do not.
 
@@ -825,8 +909,13 @@ The current bundle has 32 grouped-backward entries:
 ### Latest acceptance
 
 ```text
-~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_aiter_tuned_9.json
-~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_aiter_tuned_9.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_prior_retuned_final_9.json
+~/tmp/torch-ggml-ops/grouped_mmq_bwd_deepseek_prior_retuned_final_9.json
+~/tmp/torch-ggml-ops/grouped-bwd-finalists/deepseek_iq2xxs_m128_confirmation_25.json
+~/tmp/torch-ggml-ops/grouped-bwd-finalists/deepseek_fixed_m192_b16_confirmation_25.json
+~/tmp/torch-ggml-ops/grouped-bwd-production-final-correctness.json
+~/tmp/torch-ggml-ops/grouped-bwd-production-final-resources.json
+~/tmp/torch-ggml-ops/grouped-bwd-production-final-rebuild.json
 ~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_rowtask_tail_predicate_control_false_25.json
 ~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_rowtask_tail_predicate_control_true_25.json
 ~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_iq2xxs_tail_predicate_baseline_25.json

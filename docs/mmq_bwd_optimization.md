@@ -9,7 +9,7 @@ The retained implementation provides:
 - Static quant, shape, row-count, traversal, and LDS-layout dispatch with bounds-safe fallbacks.
 - Qwen production bodies for Q3_K, Q4_K, Q5_K, and Q6_K.
 - DeepSeek exact Q8_0 bodies for six ordinary geometries and the language-model head.
-- 83 MMQ backward specializations in the 179-kernel source-built gfx1151 bundle.
+- 83 dense MMQ backward specializations, unchanged inside the current 181-kernel source-built gfx1151 bundle; the two additions are separately qualified grouped-backward kernels.
 - Zero private storage, zero VGPR/SGPR spills, and no dynamic stack for every retained MMQ backward artifact.
 
 Repository-local Qwen work closed after QB1. DeepSeek work closed after DB8. No additional geometry, traversal, decoder, prefetch, LDS, active-wave, or arithmetic sweep is authorized under the current API. Further material gains require explicit model-owned prepared weights, paired grad-input, BF16-shadow, or shared-scratch ownership.

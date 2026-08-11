@@ -22,7 +22,7 @@ The project boundary is:
 - exact-key runtime applicability and HIP fallback for every mismatch.
 - formula-derived resource admission under the target VGPR, SGPR, LDS, and code-object constraints.
 - zero private storage, spills, scratch instructions, calls, and dynamic stack.
-- unchanged public HIP dispatch and 179-kernel bundle unless a separate integration review promotes exact GGTensile artifacts.
+- unchanged public HIP dispatch and the then-current 179-kernel bundle unless a separate integration review promotes exact GGTensile artifacts. A later grouped-backward review independently expanded the package to 181 kernels.
 - no split reduction, atomics, persistent traversal, prepared-weight cache, hidden dense shadow, or external decode workspace unless the mechanism receives an explicit model, ABI, lifetime, validation, and dispatch contract.
 
 Unsupported problems and solutions are normal validation results, not generator failures. Broader ISAs, edge handling, new operations, grouped ownership, prepared representations, and multi-kernel reductions are separate expansion projects rather than implicit capabilities.
@@ -753,7 +753,7 @@ The latest qualified repository state records:
 - explicit Q3 pairing migration evidence for 50 changed backward identities and 56 unchanged forward identities, with normalized source, disassembly, and inspection identity.
 - historical 516/447 source archives retained as pre-refreshed evidence; the 106 exact selected artifacts are the current identity authority.
 - Ruff, formatting, `ty check`, `compileall`, pre-commit, bundle currency, `git diff --check`, structural guards, and complete writer-line coverage passing.
-- the gfx1151 MMQ bundle current at 179 kernels, with its previously qualified reproducible build unchanged by this refactor.
+- the forward-complete gfx1151 MMQ baseline at 179 kernels, unchanged by this refactor; the current package has 181 kernels after two separately qualified grouped-backward additions.
 - Q6 MT64 resources of 158 VGPRs, 27 SGPRs, and 28,928 bytes of LDS.
 - Q6 MT128/M256 resources of 210 VGPRs, 27 SGPRs, and 38,400 bytes of LDS.
 - zero private storage and zero VGPR/SGPR spills for the selected Q6 artifacts.
@@ -764,7 +764,7 @@ The latest qualified repository state records:
 
 ### Post-Q6 physical-plan review
 
-After those two Q6 experiments were rejected, a separate read-only pass classified every apparent opening across all ten experiment records, the strict catalogs, current forward/backward lowering and physical plans, bounded search domains, bundle state, and target exclusions. Remaining items are retained and measured, evidence-rejected, contract-incompatible or deferred, or stale chronology/tooling-only. No newly actionable in-contract mechanism has an exact target and credible qualification path. The strict 56-forward/50-backward catalog state and 179-kernel public bundle remain unchanged.
+After those two Q6 experiments were rejected, a separate read-only pass classified every apparent opening across all ten experiment records, the strict catalogs, current forward/backward lowering and physical plans, bounded search domains, bundle state, and target exclusions. Remaining items are retained and measured, evidence-rejected, contract-incompatible or deferred, or stale chronology/tooling-only. No newly actionable in-contract mechanism has an exact target and credible qualification path. The strict 56-forward/50-backward catalog state remains unchanged. Its 179-kernel public-bundle baseline is preserved byte-for-byte inside the current 181-kernel package, which adds only two separately qualified grouped-backward kernels.
 
 Exact source identities and normalized executable/code-object checks remain in artifact tests and experiment evidence rather than this generic design document.
 

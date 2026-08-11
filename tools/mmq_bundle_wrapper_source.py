@@ -45,6 +45,8 @@ class GroupedBackwardKind(str, Enum):
     IQ2_XXS_PAIR_M64 = "iq2_xxs_pair_m64"
     Q2_K_SINGLE_M128_U2 = "q2_k_single_m128_u2"
     FIXED_Q8_0_M256 = "fixed_q8_0_m256"
+    TUNED_DEEPSEEK_PAIR = "tuned_deepseek_pair"
+    TUNED_FIXED_Q8_0 = "tuned_fixed_q8_0"
 
 
 @dataclass(frozen=True)
@@ -112,6 +114,25 @@ class DenseBackwardConfig:
 class GroupedBackwardConfig:
     kind: GroupedBackwardKind
     quant_type: QuantType | None = None
+    n_tiles: int = 0
+    m_tiles_per_wave: int = 0
+    reduction_unroll: int = 0
+
+    def __post_init__(self) -> None:
+        tuned_kinds = {
+            GroupedBackwardKind.TUNED_DEEPSEEK_PAIR,
+            GroupedBackwardKind.TUNED_FIXED_Q8_0,
+        }
+        geometry = (self.n_tiles, self.m_tiles_per_wave, self.reduction_unroll)
+        if self.kind not in tuned_kinds:
+            if geometry != (0, 0, 0):
+                raise ValueError("grouped backward geometry requires a tuned kind")
+            return
+        if self.kind == GroupedBackwardKind.TUNED_DEEPSEEK_PAIR:
+            if self.quant_type != QuantType.IQ2_XXS or geometry != (4, 2, 1):
+                raise ValueError("qualified DeepSeek pair geometry is IQ2_XXS N4 M2 U1")
+        elif self.quant_type is not None or geometry != (4, 3, 1):
+            raise ValueError("qualified fixed Q8_0 geometry is N4 M3 U1")
 
 
 KernelConfig = ForwardConfig | DenseBackwardConfig | GroupedBackwardConfig
@@ -582,6 +603,32 @@ void {symbol}(
         bytes_per_group);
 }}
 """
+        )
+
+    if kind == GroupedBackwardKind.TUNED_FIXED_Q8_0:
+        return (
+            prefix
+            + f"""extern "C" __launch_bounds__(torch_ggml_ops::ck::BACKWARD_THREADS, 2) __global__
+void {symbol}(
+{_FIXED_ARGUMENTS}) {{
+    torch_ggml_ops::ck::fixed_grouped_q8_0_grad_input_tiled_body<
+        {config.m_tiles_per_wave}, 16, 0>(
+        grad_output,
+        packed_weight,
+        grad_input,
+        tokens,
+        bytes_per_group);
+}}
+"""
+        )
+
+    if kind == GroupedBackwardKind.TUNED_DEEPSEEK_PAIR:
+        return prefix + _grouped_entry(
+            symbol,
+            _PAIR_ARGUMENTS,
+            _PAIR_VALUES,
+            "torch_ggml_ops::ck::grouped_mmq_pair_grad_input_deepseek_body<"
+            f"GGML_TYPE_IQ2_XXS, 2048, 4096, 16, {config.m_tiles_per_wave}, true>",
         )
 
     call = _SPECIAL_GROUPED_CALLS.get(kind)

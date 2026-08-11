@@ -9,7 +9,7 @@ This document is the source of truth for grouped MMQ forward kernel behavior, di
 
 Dense MMQ forward and backward are documented separately in `docs/mmq_fwd_optimization.md` and `docs/mmq_bwd_optimization.md`. The generic HSACO bundle and loader contract are documented in `docs/kernel_bundle.md`.
 
-The local kernel pass and coefficient-only full HIP retune are complete for the current Qwen and DeepSeek packed representations. The retained dispatch is exact and resource-clean for all enforced production entries. The final campaign promoted bounded Q4_K mixed tails for Qwen B1/B4, the existing Q2_K J32/J16 body for DeepSeek B4, and a correctness repair for non-divisible J16/J80 activation loads. Backward reduced-precision controls closed the approximate-accumulator prerequisite before forward implementation. Prepared-weight work remains outside this repository-local pass.
+The local kernel pass and coefficient-only full HIP retune are complete for the current Qwen and DeepSeek packed representations. The retained dispatch is exact and resource-clean for all enforced production entries. The final campaign promoted bounded Q4_K mixed tails for Qwen B1/B4, the existing Q2_K J32/J16 body for DeepSeek B4, and a correctness repair for non-divisible J16/J80 activation loads. Backward reduced-precision controls closed the approximate-accumulator prerequisite before forward implementation. Read-only profiling attribution is complete at hardware-counter level for DeepSeek Q2_K B16, at selected-region kernel-trace level for Qwen IQ2_S down B16, and at campaign/source level for the other production families. Prepared-weight work remains outside this repository-local pass.
 
 The final benchmark authorities are:
 
@@ -18,7 +18,7 @@ The final benchmark authorities are:
 ~/tmp/torch-ggml-ops/grouped_mmq_fwd_deepseek_prior_retuned_final_9.json
 ```
 
-They use warmup 3, 9 sequential repeats, correctness rows 256, the promoted exact-key AITER GMM table, and the final 179-kernel bundle. The compact final TFLOPS and comparator ratios are reported in [Final benchmark results](#final-benchmark-results). Earlier matrices are experiment evidence rather than current performance authority.
+They use warmup 3, 9 sequential repeats, correctness rows 256, the promoted exact-key AITER GMM table, and the forward-complete 179-kernel baseline. The current package contains 181 kernels after two backward-only additions; those additions do not change the forward benchmark evidence. The compact final TFLOPS and comparator ratios are reported in [Final benchmark results](#final-benchmark-results). Earlier matrices are experiment evidence rather than current performance authority.
 
 ## Prior-aware AITER comparator retune
 
@@ -338,7 +338,7 @@ Across all four routed distributions, Qwen wins `37/60` comparisons and DeepSeek
 
 ## Resource status
 
-The complete bundle contains 179 source-built HSACOs. All enforced production resource gates pass with zero private bytes, zero VGPR/SGPR spills, and no dynamic stack. The broad all-artifact scan still reports known fallback spills. Those fallback artifacts are not part of the production zero-spill contract.
+The current bundle contains 181 source-built HSACOs: the forward-complete 179-kernel baseline plus two qualified backward kernels. All enforced production resource gates pass with zero private bytes, zero VGPR/SGPR spills, and no dynamic stack. The broad all-artifact scan still reports known fallback spills. Those fallback artifacts are not part of the production zero-spill contract.
 
 Representative retained arithmetic allocations from the retuning pass are:
 
@@ -354,15 +354,77 @@ Representative retained arithmetic allocations from the retuning pass are:
 
 The Qwen row-task and Qwen down J64 entries are also enforced and spill-free. Exact per-entry resource metadata is generated with the bundle and is not a dispatch input.
 
+## Bottleneck attribution
+
+The profiling evidence has three levels and they must not be conflated:
+- Counter-qualified: DeepSeek Q2_K down B16 has selected-region kernel traces plus issue, compute, memory-instruction, traffic, occupancy, and LDS-stall counters for HIP and AITER.
+- Kernel-trace-qualified: Qwen IQ2_S down B16 has selected-region HIP body, Q8_1 quantizer, and AITER kernel traces with launch geometry and resource metadata.
+- Campaign/source-attributed: Q3_K, Q4_K, Q5_K, IQ2_XXS, fixed Q8_0, and the paired IQ2_S path are explained by complete-call timing, resource-gated geometry/mechanism controls, and the retained source dataflow. Exact Q2_K counter ratios are not generalized to those families.
+
+### DeepSeek Q2_K down B16
+
+The full counter-qualified review and selected-region traces are retained at:
+
+```text
+~/tmp/torch-ggml-ops/profile-grouped-fwd-20260812/deepseek_q2_b16_profile_summary.md
+~/tmp/torch-ggml-ops/profile-grouped-fwd-20260812/deepseek_q2k_down_b16_packed_v2/trace_results.db
+~/tmp/torch-ggml-ops/profile-grouped-fwd-20260812/deepseek_q2k_down_b16_aiter/trace_results.db
+```
+
+Selected-region means over five calls were `252.011 ms` for the HIP J32 body, `5.423 ms` for BF16-to-Q8_1 quantization, and `149.439 ms` for AITER GMM. The packed body alone is `1.686x` AITER; traced HIP kernels including quantization are `1.723x`. Quantization is only `2.11%` of HIP traced kernel time and explains `5.02%` of the HIP-over-AITER excess.
+
+The counter evidence identifies instruction and residency pressure rather than total memory traffic or an LDS-interface limit:
+
+| Metric | HIP/AITER result |
+|---|---:|
+| Total instructions | `10.88x` |
+| VALU instructions | `24.27x` |
+| VALU issue cycles | `22.39x` |
+| Instruction-fetch waits | `10.36x` |
+| Mean occupancy per active CU | `6.25 / 10.67` waves |
+| Video-memory fetch | `0.585x` AITER bytes |
+| `ALUStalledByLDS` | `0.088% / 33.78%` |
+
+HIP fetches less data than AITER while taking longer, and its ALUs are almost never blocked by a full or unready LDS queue. The retained source explains the excess: each expert/output-tile workgroup serially revisits J32 row tiles; every K256 block reloads packed Q2_K payloads, expands 2-bit values into WMMA-compatible LDS words, forms scale/min metadata, stages two Q8_1 activation planes, and applies scale/min/sum corrections around integer WMMA. The much larger instruction stream, larger code body, and lower residency prevent useful memory-level parallelism. This is not a quantizer-only, DRAM-volume, LDS-bank, or launch-count bottleneck.
+
+### Qwen IQ2_S down B16
+
+The selected-region trace separates the two costs without claiming a full counter diagnosis. Evidence is retained at:
+
+```text
+~/tmp/torch-ggml-ops/profile-grouped-fwd-20260812/qwen_iq2s_down_b16_packed/trace_results.db
+~/tmp/torch-ggml-ops/profile-grouped-fwd-20260812/qwen_iq2s_down_b16_aiter/trace_results.db
+```
+
+| Component | Mean kernel time |
+|---|---:|
+| HIP IQ2_S J64 body | `25.703 ms` |
+| HIP BF16-to-Q8_1 quantizer | `1.849 ms` |
+| AITER GMM | `24.094 ms` |
+
+The packed body is `1.067x` AITER and the traced HIP kernel total is `1.144x`. Quantization is `6.71%` of HIP traced kernel time but accounts for `53.5%` of this relatively small traced-kernel excess; the packed body accounts for the other `46.5%`. HIP uses `30,976` bytes of LDS and `232` reported VGPRs versus AITER's `16,384` bytes and `176` VGPRs.
+
+This family therefore has two material costs. Reusing a prepared Q8_1 activation could remove the separate launch for same-input projections, but it would not remove the remaining IQ2_S grid/sign/scale decode and per-tile packed-weight staging. The paired path already shares one Q8_1 workspace, then launches each packed projection body separately, so pair reuse amortizes activation preparation but not weight decode.
+
+### Other production families
+
+| Family | Current attribution |
+|---|---|
+| Qwen Q3_K pair | It wins B1/B4 and is near parity at B16. Exact N/K specialization, full-row bodies, and serial/row-task ownership closed the local scheduling gap. Remaining work would be Q3 payload/scale decode or a reusable representation, not another ownership sweep. No dedicated counter collection was run because the retained family is not a material current loss. |
+| Qwen IQ2_S pair | The B16 loss is consistent with the traced IQ2_S down costs. One activation quantization is shared, but both packed projections still perform their own IQ2_S decode, LDS staging, WMMA, and epilogue. This is source/campaign attribution, not a transfer of the down-kernel counter values. |
+| Qwen Q4_K/Q5_K down | B16 is only modestly below AITER. J ownership, bounded tails, two-block K512 traversal, mixed-tail policies, and row-task alternatives are closed. The residual is packed scale/min and, for Q5_K, high-bit reconstruction plus resource pressure; no evidence supports a broad memory or LDS rewrite. |
+| DeepSeek IQ2_XXS pair | The repaired J80 body reaches parity at B16 and wins earlier batches. Wider and smaller J choices were slower or resource-invalid. There is no current comparator deficit that justifies another profile campaign; the next possible mechanism would reduce IQ2_XXS lookup/sign decode or reuse decoded weights. |
+| DeepSeek fixed Q8_0 | The fixed operator loses to a comparator that starts from BF16 weights. The packed path still quantizes activations and loads/scales int8 GGUF blocks before WMMA. J32/J128, scale staging, rolled loops, and workspace-layout changes failed, leaving a representation mismatch rather than an open geometry choice. |
+
 ## Remaining bottleneck and work boundary
 
-No additional local schedule or accumulator change is justified for the current packed representations. Backward established that direct native BF16-C is numerically invalid for long reductions, K32/K64 FP32 slabs increase resources and latency, and normalized FP16-C remains 33.3% slower even when scale calculation is removed. Forward approximate accumulation, wider J tiles based on reclaimed registers, and static persistent scheduling are therefore closed at their prerequisite.
+No additional local schedule or accumulator change is justified for the current packed representations. The counter-qualified Q2_K result, the IQ2_S trace, and the family-specific control campaigns all point beyond launch tuning. Backward established that direct native BF16-C is numerically invalid for long reductions, K32/K64 FP32 slabs increase resources and latency, and normalized FP16-C remains 33.3% slower even when scale calculation is removed. Forward approximate accumulation, wider J tiles based on reclaimed registers, and static persistent scheduling are therefore closed at their prerequisite.
 
 Reopen that sequence only after a new arithmetic mechanism demonstrates lower register use, acceptable real-weight and dynamic-range error, zero private storage and spills, and better public backward latency in an existing N64 body. Forward must then measure its existing geometry first, preserve integer MMQ and Q8_1 workspace semantics, and test only DeepSeek Q2_K J64, DeepSeek IQ2_XXS J128, or Qwen IQ2_S J128 where the latest B16 results justify it. Static grids from `{20,40,80,160,256}` come last.
 
-The tuned reference exposes representation deficits in Qwen IQ2_S down, Qwen IQ2_S gate/up at B16, DeepSeek Q2_K at B4/B16, and DeepSeek IQ2_XXS gate/up at B16. Partial routed tiles repeat packed metadata interpretation, scale formation, packed loads, and BF16 decoded-weight construction. The retained kernels have already removed unnecessary row decomposition and bounded-tail work, while AITER begins from predecoded BF16 weights.
+The tuned reference exposes representation deficits in Qwen IQ2_S down, Qwen IQ2_S gate/up at B16, and DeepSeek Q2_K at B4/B16. DeepSeek IQ2_XXS is now approximately at parity at B16 rather than a material loss. Partial routed tiles repeat packed metadata interpretation, scale formation, packed loads, and decoded operand construction. The retained kernels have already removed unnecessary row decomposition and bounded-tail work, while AITER begins from predecoded BF16 weights.
 
-DeepSeek fixed Q8_0 is also representation-limited. The complete public operator remains slower than BMM because the comparison begins from already dequantized BF16 weights. Quantization is not the dominant cost: accepted traces put multiplication at roughly 87-99% of retained operator kernel time depending on family and batch.
+DeepSeek fixed Q8_0 is also representation-limited. The complete public operator remains slower than BMM because the comparison begins from already dequantized BF16 weights. The two selected-region cases put packed multiplication at `93.29-97.89%` of absolute HIP traced kernel time; quantization is material to the small IQ2_S gap but does not explain the representation-level comparison.
 
 The only worthwhile follow-ups are representation-level designs:
 - a compact lossless decoded-weight cache substantially smaller than BF16.
@@ -455,7 +517,7 @@ Assembly movement is therefore useful when it identifies resource or work-decomp
 - Gate/up benefits from device row tasks only at large row buckets. Down already has enough output-tile parallelism.
 - Two explicit down K blocks and affine gate/up traversal are type- and shape-specific wins.
 - Cooperative full-tile activation loads require an explicit final-iteration guard whenever `J * MMQ_TILE_Y_K` is not divisible by 128. Aggregate-only synthetic controls are not sufficient correctness evidence for that condition.
-- Quantization and launcher setup are not the remaining limit. Packed multiplication accounts for roughly 87-99% of retained operator kernel time.
+- Activation quantization is family-dependent: it is `2.11%` of traced HIP kernel time for DeepSeek Q2_K B16 and `6.71%` for Qwen IQ2_S down B16. It is material to the small IQ2_S gap, but packed multiplication still accounts for more than `93%` of absolute traced HIP kernel time in both measured cases.
 - Packed decode representation, especially IQ2_S on partial down tiles, is the remaining ceiling.
 
 ## Validation and reproducibility

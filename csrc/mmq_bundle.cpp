@@ -42,6 +42,9 @@ constexpr int kQ80BlockValues = 32;
 constexpr int kKQuantBlockValues = 256;
 constexpr int kQualifiedQwenIQ2SDownB4Rows = 65536;
 constexpr int kQualifiedDeepSeekQ2KDownB4Rows = 49152;
+constexpr int kQualifiedDeepSeekIQ2XXSPairB4Rows = 49152;
+constexpr int kQualifiedDeepSeekIQ2XXSPairB16Rows = 196608;
+constexpr int kQualifiedDeepSeekFixedB16Tokens = 32768;
 
 enum class DenseQ80Geometry {
     G0,
@@ -1098,8 +1101,13 @@ void launch_fixed_grouped_backward(
     if (out_features == 1024) {
         n_per_block = 64;
         threads = kBackwardThreads;
-        id = MMQKernelId::GroupedBwdFixedQ80G8K4096M256N64;
-        m_per_block = 256;
+        if (tokens == kQualifiedDeepSeekFixedB16Tokens) {
+            id = MMQKernelId::GroupedBwdTunedFixedQ80G8K4096M192N64;
+            m_per_block = 192;
+        } else {
+            id = MMQKernelId::GroupedBwdFixedQ80G8K4096M256N64;
+            m_per_block = 256;
+        }
     }
     void * arguments[]{
         &grad_output,
@@ -1248,7 +1256,10 @@ void launch_grouped_pair_backward(
     bool specialized = false;
     if (out_features == 2048 && in_features == 4096 &&
         quant_type == kQuantIQ2_XXS) {
-        id = MMQKernelId::GroupedBwdPairIQ2XXSN2048K4096M64N64;
+        id = rows == kQualifiedDeepSeekIQ2XXSPairB4Rows ||
+                rows == kQualifiedDeepSeekIQ2XXSPairB16Rows
+            ? MMQKernelId::GroupedBwdTunedPairIQ2XXSN2048K4096M128N64
+            : MMQKernelId::GroupedBwdPairIQ2XXSN2048K4096M64N64;
         specialized = true;
     } else if (out_features == 512 && in_features == 2048) {
         if (quant_type == kQuantQ3_K) {

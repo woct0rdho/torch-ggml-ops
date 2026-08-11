@@ -187,10 +187,12 @@ enum class MMQKernelId : std::uint16_t {
     DenseBwdQ80ExactN2048K4096G2GroupM2 = 176,
     DenseBwdQ80ExactN2048K4096G2GroupM2Padding8 = 177,
     DenseBwdQ80ExactN4096K2048G2GroupM2 = 178,
-    Count = 179,
+    GroupedBwdTunedPairIQ2XXSN2048K4096M128N64 = 179,
+    GroupedBwdTunedFixedQ80G8K4096M192N64 = 180,
+    Count = 181,
 };
 
-inline constexpr std::array<const char *, 179> kMMQKernelSymbols{{
+inline constexpr std::array<const char *, 181> kMMQKernelSymbols{{
     "torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f32_d4",
     "torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f16_d4s4",
     "torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f16_d2s6",
@@ -370,6 +372,8 @@ inline constexpr std::array<const char *, 179> kMMQKernelSymbols{{
     "torch_ggml_ops_mmq_gfx1151_v1_dense_bwd_q8_0_exact_n2048k4096_g2_group_m2",
     "torch_ggml_ops_mmq_gfx1151_v1_dense_bwd_q8_0_exact_n2048k4096_g2_group_m2_padding8",
     "torch_ggml_ops_mmq_gfx1151_v1_dense_bwd_q8_0_exact_n4096k2048_g2_group_m2",
+    "torch_ggml_ops_mmq_gfx1151_v1_grouped_bwd_tuned_pair_iq2_xxs_n2048_k4096_mt128_nt64",
+    "torch_ggml_ops_mmq_gfx1151_v1_grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64",
 }};
 
 inline constexpr const char * mmq_kernel_symbol(MMQKernelId id) {
