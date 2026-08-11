@@ -57,10 +57,34 @@ class ForwardConfig:
     groups: int = 0
     fallback: bool = False
     rolled_q2: bool = False
-    mixed_iq2_s: bool = False
+    mixed_j32_tails: bool = False
     mixed_q2_k: bool = False
+    mixed_j32_rows: tuple[int, int] = (0, 0)
     full_i: bool = False
     full_j: bool = False
+
+    def __post_init__(self) -> None:
+        rows_a, rows_b = self.mixed_j32_rows
+        if self.mixed_j32_tails:
+            if (
+                self.kind != ForwardKind.GROUPED_SERIAL
+                or self.j != 64
+                or self.nrows_weight != 2048
+                or self.blocks_per_weight_row != 2
+            ):
+                raise ValueError("mixed J32 tails require the grouped J64 K512 shape")
+            if self.quant_type not in {QuantType.Q4_K, QuantType.IQ2_S}:
+                raise ValueError("mixed J32 tails require Q4_K or IQ2_S")
+            if (rows_a == 0) != (rows_b == 0):
+                raise ValueError("mixed J32 row bounds must both be zero or positive")
+            if rows_a < 0 or rows_b < 0 or (rows_a > 0 and rows_a >= rows_b):
+                raise ValueError("mixed J32 row bounds must be ordered distinct values")
+            if self.quant_type == QuantType.Q4_K and self.mixed_j32_rows == (0, 0):
+                raise ValueError("Q4_K mixed J32 tails require bounded aggregate rows")
+            if self.quant_type == QuantType.IQ2_S and self.mixed_j32_rows != (0, 0):
+                raise ValueError("IQ2_S mixed J32 tails do not accept aggregate bounds")
+        elif self.mixed_j32_rows != (0, 0):
+            raise ValueError("mixed J32 row bounds require mixed J32 tails")
 
 
 @dataclass(frozen=True)
@@ -116,6 +140,9 @@ def _cpp_quant(quant_type: QuantType | None) -> str:
 
 def _render_forward(symbol: str, config: ForwardConfig) -> str:
     prefix = _PREAMBLE + '#include "mmq_core.cuh"\n\n'
+    mixed_j32_rows = "".join(
+        f",\n        {rows}" for rows in config.mixed_j32_rows if rows > 0
+    )
     if config.kind == ForwardKind.QUANTIZE:
         quant_type = _cpp_quant(config.quant_type)
         return (
@@ -184,9 +211,9 @@ void {symbol}(
         {config.j},
         {config.nrows_weight},
         {config.blocks_per_weight_row},
-        {_cpp_bool(config.mixed_iq2_s)},
+        {_cpp_bool(config.mixed_j32_tails)},
         {_cpp_bool(config.mixed_q2_k)},
-        {_cpp_bool(config.rolled_q2)}>(
+        {_cpp_bool(config.rolled_q2)}{mixed_j32_rows}>(
             weights,
             activations,
             dst,

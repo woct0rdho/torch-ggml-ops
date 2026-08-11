@@ -73,8 +73,9 @@ def _forward_spec(
     groups: int = 0,
     fallback: bool = False,
     rolled_q2: bool = False,
-    mixed_iq2_s: bool = False,
+    mixed_j32_tails: bool = False,
     mixed_q2_k: bool = False,
+    mixed_j32_rows: tuple[int, int] = (0, 0),
     full_i: bool = False,
     full_j: bool = False,
     enforce_resource_gate: bool = False,
@@ -88,8 +89,9 @@ def _forward_spec(
         groups=groups,
         fallback=fallback,
         rolled_q2=rolled_q2,
-        mixed_iq2_s=mixed_iq2_s,
+        mixed_j32_tails=mixed_j32_tails,
         mixed_q2_k=mixed_q2_k,
+        mixed_j32_rows=mixed_j32_rows,
         full_i=full_i,
         full_j=full_j,
     )
@@ -158,6 +160,8 @@ def _grouped_forward_specs() -> list[KernelSpec]:
                 j=64,
                 nrows_weight=2048,
                 blocks_per_weight_row=2,
+                mixed_j32_tails=quant_name == "Q4_K",
+                mixed_j32_rows=(16384, 65536) if quant_name == "Q4_K" else (0, 0),
                 enforce_resource_gate=quant_name in {"Q4_K", "Q5_K", "IQ2_S"},
             )
         )
@@ -186,7 +190,7 @@ def _grouped_forward_specs() -> list[KernelSpec]:
                 j=64,
                 nrows_weight=2048,
                 blocks_per_weight_row=2,
-                mixed_iq2_s=True,
+                mixed_j32_tails=True,
                 enforce_resource_gate=True,
             ),
             _forward_spec(

@@ -40,6 +40,8 @@ constexpr int kBackwardWaves = 4;
 constexpr int kBackwardTile = 16;
 constexpr int kQ80BlockValues = 32;
 constexpr int kKQuantBlockValues = 256;
+constexpr int kQualifiedQwenIQ2SDownB4Rows = 65536;
+constexpr int kQualifiedDeepSeekQ2KDownB4Rows = 49152;
 
 enum class DenseQ80Geometry {
     G0,
@@ -388,7 +390,8 @@ GroupedForwardSelection grouped_forward_selection(
             grouped_forward_n512_k2048_kernel(quant_type), 64, 512, 8};
     }
     if (out_features == 2048 && in_features == 512) {
-        if (quant_type == kQuantIQ2_S && rows < num_groups * 128) {
+        if (quant_type == kQuantIQ2_S &&
+            (rows == kQualifiedQwenIQ2SDownB4Rows || rows < num_groups * 128)) {
             return {
                 MMQKernelId::GroupedFwdSerialIQ2SN2048K512J64J32,
                 64,
@@ -422,7 +425,8 @@ GroupedForwardSelection grouped_forward_selection(
     }
     if (quant_type == kQuantQ2_K &&
         out_features == 4096 && in_features == 2048) {
-        const MMQKernelId id = rows < num_groups * 64
+        const MMQKernelId id =
+            rows == kQualifiedDeepSeekQ2KDownB4Rows || rows < num_groups * 64
             ? MMQKernelId::GroupedFwdSerialQ2KN4096K2048J32J16
             : MMQKernelId::GroupedFwdSerialQ2KN4096K2048J32;
         return {id, 32, 4096, 8};
