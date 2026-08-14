@@ -8,6 +8,9 @@ from types import TracebackType
 import torch
 from typing_extensions import Self
 
+from .grouped_mmq_fwd_model import GroupedForwardSolutionKey
+from .grouped_mmq_fwd_spec import DerivedGroupedForwardState
+from .grouped_mmq_fwd_validation import validate_grouped_forward_solution
 from .mmq_fwd_spec import DerivedForwardState
 from .model import BackwardSolution, ForwardSolution, SolutionKey
 from .quant_formats import (
@@ -306,6 +309,112 @@ class ForwardModule(_SolutionHIPModule):
     ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
         state = DerivedForwardState.from_solution_key(self.solution_key)
         return (state.grid, state.kernel_spec.geometry.work_group, 0)
+
+
+class GroupedForwardModule(_HIPModule):
+    """Research-only launcher for a routed grouped forward artifact."""
+
+    def __init__(
+        self,
+        solution_key: GroupedForwardSolutionKey,
+        code_object: Path,
+        hip_library: Path | None = None,
+    ) -> None:
+        reasons = validate_grouped_forward_solution(solution_key)
+        if reasons:
+            details = "; ".join(reason.rule_id for reason in reasons)
+            raise HIPRuntimeError(f"cannot launch rejected grouped solution: {details}")
+        self.solution_key = solution_key
+        super().__init__(code_object, hip_library, solution_key.kernel_name)
+
+    def launch(
+        self,
+        packed_weight: torch.Tensor,
+        activations: torch.Tensor,
+        output: torch.Tensor,
+        expert_indices: torch.Tensor,
+        expert_offsets: torch.Tensor,
+        *,
+        stream: int,
+    ) -> None:
+        if not self._module or not self._function:
+            raise HIPRuntimeError("HIP module is closed")
+        state = DerivedGroupedForwardState.from_solution_key(self.solution_key)
+        tensors = (
+            packed_weight,
+            activations,
+            output,
+            expert_indices,
+            expert_offsets,
+        )
+        if any(not tensor.is_cuda for tensor in tensors):
+            raise HIPRuntimeError("all grouped launch tensors must be on a HIP device")
+        if any(not tensor.is_contiguous() for tensor in tensors):
+            raise HIPRuntimeError("all grouped launch tensors must be contiguous")
+        if packed_weight.dtype != torch.uint8:
+            raise HIPRuntimeError("packed_weight must be uint8")
+        if activations.dtype != torch.uint8:
+            raise HIPRuntimeError("activations must be uint8 Q8_1 F16_D4S4")
+        if output.dtype != torch.bfloat16:
+            raise HIPRuntimeError("output must be BF16")
+        if expert_indices.dtype != torch.int64:
+            raise HIPRuntimeError("expert_indices must be int64")
+        if expert_offsets.dtype != torch.int32:
+            raise HIPRuntimeError("expert_offsets must be int32")
+        if tuple(packed_weight.shape) != state.expected_packed_weight_shape:
+            raise HIPRuntimeError("packed_weight shape does not match grouped bank")
+        if tuple(activations.shape) != state.expected_activation_shape:
+            raise HIPRuntimeError(
+                "activations shape does not match grouped Q8_1 workspace"
+            )
+        if tuple(output.shape) != state.expected_output_shape:
+            raise HIPRuntimeError("output shape does not match grouped problem")
+        if expert_indices.ndim != 1 or expert_offsets.ndim != 1:
+            raise HIPRuntimeError("route metadata must be one-dimensional")
+        route_entries = expert_indices.numel()
+        if (
+            route_entries <= 0
+            or route_entries > self.solution_key.problem.max_route_entries
+        ):
+            raise HIPRuntimeError("route entry count is outside the grouped contract")
+        if expert_offsets.numel() != route_entries:
+            raise HIPRuntimeError("route metadata lengths must match")
+        if len({tensor.device for tensor in tensors}) != 1:
+            raise HIPRuntimeError(
+                "all grouped launch tensors must be on the same device"
+            )
+
+        arguments = (
+            ctypes.c_uint64(packed_weight.data_ptr()),
+            ctypes.c_uint64(activations.data_ptr()),
+            ctypes.c_uint64(output.data_ptr()),
+            ctypes.c_uint64(expert_indices.data_ptr()),
+            ctypes.c_uint64(expert_offsets.data_ptr()),
+            ctypes.c_uint32(self.solution_key.problem.physical_experts),
+            ctypes.c_uint32(self.solution_key.problem.output_features),
+            ctypes.c_uint32(self.solution_key.problem.aggregate_rows),
+            ctypes.c_uint32(state.blocks_per_weight_row),
+            ctypes.c_uint64(state.bytes_per_expert),
+        )
+        parameters = (ctypes.c_void_p * len(arguments))(
+            *(
+                ctypes.cast(ctypes.byref(argument), ctypes.c_void_p)
+                for argument in arguments
+            )
+        )
+        solution = self.solution_key.solution
+        self._check(
+            self._lib.hipModuleLaunchKernel(
+                self._function,
+                *state.grid(route_entries),
+                *solution.work_group,
+                0,
+                ctypes.c_void_p(stream),
+                parameters,
+                None,
+            ),
+            "hipModuleLaunchKernel",
+        )
 
 
 class FixedHipForwardModule(ForwardModule):
