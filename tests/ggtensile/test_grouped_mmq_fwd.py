@@ -19,6 +19,7 @@ from tools.ggtensile.grouped_mmq_fwd_validation import (
 from tools.ggtensile.kernel_writer_assembly_grouped_mmq_fwd import (
     GroupedForwardKernelWriterAssembly,
 )
+from tools.ggtensile.runtime import GroupedForwardModule, InstalledGroupedForwardModule
 from tools.ggtensile.toolchain import Toolchain
 
 
@@ -58,6 +59,19 @@ def test_grouped_q4_k_rejects_inactive_solution_fields() -> None:
     assert [reason.rule_id for reason in reasons] == [
         "grouped_forward.solution.unimplemented"
     ]
+
+
+def test_grouped_q4_k_launch_geometries_match_each_mechanism() -> None:
+    candidate = GroupedForwardModule.__new__(GroupedForwardModule)
+    candidate.solution_key = _key(35)
+    assert candidate._launch_configuration(4) == ((128, 4, 1), (32, 1, 1), 0)
+    installed = InstalledGroupedForwardModule.__new__(InstalledGroupedForwardModule)
+    installed.solution_key = _key(35)
+    assert installed._launch_configuration(4) == (
+        (32, 4, 1),
+        (32, 4, 1),
+        28_928,
+    )
 
 
 def test_grouped_q4_k_writer_emits_routed_abi_and_masks() -> None:

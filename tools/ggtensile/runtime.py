@@ -319,13 +319,17 @@ class GroupedForwardModule(_HIPModule):
         solution_key: GroupedForwardSolutionKey,
         code_object: Path,
         hip_library: Path | None = None,
+        *,
+        kernel_name: str | None = None,
     ) -> None:
         reasons = validate_grouped_forward_solution(solution_key)
         if reasons:
             details = "; ".join(reason.rule_id for reason in reasons)
             raise HIPRuntimeError(f"cannot launch rejected grouped solution: {details}")
         self.solution_key = solution_key
-        super().__init__(code_object, hip_library, solution_key.kernel_name)
+        super().__init__(
+            code_object, hip_library, kernel_name or solution_key.kernel_name
+        )
 
     def launch(
         self,
@@ -402,19 +406,57 @@ class GroupedForwardModule(_HIPModule):
                 for argument in arguments
             )
         )
-        solution = self.solution_key.solution
+        grid, block, shared_memory = self._launch_configuration(route_entries)
         self._check(
             self._lib.hipModuleLaunchKernel(
                 self._function,
-                *state.grid(route_entries),
-                *solution.work_group,
-                0,
+                *grid,
+                *block,
+                shared_memory,
                 ctypes.c_void_p(stream),
                 parameters,
                 None,
             ),
             "hipModuleLaunchKernel",
         )
+
+    def _launch_configuration(
+        self, route_entries: int
+    ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
+        return (
+            self.state_grid(route_entries),
+            self.solution_key.solution.work_group,
+            0,
+        )
+
+    def state_grid(self, route_entries: int) -> tuple[int, int, int]:
+        return DerivedGroupedForwardState.from_solution_key(self.solution_key).grid(
+            route_entries
+        )
+
+
+class InstalledGroupedForwardModule(GroupedForwardModule):
+    """Direct launcher for the installed HIP Q4_K grouped serial control."""
+
+    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_q4_k_n2048_k512_j64"
+
+    def __init__(
+        self,
+        solution_key: GroupedForwardSolutionKey,
+        code_object: Path | None = None,
+        hip_library: Path | None = None,
+    ) -> None:
+        super().__init__(
+            solution_key,
+            code_object or _find_installed_kernel(self.SYMBOL),
+            hip_library,
+            kernel_name=self.SYMBOL,
+        )
+
+    def _launch_configuration(
+        self, route_entries: int
+    ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
+        return ((32, route_entries, 1), (32, 4, 1), 28_928)
 
 
 class FixedHipForwardModule(ForwardModule):

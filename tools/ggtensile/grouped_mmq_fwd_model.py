@@ -115,7 +115,7 @@ class GroupedForwardSolution:
     kernel_language: str
     isa: tuple[int, int, int]
     wavefront_size: int
-    work_group: tuple[int, ...]
+    work_group: tuple[int, int, int]
     matrix_instruction: tuple[int, ...]
     macro_tile0: int
     macro_tile1: int
@@ -196,7 +196,7 @@ class GroupedForwardSolution:
             kernel_language=_string(item["KernelLanguage"], "KernelLanguage"),
             isa=_integer_triple(item["ISA"], "ISA"),
             wavefront_size=_integer(item["WavefrontSize"], "WavefrontSize"),
-            work_group=_integer_tuple(item["WorkGroup"], "WorkGroup", 3),
+            work_group=_integer_triple(item["WorkGroup"], "WorkGroup"),
             matrix_instruction=_integer_tuple(
                 item["MatrixInstruction"], "MatrixInstruction", 9
             ),
