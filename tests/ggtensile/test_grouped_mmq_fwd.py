@@ -23,6 +23,8 @@ from tools.ggtensile.runtime import (
     GroupedForwardModule,
     HIPRuntimeError,
     InstalledGroupedForwardModule,
+    InstalledGroupedForwardQ2J32J16Module,
+    InstalledGroupedForwardQ2J32Module,
     InstalledGroupedForwardQ5J32Module,
     InstalledGroupedForwardQ5Module,
 )
@@ -56,6 +58,16 @@ def _q5_key(
     )
 
 
+def _q2_key(
+    solution: GroupedForwardSolution | None = None,
+    aggregate_rows: int = 12_288,
+) -> GroupedForwardSolutionKey:
+    return GroupedForwardSolutionKey(
+        GroupedForwardProblem.q2_k(aggregate_rows),
+        solution or GroupedForwardSolution.q2_k_serial_decoded_lds_32(),
+    )
+
+
 @pytest.mark.parametrize("aggregate_rows", (16384, 65536, 262144))
 def test_grouped_q4_k_exact_production_keys_derive(
     aggregate_rows: int,
@@ -67,6 +79,139 @@ def test_grouped_q4_k_exact_production_keys_derive(
     assert state.expected_activation_shape == (4, aggregate_rows, 144)
     assert state.expected_output_shape == (aggregate_rows, 2048)
     assert state.grid(256) == (128, 256, 1)
+
+
+@pytest.mark.parametrize("aggregate_rows", (12_288, 49_152, 196_608))
+def test_grouped_q2_k_exact_production_keys_derive(
+    aggregate_rows: int,
+) -> None:
+    key = _q2_key(aggregate_rows=aggregate_rows)
+    assert GroupedForwardSolutionKey.from_mapping(key.to_mapping()) == key
+    assert validate_grouped_forward_solution(key) == ()
+    state = DerivedGroupedForwardState.from_solution_key(key)
+    assert state.expected_packed_weight_shape == (256, 4096, 672)
+    assert state.expected_activation_shape == (16, aggregate_rows, 144)
+    assert state.expected_output_shape == (aggregate_rows, 4096)
+    assert state.grid(256) == (64, 256, 1)
+    assert "grouped_mmq_fwd_q2_k" in key.kernel_name
+
+
+def test_grouped_q2_k_writer_emits_f16_d2s6_unrolled_groups() -> None:
+    solution = GroupedForwardSolution.q2_k_serial_decoded_lds_32_unrolled()
+    source = GroupedForwardKernelWriterAssembly(
+        _q2_key(solution, aggregate_rows=35), Toolchain.discover()
+    ).source()
+    assert "GGTensile grouped Q2_K MMQ forward" in source
+    assert "F16_D2S6" in source
+    assert "Decode Q2_K two-bit payload" in source
+    assert source.count("Statically lowered Q2_K group") == 16
+    assert "s_cmp_ge_u32 s31, 6" not in source
+    assert source.count("s_barrier") == 4
+
+
+@pytest.mark.parametrize(
+    "solution, expected_vgprs, expected_lds, expected_wmmas",
+    (
+        (
+            GroupedForwardSolution.q2_k_serial_decoded_lds_32(),
+            135,
+            25_600,
+            12,
+        ),
+        (
+            GroupedForwardSolution.q2_k_serial_decoded_lds_32_unrolled(),
+            135,
+            25_600,
+            40,
+        ),
+        (
+            GroupedForwardSolution.q2_k_serial_decoded_lds_64_unrolled(),
+            159,
+            30_208,
+            80,
+        ),
+    ),
+)
+def test_grouped_q2_k_artifact_passes_strict_inspection(
+    tmp_path: Path,
+    solution: GroupedForwardSolution,
+    expected_vgprs: int,
+    expected_lds: int,
+    expected_wmmas: int,
+) -> None:
+    key = _q2_key(solution, aggregate_rows=35)
+    toolchain = Toolchain.discover()
+    assembly = tmp_path / "kernel.s"
+    obj = tmp_path / "kernel.o"
+    code_object = tmp_path / "kernel.hsaco"
+    GroupedForwardKernelWriterAssembly(key, toolchain).write(assembly)
+    toolchain.assemble(assembly, obj)
+    toolchain.link(obj, code_object)
+    inspection = inspect_grouped_forward_artifact(key, code_object, toolchain)
+    assert inspection.vgpr_count == expected_vgprs
+    assert inspection.sgpr_count == 40
+    assert inspection.lds_num_bytes == expected_lds
+    assert inspection.wmma_count == expected_wmmas
+    assert inspection.barrier_count == 4
+    assert inspection.private_segment_bytes == 0
+    assert inspection.vgpr_spill_count == 0
+    assert inspection.sgpr_spill_count == 0
+
+
+def test_grouped_q2_k_selected_rebuild_is_deterministic(tmp_path: Path) -> None:
+    key = _q2_key(
+        GroupedForwardSolution.q2_k_serial_decoded_lds_64_unrolled(),
+        aggregate_rows=49_152,
+    )
+    toolchain = Toolchain.discover()
+    sources = []
+    code_objects = []
+    for name in ("first", "second"):
+        directory = tmp_path / name
+        assembly = directory / "kernel.s"
+        obj = directory / "kernel.o"
+        code_object = directory / "kernel.hsaco"
+        GroupedForwardKernelWriterAssembly(key, toolchain).write(assembly)
+        toolchain.assemble(assembly, obj)
+        toolchain.link(obj, code_object)
+        sources.append(assembly)
+        code_objects.append(code_object)
+    assert sources[0].read_bytes() == sources[1].read_bytes()
+    assert code_objects[0].read_bytes() == code_objects[1].read_bytes()
+
+
+def test_installed_grouped_q2_k_dispatch_preserves_exact_exception() -> None:
+    pure = InstalledGroupedForwardQ2J32Module.__new__(
+        InstalledGroupedForwardQ2J32Module
+    )
+    pure.solution_key = _q2_key(aggregate_rows=49_152)
+    with pytest.raises(HIPRuntimeError, match="mixed"):
+        pure._launch_configuration(256)
+    pure.solution_key = _q2_key(aggregate_rows=12_288)
+    assert pure._launch_configuration(128) == ((64, 128, 1), (32, 4, 1), 30_336)
+
+    mixed = InstalledGroupedForwardQ2J32J16Module.__new__(
+        InstalledGroupedForwardQ2J32J16Module
+    )
+    mixed.solution_key = _q2_key(aggregate_rows=49_152)
+    assert mixed._launch_configuration(256) == (
+        (64, 256, 1),
+        (32, 4, 1),
+        30_336,
+    )
+    mixed.solution_key = _q2_key(aggregate_rows=12_288)
+    with pytest.raises(HIPRuntimeError, match="pure"):
+        mixed._launch_configuration(128)
+
+
+def test_grouped_q2_k_rejects_cross_format_solution() -> None:
+    key = GroupedForwardSolutionKey(
+        GroupedForwardProblem.q2_k(35),
+        GroupedForwardSolution.q4_k_serial_decoded_lds(),
+    )
+    assert [reason.rule_id for reason in validate_grouped_forward_solution(key)] == [
+        "grouped_forward.solution.unimplemented"
+    ]
 
 
 @pytest.mark.parametrize("aggregate_rows", (16384, 65536, 262144))

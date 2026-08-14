@@ -138,6 +138,18 @@ class QuantForwardSemantics:
 
     @classmethod
     def for_quant_type(cls, quant_type: str) -> "QuantForwardSemantics":
+        if quant_type == "Q2_K":
+            return cls(
+                quant_type=quant_type,
+                weight_bits=2,
+                payload_planes=(
+                    PayloadPlaneSpec("scales", 0, 16, "PackedScaleMinimum4"),
+                    PayloadPlaneSpec("qs", 16, 64, "UnsignedTwoBit"),
+                    PayloadPlaneSpec("dm", 80, 4, "Float16Pair"),
+                ),
+                activation_components=("q", "d", "s"),
+                post_wmma_correction="Q2ScaleAndMinimum",
+            )
         if quant_type == "Q3_K":
             return cls(
                 quant_type=quant_type,
@@ -470,6 +482,37 @@ class LdsSpec:
 
 
 @dataclass(frozen=True)
+class F16D2S6ActivationMetadata:
+    """Physical metadata for Q2_K's two-scale, six-sum workspace."""
+
+    block_bytes: int
+
+    GROUP_COUNT: ClassVar[int] = 8
+    PAYLOAD_BASE: ClassVar[int] = 16
+    GROUP_PAYLOAD_BYTES: ClassVar[int] = 16
+    PAYLOAD_VECTOR_BYTES: ClassVar[int] = 16
+
+    def __post_init__(self) -> None:
+        if self.block_bytes <= 0:
+            raise ValueError("F16_D2S6 activation block bytes must be positive")
+
+    def payload_offset(self, group: int) -> int:
+        if group not in range(self.GROUP_COUNT):
+            raise ValueError("F16_D2S6 activation group must be in range 0..7")
+        return self.PAYLOAD_BASE + self.GROUP_PAYLOAD_BYTES * group
+
+    def scale_offset(self, group: int) -> int:
+        if group not in range(self.GROUP_COUNT):
+            raise ValueError("F16_D2S6 activation group must be in range 0..7")
+        return 2 * (group // 4)
+
+    def sum_offset(self, group: int) -> int | None:
+        if group not in range(self.GROUP_COUNT):
+            raise ValueError("F16_D2S6 activation group must be in range 0..7")
+        return 4 + 2 * group if group < 6 else None
+
+
+@dataclass(frozen=True)
 class F16D4S4ActivationGroupRole:
     """One 32-value MMA group in the two-plane F16_D4S4 workspace."""
 
@@ -524,7 +567,7 @@ class F16D4S4ActivationMetadata:
 class DecodedLdsLayout:
     """Derived shared LDS planes for the retained Q4/Q5 decoded path."""
 
-    activation_metadata: F16D4S4ActivationMetadata
+    activation_metadata: F16D2S6ActivationMetadata | F16D4S4ActivationMetadata
     activation_base: int
     weight_data_base: int
     weight_metadata_base: int
@@ -543,6 +586,33 @@ class DecodedLdsLayout:
             raise ValueError("decoded LDS layout requires 64 or 128 activation rows")
         activation_metadata = F16D4S4ActivationMetadata(activation_block_bytes)
         weight_row_stride = 2 * activation_block_bytes + 16
+        activation_base = 512
+        weight_data_base = activation_base + activation_rows * activation_block_bytes
+        return cls(
+            activation_metadata=activation_metadata,
+            activation_base=activation_base,
+            weight_data_base=weight_data_base,
+            weight_metadata_base=weight_data_base + 256,
+            weight_row_stride=weight_row_stride,
+            activation_lane_stride=512,
+        )
+
+    @classmethod
+    def for_q2_activation_block_bytes(
+        cls,
+        activation_block_bytes: int,
+        activation_rows: int = 32,
+    ) -> "DecodedLdsLayout":
+        if activation_block_bytes <= 0:
+            raise ValueError(
+                "Q2 decoded LDS layout requires a positive activation block"
+            )
+        if activation_rows not in (32, 64, 128):
+            raise ValueError(
+                "Q2 decoded LDS layout requires 32, 64, or 128 activation rows"
+            )
+        activation_metadata = F16D2S6ActivationMetadata(activation_block_bytes)
+        weight_row_stride = 320
         activation_base = 512
         weight_data_base = activation_base + activation_rows * activation_block_bytes
         return cls(

@@ -14,6 +14,7 @@ from .grouped_mmq_fwd_validation import validate_grouped_forward_solution
 from .mmq_fwd_spec import DerivedForwardState
 from .model import BackwardSolution, ForwardSolution, SolutionKey
 from .quant_formats import (
+    Q8_1_F16_D2S6_BLOCK_BYTES,
     Q8_1_F16_D4S4_BLOCK_BYTES,
     Q8_1_F32_D4_BLOCK_BYTES,
     QUANT_FORMATS,
@@ -516,6 +517,149 @@ class InstalledGroupedForwardQ5J32Module(GroupedForwardModule):
         if self.solution_key.problem.aggregate_rows >= 128 * route_entries:
             raise HIPRuntimeError("installed Q5_K dispatch selects J64 for this route")
         return ((32, route_entries, 1), (32, 4, 1), 24_192)
+
+
+class InstalledGroupedForwardQ2J32Module(GroupedForwardModule):
+    """Direct launcher for the installed pure Q2_K J32 control."""
+
+    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_q2_k_n4096_k2048_j32"
+
+    def __init__(
+        self,
+        solution_key: GroupedForwardSolutionKey,
+        code_object: Path | None = None,
+        hip_library: Path | None = None,
+    ) -> None:
+        if solution_key.problem.quant_data_type != "Q2_K":
+            raise HIPRuntimeError("installed Q2_K J32 control requires a Q2_K problem")
+        super().__init__(
+            solution_key,
+            code_object or _find_installed_kernel(self.SYMBOL),
+            hip_library,
+            kernel_name=self.SYMBOL,
+        )
+
+    def _launch_configuration(
+        self, route_entries: int
+    ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
+        rows = self.solution_key.problem.aggregate_rows
+        if rows == 49_152 or rows < 64 * route_entries:
+            raise HIPRuntimeError("installed Q2_K dispatch selects mixed J32/J16")
+        return ((64, route_entries, 1), (32, 4, 1), 30_336)
+
+
+class InstalledGroupedForwardQ2J32J16Module(GroupedForwardModule):
+    """Direct launcher for the installed mixed Q2_K J32/J16 control."""
+
+    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_q2_k_n4096_k2048_j32_j16"
+
+    def __init__(
+        self,
+        solution_key: GroupedForwardSolutionKey,
+        code_object: Path | None = None,
+        hip_library: Path | None = None,
+    ) -> None:
+        if solution_key.problem.quant_data_type != "Q2_K":
+            raise HIPRuntimeError(
+                "installed Q2_K mixed control requires a Q2_K problem"
+            )
+        super().__init__(
+            solution_key,
+            code_object or _find_installed_kernel(self.SYMBOL),
+            hip_library,
+            kernel_name=self.SYMBOL,
+        )
+
+    def _launch_configuration(
+        self, route_entries: int
+    ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
+        rows = self.solution_key.problem.aggregate_rows
+        if rows != 49_152 and rows >= 64 * route_entries:
+            raise HIPRuntimeError("installed Q2_K dispatch selects pure J32")
+        return ((64, route_entries, 1), (32, 4, 1), 30_336)
+
+
+class FixedQ81F16D2S6QuantizerModule(_HIPModule):
+    """Direct launcher for the installed HIP Q8_1 F16_D2S6 producer."""
+
+    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f16_d2s6"
+
+    def __init__(
+        self,
+        code_object: Path | None = None,
+        hip_library: Path | None = None,
+    ) -> None:
+        selected = code_object or _find_installed_kernel(self.SYMBOL)
+        super().__init__(selected, hip_library, self.SYMBOL)
+
+    def allocate(self, input_tensor: torch.Tensor) -> torch.Tensor:
+        if input_tensor.ndim != 2 or input_tensor.shape[1] % 128:
+            raise HIPRuntimeError(
+                "quantizer input must be [rows, K] with K divisible by 128"
+            )
+        rows, k = input_tensor.shape
+        return torch.empty(
+            (k // 128, rows, Q8_1_F16_D2S6_BLOCK_BYTES),
+            dtype=torch.uint8,
+            device=input_tensor.device,
+        )
+
+    def launch(
+        self,
+        input_tensor: torch.Tensor,
+        output: torch.Tensor,
+        *,
+        stream: int,
+    ) -> None:
+        if not self._module or not self._function:
+            raise HIPRuntimeError("HIP module is closed")
+        if not input_tensor.is_cuda or not output.is_cuda:
+            raise HIPRuntimeError("quantizer tensors must be on a HIP device")
+        if not input_tensor.is_contiguous() or not output.is_contiguous():
+            raise HIPRuntimeError("quantizer tensors must be contiguous")
+        if input_tensor.dtype != torch.bfloat16:
+            raise HIPRuntimeError("quantizer input must be BF16")
+        if output.dtype != torch.uint8:
+            raise HIPRuntimeError("quantizer output must be uint8")
+        if input_tensor.ndim != 2:
+            raise HIPRuntimeError("quantizer input must be two-dimensional")
+        rows, k = input_tensor.shape
+        expected_shape = (k // 128, rows, Q8_1_F16_D2S6_BLOCK_BYTES)
+        if k % 128 or tuple(output.shape) != expected_shape:
+            raise HIPRuntimeError(
+                "quantizer output does not match the Q8_1 F16_D2S6 contract"
+            )
+        if input_tensor.device != output.device:
+            raise HIPRuntimeError("quantizer tensors must be on the same device")
+        arguments = (
+            ctypes.c_uint64(input_tensor.data_ptr()),
+            ctypes.c_uint64(output.data_ptr()),
+            ctypes.c_int64(rows),
+            ctypes.c_int64(rows),
+            ctypes.c_int64(k),
+        )
+        parameters = (ctypes.c_void_p * len(arguments))(
+            *(
+                ctypes.cast(ctypes.byref(argument), ctypes.c_void_p)
+                for argument in arguments
+            )
+        )
+        self._check(
+            self._lib.hipModuleLaunchKernel(
+                self._function,
+                rows,
+                1,
+                1,
+                512,
+                1,
+                1,
+                0,
+                ctypes.c_void_p(stream),
+                parameters,
+                None,
+            ),
+            "hipModuleLaunchKernel",
+        )
 
 
 class FixedHipForwardModule(ForwardModule):

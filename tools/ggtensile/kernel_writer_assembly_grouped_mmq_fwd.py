@@ -10,6 +10,7 @@ from .grouped_mmq_fwd_lowering import (
     GroupedPackedScaleMinimumDirectLowering,
 )
 from .grouped_mmq_fwd_lowering_decoded_lds import grouped_decoded_lowering
+from .grouped_mmq_fwd_lowering_q2_k import grouped_q2_decoded_lowering
 from .grouped_mmq_fwd_model import GroupedForwardSolutionKey
 from .grouped_mmq_fwd_spec import DerivedGroupedForwardState
 from .grouped_mmq_fwd_validation import validate_grouped_forward_solution
@@ -65,7 +66,7 @@ class GroupedForwardKernelWriterAssembly:
         quant_type = self.solution_key.problem.quant_data_type
         signature.addDescriptionTopic(
             f"GGTensile grouped {quant_type} MMQ forward, serial GEMM ownership, "
-            "fixed Q8_1 F16_D4S4 producer"
+            f"fixed Q8_1 {solution.activation_layout} producer"
         )
         signature.addArg("weights", SVK.SIG_GLOBALBUFFER, "struct", "generic")
         signature.addArg("activations", SVK.SIG_GLOBALBUFFER, "struct", "generic")
@@ -83,7 +84,10 @@ class GroupedForwardKernelWriterAssembly:
         if solution.operand_source == "GroupedDirectGlobal":
             body = GroupedPackedScaleMinimumDirectLowering(self.context).body()
         elif solution.operand_source == "GroupedDecodedWeightLds":
-            body = grouped_decoded_lowering(self.context).body()
+            if self.solution_key.problem.quant_data_type == "Q2_K":
+                body = grouped_q2_decoded_lowering(self.context).body()
+            else:
+                body = grouped_decoded_lowering(self.context).body()
         else:
             raise TypeError(
                 f"unsupported grouped operand source {solution.operand_source!r}"

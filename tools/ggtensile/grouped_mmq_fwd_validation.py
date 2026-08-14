@@ -13,6 +13,7 @@ def validate_grouped_forward_solution(
 ) -> tuple[RejectReason, ...]:
     reasons: list[RejectReason] = []
     expected_problem = {
+        "Q2_K": GroupedForwardProblem.q2_k,
         "Q4_K": GroupedForwardProblem.q4_k,
         "Q5_K": GroupedForwardProblem.q5_k,
     }.get(key.problem.quant_data_type)
@@ -22,7 +23,7 @@ def validate_grouped_forward_solution(
         reasons.append(
             RejectReason(
                 "grouped_forward.problem.unsupported",
-                "grouped Q4_K/Q5_K forward requires N=2048, K=512, 256 physical experts, and at most 256 route entries",
+                "grouped Q2_K/Q4_K/Q5_K forward requires its exact production N/K shape, 256 physical experts, and at most 256 route entries",
                 ("Problem",),
                 "GroupedForwardProblem",
             )
@@ -36,6 +37,13 @@ def validate_grouped_forward_solution(
                 "GroupedForwardProblem",
             )
         )
+    q2_solutions = {
+        GroupedForwardSolution.q2_k_serial_decoded_lds_32(),
+        GroupedForwardSolution.q2_k_serial_decoded_lds_64(),
+        GroupedForwardSolution.q2_k_serial_decoded_lds_32_unrolled(),
+        GroupedForwardSolution.q2_k_serial_decoded_lds_64_unrolled(),
+        GroupedForwardSolution.q2_k_serial_decoded_lds_128_unrolled(),
+    }
     q4_solutions = {
         GroupedForwardSolution.q4_k_serial_direct(),
         GroupedForwardSolution.q4_k_serial_decoded_lds(),
@@ -67,6 +75,7 @@ def validate_grouped_forward_solution(
         GroupedForwardSolution.q5_k_serial_decoded_lds_64_scheduled_mixed32_a1d4p2(),
     }
     expected_solutions = {
+        "Q2_K": q2_solutions,
         "Q4_K": q4_solutions,
         "Q5_K": q5_solutions,
     }.get(key.problem.quant_data_type, set())
@@ -74,7 +83,7 @@ def validate_grouped_forward_solution(
         reasons.append(
             RejectReason(
                 "grouped_forward.solution.unimplemented",
-                "grouped forward currently implements Q4_K direct/decoded controls and Q5_K decoded controls",
+                "grouped forward currently implements Q2_K/Q4_K/Q5_K decoded controls and the Q4_K direct control",
                 ("Solution",),
                 "GroupedForwardSolution",
             )

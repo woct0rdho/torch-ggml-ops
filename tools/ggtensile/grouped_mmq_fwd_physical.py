@@ -343,12 +343,22 @@ def grouped_direct_physical_plan(
 def grouped_decoded_physical_plan(
     activation_block_bytes: int,
     macro_tile0: int,
+    quant_type: str,
 ) -> GroupedDecodedPhysicalPlan:
-    if macro_tile0 not in (64, 128):
-        raise ValueError("grouped decoded plan requires a 64- or 128-row tile")
-    layout = DecodedLdsLayout.for_activation_block_bytes(
-        activation_block_bytes, macro_tile0
-    )
+    if quant_type == "Q2_K":
+        if macro_tile0 not in (32, 64, 128):
+            raise ValueError(
+                "grouped Q2 decoded plan requires a 32-, 64-, or 128-row tile"
+            )
+        layout = DecodedLdsLayout.for_q2_activation_block_bytes(
+            activation_block_bytes, macro_tile0
+        )
+    else:
+        if macro_tile0 not in (64, 128):
+            raise ValueError("grouped decoded plan requires a 64- or 128-row tile")
+        layout = DecodedLdsLayout.for_activation_block_bytes(
+            activation_block_bytes, macro_tile0
+        )
     vector = DecodedWeightLdsRegisterPlan.allocate(macro_tile0 // 16)
     scalar = GroupedDecodedScalarRegisterPlan.allocate()
     return GroupedDecodedPhysicalPlan(

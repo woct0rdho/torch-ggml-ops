@@ -2,6 +2,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
+Q8_1_F16_D2S6_BLOCK_BYTES = 144
 Q8_1_F16_D4S4_BLOCK_BYTES = 144
 Q8_1_F32_D4_BLOCK_BYTES = 144
 Q8_1_D4_BLOCK_VALUES = 128
@@ -17,6 +18,18 @@ class QuantFormat:
     weight_decode: str
     scale_arithmetic: str
     arithmetic_contract: str
+
+
+Q2_K_FORMAT = QuantFormat(
+    block_values=256,
+    block_bytes=84,
+    activation_layout="F16_D2S6",
+    activation_block_bytes=Q8_1_F16_D2S6_BLOCK_BYTES,
+    wmma_clamp=True,
+    weight_decode="DirectTwoBitNibbleScaleMinimum",
+    scale_arithmetic="FP16",
+    arithmetic_contract="UnsignedQ2IntegerWmmaFP16ScaleMinimumCorrection",
+)
 
 
 QUANT_FORMATS: Mapping[str, QuantFormat] = MappingProxyType(
@@ -72,4 +85,9 @@ QUANT_FORMATS: Mapping[str, QuantFormat] = MappingProxyType(
             arithmetic_contract="SignedQ8Int8ScaleIntegerWmmaF32Correction",
         ),
     }
+)
+
+
+GROUPED_QUANT_FORMATS: Mapping[str, QuantFormat] = MappingProxyType(
+    {**QUANT_FORMATS, "Q2_K": Q2_K_FORMAT}
 )

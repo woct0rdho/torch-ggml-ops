@@ -139,7 +139,16 @@ def inspect_grouped_forward_artifact(
             == "BFloat16RNEClause8Clause4Clause2MixedMasked"
         ):
             row_tiles += 4
-        expected_wmmas = 4 * row_tiles
+        if (
+            solution_key.problem.quant_data_type == "Q2_K"
+            and solution_key.solution.metadata_schedule
+            == "Q2ScaleMinimumNibbleUnrolled"
+        ):
+            expected_wmmas = 20 * row_tiles
+        elif solution_key.problem.quant_data_type == "Q2_K":
+            expected_wmmas = 6 * row_tiles
+        else:
+            expected_wmmas = 4 * row_tiles
     else:
         expected_wmmas = 16
     expected_barriers = 4 if decoded_lds else 0

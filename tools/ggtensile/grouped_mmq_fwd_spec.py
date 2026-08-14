@@ -11,7 +11,7 @@ from .grouped_mmq_fwd_physical import (
 )
 from .mmq_fwd_spec import QuantForwardSemantics
 from .model import ProblemSize
-from .quant_formats import Q8_1_D4_BLOCK_VALUES, QUANT_FORMATS
+from .quant_formats import GROUPED_QUANT_FORMATS, Q8_1_D4_BLOCK_VALUES
 
 
 @dataclass(frozen=True)
@@ -53,7 +53,7 @@ class DerivedGroupedForwardState:
     ) -> "DerivedGroupedForwardState":
         problem = key.problem
         solution = key.solution
-        quant_format = QUANT_FORMATS[problem.quant_data_type]
+        quant_format = GROUPED_QUANT_FORMATS[problem.quant_data_type]
         semantics = QuantForwardSemantics.for_quant_type(problem.quant_data_type)
         blocks_per_weight_row = problem.input_features // quant_format.block_values
         activation_blocks_per_row = problem.input_features // Q8_1_D4_BLOCK_VALUES
@@ -69,6 +69,7 @@ class DerivedGroupedForwardState:
             physical_plan = grouped_decoded_physical_plan(
                 solution.activation_block_bytes,
                 solution.macro_tile0,
+                problem.quant_data_type,
             )
         else:
             raise ValueError(

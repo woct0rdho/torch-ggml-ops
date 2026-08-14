@@ -2018,7 +2018,7 @@ class PackedScaleMinimumDirectRegisterPlan:
 
 @dataclass(frozen=True)
 class DecodedWeightLdsRegisterPlan:
-    """Stage-aware ownership for the retained decoded 128x64 path."""
+    """Stage-aware ownership for decoded 32-, 64-, and 128-row paths."""
 
     zero_accumulator: RegisterAssignment
     sums: RegisterAssignment
@@ -2048,8 +2048,10 @@ class DecodedWeightLdsRegisterPlan:
 
     @classmethod
     def allocate(cls, row_tiles: int = 8):
-        if row_tiles not in (4, 8):
-            raise ValueError("decoded-weight LDS requires four or eight row tiles")
+        if row_tiles not in (2, 4, 8):
+            raise ValueError(
+                "decoded-weight LDS requires two, four, or eight row tiles"
+            )
         if row_tiles == 8:
             sums_width = 64
             decode_base = 72
@@ -2062,7 +2064,7 @@ class DecodedWeightLdsRegisterPlan:
             scaled_dm_base = 220
             address_base = 228
             declared_vgprs = 239
-        else:
+        elif row_tiles == 4:
             sums_width = 32
             decode_base = 40
             staged_base = 72
@@ -2074,6 +2076,18 @@ class DecodedWeightLdsRegisterPlan:
             scaled_dm_base = 140
             address_base = 148
             declared_vgprs = 159
+        else:
+            sums_width = 16
+            decode_base = 24
+            staged_base = 56
+            staged_width = 52
+            c_width = 16
+            low_activation_base = 72
+            high_activation_base = 76
+            activation_scale_sum_base = 88
+            scaled_dm_base = 90
+            address_base = 124
+            declared_vgprs = 135
         roles = {
             "zero_accumulator": RegisterRole(
                 "zero_accumulator", 8, RegisterLifetime(0, 3), minimum_register=0

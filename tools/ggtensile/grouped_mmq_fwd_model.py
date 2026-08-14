@@ -9,7 +9,11 @@ from typing import ClassVar
 from typing_extensions import Self
 
 from .model import SchemaError
-from .quant_formats import Q8_1_F16_D4S4_BLOCK_BYTES, QUANT_FORMATS
+from .quant_formats import (
+    GROUPED_QUANT_FORMATS,
+    Q8_1_F16_D2S6_BLOCK_BYTES,
+    Q8_1_F16_D4S4_BLOCK_BYTES,
+)
 
 
 def _mapping(value: object, name: str, keys: frozenset[str]) -> Mapping[str, object]:
@@ -80,6 +84,10 @@ class GroupedForwardProblem:
             "MaxRouteEntries",
         }
     )
+
+    @classmethod
+    def q2_k(cls, aggregate_rows: int) -> Self:
+        return cls("Q2_K", aggregate_rows, 4096, 2048, 256, 256)
 
     @classmethod
     def q4_k(cls, aggregate_rows: int) -> Self:
@@ -190,7 +198,7 @@ class GroupedForwardSolution:
             depth_u=32,
             activation_layout="F16_D4S4",
             activation_block_bytes=Q8_1_F16_D4S4_BLOCK_BYTES,
-            packed_weight_block_bytes=QUANT_FORMATS["Q4_K"].block_bytes,
+            packed_weight_block_bytes=GROUPED_QUANT_FORMATS["Q4_K"].block_bytes,
             operand_source="GroupedDirectGlobal",
             weight_decode="DirectNibble",
             group_mapping="SerialGemm",
@@ -293,10 +301,62 @@ class GroupedForwardSolution:
         )
 
     @classmethod
+    def q2_k_serial_decoded_lds_32(cls) -> Self:
+        return replace(
+            cls.q4_k_serial_decoded_lds(),
+            macro_tile0=32,
+            tail_macro_tile0=32,
+            activation_layout="F16_D2S6",
+            activation_block_bytes=Q8_1_F16_D2S6_BLOCK_BYTES,
+            packed_weight_block_bytes=GROUPED_QUANT_FORMATS["Q2_K"].block_bytes,
+            weight_decode="DirectTwoBitNibbleScaleMinimum",
+            metadata_conversion="DirectQ2Float16NibblePairs",
+            metadata_schedule="Q2ScaleMinimumNibble",
+            epilogue_tiles_ahead=1,
+            epilogue_dependency_width=2,
+            epilogue_priority=2,
+            output_store="BFloat16RNEClause2Masked",
+        )
+
+    @classmethod
+    def q2_k_serial_decoded_lds_64(cls) -> Self:
+        return replace(
+            cls.q2_k_serial_decoded_lds_32(),
+            macro_tile0=64,
+            tail_macro_tile0=64,
+            epilogue_tiles_ahead=4,
+            output_store="BFloat16RNEClause4Masked",
+        )
+
+    @classmethod
+    def q2_k_serial_decoded_lds_32_unrolled(cls) -> Self:
+        return replace(
+            cls.q2_k_serial_decoded_lds_32(),
+            metadata_schedule="Q2ScaleMinimumNibbleUnrolled",
+        )
+
+    @classmethod
+    def q2_k_serial_decoded_lds_64_unrolled(cls) -> Self:
+        return replace(
+            cls.q2_k_serial_decoded_lds_64(),
+            metadata_schedule="Q2ScaleMinimumNibbleUnrolled",
+        )
+
+    @classmethod
+    def q2_k_serial_decoded_lds_128_unrolled(cls) -> Self:
+        return replace(
+            cls.q2_k_serial_decoded_lds_64_unrolled(),
+            macro_tile0=128,
+            tail_macro_tile0=128,
+            epilogue_tiles_ahead=8,
+            output_store="BFloat16RNEClause8Masked",
+        )
+
+    @classmethod
     def q5_k_serial_decoded_lds(cls) -> Self:
         return replace(
             cls.q4_k_serial_decoded_lds(),
-            packed_weight_block_bytes=QUANT_FORMATS["Q5_K"].block_bytes,
+            packed_weight_block_bytes=GROUPED_QUANT_FORMATS["Q5_K"].block_bytes,
             weight_decode="DirectNibbleHighBit",
         )
 
