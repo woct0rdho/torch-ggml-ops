@@ -19,7 +19,7 @@ from .toolchain import Toolchain
 
 
 class GroupedForwardKernelWriterAssembly:
-    """Emit the strict routed Q4_K direct-global control."""
+    """Emit strict routed packed-weight forward controls."""
 
     def __init__(
         self,
@@ -62,8 +62,9 @@ class GroupedForwardKernelWriterAssembly:
             totalAgprs=0,
             totalSgprs=resources.sgprs,
         )
+        quant_type = self.solution_key.problem.quant_data_type
         signature.addDescriptionTopic(
-            "GGTensile grouped Q4_K MMQ forward, serial GEMM ownership, "
+            f"GGTensile grouped {quant_type} MMQ forward, serial GEMM ownership, "
             "fixed Q8_1 F16_D4S4 producer"
         )
         signature.addArg("weights", SVK.SIG_GLOBALBUFFER, "struct", "generic")

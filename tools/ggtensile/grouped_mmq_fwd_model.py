@@ -86,6 +86,10 @@ class GroupedForwardProblem:
         return cls("Q4_K", aggregate_rows, 2048, 512, 256, 256)
 
     @classmethod
+    def q5_k(cls, aggregate_rows: int) -> Self:
+        return cls("Q5_K", aggregate_rows, 2048, 512, 256, 256)
+
+    @classmethod
     def from_mapping(cls, value: object) -> Self:
         item = _mapping(value, "GroupedForwardProblem", cls._KEYS)
         return cls(
@@ -289,6 +293,143 @@ class GroupedForwardSolution:
         )
 
     @classmethod
+    def q5_k_serial_decoded_lds(cls) -> Self:
+        return replace(
+            cls.q4_k_serial_decoded_lds(),
+            packed_weight_block_bytes=QUANT_FORMATS["Q5_K"].block_bytes,
+            weight_decode="DirectNibbleHighBit",
+        )
+
+    @classmethod
+    def q5_k_serial_decoded_lds_scheduled(cls) -> Self:
+        return replace(
+            cls.q5_k_serial_decoded_lds(),
+            metadata_schedule="IndependentExtractionMetadataAfterLowWmma",
+        )
+
+    @classmethod
+    def q5_k_serial_decoded_lds_scheduled_a1d2p2(cls) -> Self:
+        return replace(
+            cls.q5_k_serial_decoded_lds_scheduled(),
+            epilogue_tiles_ahead=1,
+            epilogue_dependency_width=2,
+            epilogue_priority=2,
+        )
+
+    @classmethod
+    def q5_k_serial_decoded_lds_scheduled_mixed64(cls) -> Self:
+        return replace(
+            cls.q5_k_serial_decoded_lds_scheduled(),
+            tail_macro_tile0=64,
+            output_store="BFloat16RNEClause8Clause4MixedMasked",
+        )
+
+    @classmethod
+    def q5_k_serial_decoded_lds_scheduled_mixed64_a1d2p2(cls) -> Self:
+        return replace(
+            cls.q5_k_serial_decoded_lds_scheduled_mixed64(),
+            epilogue_tiles_ahead=1,
+            epilogue_dependency_width=2,
+            epilogue_priority=2,
+        )
+
+    @classmethod
+    def q5_k_serial_decoded_lds_scheduled_mixed64_a1d4p2(cls) -> Self:
+        return replace(
+            cls.q5_k_serial_decoded_lds_scheduled_mixed64(),
+            epilogue_tiles_ahead=1,
+            epilogue_dependency_width=4,
+            epilogue_priority=2,
+        )
+
+    @classmethod
+    def q5_k_serial_decoded_lds_scheduled_mixed64_mixed32(cls) -> Self:
+        return replace(
+            cls.q5_k_serial_decoded_lds_scheduled(),
+            tail_macro_tile0=32,
+            output_store="BFloat16RNEClause8Clause4Clause2MixedMasked",
+        )
+
+    @classmethod
+    def q5_k_serial_decoded_lds_scheduled_mixed64_mixed32_a1d2p2(cls) -> Self:
+        return replace(
+            cls.q5_k_serial_decoded_lds_scheduled_mixed64_mixed32(),
+            epilogue_tiles_ahead=1,
+            epilogue_dependency_width=2,
+            epilogue_priority=2,
+        )
+
+    @classmethod
+    def q5_k_serial_decoded_lds_scheduled_mixed64_mixed32_a1d4p2(cls) -> Self:
+        return replace(
+            cls.q5_k_serial_decoded_lds_scheduled_mixed64_mixed32(),
+            epilogue_tiles_ahead=1,
+            epilogue_dependency_width=4,
+            epilogue_priority=2,
+        )
+
+    @classmethod
+    def q5_k_serial_decoded_lds_64(cls) -> Self:
+        return replace(
+            cls.q5_k_serial_decoded_lds(),
+            macro_tile0=64,
+            tail_macro_tile0=64,
+            epilogue_tiles_ahead=4,
+            output_store="BFloat16RNEClause4Masked",
+        )
+
+    @classmethod
+    def q5_k_serial_decoded_lds_64_scheduled(cls) -> Self:
+        return replace(
+            cls.q5_k_serial_decoded_lds_64(),
+            metadata_schedule="IndependentExtractionMetadataAfterLowWmma",
+        )
+
+    @classmethod
+    def q5_k_serial_decoded_lds_64_scheduled_a1d2p2(cls) -> Self:
+        return replace(
+            cls.q5_k_serial_decoded_lds_64_scheduled(),
+            epilogue_tiles_ahead=1,
+            epilogue_dependency_width=2,
+            epilogue_priority=2,
+        )
+
+    @classmethod
+    def q5_k_serial_decoded_lds_64_scheduled_a1d4p2(cls) -> Self:
+        return replace(
+            cls.q5_k_serial_decoded_lds_64_scheduled(),
+            epilogue_tiles_ahead=1,
+            epilogue_dependency_width=4,
+            epilogue_priority=2,
+        )
+
+    @classmethod
+    def q5_k_serial_decoded_lds_64_scheduled_mixed32(cls) -> Self:
+        return replace(
+            cls.q5_k_serial_decoded_lds_64_scheduled(),
+            tail_macro_tile0=32,
+            output_store="BFloat16RNEClause4Clause2MixedMasked",
+        )
+
+    @classmethod
+    def q5_k_serial_decoded_lds_64_scheduled_mixed32_a1d2p2(cls) -> Self:
+        return replace(
+            cls.q5_k_serial_decoded_lds_64_scheduled_mixed32(),
+            epilogue_tiles_ahead=1,
+            epilogue_dependency_width=2,
+            epilogue_priority=2,
+        )
+
+    @classmethod
+    def q5_k_serial_decoded_lds_64_scheduled_mixed32_a1d4p2(cls) -> Self:
+        return replace(
+            cls.q5_k_serial_decoded_lds_64_scheduled_mixed32(),
+            epilogue_tiles_ahead=1,
+            epilogue_dependency_width=4,
+            epilogue_priority=2,
+        )
+
+    @classmethod
     def from_mapping(cls, value: object) -> Self:
         item = _mapping(value, "GroupedForwardSolution", cls._KEYS)
         return cls(
@@ -402,7 +543,7 @@ class GroupedForwardSolutionKey:
     def kernel_name(self) -> str:
         problem = self.problem
         return (
-            "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_q4_k_"
-            f"r{problem.aggregate_rows}_n{problem.output_features}_"
-            f"k{problem.input_features}_{self.hash[6:]}"
+            "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_"
+            f"{problem.quant_data_type.lower()}_r{problem.aggregate_rows}_"
+            f"n{problem.output_features}_k{problem.input_features}_{self.hash[6:]}"
         )

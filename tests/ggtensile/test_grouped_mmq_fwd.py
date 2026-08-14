@@ -19,7 +19,13 @@ from tools.ggtensile.grouped_mmq_fwd_validation import (
 from tools.ggtensile.kernel_writer_assembly_grouped_mmq_fwd import (
     GroupedForwardKernelWriterAssembly,
 )
-from tools.ggtensile.runtime import GroupedForwardModule, InstalledGroupedForwardModule
+from tools.ggtensile.runtime import (
+    GroupedForwardModule,
+    HIPRuntimeError,
+    InstalledGroupedForwardModule,
+    InstalledGroupedForwardQ5J32Module,
+    InstalledGroupedForwardQ5Module,
+)
 from tools.ggtensile.toolchain import Toolchain
 
 
@@ -40,6 +46,16 @@ def _decoded_key(
     )
 
 
+def _q5_key(
+    solution: GroupedForwardSolution | None = None,
+    aggregate_rows: int = 16384,
+) -> GroupedForwardSolutionKey:
+    return GroupedForwardSolutionKey(
+        GroupedForwardProblem.q5_k(aggregate_rows),
+        solution or GroupedForwardSolution.q5_k_serial_decoded_lds(),
+    )
+
+
 @pytest.mark.parametrize("aggregate_rows", (16384, 65536, 262144))
 def test_grouped_q4_k_exact_production_keys_derive(
     aggregate_rows: int,
@@ -51,6 +67,169 @@ def test_grouped_q4_k_exact_production_keys_derive(
     assert state.expected_activation_shape == (4, aggregate_rows, 144)
     assert state.expected_output_shape == (aggregate_rows, 2048)
     assert state.grid(256) == (128, 256, 1)
+
+
+@pytest.mark.parametrize("aggregate_rows", (16384, 65536, 262144))
+def test_grouped_q5_k_exact_production_keys_derive(
+    aggregate_rows: int,
+) -> None:
+    key = _q5_key(aggregate_rows=aggregate_rows)
+    assert GroupedForwardSolutionKey.from_mapping(key.to_mapping()) == key
+    assert validate_grouped_forward_solution(key) == ()
+    state = DerivedGroupedForwardState.from_solution_key(key)
+    assert state.expected_packed_weight_shape == (256, 2048, 352)
+    assert state.expected_activation_shape == (4, aggregate_rows, 144)
+    assert state.expected_output_shape == (aggregate_rows, 2048)
+    assert state.grid(256) == (32, 256, 1)
+    assert "grouped_mmq_fwd_q5_k" in key.kernel_name
+
+
+def test_grouped_q5_k_writer_emits_high_bit_decode() -> None:
+    solution = GroupedForwardSolution.q5_k_serial_decoded_lds_scheduled_a1d2p2()
+    source = GroupedForwardKernelWriterAssembly(
+        _q5_key(solution, aggregate_rows=35), Toolchain.discover()
+    ).source()
+    assert "GGTensile grouped Q5_K MMQ forward" in source
+    assert "Cooperatively decode Q5_K payload into padded LDS rows." in source
+    assert "Build Q5_K high-bit and low-nibble payload addresses." in source
+    assert "offset:16" in source
+    assert "offset:48" in source
+    assert "v_lshl_or_b32" in source
+    assert source.count("s_barrier") == 4
+
+
+def test_grouped_q5_k_writer_emits_three_way_row_dispatch() -> None:
+    solution = GroupedForwardSolution.q5_k_serial_decoded_lds_scheduled_mixed64_mixed32_a1d4p2()
+    source = GroupedForwardKernelWriterAssembly(
+        _q5_key(solution, aggregate_rows=388), Toolchain.discover()
+    ).source()
+    assert source.count("s_cmp_le_u32 s36, 32") == 5
+    assert source.count("s_cmp_le_u32 s36, 64") == 5
+    assert ".LGroupedQ5KActivationRows32Dispatch0:" in source
+    assert ".LGroupedQ5KActivationRows64Dispatch0:" in source
+    assert ".LGroupedQ5KMmaRows32Dispatch0:" in source
+    assert ".LGroupedQ5KMmaRows64Dispatch0:" in source
+    assert ".LGroupedQ5KEpilogueRows32Dispatch:" in source
+    assert ".LGroupedQ5KEpilogueRows64Dispatch:" in source
+
+
+@pytest.mark.parametrize(
+    "solution, expected_vgprs, expected_lds, expected_wmmas",
+    (
+        (
+            GroupedForwardSolution.q5_k_serial_decoded_lds_scheduled_a1d2p2(),
+            239,
+            38_400,
+            32,
+        ),
+        (
+            GroupedForwardSolution.q5_k_serial_decoded_lds_scheduled_mixed64_a1d2p2(),
+            239,
+            38_400,
+            48,
+        ),
+        (
+            GroupedForwardSolution.q5_k_serial_decoded_lds_scheduled_mixed64_mixed32_a1d4p2(),
+            239,
+            38_400,
+            56,
+        ),
+        (
+            GroupedForwardSolution.q5_k_serial_decoded_lds_64_scheduled_a1d4p2(),
+            159,
+            29_184,
+            16,
+        ),
+        (
+            GroupedForwardSolution.q5_k_serial_decoded_lds_64_scheduled_mixed32_a1d4p2(),
+            159,
+            29_184,
+            24,
+        ),
+    ),
+)
+def test_grouped_q5_k_artifact_passes_strict_inspection(
+    tmp_path: Path,
+    solution: GroupedForwardSolution,
+    expected_vgprs: int,
+    expected_lds: int,
+    expected_wmmas: int,
+) -> None:
+    key = _q5_key(solution, aggregate_rows=35)
+    toolchain = Toolchain.discover()
+    assembly = tmp_path / "kernel.s"
+    obj = tmp_path / "kernel.o"
+    code_object = tmp_path / "kernel.hsaco"
+    GroupedForwardKernelWriterAssembly(key, toolchain).write(assembly)
+    toolchain.assemble(assembly, obj)
+    toolchain.link(obj, code_object)
+    inspection = inspect_grouped_forward_artifact(key, code_object, toolchain)
+    assert inspection.vgpr_count == expected_vgprs
+    assert inspection.sgpr_count == 40
+    assert inspection.lds_num_bytes == expected_lds
+    assert inspection.wmma_count == expected_wmmas
+    assert inspection.barrier_count == 4
+    assert inspection.private_segment_bytes == 0
+    assert inspection.vgpr_spill_count == 0
+    assert inspection.sgpr_spill_count == 0
+
+
+def test_grouped_q5_k_selected_rebuild_is_deterministic(tmp_path: Path) -> None:
+    key = _q5_key(
+        GroupedForwardSolution.q5_k_serial_decoded_lds_scheduled_mixed64_mixed32_a1d4p2(),
+        aggregate_rows=65536,
+    )
+    toolchain = Toolchain.discover()
+    sources = []
+    code_objects = []
+    for name in ("first", "second"):
+        directory = tmp_path / name
+        assembly = directory / "kernel.s"
+        obj = directory / "kernel.o"
+        code_object = directory / "kernel.hsaco"
+        GroupedForwardKernelWriterAssembly(key, toolchain).write(assembly)
+        toolchain.assemble(assembly, obj)
+        toolchain.link(obj, code_object)
+        sources.append(assembly)
+        code_objects.append(code_object)
+    assert sources[0].read_bytes() == sources[1].read_bytes()
+    assert code_objects[0].read_bytes() == code_objects[1].read_bytes()
+
+
+def test_grouped_q5_k_rejects_cross_format_solution() -> None:
+    key = GroupedForwardSolutionKey(
+        GroupedForwardProblem.q5_k(35),
+        GroupedForwardSolution.q4_k_serial_decoded_lds(),
+    )
+    assert [reason.rule_id for reason in validate_grouped_forward_solution(key)] == [
+        "grouped_forward.solution.unimplemented"
+    ]
+
+
+def test_installed_grouped_q5_k_launch_geometries_follow_dispatch() -> None:
+    j64 = InstalledGroupedForwardQ5Module.__new__(InstalledGroupedForwardQ5Module)
+    j64.solution_key = _q5_key(aggregate_rows=65536)
+    assert j64._launch_configuration(256) == (
+        (32, 256, 1),
+        (32, 4, 1),
+        28_928,
+    )
+    small_route = InstalledGroupedForwardQ5Module.__new__(
+        InstalledGroupedForwardQ5Module
+    )
+    small_route.solution_key = _q5_key(aggregate_rows=16384)
+    with pytest.raises(HIPRuntimeError, match="dedicated module"):
+        small_route._launch_configuration(256)
+
+    j32 = InstalledGroupedForwardQ5J32Module.__new__(InstalledGroupedForwardQ5J32Module)
+    j32.solution_key = _q5_key(aggregate_rows=16384)
+    assert j32._launch_configuration(256) == (
+        (32, 256, 1),
+        (32, 4, 1),
+        24_192,
+    )
+    with pytest.raises(HIPRuntimeError, match="selects J64"):
+        j32._launch_configuration(128)
 
 
 def test_grouped_q4_k_decoded_plans_cover_row_tiles() -> None:

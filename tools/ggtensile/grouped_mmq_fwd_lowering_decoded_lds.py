@@ -39,6 +39,14 @@ class GroupedDecodedWeightLdsLowering(DecodedWeightLdsLowering):
     def _row_tile_count(self) -> int:
         return self._grouped_context().solution_key.solution.macro_tile0 // 16
 
+    def _has_three_row_tile_bodies(self) -> bool:
+        solution = self._grouped_context().solution_key.solution
+        return (
+            solution.macro_tile0 == 128
+            and solution.tail_macro_tile0 == 32
+            and solution.output_store == "BFloat16RNEClause8Clause4Clause2MixedMasked"
+        )
+
     def body(self) -> str:
         if (
             self._grouped_context().solution_key.solution.operand_source
@@ -197,6 +205,10 @@ class GroupedDecodedWeightLdsLowering(DecodedWeightLdsLowering):
             self._emit_grouped_activation_stage_finalize(asm)
             return
 
+        if self._has_three_row_tile_bodies():
+            self._emit_three_way_activation_stage_dispatch(asm, stage=stage)
+            return
+
         tail_label = f".LGroupedQ4KActivationTailDispatch{stage}"
         done_label = f".LGroupedQ4KActivationDispatchDone{stage}"
         asm.inst(
@@ -221,11 +233,42 @@ class GroupedDecodedWeightLdsLowering(DecodedWeightLdsLowering):
         asm.label(done_label)
         self._emit_grouped_activation_stage_finalize(asm)
 
+    def _emit_three_way_activation_stage_dispatch(
+        self, asm: Assembly, *, stage: int
+    ) -> None:
+        scalar = self._physical_plan().scalar_registers
+        tail32_label = f".LGroupedQ5KActivationRows32Dispatch{stage}"
+        tail64_label = f".LGroupedQ5KActivationRows64Dispatch{stage}"
+        done_label = f".LGroupedQ5KActivationThreeWayDone{stage}"
+        asm.inst(f"s_cmp_le_u32 s{scalar.row_tile_rows.first_register}, 32")
+        asm.inst(f"s_cbranch_scc1 {tail32_label}")
+        asm.inst(f"s_cmp_le_u32 s{scalar.row_tile_rows.first_register}, 64")
+        asm.inst(f"s_cbranch_scc1 {tail64_label}")
+        self._emit_grouped_activation_stage(
+            asm, stage=stage, row_tile_rows=128, label_suffix="Rows128"
+        )
+        asm.inst(f"s_branch {done_label}")
+        asm.label(tail64_label)
+        self._emit_grouped_activation_stage(
+            asm, stage=stage, row_tile_rows=64, label_suffix="Rows64"
+        )
+        asm.inst(f"s_branch {done_label}")
+        asm.label(tail32_label)
+        self._emit_grouped_activation_stage(
+            asm, stage=stage, row_tile_rows=32, label_suffix="Rows32"
+        )
+        asm.label(done_label)
+        self._emit_grouped_activation_stage_finalize(asm)
+
     def _emit_grouped_mma_dispatch(self, asm: Assembly, *, group_base: int) -> None:
         solution = self._grouped_context().solution_key.solution
         scalar = self._physical_plan().scalar_registers
         if solution.tail_macro_tile0 == solution.macro_tile0:
             self._emit_i8_mma_group_loop(asm, group_base=group_base)
+            return
+
+        if self._has_three_row_tile_bodies():
+            self._emit_three_way_mma_dispatch(asm, group_base=group_base)
             return
 
         tail_label = f".LGroupedQ4KMmaTailDispatch{group_base}"
@@ -251,11 +294,39 @@ class GroupedDecodedWeightLdsLowering(DecodedWeightLdsLowering):
         )
         asm.label(done_label)
 
+    def _emit_three_way_mma_dispatch(self, asm: Assembly, *, group_base: int) -> None:
+        scalar = self._physical_plan().scalar_registers
+        tail32_label = f".LGroupedQ5KMmaRows32Dispatch{group_base}"
+        tail64_label = f".LGroupedQ5KMmaRows64Dispatch{group_base}"
+        done_label = f".LGroupedQ5KMmaThreeWayDone{group_base}"
+        asm.inst(f"s_cmp_le_u32 s{scalar.row_tile_rows.first_register}, 32")
+        asm.inst(f"s_cbranch_scc1 {tail32_label}")
+        asm.inst(f"s_cmp_le_u32 s{scalar.row_tile_rows.first_register}, 64")
+        asm.inst(f"s_cbranch_scc1 {tail64_label}")
+        self._emit_i8_mma_group_loop(
+            asm, group_base=group_base, row_tiles=8, label_suffix="Rows128"
+        )
+        asm.inst(f"s_branch {done_label}")
+        asm.label(tail64_label)
+        self._emit_i8_mma_group_loop(
+            asm, group_base=group_base, row_tiles=4, label_suffix="Rows64"
+        )
+        asm.inst(f"s_branch {done_label}")
+        asm.label(tail32_label)
+        self._emit_i8_mma_group_loop(
+            asm, group_base=group_base, row_tiles=2, label_suffix="Rows32"
+        )
+        asm.label(done_label)
+
     def _emit_grouped_epilogue_dispatch(self, asm: Assembly) -> None:
         solution = self._grouped_context().solution_key.solution
         scalar = self._physical_plan().scalar_registers
         if solution.tail_macro_tile0 == solution.macro_tile0:
             self._emit_grouped_bf16_epilogue(asm)
+            return
+
+        if self._has_three_row_tile_bodies():
+            self._emit_three_way_epilogue_dispatch(asm)
             return
 
         tail_label = ".LGroupedQ4KEpilogueTailDispatch"
@@ -269,6 +340,24 @@ class GroupedDecodedWeightLdsLowering(DecodedWeightLdsLowering):
         asm.inst(f"s_branch {done_label}")
         asm.label(tail_label)
         self._emit_grouped_bf16_epilogue(asm, row_tiles=solution.tail_macro_tile0 // 16)
+        asm.label(done_label)
+
+    def _emit_three_way_epilogue_dispatch(self, asm: Assembly) -> None:
+        scalar = self._physical_plan().scalar_registers
+        tail32_label = ".LGroupedQ5KEpilogueRows32Dispatch"
+        tail64_label = ".LGroupedQ5KEpilogueRows64Dispatch"
+        done_label = ".LGroupedQ5KEpilogueThreeWayDone"
+        asm.inst(f"s_cmp_le_u32 s{scalar.row_tile_rows.first_register}, 32")
+        asm.inst(f"s_cbranch_scc1 {tail32_label}")
+        asm.inst(f"s_cmp_le_u32 s{scalar.row_tile_rows.first_register}, 64")
+        asm.inst(f"s_cbranch_scc1 {tail64_label}")
+        self._emit_grouped_bf16_epilogue(asm, row_tiles=8)
+        asm.inst(f"s_branch {done_label}")
+        asm.label(tail64_label)
+        self._emit_grouped_bf16_epilogue(asm, row_tiles=4)
+        asm.inst(f"s_branch {done_label}")
+        asm.label(tail32_label)
+        self._emit_grouped_bf16_epilogue(asm, row_tiles=2)
         asm.label(done_label)
 
     def _emit_grouped_activation_stage(

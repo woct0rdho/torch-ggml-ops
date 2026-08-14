@@ -459,6 +459,65 @@ class InstalledGroupedForwardModule(GroupedForwardModule):
         return ((32, route_entries, 1), (32, 4, 1), 28_928)
 
 
+class InstalledGroupedForwardQ5Module(GroupedForwardModule):
+    """Direct launcher for the installed HIP Q5_K J64 grouped control."""
+
+    J64_SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_q5_k_n2048_k512_j64"
+    J32_SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_q5_k_n2048_k512_j32"
+
+    def __init__(
+        self,
+        solution_key: GroupedForwardSolutionKey,
+        code_object: Path | None = None,
+        hip_library: Path | None = None,
+    ) -> None:
+        if solution_key.problem.quant_data_type != "Q5_K":
+            raise HIPRuntimeError("installed Q5_K control requires a Q5_K problem")
+        super().__init__(
+            solution_key,
+            code_object or _find_installed_kernel(self.J64_SYMBOL),
+            hip_library,
+            kernel_name=self.J64_SYMBOL,
+        )
+
+    def _launch_configuration(
+        self, route_entries: int
+    ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
+        if self.solution_key.problem.aggregate_rows < 128 * route_entries:
+            raise HIPRuntimeError(
+                "the installed Q5_K J32 control requires its dedicated module"
+            )
+        return ((32, route_entries, 1), (32, 4, 1), 28_928)
+
+
+class InstalledGroupedForwardQ5J32Module(GroupedForwardModule):
+    """Direct launcher for the installed HIP Q5_K small-route J32 control."""
+
+    SYMBOL = InstalledGroupedForwardQ5Module.J32_SYMBOL
+
+    def __init__(
+        self,
+        solution_key: GroupedForwardSolutionKey,
+        code_object: Path | None = None,
+        hip_library: Path | None = None,
+    ) -> None:
+        if solution_key.problem.quant_data_type != "Q5_K":
+            raise HIPRuntimeError("installed Q5_K J32 control requires a Q5_K problem")
+        super().__init__(
+            solution_key,
+            code_object or _find_installed_kernel(self.SYMBOL),
+            hip_library,
+            kernel_name=self.SYMBOL,
+        )
+
+    def _launch_configuration(
+        self, route_entries: int
+    ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
+        if self.solution_key.problem.aggregate_rows >= 128 * route_entries:
+            raise HIPRuntimeError("installed Q5_K dispatch selects J64 for this route")
+        return ((32, route_entries, 1), (32, 4, 1), 24_192)
+
+
 class FixedHipForwardModule(ForwardModule):
     """Direct prequantized launcher for an installed exact HIP multiply."""
 

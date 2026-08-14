@@ -134,6 +134,11 @@ def inspect_grouped_forward_artifact(
         row_tiles = solution_key.solution.macro_tile0 // 16
         if solution_key.solution.tail_macro_tile0 < solution_key.solution.macro_tile0:
             row_tiles += solution_key.solution.tail_macro_tile0 // 16
+        if (
+            solution_key.solution.output_store
+            == "BFloat16RNEClause8Clause4Clause2MixedMasked"
+        ):
+            row_tiles += 4
         expected_wmmas = 4 * row_tiles
     else:
         expected_wmmas = 16
