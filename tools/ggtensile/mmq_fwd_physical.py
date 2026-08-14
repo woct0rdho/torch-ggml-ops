@@ -2047,92 +2047,168 @@ class DecodedWeightLdsRegisterPlan:
     declared_vgprs: int
 
     @classmethod
-    def allocate(cls):
+    def allocate(cls, row_tiles: int = 8):
+        if row_tiles not in (4, 8):
+            raise ValueError("decoded-weight LDS requires four or eight row tiles")
+        if row_tiles == 8:
+            sums_width = 64
+            decode_base = 72
+            staged_base = 112
+            staged_width = 64
+            c_width = 64
+            low_activation_base = 176
+            high_activation_base = 180
+            activation_scale_sum_base = 212
+            scaled_dm_base = 220
+            address_base = 228
+            declared_vgprs = 239
+        else:
+            sums_width = 32
+            decode_base = 40
+            staged_base = 72
+            staged_width = 52
+            c_width = 32
+            low_activation_base = 104
+            high_activation_base = 108
+            activation_scale_sum_base = 136
+            scaled_dm_base = 140
+            address_base = 148
+            declared_vgprs = 159
         roles = {
             "zero_accumulator": RegisterRole(
                 "zero_accumulator", 8, RegisterLifetime(0, 3), minimum_register=0
             ),
             "sums": RegisterRole(
-                "sums", 64, RegisterLifetime(0, 5), minimum_register=8
+                "sums", sums_width, RegisterLifetime(0, 5), minimum_register=8
             ),
             "decode_scratch": RegisterRole(
-                "decode_scratch", 32, RegisterLifetime(1, 1), minimum_register=72
+                "decode_scratch",
+                32,
+                RegisterLifetime(1, 1),
+                minimum_register=decode_base,
             ),
             "weight_payload": RegisterRole(
-                "weight_payload", 8, RegisterLifetime(2, 3), minimum_register=72
+                "weight_payload",
+                8,
+                RegisterLifetime(2, 3),
+                minimum_register=decode_base,
             ),
             "metadata_addresses": RegisterRole(
-                "metadata_addresses", 4, RegisterLifetime(2, 3), minimum_register=80
+                "metadata_addresses",
+                4,
+                RegisterLifetime(2, 3),
+                minimum_register=decode_base + 8,
             ),
             "staged_payload": RegisterRole(
-                "staged_payload", 64, RegisterLifetime(1, 1), minimum_register=112
+                "staged_payload",
+                staged_width,
+                RegisterLifetime(1, 1),
+                minimum_register=staged_base,
             ),
             "c_fragments": RegisterRole(
-                "c_fragments", 64, RegisterLifetime(2, 3), minimum_register=112
+                "c_fragments",
+                c_width,
+                RegisterLifetime(2, 3),
+                minimum_register=staged_base,
             ),
             "low_activation_tail": RegisterRole(
                 "low_activation_tail",
                 4,
                 RegisterLifetime(2, 3),
-                minimum_register=176,
+                minimum_register=low_activation_base,
             ),
             "high_activation": RegisterRole(
-                "high_activation", 32, RegisterLifetime(2, 3), minimum_register=180
+                "high_activation",
+                4 * row_tiles,
+                RegisterLifetime(2, 3),
+                minimum_register=high_activation_base,
             ),
             "activation_scale_sum": RegisterRole(
                 "activation_scale_sum",
-                8,
+                row_tiles,
                 RegisterLifetime(2, 3),
-                minimum_register=212,
+                minimum_register=activation_scale_sum_base,
             ),
             "scaled_dm": RegisterRole(
-                "scaled_dm", 8, RegisterLifetime(2, 3), minimum_register=220
+                "scaled_dm",
+                8,
+                RegisterLifetime(2, 3),
+                minimum_register=scaled_dm_base,
             ),
             "temporary": RegisterRole(
-                "temporary", 1, RegisterLifetime(0, 5), minimum_register=228
+                "temporary",
+                1,
+                RegisterLifetime(0, 5),
+                minimum_register=address_base,
             ),
             "lds_address": RegisterRole(
-                "lds_address", 1, RegisterLifetime(0, 4), minimum_register=229
+                "lds_address",
+                1,
+                RegisterLifetime(0, 4),
+                minimum_register=address_base + 1,
             ),
             "auxiliary": RegisterRole(
-                "auxiliary", 2, RegisterLifetime(0, 5), minimum_register=230
+                "auxiliary",
+                2,
+                RegisterLifetime(0, 5),
+                minimum_register=address_base + 2,
             ),
             "metadata_lds_address": RegisterRole(
                 "metadata_lds_address",
                 1,
                 RegisterLifetime(0, 4),
-                minimum_register=232,
+                minimum_register=address_base + 4,
             ),
             "output_address": RegisterRole(
-                "output_address", 1, RegisterLifetime(5, 5), minimum_register=232
+                "output_address",
+                1,
+                RegisterLifetime(5, 5),
+                minimum_register=address_base + 4,
             ),
             "activation_plane_address": RegisterRole(
                 "activation_plane_address",
                 1,
                 RegisterLifetime(0, 4),
-                minimum_register=233,
+                minimum_register=address_base + 5,
             ),
             "output_column": RegisterRole(
-                "output_column", 1, RegisterLifetime(0, 4), minimum_register=234
+                "output_column",
+                1,
+                RegisterLifetime(0, 4),
+                minimum_register=address_base + 6,
             ),
             "wave_column_base": RegisterRole(
-                "wave_column_base", 1, RegisterLifetime(0, 5), minimum_register=235
+                "wave_column_base",
+                1,
+                RegisterLifetime(0, 5),
+                minimum_register=address_base + 7,
             ),
             "wave": RegisterRole(
-                "wave", 1, RegisterLifetime(0, 0), minimum_register=236
+                "wave",
+                1,
+                RegisterLifetime(0, 0),
+                minimum_register=address_base + 8,
             ),
             "activation_base": RegisterRole(
-                "activation_base", 1, RegisterLifetime(1, 4), minimum_register=236
+                "activation_base",
+                1,
+                RegisterLifetime(1, 4),
+                minimum_register=address_base + 8,
             ),
             "lane": RegisterRole(
-                "lane", 1, RegisterLifetime(0, 5), minimum_register=237
+                "lane",
+                1,
+                RegisterLifetime(0, 5),
+                minimum_register=address_base + 9,
             ),
             "serial": RegisterRole(
-                "serial", 1, RegisterLifetime(0, 5), minimum_register=238
+                "serial",
+                1,
+                RegisterLifetime(0, 5),
+                minimum_register=address_base + 10,
             ),
         }
         order = tuple(roles)
-        declared_vgprs = 239
         plan = DeterministicRegisterPlan.allocate(
             roles,
             order,

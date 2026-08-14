@@ -3,7 +3,7 @@
 import hashlib
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import ClassVar
 
 from typing_extensions import Self
@@ -118,6 +118,7 @@ class GroupedForwardSolution:
     work_group: tuple[int, int, int]
     matrix_instruction: tuple[int, ...]
     macro_tile0: int
+    tail_macro_tile0: int
     macro_tile1: int
     depth_u: int
     activation_layout: str
@@ -129,6 +130,10 @@ class GroupedForwardSolution:
     route_layout: str
     activation_addressing: str
     metadata_conversion: str
+    metadata_schedule: str
+    epilogue_tiles_ahead: int
+    epilogue_dependency_width: int
+    epilogue_priority: int
     scale_arithmetic: str
     output_store: str
     signed_weight: bool
@@ -143,6 +148,7 @@ class GroupedForwardSolution:
             "WorkGroup",
             "MatrixInstruction",
             "MacroTile0",
+            "TailMacroTile0",
             "MacroTile1",
             "DepthU",
             "ActivationLayout",
@@ -154,6 +160,10 @@ class GroupedForwardSolution:
             "RouteLayout",
             "ActivationAddressing",
             "MetadataConversion",
+            "MetadataSchedule",
+            "EpilogueTilesAhead",
+            "EpilogueDependencyWidth",
+            "EpiloguePriority",
             "ScaleArithmetic",
             "OutputStore",
             "SignedWeight",
@@ -171,6 +181,7 @@ class GroupedForwardSolution:
             work_group=(32, 1, 1),
             matrix_instruction=(16, 16, 16, 1, 1, 1, 1, 1, 1),
             macro_tile0=16,
+            tail_macro_tile0=16,
             macro_tile1=16,
             depth_u=32,
             activation_layout="F16_D4S4",
@@ -182,11 +193,99 @@ class GroupedForwardSolution:
             route_layout="CumulativeOffsetsExpertIndices",
             activation_addressing="AggregateRows",
             metadata_conversion="Float32ThenFloat16",
+            metadata_schedule="Serialized",
+            epilogue_tiles_ahead=1,
+            epilogue_dependency_width=1,
+            epilogue_priority=0,
             scale_arithmetic="FP16",
             output_store="BFloat16RNEMasked",
             signed_weight=True,
             signed_activation=True,
             wmma_clamp=True,
+        )
+
+    @classmethod
+    def q4_k_serial_decoded_lds(cls) -> Self:
+        return replace(
+            cls.q4_k_serial_direct(),
+            work_group=(128, 1, 1),
+            matrix_instruction=(16, 16, 16, 1, 1, 1, 4, 4, 1),
+            macro_tile0=128,
+            tail_macro_tile0=128,
+            macro_tile1=64,
+            operand_source="GroupedDecodedWeightLds",
+            activation_addressing="AggregateRowsTiled",
+            metadata_conversion="DirectFloat16Unsigned16",
+            epilogue_tiles_ahead=8,
+            output_store="BFloat16RNEClause8Masked",
+        )
+
+    @classmethod
+    def q4_k_serial_decoded_lds_64(cls) -> Self:
+        return replace(
+            cls.q4_k_serial_decoded_lds(),
+            macro_tile0=64,
+            tail_macro_tile0=64,
+            epilogue_tiles_ahead=4,
+            output_store="BFloat16RNEClause4Masked",
+        )
+
+    @classmethod
+    def q4_k_serial_decoded_lds_scheduled(cls) -> Self:
+        return replace(
+            cls.q4_k_serial_decoded_lds(),
+            metadata_schedule="IndependentExtractionMetadataAfterLowWmma",
+        )
+
+    @classmethod
+    def q4_k_serial_decoded_lds_scheduled_a1d2p2(cls) -> Self:
+        return replace(
+            cls.q4_k_serial_decoded_lds_scheduled(),
+            epilogue_tiles_ahead=1,
+            epilogue_dependency_width=2,
+            epilogue_priority=2,
+        )
+
+    @classmethod
+    def q4_k_serial_decoded_lds_scheduled_a1d4p2(cls) -> Self:
+        return replace(
+            cls.q4_k_serial_decoded_lds_scheduled(),
+            epilogue_tiles_ahead=1,
+            epilogue_dependency_width=4,
+            epilogue_priority=2,
+        )
+
+    @classmethod
+    def q4_k_serial_decoded_lds_64_scheduled(cls) -> Self:
+        return replace(
+            cls.q4_k_serial_decoded_lds_64(),
+            metadata_schedule="IndependentExtractionMetadataAfterLowWmma",
+        )
+
+    @classmethod
+    def q4_k_serial_decoded_lds_64_scheduled_mixed32(cls) -> Self:
+        return replace(
+            cls.q4_k_serial_decoded_lds_64_scheduled(),
+            tail_macro_tile0=32,
+            output_store="BFloat16RNEClause4Clause2MixedMasked",
+        )
+
+    @classmethod
+    def q4_k_serial_decoded_lds_64_scheduled_mixed32_a1d2p2(cls) -> Self:
+        return replace(
+            cls.q4_k_serial_decoded_lds_64_scheduled_mixed32(),
+            epilogue_tiles_ahead=1,
+            epilogue_dependency_width=2,
+            epilogue_priority=2,
+        )
+
+    @classmethod
+    def q4_k_serial_decoded_lds_64_scheduled_mixed32_a1d4p2(cls) -> Self:
+        return replace(
+            cls.q4_k_serial_decoded_lds_64_scheduled_mixed32(),
+            epilogue_tiles_ahead=1,
+            epilogue_dependency_width=4,
+            epilogue_priority=2,
         )
 
     @classmethod
@@ -201,6 +300,7 @@ class GroupedForwardSolution:
                 item["MatrixInstruction"], "MatrixInstruction", 9
             ),
             macro_tile0=_integer(item["MacroTile0"], "MacroTile0"),
+            tail_macro_tile0=_integer(item["TailMacroTile0"], "TailMacroTile0"),
             macro_tile1=_integer(item["MacroTile1"], "MacroTile1"),
             depth_u=_integer(item["DepthU"], "DepthU"),
             activation_layout=_string(item["ActivationLayout"], "ActivationLayout"),
@@ -220,6 +320,14 @@ class GroupedForwardSolution:
             metadata_conversion=_string(
                 item["MetadataConversion"], "MetadataConversion"
             ),
+            metadata_schedule=_string(item["MetadataSchedule"], "MetadataSchedule"),
+            epilogue_tiles_ahead=_integer(
+                item["EpilogueTilesAhead"], "EpilogueTilesAhead"
+            ),
+            epilogue_dependency_width=_integer(
+                item["EpilogueDependencyWidth"], "EpilogueDependencyWidth"
+            ),
+            epilogue_priority=_integer(item["EpiloguePriority"], "EpiloguePriority"),
             scale_arithmetic=_string(item["ScaleArithmetic"], "ScaleArithmetic"),
             output_store=_string(item["OutputStore"], "OutputStore"),
             signed_weight=_boolean(item["SignedWeight"], "SignedWeight"),
@@ -239,6 +347,7 @@ class GroupedForwardSolution:
             "WorkGroup": list(self.work_group),
             "MatrixInstruction": list(self.matrix_instruction),
             "MacroTile0": self.macro_tile0,
+            "TailMacroTile0": self.tail_macro_tile0,
             "MacroTile1": self.macro_tile1,
             "DepthU": self.depth_u,
             "ActivationLayout": self.activation_layout,
@@ -250,6 +359,10 @@ class GroupedForwardSolution:
             "RouteLayout": self.route_layout,
             "ActivationAddressing": self.activation_addressing,
             "MetadataConversion": self.metadata_conversion,
+            "MetadataSchedule": self.metadata_schedule,
+            "EpilogueTilesAhead": self.epilogue_tiles_ahead,
+            "EpilogueDependencyWidth": self.epilogue_dependency_width,
+            "EpiloguePriority": self.epilogue_priority,
             "ScaleArithmetic": self.scale_arithmetic,
             "OutputStore": self.output_store,
             "SignedWeight": self.signed_weight,

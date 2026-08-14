@@ -9,6 +9,7 @@ from .grouped_mmq_fwd_lowering import (
     GroupedForwardLoweringContext,
     GroupedPackedScaleMinimumDirectLowering,
 )
+from .grouped_mmq_fwd_lowering_decoded_lds import grouped_decoded_lowering
 from .grouped_mmq_fwd_model import GroupedForwardSolutionKey
 from .grouped_mmq_fwd_spec import DerivedGroupedForwardState
 from .grouped_mmq_fwd_validation import validate_grouped_forward_solution
@@ -78,7 +79,13 @@ class GroupedForwardKernelWriterAssembly:
 
         module = code.Module("GGTensileGroupedForwardKernel")
         module.add(signature)
-        module.add(
-            code.TextBlock(GroupedPackedScaleMinimumDirectLowering(self.context).body())
-        )
+        if solution.operand_source == "GroupedDirectGlobal":
+            body = GroupedPackedScaleMinimumDirectLowering(self.context).body()
+        elif solution.operand_source == "GroupedDecodedWeightLds":
+            body = grouped_decoded_lowering(self.context).body()
+        else:
+            raise TypeError(
+                f"unsupported grouped operand source {solution.operand_source!r}"
+            )
+        module.add(code.TextBlock(body))
         return str(module)

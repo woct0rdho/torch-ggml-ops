@@ -28,6 +28,13 @@ class DecodedWeightLdsLowering:
     KERNARG: ClassVar[int] = 4
     LOOP_COUNTER: ClassVar[int] = 10
     SCALAR_TEMPORARY: ClassVar[int] = 11
+    WAVE_INDEX: ClassVar[int] = 12
+    GROUP_LOOP: ClassVar[int] = 13
+    GROUP_OFFSET: ClassVar[int] = 14
+    ACTIVATION_LDS_BASE: ClassVar[int] = 15
+
+    def _row_tile_count(self) -> int:
+        return 8
 
     def body(self) -> str:
         operand_source = self.context.state.kernel_spec.global_memory.operand_source
@@ -105,7 +112,7 @@ class DecodedWeightLdsLowering:
         asm.inst(f"v_add_nc_u32 v{lds_address}, {weight_lds_base}, v{lds_address}")
 
         metadata_base = staging_base + 32
-        asm.inst("s_cmp_lt_u32 s12, 2")
+        asm.inst(f"s_cmp_lt_u32 s{self.WAVE_INDEX}, 2")
         asm.inst(f"s_cbranch_scc0 .LForward{quant_label}DecodedMetadataLoadDone")
         asm.inst(f"v_lshlrev_b32 v{metadata_address}, 6, s2")
         asm.inst(f"v_add_nc_u32 v{metadata_address}, v{serial}, v{metadata_address}")
@@ -218,7 +225,7 @@ class DecodedWeightLdsLowering:
         asm.comment(
             f"Compute each packed {quant_type} scale/min pair once per weight row."
         )
-        asm.inst("s_cmp_lt_u32 s12, 2")
+        asm.inst(f"s_cmp_lt_u32 s{self.WAVE_INDEX}, 2")
         asm.inst(f"s_cbranch_scc0 .LForward{quant_label}DecodedMetadataDone")
         asm.inst(f"v_mul_lo_u32 v{lds_address}, {weight_lds_stride}, v{serial}")
         asm.inst(
@@ -417,11 +424,12 @@ class DecodedWeightLdsLowering:
                 asm.inst(f"v_mov_b32 v{register}, v0")
         asm.inst(f"s_mov_b32 s{self.LOOP_COUNTER}, 0")
         asm.inst(f"s_mov_b32 s{self.SCALAR_TEMPORARY}, 0")
-        asm.inst("s_mov_b32 s15, 512")
-        asm.inst(f"v_readfirstlane_b32 s12, v{wave}")
+        asm.inst(f"s_mov_b32 s{self.ACTIVATION_LDS_BASE}, 512")
+        asm.inst(f"v_readfirstlane_b32 s{self.WAVE_INDEX}, v{wave}")
         asm.inst(
             f"v_mad_u32_u24 v{activation_base}, "
-            f"{activation_metadata.block_bytes}, v{lane}, s15"
+            f"{activation_metadata.block_bytes}, v{lane}, "
+            f"s{self.ACTIVATION_LDS_BASE}"
         )
 
         asm.label(f".LForward{quant_label}HipStagedBlockLoop")
@@ -429,7 +437,7 @@ class DecodedWeightLdsLowering:
 
         asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{serial}")
         asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
-        asm.inst(f"v_lshlrev_b32 v{metadata_address}, 4, s12")
+        asm.inst(f"v_lshlrev_b32 v{metadata_address}, 4, s{self.WAVE_INDEX}")
         asm.inst(f"v_add_nc_u32 v{metadata_address}, v{temporary}, v{metadata_address}")
         asm.inst(
             f"v_mul_lo_u32 v{metadata_address}, {decoded_lds.metadata_row_stride}, "
@@ -642,6 +650,8 @@ class DecodedWeightLdsLowering:
         asm: Assembly,
         *,
         group_base: int,
+        row_tiles: int | None = None,
+        label_suffix: str = "",
     ) -> None:
         physical = cast(
             DecodedWeightLdsPhysicalPlan,
@@ -662,31 +672,42 @@ class DecodedWeightLdsLowering:
         activation_metadata = physical.layout.activation_metadata
         quant_type = self.context.state.contract.quant_type
         quant_label = quant_type.replace("_", "")
-        label = f".LForward{quant_label}DecodedGroupLoop{group_base}"
+        row_tiles = row_tiles or self._row_tile_count()
+        label = f".LForward{quant_label}DecodedGroupLoop{group_base}{label_suffix}"
         asm.comment(
             f"Roll decoded {quant_type} groups {group_base} through {group_base + 3}."
         )
-        asm.inst("s_mov_b32 s13, 0")
+        asm.inst(f"s_mov_b32 s{self.GROUP_LOOP}, 0")
         asm.label(label)
 
-        asm.inst("s_lshl_b32 s14, s13, 5")
+        asm.inst(f"s_lshl_b32 s{self.GROUP_OFFSET}, s{self.GROUP_LOOP}, 5")
         if group_base:
             asm.inst(
                 f"v_add_nc_u32 v{lds_address}, {32 * group_base}, "
                 f"v{weight_lds_base_address}"
             )
-            asm.inst(f"v_add_nc_u32 v{lds_address}, s14, v{lds_address}")
+            asm.inst(
+                f"v_add_nc_u32 v{lds_address}, s{self.GROUP_OFFSET}, v{lds_address}"
+            )
         else:
-            asm.inst(f"v_add_nc_u32 v{lds_address}, s14, v{weight_lds_base_address}")
+            asm.inst(
+                f"v_add_nc_u32 v{lds_address}, s{self.GROUP_OFFSET}, "
+                f"v{weight_lds_base_address}"
+            )
         asm.inst(f"ds_read_b128 v[{weight_q}:{weight_q + 3}], v{lds_address}")
         asm.inst(
             f"ds_read_b128 v[{weight_q + 4}:{weight_q + 7}], v{lds_address} offset:16"
         )
 
-        asm.inst(f"v_add_nc_u32 v{lds_address}, s14, v{activation_base}")
-        for tile in range(8):
+        asm.inst(
+            f"v_add_nc_u32 v{lds_address}, s{self.GROUP_OFFSET}, v{activation_base}"
+        )
+        allocated_row_tiles = self._row_tile_count()
+        for tile in range(row_tiles):
             low_activation = (
-                c_base + 8 * (tile + 1) if tile < 7 else low_activation_last
+                c_base + 8 * (tile + 1)
+                if tile < allocated_row_tiles - 1
+                else low_activation_last
             )
             high_activation = high_activation_base + 4 * tile
             tile_offset = 16 * tile * activation_metadata.block_bytes
@@ -700,9 +721,11 @@ class DecodedWeightLdsLowering:
             )
 
         def emit_metadata_reads() -> None:
-            asm.inst("s_lshl_b32 s14, s13, 2")
-            asm.inst(f"v_add_nc_u32 v{metadata}, s14, v{activation_base}")
-            for tile in range(0, 8, 2):
+            asm.inst(f"s_lshl_b32 s{self.GROUP_OFFSET}, s{self.GROUP_LOOP}, 2")
+            asm.inst(
+                f"v_add_nc_u32 v{metadata}, s{self.GROUP_OFFSET}, v{activation_base}"
+            )
+            for tile in range(0, row_tiles, 2):
                 asm.inst(
                     f"ds_read2st64_b32 v[{activation_scale_sum_base + tile}:"
                     f"{activation_scale_sum_base + tile + 1}], v{metadata} "
@@ -714,9 +737,12 @@ class DecodedWeightLdsLowering:
                     f"v_add_nc_u32 v{metadata}, {4 * group_base}, "
                     f"v{metadata_lds_base_address}"
                 )
-                asm.inst(f"v_add_nc_u32 v{metadata}, s14, v{metadata}")
+                asm.inst(f"v_add_nc_u32 v{metadata}, s{self.GROUP_OFFSET}, v{metadata}")
             else:
-                asm.inst(f"v_add_nc_u32 v{metadata}, s14, v{metadata_lds_base_address}")
+                asm.inst(
+                    f"v_add_nc_u32 v{metadata}, s{self.GROUP_OFFSET}, "
+                    f"v{metadata_lds_base_address}"
+                )
             for pair in range(1, 4):
                 asm.inst(
                     f"v_add_nc_u32 v{metadata + pair}, "
@@ -743,9 +769,10 @@ class DecodedWeightLdsLowering:
             deferred_metadata_emitter=(
                 emit_metadata_reads if deferred_metadata else None
             ),
+            row_tiles=row_tiles,
         )
-        asm.inst("s_add_u32 s13, s13, 1")
-        asm.inst("s_cmp_lt_u32 s13, 4")
+        asm.inst(f"s_add_u32 s{self.GROUP_LOOP}, s{self.GROUP_LOOP}, 1")
+        asm.inst(f"s_cmp_lt_u32 s{self.GROUP_LOOP}, 4")
         asm.inst(f"s_cbranch_scc1 {label}")
 
     def _emit_scaled_i8_mma(
@@ -753,6 +780,7 @@ class DecodedWeightLdsLowering:
         asm: Assembly,
         *,
         deferred_metadata_emitter: Callable[[], None] | None = None,
+        row_tiles: int | None = None,
     ) -> None:
         registers = cast(
             DecodedWeightLdsPhysicalPlan,
@@ -766,12 +794,20 @@ class DecodedWeightLdsLowering:
         activation_scale_sum_base = registers.activation_scale_sum.first_register
         scaled_dm_base = registers.scaled_dm.first_register
         sum_base = registers.sums.first_register
-        for tile in range(8):
-            first_wait = 15 if deferred_metadata_emitter is not None else 23
+        row_tiles = row_tiles or self._row_tile_count()
+        allocated_row_tiles = self._row_tile_count()
+        for tile in range(row_tiles):
+            first_wait = (
+                2 * row_tiles - 1
+                if deferred_metadata_emitter is not None
+                else 2 * row_tiles + row_tiles // 2 + 3
+            )
             asm.inst(f"s_waitcnt lgkmcnt({first_wait - 2 * tile})")
             c_fragment = c_base + 8 * tile
             low_activation = (
-                c_base + 8 * (tile + 1) if tile < 7 else low_activation_last
+                c_base + 8 * (tile + 1)
+                if tile < allocated_row_tiles - 1
+                else low_activation_last
             )
             emit_signed_i8_wmma(
                 asm,
@@ -783,9 +819,9 @@ class DecodedWeightLdsLowering:
             )
         if deferred_metadata_emitter is not None:
             deferred_metadata_emitter()
-        for tile in range(8):
-            if tile == 7:
-                asm.inst("s_waitcnt lgkmcnt(8)")
+        for tile in range(row_tiles):
+            if tile == row_tiles - 1:
+                asm.inst(f"s_waitcnt lgkmcnt({4 + row_tiles // 2})")
             c_fragment = c_base + 8 * tile
             high_activation = high_activation_base + 4 * tile
             emit_signed_i8_wmma(
@@ -799,8 +835,9 @@ class DecodedWeightLdsLowering:
         asm.inst("s_waitcnt lgkmcnt(0)")
 
         product_base = low_activation_last
-        for tile_start in (0, 4):
-            for local_tile in range(4):
+        for tile_start in range(0, row_tiles, 4):
+            local_tile_count = min(4, row_tiles - tile_start)
+            for local_tile in range(local_tile_count):
                 tile = tile_start + local_tile
                 tile_scale_sum = activation_scale_sum_base + tile
                 for element in range(8):
@@ -810,7 +847,7 @@ class DecodedWeightLdsLowering:
                         f"v{scaled_dm_base + element}, v{tile_scale_sum}, 0 "
                         f"op_sel_hi:[1,1,0]"
                     )
-            for local_tile in range(4):
+            for local_tile in range(local_tile_count):
                 tile = tile_start + local_tile
                 c_fragment = c_base + 8 * tile
                 for element in range(8):
@@ -818,7 +855,7 @@ class DecodedWeightLdsLowering:
                         f"v_cvt_f32_i32 v{c_fragment + element}, "
                         f"v{c_fragment + element}"
                     )
-            for local_tile in range(4):
+            for local_tile in range(local_tile_count):
                 tile = tile_start + local_tile
                 c_fragment = c_base + 8 * tile
                 for element in range(0, 8, 2):
@@ -830,7 +867,7 @@ class DecodedWeightLdsLowering:
                         f"v_dual_fmac_f32 v{total + 1}, v{product + 1}, "
                         f"v{c_fragment + element + 1}"
                     )
-            for local_tile in range(4):
+            for local_tile in range(local_tile_count):
                 tile = tile_start + local_tile
                 tile_scale_sum = activation_scale_sum_base + tile
                 for element in range(8):

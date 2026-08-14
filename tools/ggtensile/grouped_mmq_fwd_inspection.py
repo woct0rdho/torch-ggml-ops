@@ -68,7 +68,7 @@ def inspect_grouped_forward_artifact(
     expected_metadata = {
         ".kernarg_segment_size": 64,
         ".kernarg_segment_align": 8,
-        ".group_segment_fixed_size": 0,
+        ".group_segment_fixed_size": state.physical_plan.resources.lds_bytes,
         ".private_segment_fixed_size": 0,
         ".max_flat_workgroup_size": solution_key.solution.num_threads,
         ".wavefront_size": solution_key.solution.wavefront_size,
@@ -129,8 +129,25 @@ def inspect_grouped_forward_artifact(
     clause_count = mnemonics.count("s_clause")
     delay_alu_count = mnemonics.count("s_delay_alu")
     buffer_gl0_inv_count = mnemonics.count("buffer_gl0_inv")
-    _require(wmma_count == 16, f"expected 16 static WMMAs, found {wmma_count}", errors)
-    _require(barrier_count == 0, f"expected 0 barriers, found {barrier_count}", errors)
+    decoded_lds = solution_key.solution.operand_source == "GroupedDecodedWeightLds"
+    if decoded_lds:
+        row_tiles = solution_key.solution.macro_tile0 // 16
+        if solution_key.solution.tail_macro_tile0 < solution_key.solution.macro_tile0:
+            row_tiles += solution_key.solution.tail_macro_tile0 // 16
+        expected_wmmas = 4 * row_tiles
+    else:
+        expected_wmmas = 16
+    expected_barriers = 4 if decoded_lds else 0
+    _require(
+        wmma_count == expected_wmmas,
+        f"expected {expected_wmmas} static WMMAs, found {wmma_count}",
+        errors,
+    )
+    _require(
+        barrier_count == expected_barriers,
+        f"expected {expected_barriers} barriers, found {barrier_count}",
+        errors,
+    )
     _require(
         not any(mnemonic.startswith("scratch_") for mnemonic in mnemonics),
         "scratch instruction found",

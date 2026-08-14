@@ -1,8 +1,10 @@
 """Serial direct-global lowering for grouped Q4_K MMQ forward."""
 
 from dataclasses import dataclass
+from typing import cast
 
 from .grouped_mmq_fwd_model import GroupedForwardSolutionKey
+from .grouped_mmq_fwd_physical import GroupedDirectPhysicalPlan
 from .grouped_mmq_fwd_spec import DerivedGroupedForwardState
 from .kernel_writer_assembly import Assembly, emit_bf16_rne, emit_kernel_trailer
 from .mmq_fwd_lowering_metadata import emit_packed_scale_minimum
@@ -21,9 +23,12 @@ class GroupedPackedScaleMinimumDirectLowering:
 
     context: GroupedForwardLoweringContext
 
+    def _physical_plan(self) -> GroupedDirectPhysicalPlan:
+        return cast(GroupedDirectPhysicalPlan, self.context.state.physical_plan)
+
     def body(self) -> str:
         state = self.context.state
-        physical = state.physical_plan
+        physical = self._physical_plan()
         vector = physical.vector_registers
         scalar = physical.scalar_registers
         asm = Assembly()
@@ -240,8 +245,9 @@ class GroupedPackedScaleMinimumDirectLowering:
 
     def _emit_row_setup(self, asm: Assembly) -> None:
         state = self.context.state
-        vector = state.physical_plan.vector_registers
-        scalar = state.physical_plan.scalar_registers
+        physical = self._physical_plan()
+        vector = physical.vector_registers
+        scalar = physical.scalar_registers
         asm.comment("Build aggregate-row, packed-weight, and Q8_1 addresses.")
         asm.inst(
             f"v_and_b32 v{vector.activation_row.first_register}, 15, "
@@ -296,9 +302,10 @@ class GroupedPackedScaleMinimumDirectLowering:
 
     def _emit_group(self, asm: Assembly, group: int) -> None:
         state = self.context.state
-        vector = state.physical_plan.vector_registers
-        scalar = state.physical_plan.scalar_registers
-        activation_group = state.physical_plan.activation_metadata.group(group)
+        physical = self._physical_plan()
+        vector = physical.vector_registers
+        scalar = physical.scalar_registers
+        activation_group = physical.activation_metadata.group(group)
         weight_q_offset, weight_q_offset_high = (
             state.semantics.low_payload_group_offsets(group)
         )
@@ -381,7 +388,7 @@ class GroupedPackedScaleMinimumDirectLowering:
 
     def _emit_scaled_accumulate(self, asm: Assembly, group: int) -> None:
         state = self.context.state
-        vector = state.physical_plan.vector_registers
+        vector = self._physical_plan().vector_registers
         asm.comment("Reproduce Q4_K FP16 scale/min construction before FP32 sums.")
         asm.inst(
             f"v_cvt_f32_f16 v{vector.activation_d.first_register}, "
@@ -453,9 +460,9 @@ class GroupedPackedScaleMinimumDirectLowering:
 
     def _emit_store(self, asm: Assembly) -> None:
         problem = self.context.solution_key.problem
-        state = self.context.state
-        vector = state.physical_plan.vector_registers
-        scalar = state.physical_plan.scalar_registers
+        physical = self._physical_plan()
+        vector = physical.vector_registers
+        scalar = physical.scalar_registers
         asm.comment("Store valid J-major fragments into aggregate-row BF16 output.")
         asm.inst(
             f"v_mul_lo_u32 v{vector.output_address.first_register}, "

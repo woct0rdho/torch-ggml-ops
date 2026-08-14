@@ -8,7 +8,12 @@ from .kernel_writer_assembly import (
     RegisterLifetime,
     RegisterRole,
 )
-from .mmq_fwd_spec import F16D4S4ActivationMetadata, ForwardResourceUsage
+from .mmq_fwd_physical import DecodedWeightLdsRegisterPlan
+from .mmq_fwd_spec import (
+    DecodedLdsLayout,
+    F16D4S4ActivationMetadata,
+    ForwardResourceUsage,
+)
 
 
 @dataclass(frozen=True)
@@ -205,6 +210,119 @@ class GroupedDirectPhysicalPlan:
     resources: ForwardResourceUsage
 
 
+@dataclass(frozen=True)
+class GroupedDecodedScalarRegisterPlan:
+    kernarg: RegisterAssignment
+    workgroup_tile: RegisterAssignment
+    gemm_index: RegisterAssignment
+    weights: RegisterAssignment
+    activations: RegisterAssignment
+    output: RegisterAssignment
+    expert_indices: RegisterAssignment
+    expert_offsets: RegisterAssignment
+    num_experts: RegisterAssignment
+    nrows_weight: RegisterAssignment
+    nrows_activation: RegisterAssignment
+    blocks_per_weight_row: RegisterAssignment
+    bytes_per_expert: RegisterAssignment
+    row_begin: RegisterAssignment
+    row_end: RegisterAssignment
+    expert: RegisterAssignment
+    route_offset: RegisterAssignment
+    row_start: RegisterAssignment
+    activation_plane_stride: RegisterAssignment
+    packed_block_offset: RegisterAssignment
+    loop_counter: RegisterAssignment
+    pointer_offset: RegisterAssignment
+    exec_mask: RegisterAssignment
+    wave: RegisterAssignment
+    group_loop: RegisterAssignment
+    group_offset: RegisterAssignment
+    activation_plane_end: RegisterAssignment
+    row_tile_end: RegisterAssignment
+    activation_lds_base: RegisterAssignment
+    row_tile_rows: RegisterAssignment
+    register_count: int
+    declared_sgprs: int
+
+    @classmethod
+    def allocate(cls):
+        whole = RegisterLifetime(0, 5)
+        roles = {
+            "kernarg": RegisterRole("kernarg", 2, whole, 2, 0),
+            "workgroup_tile": RegisterRole("workgroup_tile", 1, whole, 1, 2),
+            "gemm_index": RegisterRole("gemm_index", 1, whole, 1, 3),
+            "weights": RegisterRole("weights", 2, whole, 2, 4),
+            "activations": RegisterRole("activations", 2, whole, 2, 6),
+            "output": RegisterRole("output", 2, whole, 2, 8),
+            "expert_indices": RegisterRole("expert_indices", 2, whole, 2, 10),
+            "expert_offsets": RegisterRole("expert_offsets", 2, whole, 2, 12),
+            "num_experts": RegisterRole("num_experts", 1, whole, 1, 14),
+            "nrows_weight": RegisterRole("nrows_weight", 1, whole, 1, 15),
+            "nrows_activation": RegisterRole("nrows_activation", 1, whole, 1, 16),
+            "blocks_per_weight_row": RegisterRole(
+                "blocks_per_weight_row", 1, whole, 1, 17
+            ),
+            "bytes_per_expert": RegisterRole("bytes_per_expert", 2, whole, 2, 18),
+            "row_begin": RegisterRole("row_begin", 1, whole, 1, 20),
+            "row_end": RegisterRole("row_end", 1, whole, 1, 21),
+            "expert": RegisterRole("expert", 2, whole, 2, 22),
+            "route_offset": RegisterRole(
+                "route_offset", 1, RegisterLifetime(0, 0), 1, 24
+            ),
+            "row_start": RegisterRole("row_start", 1, RegisterLifetime(1, 5), 1, 24),
+            "activation_plane_stride": RegisterRole(
+                "activation_plane_stride", 1, RegisterLifetime(1, 5), 1, 25
+            ),
+            "packed_block_offset": RegisterRole(
+                "packed_block_offset", 1, RegisterLifetime(1, 4), 1, 26
+            ),
+            "loop_counter": RegisterRole(
+                "loop_counter", 1, RegisterLifetime(1, 4), 1, 27
+            ),
+            "pointer_offset": RegisterRole(
+                "pointer_offset", 2, RegisterLifetime(0, 0), 1, 28
+            ),
+            "exec_mask": RegisterRole("exec_mask", 1, RegisterLifetime(2, 5), 1, 28),
+            "wave": RegisterRole("wave", 1, RegisterLifetime(1, 4), 1, 30),
+            "group_loop": RegisterRole("group_loop", 1, RegisterLifetime(2, 4), 1, 31),
+            "group_offset": RegisterRole(
+                "group_offset", 1, RegisterLifetime(2, 4), 1, 32
+            ),
+            "activation_plane_end": RegisterRole(
+                "activation_plane_end", 1, RegisterLifetime(1, 4), 1, 33
+            ),
+            "row_tile_end": RegisterRole(
+                "row_tile_end", 1, RegisterLifetime(1, 5), 1, 34
+            ),
+            "activation_lds_base": RegisterRole(
+                "activation_lds_base", 1, RegisterLifetime(1, 4), 1, 35
+            ),
+            "row_tile_rows": RegisterRole(
+                "row_tile_rows", 1, RegisterLifetime(1, 5), 1, 36
+            ),
+        }
+        order = tuple(roles)
+        declared_sgprs = 40
+        plan = DeterministicRegisterPlan.allocate(
+            roles, order, max_registers=declared_sgprs
+        )
+        assignments = {name: plan.assignment(name) for name in order}
+        return cls(
+            **assignments,
+            register_count=plan.register_count,
+            declared_sgprs=declared_sgprs,
+        )
+
+
+@dataclass(frozen=True)
+class GroupedDecodedPhysicalPlan:
+    layout: DecodedLdsLayout
+    registers: DecodedWeightLdsRegisterPlan
+    scalar_registers: GroupedDecodedScalarRegisterPlan
+    resources: ForwardResourceUsage
+
+
 def grouped_direct_physical_plan(
     activation_block_bytes: int,
 ) -> GroupedDirectPhysicalPlan:
@@ -218,5 +336,28 @@ def grouped_direct_physical_plan(
             vector.declared_vgprs,
             scalar.declared_sgprs,
             0,
+        ),
+    )
+
+
+def grouped_decoded_physical_plan(
+    activation_block_bytes: int,
+    macro_tile0: int,
+) -> GroupedDecodedPhysicalPlan:
+    if macro_tile0 not in (64, 128):
+        raise ValueError("grouped decoded plan requires a 64- or 128-row tile")
+    layout = DecodedLdsLayout.for_activation_block_bytes(
+        activation_block_bytes, macro_tile0
+    )
+    vector = DecodedWeightLdsRegisterPlan.allocate(macro_tile0 // 16)
+    scalar = GroupedDecodedScalarRegisterPlan.allocate()
+    return GroupedDecodedPhysicalPlan(
+        layout=layout,
+        registers=vector,
+        scalar_registers=scalar,
+        resources=ForwardResourceUsage(
+            vector.declared_vgprs,
+            scalar.declared_sgprs,
+            layout.total_bytes,
         ),
     )

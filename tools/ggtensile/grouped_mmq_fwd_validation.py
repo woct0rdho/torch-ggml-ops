@@ -31,11 +31,22 @@ def validate_grouped_forward_solution(
                 "GroupedForwardProblem",
             )
         )
-    if key.solution != GroupedForwardSolution.q4_k_serial_direct():
+    if key.solution not in {
+        GroupedForwardSolution.q4_k_serial_direct(),
+        GroupedForwardSolution.q4_k_serial_decoded_lds(),
+        GroupedForwardSolution.q4_k_serial_decoded_lds_64(),
+        GroupedForwardSolution.q4_k_serial_decoded_lds_scheduled(),
+        GroupedForwardSolution.q4_k_serial_decoded_lds_scheduled_a1d2p2(),
+        GroupedForwardSolution.q4_k_serial_decoded_lds_scheduled_a1d4p2(),
+        GroupedForwardSolution.q4_k_serial_decoded_lds_64_scheduled(),
+        GroupedForwardSolution.q4_k_serial_decoded_lds_64_scheduled_mixed32(),
+        GroupedForwardSolution.q4_k_serial_decoded_lds_64_scheduled_mixed32_a1d2p2(),
+        GroupedForwardSolution.q4_k_serial_decoded_lds_64_scheduled_mixed32_a1d4p2(),
+    }:
         reasons.append(
             RejectReason(
                 "grouped_forward.solution.unimplemented",
-                "grouped Q4_K forward currently implements the serial direct-global control",
+                "grouped Q4_K forward currently implements serial direct-global and decoded-weight LDS controls",
                 ("Solution",),
                 "GroupedForwardSolution",
             )

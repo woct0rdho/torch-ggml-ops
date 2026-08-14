@@ -535,16 +535,21 @@ class DecodedLdsLayout:
     def for_activation_block_bytes(
         cls,
         activation_block_bytes: int,
+        activation_rows: int = 128,
     ) -> "DecodedLdsLayout":
         if activation_block_bytes <= 0:
             raise ValueError("decoded LDS layout requires a positive activation block")
+        if activation_rows not in (64, 128):
+            raise ValueError("decoded LDS layout requires 64 or 128 activation rows")
         activation_metadata = F16D4S4ActivationMetadata(activation_block_bytes)
         weight_row_stride = 2 * activation_block_bytes + 16
+        activation_base = 512
+        weight_data_base = activation_base + activation_rows * activation_block_bytes
         return cls(
             activation_metadata=activation_metadata,
-            activation_base=512,
-            weight_data_base=18_944,
-            weight_metadata_base=19_200,
+            activation_base=activation_base,
+            weight_data_base=weight_data_base,
+            weight_metadata_base=weight_data_base + 256,
             weight_row_stride=weight_row_stride,
             activation_lane_stride=512,
         )
