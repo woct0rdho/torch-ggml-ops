@@ -83,6 +83,14 @@ def _iq2_s_key(aggregate_rows: int = 16_384) -> GroupedForwardSolutionKey:
     )
 
 
+def _iq2_s_linear_key(aggregate_rows: int = 16_384) -> GroupedForwardSolutionKey:
+    return GroupedForwardSolutionKey(
+        GroupedForwardProblem.iq2_s(aggregate_rows),
+        GroupedForwardSolution.iq2_s_serial_full_weight_lds_64_linear_activation(),
+    )
+
+
+
 @pytest.mark.parametrize("aggregate_rows", (16_384, 65_536, 262_144))
 def test_grouped_iq2_s_exact_production_keys_derive(aggregate_rows: int) -> None:
     key = _iq2_s_key(aggregate_rows)
@@ -111,6 +119,16 @@ def test_grouped_iq2_s_writer_embeds_distributed_codebook_decode() -> None:
     assert source.count("s_barrier") == 4
     assert '.section .rodata,"a",@progbits' in source
     assert source.count(".quad ") == 256
+
+
+def test_grouped_iq2_s_linear_activation_stage_is_coalesced() -> None:
+    source = GroupedForwardKernelWriterAssembly(
+        _iq2_s_linear_key(35), Toolchain.discover()
+    ).source()
+    assert "Linearly stage one coalesced 9,216-byte" in source
+    assert "v_add_nc_u32 v101, 4096, v101" in source
+    assert "v_add_nc_u32 v107, 8192, v107" in source
+    assert source.count("s_barrier") == 4
 
 
 def test_grouped_iq2_s_artifact_passes_strict_inspection(tmp_path: Path) -> None:

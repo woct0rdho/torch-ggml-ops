@@ -322,6 +322,13 @@ class GroupedForwardSolution:
         )
 
     @classmethod
+    def iq2_s_serial_full_weight_lds_64_linear_activation(cls) -> Self:
+        return replace(
+            cls.iq2_s_serial_full_weight_lds_64(),
+            activation_addressing="AggregateRowsTiledLinear",
+        )
+
+    @classmethod
     def q2_k_serial_decoded_lds_32(cls) -> Self:
         return replace(
             cls.q4_k_serial_decoded_lds(),

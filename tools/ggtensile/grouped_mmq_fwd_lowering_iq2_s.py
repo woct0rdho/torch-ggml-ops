@@ -94,7 +94,7 @@ class GroupedIQ2SFullWeightLdsLowering:
         self._emit_weight_decode(asm, layout)
         for register in registers.zero_accumulator.registers:
             asm.inst(f"v_mov_b32 v{register}, 0")
-        self._emit_activation_stage(asm, layout)
+        self._emit_activation_stage(asm, layout, stage_index=0)
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
         self._emit_compute_half(asm, layout, half=0)
@@ -105,7 +105,7 @@ class GroupedIQ2SFullWeightLdsLowering:
             f"s{scalar.packed_block_offset.first_register}, "
             f"s{scalar.activation_plane_stride.first_register}"
         )
-        self._emit_activation_stage(asm, layout)
+        self._emit_activation_stage(asm, layout, stage_index=1)
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
         self._emit_compute_half(asm, layout, half=1)
@@ -378,7 +378,15 @@ class GroupedIQ2SFullWeightLdsLowering:
         self,
         asm: Assembly,
         layout: GroupedIQ2SFullWeightLdsLayout,
+        *,
+        stage_index: int,
     ) -> None:
+        if (
+            self.context.solution_key.solution.activation_addressing
+            == "AggregateRowsTiledLinear"
+        ):
+            self._emit_linear_activation_stage(asm, layout, stage_index=stage_index)
+            return
         registers = self._registers
         scalar = self._physical_plan().scalar_registers
         temporary = registers.temporary.first_register
@@ -458,6 +466,128 @@ class GroupedIQ2SFullWeightLdsLowering:
             f"ds_write_b64 v{address}, v[{stage + 16}:{stage + 17}] offset:64"
         )
         asm.inst(f"s_mov_b32 exec_lo, s{scalar.exec_mask.first_register}")
+
+    def _emit_linear_activation_stage(
+        self,
+        asm: Assembly,
+        layout: GroupedIQ2SFullWeightLdsLayout,
+        *,
+        stage_index: int,
+    ) -> None:
+        registers = self._registers
+        scalar = self._physical_plan().scalar_registers
+        serial = registers.temporary.first_register
+        global_address = serial + 1
+        local_address = registers.activation_lds_address.first_register
+        payload = registers.activation_stage.first_register
+        partial_label = f".LGroupedIQ2SActivationPartial{stage_index}"
+        store_label = f".LGroupedIQ2SActivationStore{stage_index}"
+        done_label = f".LGroupedIQ2SActivationDone{stage_index}"
+
+        asm.comment("Linearly stage one coalesced 9,216-byte F32_D4 activation tile.")
+        asm.inst(
+            f"v_lshlrev_b32 v{serial}, 5, v{registers.wave.first_register}"
+        )
+        asm.inst(
+            f"v_add_nc_u32 v{serial}, v{registers.lane.first_register}, v{serial}"
+        )
+        asm.inst(f"v_lshlrev_b32 v{local_address}, 4, v{serial}")
+        asm.inst(f"s_cmp_eq_u32 s{scalar.row_tile_rows.first_register}, 64")
+        asm.inst(f"s_cbranch_scc0 {partial_label}")
+        asm.inst(
+            f"v_add_nc_u32 v{global_address}, "
+            f"s{scalar.packed_block_offset.first_register}, v{local_address}"
+        )
+        for chunk in range(4):
+            destination = payload + 4 * chunk
+            if chunk == 2:
+                asm.inst(
+                    f"v_add_nc_u32 v{global_address}, 4096, v{global_address}"
+                )
+            asm.inst(
+                f"global_load_b128 v[{destination}:{destination + 3}], "
+                f"v{global_address}, s[6:7] offset:{2048 * (chunk % 2)}"
+            )
+        asm.inst(f"v_lshlrev_b32 v{local_address}, 3, v{serial}")
+        asm.inst(
+            f"v_add_nc_u32 v{local_address}, 8192, v{local_address}"
+        )
+        asm.inst(
+            f"v_add_nc_u32 v{global_address}, "
+            f"s{scalar.packed_block_offset.first_register}, v{local_address}"
+        )
+        asm.inst(
+            f"global_load_b64 v[{payload + 16}:{payload + 17}], "
+            f"v{global_address}, s[6:7]"
+        )
+        asm.inst(f"s_branch {store_label}")
+
+        asm.label(partial_label)
+        asm.inst(
+            f"s_mul_i32 s{scalar.activation_plane_end.first_register}, "
+            f"s{scalar.row_tile_rows.first_register}, {layout.activation_row_stride}"
+        )
+        for chunk in range(4):
+            destination = payload + 4 * chunk
+            asm.inst(
+                f"v_cmp_lt_u32 vcc_lo, v{local_address}, "
+                f"s{scalar.activation_plane_end.first_register}"
+            )
+            asm.inst(
+                f"s_and_saveexec_b32 s{scalar.exec_mask.first_register}, vcc_lo"
+            )
+            asm.inst(
+                f"v_add_nc_u32 v{global_address}, "
+                f"s{scalar.packed_block_offset.first_register}, v{local_address}"
+            )
+            asm.inst(
+                f"global_load_b128 v[{destination}:{destination + 3}], "
+                f"v{global_address}, s[6:7]"
+            )
+            asm.inst(f"s_mov_b32 exec_lo, s{scalar.exec_mask.first_register}")
+            if chunk != 3:
+                asm.inst(
+                    f"v_add_nc_u32 v{local_address}, 2048, v{local_address}"
+                )
+        asm.inst(f"v_lshlrev_b32 v{local_address}, 3, v{serial}")
+        asm.inst(
+            f"v_add_nc_u32 v{local_address}, 8192, v{local_address}"
+        )
+        asm.inst(
+            f"v_cmp_lt_u32 vcc_lo, v{local_address}, "
+            f"s{scalar.activation_plane_end.first_register}"
+        )
+        asm.inst(
+            f"s_and_saveexec_b32 s{scalar.exec_mask.first_register}, vcc_lo"
+        )
+        asm.inst(
+            f"v_add_nc_u32 v{global_address}, "
+            f"s{scalar.packed_block_offset.first_register}, v{local_address}"
+        )
+        asm.inst(
+            f"global_load_b64 v[{payload + 16}:{payload + 17}], "
+            f"v{global_address}, s[6:7]"
+        )
+        asm.inst(f"s_mov_b32 exec_lo, s{scalar.exec_mask.first_register}")
+
+        asm.label(store_label)
+        asm.inst("s_waitcnt vmcnt(0)")
+        asm.inst(f"v_lshlrev_b32 v{local_address}, 4, v{serial}")
+        for chunk in range(4):
+            source = payload + 4 * chunk
+            asm.inst(
+                f"ds_write_b128 v{local_address}, v[{source}:{source + 3}] "
+                f"offset:{2048 * chunk}"
+            )
+        asm.inst(f"v_lshlrev_b32 v{local_address}, 3, v{serial}")
+        asm.inst(
+            f"v_add_nc_u32 v{local_address}, 8192, v{local_address}"
+        )
+        asm.inst(
+            f"ds_write_b64 v{local_address}, "
+            f"v[{payload + 16}:{payload + 17}]"
+        )
+        asm.label(done_label)
 
     def _emit_compute_half(
         self,
@@ -569,6 +699,7 @@ class GroupedIQ2SFullWeightLdsLowering:
                 f"v_dual_fmac_f32 v{second_sum + (element ^ 3)}, v{second_scale}, "
                 f"v{second_base + (element ^ 3)}"
             )
+
 
     def _emit_store(self, asm: Assembly) -> None:
         registers = self._registers

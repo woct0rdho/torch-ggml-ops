@@ -87,4 +87,12 @@ The retained J64 parent assigned each workitem one contiguous 72-byte half of an
 
 The candidate remains at 116 VGPRs, 40 SGPRs, and 30,720 bytes of LDS with no spills or private storage. The 35-row route matched the installed mixed control bitwise. On the five B16 medoids, weighted body time improved from 29.9013 to 27.9572 ms and complete-call time improved from 31.1351 to 29.4779 ms. Adjacent HIP measured 26.4811 ms body and 28.0094 ms complete, leaving a complete-call ratio of `0.9502x`; individual medoids ranged from `0.9485x` to `0.9525x`.
 
-Coalesced staging is the new provisional J64 parent because it removes more than half of the original B16 deficit without changing arithmetic or resources. It is not retained as final until the remaining HIP gap closes and B1/B4 pass their adjacent controls.
+The corresponding B1 complete call measured 2.7473 ms versus 3.2639 ms for HIP (`1.1881x`, 12.51 versus 10.53 effective TFLOPS), and B4 measured 8.1405 ms versus 8.6783 ms (`1.0661x`, 16.88 versus 15.84 effective TFLOPS). All ten outputs were bitwise exact. One B1 medoid was effectively tied at `0.9960x`; the two lowest-support B4 medoids remained at `0.9252x` and `0.9293x`, consistent with the B16 compute-core deficit.
+
+Coalesced staging is the new provisional J64 parent because it removes more than half of the original B16 deficit without changing arithmetic or resources. It is not retained as final until the remaining HIP gap closes across the lower-support and B16 controls.
+
+### 2026-04-14: rejected payload-first scale schedule
+
+The coalesced parent was screened with a separate schedule that issued all five activation payload reads before weight-scale LDS reads, then delayed scale consumption until after four WMMAs and accumulator conversion. This matched the ordering visible in the installed HIP disassembly and kept the same 116 VGPR, 40 SGPR, 30,720-byte LDS, four-barrier, and 64-WMMA contract.
+
+The 35-row bounded route remained bitwise exact, but the five-medoid B16 complete-call median was 29.5103 ms versus 29.4779 ms for coalesced staging and 28.0326 ms for adjacent HIP (`0.9499x`). The schedule is rejected as a near-neutral regression and removed.
