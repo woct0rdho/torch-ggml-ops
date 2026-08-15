@@ -22,6 +22,8 @@ from tools.ggtensile.kernel_writer_assembly_grouped_mmq_fwd import (
 from tools.ggtensile.runtime import (
     GroupedForwardModule,
     HIPRuntimeError,
+    InstalledGroupedForwardIQ2SJ64J32Module,
+    InstalledGroupedForwardIQ2SJ64Module,
     InstalledGroupedForwardModule,
     InstalledGroupedForwardQ2J32J16Module,
     InstalledGroupedForwardQ2J32Module,
@@ -72,6 +74,110 @@ def _q2_selected_solution(aggregate_rows: int) -> GroupedForwardSolution:
     if aggregate_rows == 196_608:
         return GroupedForwardSolution.q2_k_serial_decoded_lds_64_hip_distributed()
     return GroupedForwardSolution.q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2_meta2_distributed_mixed16()
+
+
+def _iq2_s_key(aggregate_rows: int = 16_384) -> GroupedForwardSolutionKey:
+    return GroupedForwardSolutionKey(
+        GroupedForwardProblem.iq2_s(aggregate_rows),
+        GroupedForwardSolution.iq2_s_serial_full_weight_lds_64(),
+    )
+
+
+@pytest.mark.parametrize("aggregate_rows", (16_384, 65_536, 262_144))
+def test_grouped_iq2_s_exact_production_keys_derive(aggregate_rows: int) -> None:
+    key = _iq2_s_key(aggregate_rows)
+    assert GroupedForwardSolutionKey.from_mapping(key.to_mapping()) == key
+    assert validate_grouped_forward_solution(key) == ()
+    state = DerivedGroupedForwardState.from_solution_key(key)
+    assert state.expected_packed_weight_shape == (256, 2048, 164)
+    assert state.expected_activation_shape == (4, aggregate_rows, 144)
+    assert state.expected_output_shape == (aggregate_rows, 2048)
+    assert state.grid(256) == (32, 256, 1)
+    assert state.physical_plan.resources.lds_bytes == 30_720
+
+
+def test_grouped_iq2_s_writer_embeds_distributed_codebook_decode() -> None:
+    source = GroupedForwardKernelWriterAssembly(
+        _iq2_s_key(35), Toolchain.discover()
+    ).source()
+    assert "GGTensile grouped IQ2_S MMQ forward" in source
+    assert "Cooperatively decode one IQ2_S row half per workitem." in source
+    assert "v_and_b32 v107, 1, v111" in source
+    assert "v_and_b32 v107, 63, v0" not in source
+    assert sum(
+        "global_load_b64" in line and "s[38:39]" in line
+        for line in source.splitlines()
+    ) == 16
+    assert source.count("s_barrier") == 4
+    assert '.section .rodata,"a",@progbits' in source
+    assert source.count(".quad ") == 256
+
+
+def test_grouped_iq2_s_artifact_passes_strict_inspection(tmp_path: Path) -> None:
+    key = _iq2_s_key(35)
+    toolchain = Toolchain.discover()
+    assembly = tmp_path / "kernel.s"
+    obj = tmp_path / "kernel.o"
+    code_object = tmp_path / "kernel.hsaco"
+    GroupedForwardKernelWriterAssembly(key, toolchain).write(assembly)
+    toolchain.assemble(assembly, obj)
+    toolchain.link(obj, code_object)
+    inspection = inspect_grouped_forward_artifact(key, code_object, toolchain)
+    assert inspection.vgpr_count == 116
+    assert inspection.sgpr_count == 40
+    assert inspection.lds_num_bytes == 30_720
+    assert inspection.wmma_count == 64
+    assert inspection.barrier_count == 4
+    assert inspection.private_segment_bytes == 0
+    assert inspection.vgpr_spill_count == 0
+    assert inspection.sgpr_spill_count == 0
+
+
+def test_grouped_iq2_s_rebuild_is_deterministic(tmp_path: Path) -> None:
+    key = _iq2_s_key(65_536)
+    toolchain = Toolchain.discover()
+    sources = []
+    code_objects = []
+    for name in ("first", "second"):
+        directory = tmp_path / name
+        assembly = directory / "kernel.s"
+        obj = directory / "kernel.o"
+        code_object = directory / "kernel.hsaco"
+        GroupedForwardKernelWriterAssembly(key, toolchain).write(assembly)
+        toolchain.assemble(assembly, obj)
+        toolchain.link(obj, code_object)
+        sources.append(assembly.read_bytes())
+        code_objects.append(code_object.read_bytes())
+    assert sources[0] == sources[1]
+    assert code_objects[0] == code_objects[1]
+
+
+def test_installed_grouped_iq2_s_dispatch_preserves_b4_exception() -> None:
+    pure = InstalledGroupedForwardIQ2SJ64Module.__new__(
+        InstalledGroupedForwardIQ2SJ64Module
+    )
+    pure.solution_key = _iq2_s_key(65_536)
+    with pytest.raises(HIPRuntimeError, match="mixed"):
+        pure._launch_configuration(256)
+    pure.solution_key = _iq2_s_key(262_144)
+    assert pure._launch_configuration(256) == (
+        (32, 256, 1),
+        (32, 4, 1),
+        30_976,
+    )
+
+    mixed = InstalledGroupedForwardIQ2SJ64J32Module.__new__(
+        InstalledGroupedForwardIQ2SJ64J32Module
+    )
+    mixed.solution_key = _iq2_s_key(65_536)
+    assert mixed._launch_configuration(256) == (
+        (32, 256, 1),
+        (32, 4, 1),
+        30_976,
+    )
+    mixed.solution_key = _iq2_s_key(262_144)
+    with pytest.raises(HIPRuntimeError, match="pure"):
+        mixed._launch_configuration(256)
 
 
 @pytest.mark.parametrize("aggregate_rows", (16384, 65536, 262144))

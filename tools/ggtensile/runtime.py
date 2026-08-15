@@ -579,6 +579,64 @@ class InstalledGroupedForwardQ2J32J16Module(GroupedForwardModule):
         return ((64, route_entries, 1), (32, 4, 1), 30_336)
 
 
+class InstalledGroupedForwardIQ2SJ64Module(GroupedForwardModule):
+    """Direct launcher for the installed pure IQ2_S J64 grouped control."""
+
+    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_iq2_s_n2048_k512_j64"
+
+    def __init__(
+        self,
+        solution_key: GroupedForwardSolutionKey,
+        code_object: Path | None = None,
+        hip_library: Path | None = None,
+    ) -> None:
+        if solution_key.problem.quant_data_type != "IQ2_S":
+            raise HIPRuntimeError("installed IQ2_S J64 control requires IQ2_S")
+        super().__init__(
+            solution_key,
+            code_object or _find_installed_kernel(self.SYMBOL),
+            hip_library,
+            kernel_name=self.SYMBOL,
+        )
+
+    def _launch_configuration(
+        self, route_entries: int
+    ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
+        rows = self.solution_key.problem.aggregate_rows
+        if rows == 65_536 or rows < 128 * route_entries:
+            raise HIPRuntimeError("installed IQ2_S dispatch selects mixed J64/J32")
+        return ((32, route_entries, 1), (32, 4, 1), 30_976)
+
+
+class InstalledGroupedForwardIQ2SJ64J32Module(GroupedForwardModule):
+    """Direct launcher for the installed mixed IQ2_S J64/J32 control."""
+
+    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_iq2_s_n2048_k512_j64_j32"
+
+    def __init__(
+        self,
+        solution_key: GroupedForwardSolutionKey,
+        code_object: Path | None = None,
+        hip_library: Path | None = None,
+    ) -> None:
+        if solution_key.problem.quant_data_type != "IQ2_S":
+            raise HIPRuntimeError("installed mixed IQ2_S control requires IQ2_S")
+        super().__init__(
+            solution_key,
+            code_object or _find_installed_kernel(self.SYMBOL),
+            hip_library,
+            kernel_name=self.SYMBOL,
+        )
+
+    def _launch_configuration(
+        self, route_entries: int
+    ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
+        rows = self.solution_key.problem.aggregate_rows
+        if rows != 65_536 and rows >= 128 * route_entries:
+            raise HIPRuntimeError("installed IQ2_S dispatch selects pure J64")
+        return ((32, route_entries, 1), (32, 4, 1), 30_976)
+
+
 class FixedQ81F16D2S6QuantizerModule(_HIPModule):
     """Direct launcher for the installed HIP Q8_1 F16_D2S6 producer."""
 

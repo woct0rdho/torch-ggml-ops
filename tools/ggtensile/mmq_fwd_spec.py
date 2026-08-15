@@ -138,6 +138,20 @@ class QuantForwardSemantics:
 
     @classmethod
     def for_quant_type(cls, quant_type: str) -> "QuantForwardSemantics":
+        if quant_type == "IQ2_S":
+            return cls(
+                quant_type=quant_type,
+                weight_bits=2,
+                payload_planes=(
+                    PayloadPlaneSpec("d", 0, 2, "Float16"),
+                    PayloadPlaneSpec("grid_indices", 2, 32, "UnsignedInt8"),
+                    PayloadPlaneSpec("signs", 34, 32, "SignBitMask"),
+                    PayloadPlaneSpec("qh", 66, 8, "PackedTwoBitHigh"),
+                    PayloadPlaneSpec("scales", 74, 8, "PackedUnsigned4"),
+                ),
+                activation_components=("q", "d"),
+                post_wmma_correction="IQ2SGroupScaleTimesBlockFactors",
+            )
         if quant_type == "Q2_K":
             return cls(
                 quant_type=quant_type,

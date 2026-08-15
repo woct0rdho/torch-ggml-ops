@@ -13,6 +13,7 @@ from .quant_formats import (
     GROUPED_QUANT_FORMATS,
     Q8_1_F16_D2S6_BLOCK_BYTES,
     Q8_1_F16_D4S4_BLOCK_BYTES,
+    Q8_1_F32_D4_BLOCK_BYTES,
 )
 
 
@@ -96,6 +97,10 @@ class GroupedForwardProblem:
     @classmethod
     def q5_k(cls, aggregate_rows: int) -> Self:
         return cls("Q5_K", aggregate_rows, 2048, 512, 256, 256)
+
+    @classmethod
+    def iq2_s(cls, aggregate_rows: int) -> Self:
+        return cls("IQ2_S", aggregate_rows, 2048, 512, 256, 256)
 
     @classmethod
     def from_mapping(cls, value: object) -> Self:
@@ -298,6 +303,22 @@ class GroupedForwardSolution:
             epilogue_tiles_ahead=1,
             epilogue_dependency_width=4,
             epilogue_priority=2,
+        )
+
+    @classmethod
+    def iq2_s_serial_full_weight_lds_64(cls) -> Self:
+        return replace(
+            cls.q4_k_serial_decoded_lds_64(),
+            activation_layout="F32_D4",
+            activation_block_bytes=Q8_1_F32_D4_BLOCK_BYTES,
+            packed_weight_block_bytes=GROUPED_QUANT_FORMATS["IQ2_S"].block_bytes,
+            operand_source="GroupedIQ2SFullWeightLds",
+            weight_decode="DirectIQ2SGridSigned",
+            metadata_conversion="Float16DUnsignedNibbleScaleToFloat32",
+            metadata_schedule="IQ2SDistributedFullWeightDecode",
+            scale_arithmetic="Int32ScaleF32",
+            output_store="BFloat16RNEClause4Masked",
+            wmma_clamp=False,
         )
 
     @classmethod

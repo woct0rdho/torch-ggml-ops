@@ -6,8 +6,10 @@ from .grouped_mmq_fwd_model import GroupedForwardSolutionKey
 from .grouped_mmq_fwd_physical import (
     GroupedDecodedPhysicalPlan,
     GroupedDirectPhysicalPlan,
+    GroupedIQ2SFullWeightPhysicalPlan,
     grouped_decoded_physical_plan,
     grouped_direct_physical_plan,
+    grouped_iq2_s_full_weight_physical_plan,
 )
 from .mmq_fwd_spec import QuantForwardSemantics
 from .model import ProblemSize
@@ -35,7 +37,11 @@ class GroupedForwardCompatibilityKernelSpec:
 class DerivedGroupedForwardState:
     key: GroupedForwardSolutionKey
     semantics: QuantForwardSemantics
-    physical_plan: GroupedDirectPhysicalPlan | GroupedDecodedPhysicalPlan
+    physical_plan: (
+        GroupedDirectPhysicalPlan
+        | GroupedDecodedPhysicalPlan
+        | GroupedIQ2SFullWeightPhysicalPlan
+    )
     contract: GroupedForwardCompatibilityContract
     kernel_spec: GroupedForwardCompatibilityKernelSpec
     problem_size: ProblemSize
@@ -62,15 +68,19 @@ class DerivedGroupedForwardState:
             problem.aggregate_rows * solution.activation_block_bytes
         )
         if solution.operand_source == "GroupedDirectGlobal":
-            physical_plan: GroupedDirectPhysicalPlan | GroupedDecodedPhysicalPlan = (
-                grouped_direct_physical_plan(solution.activation_block_bytes)
-            )
+            physical_plan: (
+                GroupedDirectPhysicalPlan
+                | GroupedDecodedPhysicalPlan
+                | GroupedIQ2SFullWeightPhysicalPlan
+            ) = grouped_direct_physical_plan(solution.activation_block_bytes)
         elif solution.operand_source == "GroupedDecodedWeightLds":
             physical_plan = grouped_decoded_physical_plan(
                 solution.activation_block_bytes,
                 solution.macro_tile0,
                 problem.quant_data_type,
             )
+        elif solution.operand_source == "GroupedIQ2SFullWeightLds":
+            physical_plan = grouped_iq2_s_full_weight_physical_plan()
         else:
             raise ValueError(
                 f"unsupported grouped operand source {solution.operand_source!r}"

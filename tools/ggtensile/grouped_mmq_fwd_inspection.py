@@ -130,7 +130,12 @@ def inspect_grouped_forward_artifact(
     delay_alu_count = mnemonics.count("s_delay_alu")
     buffer_gl0_inv_count = mnemonics.count("buffer_gl0_inv")
     decoded_lds = solution_key.solution.operand_source == "GroupedDecodedWeightLds"
-    if decoded_lds:
+    iq2_s_full_weight = (
+        solution_key.solution.operand_source == "GroupedIQ2SFullWeightLds"
+    )
+    if iq2_s_full_weight:
+        expected_wmmas = 64
+    elif decoded_lds:
         row_tiles = solution_key.solution.macro_tile0 // 16
         if solution_key.solution.tail_macro_tile0 < solution_key.solution.macro_tile0:
             row_tiles += solution_key.solution.tail_macro_tile0 // 16
@@ -159,7 +164,7 @@ def inspect_grouped_forward_artifact(
             expected_wmmas = 4 * row_tiles
     else:
         expected_wmmas = 16
-    expected_barriers = 4 if decoded_lds else 0
+    expected_barriers = 4 if decoded_lds or iq2_s_full_weight else 0
     _require(
         wmma_count == expected_wmmas,
         f"expected {expected_wmmas} static WMMAs, found {wmma_count}",
@@ -179,8 +184,10 @@ def inspect_grouped_forward_artifact(
         mnemonic
         for mnemonic in mnemonics
         if "call" in mnemonic
-        or mnemonic in {"s_getpc_b64", "s_setpc_b64", "s_swappc_b64"}
+        or mnemonic in {"s_setpc_b64", "s_swappc_b64"}
     }
+    if not iq2_s_full_weight and "s_getpc_b64" in mnemonics:
+        call_mnemonics.add("s_getpc_b64")
     _require(
         not call_mnemonics, f"call instruction found: {sorted(call_mnemonics)}", errors
     )

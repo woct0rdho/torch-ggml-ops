@@ -10,10 +10,12 @@ from .grouped_mmq_fwd_lowering import (
     GroupedPackedScaleMinimumDirectLowering,
 )
 from .grouped_mmq_fwd_lowering_decoded_lds import grouped_decoded_lowering
+from .grouped_mmq_fwd_lowering_iq2_s import GroupedIQ2SFullWeightLdsLowering
 from .grouped_mmq_fwd_lowering_q2_k import grouped_q2_decoded_lowering
 from .grouped_mmq_fwd_model import GroupedForwardSolutionKey
 from .grouped_mmq_fwd_spec import DerivedGroupedForwardState
 from .grouped_mmq_fwd_validation import validate_grouped_forward_solution
+from .iq2_s_grid import iq2_s_grid_rodata
 from .kernel_writer_assembly import initialize_rocisa, write_assembly_source
 from .mmq_fwd_lowering import ForwardKernelWriterError
 from .toolchain import Toolchain
@@ -88,9 +90,16 @@ class GroupedForwardKernelWriterAssembly:
                 body = grouped_q2_decoded_lowering(self.context).body()
             else:
                 body = grouped_decoded_lowering(self.context).body()
+        elif solution.operand_source == "GroupedIQ2SFullWeightLds":
+            body = GroupedIQ2SFullWeightLdsLowering(self.context).body()
         else:
             raise TypeError(
                 f"unsupported grouped operand source {solution.operand_source!r}"
             )
         module.add(code.TextBlock(body))
-        return str(module)
+        source = str(module)
+        if solution.operand_source == "GroupedIQ2SFullWeightLds":
+            source += "\n" + iq2_s_grid_rodata(
+                GroupedIQ2SFullWeightLdsLowering.GRID_SYMBOL
+            )
+        return source

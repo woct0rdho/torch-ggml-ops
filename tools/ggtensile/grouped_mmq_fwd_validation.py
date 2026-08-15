@@ -16,6 +16,7 @@ def validate_grouped_forward_solution(
         "Q2_K": GroupedForwardProblem.q2_k,
         "Q4_K": GroupedForwardProblem.q4_k,
         "Q5_K": GroupedForwardProblem.q5_k,
+        "IQ2_S": GroupedForwardProblem.iq2_s,
     }.get(key.problem.quant_data_type)
     if expected_problem is None or key.problem != expected_problem(
         key.problem.aggregate_rows
@@ -23,7 +24,7 @@ def validate_grouped_forward_solution(
         reasons.append(
             RejectReason(
                 "grouped_forward.problem.unsupported",
-                "grouped Q2_K/Q4_K/Q5_K forward requires its exact production N/K shape, 256 physical experts, and at most 256 route entries",
+                "grouped Q2_K/Q4_K/Q5_K/IQ2_S forward requires its exact production N/K shape, 256 physical experts, and at most 256 route entries",
                 ("Problem",),
                 "GroupedForwardProblem",
             )
@@ -84,16 +85,20 @@ def validate_grouped_forward_solution(
         GroupedForwardSolution.q5_k_serial_decoded_lds_64_scheduled_mixed32_a1d2p2(),
         GroupedForwardSolution.q5_k_serial_decoded_lds_64_scheduled_mixed32_a1d4p2(),
     }
+    iq2_s_solutions = {
+        GroupedForwardSolution.iq2_s_serial_full_weight_lds_64(),
+    }
     expected_solutions = {
         "Q2_K": q2_solutions,
         "Q4_K": q4_solutions,
         "Q5_K": q5_solutions,
+        "IQ2_S": iq2_s_solutions,
     }.get(key.problem.quant_data_type, set())
     if key.solution not in expected_solutions:
         reasons.append(
             RejectReason(
                 "grouped_forward.solution.unimplemented",
-                "grouped forward currently implements Q2_K/Q4_K/Q5_K decoded controls and the Q4_K direct control",
+                "grouped forward currently implements Q2_K/Q4_K/Q5_K decoded controls, IQ2_S full-weight LDS, and the Q4_K direct control",
                 ("Solution",),
                 "GroupedForwardSolution",
             )

@@ -14,6 +14,7 @@ from .mmq_fwd_spec import (
     F16D4S4ActivationMetadata,
     ForwardResourceUsage,
 )
+from .quant_formats import Q8_1_F32_D4_BLOCK_BYTES
 
 
 @dataclass(frozen=True)
@@ -323,6 +324,140 @@ class GroupedDecodedPhysicalPlan:
     resources: ForwardResourceUsage
 
 
+@dataclass(frozen=True)
+class GroupedIQ2SFullWeightLdsLayout:
+    """Compact J64 LDS ownership for decoded IQ2_S weights and F32_D4 rows."""
+
+    activation_rows: int = 64
+    weight_rows: int = 64
+    activation_row_stride: int = Q8_1_F32_D4_BLOCK_BYTES
+    half_payload_bytes: int = 128
+    half_payload_stride: int = 160
+    weight_scale_offset: int = 128
+    weight_scale_bytes: int = 32
+    weight_row_stride: int = 336
+
+    def __post_init__(self) -> None:
+        if (
+            self.activation_rows,
+            self.weight_rows,
+            self.activation_row_stride,
+            self.half_payload_bytes,
+            self.half_payload_stride,
+            self.weight_scale_offset,
+            self.weight_scale_bytes,
+            self.weight_row_stride,
+        ) != (64, 64, Q8_1_F32_D4_BLOCK_BYTES, 128, 160, 128, 32, 336):
+            raise ValueError("grouped IQ2_S full-weight LDS layout has fixed dimensions")
+
+    @property
+    def activation_bytes(self) -> int:
+        return self.activation_rows * self.activation_row_stride
+
+    @property
+    def weight_base(self) -> int:
+        return self.activation_bytes
+
+    @property
+    def weight_bytes(self) -> int:
+        return self.weight_rows * self.weight_row_stride
+
+    @property
+    def total_bytes(self) -> int:
+        return self.activation_bytes + self.weight_bytes
+
+
+@dataclass(frozen=True)
+class GroupedIQ2SFullWeightRegisterPlan:
+    """Fixed register ownership for distributed IQ2_S decode and J64 WMMA."""
+
+    sums: RegisterAssignment
+    activation_stage: RegisterAssignment
+    producer_d: RegisterAssignment
+    producer_qh: RegisterAssignment
+    producer_scales: RegisterAssignment
+    producer_indices: RegisterAssignment
+    producer_signs: RegisterAssignment
+    codebook_payload: RegisterAssignment
+    decoded_payload: RegisterAssignment
+    decode_auxiliary: RegisterAssignment
+    producer_address: RegisterAssignment
+    producer_lds_address: RegisterAssignment
+    c: RegisterAssignment
+    weight_payload: RegisterAssignment
+    activation_payload: RegisterAssignment
+    weight_scales: RegisterAssignment
+    zero_accumulator: RegisterAssignment
+    temporary: RegisterAssignment
+    weight_scale_address: RegisterAssignment
+    output_address: RegisterAssignment
+    weight_address: RegisterAssignment
+    activation_lds_address: RegisterAssignment
+    activation_read_address: RegisterAssignment
+    weight_lds_address: RegisterAssignment
+    lane: RegisterAssignment
+    wave: RegisterAssignment
+    activation_scale: RegisterAssignment
+    register_count: int
+    declared_vgprs: int
+
+    @staticmethod
+    def _fixed(
+        name: str,
+        width: int,
+        first: int,
+        first_stage: int,
+        last_stage: int,
+    ) -> RegisterAssignment:
+        return RegisterAssignment(
+            RegisterRole(name, width, RegisterLifetime(first_stage, last_stage)),
+            first,
+        )
+
+    @classmethod
+    def allocate(cls):
+        fixed = cls._fixed
+        return cls(
+            sums=fixed("sums", 32, 0, 0, 5),
+            activation_stage=fixed("activation_stage", 18, 32, 2, 2),
+            producer_d=fixed("producer_d", 1, 32, 1, 1),
+            producer_qh=fixed("producer_qh", 1, 33, 1, 1),
+            producer_scales=fixed("producer_scales", 1, 34, 1, 1),
+            producer_indices=fixed("producer_indices", 8, 35, 1, 1),
+            producer_signs=fixed("producer_signs", 8, 43, 1, 1),
+            codebook_payload=fixed("codebook_payload", 32, 51, 1, 1),
+            decoded_payload=fixed("decoded_payload", 4, 83, 1, 1),
+            decode_auxiliary=fixed("decode_auxiliary", 5, 87, 1, 1),
+            producer_address=fixed("producer_address", 1, 92, 1, 1),
+            producer_lds_address=fixed("producer_lds_address", 1, 93, 1, 1),
+            c=fixed("c", 32, 32, 3, 3),
+            weight_payload=fixed("weight_payload", 4, 64, 3, 3),
+            activation_payload=fixed("activation_payload", 16, 68, 3, 3),
+            weight_scales=fixed("weight_scales", 8, 84, 3, 3),
+            zero_accumulator=fixed("zero_accumulator", 8, 92, 0, 3),
+            temporary=fixed("temporary", 2, 100, 0, 5),
+            weight_scale_address=fixed("weight_scale_address", 4, 102, 0, 3),
+            output_address=fixed("output_address", 1, 64, 5, 5),
+            weight_address=fixed("weight_address", 1, 106, 0, 5),
+            activation_lds_address=fixed("activation_lds_address", 1, 107, 0, 3),
+            activation_read_address=fixed("activation_read_address", 1, 108, 0, 3),
+            weight_lds_address=fixed("weight_lds_address", 1, 109, 0, 3),
+            lane=fixed("lane", 1, 110, 0, 5),
+            wave=fixed("wave", 1, 111, 0, 5),
+            activation_scale=fixed("activation_scale", 4, 112, 3, 3),
+            register_count=116,
+            declared_vgprs=116,
+        )
+
+
+@dataclass(frozen=True)
+class GroupedIQ2SFullWeightPhysicalPlan:
+    layout: GroupedIQ2SFullWeightLdsLayout
+    registers: GroupedIQ2SFullWeightRegisterPlan
+    scalar_registers: GroupedDecodedScalarRegisterPlan
+    resources: ForwardResourceUsage
+
+
 def grouped_direct_physical_plan(
     activation_block_bytes: int,
 ) -> GroupedDirectPhysicalPlan:
@@ -362,6 +497,22 @@ def grouped_decoded_physical_plan(
     vector = DecodedWeightLdsRegisterPlan.allocate(macro_tile0 // 16)
     scalar = GroupedDecodedScalarRegisterPlan.allocate()
     return GroupedDecodedPhysicalPlan(
+        layout=layout,
+        registers=vector,
+        scalar_registers=scalar,
+        resources=ForwardResourceUsage(
+            vector.declared_vgprs,
+            scalar.declared_sgprs,
+            layout.total_bytes,
+        ),
+    )
+
+
+def grouped_iq2_s_full_weight_physical_plan() -> GroupedIQ2SFullWeightPhysicalPlan:
+    layout = GroupedIQ2SFullWeightLdsLayout()
+    vector = GroupedIQ2SFullWeightRegisterPlan.allocate()
+    scalar = GroupedDecodedScalarRegisterPlan.allocate()
+    return GroupedIQ2SFullWeightPhysicalPlan(
         layout=layout,
         registers=vector,
         scalar_registers=scalar,

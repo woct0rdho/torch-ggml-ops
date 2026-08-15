@@ -31,6 +31,17 @@ Q2_K_FORMAT = QuantFormat(
     arithmetic_contract="UnsignedQ2IntegerWmmaFP16ScaleMinimumCorrection",
 )
 
+IQ2_S_FORMAT = QuantFormat(
+    block_values=256,
+    block_bytes=82,
+    activation_layout="F32_D4",
+    activation_block_bytes=Q8_1_F32_D4_BLOCK_BYTES,
+    wmma_clamp=False,
+    weight_decode="DirectIQ2SGridSigned",
+    scale_arithmetic="Int32ScaleF32",
+    arithmetic_contract="SignedIQ2SInt8ScaleIntegerWmmaF32Correction",
+)
+
 
 QUANT_FORMATS: Mapping[str, QuantFormat] = MappingProxyType(
     {
@@ -89,5 +100,5 @@ QUANT_FORMATS: Mapping[str, QuantFormat] = MappingProxyType(
 
 
 GROUPED_QUANT_FORMATS: Mapping[str, QuantFormat] = MappingProxyType(
-    {**QUANT_FORMATS, "Q2_K": Q2_K_FORMAT}
+    {**QUANT_FORMATS, "Q2_K": Q2_K_FORMAT, "IQ2_S": IQ2_S_FORMAT}
 )
