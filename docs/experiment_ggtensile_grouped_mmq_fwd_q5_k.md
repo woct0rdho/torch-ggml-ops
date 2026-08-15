@@ -68,7 +68,7 @@ The installed J32 research launcher initially used an incorrect `64 x G` grid by
 
 The R35 route contains 1-, 15-, 16-, and 3-row groups. The generated Q5 output is bitwise equal to installed J32, finite, and has maximum absolute error `0.009765625` and RMS error `0.00229125` against the independently dequantized BF16 grouped reference. Uniform, skewed, sparse-ID, boundary, and repeated-ID routes at all three production row counts are also bitwise exact. Active packed-weight, input, and Q8_1 workspace mutations change output; an inactive-expert mutation is inert; an invalid expert route leaves the destination untouched.
 
-All 30 grouped Q4_K production source hashes, spanning ten solution identities and three row counts, remain byte-identical to commit `31bc7ab`. Q5 source and code objects rebuild byte-identically.
+All 30 grouped Q4_K production sources, spanning ten solution identities and three row counts, remain byte-identical to the frozen Q4 baseline. Q5 source and code objects rebuild byte-identically.
 
 ### 128-row control rejected as a broad selector
 
@@ -96,6 +96,16 @@ At B16, the same `a1d4-p2` identity reaches `1.0015x` and `1.0039x` in the two 2
 
 A final reversed-order 25-repeat complete-call audit used the fixed HIP Q8_1 F16_D4S4 producer, one allocated shared workspace per pair, sustained short-key batches, and fresh quantization before each multiply. Weighted installed-over-candidate ratios are `1.0539x` at B1, `1.0813x` at B4, and `1.0070x` at B16. Every output remains bitwise exact. Producer inclusion preserves the B4 gain and creates no complete-call parity failure.
 
+### Final complete-call performance
+
+Effective throughput uses the dense-equivalent operation count `2*R*2048*512` divided by the qualified weighted complete-call median. It includes the fixed Q8_1 quantizer used by the retention audit and is therefore an end-to-end effective rate, not a WMMA-only rate.
+
+| aggregate rows | generated identity | GGTensile effective TFLOPS | AITER effective TFLOPS | speedup vs AITER |
+| ---: | --- | ---: | ---: | ---: |
+| 16,384 (B1) | 64/32 `a1d4-p2` | 16.35 | 15.52 | 1.0539x |
+| 65,536 (B4) | three-way 128/64/32 `a1d4-p2` | 21.96 | 20.30 | 1.0813x |
+| 262,144 (B16) | three-way 128/64/32 `a1d4-p2` | 24.10 | 23.93 | 1.0070x |
+
 The retained research policy is 64/32 `a1d4-p2` at `R=16384` and three-way 128/64/32 `a1d4-p2` at `R=65536` and `R=262144`. Only B4 has broad material evidence across prior, search, captured, synthetic, sequential, and complete-call controls. B1 remains fitted-prior and route-sensitive; B16 remains parity-scale. No public selector, generated bundle, extension registration, or packaging file is changed.
 
 ## Recursive Final Review
@@ -108,4 +118,4 @@ A fresh pass reread the grouped Q4 record, dense Q5 forward and backward records
 
 The remaining B1 profile sensitivity is decode-reuse versus J32 ownership, not missing occupancy: true 32-row ownership reduced resources but lost materially. B16 movement remains at parity scale across independent banks. B4 is the only broad material result, and its gain survives both sequential launch orders and complete-call timing. No remaining in-contract mechanism has an unmeasured first-order path with material expected margin.
 
-The final selected keys are bitwise exact over the five-route production matrix, mutation-correct, independently referenced, resource-clean, and deterministic. All 30 frozen grouped Q4 sources remain byte-identical to commit `31bc7ab`. The recursive review therefore closes with no public integration authorized.
+The final selected keys are bitwise exact over the five-route production matrix, mutation-correct, independently referenced, resource-clean, and deterministic. All 30 frozen grouped Q4 sources remain byte-identical to the frozen baseline. The recursive review therefore closes with no public integration authorized.

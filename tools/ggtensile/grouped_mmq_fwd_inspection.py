@@ -142,7 +142,15 @@ def inspect_grouped_forward_artifact(
         if (
             solution_key.problem.quant_data_type == "Q2_K"
             and solution_key.solution.metadata_schedule
-            == "Q2ScaleMinimumNibbleUnrolled"
+            in {
+                "Q2ScaleMinimumNibbleUnrolled",
+                "Q2ScaleMinimumNibbleUnrolledHipAssociation",
+                "Q2HipAssociationPartialLds",
+                "Q2HipAssociationPartialLdsPreNegatedDm",
+                "Q2HipAssociationPartialLdsPreNegatedDmWrite2",
+                "Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2",
+                "Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2DistributedProducer",
+            }
         ):
             expected_wmmas = 20 * row_tiles
         elif solution_key.problem.quant_data_type == "Q2_K":

@@ -4,7 +4,7 @@
 
 Build and evaluate isolated gfx1151 wave32 GGTensile grouped Q2_K forward kernels for the non-paired DeepSeek routed-down production shapes `(12288,4096,2048)`, `(49152,4096,2048)`, and `(196608,4096,2048)`. Paired projection kernels are outside this campaign. The fitted DeepSeek learned/hash route prior is the primary speed metric, with learned and hash components reported separately.
 
-This work is research-only. It does not change public dispatch, generated bundle tables, extension registration, packaging, or HIP fallback behavior. The retained grouped Q4_K and Q5_K generated sources at commits `31bc7ab` and `1050724` are frozen regression contracts.
+This work is research-only. It does not change public dispatch, generated bundle tables, extension registration, packaging, or HIP fallback behavior. The retained grouped Q4_K and Q5_K generated sources are frozen regression contracts.
 
 ## Contract
 
@@ -48,13 +48,14 @@ The retention gate is bitwise installed agreement. Matching the independent dequ
 
 Screens use deterministic 512-draw search and confirmation banks, five weighted medoids per DeepSeek learned/hash component, three warmups, and nine alternating-order CUDA-event repeats. Competitive candidates require reversed-order 25-repeat confirmation. Learned and hash components cannot hide one another. Captured, synthetic, sequential, and complete-call controls follow only after confirmation-prior competitiveness.
 
-## Mechanism Order
+## Reopened Mechanism Order
 
-1. Establish strict Q2_K modeling, `F16_D2S6` runtime support, installed J32/mixed controls, and a typed decoded-LDS correctness body.
-2. Measure 32-row and 64-row parents against the exact public installed dispatch on learned/hash confirmation medoids.
-3. Remove scalar group-loop and address overhead with static 32-, 64-, and 128-row group lowering while retaining the finite baseline as a comparison control.
-4. Test arithmetic association changes only behind the exactness gate and only time a finite variant.
-5. Stop the family when decode/correction volume and residency remain slower than the installed body; do not introduce flattened tasks, persistence, SplitK, or prepared decode without a changed utilization or model-owned lifetime prerequisite.
+- Treat the installed HIP J32 and mixed J32/J16 kernels as constructive implementations of the required performance, and derive their ownership, packed LDS layout, instruction families, loop bodies, arithmetic association, wait/barrier placement, and tail policy from source plus normalized gfx1151 ISA.
+- Attack the largest gap first by replacing repeated fully decoded-weight staging with an installed-structured packed Q2_K path. Reuse the existing typed routed ABI and physical planning, but match the HIP kernel's bounded rolled dot-product topology and exact correction order closely enough to recover bitwise output.
+- Build true J32 and mixed J32/J16 generated identities and reproduce the installed selector, including the exact `R=49,152` exception. Qualify each mechanism on R35 correctness and strict artifact inspection before any timing.
+- Screen fitted-prior B1/B4/B16 multiply timing after every coherent structural change. Prefer mechanisms that improve the largest deficits; revert failed bodies after recording their rejection evidence.
+- Once parity is reached, optimize packed loads, LDS layout, address generation, waits, barriers, instruction pairing, accumulator initialization, and route-sensitive ownership. Confirm competitive candidates with reversed-order 25-repeat, search, captured, synthetic, sequential, and complete-call controls.
+- Continue until no actionable in-contract mechanism remains. Public dispatch and packaging stay unchanged unless separately requested; research selection may combine generated identities by exact production shape and route count.
 
 ## Experiment Log
 
@@ -69,6 +70,40 @@ The first decoded-LDS control used a 32-row parent with dynamic group lowering. 
 The initial qualification timeout coincided with a gfxhub null-address page fault, SQC activity, queue-removal failure, and GPU reset. Subsequent bounded checks showed that invalid-route, one-tile, all-column, four-route, and full `(64,4)` launches retired correctly. The independent reference was changed to bounded output slices; no giant dequantized reference allocation is part of the retained procedure.
 
 For the R35 route matrix, candidate and installed outputs were finite. The candidate matched the installed output on the first 64 columns in the bounded single-group comparison, while full output remained non-bitwise, generally by one BF16 step: the observed installed delta was `0.00390625` for a single group and up to `0.0078125` for mixed routes. The independent BF16 reference showed candidate maximum errors of about `0.0410` to `0.046875` and RMS errors around `0.0123` across uniform, boundary, skewed, repeated-ID, and sparse-ID routes. Active packed-weight, input, and workspace mutations changed output, an inactive expert remained bitwise inert, and the invalid route left a sentinel output untouched. These results qualify the body as finite and reference-consistent, not as bitwise-installed exact.
+
+### Installed arithmetic association probe
+
+The first reopened probe added distinct 32- and 64-row HIP-association identities. Stored groups now compute `Cd*d`, apply the missing-sum term inside the temporary for groups 6-7, multiply the combined value by `dB`, and apply the `dmin*sB` correction in the same order as the installed rolled HIP body. The previous fully decoded identities remain unchanged.
+
+The 32-row HIP-association body is bitwise exact against installed on the R35 single-group check and on uniform, boundary, skewed, repeated-ID, sparse-ID, mutation, and invalid-route checks. Its nine-repeat fitted-prior ratios were `0.7138x`, `0.7288x`, and `0.7866x` at B1/B4/B16, so arithmetic association alone is rejected as a speed mechanism but retained as the exactness control for structural work. No complete-call timing was run because it failed the multiply competitiveness gate.
+
+The next large-margin target is the HIP loader topology: its 128 threads distribute one Q2 scale-pair conversion per output-row lane while the current generated body performs all 16 metadata conversions serially per producer lane. Its packed source stride is 400 bytes per decoded output row, with 256 payload bytes, 64 metadata bytes, and the same 64-row maximum ownership used by the installed J32 body. This provides a measured structural premise for the next implementation.
+
+### HIP packed producer topology
+
+A second reopened control reproduced the installed J32 LDS geometry and producer lane mapping: activation storage began at byte 128, the decoded 64-row weight tile began at byte 4,736, decoded rows used a 400-byte stride, and each lane converted one metadata group over eight output rows. The body used `135 VGPRs`, `40 SGPRs`, `30,336` LDS bytes, 40 static WMMAs, four barriers, zero private storage, and zero spills. It was bitwise exact across the complete R35 route and mutation matrix.
+
+The explicit implementation measured only `0.6048x`, `0.6432x`, and `0.6763x` at B1/B4/B16. Its eight producer iterations each ended in `vmcnt(0)`, and each metadata lane reloaded the common `d/dmin` pair. This demonstrates that installed LDS geometry and lane mapping are not sufficient without the HIP compiler's multi-load software pipeline. The body is rejected and removed after recording this evidence. The next large-margin target is the installed body's four-group overlap: its roughly 208-VGPR allocation keeps multiple WMMA results, LDS reads, and corrections live, whereas the exact generated control uses only 135 VGPRs and resolves each group before issuing the next.
+
+### Two-group arithmetic pipeline
+
+An exact two-group control used the post-decode register lifetime to keep a second stored-sum group's weights, activations, metadata, and WMMA results live. It built at `175 VGPRs`, `40 SGPRs`, `25,600` LDS bytes, 40 WMMAs, four barriers, zero private storage, and zero spills, and passed the complete R35 route and mutation matrix bitwise.
+
+Paired candidate/installed timing measured `0.7130x`, `0.7320x`, and `0.7792x` at B1/B4/B16. One B4 installed-control sample rose to 116.4 ms while adjacent controls remained near 66 ms; the fitted aggregate remained noncompetitive, and the unaffected B1/B16 results independently reject the mechanism. The extra live group did not hide the dominant work and slightly regressed B1/B16 relative to the exact 135-VGPR control. This body is rejected and removed. Partial LDS retirement, rather than additional group lifetime alone, is the next actionable installed-ISA mechanism.
+
+### Partial LDS retirement
+
+The local AMD LLVM wait-count implementation documents that register dependencies permit nonzero LDS waits when one event timeline is active. A dedicated exact schedule therefore stages activation scale/sum reads first, then WMMA payloads, then four `d/dmin` reads; `lgkmcnt(4)` releases the payload dependencies while those four correction reads remain pending. WMMA issuance and activation metadata extraction overlap their retirement, followed by `lgkmcnt(0)` immediately before the first dependent correction.
+
+The body remained `135/40/25,600/40/4`, with zero private storage and spills, and passed the complete R35 route and mutation matrix bitwise. Paired candidate/installed timing improved to `0.7270x`, `0.7337x`, and `0.7922x` at B1/B4/B16, versus `0.7138x`, `0.7288x`, and `0.7866x` for the exact full-wait control. This is a real but insufficient latency reduction and is retained as the new exact structural parent. The next compiler-derived mechanism is bounded multi-group LDS issue with descending partial waits, matching the HIP source's `#pragma unroll 4` dependency graph without copying external assembly.
+
+### Two-group partial-LDS dependency graph
+
+Optimized HIP MIR showed a two-group unit with six payload reads, eight trailing correction reads, four WMMAs, and descending nonzero LDS waits. A typed generated control reproduced that dependency graph for stored-sum group pairs while preserving the exact mixed-FMA association. It used 40 additional transient VGPRs and built at `175/40/25,600/40/4`, with zero private storage and spills. The complete R35 route, mutation, invalid-row, and bounded-reference matrix remained bitwise exact against installed output.
+
+The fitted-prior ratios were `0.7186x`, `0.7237x`, and `0.7780x` at B1/B4/B16. All three regress the single-group partial-LDS parent. The paired issue pattern therefore does not amortize its larger live state in this decoded-LDS body; it is rejected and removed. The compiler evidence remains useful, but additional group lifetime is now rejected both with full waits and with descending partial waits.
+
+The same partial-retirement schedule was also screened with the existing 64-row ownership. It built at `159/40/30,208/80/4`, remained bitwise exact, and passed the full route/mutation matrix. Its fitted-prior ratios were `0.5861x`, `0.7288x`, and `0.8224x` at B1/B4/B16. The larger parent is substantially worse at B1 and remains below the earlier non-association 64-row B16 control (`0.9306x`), so partial waits do not rescue 64-row ownership. This identity is rejected; the exact 32-row partial-LDS body remains the structural parent.
 
 ### Dynamic parents
 
@@ -102,24 +137,103 @@ The final research control set was rebuilt twice for all three production rows. 
 | unrolled64 | 159 | 40 | 30,208 | 80 | 4 | identical for R12,288/R49,152/R196,608 on repeated builds |
 | unrolled128 | 239 | 40 | 39,424 | 160 | 4 | identical for R12,288/R49,152/R196,608 on repeated builds |
 
-The exact source and code SHA-256 values are recorded in `/tmp/ggtensile-grouped-q2-final-report.json`; the report also records the complete per-row resource inspection. The production artifact builds use the same problem identities as the three aggregate-row keys and do not alter public packaging.
+Independent builds of the final production artifacts are byte-identical and retain complete per-row resource inspection. The production artifact builds use the same problem identities as the three aggregate-row keys and do not alter public packaging.
 
-## Outcome
+### Reopened tail and producer controls
 
-No Q2_K candidate satisfies both retention requirements. The decoded-LDS family is finite, independently reference-consistent, route-safe for the exercised matrix, resource-clean, and deterministic, but every candidate is slower than the installed dispatch and full output is not bitwise identical to the installed body. The independent BF16 envelope is not a substitute for installed parity.
+The first true mixed J32/J16 generated identity exposed a fractional activation staging contract at 16 rows: `16 * 144` bytes is 4.5 dwords per 128-thread lane. The shared staging helper now rounds fractional Q2 tiles up and masks the final load/store; exact 32-row tiles retain their original full path. The mixed identity passed the complete R35 route and mutation matrix bitwise, including routes ending at 16 rows and shorter tails. It uses `135/40/25,600/60/4`, with zero private storage and spills. Its confirmation-prior medians were `23.1645/81.9734/315.7009 ms` at B1/B4/B16, versus installed `18.9023/64.0556/259.4599 ms`, or `0.8160x/0.7814x/0.8219x`. Mixed tail ownership is retained as an exact structural control, not as a competitive result.
 
-The Q2 model, dedicated lowerer, physical planning, inspection, validation, runtime launcher, and focused tests remain as research-only controls because they document the contract and provide reproducible rejection evidence. No Q2 selector or public bundle change is made. The unrolled 32-row and 64-row identities are useful retained controls for future work; the 128-row identity is retained only as a measured rejection control. Further optimization is deferred until a new mechanism can reduce Q2 decode/correction cost or establish a changed lifetime/utilization prerequisite without weakening bitwise parity.
+The arithmetic and producer micro-optimizations were then composed in order. Pre-negating the packed `dmin` value once per output row removed repeated sign multiplies and remained exact. Pairing decoded payload stores with `ds_write2_b32`, then pairing the 16 scale/minimum metadata stores, reduced the generated producer to 2,161 instructions while preserving `135/40/25,600/40/4` resources and the full mutation matrix. The Meta2 mixed parent measured the timings above. A combined VOPD accumulator-initialization identity remained exact and resource-clean, but measured `23.2115/82.4876/315.7949 ms`; the small initialization change was neutral to regressive against the Meta2 parent and is rejected as an independent mechanism.
 
-The focused grouped forward file passes 36 tests, and the combined grouped-plus-dense generator suite passes 168 tests. Coverage includes the three exact production shapes, derived tensor/grid identities, F16_D2S6 and static-lowering source contracts, strict artifact inspection, deterministic rebuilds, exact installed dispatch boundaries, and cross-format rejection. The device route matrix covers uniform, boundary, skewed, repeated-ID, sparse-ID, and invalid routes with bounded independent-reference and active/inactive mutation checks.
+### Distributed installed-style producer
 
-## Final Classification
+The installed Q2 loader maps one scale/minimum pair across each output-row lane and rolls eight rows through the producer. The generated decoded-LDS producer now queues eight payload, scale-byte, and `d/dmin` loads per lane across all four waves, retires them with descending `vmcnt` waits, converts each row once, and writes the same compact 320-byte LDS rows. A temporary register-state error initially clobbered the persistent all-ones operands for missing-sum groups; moving conversion temporaries out of `v28:v31` restored exactness. An independent LDS dump then matched the Meta2 producer byte-for-byte for all 64 decoded rows.
 
-- Retained: grouped-only Q2_K format semantics, exact problem and solution identities, dedicated decoded-LDS lowering, F16_D2S6 research runtime support, static 32/64 controls, deterministic artifact inspection, bounded reference qualification, and the installed-selector control launchers.
-- Rejected: dynamic 32/64 parents, unrolled 128-row ownership, source-order mixed-FMA association, and every public selector proposal from this decoded-LDS family. Each is slower than installed, non-bitwise, or both.
-- Deferred behind a changed prerequisite: prepared decode requires a model-owned representation lifetime; persistence or flattened tasks require evidence of unresolved route/launch imbalance; SplitK requires an explicit reduction and complete-call win. TensileLite and Composable Kernel generator restrictions remain evidence about generator support, not gfx1151 hardware prohibitions.
-- Contract-incompatible: paired-kernel scope, host route readback, public dispatch or package integration, hidden dense shadows, and unbounded full-bank dequantized references.
-- Actionable after the first recursive pass: isolate Q2_K from the shared dense quant-format registry and rerun final active/inactive mutation gates. Both were completed, after which no additional in-contract mechanism had a measured premise strong enough to reopen implementation.
+The distributed body passed the complete route, input, workspace, active-weight, inactive-weight, and invalid-output matrix at `135/40/25,600/60/4`. Its first paired screen measured `22.7202/80.7077/311.1496 ms` at B1/B4/B16, or `0.8316x/0.7923x/0.8290x` of installed. Pairing metadata rows with `ds_write2st64_b32` preserved exactness and gave a small follow-up screen of `22.6840/80.5222/311.0248 ms`; the controls moved between runs, but the B4/B16 improvement was directionally consistent. This distributed producer plus metadata pairing is retained as the current exact structural parent, although it remains materially slower than installed.
 
-## Recursive Final Review
+### LDS stride and compact prefetch screens
 
-Before completion, reread this record, grouped Q4_K/Q5_K records, dense and grouped forward/backward histories, installed Q2_K source and normalized ISA, every generated artifact and report, relevant TensileLite/Composable Kernel mechanisms, and gfx1151 instruction constraints. Classify each remaining idea as retained, rejected, deferred behind a changed prerequisite, contract-incompatible, or actionable. Implement every actionable in-contract mechanism and repeat the review.
+The installed 400-byte decoded-row stride was screened independently from its original serialized producer. It remained exact at `30,720 B` LDS but regressed to `23.5724/83.3991/321.4185 ms`. A 336-byte stride with the same metadata bank separation and lower `26,624 B` LDS was also exact and regressed to `23.3843/82.7590/318.8301 ms`. Both padding identities are rejected; the compact 320-byte layout remains faster in this generated consumer.
+
+A compact consumer prefetch used the otherwise free `v98:v121` window to issue the next stored-sum group's LDS reads while correcting the current group, then reused the normal C fragments for the next WMMAs. It passed the complete exactness matrix at `135/40/25,600/60/4`. The confirmation-prior medians were `22.6712/80.7907/310.3967 ms`, versus installed `19.0170/64.3893/260.9008 ms`; it was neutral at B1, regressed at B4, and only marginally lower at B16 relative to the distributed parent. It is rejected as a broad mechanism, and its source identity has been removed after preserving this evidence.
+
+The installed producer also uses explicit hard clauses around clustered VMEM loads. Adding `s_clause 2` to each contiguous payload/scale/`dmin` load triple preserved bitwise output and the `135/40/25,600/60/4` resource identity. Its confirmation-prior medians were `22.6958/80.9443/310.9456 ms`, with stable installed controls at `19.0673/65.1310/260.7494 ms`. The result was neutral at B1/B16 and about 0.5 percent slower at B4 than the unclausified distributed parent, so standalone producer clausing is rejected and removed.
+
+The matching activation experiment added `s_clause 7` around each eight-load portion of the exact 32-row Q8_1 stage; the exec-masked 16-row tail was unchanged. It also remained exact and resource-identical, but measured `22.7880/80.8765/311.0833 ms`. B1/B4 regressed and B16 was neutral relative to the unclausified parent. Activation hard clauses are therefore rejected and removed independently of producer clauses.
+
+The generated epilogue uses priority 2 while installed HIP emits no `s_setprio`. A priority-zero mixed identity remained exact and resource-identical but measured `22.7772/80.9481/310.9089 ms`. It regressed B1/B4 and changed B16 only within run noise, so removal of epilogue priority is rejected and the prior priority-2 schedule is restored.
+
+Increasing BF16 conversion dependency width from two to four was also exact and resource-identical. It measured `22.7315/81.4743/311.8031 ms`, regressing B4/B16 and providing no credible B1 gain. Width four is rejected and the width-two epilogue is restored.
+
+Reducing dependency width from two to one measured `22.7336/81.7928/311.7663 ms`. It was exact but likewise regressed B4/B16. Width one is rejected, leaving width two bracketed by both tested neighbors.
+
+Converting both 16-row output tiles before stores (`epilogue_tiles_ahead=2`) measured `22.7679/81.3857/311.3760 ms`. It was exact but slower on all three shapes than one-tile-ahead scheduling. The retained J32/J16 epilogue point is therefore one tile ahead, dependency width two, priority two.
+
+Pairing each of the four generated barriers with the installed body's `buffer_gl0_inv` remained exact and resource-identical but measured `22.7382/81.6651/311.7921 ms`. All three shapes regressed. Explicit L0 invalidation is rejected and removed; the generated barriers remain without cache invalidation.
+
+### Eight-wide correction dependency schedule
+
+The compiler delay analysis exposed the dominant generated scheduling defect: every output element completed its dependent `i32->f32`, scale product, activation-scale accumulation, and minimum correction chain before the next independent element began. The exact same per-element arithmetic was regrouped into eight-wide phases. Stored-sum groups reuse the post-WMMA activation registers for eight independent products. Missing-sum groups use the otherwise idle `v98:v105` window so the persistent all-ones results in `v76:v83` remain intact. The first draft incorrectly overlapped four temporaries with those all-ones registers and failed numerically; moving the temporaries restored bitwise parity.
+
+The corrected body remains `135 VGPRs`, `40 SGPRs`, `25,600` LDS bytes, 60 static WMMAs, four barriers, zero private storage, and zero spills. It passed uniform, boundary, skewed, repeated-ID, sparse-ID, active/inactive weight, workspace, input, and invalid-output checks bitwise against installed dispatch. Its nine-repeat confirmation-prior medians were `15.7222/55.0022/215.3602 ms`, versus installed `19.3646/65.9245/263.0708 ms`, for installed-over-candidate speedups of `1.2317x/1.1986x/1.2215x` at B1/B4/B16. This is the first candidate to pass the multiply competitiveness gate and is retained for the full confirmation sequence.
+
+Reversed-order 25-repeat confirmation measured `15.8260/56.1426/216.8549 ms`, versus installed `19.4388/67.2121/264.9736 ms`, or `1.2283x/1.1972x/1.2219x`. The minimum individual learned/hash medoid ratios were `1.1814x/1.1961x/1.2077x` at B1/B4/B16, and every output remained bitwise exact. The schedule therefore passes the competitive confirmation gate.
+
+The same correction schedule was screened in the pure J32 identity to remove mixed-tail dispatch and code. It remained exact at `135/40/25,600/40/4`, but measured `17.1036/57.3835/217.4303 ms`, slower than mixed J32/J16 on every shape. The mixed identity benefits enough from true 16-row tails to outweigh its branch and code-size cost even at B16; pure J32 is rejected as the selected research identity.
+
+The disjoint 512-draw fitted-prior search bank produced `16.3703/56.1158/217.7270 ms` versus installed `20.1156/67.3708/266.4235 ms`, or `1.2288x/1.2006x/1.2237x`. Minimum individual learned/hash ratios were `1.2075x/1.1763x/1.2049x`; all outputs were exact. The candidate advances to captured-route qualification.
+
+Captured learned/hash route medoids measured `16.8008/56.4017/219.2802 ms` versus installed `20.4248/67.6938/267.1060 ms`, or `1.2157x/1.2002x/1.2181x`. Minimum captured-profile ratios were `1.1920x/1.1773x/1.1909x`, with bitwise output throughout. The candidate advances to synthetic controls.
+
+Uniform, skewed, sparse, and boundary controls measured aggregate ratios of `1.2222x/1.2016x/1.2207x`. The minimum individual control ratios were `1.2008x/1.1970x/1.2196x` at B1/B4/B16, and all twelve outputs were bitwise exact. The gain is not dependent on the fitted prior.
+
+Sequential 25-repeat controls ran each implementation's samples contiguously in both pass orders. Candidate-first/installed-first weighted ratios were `1.2209x/1.2091x` at B1, `1.1952x/1.1967x` at B4, and `1.2215x/1.2204x` at B16. Minimum profile ratios remained `1.1729x`, `1.1947x`, and `1.2075x`; all outputs were exact. Interleaving and cache order do not explain the gain.
+
+Complete-call reversed-order 25-repeat timing included the fixed Q8_1 `F16_D2S6` quantizer and the allocated shared workspace before each multiply. Weighted candidate/installed times were `15.9617/19.6355 ms`, `57.5138/69.0594 ms`, and `224.5045/273.0164 ms`, for `1.2302x/1.2007x/1.2161x`. Minimum profile ratios were `1.1912x/1.2003x/1.2048x`, with exact output. The multiply gain survives the production quantization cost.
+
+### Larger ownership after correction phasing
+
+The correction schedule changed the prerequisite for the previously rejected 64-row parent. A composed 64-row body now uses the distributed producer, Meta2 paired stores, partial LDS retirement, and four-tile phased correction. Its missing-sum temporaries occupy the unused upper half of the 16-register all-ones allocation; an earlier decode-scratch placement was not exact. A 64/32 mixed-tail draft also failed bitwise parity and is rejected without timing.
+
+The pure 64-row body passed the complete route/mutation matrix at `159/40/30,208/80/4`, with zero private storage and spills. Its nine-repeat confirmation-prior times were `21.2985/57.5899/206.2302 ms`, versus installed `19.3801/66.8774/264.5587 ms`, or `0.9099x/1.1613x/1.2828x`. It remains rejected for B1/B4, but improves over the confirmed 32/16 B16 candidate and is retained for B16-specific qualification.
+
+Reversed-order 25-repeat B16 confirmation measured `206.6285 ms` versus installed `265.1847 ms`, or `1.2834x`. Every learned/hash medoid was exact and fell between `1.2821x` and `1.2855x`, so the B16 result advances to broad controls.
+
+Search, captured, and synthetic B16 controls measured `1.2847x`, `1.2829x`, and `1.2915x`; sequential candidate-first/installed-first passes measured `1.2856x/1.2829x`. Complete-call timing with fixed Q8_1 quantization measured `213.4464/272.4457 ms`, or `1.2764x`. J64 is retained for B16.
+
+J64 inherits the four-tile BF16 epilogue. One- and two-tile variants were exact at the same resources. Their nine-repeat ratios were `1.2845x` and `1.2851x`, but one-tile reversed-order 25-repeat confirmation measured `1.2836x`, indistinguishable from the qualified four-tile `1.2834x`; no premise exists for a change. Priority zero regressed to `1.2728x`. Dependency width one measured `1.2825x`; width four reached `1.2855x` at nine repeats but only `1.2844x` in reversed-order 25-repeat confirmation, a noise-scale movement of about 0.08 percent over width two. J64 therefore retains its four-tile epilogue, dependency width two, and priority two.
+
+An exact J128 distributed/phased screen used `239/40/39,424/160/4` with zero spills and measured `239.1084 ms` versus `263.6021 ms`, or `1.1024x`. It is about 16% slower than J64 at B16, so the 128-row identity is rejected and removed.
+
+
+## Research Selection
+
+The retained research selection is shape-specific and does not alter public dispatch or packaging. Effective throughput uses the dense-equivalent operation count `2*R*4096*2048` divided by the qualified weighted complete-call median. It includes the fixed Q8_1 quantizer used by the retention audit and is therefore an end-to-end effective rate, not a WMMA-only rate.
+
+| aggregate rows | generated identity | GGTensile effective TFLOPS | AITER effective TFLOPS | speedup vs AITER |
+| ---: | --- | ---: | ---: | ---: |
+| 12,288 (B1) | distributed phased J32/J16 | 12.92 | 10.50 | 1.2302x |
+| 49,152 (B4) | distributed phased J32/J16 | 14.34 | 11.94 | 1.2007x |
+| 196,608 (B16) | distributed phased J64 | 15.45 | 12.11 | 1.2764x |
+
+The J32/J16 identity uses `135/40/25,600/60/4`; J64 uses `159/40/30,208/80/4`. Both have zero private bytes, spills, scratch instructions, calls, and dynamic stack. The research launcher retains the installed control selection independently for every comparison.
+
+## Recursive Final Classification
+
+- Retained: dedicated grouped Q2_K semantics and ABI; bounded `F16_D2S6` workspace production; exact partial-LDS retirement; pre-negated dmin; paired payload and metadata stores; all-wave distributed producer; compact 320-byte decoded LDS rows; J32/J16 one-tile-ahead and J64 four-tile BF16 epilogues, both at width two and priority two; eight-wide correction dependency phases; J32/J16 for B1/B4; and J64 for B16. The test suite locks both selected identities, strict resources, deterministic rebuilds, installed-control boundaries, and cross-format rejection.
+- Rejected: dynamic parents; standalone association; HIP packed 400-byte layout; 336-byte layout; full and descending two-group pipelines; compact next-group prefetch; partial VMEM; VOPD initialization; explicit producer and activation hard clauses; cache invalidations; priority zero; epilogue dependency widths one/four; J32/J16 two-tile and J64 one/two-tile epilogues; pure J32 selection; J64 for B1/B4; bitwise-invalid J64/J32 mixed tails; and J128. The J128 phased screen is exact but resource-limited at `239/40/39,424/160/4` and is slower than J64.
+- Deferred behind a changed prerequisite: prepared decode requires a model-owned packed representation and lifetime; persistence or flattened tasks require demonstrated route/launch imbalance; SplitK requires an explicit reduction contract and a complete-call win; non-power-of-two row ownership requires physical-plan and output-layout support. These are not current in-contract scheduling changes.
+- Contract-incompatible: paired projection kernels, host route readback, route descriptor caches, hidden dense shadows, public dispatch/package changes, and full-bank dequantized reference allocation.
+- Actionable: none found after the correction-phase revisit. The changed prerequisite was retested through J64 and J128 ownership. Further work requires one of the deferred contract changes above.
+
+## Final Verification
+
+Selected artifacts rebuilt byte-identically twice:
+
+| aggregate rows | identity | VGPRs | LDS bytes | WMMAs | barriers |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 12,288 | distributed J32/J16 | 135 | 25,600 | 60 | 4 |
+| 49,152 | distributed J32/J16 | 135 | 25,600 | 60 | 4 |
+| 196,608 | distributed J64 | 159 | 30,208 | 80 | 4 |
+
+Both selected identities again passed uniform, boundary, skewed, repeated-ID, sparse-ID, active/inactive weight, workspace, input, and invalid-output gates bitwise against installed controls. `tests/ggtensile/test_grouped_mmq_fwd.py` passes 40 tests. The broader grouped-plus-dense command passes 167 tests; its five pre-existing Q6 container reproducibility failures leave the asserted Q6 source, `.text`, and resource checks passing. The frozen Q4 source set and selected Q5 artifacts also rebuilt byte-identically.

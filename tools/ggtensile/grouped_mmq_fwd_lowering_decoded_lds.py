@@ -39,6 +39,17 @@ class GroupedDecodedWeightLdsLowering(DecodedWeightLdsLowering):
     def _row_tile_count(self) -> int:
         return self._grouped_context().solution_key.solution.macro_tile0 // 16
 
+    def _activation_stage_requires_mask(self, row_tile_rows: int) -> bool:
+        return False
+
+    def _activation_stage_dwords(self, row_tile_rows: int) -> int:
+        solution = self._grouped_context().solution_key.solution
+        total_bytes = row_tile_rows * solution.activation_block_bytes
+        bytes_per_thread = 4 * solution.num_threads
+        if self._activation_stage_requires_mask(row_tile_rows):
+            return (total_bytes + bytes_per_thread - 1) // bytes_per_thread
+        return total_bytes // bytes_per_thread
+
     def _has_three_row_tile_bodies(self) -> bool:
         solution = self._grouped_context().solution_key.solution
         return (
@@ -377,21 +388,21 @@ class GroupedDecodedWeightLdsLowering(DecodedWeightLdsLowering):
         auxiliary = registers.auxiliary.first_register
         staging_base = registers.staged_payload.first_register
         lane_stride = layout.activation_lane_stride
-        stage_dwords = (
-            row_tile_rows
-            * self._grouped_context().solution_key.solution.activation_block_bytes
-            // (4 * self._grouped_context().solution_key.solution.num_threads)
-        )
+        stage_dwords = self._activation_stage_dwords(row_tile_rows)
+        force_mask = self._activation_stage_requires_mask(row_tile_rows)
         full_label = f".LGroupedQ4KActivationFull{stage}{label_suffix}"
         done_label = f".LGroupedQ4KActivationLoaded{stage}{label_suffix}"
 
         asm.comment("Stage one full or masked aggregate-row Q8_1 plane.")
-        asm.inst(
-            f"s_add_u32 s{self.ROW_TILE_END}, s{scalar.row_start.first_register}, "
-            f"{row_tile_rows}"
-        )
-        asm.inst(f"s_cmp_le_u32 s{self.ROW_TILE_END}, s{scalar.row_end.first_register}")
-        asm.inst(f"s_cbranch_scc1 {full_label}")
+        if not force_mask:
+            asm.inst(
+                f"s_add_u32 s{self.ROW_TILE_END}, s{scalar.row_start.first_register}, "
+                f"{row_tile_rows}"
+            )
+            asm.inst(
+                f"s_cmp_le_u32 s{self.ROW_TILE_END}, s{scalar.row_end.first_register}"
+            )
+            asm.inst(f"s_cbranch_scc1 {full_label}")
 
         for item in range(stage_dwords):
             asm.inst(f"v_mov_b32 v{staging_base + item}, 0")
@@ -421,7 +432,8 @@ class GroupedDecodedWeightLdsLowering(DecodedWeightLdsLowering):
         )
         asm.inst(f"s_branch {done_label}")
 
-        asm.label(full_label)
+        if not force_mask:
+            asm.label(full_label)
         for chunk in range((stage_dwords + 7) // 8):
             chunk_start = 8 * chunk
             chunk_count = min(8, stage_dwords - chunk_start)
@@ -468,11 +480,7 @@ class GroupedDecodedWeightLdsLowering(DecodedWeightLdsLowering):
         serial = registers.serial.first_register
         lds_address = registers.lds_address.first_register
         staging_base = registers.staged_payload.first_register
-        stage_dwords = (
-            row_tile_rows
-            * self._grouped_context().solution_key.solution.activation_block_bytes
-            // (4 * self._grouped_context().solution_key.solution.num_threads)
-        )
+        stage_dwords = self._activation_stage_dwords(row_tile_rows)
         asm.inst(f"v_lshlrev_b32 v{lds_address}, 2, v{serial}")
         asm.inst(
             f"v_add_nc_u32 v{lds_address}, {physical.layout.activation_base}, "

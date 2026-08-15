@@ -43,6 +43,16 @@ def validate_grouped_forward_solution(
         GroupedForwardSolution.q2_k_serial_decoded_lds_32_unrolled(),
         GroupedForwardSolution.q2_k_serial_decoded_lds_64_unrolled(),
         GroupedForwardSolution.q2_k_serial_decoded_lds_128_unrolled(),
+        GroupedForwardSolution.q2_k_serial_decoded_lds_32_hip_association(),
+        GroupedForwardSolution.q2_k_serial_decoded_lds_64_hip_association(),
+        GroupedForwardSolution.q2_k_serial_decoded_lds_32_hip_partial_lds(),
+        GroupedForwardSolution.q2_k_serial_decoded_lds_32_hip_pre_negated_dm(),
+        GroupedForwardSolution.q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2(),
+        GroupedForwardSolution.q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2_meta2(),
+        GroupedForwardSolution.q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2_meta2_distributed(),
+        GroupedForwardSolution.q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2_meta2_mixed16(),
+        GroupedForwardSolution.q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2_meta2_distributed_mixed16(),
+        GroupedForwardSolution.q2_k_serial_decoded_lds_64_hip_distributed(),
     }
     q4_solutions = {
         GroupedForwardSolution.q4_k_serial_direct(),

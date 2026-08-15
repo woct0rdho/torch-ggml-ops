@@ -27,6 +27,11 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
     def _q2_physical(self) -> GroupedDecodedPhysicalPlan:
         return cast(GroupedDecodedPhysicalPlan, self._q2_state().physical_plan)
 
+    def _activation_stage_requires_mask(self, row_tile_rows: int) -> bool:
+        solution = self._q2_context().solution_key.solution
+        bytes_per_thread = 4 * solution.num_threads
+        return (row_tile_rows * solution.activation_block_bytes) % bytes_per_thread != 0
+
     def body(self) -> str:
         solution = self._q2_context().solution_key.solution
         if solution.operand_source != self.OPERAND_SOURCE:
@@ -99,18 +104,13 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
             f"v_mad_u32_u24 v{activation_base}, {activation_metadata.block_bytes}, "
             f"v{lane}, s{self.ACTIVATION_LDS_BASE}"
         )
-        asm.inst(
-            f"v_mov_b32 v{registers.weight_payload.first_register + 4}, 0x01010101"
-        )
-        asm.inst(
-            f"v_mov_b32 v{registers.weight_payload.first_register + 5}, 0x01010101"
-        )
-        asm.inst(
-            f"v_mov_b32 v{registers.weight_payload.first_register + 6}, 0x01010101"
-        )
-        asm.inst(
-            f"v_mov_b32 v{registers.weight_payload.first_register + 7}, 0x01010101"
-        )
+        for register in range(
+            registers.weight_payload.first_register + 4,
+            registers.weight_payload.first_register + 8,
+            2,
+        ):
+            asm.inst(f"v_mov_b32 v{register}, 0x01010101")
+            asm.inst(f"v_mov_b32 v{register + 1}, 0x01010101")
 
         asm.label(".LGroupedQ2KDecodedRowLoop")
         asm.inst(
@@ -131,10 +131,12 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
             f"s_sub_u32 s{scalar.row_tile_rows.first_register}, "
             f"s{scalar.row_end.first_register}, s{scalar.row_start.first_register}"
         )
-        for register in range(zero_accumulator, zero_accumulator + 8):
+        for register in range(zero_accumulator, zero_accumulator + 8, 2):
             asm.inst(f"v_mov_b32 v{register}, 0")
-        for register in range(sum_base, sum_base + 8 * self._row_tile_count()):
+            asm.inst(f"v_mov_b32 v{register + 1}, 0")
+        for register in range(sum_base, sum_base + 8 * self._row_tile_count(), 2):
             asm.inst(f"v_mov_b32 v{register}, v{zero_accumulator}")
+            asm.inst(f"v_mov_b32 v{register + 1}, v{zero_accumulator + 1}")
         asm.inst(f"s_mov_b32 s{self.LOOP_COUNTER}, 0")
         asm.inst(f"s_mov_b32 s{self.SCALAR_TEMPORARY}, 0")
 
@@ -154,10 +156,10 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
         )
 
         self._emit_grouped_activation_stage_dispatch(asm, stage=0)
-        self._emit_q2_group_loop(asm, group_base=0)
+        self._emit_q2_group_dispatch(asm, group_base=0)
         asm.inst("s_barrier")
         self._emit_grouped_activation_stage_dispatch(asm, stage=1)
-        self._emit_q2_group_loop(asm, group_base=8)
+        self._emit_q2_group_dispatch(asm, group_base=8)
         asm.inst("s_barrier")
         asm.inst(
             f"s_add_u32 s{self.SCALAR_TEMPORARY}, s{self.SCALAR_TEMPORARY}, "
@@ -201,6 +203,13 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
         ql_offset = 16
         scales_offset = 0
         dm_offset = 80
+        schedule = self._q2_context().solution_key.solution.metadata_schedule
+        if "DistributedProducer" in schedule:
+            self._emit_q2_distributed_weight_decode_stage(asm)
+            return
+        write2_decode = "PreNegatedDmWrite2" in schedule
+        write2_metadata = "PreNegatedDmWrite2Meta2" in schedule
+        pre_negated_dm = "PreNegatedDm" in schedule
 
         asm.comment("Decode Q2_K two-bit payload and scale/minimum metadata into LDS.")
         asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{serial}")
@@ -268,36 +277,263 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
                 else:
                     asm.inst(f"v_lshrrev_b32 v{target}, {shift}, v{raw}")
                     asm.inst(f"v_and_b32 v{target}, 0x03030303, v{target}")
-                asm.inst(f"ds_write_b32 v{lds_address}, v{target}")
-                if target != decoded + 3:
-                    asm.inst(f"v_add_nc_u32 v{lds_address}, 32, v{lds_address}")
-            if item != 7:
+                if not write2_decode:
+                    asm.inst(f"ds_write_b32 v{lds_address}, v{target}")
+                    if target != decoded + 3:
+                        asm.inst(f"v_add_nc_u32 v{lds_address}, 32, v{lds_address}")
+            if write2_decode:
+                asm.inst(
+                    f"ds_write2_b32 v{lds_address}, "
+                    f"v{decoded}, v{decoded + 1} offset0:0 offset1:8"
+                )
+                asm.inst(
+                    f"ds_write2_b32 v{lds_address}, "
+                    f"v{decoded + 2}, v{decoded + 3} offset0:16 offset1:24"
+                )
+            elif item != 7:
                 asm.inst(f"v_sub_nc_u32 v{lds_address}, v{lds_address}, {32 * 3}")
 
         asm.inst(f"s_cmp_lt_u32 s{self.WAVE_INDEX}, 2")
         asm.inst("s_cbranch_scc0 .LGroupedQ2KMetadataDone")
         asm.inst(f"v_mul_lo_u32 v{lds_address}, {layout.weight_row_stride}, v{serial}")
         asm.inst(f"v_add_nc_u32 v{lds_address}, {weight_base + 256}, v{lds_address}")
-        for group in range(16):
-            word = staged + 12 + group // 4
-            bit = 8 * (group % 4)
-            asm.inst(f"v_bfe_u32 v{decode}, v{word}, {bit}, 4")
-            asm.inst(f"v_bfe_u32 v{decode + 1}, v{word}, {bit + 4}, 4")
-            asm.inst(f"v_cvt_f16_u16_e32 v{decode + 2}.l, v{decode}.l")
-            asm.inst(f"v_cvt_f16_u16_e32 v{decode + 2}.h, v{decode + 1}.l")
-            asm.inst(f"v_pk_mul_f16 v{decode + 2}, 0xbc003c00, v{decode + 2}")
-            asm.inst(f"v_pk_mul_f16 v{decode + 2}, v{staged + 16}, v{decode + 2}")
-            asm.inst(f"ds_write_b32 v{lds_address}, v{decode + 2} offset:{4 * group}")
+        if pre_negated_dm:
+            asm.inst(f"v_pk_mul_f16 v{staged + 16}, 0xbc003c00, v{staged + 16}")
+        if write2_metadata:
+            for pair in range(0, 16, 2):
+                for group, destination in (
+                    (pair, decode + 2),
+                    (pair + 1, auxiliary),
+                ):
+                    word = staged + 12 + group // 4
+                    bit = 8 * (group % 4)
+                    asm.inst(f"v_bfe_u32 v{decode}, v{word}, {bit}, 4")
+                    asm.inst(f"v_bfe_u32 v{decode + 1}, v{word}, {bit + 4}, 4")
+                    asm.inst(f"v_cvt_f16_u16_e32 v{destination}.l, v{decode}.l")
+                    asm.inst(f"v_cvt_f16_u16_e32 v{destination}.h, v{decode + 1}.l")
+                if not pre_negated_dm:
+                    asm.inst(f"v_pk_mul_f16 v{decode + 2}, 0xbc003c00, v{decode + 2}")
+                    asm.inst(f"v_pk_mul_f16 v{auxiliary}, 0xbc003c00, v{auxiliary}")
+                asm.inst(f"v_pk_mul_f16 v{decode + 2}, v{staged + 16}, v{decode + 2}")
+                asm.inst(f"v_pk_mul_f16 v{auxiliary}, v{staged + 16}, v{auxiliary}")
+                asm.inst(
+                    f"ds_write2_b32 v{lds_address}, v{decode + 2}, v{auxiliary} "
+                    f"offset0:{pair} offset1:{pair + 1}"
+                )
+        else:
+            for group in range(16):
+                word = staged + 12 + group // 4
+                bit = 8 * (group % 4)
+                asm.inst(f"v_bfe_u32 v{decode}, v{word}, {bit}, 4")
+                asm.inst(f"v_bfe_u32 v{decode + 1}, v{word}, {bit + 4}, 4")
+                asm.inst(f"v_cvt_f16_u16_e32 v{decode + 2}.l, v{decode}.l")
+                asm.inst(f"v_cvt_f16_u16_e32 v{decode + 2}.h, v{decode + 1}.l")
+                if not pre_negated_dm:
+                    asm.inst(f"v_pk_mul_f16 v{decode + 2}, 0xbc003c00, v{decode + 2}")
+                asm.inst(f"v_pk_mul_f16 v{decode + 2}, v{staged + 16}, v{decode + 2}")
+                asm.inst(
+                    f"ds_write_b32 v{lds_address}, v{decode + 2} offset:{4 * group}"
+                )
         asm.label(".LGroupedQ2KMetadataDone")
 
-    def _emit_q2_group_loop(self, asm: Assembly, *, group_base: int) -> None:
-        if (
-            self._q2_context().solution_key.solution.metadata_schedule
-            == "Q2ScaleMinimumNibbleUnrolled"
-        ):
+    def _emit_q2_distributed_weight_decode_stage(self, asm: Assembly) -> None:
+        """Distribute Q2 payload and metadata conversion across all four waves."""
+        physical = self._q2_physical()
+        layout = physical.layout
+        registers = physical.registers
+        state = self._q2_state()
+        staged = registers.staged_payload.first_register
+        decode = registers.decode_scratch.first_register
+        decoded = decode + 8
+        serial = registers.serial.first_register
+        payload_address = registers.temporary.first_register
+        scale_address = registers.auxiliary.first_register
+        dm_address = scale_address + 1
+        scratch = registers.metadata_lds_address.first_register
+        payload_lds = registers.lds_address.first_register
+        row_stride = state.packed_weight_row_bytes
+        decoded_row_stride = layout.weight_row_stride
+        pair_metadata_rows = 8 * decoded_row_stride % 256 == 0
+        weight_base = layout.weight_data_base
+
+        asm.comment(
+            "Queue eight distributed Q2 payload/scale/dm rows before conversion."
+        )
+        asm.inst(f"v_lshrrev_b32 v{payload_address}, 4, v{serial}")
+        asm.inst(f"v_lshlrev_b32 v{scratch}, 6, s2")
+        asm.inst(f"v_add_nc_u32 v{payload_address}, v{scratch}, v{payload_address}")
+        asm.inst(f"v_mul_lo_u32 v{payload_address}, {row_stride}, v{payload_address}")
+        asm.inst(
+            f"v_add_nc_u32 v{payload_address}, s{self.SCALAR_TEMPORARY}, "
+            f"v{payload_address}"
+        )
+        asm.inst(f"v_mov_b32 v{scale_address}, v{payload_address}")
+        asm.inst(f"v_mov_b32 v{dm_address}, v{payload_address}")
+        asm.inst(f"v_and_b32 v{scratch}, 15, v{serial}")
+        asm.inst(f"v_add_nc_u32 v{scale_address}, v{scratch}, v{scale_address}")
+        asm.inst(f"v_lshlrev_b32 v{scratch}, 2, v{scratch}")
+        asm.inst(f"v_add3_u32 v{payload_address}, 16, v{scratch}, v{payload_address}")
+        asm.inst(f"v_add_nc_u32 v{dm_address}, 80, v{dm_address}")
+
+        for item in range(8):
+            asm.inst(
+                f"global_load_b32 v{staged + item}, v{payload_address}, "
+                f"s[{self.KERNARG}:{self.KERNARG + 1}]"
+            )
+            asm.inst(
+                f"global_load_u8 v{staged + 8 + item}, v{scale_address}, "
+                f"s[{self.KERNARG}:{self.KERNARG + 1}]"
+            )
+            asm.inst(
+                f"global_load_b32 v{staged + 16 + item}, v{dm_address}, "
+                f"s[{self.KERNARG}:{self.KERNARG + 1}]"
+            )
+            if item != 7:
+                advance = 8 * row_stride
+                asm.inst(
+                    f"v_add_nc_u32 v{payload_address}, {advance}, v{payload_address}"
+                )
+                asm.inst(f"v_add_nc_u32 v{scale_address}, {advance}, v{scale_address}")
+                asm.inst(f"v_add_nc_u32 v{dm_address}, {advance}, v{dm_address}")
+
+        asm.inst(f"v_lshrrev_b32 v{payload_lds}, 4, v{serial}")
+        asm.inst(f"v_mul_lo_u32 v{payload_lds}, {decoded_row_stride}, v{payload_lds}")
+        asm.inst(f"v_and_b32 v{scratch}, 15, v{serial}")
+        asm.inst(f"v_lshrrev_b32 v{scale_address}, 3, v{scratch}")
+        asm.inst(f"v_lshlrev_b32 v{scale_address}, 7, v{scale_address}")
+        asm.inst(f"v_and_b32 v{dm_address}, 7, v{scratch}")
+        asm.inst(f"v_lshlrev_b32 v{dm_address}, 2, v{dm_address}")
+        asm.inst(
+            f"v_add3_u32 v{payload_lds}, v{scale_address}, v{dm_address}, "
+            f"v{payload_lds}"
+        )
+        asm.inst(f"v_add_nc_u32 v{payload_lds}, {weight_base}, v{payload_lds}")
+
+        asm.inst(f"v_lshrrev_b32 v{scratch}, 4, v{serial}")
+        asm.inst(f"v_mul_lo_u32 v{scratch}, {decoded_row_stride}, v{scratch}")
+        asm.inst(f"v_and_b32 v{scale_address}, 15, v{serial}")
+        asm.inst(f"v_lshlrev_b32 v{scale_address}, 2, v{scale_address}")
+        asm.inst(
+            f"v_add3_u32 v{scratch}, {weight_base + 256}, v{scale_address}, v{scratch}"
+        )
+
+        for item in range(8):
+            asm.inst(f"s_waitcnt vmcnt({21 - 3 * item})")
+            if item:
+                row_advance = 8 * decoded_row_stride
+                asm.inst(f"v_add_nc_u32 v{payload_lds}, {row_advance}, v{payload_lds}")
+                if pair_metadata_rows:
+                    if item % 2 == 0:
+                        asm.inst(
+                            f"v_add_nc_u32 v{scratch}, {2 * row_advance}, v{scratch}"
+                        )
+                else:
+                    asm.inst(f"v_add_nc_u32 v{scratch}, {row_advance}, v{scratch}")
+            raw = staged + item
+            for shift, target in (
+                (0, decoded),
+                (2, decoded + 1),
+                (4, decoded + 2),
+                (6, decoded + 3),
+            ):
+                if shift == 0:
+                    asm.inst(f"v_and_b32 v{target}, 0x03030303, v{raw}")
+                else:
+                    asm.inst(f"v_lshrrev_b32 v{target}, {shift}, v{raw}")
+                    asm.inst(f"v_and_b32 v{target}, 0x03030303, v{target}")
+            asm.inst(
+                f"ds_write2_b32 v{payload_lds}, v{decoded}, v{decoded + 1} "
+                "offset0:0 offset1:8"
+            )
+            asm.inst(
+                f"ds_write2_b32 v{payload_lds}, v{decoded + 2}, v{decoded + 3} "
+                "offset0:16 offset1:24"
+            )
+
+            scale = staged + 8 + item
+            dm = staged + 16 + item
+            metadata_value = decoded + 6 + (item % 2 if pair_metadata_rows else 0)
+            asm.inst(f"v_and_b32 v{decoded + 4}, 15, v{scale}")
+            asm.inst(f"v_lshrrev_b32 v{decoded + 5}, 4, v{scale}")
+            asm.inst(f"v_cvt_f16_u16_e32 v{metadata_value}.l, v{decoded + 4}.l")
+            asm.inst(f"v_cvt_f16_u16_e32 v{metadata_value}.h, v{decoded + 5}.l")
+            asm.inst(f"v_pk_mul_f16 v{dm}, 0xbc003c00, v{dm}")
+            asm.inst(f"v_pk_mul_f16 v{metadata_value}, v{dm}, v{metadata_value}")
+            if pair_metadata_rows:
+                if item % 2:
+                    asm.inst(
+                        f"ds_write2st64_b32 v{scratch}, v{decoded + 6}, "
+                        f"v{decoded + 7} offset0:0 "
+                        f"offset1:{8 * decoded_row_stride // 256}"
+                    )
+            else:
+                asm.inst(f"ds_write_b32 v{scratch}, v{metadata_value}")
+
+    def _emit_q2_group_dispatch(self, asm: Assembly, *, group_base: int) -> None:
+        solution = self._q2_context().solution_key.solution
+        scalar = self._q2_physical().scalar_registers
+        if solution.tail_macro_tile0 == solution.macro_tile0:
+            self._emit_q2_group_loop(asm, group_base=group_base)
+            return
+
+        tail_label = f".LGroupedQ2KMmaTailDispatch{group_base}"
+        done_label = f".LGroupedQ2KMmaDispatchDone{group_base}"
+        asm.inst(
+            f"s_cmp_le_u32 s{scalar.row_tile_rows.first_register}, "
+            f"{solution.tail_macro_tile0}"
+        )
+        asm.inst(f"s_cbranch_scc1 {tail_label}")
+        self._emit_q2_group_loop(
+            asm,
+            group_base=group_base,
+            row_tiles=solution.macro_tile0 // 16,
+            label_suffix="Macro",
+        )
+        asm.inst(f"s_branch {done_label}")
+        asm.label(tail_label)
+        self._emit_q2_group_loop(
+            asm,
+            group_base=group_base,
+            row_tiles=solution.tail_macro_tile0 // 16,
+            label_suffix="Tail",
+        )
+        asm.label(done_label)
+
+    def _emit_q2_group_loop(
+        self,
+        asm: Assembly,
+        *,
+        group_base: int,
+        row_tiles: int | None = None,
+        label_suffix: str = "",
+    ) -> None:
+        row_tiles = row_tiles or self._row_tile_count()
+        schedule = self._q2_context().solution_key.solution.metadata_schedule
+        if schedule in {
+            "Q2ScaleMinimumNibbleUnrolled",
+            "Q2ScaleMinimumNibbleUnrolledHipAssociation",
+            "Q2HipAssociationPartialLds",
+            "Q2HipAssociationPartialLdsPreNegatedDm",
+            "Q2HipAssociationPartialLdsPreNegatedDmWrite2",
+            "Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2",
+            "Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2DistributedProducer",
+        }:
+            hip_association = schedule != "Q2ScaleMinimumNibbleUnrolled"
+            partial_lds = schedule in {
+                "Q2HipAssociationPartialLds",
+                "Q2HipAssociationPartialLdsPreNegatedDm",
+                "Q2HipAssociationPartialLdsPreNegatedDmWrite2",
+                "Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2",
+                "Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2DistributedProducer",
+            }
             for local_group in range(8):
                 self._emit_q2_static_group(
-                    asm, group_base=group_base, local_group=local_group
+                    asm,
+                    group_base=group_base,
+                    local_group=local_group,
+                    hip_association=hip_association,
+                    partial_lds=partial_lds,
+                    row_tiles=row_tiles,
                 )
             return
 
@@ -315,9 +551,8 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
         activation_base = registers.activation_base.first_register
         weight_base = registers.output_column.first_register
         metadata_base = registers.metadata_lds_address.first_register
-        row_tiles = self._row_tile_count()
         asm.inst(f"s_mov_b32 s{self.GROUP_LOOP}, 0")
-        label = f".LGroupedQ2KGroupLoop{group_base}"
+        label = f".LGroupedQ2KGroupLoop{group_base}{label_suffix}"
         asm.label(label)
         asm.inst(f"s_lshl_b32 s{self.GROUP_OFFSET}, s{self.GROUP_LOOP}, 4")
         asm.inst(f"v_add_nc_u32 v{lds_address}, {16 * group_base}, v{weight_base}")
@@ -405,13 +640,24 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
                 f"offset0:0 offset1:{layout.weight_row_stride // 2}"
             )
         asm.inst("s_waitcnt lgkmcnt(0)")
-        self._emit_q2_wmma_path(asm, row_tiles=row_tiles, label_suffix=str(group_base))
+        self._emit_q2_wmma_path(
+            asm,
+            row_tiles=row_tiles,
+            label_suffix=f"{group_base}{label_suffix}",
+        )
         asm.inst(f"s_add_u32 s{self.GROUP_LOOP}, s{self.GROUP_LOOP}, 1")
         asm.inst(f"s_cmp_lt_u32 s{self.GROUP_LOOP}, 8")
         asm.inst(f"s_cbranch_scc1 {label}")
 
     def _emit_q2_static_group(
-        self, asm: Assembly, *, group_base: int, local_group: int
+        self,
+        asm: Assembly,
+        *,
+        group_base: int,
+        local_group: int,
+        hip_association: bool,
+        partial_lds: bool = False,
+        row_tiles: int | None = None,
     ) -> None:
         physical = self._q2_physical()
         registers = physical.registers
@@ -427,8 +673,17 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
         activation_base = registers.activation_base.first_register
         weight_base = registers.output_column.first_register
         metadata_base = registers.metadata_lds_address.first_register
-        row_tiles = self._row_tile_count()
+        row_tiles = row_tiles or self._row_tile_count()
         group = group_base + local_group
+        if partial_lds:
+            self._emit_q2_static_group_partial_lds(
+                asm,
+                group=group,
+                local_group=local_group,
+                hip_association=hip_association,
+                row_tiles=row_tiles,
+            )
+            return
 
         asm.comment(f"Statically lowered Q2_K group {group}.")
         asm.inst(f"v_add_nc_u32 v{lds_address}, {16 * group}, v{weight_base}")
@@ -483,11 +738,110 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
             )
         asm.inst("s_waitcnt lgkmcnt(0)")
         self._emit_q2_static_wmma_path(
-            asm, row_tiles=row_tiles, missing_sum=local_group >= 6
+            asm,
+            row_tiles=row_tiles,
+            missing_sum=local_group >= 6,
+            hip_association=hip_association,
+        )
+
+    def _emit_q2_static_group_partial_lds(
+        self,
+        asm: Assembly,
+        *,
+        group: int,
+        local_group: int,
+        hip_association: bool,
+        row_tiles: int,
+    ) -> None:
+        physical = self._q2_physical()
+        registers = physical.registers
+        layout = physical.layout
+        activation_metadata = cast(
+            F16D2S6ActivationMetadata, layout.activation_metadata
+        )
+        weight_q = registers.weight_payload.first_register
+        c_base = registers.c_fragments.first_register
+        activation_scale_sum = registers.activation_scale_sum.first_register
+        activation_sum = registers.high_activation.first_register
+        scaled_dm = registers.scaled_dm.first_register
+        lds_address = registers.lds_address.first_register
+        activation_base = registers.activation_base.first_register
+        weight_base = registers.output_column.first_register
+        metadata_base = registers.metadata_lds_address.first_register
+
+        asm.comment(f"Partial-LDS Q2_K group {group}.")
+        for tile in range(row_tiles):
+            asm.inst(
+                f"ds_read_b32 v{activation_scale_sum + tile}, "
+                f"v{activation_base} "
+                f"offset:{16 * tile * activation_metadata.block_bytes}"
+            )
+            if local_group < 6:
+                sum_word_offset = 4 + 4 * (local_group // 2)
+                asm.inst(
+                    f"ds_read_b32 v{activation_sum + tile}, v{activation_base} "
+                    f"offset:{sum_word_offset + 16 * tile * activation_metadata.block_bytes}"
+                )
+
+        asm.inst(f"v_add_nc_u32 v{lds_address}, {16 * group}, v{weight_base}")
+        asm.inst(f"ds_read_b128 v[{weight_q}:{weight_q + 3}], v{lds_address}")
+        for tile in range(row_tiles):
+            activation = (
+                c_base + 8 * (tile + 1)
+                if tile < row_tiles - 1
+                else registers.low_activation_tail.first_register
+            )
+            asm.inst(
+                f"ds_read_b128 v[{activation}:{activation + 3}], "
+                f"v{activation_base} offset:"
+                f"{activation_metadata.payload_offset(local_group) + 16 * tile * activation_metadata.block_bytes}"
+            )
+
+        metadata_address = registers.metadata_addresses.first_register
+        asm.inst(f"v_add_nc_u32 v{metadata_address}, {4 * group}, v{metadata_base}")
+        for pair in range(1, 4):
+            asm.inst(
+                f"v_add_nc_u32 v{metadata_address + pair}, "
+                f"{4 * layout.weight_row_stride * pair}, v{metadata_address}"
+            )
+        for element in range(0, 8, 2):
+            asm.inst(
+                f"ds_read2_b32 v[{scaled_dm + element}:{scaled_dm + element + 1}], "
+                f"v{metadata_address + element // 2} offset0:0 "
+                f"offset1:{layout.weight_row_stride // 2}"
+            )
+
+        # The first five or seven reads provide scales, sums, and WMMA
+        # payloads. Keep the four trailing d/dmin reads in flight.
+        asm.inst("s_waitcnt lgkmcnt(4)")
+        for tile in range(row_tiles):
+            scale = activation_scale_sum + tile
+            if local_group >= 4:
+                asm.inst(f"v_lshrrev_b32 v{scale}, 16, v{scale}")
+            asm.inst(f"v_and_b32 v{scale}, 0x0000ffff, v{scale}")
+            if local_group < 6:
+                total = activation_sum + tile
+                if local_group % 2:
+                    asm.inst(f"v_lshrrev_b32 v{total}, 16, v{total}")
+                asm.inst(f"v_and_b32 v{total}, 0x0000ffff, v{total}")
+                asm.inst(f"v_lshl_or_b32 v{scale}, v{total}, 16, v{scale}")
+
+        self._emit_q2_static_wmma_path(
+            asm,
+            row_tiles=row_tiles,
+            missing_sum=local_group >= 6,
+            hip_association=hip_association,
+            partial_lds=True,
         )
 
     def _emit_q2_static_wmma_path(
-        self, asm: Assembly, *, row_tiles: int, missing_sum: bool
+        self,
+        asm: Assembly,
+        *,
+        row_tiles: int,
+        missing_sum: bool,
+        hip_association: bool,
+        partial_lds: bool = False,
     ) -> None:
         registers = self._q2_physical().registers
         c_base = registers.c_fragments.first_register
@@ -504,7 +858,8 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
                 activation = (
                     c_base + 8 * (tile + 1) if tile < row_tiles - 1 else low_last
                 )
-                asm.inst("s_waitcnt lgkmcnt(0)")
+                if not partial_lds:
+                    asm.inst("s_waitcnt lgkmcnt(0)")
                 emit_signed_i8_wmma(
                     asm,
                     destination=c_base + 8 * tile,
@@ -513,8 +868,37 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
                     accumulator=zero,
                     clamp=True,
                 )
+            if partial_lds:
+                asm.inst("s_waitcnt lgkmcnt(0)")
             for tile in range(row_tiles):
                 c_fragment = c_base + 8 * tile
+                if hip_association:
+                    for element in range(8):
+                        asm.inst(
+                            f"v_cvt_f32_i32 v{c_fragment + element}, "
+                            f"v{c_fragment + element}"
+                        )
+                    for element in range(8):
+                        asm.inst(
+                            f"v_fma_mix_f32 v{low_last + element}, "
+                            f"v{c_fragment + element}, v{scaled_dm + element}, "
+                            f"0 op_sel_hi:[0,1,0]"
+                        )
+                    for element in range(8):
+                        asm.inst(
+                            f"v_fma_mix_f32 v{sums + 8 * tile + element}, "
+                            f"v{low_last + element}, v{scale_sum + tile}, "
+                            f"v{sums + 8 * tile + element} "
+                            f"op_sel_hi:[0,1,0]"
+                        )
+                    for element in range(8):
+                        asm.inst(
+                            f"v_fma_mix_f32 v{sums + 8 * tile + element}, "
+                            f"v{scaled_dm + element}, v{scale_sum + tile}, "
+                            f"v{sums + 8 * tile + element} op_sel:[1,1,0] "
+                            f"op_sel_hi:[1,1,0]"
+                        )
+                    continue
                 for element in range(8):
                     product = low_last + element
                     asm.inst(
@@ -538,6 +922,9 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
                     )
             return
 
+        correction_temporary = (
+            registers.staged_payload.first_register + 42 if row_tiles <= 2 else high + 8
+        )
         for tile in range(row_tiles):
             activation = c_base + 8 * (tile + 1) if tile < row_tiles - 1 else low_last
             emit_signed_i8_wmma(
@@ -556,6 +943,44 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
                 accumulator=zero,
                 clamp=True,
             )
+            if partial_lds and tile == 0:
+                asm.inst("s_waitcnt lgkmcnt(0)")
+            if hip_association:
+                for element in range(8):
+                    asm.inst(
+                        f"v_cvt_f32_i32 v{c_base + 8 * tile + element}, "
+                        f"v{c_base + 8 * tile + element}"
+                    )
+                for element in range(8):
+                    asm.inst(f"v_cvt_f32_i32 v{high + element}, v{high + element}")
+                for element in range(8):
+                    asm.inst(
+                        f"v_fma_mix_f32 v{correction_temporary + element}, "
+                        f"v{c_base + 8 * tile + element}, "
+                        f"v{scaled_dm + element}, 0 op_sel_hi:[0,1,0]"
+                    )
+                for element in range(8):
+                    asm.inst(
+                        f"v_fma_mix_f32 v{correction_temporary + element}, "
+                        f"v{high + element}, v{scaled_dm + element}, "
+                        f"v{correction_temporary + element} "
+                        f"op_sel:[0,1,0] op_sel_hi:[0,1,0]"
+                    )
+                for element in range(8):
+                    asm.inst(
+                        f"v_fma_mix_f32 v{sums + 8 * tile + element}, "
+                        f"v{correction_temporary + element}, "
+                        f"v{scale_sum + tile}, "
+                        f"v{sums + 8 * tile + element} op_sel_hi:[0,1,0]"
+                    )
+                for element in range(8):
+                    asm.inst(
+                        f"v_fma_mix_f32 v{sums + 8 * tile + element}, "
+                        f"v{scaled_dm + element}, v{scale_sum + tile}, "
+                        f"v{sums + 8 * tile + element} "
+                        f"op_sel:[1,1,0] op_sel_hi:[1,1,0]"
+                    )
+                continue
             for element in range(8):
                 c_fragment = c_base + 8 * tile + element
                 ones = high + element

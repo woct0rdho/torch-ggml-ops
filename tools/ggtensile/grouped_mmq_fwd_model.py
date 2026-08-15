@@ -343,6 +343,88 @@ class GroupedForwardSolution:
         )
 
     @classmethod
+    def q2_k_serial_decoded_lds_32_hip_association(cls) -> Self:
+        return replace(
+            cls.q2_k_serial_decoded_lds_32_unrolled(),
+            metadata_schedule="Q2ScaleMinimumNibbleUnrolledHipAssociation",
+        )
+
+    @classmethod
+    def q2_k_serial_decoded_lds_64_hip_association(cls) -> Self:
+        return replace(
+            cls.q2_k_serial_decoded_lds_64_unrolled(),
+            metadata_schedule="Q2ScaleMinimumNibbleUnrolledHipAssociation",
+        )
+
+    @classmethod
+    def q2_k_serial_decoded_lds_32_hip_partial_lds(cls) -> Self:
+        return replace(
+            cls.q2_k_serial_decoded_lds_32_hip_association(),
+            metadata_schedule="Q2HipAssociationPartialLds",
+        )
+
+    @classmethod
+    def q2_k_serial_decoded_lds_32_hip_pre_negated_dm(cls) -> Self:
+        return replace(
+            cls.q2_k_serial_decoded_lds_32_hip_partial_lds(),
+            metadata_schedule="Q2HipAssociationPartialLdsPreNegatedDm",
+        )
+
+    @classmethod
+    def q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2(cls) -> Self:
+        return replace(
+            cls.q2_k_serial_decoded_lds_32_hip_pre_negated_dm(),
+            metadata_schedule="Q2HipAssociationPartialLdsPreNegatedDmWrite2",
+        )
+
+    @classmethod
+    def q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2_meta2(cls) -> Self:
+        return replace(
+            cls.q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2(),
+            metadata_schedule="Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2",
+        )
+
+    @classmethod
+    def q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2_meta2_distributed(
+        cls,
+    ) -> Self:
+        return replace(
+            cls.q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2_meta2(),
+            metadata_schedule=(
+                "Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2DistributedProducer"
+            ),
+        )
+
+    @classmethod
+    def q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2_meta2_mixed16(
+        cls,
+    ) -> Self:
+        return replace(
+            cls.q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2_meta2(),
+            tail_macro_tile0=16,
+            output_store="BFloat16RNEClause2Clause1MixedMasked",
+        )
+
+    @classmethod
+    def q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2_meta2_distributed_mixed16(
+        cls,
+    ) -> Self:
+        return replace(
+            cls.q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2_meta2_distributed(),
+            tail_macro_tile0=16,
+            output_store="BFloat16RNEClause2Clause1MixedMasked",
+        )
+
+    @classmethod
+    def q2_k_serial_decoded_lds_64_hip_distributed(cls) -> Self:
+        return replace(
+            cls.q2_k_serial_decoded_lds_64_hip_association(),
+            metadata_schedule=(
+                "Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2DistributedProducer"
+            ),
+        )
+
+    @classmethod
     def q2_k_serial_decoded_lds_128_unrolled(cls) -> Self:
         return replace(
             cls.q2_k_serial_decoded_lds_64_unrolled(),

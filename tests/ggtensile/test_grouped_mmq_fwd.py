@@ -64,8 +64,14 @@ def _q2_key(
 ) -> GroupedForwardSolutionKey:
     return GroupedForwardSolutionKey(
         GroupedForwardProblem.q2_k(aggregate_rows),
-        solution or GroupedForwardSolution.q2_k_serial_decoded_lds_32(),
+        solution or _q2_selected_solution(aggregate_rows),
     )
+
+
+def _q2_selected_solution(aggregate_rows: int) -> GroupedForwardSolution:
+    if aggregate_rows == 196_608:
+        return GroupedForwardSolution.q2_k_serial_decoded_lds_64_hip_distributed()
+    return GroupedForwardSolution.q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2_meta2_distributed_mixed16()
 
 
 @pytest.mark.parametrize("aggregate_rows", (16384, 65536, 262144))
@@ -94,6 +100,7 @@ def test_grouped_q2_k_exact_production_keys_derive(
     assert state.expected_output_shape == (aggregate_rows, 4096)
     assert state.grid(256) == (64, 256, 1)
     assert "grouped_mmq_fwd_q2_k" in key.kernel_name
+    assert key.solution == _q2_selected_solution(aggregate_rows)
 
 
 def test_grouped_q2_k_writer_emits_f16_d2s6_unrolled_groups() -> None:
@@ -107,6 +114,22 @@ def test_grouped_q2_k_writer_emits_f16_d2s6_unrolled_groups() -> None:
     assert source.count("Statically lowered Q2_K group") == 16
     assert "s_cmp_ge_u32 s31, 6" not in source
     assert source.count("s_barrier") == 4
+
+
+def test_grouped_q2_k_writer_emits_distributed_mixed_tail() -> None:
+    solution = GroupedForwardSolution.q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2_meta2_distributed_mixed16()
+    source = GroupedForwardKernelWriterAssembly(
+        _q2_key(solution, aggregate_rows=35), Toolchain.discover()
+    ).source()
+    assert (
+        "Queue eight distributed Q2 payload/scale/dm rows before conversion." in source
+    )
+    assert "s_waitcnt vmcnt(21)" in source
+    assert "ds_write2st64_b32" in source
+    assert "offset1:10" in source
+    assert ".LGroupedQ2KMmaTailDispatch0" in source
+    assert ".LGroupedQ4KEpilogueTailDispatch" in source
+    assert ".LGroupedQ4KActivationFull0Tail" not in source
 
 
 @pytest.mark.parametrize(
@@ -126,6 +149,18 @@ def test_grouped_q2_k_writer_emits_f16_d2s6_unrolled_groups() -> None:
         ),
         (
             GroupedForwardSolution.q2_k_serial_decoded_lds_64_unrolled(),
+            159,
+            30_208,
+            80,
+        ),
+        (
+            GroupedForwardSolution.q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2_meta2_distributed_mixed16(),
+            135,
+            25_600,
+            60,
+        ),
+        (
+            GroupedForwardSolution.q2_k_serial_decoded_lds_64_hip_distributed(),
             159,
             30_208,
             80,
@@ -158,11 +193,11 @@ def test_grouped_q2_k_artifact_passes_strict_inspection(
     assert inspection.sgpr_spill_count == 0
 
 
-def test_grouped_q2_k_selected_rebuild_is_deterministic(tmp_path: Path) -> None:
-    key = _q2_key(
-        GroupedForwardSolution.q2_k_serial_decoded_lds_64_unrolled(),
-        aggregate_rows=49_152,
-    )
+@pytest.mark.parametrize("aggregate_rows", (49_152, 196_608))
+def test_grouped_q2_k_selected_rebuild_is_deterministic(
+    tmp_path: Path, aggregate_rows: int
+) -> None:
+    key = _q2_key(aggregate_rows=aggregate_rows)
     toolchain = Toolchain.discover()
     sources = []
     code_objects = []
