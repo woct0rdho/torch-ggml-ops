@@ -329,10 +329,10 @@ class GroupedForwardSolution:
         )
 
     @classmethod
-    def iq2_s_serial_full_weight_lds_64_linear_bfe(cls) -> Self:
+    def iq2_s_serial_full_weight_lds_64_linear_payload_prefetch(cls) -> Self:
         return replace(
             cls.iq2_s_serial_full_weight_lds_64_linear_activation(),
-            metadata_schedule="IQ2SBfeExtraction",
+            metadata_schedule="IQ2SPayloadPrefetch",
         )
 
     @classmethod

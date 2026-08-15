@@ -111,4 +111,38 @@ The 35-row route remained bitwise exact. Across the five B16 medoids, weighted b
 
 B1 complete-call time improved to 2.6520 ms versus 3.2547 ms for HIP (`1.2273x`, 12.96 versus 10.56 effective TFLOPS), and every B1 medoid beat its control. B4 improved to 7.8400 ms versus 8.5931 ms (`1.0961x`, 17.53 versus 15.99 effective TFLOPS). Two lower-support B4 medoids remained below HIP at `0.9688x` and `0.9443x`, while the three high-support medoids were faster.
 
-BFE extraction is the new provisional parent pending further work on the remaining lower-support and B16 gaps.
+BFE extraction is the retained parent for subsequent decode scheduling work.
+
+### 2026-04-14: combined sign-selector construction
+
+The BFE parent still formed each byte-selector dword with multiply, mask, and shift-or. A dependent candidate shifts the spread constant into the multiply and uses `v_and_or_b32` with an invariant SGPR `0x03020100`, removing one instruction and one dependency edge from every signed codebook dword.
+
+The bounded route remained bitwise exact and resources remained 116 VGPRs, 40 SGPRs, and 30,720 bytes LDS. B16 weighted body time fell to 26.7194 ms and complete-call time to 28.2488 ms versus 26.4635 ms and 27.9971 ms for adjacent HIP. The complete-call ratio reached `0.9911x`, with individual medoids between `0.9896x` and `0.9938x`.
+
+B1 complete-call time was 2.6398 ms versus 3.2588 ms for HIP (`1.2345x`), and B4 was 7.8012 ms versus 8.6719 ms (`1.1116x`). Combined selector construction is retained as the decode parent.
+
+### 2026-04-14: quarter-scale arithmetic and payload prefetch
+
+Precomputing `d * 0.25` once and multiplying by `(scale + 0.5)` remained bitwise exact. Its B16 body result was near-neutral at 26.7029 ms, but complete-call time measured 28.1117 ms versus 28.0050 ms for HIP (`0.9962x`). The exact reassociation was retained as the arithmetic parent because it removes seven dependent FP operations per decoded block without increasing resources.
+
+A dependent schedule then prefetches the next group's five activation/weight payload LDS reads while correcting the current WMMA results. Weight and activation scale reads remain after correction and overlap the following four WMMAs. The 35-row route remained bitwise exact with unchanged resources.
+
+The five-medoid B16 screen measured 26.5156 ms body and 27.9807 ms complete versus 26.4687 ms and 28.0333 ms for adjacent HIP. Weighted complete-call performance reached `1.0019x`; individual medoids ranged from `0.9989x` to `1.0045x`.
+
+### Final qualification and retention
+
+The payload-prefetch identity received the required reversed-order 25-repeat confirmation across all three production shapes. Timings are weighted medians over the five fitted Qwen medoids and include fixed Q8_1 quantization and the allocated workspace.
+
+| Batch | Rows | Candidate body | HIP body | Candidate complete | HIP complete | Complete ratio | Candidate effective TFLOPS | HIP effective TFLOPS |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 16,384 | 2.4774 ms | 3.1532 ms | 2.5826 ms | 3.2557 ms | 1.2606x | 13.30 | 10.55 |
+| 4 | 65,536 | 7.4912 ms | 8.4727 ms | 7.7919 ms | 8.8203 ms | 1.1320x | 17.64 | 15.58 |
+| 16 | 262,144 | 27.0733 ms | 26.9418 ms | 28.5176 ms | 28.5591 ms | 1.0015x | 19.28 | 19.25 |
+
+Every B1 and B16 medoid met or exceeded its adjacent complete-call control; the minimum B16 ratio was `1.0001x`. The weighted B4 result passed comfortably, while the lowest-support B4 medoid remained at `0.9682x`. B16 body time remained `0.9951x` of HIP, but the required complete-call metric passed in both benchmark orders.
+
+Six bounded route profiles, including sequential, repeated, sparse, skewed, and boundary layouts, matched the installed control bitwise. Their independent 64-column references had maximum absolute error at most `0.005859375`. Synthetic controls at all three production row counts were finite and bitwise exact against the installed pure-J64 or mixed-J64/J32 dispatch selected for that shape. Active-weight, workspace, input, and route mutations changed output; an inactive-expert mutation was inert; invalid expert and out-of-range offset routes left sentinel output untouched.
+
+All three production artifacts rebuilt byte-identically and passed strict inspection as gfx1151 code-object v5, wave32 kernels with 116 VGPRs, 40 SGPRs, 30,720 bytes of LDS, 64 static WMMAs, four barriers, zero private storage, zero spills, no scratch instructions, no calls, and no dynamic stack. The focused grouped-forward file passed 49 tests. The broader grouped-plus-dense run passed 176 tests and reproduced only the five pre-existing Q6 full-HSACO-container hash failures; the corresponding Q6 source, `.text`, and resource assertions passed.
+
+The retained research identity is `iq2_s_serial_full_weight_lds_64_linear_payload_prefetch()`. Intermediate BFE, selector, and quarter-scale identities were folded into this single final identity. Public dispatch, generated bundle tables, extension registration, packaging, and HIP fallback remain unchanged.

@@ -90,10 +90,12 @@ def _iq2_s_linear_key(aggregate_rows: int = 16_384) -> GroupedForwardSolutionKey
     )
 
 
-def _iq2_s_bfe_key(aggregate_rows: int = 16_384) -> GroupedForwardSolutionKey:
+def _iq2_s_payload_prefetch_key(
+    aggregate_rows: int = 16_384,
+) -> GroupedForwardSolutionKey:
     return GroupedForwardSolutionKey(
         GroupedForwardProblem.iq2_s(aggregate_rows),
-        GroupedForwardSolution.iq2_s_serial_full_weight_lds_64_linear_bfe(),
+        GroupedForwardSolution.iq2_s_serial_full_weight_lds_64_linear_payload_prefetch(),
     )
 
 
@@ -118,10 +120,13 @@ def test_grouped_iq2_s_writer_embeds_distributed_codebook_decode() -> None:
     assert "Cooperatively decode one IQ2_S row half per workitem." in source
     assert "v_and_b32 v107, 1, v111" in source
     assert "v_and_b32 v107, 63, v0" not in source
-    assert sum(
-        "global_load_b64" in line and "s[38:39]" in line
-        for line in source.splitlines()
-    ) == 16
+    assert (
+        sum(
+            "global_load_b64" in line and "s[38:39]" in line
+            for line in source.splitlines()
+        )
+        == 16
+    )
     assert source.count("s_barrier") == 4
     assert '.section .rodata,"a",@progbits' in source
     assert source.count(".quad ") == 256
@@ -137,17 +142,29 @@ def test_grouped_iq2_s_linear_activation_stage_is_coalesced() -> None:
     assert source.count("s_barrier") == 4
 
 
-def test_grouped_iq2_s_bfe_extraction_replaces_shift_and_pairs() -> None:
+def test_grouped_iq2_s_payload_prefetch_overlaps_fragment_correction() -> None:
     source = GroupedForwardKernelWriterAssembly(
-        _iq2_s_bfe_key(35), Toolchain.discover()
+        _iq2_s_payload_prefetch_key(35), Toolchain.discover()
     ).source()
     assert "v_bfe_u32 v89, v87, 4, 4" in source
     assert "v_bfe_u32 v89, v33, 30, 2" in source
     assert "v_bfe_u32 v88, v34, 28, 4" in source
+    assert "s_mov_b32 s32, 0x03020100" in source
+    assert "v_mul_lo_u32 v90, 0x810204, v89" in source
+    assert "v_and_or_b32 v90, v90, 0x04040404, s32" in source
+    assert source.count("v_mul_f32 v32, 0.25, v32") == 1
+    assert source.count("v_add_f32 v88, 0.5, v88") == 8
+    assert "v_fmac_f32 v88, 0.5, v32" not in source
+    prefetch = source.index("Prefetch IQ2_S half 0 group 1 payloads.")
+    correction = source.index("v_cvt_f32_i32 v32, v32", prefetch)
+    scale_read = source.index("ds_read2_b32 v[84:85]", correction)
+    assert prefetch < correction < scale_read
+    assert "s_waitcnt lgkmcnt(4)" in source
+    assert "s_waitcnt lgkmcnt(6)" in source
 
 
 def test_grouped_iq2_s_artifact_passes_strict_inspection(tmp_path: Path) -> None:
-    key = _iq2_s_key(35)
+    key = _iq2_s_payload_prefetch_key(35)
     toolchain = Toolchain.discover()
     assembly = tmp_path / "kernel.s"
     obj = tmp_path / "kernel.o"
@@ -167,7 +184,7 @@ def test_grouped_iq2_s_artifact_passes_strict_inspection(tmp_path: Path) -> None
 
 
 def test_grouped_iq2_s_rebuild_is_deterministic(tmp_path: Path) -> None:
-    key = _iq2_s_key(65_536)
+    key = _iq2_s_payload_prefetch_key(65_536)
     toolchain = Toolchain.discover()
     sources = []
     code_objects = []
