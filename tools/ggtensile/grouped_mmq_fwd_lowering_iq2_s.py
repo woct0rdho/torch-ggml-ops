@@ -227,6 +227,10 @@ class GroupedIQ2SFullWeightLdsLowering:
         sign_offset = semantics.payload_plane("signs").byte_offset
         qh_offset = semantics.payload_plane("qh").byte_offset
         scale_offset = semantics.payload_plane("scales").byte_offset
+        bfe_extraction = (
+            self.context.solution_key.solution.metadata_schedule
+            == "IQ2SBfeExtraction"
+        )
         half = registers.decode_auxiliary.first_register
         address = registers.producer_address.first_register
         asm.comment("Cooperatively decode one IQ2_S row half per workitem.")
@@ -284,11 +288,17 @@ class GroupedIQ2SFullWeightLdsLowering:
             packed_index = registers.producer_indices.first_register + pair
             grid = registers.codebook_payload.first_register + 4 * pair
             asm.inst(f"v_and_b32 v{index}, 0xff, v{packed_index}")
-            asm.inst(
-                f"v_lshrrev_b32 v{high}, {4 * pair}, "
-                f"v{registers.producer_qh.first_register}"
-            )
-            asm.inst(f"v_and_b32 v{high}, 3, v{high}")
+            if bfe_extraction:
+                asm.inst(
+                    f"v_bfe_u32 v{high}, v{registers.producer_qh.first_register}, "
+                    f"{4 * pair}, 2"
+                )
+            else:
+                asm.inst(
+                    f"v_lshrrev_b32 v{high}, {4 * pair}, "
+                    f"v{registers.producer_qh.first_register}"
+                )
+                asm.inst(f"v_and_b32 v{high}, 3, v{high}")
             asm.inst(f"v_lshl_or_b32 v{index}, v{high}, 8, v{index}")
             asm.inst(f"v_lshlrev_b32 v{address}, 3, v{index}")
             asm.inst(
@@ -296,11 +306,17 @@ class GroupedIQ2SFullWeightLdsLowering:
                 f"s[{self.GRID_BASE}:{self.GRID_BASE + 1}]"
             )
             asm.inst(f"v_lshrrev_b32 v{index}, 8, v{packed_index}")
-            asm.inst(
-                f"v_lshrrev_b32 v{high}, {4 * pair + 2}, "
-                f"v{registers.producer_qh.first_register}"
-            )
-            asm.inst(f"v_and_b32 v{high}, 3, v{high}")
+            if bfe_extraction:
+                asm.inst(
+                    f"v_bfe_u32 v{high}, v{registers.producer_qh.first_register}, "
+                    f"{4 * pair + 2}, 2"
+                )
+            else:
+                asm.inst(
+                    f"v_lshrrev_b32 v{high}, {4 * pair + 2}, "
+                    f"v{registers.producer_qh.first_register}"
+                )
+                asm.inst(f"v_and_b32 v{high}, 3, v{high}")
             asm.inst(f"v_lshl_or_b32 v{index}, v{high}, 8, v{index}")
             asm.inst(f"v_lshlrev_b32 v{address}, 3, v{index}")
             asm.inst(
@@ -330,11 +346,17 @@ class GroupedIQ2SFullWeightLdsLowering:
                 f"v[{decoded}:{decoded + 3}] offset:{16 * pair}"
             )
             scale = registers.decode_auxiliary.first_register + 1
-            asm.inst(
-                f"v_lshrrev_b32 v{scale}, {4 * pair}, "
-                f"v{registers.producer_scales.first_register}"
-            )
-            asm.inst(f"v_and_b32 v{scale}, 15, v{scale}")
+            if bfe_extraction:
+                asm.inst(
+                    f"v_bfe_u32 v{scale}, "
+                    f"v{registers.producer_scales.first_register}, {4 * pair}, 4"
+                )
+            else:
+                asm.inst(
+                    f"v_lshrrev_b32 v{scale}, {4 * pair}, "
+                    f"v{registers.producer_scales.first_register}"
+                )
+                asm.inst(f"v_and_b32 v{scale}, 15, v{scale}")
             asm.inst(f"v_cvt_f32_u32 v{scale}, v{scale}")
             asm.inst(
                 f"v_mul_f32 v{scale}, v{registers.producer_d.first_register}, v{scale}"
@@ -360,8 +382,16 @@ class GroupedIQ2SFullWeightLdsLowering:
         sign_bits = auxiliary + 2
         selector = auxiliary + 3
         negative = auxiliary + 4
-        asm.inst(f"v_lshrrev_b32 v{sign_bits}, {sign_shift}, v{sign_byte}")
-        asm.inst(f"v_and_b32 v{sign_bits}, 15, v{sign_bits}")
+        if (
+            self.context.solution_key.solution.metadata_schedule
+            == "IQ2SBfeExtraction"
+        ):
+            asm.inst(
+                f"v_bfe_u32 v{sign_bits}, v{sign_byte}, {sign_shift}, 4"
+            )
+        else:
+            asm.inst(f"v_lshrrev_b32 v{sign_bits}, {sign_shift}, v{sign_byte}")
+            asm.inst(f"v_and_b32 v{sign_bits}, 15, v{sign_bits}")
         asm.inst(f"v_mul_lo_u32 v{selector}, 0x204081, v{sign_bits}")
         asm.inst(f"v_and_b32 v{selector}, 0x01010101, v{selector}")
         asm.inst(

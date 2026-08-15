@@ -88,6 +88,7 @@ def validate_grouped_forward_solution(
     iq2_s_solutions = {
         GroupedForwardSolution.iq2_s_serial_full_weight_lds_64(),
         GroupedForwardSolution.iq2_s_serial_full_weight_lds_64_linear_activation(),
+        GroupedForwardSolution.iq2_s_serial_full_weight_lds_64_linear_bfe(),
     }
     expected_solutions = {
         "Q2_K": q2_solutions,

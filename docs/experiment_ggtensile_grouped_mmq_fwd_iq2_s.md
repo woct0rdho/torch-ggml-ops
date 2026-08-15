@@ -96,3 +96,19 @@ Coalesced staging is the new provisional J64 parent because it removes more than
 The coalesced parent was screened with a separate schedule that issued all five activation payload reads before weight-scale LDS reads, then delayed scale consumption until after four WMMAs and accumulator conversion. This matched the ordering visible in the installed HIP disassembly and kept the same 116 VGPR, 40 SGPR, 30,720-byte LDS, four-barrier, and 64-WMMA contract.
 
 The 35-row bounded route remained bitwise exact, but the five-medoid B16 complete-call median was 29.5103 ms versus 29.4779 ms for coalesced staging and 28.0326 ms for adjacent HIP (`0.9499x`). The schedule is rejected as a near-neutral regression and removed.
+
+### 2026-04-14: rejected packed index/sign vector loads
+
+The weight producer was screened with packed loads for each 16-byte index and sign half. An initial revision unpacked asynchronous VMEM destinations before `vmcnt(0)` and faulted; restoring explicit VMEM retirement recovered bitwise correctness. Four unaligned `b32` reads per plane regressed B16 complete-call time to 29.6746 ms. One `b128` read per plane with codebook registers as temporary storage measured 29.4607 ms complete versus 29.4779 ms for the parent and 28.0633 ms for adjacent HIP (`0.9526x`).
+
+The apparent `0.06%` parent improvement is below run-to-run resolution and adds unpacking complexity. Packed vector loads are rejected as neutral and removed.
+
+### 2026-04-14: BFE decode extraction
+
+A compact decode candidate replaces separate shift-and pairs with `v_bfe_u32` for QH two-bit fields, sign nibbles, and scale nibbles. This removes 56 VALU instructions per decoded weight block without changing any extracted integer value or the 116 VGPR, 40 SGPR, 30,720-byte LDS resource point.
+
+The 35-row route remained bitwise exact. Across the five B16 medoids, weighted body time improved to 27.5855 ms and complete-call time to 28.9172 ms. Adjacent HIP measured 26.7819 ms body and 28.2080 ms complete, raising the complete-call ratio to `0.9755x`; individual medoids ranged from `0.9730x` to `0.9777x`.
+
+B1 complete-call time improved to 2.6520 ms versus 3.2547 ms for HIP (`1.2273x`, 12.96 versus 10.56 effective TFLOPS), and every B1 medoid beat its control. B4 improved to 7.8400 ms versus 8.5931 ms (`1.0961x`, 17.53 versus 15.99 effective TFLOPS). Two lower-support B4 medoids remained below HIP at `0.9688x` and `0.9443x`, while the three high-support medoids were faster.
+
+BFE extraction is the new provisional parent pending further work on the remaining lower-support and B16 gaps.

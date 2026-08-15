@@ -90,6 +90,12 @@ def _iq2_s_linear_key(aggregate_rows: int = 16_384) -> GroupedForwardSolutionKey
     )
 
 
+def _iq2_s_bfe_key(aggregate_rows: int = 16_384) -> GroupedForwardSolutionKey:
+    return GroupedForwardSolutionKey(
+        GroupedForwardProblem.iq2_s(aggregate_rows),
+        GroupedForwardSolution.iq2_s_serial_full_weight_lds_64_linear_bfe(),
+    )
+
 
 @pytest.mark.parametrize("aggregate_rows", (16_384, 65_536, 262_144))
 def test_grouped_iq2_s_exact_production_keys_derive(aggregate_rows: int) -> None:
@@ -129,6 +135,15 @@ def test_grouped_iq2_s_linear_activation_stage_is_coalesced() -> None:
     assert "v_add_nc_u32 v101, 4096, v101" in source
     assert "v_add_nc_u32 v107, 8192, v107" in source
     assert source.count("s_barrier") == 4
+
+
+def test_grouped_iq2_s_bfe_extraction_replaces_shift_and_pairs() -> None:
+    source = GroupedForwardKernelWriterAssembly(
+        _iq2_s_bfe_key(35), Toolchain.discover()
+    ).source()
+    assert "v_bfe_u32 v89, v87, 4, 4" in source
+    assert "v_bfe_u32 v89, v33, 30, 2" in source
+    assert "v_bfe_u32 v88, v34, 28, 4" in source
 
 
 def test_grouped_iq2_s_artifact_passes_strict_inspection(tmp_path: Path) -> None:

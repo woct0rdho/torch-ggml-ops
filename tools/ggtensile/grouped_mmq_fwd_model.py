@@ -329,6 +329,13 @@ class GroupedForwardSolution:
         )
 
     @classmethod
+    def iq2_s_serial_full_weight_lds_64_linear_bfe(cls) -> Self:
+        return replace(
+            cls.iq2_s_serial_full_weight_lds_64_linear_activation(),
+            metadata_schedule="IQ2SBfeExtraction",
+        )
+
+    @classmethod
     def q2_k_serial_decoded_lds_32(cls) -> Self:
         return replace(
             cls.q4_k_serial_decoded_lds(),
