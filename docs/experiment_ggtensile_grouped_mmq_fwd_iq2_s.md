@@ -91,19 +91,19 @@ The corresponding B1 complete call measured 2.7473 ms versus 3.2639 ms for HIP (
 
 Coalesced staging is the new provisional J64 parent because it removes more than half of the original B16 deficit without changing arithmetic or resources. It is not retained as final until the remaining HIP gap closes across the lower-support and B16 controls.
 
-### 2026-04-14: rejected payload-first scale schedule
+### Rejected payload-first scale schedule
 
 The coalesced parent was screened with a separate schedule that issued all five activation payload reads before weight-scale LDS reads, then delayed scale consumption until after four WMMAs and accumulator conversion. This matched the ordering visible in the installed HIP disassembly and kept the same 116 VGPR, 40 SGPR, 30,720-byte LDS, four-barrier, and 64-WMMA contract.
 
 The 35-row bounded route remained bitwise exact, but the five-medoid B16 complete-call median was 29.5103 ms versus 29.4779 ms for coalesced staging and 28.0326 ms for adjacent HIP (`0.9499x`). The schedule is rejected as a near-neutral regression and removed.
 
-### 2026-04-14: rejected packed index/sign vector loads
+### Rejected packed index/sign vector loads
 
 The weight producer was screened with packed loads for each 16-byte index and sign half. An initial revision unpacked asynchronous VMEM destinations before `vmcnt(0)` and faulted; restoring explicit VMEM retirement recovered bitwise correctness. Four unaligned `b32` reads per plane regressed B16 complete-call time to 29.6746 ms. One `b128` read per plane with codebook registers as temporary storage measured 29.4607 ms complete versus 29.4779 ms for the parent and 28.0633 ms for adjacent HIP (`0.9526x`).
 
 The apparent `0.06%` parent improvement is below run-to-run resolution and adds unpacking complexity. Packed vector loads are rejected as neutral and removed.
 
-### 2026-04-14: BFE decode extraction
+### BFE decode extraction
 
 A compact decode candidate replaces separate shift-and pairs with `v_bfe_u32` for QH two-bit fields, sign nibbles, and scale nibbles. This removes 56 VALU instructions per decoded weight block without changing any extracted integer value or the 116 VGPR, 40 SGPR, 30,720-byte LDS resource point.
 
@@ -113,7 +113,7 @@ B1 complete-call time improved to 2.6520 ms versus 3.2547 ms for HIP (`1.2273x`,
 
 BFE extraction is the retained parent for subsequent decode scheduling work.
 
-### 2026-04-14: combined sign-selector construction
+### Combined sign-selector construction
 
 The BFE parent still formed each byte-selector dword with multiply, mask, and shift-or. A dependent candidate shifts the spread constant into the multiply and uses `v_and_or_b32` with an invariant SGPR `0x03020100`, removing one instruction and one dependency edge from every signed codebook dword.
 
@@ -121,7 +121,7 @@ The bounded route remained bitwise exact and resources remained 116 VGPRs, 40 SG
 
 B1 complete-call time was 2.6398 ms versus 3.2588 ms for HIP (`1.2345x`), and B4 was 7.8012 ms versus 8.6719 ms (`1.1116x`). Combined selector construction is retained as the decode parent.
 
-### 2026-04-14: quarter-scale arithmetic and payload prefetch
+### Quarter-scale arithmetic and payload prefetch
 
 Precomputing `d * 0.25` once and multiplying by `(scale + 0.5)` remained bitwise exact. Its B16 body result was near-neutral at 26.7029 ms, but complete-call time measured 28.1117 ms versus 28.0050 ms for HIP (`0.9962x`). The exact reassociation was retained as the arithmetic parent because it removes seven dependent FP operations per decoded block without increasing resources.
 

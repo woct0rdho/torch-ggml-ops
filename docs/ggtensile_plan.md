@@ -48,7 +48,8 @@ The first grouped expansion is forward `grouped_mmq`: routed, non-fixed, and one
 
 The production disposition belongs to an exact format/shape target, not to a quant format in isolation:
 - retained non-paired targets are down projections whose final production operator remains `grouped_mmq`.
-- paired-successor precursors are gate/up projections qualified one projection at a time in this campaign. They establish the packed decoder, arithmetic, ownership, and artifact controls, but are not final production selections for those calls. A later `grouped_mmq_pair` campaign must supersede them and independently qualify shared Q8_1 workspace ownership, two packed weights, two output destinations, synchronization, resources, correctness, and complete-call timing.
+- paired-successor precursors are gate/up projections qualified one projection at a time in the original grouped campaign. They establish the packed decoder, arithmetic, ownership, and artifact controls, but are not final production selections for those calls.
+- the Qwen `IQ2_S` gate/up target has now completed a dedicated `grouped_mmq_pair` research campaign with shared Q8_1 workspace ownership, two packed weights, two output destinations, device row tasks, synchronization, resources, correctness, and complete-call timing. Public integration remains separate.
 
 `IQ2_S` intentionally appears in both categories: `(N,K)=(2048,512)` is a retained single-routed down target, while `(N,K)=(512,2048)` is a paired-successor gate/up precursor.
 
@@ -69,7 +70,7 @@ Define the required aggregate row sets as `R_qwen = {16384, 65536, 262144}` and 
 | Retained non-paired | Qwen down middle | `IQ2_S` | `(2048,512)` | `[256,2048,164]` | `(R_qwen,2048,512)` |
 | Retained non-paired | DeepSeek down | `Q2_K` | `(4096,2048)` | `[256,4096,672]` | `(R_deepseek,4096,2048)` |
 | Superseded by paired | Qwen gate/up outer | `Q3_K` | `(512,2048)` | `[256,512,880]` per projection | `(R_qwen,512,2048)` |
-| Superseded by paired | Qwen gate/up middle | `IQ2_S` | `(512,2048)` | `[256,512,656]` per projection | `(R_qwen,512,2048)` |
+| Qualified paired research | Qwen gate/up middle | `IQ2_S` | `(512,2048)` | `[256,512,656]` per projection | `(R_qwen,512,2048)` |
 | Superseded by paired | DeepSeek gate/up | `IQ2_XXS` | `(2048,4096)` | `[256,2048,1056]` per projection | `(R_deepseek,2048,4096)` |
 
 The routed-row sets derive from sequence length 2,048 and the model top-k. Uniform routing gives the following concrete per-expert matrix heights:
@@ -736,12 +737,12 @@ The writer architecture is complete when:
 | MMQ forward Q6_K | Three exact language-model-head keys select the typed row/role wavefront; shared MT256 and `WideScalarCarryFrontier` are independently rejected, and public wiring is deferred |
 | MMQ forward Q3_K | Dense 12-key inventory complete; all 12 exact keys select the typed full-weight research candidate, while public wiring remains deferred to the 179-kernel HIP bundle |
 | MMQ forward Q8_0 | All 23 exact keys have final research decisions: 20 compact-depth32 selections, one ordinary HIP-shaped control, and two LM-head small-M controls; public wiring remains deferred |
-| Grouped GGTensile forward | Isolated non-paired routed research kernels for Q2_K, Q4_K, Q5_K, and IQ2_S are implemented and qualified across exact aggregate-row workloads; grouped ownership, search, inspection, deterministic rebuild, and resource gates are complete, while public wiring remains deferred |
+| Grouped GGTensile forward | Isolated non-paired routed research kernels for Q2_K, Q4_K, Q5_K, and IQ2_S plus the paired Qwen IQ2_S row-task kernel are implemented and qualified across exact aggregate-row workloads; grouped ownership, search, inspection, deterministic rebuild, and resource gates are complete, while public wiring remains deferred |
 | Grouped MMQ AITER comparator | Prior-aware bounded screen, captured/synthetic controls, six exact table replacements, and comparator-only replay complete |
 | Grouped MMQ learned-B1 HIP ownership | Existing-path screen complete; exact IQ2_S forward-pair and backward-down row-task dispatches retained, while Q3_K/Q4_K/Q5_K controls are rejected |
 | Public GGTensile runtime selection | Deferred; existing HIP bundle dispatch remains authoritative |
 
-The ten direct MMQ forward and backward format campaigns are currently exhausted under the fixed exact-key contract: the separate post-Q6 physical-plan review found no actionable in-contract premise. The isolated grouped Q2_K, Q4_K, Q5_K, and IQ2_S research scope is also qualified under its routed ABI and exact workload contracts. Public dispatch, model-owned representations, and other explicitly separate integration scopes remain deferred. A genuinely changed premise still reopens the affected campaign under its exact correctness, resource, reproducibility, and timing gates.
+The ten direct MMQ forward and backward format campaigns are currently exhausted under the fixed exact-key contract: the separate post-Q6 physical-plan review found no actionable in-contract premise. The isolated grouped Q2_K, Q4_K, Q5_K, and IQ2_S non-paired scope and paired Qwen IQ2_S scope are qualified under their routed or row-task ABIs and exact workload contracts. Public dispatch, model-owned representations, and other explicitly separate integration scopes remain deferred. A genuinely changed premise still reopens the affected campaign under its exact correctness, resource, reproducibility, and timing gates.
 
 ### Implemented forward architecture
 
@@ -807,9 +808,9 @@ Exact source identities and normalized executable/code-object checks remain in a
 
 The completed source-preserving refactor was qualified against a baseline of 238 exact generated streams: 56 ordinary forward keys, 50 ordinary backward keys, and 132 grouped solution/production-row records. All 238 remained byte-identical, including comments, labels, whitespace, waits, section ordering, blank lines, and IQ2_S local rodata ordering.
 
-The complete `tests/ggtensile` suite passes 410 tests covering model identity, strict validation, ordinary and grouped source generation, assembly and linking, artifact inspection, deterministic rebuilds, resource limits, route and invalid-route behavior, mutation sensitivity, typed policy branches, and executable-line coverage. Ruff, formatting, compileall, `ty check`, pre-commit, and `git diff --check` also pass. Inspected retained artifacts remain code-object v5, gfx1151, wave32, ABI/resource compliant, and free of private storage, spills, scratch instructions, calls, and dynamic stack.
+The complete `tests/ggtensile` suite passes 422 tests covering model identity, strict validation, ordinary, grouped, and paired source generation, assembly and linking, artifact inspection, deterministic rebuilds, resource limits, route and invalid-route behavior, mutation sensitivity, typed policy branches, and executable-line coverage. The full repository suite passes 523 tests with the 14 existing Python 3.14 deprecation warnings. Ruff, formatting, compileall, `ty check`, pre-commit, and `git diff --check` also pass. Inspected retained artifacts remain code-object v5, gfx1151, wave32, ABI/resource compliant, and free of private storage, spills, scratch instructions, calls, and dynamic stack.
 
-The recursive review covered both directions, every ordinary quantization type, grouped Q2_K/Q4_K/Q5_K/IQ2_S, exact production shapes, generated source, inspected artifacts, schedule modules, physical-plan modules, and public-boundary behavior. Findings are classified as duplicate/closed, contract-incompatible, unsupported, deferred with a prerequisite, or actionable. No actionable in-contract finding remains. Public dispatch, generated bundle tables, extension registration, packaging, paired projection ownership, and HIP fallback remain unchanged; public grouped selection is deferred until a separate integration campaign qualifies those surfaces.
+The recursive review covered both directions, every ordinary quantization type, grouped Q2_K/Q4_K/Q5_K/IQ2_S, exact production shapes, generated source, inspected artifacts, schedule modules, physical-plan modules, and public-boundary behavior. The subsequent paired review implemented and qualified the Qwen IQ2_S K128-interleaved row-task candidate. Public dispatch, generated bundle tables, extension registration, packaging, and HIP fallback remain unchanged; public grouped selection is deferred until a separate integration campaign qualifies those surfaces.
 
 The source-preserving policy is the default for existing specifications. Any intentional source, executable, ABI, or rodata difference must be isolated as a deliberate stream change and pass independent correctness, mutation, deterministic-build, artifact/resource, and warmed timing gates. This qualification record is evidence of the current implementation, not a license to infer future coverage or promote research kernels through public dispatch.
 
@@ -831,6 +832,13 @@ MMQ forward records:
 - `experiment_ggtensile_mmq_fwd_q8_0.md`
 - `experiment_ggtensile_mmq_fwd_q3_k.md`
 
+Grouped MMQ forward records:
+- `experiment_ggtensile_grouped_mmq_fwd_q2_k.md`
+- `experiment_ggtensile_grouped_mmq_fwd_q4_k.md`
+- `experiment_ggtensile_grouped_mmq_fwd_q5_k.md`
+- `experiment_ggtensile_grouped_mmq_fwd_iq2_s.md`
+- `experiment_ggtensile_grouped_mmq_fwd_pair_iq2_s.md`
+
 These records retain campaign chronology and may describe historical premises that were later superseded. This document is authoritative for the current generic architecture and coverage status; selected catalogs and artifact tests are authoritative for current exact identities.
 
 ## Integration and Expansion
@@ -839,8 +847,8 @@ Each generated artifact owns one exact problem symbol. Runtime selection may use
 
 Public GGTensile integration remains deferred until a useful production set is selected, packaging and identity are stable, exact dispatch engineering is complete, and end-to-end workloads pass correctness and weighted performance validation. Experimental force controls are not public policy.
 
-Grouped GGTensile remains a separate deployment and integration scope, while the isolated non-paired routed research writers for Q2_K, Q4_K, Q5_K, and IQ2_S are implemented and qualified under the inventory above. Retained down targets stay non-paired; gate/up precursor targets must later be superseded by paired artifacts rather than treated as completed production coverage. Paired routed, single routed, row-task, and fixed-group ownership still require explicit routing, task, memory, synchronization, resource, and fallback contracts. Ordinary coverage of an overlapping format does not count as grouped coverage.
+Grouped GGTensile remains a separate deployment and integration scope. The isolated non-paired routed research writers for Q2_K, Q4_K, Q5_K, and IQ2_S and the paired Qwen IQ2_S row-task writer are implemented and qualified under the inventory above. Retained down targets stay non-paired; Q3_K and IQ2_XXS gate/up precursors still require paired successors. Public paired, single-routed, row-task, and fixed-group ownership still require explicit dispatch, packaging, memory, synchronization, resource, and fallback contracts. Ordinary coverage of an overlapping format does not count as grouped coverage.
 
-Prepared weights, compact alternate public layouts, BF16 shadows, paired projections, persistent workgroups, split reduction, GSU, Stream-K, and multi-kernel fixup require model-visible ownership, lifetime, invalidation, memory accounting, ABI, and fallback design. They are not hidden extensions of the current exact single-kernel backend.
+Prepared weights, compact alternate public layouts, BF16 shadows, additional paired formats, persistent workgroups, split reduction, GSU, Stream-K, and multi-kernel fixup require model-visible ownership, lifetime, invalidation, memory accounting, ABI, and fallback design. They are not hidden extensions of the current exact single-kernel backend.
 
 Bounded scan scripts may construct, cache, validate, and rank complete exact candidates outside the direction writers. A larger automated search system remains optional; deterministic `SolutionKey` identity, explainable rejection, immutable artifact phases, and reproducible evidence remain mandatory.

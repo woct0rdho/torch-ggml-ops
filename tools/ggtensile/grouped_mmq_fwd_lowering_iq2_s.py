@@ -429,6 +429,7 @@ class GroupedIQ2SFullWeightLdsLowering:
         temporary = registers.temporary.first_register
         address = registers.activation_lds_address.first_register
         stage = registers.activation_stage.first_register
+        activations = scalar.activations.first_register
         asm.comment("Stage two 72-byte halves per routed F32_D4 activation row.")
         asm.inst(f"v_and_b32 v{address}, 1, v{registers.wave.first_register}")
         asm.inst(f"v_lshlrev_b32 v{address}, 5, v{address}")
@@ -459,11 +460,11 @@ class GroupedIQ2SFullWeightLdsLowering:
             payload = stage + 4 * chunk
             asm.inst(
                 f"global_load_b128 v[{payload}:{payload + 3}], v{temporary}, "
-                f"s[6:7] offset:{16 * chunk}"
+                f"s[{activations}:{activations + 1}] offset:{16 * chunk}"
             )
         asm.inst(
             f"global_load_b64 v[{stage + 16}:{stage + 17}], v{temporary}, "
-            f"s[6:7] offset:64"
+            f"s[{activations}:{activations + 1}] offset:64"
         )
         asm.inst(f"s_mov_b32 exec_lo, s{scalar.exec_mask.first_register}")
         asm.inst("s_waitcnt vmcnt(0)")
@@ -501,6 +502,7 @@ class GroupedIQ2SFullWeightLdsLowering:
         global_address = serial + 1
         local_address = registers.activation_lds_address.first_register
         payload = registers.activation_stage.first_register
+        activations = scalar.activations.first_register
         partial_label = f".LGroupedIQ2SActivationPartial{stage_index}"
         store_label = f".LGroupedIQ2SActivationStore{stage_index}"
         done_label = f".LGroupedIQ2SActivationDone{stage_index}"
@@ -521,7 +523,8 @@ class GroupedIQ2SFullWeightLdsLowering:
                 asm.inst(f"v_add_nc_u32 v{global_address}, 4096, v{global_address}")
             asm.inst(
                 f"global_load_b128 v[{destination}:{destination + 3}], "
-                f"v{global_address}, s[6:7] offset:{2048 * (chunk % 2)}"
+                f"v{global_address}, s[{activations}:{activations + 1}] "
+                f"offset:{2048 * (chunk % 2)}"
             )
         asm.inst(f"v_lshlrev_b32 v{local_address}, 3, v{serial}")
         asm.inst(f"v_add_nc_u32 v{local_address}, 8192, v{local_address}")
@@ -531,7 +534,7 @@ class GroupedIQ2SFullWeightLdsLowering:
         )
         asm.inst(
             f"global_load_b64 v[{payload + 16}:{payload + 17}], "
-            f"v{global_address}, s[6:7]"
+            f"v{global_address}, s[{activations}:{activations + 1}]"
         )
         asm.inst(f"s_branch {store_label}")
 
@@ -553,7 +556,7 @@ class GroupedIQ2SFullWeightLdsLowering:
             )
             asm.inst(
                 f"global_load_b128 v[{destination}:{destination + 3}], "
-                f"v{global_address}, s[6:7]"
+                f"v{global_address}, s[{activations}:{activations + 1}]"
             )
             asm.inst(f"s_mov_b32 exec_lo, s{scalar.exec_mask.first_register}")
             if chunk != 3:
@@ -571,7 +574,7 @@ class GroupedIQ2SFullWeightLdsLowering:
         )
         asm.inst(
             f"global_load_b64 v[{payload + 16}:{payload + 17}], "
-            f"v{global_address}, s[6:7]"
+            f"v{global_address}, s[{activations}:{activations + 1}]"
         )
         asm.inst(f"s_mov_b32 exec_lo, s{scalar.exec_mask.first_register}")
 

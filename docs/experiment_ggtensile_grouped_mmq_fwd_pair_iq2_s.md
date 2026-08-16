@@ -1,0 +1,130 @@
+# GGTensile grouped MMQ forward paired IQ2_S experiment
+
+## Scope
+
+This record covers isolated research kernels for the paired Qwen routed gate and up projections with two authoritative packed `IQ2_S` weight banks. The exact production contract is:
+- 256 physical experts;
+- two projections with output features `N = 512` and reduction features `K = 2048`;
+- aggregate routed rows `R = 16,384`, `65,536`, or `262,144`;
+- one device-resident `Q8_1` `F32_D4` activation workspace shared by both projections;
+- two independent packed-weight banks with shape `[256,512,656]`;
+- two independent BF16 destinations with shape `[R,512]`;
+- device-resident int64 expert IDs and cumulative int32 route offsets;
+- at most 256 route entries, with the final valid offset equal to `R`; and
+- inert invalid experts and invalid cumulative ranges.
+
+The research kernel must compute both projections in one workgroup dataflow. A single launch containing projection-indexed independent workgroups, two adjacent single-projection launches, or sequential full-projection phases that reload the activation workspace is not a paired arithmetic kernel.
+
+Public dispatch, generated bundle tables, extension registration, packaging, and the HIP fallback remain out of scope until the paired artifact independently passes every gate in this record.
+
+## Baseline and opportunity
+
+The public `grouped_mmq_pair` call already quantizes the BF16 input once, creates one `Q8_1` workspace, creates two outputs, and reuses one route or row-task description. It still invokes the grouped multiplication body once per packed weight and output pair.
+
+At B16, the fitted-prior complete call measured `66.0312 ms` against `60.2659 ms` for the BF16 AITER control. Comparator parity therefore requires a `9.57%` throughput improvement, equivalent to an `8.73%` latency reduction. Launch and routed-prologue fusion alone cannot provide that reduction.
+
+For one 64-row, 64-column output tile, the `K = 2048` workspace contributes `64 * 16 * 144 = 147,456` activation bytes and each projection contributes `64 * 8 * 82 = 41,984` packed-weight bytes. Two independent bodies explicitly request 378,880 activation-plus-weight bytes. A dataflow-fused body requests 231,424 bytes, a `38.9%` reduction before cache effects. Weight decode, both WMMA streams, both FP32 accumulation streams, and both BF16 epilogues remain mandatory.
+
+The planning estimate is a `4-8%` complete-call improvement, with `10-12%` an optimistic ceiling. These values are hypotheses, not advancement evidence.
+
+## Candidate P1: four-wave K128 interleaving
+
+The first candidate uses one 128-thread wave32 workgroup to own the same J64 row tile and 64 output columns in both projections. It keeps two independent 32-VGPR FP32 sum banks and advances in K128 phases:
+- Stage one 9,216-byte coalesced activation plane into LDS.
+- Decode the matching K128 half from the first packed bank into one reusable half-weight LDS image.
+- Execute the first projection's WMMAs and exact FP32 correction into its sum bank.
+- Retire all LDS consumers, overwrite the half-weight image from the second packed bank, and execute the second projection into its sum bank while the activation plane remains resident.
+- Advance to the next K128 activation plane without changing either projection's reduction order.
+- Convert and store the two sum banks independently to their authoritative BF16 destinations.
+
+The current full-weight decoder assigns one workitem to one output row and one K128 half. P1 instead assigns two producer workitems to one output row for the selected half and divides the eight codebook groups between them. The mapping must keep all four waves useful, decode each packed group exactly once, and preserve the retained codebook, sign, scale, quarter-scale, payload-prefetch, and arithmetic semantics.
+
+The intended physical point is approximately 148-156 VGPRs, 44 SGPRs, and about 20 KiB LDS. Physical planning, emitted metadata, and final artifact inspection are authoritative; these estimates may not be repaired silently during lowering.
+
+## Candidate P2: device 64-row task ownership
+
+P1 retains one workgroup per route entry and output-column tile, then advances serially through that route's 64-row tiles. The public B16 pair instead builds bounded 64-row tasks on the device and distributes those tasks across independent workgroups. P2 keeps P1's fused K128 arithmetic, two accumulator banks, one activation image, and one reusable half-weight image, but consumes the installed device-built task count, expert IDs, row starts, and row ends.
+
+The task builder remains a separate metadata launch. It reads the authoritative int64 expert IDs and cumulative int32 offsets on the device, rejects malformed routes, and writes compact int32 task descriptors. The fused arithmetic launch reads one task, guards its device task index against the device task count, rebases both packed banks with the same expert, and writes both destinations. It does not read route values on the host or create CPU descriptors.
+
+## Closed precursor designs
+
+- Projection-indexed workgroups share only a launch and cannot reuse LDS data.
+- Sequential full-projection phases cannot retain the full `K = 2048` activation workspace and therefore reload every activation plane.
+- Two complete decoded-weight LDS images reproduce the rejected 52,224-byte J128 resource point and are not the first candidate.
+- Eight waves split between projections reproduce the rejected J128 ownership topology and its one-workgroup residency and synchronization costs.
+- A compiler-managed HIP body with two accumulator arrays is a semantic probe, not a GGTensile performance gate; existing HIP J128 IQ2_S candidates reach the VGPR limit and spill.
+
+## Semantic authorities and ABI
+
+The paired problem and solution identities must explicitly own two packed weights, two outputs, one activation workspace, one route description, one exact shape, and one paired projection count. P1 uses an 80-byte cumulative-route ABI. P2 uses a separate 96-byte device-row-task ABI with four task pointers. Both emitters load and validate their complete ABI, apply the same expert stride to both weight banks, preserve independent output bases, and leave invalid routes inert in both destinations.
+
+The physical plan owns both sum banks, transient decode/MMA reuse, half-weight and activation LDS offsets, pointer registers, output addresses, barriers, and declared resources. Lowering may reuse the qualified IQ2_S arithmetic leaves, but it may not infer a second projection from singular forward state or mutate the existing non-paired identity.
+
+## Qualification plan
+
+Correctness precedes timing. Each candidate advances through these gates in order:
+- Strict model, serialization, validation, physical-plan, ABI, and structural writer tests.
+- Two independent source/object builds with byte-identical source and code objects.
+- gfx1151 code-object v5, wave32, zero private storage, zero VGPR/SGPR spills, no scratch instructions, calls, or dynamic stack, with declared registers and LDS matching the physical plan.
+- Bounded device comparison against adjacent installed single-projection controls for both outputs, followed by sequential, repeated, sparse, skewed, boundary, invalid-expert, and invalid-offset routes.
+- Input and activation mutations must change both outputs. Mutating either active packed bank must change only its destination. Mutating an inactive expert in either bank must be inert. Sentinel output in invalid routes must remain untouched in both destinations.
+- Complete-call timing against the public installed pair and against two adjacent research single-projection launches sharing the same fixed quantization and route ownership. This separates arithmetic-core movement from fusion itself.
+- The B16 fitted-prior screen uses 512 draws reduced to five weighted medoids, three warmups, and nine alternating repeats. A candidate must improve its adjacent paired parent by more than two percent before B1/B4 transfer or reversed-order 25-repeat confirmation.
+
+The timed path must keep route metadata on the device. It must not call `.item()`, copy offsets to the host, build CPU descriptors, or introduce an implicit synchronization. Complete-call time includes fixed HIP Q8_1 quantization and allocated workspace.
+
+The final review repeats correctness matrices, complete-call confirmation, deterministic rebuild and resource inspection, focused and broad tests, changed-file hooks, and repository-hygiene checks. A candidate is not final until that review is complete.
+
+## Experiment log
+
+### Design and implementation start
+
+- Confirmed that the public pair shares quantization and route-task setup but launches one single-projection body for each packed weight and output.
+- Confirmed that no paired grouped-forward writer, ABI, artifact inspector, or research runtime launcher exists.
+- Rejected launch-only, sequential-reload, eight-wave, and double-full-weight-LDS designs before implementation because they cannot share the required dataflow or reproduce already rejected resource ownership.
+- Selected P1, the four-wave K128-interleaved half-weight design, as the sole first implementation candidate.
+
+### P1 implementation and corrected launch qualification
+
+P1 introduced strict paired problem and solution identities, physical planning, validation, an 80-byte two-weight/two-output ABI, route emission, K128-interleaved IQ2_S lowering, artifact inspection, and a research-only runtime. The half-granular decoder divides each selected IQ2_S K128 half across two producer lanes while preserving codebook, sign, scale, quarter-scale, payload-prefetch, WMMA, correction, and BF16 store order.
+
+The final P1 artifact uses 148 VGPRs, 44 SGPRs, and 19,456 bytes of fixed LDS. It contains 128 static WMMAs and eight barriers and has zero private storage, register spills, scratch instructions, calls, or dynamic stack. Independent builds for the 35-row key and all three production row counts produced byte-identical source and code objects. The pre-existing selected non-paired IQ2_S source also remained byte-identical.
+
+Real Qwen gate and up weights matched adjacent installed controls and the public pair bitwise on bounded first, odd, even, last, repeated, and tile-boundary routes. Active weight mutations affected only their owning destination, inactive-expert mutations were inert, activation mutations affected both destinations, deterministic reruns were exact, and malformed routes left sentinel output untouched.
+
+The first P1 timing run was invalid because the research launcher passed the artifact's 19,456 fixed LDS bytes again as dynamic LDS. The dispatched group segment was therefore 38,912 bytes. The launcher now passes zero dynamic LDS, matching the established GGTensile runtime contract; installed HIP controls continue to receive their required dynamic shared storage. The invalid report remains explicitly labeled as such and is not advancement evidence.
+
+With the corrected launch, the B16 nine-repeat screen measured `65.0525 ms` complete versus `67.4435 ms` for the public pair, or `1.0368x`. All five medoids were exact and faster, but the weakest ratio was only `1.0034x`. P1 cleared the aggregate advancement gate, then P2 superseded it before confirmation.
+
+### P2 device-row-task candidate
+
+P2 preserves P1's arithmetic body and resources while replacing serial route ownership with the existing device-built 64-row task distribution. Its 96-byte ABI contains two packed weights, one activation workspace, two destinations, four task pointers, four exact u32 shape values, and one u64 expert stride. Grid Y is the bounded task capacity; each workgroup exits when its task index is not below the device task count.
+
+The first P2 device launch found a scalar-lifetime defect: `row_end` shared `s29` with activation-plane stride and was overwritten before the row loop. Moving `row_end` to the now-dead `nrows_weight` shape-guard register preserved the 44-SGPR plan. The corrected bounded artifact matched installed row-task controls and the public pair bitwise.
+
+P2 independently rebuilt byte-identically for rows 35, 16,384, 65,536, and 262,144. Strict inspection reports gfx1151 code-object v5, wave32, a 96-byte kernarg segment, 148 VGPRs, 44 SGPRs, 19,456 bytes fixed LDS, 128 WMMAs, eight barriers, zero private storage, zero spills, no scratch instructions, no calls, and no dynamic stack.
+
+The bounded semantic matrix used real Qwen IQ2_S gate and up banks. Four route profiles matched both installed and public controls bitwise and deterministic reruns were exact. Independent dequantized 64-column references for both projections measured normalized RMSE from `0.00592` through `0.00648`, with maximum absolute error at most `0.015625`. Active first- and second-bank mutations changed 4,561 and 4,565 values only in their respective destinations. An inactive expert was inert, and activation mutation changed 17,785 and 17,801 values. Invalid expert, out-of-range offset, negative previous offset, and empty-route cases produced zero, one, or two valid device tasks as appropriate and preserved sentinel rows in both outputs.
+
+The nine-repeat B16 screen measured `60.0484 ms` for P2 versus `67.8355 ms` for the public pair, or `1.1297x`; every medoid was at least `1.1255x`. P2 therefore advanced to reversed-order confirmation and independent B1/B4 transfer.
+
+### Final qualification and retention
+
+Reversed-order 25-repeat confirmation passed at every production shape. Timings are weighted medians over the five fitted Qwen confirmation medoids and include fixed HIP Q8_1 F32_D4 quantization, one allocated activation workspace, device task setup, and both projections. The adjacent row-task parent performs one task setup followed by two installed single-projection launches and reproduces public timing.
+
+| Batch | Rows | P2 body | Row-task parent body | P2 complete | Public complete | Public/P2 | P2 effective TFLOPS | Public effective TFLOPS |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 16,384 | 4.9848 ms | 6.0176 ms | 5.3592 ms | 6.3949 ms | 1.1933x | 12.82 | 10.75 |
+| 4 | 65,536 | 14.8498 ms | 17.2497 ms | 16.1971 ms | 18.5947 ms | 1.1480x | 16.97 | 14.78 |
+| 16 | 262,144 | 54.0387 ms | 61.8300 ms | 60.8543 ms | 68.5863 ms | 1.1271x | 18.07 | 16.03 |
+
+Every one of the fifteen fitted-prior outputs matched both adjacent controls bitwise. Minimum per-medoid public/P2 ratios were `1.1275x`, `1.1198x`, and `1.1242x` at B1, B4, and B16. The B16 candidate is within about one percent of the earlier `60.2659 ms` BF16 AITER comparator, rather than the original packed path's roughly nine-percent deficit.
+
+The independent `uniform`, `skewed`, `sparse`, and `boundary` timing controls were also exact at all three production shapes. Equal-weight public/P2 ratios were `1.1906x`, `1.1400x`, and `1.1324x` at B1, B4, and B16. The minimum individual synthetic ratios were `1.1466x`, `1.1279x`, and `1.1267x`; no route control approached the retention floor.
+
+The quantizer's authoritative K2048 F32_D4 tensor shape is `[16,R,144]`: sixteen K-plane blocks, aggregate rows, and 144 bytes per block. Both projections reuse that one allocation. P2 also uses one bounded task allocation whose capacity is `ceil(R/64) + route_entries`; neither timed research path reads its device task count on the host.
+
+The focused paired module passes 12 tests. The complete GGTensile suite passes 422 tests, and the full repository suite passes 523 tests with 14 pre-existing Python 3.14 deprecation warnings. Ruff, formatting, Python compilation, `ty check`, deterministic source checks, and diff whitespace checks pass.
+
+The retained research identity is `iq2_s_k128_interleaved_row_tasks()`. P1 remains a qualified serial-route precursor, not the selected production-shape candidate. Public selectors, generated bundle tables, extension registration, packaging, and the HIP fallback remain unchanged. Promotion now requires a separate integration campaign that preserves the public fallback and independently qualifies generated artifacts, package ownership, registration, complete public-call timing, and deployment behavior.
