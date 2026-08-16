@@ -140,6 +140,11 @@ def test_grouped_q3_k_pair_production_keys_derive(aggregate_rows: int) -> None:
         assert state.expected_output_shape == (aggregate_rows, 512)
         assert state.blocks_per_weight_row == 8
         assert state.bytes_per_expert == 450_560
+        if key.solution.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks64:
+            capacity = aggregate_rows // 64 + 256
+            assert state.row_task_capacity(256) == capacity
+            assert state.row_task_grid(256) == (8, capacity, 1)
+            assert state.physical_plan.scalar_registers.row_end.first_register == 23
         assert state.physical_plan.resources.vgprs == 148
         assert state.physical_plan.resources.sgprs == 44
         assert state.physical_plan.resources.lds_bytes == 19_456
