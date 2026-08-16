@@ -3,6 +3,7 @@
 import ctypes
 from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 
 import torch
 
@@ -556,6 +557,114 @@ class InstalledGroupedForwardPairSerialControl(_HIPModule):
                 4,
                 1,
                 self.DYNAMIC_LDS_BYTES,
+                ctypes.c_void_p(stream),
+                parameters,
+                None,
+            ),
+            "hipModuleLaunchKernel",
+        )
+
+
+class InstalledGroupedForwardPairIQ2XXSSerialControl(_HIPModule):
+    """Launch one installed DeepSeek IQ2_XXS serial projection."""
+
+    _CONFIGS: ClassVar[dict[int, tuple[str, int]]] = {
+        64: (
+            "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_iq2_xxs_n2048_k4096_j64",
+            28_928,
+        ),
+        80: (
+            "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_iq2_xxs_n2048_k4096_j80",
+            31_552,
+        ),
+    }
+    BYTES_PER_EXPERT = 2_162_688
+
+    def __init__(
+        self,
+        row_tile: int = 64,
+        code_object: Path | None = None,
+        hip_library: Path | None = None,
+    ) -> None:
+        try:
+            symbol, dynamic_lds_bytes = self._CONFIGS[row_tile]
+        except KeyError:
+            raise HIPRuntimeError(
+                "installed IQ2_XXS control requires J64 or J80"
+            ) from None
+        self.row_tile = row_tile
+        self.dynamic_lds_bytes = dynamic_lds_bytes
+        super().__init__(
+            code_object or _find_installed_kernel(symbol),
+            hip_library,
+            symbol,
+        )
+
+    def launch(
+        self,
+        packed_weight: torch.Tensor,
+        activations: torch.Tensor,
+        output: torch.Tensor,
+        expert_indices: torch.Tensor,
+        expert_offsets: torch.Tensor,
+        *,
+        aggregate_rows: int,
+        stream: int,
+    ) -> None:
+        tensors = (packed_weight, activations, output, expert_indices, expert_offsets)
+        if any(not tensor.is_cuda or not tensor.is_contiguous() for tensor in tensors):
+            raise HIPRuntimeError(
+                "installed IQ2_XXS controls require contiguous HIP tensors"
+            )
+        if (
+            packed_weight.dtype != torch.uint8
+            or activations.dtype != torch.uint8
+            or output.dtype != torch.bfloat16
+            or expert_indices.dtype != torch.int64
+            or expert_offsets.dtype != torch.int32
+        ):
+            raise HIPRuntimeError("installed IQ2_XXS control tensor dtypes are invalid")
+        route_entries = expert_indices.numel()
+        if route_entries <= 0 or route_entries > 256:
+            raise HIPRuntimeError("installed IQ2_XXS route count is invalid")
+        if expert_offsets.numel() != route_entries:
+            raise HIPRuntimeError("installed IQ2_XXS route metadata lengths differ")
+        if tuple(packed_weight.shape) != (256, 2048, 1056):
+            raise HIPRuntimeError("installed IQ2_XXS packed shape is invalid")
+        if tuple(activations.shape) != (32, aggregate_rows, 144):
+            raise HIPRuntimeError("installed IQ2_XXS activation shape is invalid")
+        if tuple(output.shape) != (aggregate_rows, 2048):
+            raise HIPRuntimeError("installed IQ2_XXS output shape is invalid")
+        if len({tensor.device for tensor in tensors}) != 1:
+            raise HIPRuntimeError("installed IQ2_XXS tensors must share one device")
+        arguments = (
+            ctypes.c_uint64(packed_weight.data_ptr()),
+            ctypes.c_uint64(activations.data_ptr()),
+            ctypes.c_uint64(output.data_ptr()),
+            ctypes.c_uint64(expert_indices.data_ptr()),
+            ctypes.c_uint64(expert_offsets.data_ptr()),
+            ctypes.c_uint32(256),
+            ctypes.c_uint32(2048),
+            ctypes.c_uint32(aggregate_rows),
+            ctypes.c_uint32(16),
+            ctypes.c_uint64(self.BYTES_PER_EXPERT),
+        )
+        parameters = (ctypes.c_void_p * len(arguments))(
+            *(
+                ctypes.cast(ctypes.byref(argument), ctypes.c_void_p)
+                for argument in arguments
+            )
+        )
+        self._check(
+            self._lib.hipModuleLaunchKernel(
+                self._function,
+                32,
+                route_entries,
+                1,
+                32,
+                4,
+                1,
+                self.dynamic_lds_bytes,
                 ctypes.c_void_p(stream),
                 parameters,
                 None,

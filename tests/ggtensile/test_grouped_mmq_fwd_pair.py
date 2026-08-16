@@ -13,15 +13,23 @@ from tools.ggtensile.grouped_mmq_fwd_pair_model import (
     GroupedForwardPairSolutionKey,
     GroupedPairRouteOwnership,
 )
+from tools.ggtensile.grouped_mmq_fwd_pair_runtime import (
+    InstalledGroupedForwardPairIQ2XXSSerialControl,
+)
 from tools.ggtensile.grouped_mmq_fwd_pair_spec import (
     DerivedGroupedForwardPairState,
 )
 from tools.ggtensile.grouped_mmq_fwd_pair_validation import (
     validate_grouped_forward_pair_solution,
 )
+from tools.ggtensile.iq2_xxs_grid import (
+    iq2_xxs_grid_rodata,
+    iq2_xxs_grid_values,
+)
 from tools.ggtensile.kernel_writer_assembly_grouped_mmq_fwd_pair import (
     GroupedForwardPairKernelWriterAssembly,
 )
+from tools.ggtensile.runtime import HIPRuntimeError
 from tools.ggtensile.toolchain import Toolchain
 
 
@@ -52,6 +60,13 @@ def _q3_row_task_key(
     return GroupedForwardPairSolutionKey(
         GroupedForwardPairProblem.q3_k(aggregate_rows),
         GroupedForwardPairSolution.q3_k_k128_interleaved_row_tasks(),
+    )
+
+
+def _iq2_xxs_key(aggregate_rows: int = 12_288) -> GroupedForwardPairSolutionKey:
+    return GroupedForwardPairSolutionKey(
+        GroupedForwardPairProblem.iq2_xxs(aggregate_rows),
+        GroupedForwardPairSolution.iq2_xxs_k128_interleaved(),
     )
 
 
@@ -156,6 +171,54 @@ def test_grouped_q3_k_pair_r35_identities_are_stable() -> None:
     assert _q3_row_task_key(35).kernel_name.endswith("cbfc49bedf75164f")
 
 
+@pytest.mark.parametrize("aggregate_rows", (12_288, 49_152, 196_608))
+def test_grouped_iq2_xxs_pair_production_keys_derive(aggregate_rows: int) -> None:
+    key = _iq2_xxs_key(aggregate_rows)
+    assert GroupedForwardPairSolutionKey.from_mapping(key.to_mapping()) == key
+    assert validate_grouped_forward_pair_solution(key) == ()
+    state = DerivedGroupedForwardPairState.from_solution_key(key)
+    assert state.expected_packed_weight_shape == (256, 2048, 1056)
+    assert state.expected_activation_shape == (32, aggregate_rows, 144)
+    assert state.expected_output_shape == (aggregate_rows, 2048)
+    assert state.grid(256) == (32, 256, 1)
+    assert state.blocks_per_weight_row == 16
+    assert state.bytes_per_expert == 2_162_688
+    assert state.physical_plan.resources.vgprs == 148
+    assert state.physical_plan.resources.sgprs == 44
+    assert state.physical_plan.resources.lds_bytes == 19_456
+    assert state.physical_plan.layout.weight_row_stride == 160
+    assert state.semantics.payload_plane("d").byte_offset == 0
+    assert state.semantics.payload_plane("grid_indices_and_signs").byte_offset == 2
+
+
+def test_grouped_iq2_xxs_pair_r35_identity_and_control_abi_are_stable() -> None:
+    assert InstalledGroupedForwardPairIQ2XXSSerialControl._CONFIGS == {
+        64: (
+            "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_iq2_xxs_n2048_k4096_j64",
+            28_928,
+        ),
+        80: (
+            "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_iq2_xxs_n2048_k4096_j80",
+            31_552,
+        ),
+    }
+    assert InstalledGroupedForwardPairIQ2XXSSerialControl.BYTES_PER_EXPERT == 2_162_688
+    with pytest.raises(HIPRuntimeError, match="requires J64 or J80"):
+        InstalledGroupedForwardPairIQ2XXSSerialControl(96)
+
+
+def test_grouped_iq2_xxs_grid_is_extracted_from_the_vendor_authority() -> None:
+    values = iq2_xxs_grid_values()
+    assert len(values) == 256
+    assert values[0] == 0x0808080808080808
+    assert values[-1] == 0x2B2B2B1908081908
+    rodata = iq2_xxs_grid_rodata(".LTestIQ2XXSGrid")
+    assert rodata.count(".quad ") == 64
+    assert ".size .LTestIQ2XXSGrid, 2048" in rodata
+    with pytest.raises(ValueError, match="assembly-local"):
+        iq2_xxs_grid_rodata("IQ2XXSGrid")
+
+
 def test_grouped_iq2_s_pair_validation_rejects_other_geometry_and_solution() -> None:
     key = _key()
     invalid_problem = replace(key.problem, output_features=1024)
@@ -175,6 +238,14 @@ def test_grouped_pair_validation_rejects_cross_quant_solution() -> None:
     key = _q3_key()
     reasons = validate_grouped_forward_pair_solution(
         replace(key, solution=GroupedForwardPairSolution.iq2_s_k128_interleaved())
+    )
+    assert tuple(reason.rule_id for reason in reasons) == (
+        "grouped_forward_pair.solution.unimplemented",
+    )
+
+    iq2_xxs = _iq2_xxs_key()
+    reasons = validate_grouped_forward_pair_solution(
+        replace(iq2_xxs, solution=GroupedForwardPairSolution.q3_k_k128_interleaved())
     )
     assert tuple(reason.rule_id for reason in reasons) == (
         "grouped_forward_pair.solution.unimplemented",
@@ -255,6 +326,36 @@ def test_grouped_q3_k_pair_row_task_writer_uses_device_descriptors() -> None:
     assert "s_load_dword s23, s[20:21], s31" in source
     assert source.count("v_wmma_i32_16x16x16_iu8") == 128
     assert source.count("s_barrier") == 8
+
+
+def test_grouped_iq2_xxs_pair_writer_has_q8_style_k32_dataflow() -> None:
+    source = GroupedForwardPairKernelWriterAssembly(
+        _iq2_xxs_key(35), Toolchain.discover()
+    ).source()
+    assert "paired grouped IQ2_XXS MMQ forward, K128 interleaved" in source
+    assert source.count("Decode paired IQ2_XXS selected K128 half 0") == 2
+    assert source.count("Decode paired IQ2_XXS selected K128 half 1") == 2
+    assert source.count("Linearly stage one coalesced 9,216-byte") == 2
+    assert source.count("v_wmma_i32_16x16x16_iu8") == 128
+    assert source.count("v[124:131] neg_lo:[1,1,0]") == 64
+    assert source.count("v_cvt_f32_i32") == 512
+    assert source.count("s_barrier") == 8
+    assert source.count("v_bcnt_u32_b32") == 32
+    assert source.count("v_perm_b32") == 64
+    assert source.count(".quad ") == 64
+    assert source.count('.section .rodata,"a",@progbits') == 1
+    assert "global_load_ushort v64, v138, s[4:5] offset:0" in source
+    assert "global_load_b64 v[67:68], v100, s[4:5] offset:2" in source
+    assert "global_load_b64 v[69:70], v100, s[4:5] offset:10" in source
+    assert "v_xor_b32 v96, v96, v99" in source
+    assert (
+        "v_wmma_i32_16x16x16_iu8 v[64:71], v[96:99], v[100:103], "
+        "v[64:71] neg_lo:[1,1,0]"
+    ) in source
+    assert source.count("v_lshlrev_b32 v96, 12") == 8
+    assert "v_lshlrev_b32 v96, 10" not in source
+    assert "Store paired IQ2_XXS projection 0" in source
+    assert "Store paired IQ2_XXS projection 1" in source
 
 
 def _build(
@@ -340,6 +441,31 @@ def test_grouped_q3_k_pair_artifact_is_deterministic_and_resource_clean(
         if key.solution.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks64
         else 80
     )
+    assert inspection.wavefront_size == 32
+    assert inspection.max_flat_workgroup_size == 128
+    assert inspection.vgpr_count == 148
+    assert inspection.sgpr_count == 44
+    assert inspection.lds_num_bytes == 19_456
+    assert inspection.private_segment_bytes == 0
+    assert inspection.vgpr_spill_count == 0
+    assert inspection.sgpr_spill_count == 0
+    assert inspection.wmma_count == 128
+    assert inspection.barrier_count == 8
+
+
+def test_grouped_iq2_xxs_pair_artifact_is_deterministic_and_resource_clean(
+    tmp_path: Path,
+) -> None:
+    key = _iq2_xxs_key(35)
+    toolchain = Toolchain.discover()
+    first_source, first_code, first_path = _build(tmp_path / "first", key, toolchain)
+    second_source, second_code, _ = _build(tmp_path / "second", key, toolchain)
+    assert first_source == second_source
+    assert first_code == second_code
+    inspection = inspect_grouped_forward_pair_artifact(key, first_path, toolchain)
+    assert inspection.code_object_version == 5
+    assert inspection.target == "gfx1151"
+    assert inspection.kernarg_segment_size == 80
     assert inspection.wavefront_size == 32
     assert inspection.max_flat_workgroup_size == 128
     assert inspection.vgpr_count == 148

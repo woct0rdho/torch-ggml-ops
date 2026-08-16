@@ -14,8 +14,10 @@ from .grouped_mmq_fwd_pair_model import (
 )
 from .grouped_mmq_fwd_pair_physical import (
     GroupedIQ2SPairPhysicalPlan,
+    GroupedIQ2XXSPairPhysicalPlan,
     GroupedQ3KPairPhysicalPlan,
     grouped_iq2_s_pair_physical_plan,
+    grouped_iq2_xxs_pair_physical_plan,
     grouped_q3_k_pair_physical_plan,
 )
 from .mmq_fwd_spec import QuantForwardSemantics
@@ -53,6 +55,10 @@ class GroupedForwardPairContract:
             "IQ2_S": (
                 GroupedPairOperandSource.IQ2SHalfWeightLds,
                 GroupedPairDecodeSchedule.TwoLaneSelectedHalfPayloadPrefetch,
+            ),
+            "IQ2_XXS": (
+                GroupedPairOperandSource.IQ2XXSHalfWeightLds,
+                GroupedPairDecodeSchedule.TwoLaneSelectedHalfIQ2XXS,
             ),
             "Q3_K": (
                 GroupedPairOperandSource.Q3KHalfWeightLds,
@@ -194,7 +200,11 @@ class GroupedForwardPairRouteState:
 class DerivedGroupedForwardPairState:
     key: GroupedForwardPairSolutionKey
     semantics: QuantForwardSemantics
-    physical_plan: GroupedIQ2SPairPhysicalPlan | GroupedQ3KPairPhysicalPlan
+    physical_plan: (
+        GroupedIQ2SPairPhysicalPlan
+        | GroupedIQ2XXSPairPhysicalPlan
+        | GroupedQ3KPairPhysicalPlan
+    )
     contract: GroupedForwardPairContract
     kernel_spec: GroupedForwardPairKernelSpec
     route: GroupedForwardPairRouteState
@@ -213,14 +223,21 @@ class DerivedGroupedForwardPairState:
         problem = key.problem
         solution = key.solution
         contract = GroupedForwardPairContract.from_solution(problem, solution)
-        if problem.quant_data_type not in {"IQ2_S", "Q3_K"}:
-            raise ValueError("paired research supports IQ2_S and Q3_K")
-        if problem.output_features != 512 or problem.input_features != 2048:
-            raise ValueError("paired grouped forward requires N512 K2048")
+        if problem.quant_data_type not in {"IQ2_S", "IQ2_XXS", "Q3_K"}:
+            raise ValueError("paired research supports IQ2_S, IQ2_XXS, and Q3_K")
+        if problem.quant_data_type == "IQ2_XXS":
+            if problem.output_features != 2048 or problem.input_features != 4096:
+                raise ValueError("paired IQ2_XXS grouped forward requires N2048 K4096")
+        elif problem.output_features != 512 or problem.input_features != 2048:
+            raise ValueError("paired IQ2_S and Q3_K grouped forward require N512 K2048")
         physical = (
             grouped_iq2_s_pair_physical_plan(solution.route_ownership)
             if problem.quant_data_type == "IQ2_S"
-            else grouped_q3_k_pair_physical_plan(solution.route_ownership)
+            else (
+                grouped_iq2_xxs_pair_physical_plan(solution.route_ownership)
+                if problem.quant_data_type == "IQ2_XXS"
+                else grouped_q3_k_pair_physical_plan(solution.route_ownership)
+            )
         )
         semantics = QuantForwardSemantics.for_quant_type(problem.quant_data_type)
         blocks_per_weight_row = problem.input_features // contract.block_values

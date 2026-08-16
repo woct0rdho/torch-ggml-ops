@@ -14,13 +14,14 @@ def validate_grouped_forward_pair_solution(
     reasons: list[RejectReason] = []
     expected = {
         "IQ2_S": GroupedForwardPairProblem.iq2_s,
+        "IQ2_XXS": GroupedForwardPairProblem.iq2_xxs,
         "Q3_K": GroupedForwardPairProblem.q3_k,
     }.get(key.problem.quant_data_type)
     if expected is None or key.problem != expected(key.problem.aggregate_rows):
         reasons.append(
             RejectReason(
                 "grouped_forward_pair.problem.unsupported",
-                "paired grouped forward requires a supported quant type, exact N512/K2048 geometry, two projections, 256 experts, and at most 256 routes",
+                "paired grouped forward requires a supported quant type, its exact N/K geometry, two projections, 256 experts, and at most 256 routes",
                 ("Problem",),
                 "GroupedForwardPairProblem",
             )
@@ -39,6 +40,7 @@ def validate_grouped_forward_pair_solution(
             GroupedForwardPairSolution.iq2_s_k128_interleaved(),
             GroupedForwardPairSolution.iq2_s_k128_interleaved_row_tasks(),
         ),
+        "IQ2_XXS": (GroupedForwardPairSolution.iq2_xxs_k128_interleaved(),),
         "Q3_K": (
             GroupedForwardPairSolution.q3_k_k128_interleaved(),
             GroupedForwardPairSolution.q3_k_k128_interleaved_row_tasks(),

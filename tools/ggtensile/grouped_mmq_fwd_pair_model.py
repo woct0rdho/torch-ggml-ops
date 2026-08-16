@@ -24,6 +24,7 @@ from .quant_formats import Q8_1_F32_D4_BLOCK_BYTES
 
 class GroupedPairOperandSource(str, Enum):
     IQ2SHalfWeightLds = "IQ2SHalfWeightLds"
+    IQ2XXSHalfWeightLds = "IQ2XXSHalfWeightLds"
     Q3KHalfWeightLds = "Q3KHalfWeightLds"
 
 
@@ -33,6 +34,7 @@ class GroupedPairProjectionSchedule(str, Enum):
 
 class GroupedPairDecodeSchedule(str, Enum):
     TwoLaneSelectedHalfPayloadPrefetch = "TwoLaneSelectedHalfPayloadPrefetch"
+    TwoLaneSelectedHalfIQ2XXS = "TwoLaneSelectedHalfIQ2XXS"
     TwoLaneSelectedHalfQ3 = "TwoLaneSelectedHalfQ3"
 
 
@@ -68,6 +70,10 @@ class GroupedForwardPairProblem:
     @classmethod
     def iq2_s(cls, aggregate_rows: int) -> Self:
         return cls("IQ2_S", aggregate_rows, 512, 2048, 256, 256, 2)
+
+    @classmethod
+    def iq2_xxs(cls, aggregate_rows: int) -> Self:
+        return cls("IQ2_XXS", aggregate_rows, 2048, 4096, 256, 256, 2)
 
     @classmethod
     def q3_k(cls, aggregate_rows: int) -> Self:
@@ -196,6 +202,36 @@ class GroupedForwardPairSolution:
             cls.iq2_s_k128_interleaved(),
             group_mapping="RowTaskGemmPair",
             route_layout="DeviceRowTasks64",
+        )
+
+    @classmethod
+    def iq2_xxs_k128_interleaved(cls) -> Self:
+        return cls(
+            kernel_language="Assembly",
+            isa=(11, 5, 1),
+            wavefront_size=32,
+            work_group=(128, 1, 1),
+            matrix_instruction=(16, 16, 16, 1, 1, 1, 4, 4, 1),
+            macro_tile0=64,
+            macro_tile1=64,
+            depth_u=128,
+            activation_layout="F32_D4",
+            activation_block_bytes=Q8_1_F32_D4_BLOCK_BYTES,
+            packed_weight_block_bytes=66,
+            operand_source=GroupedPairOperandSource.IQ2XXSHalfWeightLds,
+            projection_schedule=GroupedPairProjectionSchedule.K128Interleaved,
+            weight_decode="TwoLaneSelectedHalfIQ2XXSGridParitySigned",
+            group_mapping="SerialGemmPair",
+            route_layout="CumulativeOffsetsExpertIndices",
+            activation_addressing=GroupedActivationAddressing.AggregateRowsTiledLinear,
+            metadata_conversion="Float16DParitySignsOddScaleToFloat32",
+            metadata_schedule=GroupedPairDecodeSchedule.TwoLaneSelectedHalfIQ2XXS,
+            output_store=GroupedOutputStore.BFloat16RNEClause4Masked,
+            scale_arithmetic="Int32ScaleF32",
+            projection_count=2,
+            signed_weight=True,
+            signed_activation=True,
+            wmma_clamp=False,
         )
 
     @classmethod

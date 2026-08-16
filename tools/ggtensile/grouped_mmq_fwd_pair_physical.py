@@ -47,6 +47,47 @@ class GroupedIQ2SPairHalfLdsLayout:
 
 
 @dataclass(frozen=True)
+class GroupedIQ2XXSPairHalfLdsLayout:
+    """The Q8_0-style decoded IQ2_XXS tile used by the paired lowering."""
+
+    activation_rows: int = 64
+    weight_rows: int = 64
+    activation_row_stride: int = 144
+    weight_row_stride: int = 160
+    half_payload_bytes: int = 128
+    half_payload_stride: int = 160
+    weight_scale_offset: int = 128
+
+    def __post_init__(self) -> None:
+        if (
+            self.activation_rows,
+            self.weight_rows,
+            self.activation_row_stride,
+            self.weight_row_stride,
+            self.half_payload_bytes,
+            self.half_payload_stride,
+            self.weight_scale_offset,
+        ) != (64, 64, 144, 160, 128, 160, 128):
+            raise ValueError("paired IQ2_XXS half-LDS layout has fixed dimensions")
+
+    @property
+    def activation_bytes(self) -> int:
+        return self.activation_rows * self.activation_row_stride
+
+    @property
+    def weight_base(self) -> int:
+        return self.activation_bytes
+
+    @property
+    def weight_bytes(self) -> int:
+        return self.weight_rows * self.weight_row_stride
+
+    @property
+    def total_bytes(self) -> int:
+        return self.activation_bytes + self.weight_bytes
+
+
+@dataclass(frozen=True)
 class GroupedIQ2SPairVectorRegisterPlan:
     sums_first: RegisterAssignment
     sums_second: RegisterAssignment
@@ -466,6 +507,14 @@ class GroupedIQ2SPairPhysicalPlan:
 
 
 @dataclass(frozen=True)
+class GroupedIQ2XXSPairPhysicalPlan:
+    layout: GroupedIQ2XXSPairHalfLdsLayout
+    registers: GroupedIQ2SPairVectorRegisterPlan
+    scalar_registers: GroupedIQ2SPairScalarRegisterPlan
+    resources: ForwardResourceUsage
+
+
+@dataclass(frozen=True)
 class GroupedQ3KPairPhysicalPlan:
     layout: GroupedQ3KPairHalfLdsLayout
     registers: GroupedQ3KPairVectorRegisterPlan
@@ -484,6 +533,28 @@ def grouped_iq2_s_pair_physical_plan(
         else GroupedIQ2SPairScalarRegisterPlan.allocate()
     )
     return GroupedIQ2SPairPhysicalPlan(
+        layout=layout,
+        registers=vector,
+        scalar_registers=scalar,
+        resources=ForwardResourceUsage(
+            vector.declared_vgprs,
+            scalar.declared_sgprs,
+            layout.total_bytes,
+        ),
+    )
+
+
+def grouped_iq2_xxs_pair_physical_plan(
+    route_ownership: GroupedPairRouteOwnership = GroupedPairRouteOwnership.SerialRoutes,
+) -> GroupedIQ2XXSPairPhysicalPlan:
+    layout = GroupedIQ2XXSPairHalfLdsLayout()
+    vector = GroupedIQ2SPairVectorRegisterPlan.allocate()
+    scalar = (
+        GroupedIQ2SPairScalarRegisterPlan.allocate_row_tasks()
+        if route_ownership is GroupedPairRouteOwnership.DeviceRowTasks64
+        else GroupedIQ2SPairScalarRegisterPlan.allocate()
+    )
+    return GroupedIQ2XXSPairPhysicalPlan(
         layout=layout,
         registers=vector,
         scalar_registers=scalar,

@@ -9,6 +9,9 @@ from .grouped_mmq_fwd_pair_lowering_iq2_s import (
     GroupedForwardPairLoweringContext,
     GroupedIQ2SPairedK128Lowering,
 )
+from .grouped_mmq_fwd_pair_lowering_iq2_xxs import (
+    GroupedIQ2XXSPairedK128Lowering,
+)
 from .grouped_mmq_fwd_pair_lowering_q3_k import GroupedQ3KPairedK128Lowering
 from .grouped_mmq_fwd_pair_model import (
     GroupedForwardPairSolutionKey,
@@ -99,6 +102,8 @@ class GroupedForwardPairKernelWriterAssembly:
         module.add(signature)
         if quant_type == "IQ2_S":
             emission = GroupedIQ2SPairedK128Lowering(self.context).emission()
+        elif quant_type == "IQ2_XXS":
+            emission = GroupedIQ2XXSPairedK128Lowering(self.context).emission()
         elif quant_type == "Q3_K":
             emission = GroupedQ3KPairedK128Lowering(self.context).emission()
         else:
