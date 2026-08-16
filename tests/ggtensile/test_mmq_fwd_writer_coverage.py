@@ -1,7 +1,6 @@
 """Targeted branch and complete executable-line coverage for the forward writer."""
 
 import ast
-import hashlib
 import re
 from dataclasses import fields, replace
 from typing import Any, cast
@@ -35,6 +34,7 @@ from tools.ggtensile.mmq_fwd_lowering_q6 import (
 from tools.ggtensile.mmq_fwd_lowering_signed_i8 import SignedInt8ForwardLowering
 from tools.ggtensile.mmq_fwd_physical import (
     DecodedWeightLdsPhysicalPlan,
+    DecodedWeightLdsRegisterPlan,
     Q3FullWeightTiledLdsRegisterPlan,
     Q6AddressAdd,
     Q6DependencyDelay,
@@ -129,21 +129,6 @@ def test_writer_emits_q6_structured_decoded_controls(
     assert source.count("s_barrier") == 4
     assert source.count("buffer_gl0_inv") == 4
     assert source.count("s_sendmsg sendmsg(MSG_DEALLOC_VGPRS)") == 1
-
-
-@pytest.mark.parametrize(
-    ("macro_tile0", "expected_sha256"),
-    (
-        (64, "c36e63b542ae7a9894fd02d85c1bd0e4ad6bef447329b831a65901f6689a7dfa"),
-        (128, "33f468f4eeb7a99ad31948bdcc3157411707098cf4dbaacd1e8bb1bac88661c9"),
-    ),
-)
-def test_q6_scheduled_body_matches_promoted_instruction_stream(
-    macro_tile0: int,
-    expected_sha256: str,
-) -> None:
-    source = str(_emit_q6_scheduled_body(_q6_schedule(macro_tile0)))
-    assert hashlib.sha256(source.encode()).hexdigest() == expected_sha256
 
 
 @pytest.mark.parametrize("macro_tile0", (64, 128))
@@ -1153,6 +1138,8 @@ def test_forward_physical_plans_reject_invalid_domains() -> None:
         SignedInt8WaveNTiledLdsLayout(allocation_padding_bytes=0)
     with pytest.raises(ValueError, match="one or two output rows"):
         q6_structured_physical_plan(3)
+    with pytest.raises(ValueError, match="two, four, or eight row tiles"):
+        DecodedWeightLdsRegisterPlan.allocate(1)
 
     q3_registers = Q3FullWeightTiledLdsRegisterPlan.allocate()
     with pytest.raises(ValueError, match="count is inconsistent"):

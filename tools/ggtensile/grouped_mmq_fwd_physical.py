@@ -348,7 +348,9 @@ class GroupedIQ2SFullWeightLdsLayout:
             self.weight_scale_bytes,
             self.weight_row_stride,
         ) != (64, 64, Q8_1_F32_D4_BLOCK_BYTES, 128, 160, 128, 32, 336):
-            raise ValueError("grouped IQ2_S full-weight LDS layout has fixed dimensions")
+            raise ValueError(
+                "grouped IQ2_S full-weight LDS layout has fixed dimensions"
+            )
 
     @property
     def activation_bytes(self) -> int:

@@ -10,16 +10,28 @@ import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from mmq_bundle_wrapper_source import (
-    DenseBackwardConfig,
-    ForwardConfig,
-    ForwardKind,
-    GroupedBackwardConfig,
-    GroupedBackwardKind,
-    KernelConfig,
-    QuantType,
-    render_wrapper,
-)
+if __package__:
+    from .mmq_bundle_wrapper_source import (
+        DenseBackwardConfig,
+        ForwardConfig,
+        ForwardKind,
+        GroupedBackwardConfig,
+        GroupedBackwardKind,
+        KernelConfig,
+        QuantType,
+        render_wrapper,
+    )
+else:
+    from mmq_bundle_wrapper_source import (
+        DenseBackwardConfig,
+        ForwardConfig,
+        ForwardKind,
+        GroupedBackwardConfig,
+        GroupedBackwardKind,
+        KernelConfig,
+        QuantType,
+        render_wrapper,
+    )
 
 ROOT = Path(__file__).resolve().parents[1]
 CSRC = ROOT / "csrc"

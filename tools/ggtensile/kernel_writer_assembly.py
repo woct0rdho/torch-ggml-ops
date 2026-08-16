@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-import rocisa
+import rocisa  # ty: ignore[unresolved-import]
 
 
 @dataclass(frozen=True)
@@ -197,7 +197,7 @@ def initialize_rocisa(
     *,
     temporary_prefix: str,
 ) -> None:
-    global_isa = rocisa.rocIsa.getInstance()  # ty: ignore[unresolved-attribute]
+    global_isa = rocisa.rocIsa.getInstance()
     original_directory = Path.cwd()
     with tempfile.TemporaryDirectory(prefix=temporary_prefix) as temporary:
         os.chdir(temporary)

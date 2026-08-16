@@ -183,8 +183,7 @@ def inspect_grouped_forward_artifact(
     call_mnemonics = {
         mnemonic
         for mnemonic in mnemonics
-        if "call" in mnemonic
-        or mnemonic in {"s_setpc_b64", "s_swappc_b64"}
+        if "call" in mnemonic or mnemonic in {"s_setpc_b64", "s_swappc_b64"}
     }
     if not iq2_s_full_weight and "s_getpc_b64" in mnemonics:
         call_mnemonics.add("s_getpc_b64")

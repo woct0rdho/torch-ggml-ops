@@ -477,7 +477,7 @@ def control_profiles(family: str, batch: int) -> list[dict[str, Any]]:
                 "tokens": batch * REFERENCE_TOKENS,
                 "top_k": top_k,
                 "row_sum": int(physical.sum()),
-                "maximum_rows": int(physical.max()),
+                "maximum_rows": max(group_sizes),
                 "expert_ids": list(expert_ids),
                 "group_sizes": list(group_sizes),
                 "rows_per_expert": physical.astype(int).tolist(),

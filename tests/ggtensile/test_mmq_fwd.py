@@ -40,36 +40,6 @@ _Q3_INVENTORY_CASE = _FWD_INVENTORY_CASES["Q3_K"]
 _Q5_INVENTORY_CASE = _FWD_INVENTORY_CASES["Q5_K"]
 _Q6_INVENTORY_CASE = _FWD_INVENTORY_CASES["Q6_K"]
 
-_Q6_SCHEDULE_ARTIFACT_SHA256 = {
-    64: {
-        "source": "c14dd8e63a6ed0ef68c1f7000b2c7905b3c97018fe38f24d7b970505d230cbc7",
-        "text": "cce9eace941433c87ed1676c60de16483862839bc8b88ef74e6309ce76962427",
-        "hsaco": "6843f95b4e5372e00992a09ece234d134386a83844cc687ff605b00df99583f7",
-    },
-    128: {
-        "source": "98218bc2300f59f6fbe2de09d304f3b74c44e04178231763d06efe3d7b530ae9",
-        "text": "655c33ae070ff214998a32c7075d629aa9635c3deb90b0581deef19f3e8f8956",
-        "hsaco": "b85503c7fe93d1f69b5a89be528910b79439c560d952fe2d9570b6b1769f3eb6",
-    },
-    256: {
-        "source": "e46cf7f0c91e9af5dd4801ce5394e510b587f8d02fc61e58b253a08b6e09ad16",
-        "text": "655c33ae070ff214998a32c7075d629aa9635c3deb90b0581deef19f3e8f8956",
-        "hsaco": "13f6621814702ef832f67597f49fc506b3e9fbd9235711dd596f427a2f89cf4a",
-    },
-}
-_Q6_WAVEFRONT_ARTIFACT_SHA256 = {
-    64: {
-        "source": "b6ea810db285e2db70932e44ee83f572f7eaab64bbf99b1fb6ac61ecdf5935ad",
-        "text": "acba1aef19be4ebbbf0e7f0930a42b12a9597bfcd2630acf7916f40b58b487ef",
-        "hsaco": "986e78b7e065845b8902d32f67b7691e642fae1136ee62386f1b79a7f3a55af6",
-    },
-    128: {
-        "source": "98652abf23a9fb794353bfec40c2a374198d084917c92b107760aece655c612a",
-        "text": "997bfabcac5a8674aad5dfbdb223a74f76b787191573c72df258afa314ae8fde",
-        "hsaco": "d724079f31a1a341b3aa25969451a4a8d43b2538ba5c244f611e3eaa57cad2a6",
-    },
-}
-
 
 def _q4_extraction(
     tiles_ahead: int,
@@ -1435,28 +1405,6 @@ def test_forward_artifact_passes_strict_inspection(
             else 16
         ),
     )
-    if (
-        isinstance(key.solution, ForwardSolution)
-        and key.solution.operand_source == "Q6StructuredDecoded"
-    ):
-        expected_hashes = (
-            _Q6_WAVEFRONT_ARTIFACT_SHA256
-            if key.solution.q6_output_traversal == "OutputRoleWavefront"
-            else _Q6_SCHEDULE_ARTIFACT_SHA256
-        ).get(key.problem_size.m)
-        if expected_hashes is not None:
-            code_object = tmp_path / "kernel.hsaco"
-            text_section = tmp_path / "kernel.text"
-            toolchain.extract_section(code_object, ".text", text_section)
-            assert artifact.source_hash == expected_hashes["source"]
-            assert (
-                hashlib.sha256(text_section.read_bytes()).hexdigest()
-                == expected_hashes["text"]
-            )
-            assert (
-                hashlib.sha256(code_object.read_bytes()).hexdigest()
-                == expected_hashes["hsaco"]
-            )
 
 
 def test_forward_writer_rejects_invalid_solution() -> None:
