@@ -6,6 +6,8 @@ from typing import Any
 
 import yaml
 
+from .fixed_grouped_mmq_fwd_model import FixedForwardSolutionKey
+from .fixed_grouped_mmq_fwd_spec import DerivedFixedForwardState
 from .mmq_bwd_physical import derive_backward_physical_plan
 from .mmq_bwd_spec import DerivedBackwardState
 from .mmq_fwd_physical import (
@@ -20,7 +22,7 @@ from .mmq_fwd_physical import (
     derive_forward_physical_plan,
 )
 from .mmq_fwd_spec import ForwardKernelSpec, derive_forward_resource_usage
-from .model import ForwardSolution, SolutionKey
+from .model import BackwardSolution, ForwardSolution, SolutionKey
 from .toolchain import Toolchain
 
 
@@ -106,9 +108,18 @@ _EXPECTED_FORWARD_ARGS = (
     ("blocks_per_weight_row", 36, 4, "by_value", "u32"),
 )
 
+_EXPECTED_FIXED_FORWARD_ARGS = (
+    ("packed_weight", 0, 8, "global_buffer", "struct"),
+    ("activations", 8, 8, "global_buffer", "struct"),
+    ("output", 16, 8, "global_buffer", "bf16"),
+    ("tokens", 24, 4, "by_value", "u32"),
+    ("out_features", 28, 4, "by_value", "u32"),
+    ("bytes_per_group", 32, 8, "by_value", "u64"),
+)
+
 
 def inspect_artifact(
-    solution_key: SolutionKey,
+    solution_key: SolutionKey | FixedForwardSolutionKey,
     code_object: Path,
     toolchain: Toolchain,
     *,
@@ -163,7 +174,9 @@ def inspect_artifact(
     solution = solution_key.solution
     expected_wmmas = expected_wmma_count
     if expected_wmmas is None:
-        if isinstance(solution, ForwardSolution):
+        if isinstance(solution_key, FixedForwardSolutionKey):
+            expected_wmmas = solution_key.solution.macro_tile_tokens // 2
+        elif isinstance(solution, ForwardSolution):
             physical = derive_forward_physical_plan(
                 ForwardKernelSpec.from_solution(solution)
             )
@@ -187,7 +200,7 @@ def inspect_artifact(
                 if isinstance(physical, SignedInt8SmallMTiledLdsPhysicalPlan)
                 else 16
             )
-        else:
+        elif isinstance(solution, BackwardSolution):
             expected_wmmas = (
                 solution.matrix_instruction[5]
                 * solution.matrix_instruction[6]
@@ -205,7 +218,9 @@ def inspect_artifact(
     )
     expected_barriers = expected_barrier_count
     if expected_barriers is None:
-        if isinstance(solution, ForwardSolution):
+        if isinstance(solution_key, FixedForwardSolutionKey):
+            expected_barriers = 2
+        elif isinstance(solution, ForwardSolution):
             physical = derive_forward_physical_plan(
                 ForwardKernelSpec.from_solution(solution)
             )
@@ -226,9 +241,9 @@ def inspect_artifact(
                 if isinstance(physical, SignedInt8SmallMTiledLdsPhysicalPlan)
                 else 0
             )
-        elif solution.one_lds_buffer == 0:
+        elif isinstance(solution, BackwardSolution) and solution.one_lds_buffer == 0:
             expected_barriers = 1 + int(solution_key.problem_size.k > solution.depth_u)
-        else:
+        elif isinstance(solution, BackwardSolution):
             expected_barriers = 3 if solution.prefetch_packed_weight_next else 2
     _require(
         barrier_count == expected_barriers,
@@ -313,9 +328,12 @@ def _kernel_metadata(
 
 def _validate_metadata(
     kernel: Mapping[str, Any],
-    solution_key: SolutionKey,
+    solution_key: SolutionKey | FixedForwardSolutionKey,
     errors: list[str],
 ) -> None:
+    if isinstance(solution_key, FixedForwardSolutionKey):
+        _validate_fixed_forward_metadata(kernel, solution_key, errors)
+        return
     solution = solution_key.solution
     if isinstance(solution, ForwardSolution):
         _validate_forward_metadata(kernel, solution, errors)
@@ -411,6 +429,53 @@ def _validate_forward_metadata(
     _require(
         actual_args == _EXPECTED_FORWARD_ARGS,
         "forward kernarg ABI does not match",
+        errors,
+    )
+
+
+def _validate_fixed_forward_metadata(
+    kernel: Mapping[str, Any],
+    solution_key: FixedForwardSolutionKey,
+    errors: list[str],
+) -> None:
+    state = DerivedFixedForwardState.from_solution_key(solution_key)
+    expected = {
+        ".kernarg_segment_size": 40,
+        ".kernarg_segment_align": 8,
+        ".group_segment_fixed_size": state.resources.lds_bytes,
+        ".private_segment_fixed_size": 0,
+        ".max_flat_workgroup_size": state.num_threads,
+        ".wavefront_size": solution_key.solution.wavefront_size,
+        ".vgpr_count": state.resources.vgprs,
+        ".sgpr_count": state.resources.sgprs,
+        ".vgpr_spill_count": 0,
+        ".sgpr_spill_count": 0,
+    }
+    for field, value in expected.items():
+        actual = kernel.get(field)
+        _require(actual == value, f"{field} is {actual!r}, expected {value}", errors)
+    _require(
+        kernel.get(".uses_dynamic_stack", False) is False,
+        "dynamic stack is enabled",
+        errors,
+    )
+    arguments = kernel.get(".args")
+    actual_args = ()
+    if isinstance(arguments, list):
+        actual_args = tuple(
+            (
+                argument.get(".name"),
+                argument.get(".offset"),
+                argument.get(".size"),
+                argument.get(".value_kind"),
+                argument.get(".value_type"),
+            )
+            for argument in arguments
+            if isinstance(argument, Mapping)
+        )
+    _require(
+        actual_args == _EXPECTED_FIXED_FORWARD_ARGS,
+        "fixed forward kernarg ABI does not match",
         errors,
     )
 

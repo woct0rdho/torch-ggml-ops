@@ -8,6 +8,9 @@ from types import TracebackType
 import torch
 from typing_extensions import Self
 
+from .fixed_grouped_mmq_fwd_model import FixedForwardSolutionKey
+from .fixed_grouped_mmq_fwd_spec import DerivedFixedForwardState
+from .fixed_grouped_mmq_fwd_validation import validate_fixed_forward_solution_key
 from .grouped_mmq_fwd_model import GroupedForwardSolutionKey
 from .grouped_mmq_fwd_spec import DerivedGroupedForwardState
 from .grouped_mmq_fwd_validation import validate_grouped_forward_solution
@@ -784,6 +787,126 @@ class FixedHipForwardModule(ForwardModule):
         )
 
 
+class FixedGroupedQ8ForwardModule(_HIPModule):
+    """Direct prequantized launcher for the fixed-group six-argument ABI."""
+
+    def __init__(
+        self,
+        solution_key: FixedForwardSolutionKey,
+        code_object: Path,
+        hip_library: Path | None = None,
+        *,
+        kernel_name: str | None = None,
+    ) -> None:
+        try:
+            validate_fixed_forward_solution_key(solution_key)
+            self.state = DerivedFixedForwardState.from_solution_key(solution_key)
+        except (TypeError, ValueError) as error:
+            raise HIPRuntimeError(
+                f"cannot launch rejected fixed solution: {error}"
+            ) from error
+        self.solution_key = solution_key
+        super().__init__(
+            code_object, hip_library, kernel_name or solution_key.kernel_name
+        )
+
+    def launch(
+        self,
+        packed_weight: torch.Tensor,
+        activations: torch.Tensor,
+        output: torch.Tensor,
+        *,
+        stream: int,
+    ) -> None:
+        if not self._module or not self._function:
+            raise HIPRuntimeError("HIP module is closed")
+        state = self.state
+        tensors = (packed_weight, activations, output)
+        if any(not tensor.is_cuda for tensor in tensors):
+            raise HIPRuntimeError("all fixed launch tensors must be on a HIP device")
+        if any(not tensor.is_contiguous() for tensor in tensors):
+            raise HIPRuntimeError("all fixed launch tensors must be contiguous")
+        if any(tensor.storage_offset() != 0 for tensor in tensors):
+            raise HIPRuntimeError("fixed launch tensors must have zero storage offsets")
+        if packed_weight.dtype != torch.uint8:
+            raise HIPRuntimeError("packed_weight must be uint8")
+        if activations.dtype != torch.uint8:
+            raise HIPRuntimeError("activations must be uint8 Q8_1 F32_D4")
+        if output.dtype != torch.bfloat16:
+            raise HIPRuntimeError("output must be BF16")
+        if tuple(packed_weight.shape) != state.expected_packed_weight_shape:
+            raise HIPRuntimeError("packed_weight shape does not match fixed bank")
+        if tuple(activations.shape) != state.expected_activation_shape:
+            raise HIPRuntimeError(
+                "activations shape does not match fixed Q8_1 F32_D4 workspace"
+            )
+        if tuple(output.shape) != state.expected_output_shape:
+            raise HIPRuntimeError("output shape does not match fixed problem")
+        if len({tensor.device for tensor in tensors}) != 1:
+            raise HIPRuntimeError("all fixed launch tensors must be on the same device")
+
+        arguments = (
+            ctypes.c_uint64(packed_weight.data_ptr()),
+            ctypes.c_uint64(activations.data_ptr()),
+            ctypes.c_uint64(output.data_ptr()),
+            ctypes.c_uint32(state.problem.tokens),
+            ctypes.c_uint32(state.problem.output_features),
+            ctypes.c_uint64(state.problem.bytes_per_group),
+        )
+        parameters = (ctypes.c_void_p * len(arguments))(
+            *(
+                ctypes.cast(ctypes.byref(argument), ctypes.c_void_p)
+                for argument in arguments
+            )
+        )
+        self._check(
+            self._lib.hipModuleLaunchKernel(
+                self._function,
+                *self._launch_configuration(),
+                ctypes.c_void_p(stream),
+                parameters,
+                None,
+            ),
+            "hipModuleLaunchKernel",
+        )
+
+    def _launch_configuration(self) -> tuple[int, int, int, int, int, int, int]:
+        state = self.state
+        return (*state.grid, *state.solution.work_group, 0)
+
+
+class InstalledFixedGroupedQ8ForwardModule(FixedGroupedQ8ForwardModule):
+    """Direct launcher for the installed authoritative fixed-group HIP multiply."""
+
+    FULL_SYMBOL = (
+        "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_fixed_q8_0_g8_k4096_j64_full"
+    )
+    BOUNDED_SYMBOL = (
+        "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_fixed_q8_0_g8_k4096_j64_bounded"
+    )
+
+    def __init__(
+        self,
+        solution_key: FixedForwardSolutionKey,
+        code_object: Path | None = None,
+        hip_library: Path | None = None,
+    ) -> None:
+        if solution_key.problem.output_features % 64:
+            symbol = self.BOUNDED_SYMBOL
+        else:
+            symbol = self.FULL_SYMBOL
+        super().__init__(
+            solution_key,
+            code_object or _find_installed_kernel(symbol),
+            hip_library,
+            kernel_name=symbol,
+        )
+
+    def _launch_configuration(self) -> tuple[int, int, int, int, int, int, int]:
+        state = self.state
+        return (*state.grid, *state.solution.work_group, 28_928)
+
+
 class FixedQ81F16D4S4QuantizerModule(_HIPModule):
     """Direct launcher for the installed HIP Q8_1 F16_D4S4 producer."""
 
@@ -973,6 +1096,12 @@ def _find_installed_kernel(symbol: str) -> Path:
         if symbol == FixedQ81F16D4S4QuantizerModule.SYMBOL
         else "GGTENSILE_Q8_1_F32_D4_CODE_OBJECT"
         if symbol == FixedQ81F32D4QuantizerModule.SYMBOL
+        else "GGTENSILE_FIXED_GROUPED_Q8_CODE_OBJECT"
+        if symbol
+        in (
+            InstalledFixedGroupedQ8ForwardModule.FULL_SYMBOL,
+            InstalledFixedGroupedQ8ForwardModule.BOUNDED_SYMBOL,
+        )
         else "GGTENSILE_HIP_FORWARD_CODE_OBJECT"
     )
     override = os.environ.get(override_name)
