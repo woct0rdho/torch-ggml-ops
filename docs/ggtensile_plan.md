@@ -4,7 +4,7 @@
 
 GGTensile is the repository-local assembly kernel generator for packed GGUF matrix multiplication. It accepts one exact `ProblemType`, one exact `ProblemSize`, and one complete direction-specific solution, then either emits reproducible assembly or returns a structured rejection reason.
 
-This document is authoritative for the generic design, implementation principles, supported scope, and current implementation status. Format-specific problem definitions, measurements, rejected mechanisms, artifact identities, and campaign chronology belong in the experiment records. Durable contracts from the completed forward and backward writer refactors are incorporated here; phase-by-phase migration logs are historical evidence rather than design authority.
+This document is authoritative for the generic design, implementation principles, supported scope, current implementation status, and completed writer-refactor contracts. Format-specific problem definitions, measurements, rejected mechanisms, artifact identities, and campaign chronology belong in the experiment records. The completed refactor is represented here by its durable semantic authorities, argument rules, ownership boundaries, source-stability policy, and qualification evidence; no separate migration plan is required.
 
 GGTensile uses a deliberately small ROCISA surface inspired by TensileLite: structured modules and metadata, explicit register pools, and direct assembler/linker invocation. It does not import TensileLite's solution, problem-type, search, scheduling, allocation, or library-generation machinery. Existing HIP kernels remain the correctness control, performance control, and runtime fallback.
 
@@ -314,6 +314,16 @@ Components consume typed logical operands, register roles, memory roles, and dep
 
 Contractual invalid states use explicit rejection reasons. Natural programming errors propagate. Python `try` blocks are reserved for releasing acquired resources or restoring process-global state before re-raising.
 
+### Enum and boolean argument rules
+
+Finite serialized domains are represented by enums, not open strings. Enum member names and serialized values must match exactly, including capitalization and underscores. The name used in Python, the value emitted in JSON, and the identity used by candidate hashing are one spelling; aliases, case folding, whitespace normalization, and compatibility spellings are not permitted. Existing JSON field names remain unchanged unless an explicit identity migration is approved.
+
+Enum conversion is strict and occurs once at the canonical problem/specification boundary. Unknown values reject with a structured reason before physical planning or emission. Conversion must not infer a nearby policy, repair an invalid combination, or silently map multiple accepted values to one lowering. A serialized enum value is candidate identity, while its typed policy exposes only the semantic facts consumed by validation, physical planning, inspection, and lowering.
+
+Serialized boolean fields remain strict JSON booleans and retain their existing field names for compatibility. At the derived-state boundary, a boolean that participates in a mode is converted to a named enum, capability set, or policy record. Boolean-heavy vectors and parallel flags are not semantic APIs: when several flags jointly select a mechanism, replace them with one typed policy that represents the valid combinations and rejects the rest. For example, packed-prefetch, Q5 metadata/shift, store priority, and LDS buffering are policy values even where their legacy solution representation contains booleans or integer switches.
+
+A boolean is appropriate for a genuinely independent binary fact or a local predicate derived from a typed policy. A helper that genuinely needs an independent boolean receives it as a keyword-only argument; positional boolean arguments are prohibited because their meaning is not visible at the call site. Lowerers and physical planners do not repeatedly branch on raw serialized booleans. Public and serialized compatibility fields may remain boolean, but internal consumers use the derived typed authority.
+
 ### Completion requires recursive review
 
 Every campaign and structural refactor ends with a fresh recursive review of the design contract, implementation, generated artifacts, selected and rejected evidence, target ISA, and related kernel work. The review is global across forward and backward directions, problem types, quant types, and exact shapes; a local completion statement is scoped to the contract and inventory it actually qualified, not a waiver for related work. Findings are classified as duplicate or closed, contract-incompatible, unsupported, deferred with an explicit prerequisite, or actionable.
@@ -445,9 +455,29 @@ Complete candidates round-trip through normal serialized solution inputs. Canoni
 | `mmq_bwd_lowering_quant.py` | Quant-specific packed readers and BF16 decoder leaves |
 | `mmq_bwd_lowering.py` | Common backward BF16-WMMA pipeline, synchronization, and stores |
 | `mmq_bwd_emission.py` | Typed bounded pending-zero VOPD formation at known eligible sites |
+| `grouped_mmq_fwd_model.py` / `grouped_mmq_fwd_spec.py` | Grouped routed problem identity, typed mechanism policies, geometry, row dispatch, epilogue, and derived state |
+| `grouped_mmq_fwd_physical.py` | Grouped activation/weight LDS layouts, register roles, and resource formulas |
+| `grouped_mmq_fwd_route.py` | Complete grouped ABI route prologue, guards, and expert rebasing through one public emitter |
+| `grouped_mmq_fwd_lowering*.py` | Explicit grouped mechanism orchestration, route composition, decode, correction, and output emission |
+| `grouped_mmq_fwd_lowering_row_dispatch.py` | Shared typed activation/MMA/epilogue row-body threshold and label emission |
+| `mmq_fwd_lowering_decoded_stage.py` | Typed common decoded-weight LDS staging and compatible WMMA/store emission |
 | `inspection.py` | Artifact verification against plan-derived launch and resource facts; no allocation replay |
 
 Specification and physical-planning modules are pure: they do not import ROCISA, invoke the toolchain, benchmark, or emit instructions. Lowerers consume canonical typed state and concrete plans; they do not read inventories, selected catalogs, tensor names, benchmark reports, or runtime winner maps.
+
+### Completed writer-refactor boundaries
+
+The completed refactor makes the following boundaries normative:
+- Public ordinary and grouped facades validate one exact key, construct one typed derived state, initialize the fixed code-object envelope, dispatch to an explicit validated lowerer, and concatenate only generic sections plus typed mechanism-owned trailing sections. They do not own decoder loops, register allocation, LDS offsets, waits, WMMA bodies, epilogues, or resource formulas.
+- Canonical specifications interpret serialized fields once. Grouped compatibility field-copy records are not used. `GroupedForwardProblemContract`, `GroupedForwardKernelSpec`, `GroupedRouteState`, typed activation/row/decode/epilogue policies, and the physical plan are the authorities shared by grouped validation, lowering, and inspection.
+- `GroupedRouteEmitter` owns the complete routed ABI prologue: 64-byte kernarg loads, exact launch guards, int64 expert-ID loads, cumulative int32 offset loads, invalid-route inertness, and full-u64 expert-bank rebasing. It preserves the at-most-256 route-entry contract and final valid offset `R`. Mechanism lowerers compose its single public `emit()` operation and do not call sibling private methods.
+- `GroupedActivationStagingPlan` owns exact versus ceil-sized bounds-masked staging, vector load coverage, and LDS write shape. `GroupedRowTileDispatchPolicy` and `GroupedRowTileDispatchEmitter` own the one-, two-, and three-body activation/MMA/epilogue topology derived from macro/tail geometry. `GroupedOutputStore` is validated against that topology rather than used as an implementation switch.
+- `DecodedWeightLdsStageEmitter` is the typed common boundary for compatible Q4_K/Q5_K packed-weight staging, decoded LDS writes, scaled WMMA, and BF16 tile stores. Ordinary and grouped orchestration retain separate contexts and scalar plans; cross-context inheritance and casts are not semantic reuse. Q2_K remains a dedicated lowerer for F16_D2S6 staging, missing-sum groups, persistent all-ones operands, distributed production, and phased correction.
+- IQ2_S codebook rodata is owned by the IQ2_S lowering result. The generic grouped facade knows only how to concatenate ordered result sections, preserving section order and source identity without embedding IQ2_S mechanism knowledge.
+- Backward derives typed schedule, LDS-buffering, packed-prefetch, extraction, Q3 pairing, Q5 metadata/shift, store-priority, packed-row-address, decoder-capability, address-capability, and quant-register-shape policies. `BackwardSolution` JSON fields and their serialized identity remain unchanged. Physical planning and lowering consume the policies while `_emit_q3_k_*`, `_emit_q4_k_*`, `_emit_q5_k_*`, `_emit_q6_k_*`, and `_emit_q8_0_*` remain explicit arithmetic leaves.
+- The public backward `registers` compatibility attribute remains because existing callers use it; unused facade state and confirmed one-hop aliases were removed only where public behavior and type narrowing were unaffected. `DeterministicRegisterPool` remains because it is production-used by physical planning.
+
+These boundaries generalize capabilities, not algorithms. They do not introduce a generic scheduler, instruction IR, copied instruction-order table, callable dispatch registry, compatibility writer, or forward/backward lowering inheritance.
 
 ### Forward lowering
 
@@ -551,6 +581,10 @@ The main linked tuning groups are:
 - epilogue traversal, dependency width, scope, priority, and stores.
 - explicit VOPD, delay, clause, and cache policies.
 - resource limits and desired occupancy.
+
+Useful complete policy dimensions include workgroup wave count, macro tiles, row-tail ownership, WMMA grouping, activation layout and vector width, exact versus ceil/masked staging, direct versus decoded weight representation, LDS row/padding and payload width, metadata ownership and conversion schedule, decode overlap, epilogue dependency/store policy, grouped route ownership, backward schedule and buffering, lane sharing, and quant-specific extraction. Q6 may additionally expose traversal, stage clustering, latency, role-lifetime, producer-first-use, dependency-compatible pairing, physical carry, and epilogue-width policies through its existing typed schedule model.
+
+A policy dimension is valid only when it changes a semantic or physical choice and has a complete lowering, strict validation, physical-plan formula, inspection expectation, and external search representation. Expert-ID width, cumulative-offset width, route-entry bounds, final valid offset, ABI, arithmetic, ISA, and fixed format facts are contracts, not tuning knobs. The writer never chooses a value from a benchmark winner, model name, shape label, or hidden default, and a new knob must not merely expose an instruction-order tuple.
 
 Repository-owned search tooling lives outside the writer and operates on complete candidates:
 
@@ -702,12 +736,12 @@ The writer architecture is complete when:
 | MMQ forward Q6_K | Three exact language-model-head keys select the typed row/role wavefront; shared MT256 and `WideScalarCarryFrontier` are independently rejected, and public wiring is deferred |
 | MMQ forward Q3_K | Dense 12-key inventory complete; all 12 exact keys select the typed full-weight research candidate, while public wiring remains deferred to the 179-kernel HIP bundle |
 | MMQ forward Q8_0 | All 23 exact keys have final research decisions: 20 compact-depth32 selections, one ordinary HIP-shaped control, and two LM-head small-M controls; public wiring remains deferred |
-| Grouped GGTensile forward | Initial non-fixed, non-paired routed campaign scoped to six formats and 21 quant/aggregate-shape workload keys; grouped writer, ownership, search, and qualification are not yet implemented |
+| Grouped GGTensile forward | Isolated non-paired routed research kernels for Q2_K, Q4_K, Q5_K, and IQ2_S are implemented and qualified across exact aggregate-row workloads; grouped ownership, search, inspection, deterministic rebuild, and resource gates are complete, while public wiring remains deferred |
 | Grouped MMQ AITER comparator | Prior-aware bounded screen, captured/synthetic controls, six exact table replacements, and comparator-only replay complete |
 | Grouped MMQ learned-B1 HIP ownership | Existing-path screen complete; exact IQ2_S forward-pair and backward-down row-task dispatches retained, while Q3_K/Q4_K/Q5_K controls are rejected |
 | Public GGTensile runtime selection | Deferred; existing HIP bundle dispatch remains authoritative |
 
-The ten direct MMQ forward and backward format campaigns are currently exhausted under the fixed exact-key contract: the separate post-Q6 physical-plan review found no actionable in-contract premise. This conclusion does not close grouped MMQ, public dispatch, model-owned representations, or other explicitly separate integration scopes. A genuinely changed premise still reopens the affected campaign under its exact correctness, resource, reproducibility, and timing gates.
+The ten direct MMQ forward and backward format campaigns are currently exhausted under the fixed exact-key contract: the separate post-Q6 physical-plan review found no actionable in-contract premise. The isolated grouped Q2_K, Q4_K, Q5_K, and IQ2_S research scope is also qualified under its routed ABI and exact workload contracts. Public dispatch, model-owned representations, and other explicitly separate integration scopes remain deferred. A genuinely changed premise still reopens the affected campaign under its exact correctness, resource, reproducibility, and timing gates.
 
 ### Implemented forward architecture
 
@@ -740,13 +774,14 @@ The completed bidirectional writer refactor also established:
 - strict serialized Q3 `Inactive`/`Partial`/`Full` pairing policy with no exact-size instruction branch.
 - formula-derived quant-block, tile, decoder-row, workgroup-mapping, WMMA, deep-pipeline geometry, LDS, and physical-capacity admission.
 - typed quant mechanism capabilities for lane sharing, padded DepthU64, decoded-B pipelines, SIA3, and next-packed prefetch.
+- exact typed policies for schedule interpretation, LDS buffering, packed-prefetch combinations, Q3 pairing, Q5 metadata/shift, extraction, store priority, packed row addressing, decoder capability, address capability, and quant-specific register shape; the legacy `BackwardSolution` JSON schema is unchanged.
 - linked bounded decoder, complete-pipeline, and LDS-layout search neighborhoods filtered through normal validation.
 - typed pending-zero VOPD formation at known coordinate sites; ordinary instruction formatting neither parses nor rewrites emitted text.
 - complete structural and executable-line coverage for every current and future `mmq_bwd_*.py` physical/lowering module discovered by convention.
 
-### Latest qualified verification snapshot
+### Earlier catalog qualification snapshot
 
-The latest qualified repository state records:
+The earlier catalog qualification snapshot records:
 - 352 GGTensile tests and 437 repository tests passing, with only the 14 existing Python 3.14 PyTorch deprecation warnings.
 - all 56 selected forward and 50 selected backward artifacts regenerated from two independent roots and matching the reviewed post-migration baseline in source, object, code object, normalized disassembly, symbols, ABI, metadata, resources, waits, barriers, clauses, and VOPD counts.
 - the canonical Q8 compact-M64 identity migration from `ggsol_13768a4d22953b59` to `ggsol_11f54a8999dc20e6`, with symbol-normalized source and executable identity.
@@ -767,6 +802,16 @@ The latest qualified repository state records:
 After those two Q6 experiments were rejected, a separate read-only pass classified every apparent opening across all ten experiment records, the strict catalogs, current forward/backward lowering and physical plans, bounded search domains, bundle state, and target exclusions. Remaining items are retained and measured, evidence-rejected, contract-incompatible or deferred, or stale chronology/tooling-only. No newly actionable in-contract mechanism has an exact target and credible qualification path. The strict 56-forward/50-backward catalog state remains unchanged. Its 179-kernel public-bundle baseline is preserved byte-for-byte inside the current 181-kernel package, which adds only two separately qualified grouped-backward kernels.
 
 Exact source identities and normalized executable/code-object checks remain in artifact tests and experiment evidence rather than this generic design document.
+
+## Writer Refactor Qualification
+
+The completed source-preserving refactor was qualified against a baseline of 238 exact generated streams: 56 ordinary forward keys, 50 ordinary backward keys, and 132 grouped solution/production-row records. All 238 remained byte-identical, including comments, labels, whitespace, waits, section ordering, blank lines, and IQ2_S local rodata ordering.
+
+The complete `tests/ggtensile` suite passes 410 tests covering model identity, strict validation, ordinary and grouped source generation, assembly and linking, artifact inspection, deterministic rebuilds, resource limits, route and invalid-route behavior, mutation sensitivity, typed policy branches, and executable-line coverage. Ruff, formatting, compileall, `ty check`, pre-commit, and `git diff --check` also pass. Inspected retained artifacts remain code-object v5, gfx1151, wave32, ABI/resource compliant, and free of private storage, spills, scratch instructions, calls, and dynamic stack.
+
+The recursive review covered both directions, every ordinary quantization type, grouped Q2_K/Q4_K/Q5_K/IQ2_S, exact production shapes, generated source, inspected artifacts, schedule modules, physical-plan modules, and public-boundary behavior. Findings are classified as duplicate/closed, contract-incompatible, unsupported, deferred with a prerequisite, or actionable. No actionable in-contract finding remains. Public dispatch, generated bundle tables, extension registration, packaging, paired projection ownership, and HIP fallback remain unchanged; public grouped selection is deferred until a separate integration campaign qualifies those surfaces.
+
+The source-preserving policy is the default for existing specifications. Any intentional source, executable, ABI, or rodata difference must be isolated as a deliberate stream change and pass independent correctness, mutation, deterministic-build, artifact/resource, and warmed timing gates. This qualification record is evidence of the current implementation, not a license to infer future coverage or promote research kernels through public dispatch.
 
 ## Experiment Records
 
@@ -794,7 +839,7 @@ Each generated artifact owns one exact problem symbol. Runtime selection may use
 
 Public GGTensile integration remains deferred until a useful production set is selected, packaging and identity are stable, exact dispatch engineering is complete, and end-to-end workloads pass correctness and weighted performance validation. Experimental force controls are not public policy.
 
-Grouped GGTensile remains a separate design project, but its first forward campaign is now scoped by the routed single-projection inventory above. Retained down targets stay non-paired; gate/up precursor targets must later be superseded by paired artifacts rather than treated as completed production coverage. Paired routed, single routed, row-task, and fixed-group ownership still require explicit routing, task, memory, synchronization, resource, and fallback contracts. Ordinary coverage of an overlapping format does not count as grouped coverage.
+Grouped GGTensile remains a separate deployment and integration scope, while the isolated non-paired routed research writers for Q2_K, Q4_K, Q5_K, and IQ2_S are implemented and qualified under the inventory above. Retained down targets stay non-paired; gate/up precursor targets must later be superseded by paired artifacts rather than treated as completed production coverage. Paired routed, single routed, row-task, and fixed-group ownership still require explicit routing, task, memory, synchronization, resource, and fallback contracts. Ordinary coverage of an overlapping format does not count as grouped coverage.
 
 Prepared weights, compact alternate public layouts, BF16 shadows, paired projections, persistent workgroups, split reduction, GSU, Stream-K, and multi-kernel fixup require model-visible ownership, lifetime, invalidation, memory accounting, ABI, and fallback design. They are not hidden extensions of the current exact single-kernel backend.
 

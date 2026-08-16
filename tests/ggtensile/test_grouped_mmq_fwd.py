@@ -8,11 +8,20 @@ from tools.ggtensile.grouped_mmq_fwd_inspection import (
     inspect_grouped_forward_artifact,
 )
 from tools.ggtensile.grouped_mmq_fwd_model import (
+    GroupedActivationAddressing,
     GroupedForwardProblem,
     GroupedForwardSolution,
     GroupedForwardSolutionKey,
+    GroupedMetadataSchedule,
 )
-from tools.ggtensile.grouped_mmq_fwd_spec import DerivedGroupedForwardState
+from tools.ggtensile.grouped_mmq_fwd_physical import (
+    GroupedActivationStageBounds,
+    GroupedActivationStagingPlan,
+)
+from tools.ggtensile.grouped_mmq_fwd_spec import (
+    DerivedGroupedForwardState,
+    GroupedRowTileDispatchPolicy,
+)
 from tools.ggtensile.grouped_mmq_fwd_validation import (
     validate_grouped_forward_solution,
 )
@@ -130,6 +139,45 @@ def test_grouped_iq2_s_writer_embeds_distributed_codebook_decode() -> None:
     assert source.count("s_barrier") == 4
     assert '.section .rodata,"a",@progbits' in source
     assert source.count(".quad ") == 256
+
+
+def test_grouped_activation_staging_derives_exact_and_ceil_masked_stages() -> None:
+    staging = GroupedActivationStagingPlan(
+        GroupedActivationAddressing.AggregateRowsTiled,
+        block_bytes=144,
+        participating_threads=128,
+    )
+    exact = staging.stage(64)
+    assert exact.total_bytes == 9_216
+    assert exact.loads_per_thread == 18
+    assert exact.stage_dwords == 18
+    assert exact.bounds is GroupedActivationStageBounds.Exact
+    assert not exact.requires_bounds_mask
+
+    masked = staging.stage(16)
+    assert masked.total_bytes == 2_304
+    assert masked.loads_per_thread == 5
+    assert masked.stage_dwords == 5
+    assert masked.bounds is GroupedActivationStageBounds.BoundsMasked
+    assert masked.requires_bounds_mask
+
+
+@pytest.mark.parametrize(
+    ("macro_rows", "tail_rows", "expected"),
+    (
+        (16, 16, (16,)),
+        (32, 16, (32, 16)),
+        (64, 32, (64, 32)),
+        (128, 64, (128, 64)),
+        (128, 32, (128, 64, 32)),
+    ),
+)
+def test_grouped_row_dispatch_policy_derives_body_order(
+    macro_rows: int, tail_rows: int, expected: tuple[int, ...]
+) -> None:
+    policy = GroupedRowTileDispatchPolicy.from_geometry(macro_rows, tail_rows)
+    assert policy.body_rows == expected
+    assert policy.body_row_tiles == tuple(rows // 16 for rows in expected)
 
 
 def test_grouped_iq2_s_linear_activation_stage_is_coalesced() -> None:
@@ -588,11 +636,16 @@ def test_grouped_q4_k_decoded_plans_cover_row_tiles() -> None:
         assert state.physical_plan.resources.sgprs == 40
         assert state.physical_plan.resources.lds_bytes == lds_bytes
         assert state.problem_size.m == 35
-        assert state.kernel_spec.decode.metadata_schedule == solution.metadata_schedule
+        assert state.kernel_spec.decode.independent_metadata_extraction is (
+            solution.metadata_schedule
+            is GroupedMetadataSchedule.IndependentExtractionMetadataAfterLowWmma
+        )
+        assert state.kernel_spec.decode.defer_metadata_reads is (
+            solution.metadata_schedule
+            is GroupedMetadataSchedule.IndependentExtractionMetadataAfterLowWmma
+        )
         assert solution.tail_macro_tile0 <= solution.macro_tile0
-        row_tiles = solution.macro_tile0 // 16
-        if solution.tail_macro_tile0 < solution.macro_tile0:
-            row_tiles += solution.tail_macro_tile0 // 16
+        row_tiles = sum(state.kernel_spec.row_dispatch.body_row_tiles)
         assert 4 * row_tiles == wmmas
 
 

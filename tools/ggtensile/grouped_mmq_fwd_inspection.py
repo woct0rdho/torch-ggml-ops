@@ -3,8 +3,11 @@
 from collections.abc import Mapping
 from pathlib import Path
 
-from .grouped_mmq_fwd_model import GroupedForwardSolutionKey
-from .grouped_mmq_fwd_spec import DerivedGroupedForwardState
+from .grouped_mmq_fwd_model import (
+    GroupedForwardSolutionKey,
+    GroupedOperandSource,
+)
+from .grouped_mmq_fwd_spec import DerivedGroupedForwardState, GroupedQ2SchedulePolicy
 from .grouped_mmq_fwd_validation import validate_grouped_forward_solution
 from .inspection import (
     ArtifactInspection,
@@ -129,33 +132,22 @@ def inspect_grouped_forward_artifact(
     clause_count = mnemonics.count("s_clause")
     delay_alu_count = mnemonics.count("s_delay_alu")
     buffer_gl0_inv_count = mnemonics.count("buffer_gl0_inv")
-    decoded_lds = solution_key.solution.operand_source == "GroupedDecodedWeightLds"
+    decoded_lds = (
+        solution_key.solution.operand_source
+        is GroupedOperandSource.GroupedDecodedWeightLds
+    )
     iq2_s_full_weight = (
-        solution_key.solution.operand_source == "GroupedIQ2SFullWeightLds"
+        solution_key.solution.operand_source
+        is GroupedOperandSource.GroupedIQ2SFullWeightLds
     )
     if iq2_s_full_weight:
         expected_wmmas = 64
     elif decoded_lds:
-        row_tiles = solution_key.solution.macro_tile0 // 16
-        if solution_key.solution.tail_macro_tile0 < solution_key.solution.macro_tile0:
-            row_tiles += solution_key.solution.tail_macro_tile0 // 16
-        if (
-            solution_key.solution.output_store
-            == "BFloat16RNEClause8Clause4Clause2MixedMasked"
-        ):
-            row_tiles += 4
+        row_tiles = sum(state.kernel_spec.row_dispatch.body_row_tiles)
         if (
             solution_key.problem.quant_data_type == "Q2_K"
-            and solution_key.solution.metadata_schedule
-            in {
-                "Q2ScaleMinimumNibbleUnrolled",
-                "Q2ScaleMinimumNibbleUnrolledHipAssociation",
-                "Q2HipAssociationPartialLds",
-                "Q2HipAssociationPartialLdsPreNegatedDm",
-                "Q2HipAssociationPartialLdsPreNegatedDmWrite2",
-                "Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2",
-                "Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2DistributedProducer",
-            }
+            and isinstance(state.kernel_spec.decode, GroupedQ2SchedulePolicy)
+            and state.kernel_spec.decode.unrolled_groups
         ):
             expected_wmmas = 20 * row_tiles
         elif solution_key.problem.quant_data_type == "Q2_K":

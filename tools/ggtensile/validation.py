@@ -2,7 +2,13 @@ from dataclasses import dataclass, replace
 
 from .mmq_bwd_physical import derive_backward_physical_plan
 from .mmq_bwd_spec import (
+    BackwardExtraction,
+    BackwardLdsBuffering,
+    BackwardPackedWeightPrefetch,
     BackwardQ3Pairing,
+    BackwardQ5MetadataLoad,
+    BackwardQ5NibbleShift,
+    BackwardScheduleIterAlg,
     DerivedBackwardState,
     backward_mechanism_contract,
 )
@@ -615,7 +621,15 @@ def _validate_backward_solution_parameters(
             "LdsPadB",
             "LdsSwizzleChunkB",
         )
-    if solution.one_lds_buffer not in (0, 1):
+    lds_buffering = BackwardLdsBuffering.try_from_serialized(solution.one_lds_buffer)
+    schedule = BackwardScheduleIterAlg.try_from_serialized(solution.schedule_iter_alg)
+    packed_prefetch = BackwardPackedWeightPrefetch.from_solution(solution)
+    q3_extraction = BackwardExtraction.try_from_serialized(solution.q3_k_extraction)
+    q3_pairing = BackwardQ3Pairing.try_from_serialized(solution.q3_k_pairing)
+    q5_extraction = BackwardExtraction.try_from_serialized(solution.q5_k_extraction)
+    q6_extraction = BackwardExtraction.try_from_serialized(solution.q6_k_extraction)
+    q8_extraction = BackwardExtraction.try_from_serialized(solution.q8_0_extraction)
+    if lds_buffering is None:
         _reject(
             reasons,
             "solution.1ldsbuffer.unimplemented",
@@ -623,11 +637,16 @@ def _validate_backward_solution_parameters(
             "1LDSBuffer",
         )
     pipeline_schedule = (
-        solution.schedule_iter_alg == 3
+        schedule is BackwardScheduleIterAlg.SIA3
+        and schedule.supports_global_read_prefetch(solution.prefetch_global_read)
         and solution.prefetch_global_read == 1
         and solution.depth_u == 32
-    ) or (solution.schedule_iter_alg in (4, 5) and solution.prefetch_global_read == 2)
-    if solution.one_lds_buffer == 0 and (
+    ) or (
+        schedule is not None
+        and schedule.supports_global_read_prefetch(solution.prefetch_global_read)
+        and solution.prefetch_global_read == 2
+    )
+    if lds_buffering is BackwardLdsBuffering.Double and (
         solution.macro_tile0 != 128
         or solution.macro_tile1 not in (64, 128)
         or solution.depth_u not in (32, 64)
@@ -636,7 +655,7 @@ def _validate_backward_solution_parameters(
         or solution.prefetch_local_read != 1
         or solution.lds_swizzle_chunk_b != 8
         or solution.packed_weight_lane_share != 1
-        or solution.prefetch_packed_weight_next
+        or packed_prefetch.includes_next_tile
     ):
         _reject(
             reasons,
@@ -653,7 +672,7 @@ def _validate_backward_solution_parameters(
             "PackedWeightLaneShare",
             "PrefetchPackedWeightNext",
         )
-    if solution.schedule_iter_alg not in (2, 3, 4, 5):
+    if schedule is None:
         _reject(
             reasons,
             "solution.scheduleiteralg.unimplemented",
@@ -667,7 +686,10 @@ def _validate_backward_solution_parameters(
             "MMQ backward writer implements only PrefetchGlobalRead=1 or 2",
             "PrefetchGlobalRead",
         )
-    if solution.prefetch_global_read == 2 and solution.schedule_iter_alg not in (4, 5):
+    if solution.prefetch_global_read == 2 and (
+        schedule is None
+        or not schedule.supports_global_read_prefetch(solution.prefetch_global_read)
+    ):
         _reject(
             reasons,
             "solution.prefetchglobalread.schedule",
@@ -682,7 +704,10 @@ def _validate_backward_solution_parameters(
             "MMQ backward writer implements only PrefetchLocalRead=1 or 2",
             "PrefetchLocalRead",
         )
-    if solution.prefetch_local_read == 2 and solution.schedule_iter_alg != 3:
+    if solution.prefetch_local_read == 2 and (
+        schedule is None
+        or not schedule.supports_local_read_prefetch(solution.prefetch_local_read)
+    ):
         _reject(
             reasons,
             "solution.prefetchlocalread.schedule",
@@ -697,43 +722,43 @@ def _validate_backward_solution_parameters(
             "MMQ backward writer implements PackedWeightLaneShare=1 or 2",
             "PackedWeightLaneShare",
         )
-    if solution.q3_k_extraction not in ("packed", "scalar"):
+    if q3_extraction not in (BackwardExtraction.packed, BackwardExtraction.scalar):
         _reject(
             reasons,
             "solution.q3kextraction.unimplemented",
             "Q3KExtraction must be 'packed' or 'scalar'",
             "Q3KExtraction",
         )
-    if solution.q3_k_pairing not in tuple(item.value for item in BackwardQ3Pairing):
+    if q3_pairing is None:
         _reject(
             reasons,
             "solution.q3kpairing.unimplemented",
             "Q3KPairing must be 'Inactive', 'Partial', or 'Full'",
             "Q3KPairing",
         )
-    if solution.q5_k_extraction not in ("packed", "scalar"):
+    if q5_extraction not in (BackwardExtraction.packed, BackwardExtraction.scalar):
         _reject(
             reasons,
             "solution.q5kextraction.unimplemented",
             "Q5KExtraction must be 'packed' or 'scalar'",
             "Q5KExtraction",
         )
-    if solution.q6_k_extraction not in ("packed", "packed_vopd", "scalar"):
+    if q6_extraction is None:
         _reject(
             reasons,
             "solution.q6kextraction.unimplemented",
             "Q6KExtraction must be 'packed', 'packed_vopd', or 'scalar'",
             "Q6KExtraction",
         )
-    if solution.q8_0_extraction not in ("packed", "packed_vopd", "scalar"):
+    if q8_extraction is None:
         _reject(
             reasons,
             "solution.q8kextraction.unimplemented",
             "Q8KExtraction must be 'packed', 'packed_vopd', or 'scalar'",
             "Q8KExtraction",
         )
-    if solution.prefetch_packed_weight_next and (
-        solution.schedule_iter_alg != 4
+    if packed_prefetch.includes_next_tile and (
+        schedule is not BackwardScheduleIterAlg.SIA4
         or solution.prefetch_global_read != 2
         or solution.prefetch_local_read != 1
     ):
@@ -750,7 +775,7 @@ def _validate_backward_solution_parameters(
         solution.lds_swizzle_chunk_b == 0 and solution.lds_pad_b in (8, 16, 24)
     )
     if solution.depth_u == 64 and (
-        solution.schedule_iter_alg != 4
+        schedule is not BackwardScheduleIterAlg.SIA4
         or solution.prefetch_global_read != 2
         or solution.prefetch_local_read != 1
         or not depth_u64_layout
@@ -768,7 +793,11 @@ def _validate_backward_solution_parameters(
             "PackedWeightLaneShare",
             "PrefetchPackedWeightNext",
         )
-    if solution.schedule_iter_alg in (4, 5) and len(solution.matrix_instruction) == 9:
+    if (
+        schedule is not None
+        and schedule.prefetches_a
+        and len(solution.matrix_instruction) == 9
+    ):
         m_repeats = solution.matrix_instruction[5]
         n_repeats = solution.matrix_instruction[6]
         wave_count = solution.matrix_instruction[7]
@@ -860,10 +889,42 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
     if quant_type not in QUANT_FORMATS:
         return tuple(reasons)
     mechanism = backward_mechanism_contract(quant_type)
+    lds_buffering = BackwardLdsBuffering.try_from_serialized(
+        solution_key.solution.one_lds_buffer
+    )
+    schedule = BackwardScheduleIterAlg.try_from_serialized(
+        solution_key.solution.schedule_iter_alg
+    )
+    packed_prefetch = BackwardPackedWeightPrefetch.from_solution(solution_key.solution)
+    q3_extraction = BackwardExtraction.try_from_serialized(
+        solution_key.solution.q3_k_extraction
+    )
+    q3_pairing = BackwardQ3Pairing.try_from_serialized(
+        solution_key.solution.q3_k_pairing
+    )
+    q5_extraction = BackwardExtraction.try_from_serialized(
+        solution_key.solution.q5_k_extraction
+    )
+    q5_nibble_shift = (
+        BackwardQ5NibbleShift.Hoisted
+        if solution_key.solution.q5_k_nibble_shift_hoist
+        else BackwardQ5NibbleShift.Inline
+    )
+    q5_metadata_load = (
+        BackwardQ5MetadataLoad.Vector
+        if solution_key.solution.q5_k_metadata_vector_load
+        else BackwardQ5MetadataLoad.Scalar
+    )
+    q6_extraction = BackwardExtraction.try_from_serialized(
+        solution_key.solution.q6_k_extraction
+    )
+    q8_extraction = BackwardExtraction.try_from_serialized(
+        solution_key.solution.q8_0_extraction
+    )
     if (
         solution_key.solution.depth_u == 64
         and solution_key.solution.lds_pad_b in (8, 16, 24)
-        and not mechanism.padded_depth64
+        and not mechanism.supports_padded_depth(solution_key.solution.depth_u)
     ):
         _reject(
             reasons,
@@ -884,9 +945,9 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             source="ProblemType",
         )
     if (
-        solution_key.solution.one_lds_buffer == 0
+        lds_buffering is BackwardLdsBuffering.Double
         and solution_key.solution.macro_tile1 == 64
-        and not mechanism.pipeline_n64
+        and not mechanism.supports_pipeline_n(solution_key.solution.macro_tile1)
     ):
         _reject(
             reasons,
@@ -897,9 +958,9 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             source="ProblemType",
         )
     if (
-        solution_key.solution.one_lds_buffer == 0
-        and solution_key.solution.schedule_iter_alg == 3
-        and not mechanism.pipeline_sia3
+        lds_buffering is BackwardLdsBuffering.Double
+        and schedule is BackwardScheduleIterAlg.SIA3
+        and not mechanism.supports_pipeline_schedule(schedule)
     ):
         _reject(
             reasons,
@@ -910,9 +971,9 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             source="ProblemType",
         )
     if (
-        solution_key.solution.one_lds_buffer == 0
+        lds_buffering is BackwardLdsBuffering.Double
         and solution_key.solution.depth_u == 64
-        and not mechanism.pipeline_depth64
+        and not mechanism.supports_pipeline_depth(solution_key.solution.depth_u)
     ):
         _reject(
             reasons,
@@ -924,8 +985,8 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
         )
     if (
         solution_key.solution.depth_u == 64
-        and solution_key.solution.prefetch_packed_weight_next
-        and not mechanism.next_packed_depth64
+        and packed_prefetch.includes_next_tile
+        and not mechanism.supports_next_packed_depth(solution_key.solution.depth_u)
     ):
         _reject(
             reasons,
@@ -937,7 +998,7 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
         )
     if (
         solution_key.problem_type.quant_data_type == "Q4_K"
-        and solution_key.solution.q5_k_extraction != "packed"
+        and q5_extraction is not BackwardExtraction.packed
     ):
         _reject(
             reasons,
@@ -947,7 +1008,7 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             source="ProblemType",
         )
     if solution_key.problem_type.quant_data_type != "Q6_K" and (
-        solution_key.solution.q6_k_extraction != "packed"
+        q6_extraction is not BackwardExtraction.packed
     ):
         _reject(
             reasons,
@@ -957,7 +1018,7 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             source="ProblemType",
         )
     if solution_key.problem_type.quant_data_type != "Q8_0" and (
-        solution_key.solution.q8_0_extraction != "packed"
+        q8_extraction is not BackwardExtraction.packed
     ):
         _reject(
             reasons,
@@ -967,9 +1028,9 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             source="ProblemType",
         )
     if solution_key.problem_type.quant_data_type != "Q5_K" and (
-        solution_key.solution.q5_k_extraction != "packed"
-        or solution_key.solution.q5_k_nibble_shift_hoist
-        or solution_key.solution.q5_k_metadata_vector_load
+        q5_extraction is not BackwardExtraction.packed
+        or q5_nibble_shift is BackwardQ5NibbleShift.Hoisted
+        or q5_metadata_load is BackwardQ5MetadataLoad.Vector
     ):
         _reject(
             reasons,
@@ -981,11 +1042,11 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             source="ProblemType",
         )
     if quant_type == "Q3_K":
-        pairing = solution_key.solution.q3_k_pairing
-        extraction = solution_key.solution.q3_k_extraction
-        if extraction == "packed" and pairing not in (
-            BackwardQ3Pairing.PARTIAL.value,
-            BackwardQ3Pairing.FULL.value,
+        pairing = q3_pairing
+        extraction = q3_extraction
+        if extraction is BackwardExtraction.packed and pairing not in (
+            BackwardQ3Pairing.Partial,
+            BackwardQ3Pairing.Full,
         ):
             _reject(
                 reasons,
@@ -995,7 +1056,10 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
                 "Q3KPairing",
                 source="ProblemType",
             )
-        if extraction == "scalar" and pairing != BackwardQ3Pairing.INACTIVE.value:
+        if (
+            extraction is BackwardExtraction.scalar
+            and pairing is not BackwardQ3Pairing.Inactive
+        ):
             _reject(
                 reasons,
                 "solution.q3.scalar.pairing",
@@ -1010,7 +1074,7 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             * solution_key.solution.macro_tile1
             // (decoder_threads * solution_key.solution.decoder_width)
         )
-        if pairing == BackwardQ3Pairing.FULL.value and decoder_rows > 2:
+        if pairing is BackwardQ3Pairing.Full and decoder_rows > 2:
             _reject(
                 reasons,
                 "solution.q3.full_pairing.decoder_rows",
@@ -1023,8 +1087,8 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
                 source="BackwardMechanismContract",
             )
     elif (
-        solution_key.solution.q3_k_extraction != "packed"
-        or solution_key.solution.q3_k_pairing != BackwardQ3Pairing.INACTIVE.value
+        q3_extraction is not BackwardExtraction.packed
+        or q3_pairing is not BackwardQ3Pairing.Inactive
     ):
         _reject(
             reasons,

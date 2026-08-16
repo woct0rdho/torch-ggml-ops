@@ -26,7 +26,10 @@ from tools.ggtensile.mmq_bwd_physical import (
     derive_backward_physical_plan,
 )
 from tools.ggtensile.mmq_bwd_spec import (
+    BackwardExtraction,
     BackwardKernelSpec,
+    BackwardPipelineSpec,
+    BackwardQ3Pairing,
     DerivedBackwardState,
     backward_mechanism_contract,
 )
@@ -49,6 +52,36 @@ def _key(
         ProblemSize(*size),
         solution,
     )
+
+
+def test_backward_pipeline_policy_rejects_unparseable_modes() -> None:
+    pilot = BackwardSolution.pilot()
+    assert BackwardPipelineSpec.try_from_solution(pilot) is not None
+    assert (
+        BackwardPipelineSpec.try_from_solution(replace(pilot, schedule_iter_alg=99))
+        is None
+    )
+    assert (
+        BackwardPipelineSpec.try_from_solution(replace(pilot, one_lds_buffer=99))
+        is None
+    )
+    assert BackwardQ3Pairing.try_from_serialized("invalid") is None
+    assert BackwardExtraction.try_from_serialized("invalid") is None
+
+
+def test_backward_pipeline_validation_keeps_field_errors_independent() -> None:
+    pilot = BackwardSolution.pilot()
+    invalid_schedule = _key(
+        "Q4_K", (128, 256, 128), replace(pilot, schedule_iter_alg=99)
+    )
+    schedule_rules = {reason.rule_id for reason in validate_solution(invalid_schedule)}
+    assert "solution.scheduleiteralg.unimplemented" in schedule_rules
+    assert "solution.1ldsbuffer.unimplemented" not in schedule_rules
+
+    invalid_lds = _key("Q4_K", (128, 256, 128), replace(pilot, one_lds_buffer=99))
+    lds_rules = {reason.rule_id for reason in validate_solution(invalid_lds)}
+    assert "solution.1ldsbuffer.unimplemented" in lds_rules
+    assert "solution.scheduleiteralg.unimplemented" not in lds_rules
 
 
 @pytest.mark.parametrize(

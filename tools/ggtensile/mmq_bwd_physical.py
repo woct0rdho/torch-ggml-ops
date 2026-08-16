@@ -115,18 +115,11 @@ def _derive_decoder(state: DerivedBackwardState) -> BackwardDecoderPlan:
         * geometry.macro_tile1
         // (decoder_threads * decode.decoder_width)
     )
-    quant_type = state.contract.quant_type
-    payload_register_count = 4 if quant_type in ("Q4_K", "Q8_0") else 8
-    if quant_type in ("Q3_K", "Q4_K"):
-        packed_load_count = 5 * rows
-    elif quant_type == "Q6_K":
-        packed_load_count = 4 * rows
-    elif quant_type == "Q8_0":
-        packed_load_count = (5 if decode.q8_0_extraction == "scalar" else 2) * rows
-    else:
-        packed_load_count = (3 if decode.q5_k_metadata_vector_load else 6) * rows
+    decoder_capability = state.contract.mechanism.decoder
+    payload_register_count = decoder_capability.payload_register_count
+    packed_load_count = decoder_capability.packed_load_count(decode, rows)
 
-    q3_full_vopd = decode.q3_k_pairing is BackwardQ3Pairing.FULL
+    q3_full_vopd = decode.q3.pairing is BackwardQ3Pairing.Full
     return BackwardDecoderPlan(
         threads=decoder_threads,
         rows=rows,
@@ -145,7 +138,7 @@ def _derive_lds_num_bytes(state: DerivedBackwardState) -> int:
         single_buffer = bytes_unpadded + 2 * memory.lds_pad_b * pad_periods
     else:
         single_buffer = 2 * (geometry.depth_u + memory.lds_pad_b) * geometry.macro_tile1
-    return single_buffer * (2 if state.spec.pipeline.one_lds_buffer == 0 else 1)
+    return single_buffer * state.spec.pipeline.lds_buffering.buffer_count
 
 
 def derive_backward_physical_plan(
@@ -154,16 +147,13 @@ def derive_backward_physical_plan(
     spec = state.spec
     geometry = spec.geometry
     decoder = _derive_decoder(state)
-    quant_type = state.contract.quant_type
-    extended_a = (
-        spec.pipeline.schedule_iter_alg in (4, 5) and geometry.matrix_instruction[5] > 2
+    mechanism = state.contract.mechanism
+    decoder_capability = mechanism.decoder
+    extended_a = mechanism.address.uses_extended_a(
+        spec.pipeline.schedule, geometry.matrix_instruction[5]
     )
-    address_register_count = (
-        8
-        if not extended_a
-        else 6
-        + geometry.matrix_instruction[5]
-        + 2 * int(quant_type in ("Q3_K", "Q6_K"))
+    address_register_count = mechanism.address.register_count(
+        spec.pipeline.schedule, geometry.matrix_instruction[5]
     )
 
     vgprs = _FirstFitRegisters(0, 255)
@@ -171,43 +161,29 @@ def derive_backward_physical_plan(
     n_tiles = geometry.matrix_instruction[6]
     accum = vgprs.allocate(8 * m_tiles * n_tiles, alignment=8)
     valu_a = vgprs.allocate(
-        8 * m_tiles * spec.pipeline.prefetch_global_read,
+        8 * m_tiles * spec.pipeline.global_read_prefetch,
         alignment=4,
     )
     valu_b = vgprs.allocate(
-        16 * spec.pipeline.prefetch_local_read,
+        16 * spec.pipeline.local_read_prefetch,
         alignment=4,
     )
     global_read_b = vgprs.allocate(
         decoder.payload_register_count * decoder.rows,
         alignment=4,
     )
-    if quant_type == "Q3_K":
-        quant_dm = vgprs.allocate(decoder.rows)
-        quant_scale = vgprs.allocate(2 * decoder.rows)
-    elif quant_type == "Q6_K":
-        quant_dm = vgprs.allocate(decoder.rows)
-        quant_scale = vgprs.allocate(decoder.rows)
-    elif quant_type == "Q8_0":
-        quant_dm = vgprs.allocate(decoder.rows)
-        quant_scale = quant_dm
-    elif quant_type == "Q5_K" and spec.decode.q5_k_metadata_vector_load:
-        quant_dm = vgprs.allocate(4 * decoder.rows)
-        quant_scale = quant_dm + 1
+    quant_shape = mechanism.quant_register_shape.for_decode(spec.decode)
+    quant_dm = vgprs.allocate(quant_shape.dm_registers_per_row * decoder.rows)
+    if quant_shape.scale_alias_offset is not None:
+        quant_scale = quant_dm + quant_shape.scale_alias_offset
     else:
-        quant_dm = vgprs.allocate(decoder.rows)
-        quant_scale = vgprs.allocate(3 * decoder.rows)
+        quant_scale = vgprs.allocate(quant_shape.scale_registers_per_row * decoder.rows)
     lds_address = -1
     if spec.memory.lds_swizzle_chunk_b:
         lds_address = vgprs.allocate(32 // spec.memory.lds_swizzle_chunk_b)
     address = vgprs.allocate(address_register_count, alignment=2)
-    temporary_count = max(
-        11
-        if quant_type == "Q3_K" and spec.decode.q3_k_extraction == "packed"
-        else 7 + 2 * decoder.rows
-        if quant_type == "Q6_K" and spec.decode.q6_k_extraction == "packed_vopd"
-        else 7,
-        (5 if spec.decode.q8_0_extraction == "packed_vopd" else 3) + 2 * decoder.rows,
+    temporary_count = decoder_capability.temporary_register_count(
+        spec.decode, decoder.rows
     )
     temporary = vgprs.allocate(temporary_count)
     serial = vgprs.allocate(1)

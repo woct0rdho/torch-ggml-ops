@@ -19,7 +19,7 @@ from .mmq_bwd_physical import (
     BackwardPhysicalPlan,
     derive_backward_physical_plan,
 )
-from .mmq_bwd_spec import DerivedBackwardState
+from .mmq_bwd_spec import BackwardPackedRowAddress, DerivedBackwardState
 from .model import SolutionKey
 
 
@@ -70,7 +70,10 @@ class BackwardKernelLowering(BackwardQuantLowering):
             asm.defer_zero_moves(range(r.accum, r.accum + accumulator_count))
 
         n_per_block = self.state.solution.macro_tile1
-        if self.state.contract.quant_type == "Q8_0":
+        if (
+            self.state.contract.mechanism.decoder.row_address
+            is BackwardPackedRowAddress.Block32
+        ):
             blocks_per_tile = n_per_block // 32
             asm.comment("Static Q8_0 packed-row coordinates.")
             asm.inst(
@@ -109,9 +112,9 @@ class BackwardKernelLowering(BackwardQuantLowering):
         elif self.diagnostic_mode == BackwardDiagnosticMode.DECODE_FLOOR:
             self._emit_decode_floor(asm)
             store_output = False
-        elif self.state.solution.one_lds_buffer == 0:
+        elif self.state.spec.pipeline.decoded_b_pipeline:
             self._emit_decoded_b_pipeline(asm)
-        elif self.state.solution.prefetch_packed_weight_next:
+        elif self.state.spec.pipeline.prefetches_next_packed_tile:
             self._emit_packed_weight_pipeline(asm)
         else:
             asm.label(".LDepthULoop")
@@ -120,14 +123,14 @@ class BackwardKernelLowering(BackwardQuantLowering):
                 asm.inst(f"v_readfirstlane_b32 s{r.scalar_temporary + 1}, v{r.serial}")
                 asm.inst(f"s_cmp_lt_u32 s{r.scalar_temporary + 1}, 128")
                 asm.inst("s_cbranch_scc0 .LDecodeReady")
-            schedule = self.state.solution.schedule_iter_alg
-            self._emit_quant_global_reads(asm, wait_for_reads=schedule not in (4, 5))
-            if schedule in (4, 5):
+            schedule = self.state.spec.pipeline.schedule
+            self._emit_quant_global_reads(asm, wait_for_reads=not schedule.prefetches_a)
+            if schedule.prefetches_a:
                 self._emit_first_a_global_reads(asm)
                 a_load_count = (
                     2
                     * self.state.solution.matrix_instruction[5]
-                    * self.state.solution.prefetch_global_read
+                    * self.state.spec.pipeline.global_read_prefetch
                 )
                 asm.inst(f"s_waitcnt vmcnt({a_load_count})")
             self._emit_packed_weight_lane_share(asm)
@@ -155,7 +158,9 @@ class BackwardKernelLowering(BackwardQuantLowering):
         size = self.state.contract.problem_size
         solution = self.state.solution
         a_load_count = (
-            2 * solution.matrix_instruction[5] * solution.prefetch_global_read
+            2
+            * solution.matrix_instruction[5]
+            * self.state.spec.pipeline.global_read_prefetch
         )
 
         asm.comment("Prime one decoded-B tile for the WMMA/A/LDS lower bound.")
@@ -168,7 +173,7 @@ class BackwardKernelLowering(BackwardQuantLowering):
 
         asm.label(".LWmmaFloorLoop")
         asm.inst("s_waitcnt vmcnt(0)")
-        self._emit_wmma(asm, pipeline=solution.one_lds_buffer == 0)
+        self._emit_wmma(asm, pipeline=self.state.spec.pipeline.decoded_b_pipeline)
         asm.inst(f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, {solution.depth_u}")
         asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
         asm.inst("s_cbranch_scc0 .LWmmaFloorDone")
@@ -199,7 +204,7 @@ class BackwardKernelLowering(BackwardQuantLowering):
         a_load_count = (
             2
             * self.state.solution.matrix_instruction[5]
-            * self.state.solution.prefetch_global_read
+            * self.state.spec.pipeline.global_read_prefetch
         )
 
         asm.comment("Prime decoded B and both A fragments.")
@@ -245,11 +250,13 @@ class BackwardKernelLowering(BackwardQuantLowering):
         r = self.registers
         size = self.state.contract.problem_size
         solution = self.state.solution
-        prefetch_a = solution.schedule_iter_alg in (4, 5)
+        prefetch_a = self.state.spec.pipeline.schedule.prefetches_a
         a_load_count = 0
         if prefetch_a:
             a_load_count = (
-                2 * solution.matrix_instruction[5] * solution.prefetch_global_read
+                2
+                * solution.matrix_instruction[5]
+                * self.state.spec.pipeline.global_read_prefetch
             )
         packed_load_count = self.physical.decoder.packed_load_count
         final_pair = solution.depth_u // 16 * (solution.matrix_instruction[6] // 2) - 1
@@ -283,7 +290,7 @@ class BackwardKernelLowering(BackwardQuantLowering):
                     self._emit_pipeline_lds_read_addresses(asm, 0)
                     if (
                         self.state.contract.quant_type == "Q5_K"
-                        and solution.q5_k_nibble_shift_hoist
+                        and self.state.spec.decode.q5.hoists_nibble_shift
                     ):
                         self._emit_q45_nibble_shift(asm)
                 self._emit_quant_decode_chunk(asm, pair)
@@ -420,7 +427,7 @@ class BackwardKernelLowering(BackwardQuantLowering):
             f"v{lds_address}",
             t,
         )
-        if self.state.contract.quant_type in ("Q3_K", "Q6_K"):
+        if self.state.contract.mechanism.extended_quant_address_state:
             asm.emit_pairable_with_pending_zero(
                 PendingZeroPairableOp.AND_B32, quant_shift, 7, r.serial
             )
@@ -510,12 +517,12 @@ class BackwardKernelLowering(BackwardQuantLowering):
                     f"v{t + 1}",
                     lds + residue,
                 )
-            if self.state.solution.one_lds_buffer == 0:
+            if self.state.spec.pipeline.decoded_b_pipeline:
                 asm.comment("Initialize the decoded-B read buffer to LDS0.")
                 asm.inst(f"v_mov_b32 v{lds_address}, 0")
 
         solution = self.state.solution
-        if solution.schedule_iter_alg not in (4, 5):
+        if not self.state.spec.pipeline.schedule.prefetches_a:
             return
         m_tiles = solution.matrix_instruction[5]
         m_per_wave = 16 * m_tiles
@@ -574,7 +581,7 @@ class BackwardKernelLowering(BackwardQuantLowering):
         a = r.address
         t = r.temporary
         asm.comment("Load A and issue two DepthU=16 WMMA halves.")
-        if solution.schedule_iter_alg not in (4, 5):
+        if not self.state.spec.pipeline.schedule.prefetches_a:
             asm.inst(f"v_lshrrev_b32 v{t}, 5, v{r.serial}")
             asm.inst(f"v_lshlrev_b32 v{t}, {m_per_wave.bit_length() - 1}, v{t}")
             asm.inst(f"v_and_b32 v{t + 1}, 15, v{r.serial}")
@@ -588,8 +595,8 @@ class BackwardKernelLowering(BackwardQuantLowering):
         else:
             asm.comment("Reuse prefetched A pointers across fused B decode.")
         for k_tile in range(0, solution.depth_u, 16):
-            if solution.schedule_iter_alg in (4, 5):
-                if k_tile and solution.prefetch_global_read == 1:
+            if self.state.spec.pipeline.schedule.prefetches_a:
+                if k_tile and self.state.spec.pipeline.global_read_prefetch == 1:
                     for m_tile in range(m_tiles):
                         pointer = a + m_tile
                         asm.inst(f"v_add_nc_u32 v{pointer}, {2 * k_tile}, v{pointer}")
@@ -604,7 +611,7 @@ class BackwardKernelLowering(BackwardQuantLowering):
                         )
                 elif (
                     solution.depth_u == 64
-                    and solution.prefetch_global_read == 2
+                    and self.state.spec.pipeline.global_read_prefetch == 2
                     and k_tile == 32
                 ):
                     if current_a_loop_offset:
@@ -685,10 +692,10 @@ class BackwardKernelLowering(BackwardQuantLowering):
                 asm, k_tile, pipeline=pipeline
             )
             valu_a_base = r.valu_a
-            if solution.prefetch_global_read > 1:
-                k_half = (k_tile // 16) % solution.prefetch_global_read
+            if self.state.spec.pipeline.uses_two_global_reads:
+                k_half = (k_tile // 16) % self.state.spec.pipeline.global_read_prefetch
                 valu_a_base += 8 * m_tiles * k_half
-            if self.state.solution.prefetch_local_read == 2:
+            if self.state.spec.pipeline.uses_prefetched_local_read:
                 self._emit_prefetched_wmma_pairs(
                     asm,
                     n_tiles,
@@ -715,10 +722,11 @@ class BackwardKernelLowering(BackwardQuantLowering):
                         second,
                         *pair_lds_arguments,
                     )
-                    if solution.schedule_iter_alg in (3, 5):
+                    if self.state.spec.pipeline.schedule.interleaves_wmma_waits:
                         trailing_a_loads = (
                             2 * m_tiles
-                            if solution.prefetch_global_read == 2 and k_tile == 0
+                            if self.state.spec.pipeline.uses_two_global_reads
+                            and k_tile == 0
                             else 0
                         )
                         self._emit_sia3_wmma_pair(
@@ -732,22 +740,37 @@ class BackwardKernelLowering(BackwardQuantLowering):
                             trailing_a_loads=trailing_a_loads,
                         )
                     else:
-                        if solution.schedule_iter_alg == 4:
+                        if self.state.spec.pipeline.schedule.uses_sia4_waits:
                             needs_depth64_a_wait = (
-                                (pipeline or solution.prefetch_packed_weight_next)
+                                (
+                                    pipeline
+                                    or self.state.spec.pipeline.prefetches_next_packed_tile
+                                )
                                 and solution.depth_u == 64
-                                and solution.prefetch_global_read == 2
+                                and self.state.spec.pipeline.uses_two_global_reads
                                 and n_tile == 0
                             )
                             if needs_depth64_a_wait:
                                 pending_a = 2 * m_tiles if k_tile % 32 == 0 else 0
                                 asm.inst(f"s_waitcnt vmcnt({pending_a}) lgkmcnt(0)")
-                            elif pipeline or solution.prefetch_packed_weight_next:
+                            elif (
+                                pipeline
+                                or self.state.spec.pipeline.prefetches_next_packed_tile
+                            ):
                                 asm.inst("s_waitcnt lgkmcnt(0)")
                             elif n_tile == 0:
                                 pending_a = (
-                                    2 * m_tiles * (solution.prefetch_global_read - 1)
-                                    if k_tile % (16 * solution.prefetch_global_read)
+                                    2
+                                    * m_tiles
+                                    * (
+                                        self.state.spec.pipeline.global_read_prefetch
+                                        - 1
+                                    )
+                                    if k_tile
+                                    % (
+                                        16
+                                        * self.state.spec.pipeline.global_read_prefetch
+                                    )
                                     == 0
                                     else 0
                                 )
@@ -1055,7 +1078,7 @@ class BackwardKernelLowering(BackwardQuantLowering):
         asm.inst(f"v_lshlrev_b32 v{t + 1}, 1, v{t + 1}")
         asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
         asm.inst(f"v_mov_b32 v{a}, v{t}")
-        if self.state.solution.store_priority_opt:
+        if self.state.spec.store.raises_priority:
             asm.inst("s_setprio 1")
         for m_tile in range(m_tiles):
             for element in range(8):
@@ -1068,5 +1091,5 @@ class BackwardKernelLowering(BackwardQuantLowering):
                     )
                 if not (m_tile == m_tiles - 1 and element == 7):
                     asm.inst(f"v_add_nc_u32 v{a}, {4 * size.n}, v{a}")
-        if self.state.solution.store_priority_opt:
+        if self.state.spec.store.raises_priority:
             asm.inst("s_setprio 0")

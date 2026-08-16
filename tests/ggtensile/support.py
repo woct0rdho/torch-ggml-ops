@@ -102,7 +102,9 @@ def _writer_body_lines(path: Path) -> set[int]:
         tracked_classes = {
             node.name
             for node in tree.body
-            if isinstance(node, ast.ClassDef) and node.name != "ForwardBodyLowering"
+            if isinstance(node, ast.ClassDef)
+            and node.name != "ForwardBodyLowering"
+            and node.name not in protocol_classes
         }
     if path in BWD_IMPLEMENTATION_SOURCE_PATHS:
         tracked_classes = {

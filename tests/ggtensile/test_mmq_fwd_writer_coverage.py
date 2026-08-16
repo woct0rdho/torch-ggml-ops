@@ -1140,6 +1140,10 @@ def test_forward_physical_plans_reject_invalid_domains() -> None:
         q6_structured_physical_plan(3)
     with pytest.raises(ValueError, match="two, four, or eight row tiles"):
         DecodedWeightLdsRegisterPlan.allocate(1)
+    decoded_32 = DecodedWeightLdsRegisterPlan.allocate(2)
+    decoded_64 = DecodedWeightLdsRegisterPlan.allocate(4)
+    assert (decoded_32.declared_vgprs, decoded_32.sums.role.width) == (135, 16)
+    assert (decoded_64.declared_vgprs, decoded_64.sums.role.width) == (159, 32)
 
     q3_registers = Q3FullWeightTiledLdsRegisterPlan.allocate()
     with pytest.raises(ValueError, match="count is inconsistent"):

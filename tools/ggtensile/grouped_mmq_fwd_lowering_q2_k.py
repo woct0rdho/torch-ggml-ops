@@ -4,13 +4,12 @@ from typing import cast
 
 from .grouped_mmq_fwd_lowering import (
     GroupedForwardLoweringContext,
-    GroupedPackedScaleMinimumDirectLowering,
 )
 from .grouped_mmq_fwd_lowering_decoded_lds import GroupedDecodedWeightLdsLowering
-from .grouped_mmq_fwd_physical import GroupedDecodedPhysicalPlan
-from .grouped_mmq_fwd_spec import DerivedGroupedForwardState
-from .kernel_writer_assembly import Assembly
-from .mmq_fwd_lowering import ForwardLoweringContext
+from .grouped_mmq_fwd_lowering_row_dispatch import GroupedRowDispatchLabels
+from .grouped_mmq_fwd_route import GroupedRouteEmitter
+from .grouped_mmq_fwd_spec import GroupedQ2SchedulePolicy
+from .kernel_writer_assembly import Assembly, emit_kernel_trailer
 from .mmq_fwd_lowering_mma import emit_signed_i8_wmma
 from .mmq_fwd_spec import F16D2S6ActivationMetadata
 
@@ -18,32 +17,24 @@ from .mmq_fwd_spec import F16D2S6ActivationMetadata
 class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
     """Emit non-paired Q2_K 32-, 64-, or 128-row decoded-LDS controls."""
 
-    def _q2_context(self) -> GroupedForwardLoweringContext:
-        return cast(GroupedForwardLoweringContext, self.context)
-
-    def _q2_state(self) -> DerivedGroupedForwardState:
-        return self._q2_context().state
-
-    def _q2_physical(self) -> GroupedDecodedPhysicalPlan:
-        return cast(GroupedDecodedPhysicalPlan, self._q2_state().physical_plan)
-
-    def _activation_stage_requires_mask(self, row_tile_rows: int) -> bool:
-        solution = self._q2_context().solution_key.solution
-        bytes_per_thread = 4 * solution.num_threads
-        return (row_tile_rows * solution.activation_block_bytes) % bytes_per_thread != 0
+    def _q2_decode_policy(self) -> GroupedQ2SchedulePolicy:
+        policy = self.context.state.kernel_spec.decode
+        if not isinstance(policy, GroupedQ2SchedulePolicy):
+            raise TypeError("Q2_K lowering requires a Q2 decode policy")
+        return policy
 
     def body(self) -> str:
-        solution = self._q2_context().solution_key.solution
-        if solution.operand_source != self.OPERAND_SOURCE:
+        solution = self.context.solution_key.solution
+        if solution.operand_source is not self.OPERAND_SOURCE:
             raise TypeError("Q2_K decoded lowering requires GroupedDecodedWeightLds")
-        if self._q2_context().solution_key.problem.quant_data_type != "Q2_K":
+        if self.context.solution_key.problem.quant_data_type != "Q2_K":
             raise TypeError("Q2_K decoded lowering requires a Q2_K problem")
         return self._body_q2()
 
     def _body_q2(self) -> str:
-        state = self._q2_state()
-        context = self._q2_context()
-        physical = self._q2_physical()
+        state = self.context.state
+        context = self.context
+        physical = self._physical_plan()
         registers = physical.registers
         scalar = physical.scalar_registers
         layout = physical.layout
@@ -63,12 +54,7 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
         activation_base = registers.activation_base.first_register
         lane = registers.lane.first_register
         serial = registers.serial.first_register
-        route = GroupedPackedScaleMinimumDirectLowering(context)
-
-        route._emit_kernarg_loads(asm)
-        route._emit_exact_shape_guard(asm)
-        route._emit_route_load_and_guard(asm)
-        route._emit_expert_pointer_rebase(asm)
+        GroupedRouteEmitter(scalar, state.route).emit(asm)
         asm.inst(
             f"s_mul_i32 s{scalar.activation_plane_stride.first_register}, "
             f"s{scalar.nrows_activation.first_register}, "
@@ -181,16 +167,15 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
         asm.inst("s_cbranch_scc1 .LGroupedQ2KDecodedRowLoop")
         asm.label(".LGroupedQ4KExit")
         asm.label(".LGroupedQ2KExit")
-        from .kernel_writer_assembly import emit_kernel_trailer
-
         emit_kernel_trailer(asm, name)
         return asm.text()
 
     def _emit_q2_weight_decode_stage(self, asm: Assembly) -> None:
-        physical = self._q2_physical()
+        physical = self._physical_plan()
         layout = physical.layout
         registers = physical.registers
-        state = self._q2_state()
+        weights = physical.scalar_registers.weights.first_register
+        state = self.context.state
         decode = registers.decode_scratch.first_register
         staged = registers.staged_payload.first_register
         serial = registers.serial.first_register
@@ -203,13 +188,13 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
         ql_offset = 16
         scales_offset = 0
         dm_offset = 80
-        schedule = self._q2_context().solution_key.solution.metadata_schedule
-        if "DistributedProducer" in schedule:
+        policy = self._q2_decode_policy()
+        if policy.distributed_producer:
             self._emit_q2_distributed_weight_decode_stage(asm)
             return
-        write2_decode = "PreNegatedDmWrite2" in schedule
-        write2_metadata = "PreNegatedDmWrite2Meta2" in schedule
-        pre_negated_dm = "PreNegatedDm" in schedule
+        write2_decode = policy.paired_payload_writes
+        write2_metadata = policy.paired_metadata_writes
+        pre_negated_dm = policy.pre_negated_dm
 
         asm.comment("Decode Q2_K two-bit payload and scale/minimum metadata into LDS.")
         asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{serial}")
@@ -238,7 +223,7 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
         for item in range(8):
             asm.inst(
                 f"global_load_b32 v{staged + item}, v{temporary}, "
-                f"s[{self.KERNARG}:{self.KERNARG + 1}]"
+                f"s[{weights}:{weights + 1}]"
             )
             if item != 7:
                 asm.inst(f"v_add_nc_u32 v{temporary}, {8 * row_stride}, v{temporary}")
@@ -250,11 +235,11 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
         asm.inst(f"v_add_nc_u32 v{metadata}, s{self.SCALAR_TEMPORARY}, v{metadata}")
         asm.inst(
             f"global_load_b128 v[{staged + 12}:{staged + 15}], v{metadata}, "
-            f"s[{self.KERNARG}:{self.KERNARG + 1}] offset:{scales_offset}"
+            f"s[{weights}:{weights + 1}] offset:{scales_offset}"
         )
         asm.inst(
             f"global_load_b32 v{staged + 16}, v{metadata}, "
-            f"s[{self.KERNARG}:{self.KERNARG + 1}] offset:{dm_offset}"
+            f"s[{weights}:{weights + 1}] offset:{dm_offset}"
         )
         asm.label(".LGroupedQ2KMetadataLoadDone")
         asm.inst("s_waitcnt vmcnt(0)")
@@ -338,10 +323,11 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
 
     def _emit_q2_distributed_weight_decode_stage(self, asm: Assembly) -> None:
         """Distribute Q2 payload and metadata conversion across all four waves."""
-        physical = self._q2_physical()
+        physical = self._physical_plan()
         layout = physical.layout
         registers = physical.registers
-        state = self._q2_state()
+        weights = physical.scalar_registers.weights.first_register
+        state = self.context.state
         staged = registers.staged_payload.first_register
         decode = registers.decode_scratch.first_register
         decoded = decode + 8
@@ -378,15 +364,15 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
         for item in range(8):
             asm.inst(
                 f"global_load_b32 v{staged + item}, v{payload_address}, "
-                f"s[{self.KERNARG}:{self.KERNARG + 1}]"
+                f"s[{weights}:{weights + 1}]"
             )
             asm.inst(
                 f"global_load_u8 v{staged + 8 + item}, v{scale_address}, "
-                f"s[{self.KERNARG}:{self.KERNARG + 1}]"
+                f"s[{weights}:{weights + 1}]"
             )
             asm.inst(
                 f"global_load_b32 v{staged + 16 + item}, v{dm_address}, "
-                f"s[{self.KERNARG}:{self.KERNARG + 1}]"
+                f"s[{weights}:{weights + 1}]"
             )
             if item != 7:
                 advance = 8 * row_stride
@@ -470,34 +456,21 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
                 asm.inst(f"ds_write_b32 v{scratch}, v{metadata_value}")
 
     def _emit_q2_group_dispatch(self, asm: Assembly, *, group_base: int) -> None:
-        solution = self._q2_context().solution_key.solution
-        scalar = self._q2_physical().scalar_registers
-        if solution.tail_macro_tile0 == solution.macro_tile0:
-            self._emit_q2_group_loop(asm, group_base=group_base)
-            return
+        policy = self.context.state.kernel_spec.row_dispatch
 
-        tail_label = f".LGroupedQ2KMmaTailDispatch{group_base}"
-        done_label = f".LGroupedQ2KMmaDispatchDone{group_base}"
-        asm.inst(
-            f"s_cmp_le_u32 s{scalar.row_tile_rows.first_register}, "
-            f"{solution.tail_macro_tile0}"
-        )
-        asm.inst(f"s_cbranch_scc1 {tail_label}")
-        self._emit_q2_group_loop(
+        def emit_body(target: Assembly, row_tile_rows: int, label_suffix: str) -> None:
+            self._emit_q2_group_loop(
+                target,
+                group_base=group_base,
+                row_tiles=row_tile_rows // 16,
+                label_suffix=label_suffix,
+            )
+
+        self._row_dispatch().emit(
             asm,
-            group_base=group_base,
-            row_tiles=solution.macro_tile0 // 16,
-            label_suffix="Macro",
+            GroupedRowDispatchLabels.q2_mma(policy, group_base),
+            emit_body,
         )
-        asm.inst(f"s_branch {done_label}")
-        asm.label(tail_label)
-        self._emit_q2_group_loop(
-            asm,
-            group_base=group_base,
-            row_tiles=solution.tail_macro_tile0 // 16,
-            label_suffix="Tail",
-        )
-        asm.label(done_label)
 
     def _emit_q2_group_loop(
         self,
@@ -508,36 +481,20 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
         label_suffix: str = "",
     ) -> None:
         row_tiles = row_tiles or self._row_tile_count()
-        schedule = self._q2_context().solution_key.solution.metadata_schedule
-        if schedule in {
-            "Q2ScaleMinimumNibbleUnrolled",
-            "Q2ScaleMinimumNibbleUnrolledHipAssociation",
-            "Q2HipAssociationPartialLds",
-            "Q2HipAssociationPartialLdsPreNegatedDm",
-            "Q2HipAssociationPartialLdsPreNegatedDmWrite2",
-            "Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2",
-            "Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2DistributedProducer",
-        }:
-            hip_association = schedule != "Q2ScaleMinimumNibbleUnrolled"
-            partial_lds = schedule in {
-                "Q2HipAssociationPartialLds",
-                "Q2HipAssociationPartialLdsPreNegatedDm",
-                "Q2HipAssociationPartialLdsPreNegatedDmWrite2",
-                "Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2",
-                "Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2DistributedProducer",
-            }
+        policy = self._q2_decode_policy()
+        if policy.unrolled_groups:
             for local_group in range(8):
                 self._emit_q2_static_group(
                     asm,
                     group_base=group_base,
                     local_group=local_group,
-                    hip_association=hip_association,
-                    partial_lds=partial_lds,
+                    hip_association=policy.hip_association,
+                    partial_lds=policy.partial_lds,
                     row_tiles=row_tiles,
                 )
             return
 
-        physical = self._q2_physical()
+        physical = self._physical_plan()
         registers = physical.registers
         layout = physical.layout
         activation_metadata = cast(
@@ -659,7 +616,7 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
         partial_lds: bool = False,
         row_tiles: int | None = None,
     ) -> None:
-        physical = self._q2_physical()
+        physical = self._physical_plan()
         registers = physical.registers
         layout = physical.layout
         activation_metadata = cast(
@@ -753,7 +710,7 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
         hip_association: bool,
         row_tiles: int,
     ) -> None:
-        physical = self._q2_physical()
+        physical = self._physical_plan()
         registers = physical.registers
         layout = physical.layout
         activation_metadata = cast(
@@ -843,7 +800,7 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
         hip_association: bool,
         partial_lds: bool = False,
     ) -> None:
-        registers = self._q2_physical().registers
+        registers = self._physical_plan().registers
         c_base = registers.c_fragments.first_register
         weight_q = registers.weight_payload.first_register
         zero = registers.zero_accumulator.first_register
@@ -1008,7 +965,7 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
     def _emit_q2_wmma_path(
         self, asm: Assembly, *, row_tiles: int, label_suffix: str
     ) -> None:
-        registers = self._q2_physical().registers
+        registers = self._physical_plan().registers
         c_base = registers.c_fragments.first_register
         weight_q = registers.weight_payload.first_register
         zero = registers.zero_accumulator.first_register
@@ -1105,4 +1062,4 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
 def grouped_q2_decoded_lowering(
     context: GroupedForwardLoweringContext,
 ) -> GroupedQ2KDecodedWeightLdsLowering:
-    return GroupedQ2KDecodedWeightLdsLowering(cast(ForwardLoweringContext, context))
+    return GroupedQ2KDecodedWeightLdsLowering(context)

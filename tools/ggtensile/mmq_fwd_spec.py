@@ -873,6 +873,20 @@ class DecodeSpec:
     metadata_conversion: str
     metadata_schedule: str | None
 
+    @property
+    def independent_metadata_extraction(self) -> bool:
+        return self.metadata_schedule in (
+            "IndependentExtraction",
+            "IndependentExtractionMetadataAfterLowWmma",
+        )
+
+    @property
+    def defer_metadata_reads(self) -> bool:
+        return self.metadata_schedule in (
+            "MetadataAfterLowWmma",
+            "IndependentExtractionMetadataAfterLowWmma",
+        )
+
 
 @dataclass(frozen=True)
 class EpiloguePipelineSpec:

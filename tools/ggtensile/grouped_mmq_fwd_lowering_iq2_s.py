@@ -5,13 +5,16 @@ from typing import ClassVar, cast
 
 from .grouped_mmq_fwd_lowering import (
     GroupedForwardLoweringContext,
-    GroupedPackedScaleMinimumDirectLowering,
+    GroupedForwardLoweringResult,
 )
+from .grouped_mmq_fwd_model import GroupedActivationAddressing
 from .grouped_mmq_fwd_physical import (
     GroupedIQ2SFullWeightLdsLayout,
     GroupedIQ2SFullWeightPhysicalPlan,
-    GroupedIQ2SFullWeightRegisterPlan,
 )
+from .grouped_mmq_fwd_route import GroupedRouteEmitter
+from .grouped_mmq_fwd_spec import GroupedIQ2SSchedulePolicy
+from .iq2_s_grid import iq2_s_grid_rodata
 from .kernel_writer_assembly import Assembly, emit_bf16_rne, emit_kernel_trailer
 from .mmq_fwd_lowering_mma import emit_signed_i8_wmma
 
@@ -28,14 +31,16 @@ class GroupedIQ2SFullWeightLdsLowering:
     def _physical_plan(self) -> GroupedIQ2SFullWeightPhysicalPlan:
         return cast(GroupedIQ2SFullWeightPhysicalPlan, self.context.state.physical_plan)
 
-    @property
-    def _registers(self) -> GroupedIQ2SFullWeightRegisterPlan:
-        return self._physical_plan().registers
-
     def _uses_payload_prefetch(self) -> bool:
-        return (
-            self.context.solution_key.solution.metadata_schedule
-            == "IQ2SPayloadPrefetch"
+        policy = self.context.state.kernel_spec.decode
+        if not isinstance(policy, GroupedIQ2SSchedulePolicy):
+            raise TypeError("IQ2_S lowering requires an IQ2_S decode policy")
+        return policy.payload_prefetch
+
+    def emission(self) -> GroupedForwardLoweringResult:
+        return GroupedForwardLoweringResult(
+            self.body(),
+            (iq2_s_grid_rodata(self.GRID_SYMBOL),),
         )
 
     def body(self) -> str:
@@ -46,12 +51,7 @@ class GroupedIQ2SFullWeightLdsLowering:
         state = self.context.state
         asm = Assembly()
         name = self.context.solution_key.kernel_name
-        route = GroupedPackedScaleMinimumDirectLowering(self.context)
-
-        route._emit_kernarg_loads(asm)
-        route._emit_exact_shape_guard(asm)
-        route._emit_route_load_and_guard(asm)
-        route._emit_expert_pointer_rebase(asm)
+        GroupedRouteEmitter(scalar, state.route).emit(asm)
 
         asm.comment(
             "Materialize the local IQ2_S codebook address without an ABI pointer."
@@ -163,7 +163,7 @@ class GroupedIQ2SFullWeightLdsLowering:
         asm: Assembly,
         layout: GroupedIQ2SFullWeightLdsLayout,
     ) -> None:
-        registers = self._registers
+        registers = self._physical_plan().registers
         scalar = self._physical_plan().scalar_registers
         temporary = registers.temporary.first_register
         asm.comment(
@@ -220,7 +220,7 @@ class GroupedIQ2SFullWeightLdsLowering:
         asm: Assembly,
         layout: GroupedIQ2SFullWeightLdsLayout,
     ) -> None:
-        registers = self._registers
+        registers = self._physical_plan().registers
         semantics = self.context.state.semantics
         d_offset = semantics.payload_plane("d").byte_offset
         index_offset = semantics.payload_plane("grid_indices").byte_offset
@@ -386,7 +386,7 @@ class GroupedIQ2SFullWeightLdsLowering:
         sign_shift: int,
         destination: int,
     ) -> None:
-        auxiliary = self._registers.decode_auxiliary.first_register
+        auxiliary = self._physical_plan().registers.decode_auxiliary.first_register
         sign_bits = auxiliary + 2
         selector = auxiliary + 3
         negative = auxiliary + 4
@@ -420,11 +420,11 @@ class GroupedIQ2SFullWeightLdsLowering:
     ) -> None:
         if (
             self.context.solution_key.solution.activation_addressing
-            == "AggregateRowsTiledLinear"
+            is GroupedActivationAddressing.AggregateRowsTiledLinear
         ):
             self._emit_linear_activation_stage(asm, layout, stage_index=stage_index)
             return
-        registers = self._registers
+        registers = self._physical_plan().registers
         scalar = self._physical_plan().scalar_registers
         temporary = registers.temporary.first_register
         address = registers.activation_lds_address.first_register
@@ -495,7 +495,7 @@ class GroupedIQ2SFullWeightLdsLowering:
         *,
         stage_index: int,
     ) -> None:
-        registers = self._registers
+        registers = self._physical_plan().registers
         scalar = self._physical_plan().scalar_registers
         serial = registers.temporary.first_register
         global_address = serial + 1
@@ -599,7 +599,7 @@ class GroupedIQ2SFullWeightLdsLowering:
         if self._uses_payload_prefetch():
             self._emit_compute_half_prefetched(asm, layout, half=half)
             return
-        registers = self._registers
+        registers = self._physical_plan().registers
         waits_even = (9, 8, 1, 0)
         waits_odd = (7, 6, 1, 0)
         for group in range(8):
@@ -706,7 +706,7 @@ class GroupedIQ2SFullWeightLdsLowering:
         half: int,
         group: int,
     ) -> None:
-        registers = self._registers
+        registers = self._physical_plan().registers
         activation_offset = 16 + 16 * group
         asm.comment(f"Prefetch IQ2_S half {half} group {group} payloads.")
         for m_index in range(4):
@@ -730,7 +730,7 @@ class GroupedIQ2SFullWeightLdsLowering:
         half: int,
         group: int,
     ) -> None:
-        registers = self._registers
+        registers = self._physical_plan().registers
         weight_offset0 = 32 + 40 * half + group
         weight_offset1 = 200 + 40 * half + group
         for index in range(4):
@@ -755,7 +755,7 @@ class GroupedIQ2SFullWeightLdsLowering:
                 )
 
     def _emit_compute_group_wmmas(self, asm: Assembly) -> None:
-        registers = self._registers
+        registers = self._physical_plan().registers
         for m_index in range(4):
             emit_signed_i8_wmma(
                 asm,
@@ -772,7 +772,7 @@ class GroupedIQ2SFullWeightLdsLowering:
         first: int,
         second: int,
     ) -> None:
-        registers = self._registers
+        registers = self._physical_plan().registers
         for fragment in (first, second):
             base = registers.c.first_register + 8 * fragment
             for element in range(8):
@@ -800,7 +800,7 @@ class GroupedIQ2SFullWeightLdsLowering:
             )
 
     def _emit_store(self, asm: Assembly) -> None:
-        registers = self._registers
+        registers = self._physical_plan().registers
         scalar = self._physical_plan().scalar_registers
         temporary = registers.temporary.first_register
         column = registers.decode_auxiliary.first_register

@@ -146,3 +146,19 @@ Six bounded route profiles, including sequential, repeated, sparse, skewed, and 
 All three production artifacts rebuilt byte-identically and passed strict inspection as gfx1151 code-object v5, wave32 kernels with 116 VGPRs, 40 SGPRs, 30,720 bytes of LDS, 64 static WMMAs, four barriers, zero private storage, zero spills, no scratch instructions, no calls, and no dynamic stack. The focused grouped-forward file passed 49 tests. The broader grouped-plus-dense run passed 176 tests and reproduced only the five pre-existing Q6 full-HSACO-container hash failures; the corresponding Q6 source, `.text`, and resource assertions passed.
 
 The retained research identity is `iq2_s_serial_full_weight_lds_64_linear_payload_prefetch()`. Intermediate BFE, selector, and quarter-scale identities were folded into this single final identity. Public dispatch, generated bundle tables, extension registration, packaging, and HIP fallback remain unchanged.
+
+### Reopened routed prologue and direct-to-LDS capability experiments
+
+IQ2_S shares the R1 packed-kernarg, R2 paired cumulative-offset, and guarded high-stride portion of R3. Their timing transfer is gated by Q4_K B1 because both use K512 and 32 output-column workgroups per route, while IQ2_S performs strictly more decode work. IQ2_S output addressing already uses a power-of-two shift, so only a legal shift-add combine remains format-local.
+
+The coalesced full 64-row activation stage is a linear 9,216-byte copy with matching global and LDS offsets, making activation-only direct-to-LDS the sole structurally plausible R4 target. Packed IQ2_S weights are excluded because codebook/sign/scale decode transforms their representation, and partial activation tails would retain the existing bounds-masked path even if full-tile support existed.
+
+### Reopened experiment results
+
+The shared artifact and device matrix included IQ2_S R35 and every production key. R1-R3 rebuilt byte-identically in two independent passes, retained 116 VGPRs, 40 SGPRs, 30,720 LDS bytes, 64 static WMMAs, four barriers, zero private storage, and zero spills, and matched the parent bitwise on first, odd/even non-first, repeated-ID, boundary, skewed, mutation, invalid-expert, and invalid-offset routes.
+
+The Q4_K B1 transfer screen measured R1 at +0.030% candidate time, R2 at -0.086%, and R3 at -0.083% relative to its generated parent. None cleared the greater-than-two-percent gate. IQ2_S adds decode work around the same route setup, so no IQ2_S timing transfer was run and R1-R3 are closed as neutral shared micro-optimizations.
+
+The local RDNA 3.5 XML inventory names direct global/buffer-to-LDS encodings, but the configured gfx1151 assembler does not expose a usable compute-kernel instruction. rocISA-style buffer `dword`, `b32`, `dwordx4`, and `b128` spellings with an LDS destination failed with invalid operands. LLVM's `global_load_dword ... lds` spelling rejected the LDS operand, and canonical `global_load_lds_dword` reported that the instruction is unsupported on gfx1151. The corresponding LLVM gfx11 assembler test also classifies `global_load_lds_dword` as unsupported. R4 is therefore unsupported by the current target/toolchain, not an implementable IQ2_S candidate.
+
+The reopened pass is closed: R1-R3 are rejected by the shared timing gate and R4 is target/toolchain-unsupported. The retained payload-prefetch identity, selected source, public dispatch, generated bundles, packaging, and HIP fallback remain unchanged. Durable scripts, reports, probe source, and independent artifacts are under `~/tmp/torch-ggml-ops/`.

@@ -2237,6 +2237,41 @@ class DecodedWeightLdsRegisterPlan:
 
 
 @dataclass(frozen=True)
+class DecodedWeightLdsScalarRegisterPlan:
+    weights: RegisterAssignment
+    activations: RegisterAssignment
+    output: RegisterAssignment
+    loop_counter: RegisterAssignment
+    packed_block_offset: RegisterAssignment
+    wave: RegisterAssignment
+    group_loop: RegisterAssignment
+    group_offset: RegisterAssignment
+    activation_lds_base: RegisterAssignment
+
+    @staticmethod
+    def _fixed(name: str, width: int, first: int) -> RegisterAssignment:
+        return RegisterAssignment(
+            RegisterRole(name, width, RegisterLifetime(0, 5)),
+            first,
+        )
+
+    @classmethod
+    def allocate(cls) -> "DecodedWeightLdsScalarRegisterPlan":
+        fixed = cls._fixed
+        return cls(
+            weights=fixed("weights", 2, 4),
+            activations=fixed("activations", 2, 6),
+            output=fixed("output", 2, 8),
+            loop_counter=fixed("loop_counter", 1, 10),
+            packed_block_offset=fixed("packed_block_offset", 1, 11),
+            wave=fixed("wave", 1, 12),
+            group_loop=fixed("group_loop", 1, 13),
+            group_offset=fixed("group_offset", 1, 14),
+            activation_lds_base=fixed("activation_lds_base", 1, 15),
+        )
+
+
+@dataclass(frozen=True)
 class PackedScaleMinimumDirectPhysicalPlan:
     activation_metadata: F16D4S4ActivationMetadata
     registers: PackedScaleMinimumDirectRegisterPlan
@@ -2247,6 +2282,7 @@ class PackedScaleMinimumDirectPhysicalPlan:
 class DecodedWeightLdsPhysicalPlan:
     layout: DecodedLdsLayout
     registers: DecodedWeightLdsRegisterPlan
+    scalar_registers: DecodedWeightLdsScalarRegisterPlan
     resources: ForwardResourceUsage
 
 
@@ -2394,9 +2430,11 @@ def derive_forward_physical_plan(spec: ForwardKernelSpec) -> ForwardPhysicalPlan
             mechanism.activation_block_bytes
         )
         registers = DecodedWeightLdsRegisterPlan.allocate()
+        scalar_registers = DecodedWeightLdsScalarRegisterPlan.allocate()
         return DecodedWeightLdsPhysicalPlan(
             layout,
             registers,
+            scalar_registers,
             ForwardResourceUsage(
                 registers.declared_vgprs,
                 16,

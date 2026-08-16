@@ -30,7 +30,6 @@ class BackwardKernelWriterAssembly:
         if not isinstance(solution_key.solution, BackwardSolution):
             raise BackwardKernelWriterError("backward writer requires BackwardSolution")
         self.solution_key = solution_key
-        self.solution = solution_key.solution
         self.toolchain = toolchain
         self.diagnostic_mode = diagnostic_mode
         self.lowering = BackwardKernelLowering(

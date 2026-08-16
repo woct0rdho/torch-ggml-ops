@@ -22,6 +22,16 @@ _FORWARD_AUTHORITY_CONSUMERS = (
     FWD_PHYSICAL_SOURCE_PATH,
     _INSPECTION,
 )
+_GROUPED_ROUTE = _ROOT / "tools/ggtensile/grouped_mmq_fwd_route.py"
+_GROUPED_WRITER = _ROOT / "tools/ggtensile/kernel_writer_assembly_grouped_mmq_fwd.py"
+_GROUPED_IQ2S_LOWERING = _ROOT / "tools/ggtensile/grouped_mmq_fwd_lowering_iq2_s.py"
+_GROUPED_Q2_LOWERING = _ROOT / "tools/ggtensile/grouped_mmq_fwd_lowering_q2_k.py"
+_BACKWARD_WRITER = _ROOT / "tools/ggtensile/kernel_writer_assembly_mmq_bwd.py"
+_ASSEMBLY = _ROOT / "tools/ggtensile/kernel_writer_assembly.py"
+_MMQ_FWD_PHYSICAL = _ROOT / "tools/ggtensile/mmq_fwd_physical.py"
+_GROUPED_LOWERINGS = tuple(
+    sorted((_ROOT / "tools/ggtensile").glob("grouped_mmq_fwd_lowering*.py"))
+)
 
 
 def _source(path: Path) -> str:
@@ -166,6 +176,20 @@ def test_backward_lowerers_consume_derived_state_without_one_hop_aliases() -> No
         assert "QUANT_FORMATS" not in source, path
 
 
+def test_phase_six_removes_confirmed_one_hop_aliases_only() -> None:
+    backward_writer = _source(_BACKWARD_WRITER)
+    q2_lowering = _source(_GROUPED_Q2_LOWERING)
+    iq2_lowering = _source(_GROUPED_IQ2S_LOWERING)
+    assert "self.solution =" not in backward_writer
+    assert "self.registers = self.physical.registers" in backward_writer
+    assert "def _q2_physical" not in q2_lowering
+    assert "_q2_physical(" not in q2_lowering
+    assert "def _registers" not in iq2_lowering
+    assert "self._registers" not in iq2_lowering
+    assert "DeterministicRegisterPool" in _source(_ASSEMBLY)
+    assert "DeterministicRegisterPool" in _source(_MMQ_FWD_PHYSICAL)
+
+
 def test_forward_lowering_has_no_copy_projection_or_unused_protocol() -> None:
     lowering_classes = set().union(
         *(_class_names(path) for path in FWD_LOWERING_SOURCE_PATHS)
@@ -219,3 +243,27 @@ def test_forward_authority_consumers_do_not_repeat_operand_source_sets() -> None
             if isinstance(node, ast.Constant) and isinstance(node.value, str)
         }
         assert not operand_sources & values, path
+
+
+def test_grouped_route_emitter_owns_the_complete_route_prologue() -> None:
+    private_route_methods = (
+        "_emit_kernarg_loads",
+        "_emit_exact_shape_guard",
+        "_emit_route_load_and_guard",
+        "_emit_expert_pointer_rebase",
+    )
+    route_source = _source(_GROUPED_ROUTE)
+    assert all(f"def {method}" in route_source for method in private_route_methods)
+    for path in _GROUPED_LOWERINGS:
+        source = _source(path)
+        assert not {
+            method for method in private_route_methods if f".{method}(" in source
+        }, path
+
+
+def test_iq2_s_lowering_owns_codebook_rodata_emission() -> None:
+    facade = _source(_GROUPED_WRITER)
+    lowering = _source(_GROUPED_IQ2S_LOWERING)
+    assert "iq2_s_grid" not in facade
+    assert "GroupedForwardLoweringResult" in lowering
+    assert "iq2_s_grid_rodata" in lowering

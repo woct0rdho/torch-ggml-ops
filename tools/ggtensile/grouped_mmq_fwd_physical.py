@@ -1,7 +1,9 @@
 """Deterministic register ownership for grouped MMQ forward kernels."""
 
 from dataclasses import dataclass
+from enum import Enum
 
+from .grouped_mmq_fwd_model import GroupedActivationAddressing
 from .kernel_writer_assembly import (
     DeterministicRegisterPlan,
     RegisterAssignment,
@@ -321,7 +323,75 @@ class GroupedDecodedPhysicalPlan:
     layout: DecodedLdsLayout
     registers: DecodedWeightLdsRegisterPlan
     scalar_registers: GroupedDecodedScalarRegisterPlan
+    activation_staging: "GroupedActivationStagingPlan"
     resources: ForwardResourceUsage
+
+
+class GroupedActivationStageBounds(Enum):
+    Exact = "Exact"
+    BoundsMasked = "BoundsMasked"
+
+
+@dataclass(frozen=True)
+class GroupedActivationStage:
+    row_tile_rows: int
+    total_bytes: int
+    vector_load_bytes: int
+    loads_per_thread: int
+    lds_write_dwords: int
+    bounds: GroupedActivationStageBounds
+
+    @property
+    def bytes_per_thread(self) -> int:
+        return self.loads_per_thread * self.vector_load_bytes
+
+    @property
+    def stage_dwords(self) -> int:
+        return self.bytes_per_thread // 4
+
+    @property
+    def requires_bounds_mask(self) -> bool:
+        return self.bounds is GroupedActivationStageBounds.BoundsMasked
+
+
+@dataclass(frozen=True)
+class GroupedActivationStagingPlan:
+    addressing: GroupedActivationAddressing
+    block_bytes: int
+    participating_threads: int
+    vector_load_bytes: int = 4
+    lds_write_dwords: int = 2
+
+    def __post_init__(self) -> None:
+        if self.block_bytes <= 0 or self.participating_threads <= 0:
+            raise ValueError("grouped activation staging dimensions must be positive")
+        if self.vector_load_bytes != 4 or self.lds_write_dwords != 2:
+            raise ValueError(
+                "grouped decoded activation staging requires b32 loads and write2 LDS"
+            )
+
+    def stage(self, row_tile_rows: int) -> GroupedActivationStage:
+        if row_tile_rows <= 0 or row_tile_rows % 16:
+            raise ValueError(
+                "grouped activation staging requires a positive multiple of 16 rows"
+            )
+        total_bytes = row_tile_rows * self.block_bytes
+        bytes_per_round = self.vector_load_bytes * self.participating_threads
+        loads_per_thread = (total_bytes + bytes_per_round - 1) // bytes_per_round
+        covered_bytes = loads_per_thread * bytes_per_round
+        bounds = (
+            GroupedActivationStageBounds.Exact
+            if covered_bytes == total_bytes
+            else GroupedActivationStageBounds.BoundsMasked
+        )
+        return GroupedActivationStage(
+            row_tile_rows=row_tile_rows,
+            total_bytes=total_bytes,
+            vector_load_bytes=self.vector_load_bytes,
+            loads_per_thread=loads_per_thread,
+            lds_write_dwords=self.lds_write_dwords,
+            bounds=bounds,
+        )
 
 
 @dataclass(frozen=True)
@@ -481,6 +551,7 @@ def grouped_decoded_physical_plan(
     activation_block_bytes: int,
     macro_tile0: int,
     quant_type: str,
+    activation_staging: GroupedActivationStagingPlan,
 ) -> GroupedDecodedPhysicalPlan:
     if quant_type == "Q2_K":
         if macro_tile0 not in (32, 64, 128):
@@ -498,10 +569,15 @@ def grouped_decoded_physical_plan(
         )
     vector = DecodedWeightLdsRegisterPlan.allocate(macro_tile0 // 16)
     scalar = GroupedDecodedScalarRegisterPlan.allocate()
+    if activation_staging.block_bytes != activation_block_bytes:
+        raise ValueError(
+            "grouped activation staging does not match the decoded LDS layout"
+        )
     return GroupedDecodedPhysicalPlan(
         layout=layout,
         registers=vector,
         scalar_registers=scalar,
+        activation_staging=activation_staging,
         resources=ForwardResourceUsage(
             vector.declared_vgprs,
             scalar.declared_sgprs,
