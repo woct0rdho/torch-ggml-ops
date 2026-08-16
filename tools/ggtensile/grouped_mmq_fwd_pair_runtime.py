@@ -1,4 +1,4 @@
-"""Research-only HIP launchers for paired grouped IQ2_S artifacts."""
+"""Research-only HIP launchers for paired grouped forward artifacts."""
 
 import ctypes
 from dataclasses import dataclass
@@ -20,7 +20,7 @@ from .runtime import (
 
 
 class GroupedForwardPairModule(_HIPModule):
-    """Launch one exact paired grouped IQ2_S code object."""
+    """Launch one exact paired grouped forward code object."""
 
     def __init__(
         self,
@@ -288,7 +288,7 @@ class InstalledGroupedForwardRowTaskSetup(_HIPModule):
 
 
 class GroupedForwardPairRowTaskModule(_HIPModule):
-    """Launch one exact paired row-task IQ2_S code object."""
+    """Launch one exact paired row-task grouped code object."""
 
     def __init__(
         self,
@@ -412,6 +412,8 @@ class InstalledGroupedForwardPairRowTaskControl(_HIPModule):
     """Launch one installed IQ2_S N512/K2048 J64 row-task projection."""
 
     SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_row_task_iq2_s_n512_k2048_j64"
+    BYTES_PER_EXPERT = 335_872
+    DYNAMIC_LDS_BYTES = 30_976
 
     def __init__(
         self,
@@ -457,7 +459,7 @@ class InstalledGroupedForwardPairRowTaskControl(_HIPModule):
             ctypes.c_uint64(tasks.task_row_starts.data_ptr()),
             ctypes.c_uint64(tasks.task_row_ends.data_ptr()),
             ctypes.c_uint32(aggregate_rows),
-            ctypes.c_uint64(335872),
+            ctypes.c_uint64(self.BYTES_PER_EXPERT),
         )
         parameters = (ctypes.c_void_p * len(arguments))(
             *(
@@ -474,7 +476,7 @@ class InstalledGroupedForwardPairRowTaskControl(_HIPModule):
                 32,
                 4,
                 1,
-                30_976,
+                self.DYNAMIC_LDS_BYTES,
                 ctypes.c_void_p(stream),
                 parameters,
                 None,
@@ -487,6 +489,8 @@ class InstalledGroupedForwardPairSerialControl(_HIPModule):
     """Launch the installed single-projection N512/K2048 IQ2_S control."""
 
     SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_iq2_s_n512_k2048_j64"
+    BYTES_PER_EXPERT = 335_872
+    DYNAMIC_LDS_BYTES = 30_976
 
     def __init__(
         self,
@@ -534,7 +538,7 @@ class InstalledGroupedForwardPairSerialControl(_HIPModule):
             ctypes.c_uint32(512),
             ctypes.c_uint32(aggregate_rows),
             ctypes.c_uint32(8),
-            ctypes.c_uint64(335872),
+            ctypes.c_uint64(self.BYTES_PER_EXPERT),
         )
         parameters = (ctypes.c_void_p * len(arguments))(
             *(
@@ -551,10 +555,30 @@ class InstalledGroupedForwardPairSerialControl(_HIPModule):
                 32,
                 4,
                 1,
-                30_976,
+                self.DYNAMIC_LDS_BYTES,
                 ctypes.c_void_p(stream),
                 parameters,
                 None,
             ),
             "hipModuleLaunchKernel",
         )
+
+
+class InstalledGroupedForwardPairQ3RowTaskControl(
+    InstalledGroupedForwardPairRowTaskControl
+):
+    """Launch one installed Q3_K N512/K2048 J64 row-task projection."""
+
+    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_row_task_q3_k_n512_k2048_j64"
+    BYTES_PER_EXPERT = 450_560
+    DYNAMIC_LDS_BYTES = 30_976
+
+
+class InstalledGroupedForwardPairQ3SerialControl(
+    InstalledGroupedForwardPairSerialControl
+):
+    """Launch one installed Q3_K N512/K2048 J64 serial projection."""
+
+    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_q3_k_n512_k2048_j64"
+    BYTES_PER_EXPERT = 450_560
+    DYNAMIC_LDS_BYTES = 30_976

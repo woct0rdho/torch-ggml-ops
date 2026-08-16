@@ -1,4 +1,4 @@
-"""Assembly writer facade for paired grouped IQ2_S research kernels."""
+"""Assembly writer facade for paired grouped forward research kernels."""
 
 from pathlib import Path
 
@@ -9,6 +9,7 @@ from .grouped_mmq_fwd_pair_lowering_iq2_s import (
     GroupedForwardPairLoweringContext,
     GroupedIQ2SPairedK128Lowering,
 )
+from .grouped_mmq_fwd_pair_lowering_q3_k import GroupedQ3KPairedK128Lowering
 from .grouped_mmq_fwd_pair_model import (
     GroupedForwardPairSolutionKey,
     GroupedPairRouteOwnership,
@@ -21,7 +22,7 @@ from .toolchain import Toolchain
 
 
 class GroupedForwardPairKernelWriterAssembly:
-    """Emit one strict two-projection routed IQ2_S research artifact."""
+    """Emit one strict two-projection routed research artifact."""
 
     def __init__(
         self,
@@ -67,16 +68,14 @@ class GroupedForwardPairKernelWriterAssembly:
             self.state.contract.route_ownership
             is GroupedPairRouteOwnership.DeviceRowTasks64
         )
-        if row_tasks:
-            signature.addDescriptionTopic(
-                "GGTensile paired grouped IQ2_S MMQ forward, K128 interleaved "
-                "device 64-row task ownership, one fixed Q8_1 F32_D4 workspace"
-            )
-        else:
-            signature.addDescriptionTopic(
-                "GGTensile paired grouped IQ2_S MMQ forward, K128 interleaved "
-                "serial GEMM ownership, one fixed Q8_1 F32_D4 workspace"
-            )
+        quant_type = self.solution_key.problem.quant_data_type
+        ownership = (
+            "device 64-row task ownership" if row_tasks else "serial GEMM ownership"
+        )
+        signature.addDescriptionTopic(
+            f"GGTensile paired grouped {quant_type} MMQ forward, K128 interleaved "
+            f"{ownership}, one fixed Q8_1 F32_D4 workspace"
+        )
         signature.addArg("weights_first", SVK.SIG_GLOBALBUFFER, "struct", "generic")
         signature.addArg("weights_second", SVK.SIG_GLOBALBUFFER, "struct", "generic")
         signature.addArg("activations", SVK.SIG_GLOBALBUFFER, "struct", "generic")
@@ -98,7 +97,14 @@ class GroupedForwardPairKernelWriterAssembly:
 
         module = code.Module("GGTensileGroupedForwardPairKernel")
         module.add(signature)
-        emission = GroupedIQ2SPairedK128Lowering(self.context).emission()
+        if quant_type == "IQ2_S":
+            emission = GroupedIQ2SPairedK128Lowering(self.context).emission()
+        elif quant_type == "Q3_K":
+            emission = GroupedQ3KPairedK128Lowering(self.context).emission()
+        else:
+            raise ForwardKernelWriterError(
+                f"paired lowering is unavailable for {quant_type!r}"
+            )
         module.add(code.TextBlock(emission.body))
         source = str(module)
         for section in emission.trailing_sections:

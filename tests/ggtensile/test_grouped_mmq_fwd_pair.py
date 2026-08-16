@@ -1,3 +1,4 @@
+import hashlib
 from dataclasses import replace
 from pathlib import Path
 
@@ -38,6 +39,22 @@ def _row_task_key(aggregate_rows: int = 16_384) -> GroupedForwardPairSolutionKey
     )
 
 
+def _q3_key(aggregate_rows: int = 16_384) -> GroupedForwardPairSolutionKey:
+    return GroupedForwardPairSolutionKey(
+        GroupedForwardPairProblem.q3_k(aggregate_rows),
+        GroupedForwardPairSolution.q3_k_k128_interleaved(),
+    )
+
+
+def _q3_row_task_key(
+    aggregate_rows: int = 16_384,
+) -> GroupedForwardPairSolutionKey:
+    return GroupedForwardPairSolutionKey(
+        GroupedForwardPairProblem.q3_k(aggregate_rows),
+        GroupedForwardPairSolution.q3_k_k128_interleaved_row_tasks(),
+    )
+
+
 @pytest.mark.parametrize("aggregate_rows", (16_384, 65_536, 262_144))
 def test_grouped_iq2_s_pair_production_keys_derive(aggregate_rows: int) -> None:
     key = _key(aggregate_rows)
@@ -66,6 +83,20 @@ def test_grouped_iq2_s_pair_serialization_rejects_unknown_enum() -> None:
         GroupedForwardPairSolutionKey.from_mapping(mapping)
 
 
+def test_grouped_iq2_s_pair_sources_remain_byte_stable() -> None:
+    toolchain = Toolchain.discover()
+    serial = GroupedForwardPairKernelWriterAssembly(_key(35), toolchain).source()
+    row_tasks = GroupedForwardPairKernelWriterAssembly(
+        _row_task_key(35), toolchain
+    ).source()
+    assert hashlib.sha256(serial.encode()).hexdigest() == (
+        "157d6dda29360e212d02e6c86ae251f0d30dccf2cdb8fd4af984ad7a1af2c04b"
+    )
+    assert hashlib.sha256(row_tasks.encode()).hexdigest() == (
+        "a5873b356a5bd2cf0e53f0c88046c9d6dc596473b08e4e03bf8a096a3f504a50"
+    )
+
+
 @pytest.mark.parametrize(
     ("aggregate_rows", "capacity"),
     ((16_384, 512), (65_536, 1_280), (262_144, 4_352)),
@@ -91,6 +122,35 @@ def test_grouped_iq2_s_pair_row_task_keys_derive(
     assert state.physical_plan.resources.lds_bytes == 19_456
 
 
+@pytest.mark.parametrize("aggregate_rows", (16_384, 65_536, 262_144))
+def test_grouped_q3_k_pair_production_keys_derive(aggregate_rows: int) -> None:
+    serial = _q3_key(aggregate_rows)
+    row_tasks = _q3_row_task_key(aggregate_rows)
+    assert GroupedForwardPairSolutionKey.from_mapping(serial.to_mapping()) == serial
+    assert (
+        GroupedForwardPairSolutionKey.from_mapping(row_tasks.to_mapping()) == row_tasks
+    )
+    assert serial.hash != row_tasks.hash
+    assert validate_grouped_forward_pair_solution(serial) == ()
+    assert validate_grouped_forward_pair_solution(row_tasks) == ()
+    for key in (serial, row_tasks):
+        state = DerivedGroupedForwardPairState.from_solution_key(key)
+        assert state.expected_packed_weight_shape == (256, 512, 880)
+        assert state.expected_activation_shape == (16, aggregate_rows, 144)
+        assert state.expected_output_shape == (aggregate_rows, 512)
+        assert state.blocks_per_weight_row == 8
+        assert state.bytes_per_expert == 450_560
+        assert state.physical_plan.resources.vgprs == 148
+        assert state.physical_plan.resources.sgprs == 44
+        assert state.physical_plan.resources.lds_bytes == 19_456
+        assert state.physical_plan.layout.weight_row_stride == 160
+
+
+def test_grouped_q3_k_pair_r35_identities_are_stable() -> None:
+    assert _q3_key(35).kernel_name.endswith("c7d9590190ef3ba2")
+    assert _q3_row_task_key(35).kernel_name.endswith("cbfc49bedf75164f")
+
+
 def test_grouped_iq2_s_pair_validation_rejects_other_geometry_and_solution() -> None:
     key = _key()
     invalid_problem = replace(key.problem, output_features=1024)
@@ -104,6 +164,16 @@ def test_grouped_iq2_s_pair_validation_rejects_other_geometry_and_solution() -> 
         "grouped_forward_pair.problem.unsupported",
         "grouped_forward_pair.solution.unimplemented",
     }
+
+
+def test_grouped_pair_validation_rejects_cross_quant_solution() -> None:
+    key = _q3_key()
+    reasons = validate_grouped_forward_pair_solution(
+        replace(key, solution=GroupedForwardPairSolution.iq2_s_k128_interleaved())
+    )
+    assert tuple(reason.rule_id for reason in reasons) == (
+        "grouped_forward_pair.solution.unimplemented",
+    )
 
 
 def test_grouped_iq2_s_pair_writer_has_shared_k128_dataflow() -> None:
@@ -145,6 +215,39 @@ def test_grouped_iq2_s_pair_row_task_writer_uses_device_descriptors() -> None:
     assert "s_load_dword s23, s[20:21], s31" in source
     assert "s_sub_u32 s37, s23, s28" in source
     assert "s_mul_i32 s29, s24, 144" in source
+    assert source.count("v_wmma_i32_16x16x16_iu8") == 128
+    assert source.count("s_barrier") == 8
+
+
+def test_grouped_q3_k_pair_writer_has_shared_k128_dataflow() -> None:
+    source = GroupedForwardPairKernelWriterAssembly(
+        _q3_key(35), Toolchain.discover()
+    ).source()
+    assert "paired grouped Q3_K MMQ forward, K128 interleaved" in source
+    assert source.count("Decode paired Q3_K selected K128 half 0") == 2
+    assert source.count("Decode paired Q3_K selected K128 half 1") == 2
+    assert source.count("Linearly stage one coalesced 9,216-byte") == 2
+    assert source.count("v_wmma_i32_16x16x16_iu8") == 128
+    assert source.count("s_barrier") == 8
+    assert '.section .rodata,"a",@progbits' not in source
+    assert "global_load_b128 v[64:67]" in source
+    assert "global_load_b128 v[68:71]" in source
+    assert "global_load_b128 v[72:75]" in source
+    assert "offset:94" in source
+    assert "v_sub_nc_u32 v83, v83, 32" in source
+    assert "v_add_nc_u32 v138, 110, v138" in source
+    assert "Store paired Q3_K projection 0" in source
+    assert "Store paired Q3_K projection 1" in source
+
+
+def test_grouped_q3_k_pair_row_task_writer_uses_device_descriptors() -> None:
+    source = GroupedForwardPairKernelWriterAssembly(
+        _q3_row_task_key(35), Toolchain.discover()
+    ).source()
+    assert "device 64-row task ownership" in source
+    assert "Load the paired 96-byte grouped Q3_K row-task ABI" in source
+    assert ".kernarg_segment_size:       96" in source
+    assert "s_load_dword s23, s[20:21], s31" in source
     assert source.count("v_wmma_i32_16x16x16_iu8") == 128
     assert source.count("s_barrier") == 8
 
@@ -197,6 +300,41 @@ def test_grouped_iq2_s_pair_row_task_artifact_is_resource_clean(
     _, _, artifact = _build(tmp_path / "row-task", key, toolchain)
     inspection = inspect_grouped_forward_pair_artifact(key, artifact, toolchain)
     assert inspection.kernarg_segment_size == 96
+    assert inspection.wavefront_size == 32
+    assert inspection.max_flat_workgroup_size == 128
+    assert inspection.vgpr_count == 148
+    assert inspection.sgpr_count == 44
+    assert inspection.lds_num_bytes == 19_456
+    assert inspection.private_segment_bytes == 0
+    assert inspection.vgpr_spill_count == 0
+    assert inspection.sgpr_spill_count == 0
+    assert inspection.wmma_count == 128
+    assert inspection.barrier_count == 8
+
+
+@pytest.mark.parametrize(
+    "key_factory",
+    (_q3_key, _q3_row_task_key),
+    ids=("serial", "row-tasks"),
+)
+def test_grouped_q3_k_pair_artifact_is_deterministic_and_resource_clean(
+    tmp_path: Path,
+    key_factory,
+) -> None:
+    key = key_factory(35)
+    toolchain = Toolchain.discover()
+    first_source, first_code, first_path = _build(tmp_path / "first", key, toolchain)
+    second_source, second_code, _ = _build(tmp_path / "second", key, toolchain)
+    assert first_source == second_source
+    assert first_code == second_code
+    inspection = inspect_grouped_forward_pair_artifact(key, first_path, toolchain)
+    assert inspection.code_object_version == 5
+    assert inspection.target == "gfx1151"
+    assert inspection.kernarg_segment_size == (
+        96
+        if key.solution.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks64
+        else 80
+    )
     assert inspection.wavefront_size == 32
     assert inspection.max_flat_workgroup_size == 128
     assert inspection.vgpr_count == 148

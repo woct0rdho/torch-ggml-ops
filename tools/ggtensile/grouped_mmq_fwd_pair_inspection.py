@@ -1,4 +1,4 @@
-"""Strict artifact inspection for paired grouped IQ2_S research kernels."""
+"""Strict artifact inspection for paired grouped forward research kernels."""
 
 from collections.abc import Mapping
 from pathlib import Path

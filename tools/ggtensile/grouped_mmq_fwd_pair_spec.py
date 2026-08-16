@@ -1,4 +1,4 @@
-"""Derived authorities for the research-only paired grouped IQ2_S kernel."""
+"""Derived authorities for research-only paired grouped kernels."""
 
 from dataclasses import dataclass
 
@@ -14,7 +14,9 @@ from .grouped_mmq_fwd_pair_model import (
 )
 from .grouped_mmq_fwd_pair_physical import (
     GroupedIQ2SPairPhysicalPlan,
+    GroupedQ3KPairPhysicalPlan,
     grouped_iq2_s_pair_physical_plan,
+    grouped_q3_k_pair_physical_plan,
 )
 from .mmq_fwd_spec import QuantForwardSemantics
 from .model import ProblemSize
@@ -47,6 +49,21 @@ class GroupedForwardPairContract:
                 f"unsupported paired quant type {problem.quant_data_type!r}"
             )
         route_ownership = solution.route_ownership
+        expected_mechanism = {
+            "IQ2_S": (
+                GroupedPairOperandSource.IQ2SHalfWeightLds,
+                GroupedPairDecodeSchedule.TwoLaneSelectedHalfPayloadPrefetch,
+            ),
+            "Q3_K": (
+                GroupedPairOperandSource.Q3KHalfWeightLds,
+                GroupedPairDecodeSchedule.TwoLaneSelectedHalfQ3,
+            ),
+        }.get(problem.quant_data_type)
+        if expected_mechanism is None:
+            raise ValueError(
+                f"unsupported paired quant type {problem.quant_data_type!r}"
+            )
+        expected_operand_source, expected_decode_schedule = expected_mechanism
         checks = (
             (problem.projection_count == 2, "paired problem requires two projections"),
             (
@@ -79,7 +96,7 @@ class GroupedForwardPairContract:
                 "paired weight bytes mismatch",
             ),
             (
-                solution.operand_source is GroupedPairOperandSource.IQ2SHalfWeightLds,
+                solution.operand_source is expected_operand_source,
                 "paired operand source mismatch",
             ),
             (
@@ -88,8 +105,7 @@ class GroupedForwardPairContract:
                 "paired projection schedule mismatch",
             ),
             (
-                solution.metadata_schedule
-                is GroupedPairDecodeSchedule.TwoLaneSelectedHalfPayloadPrefetch,
+                solution.metadata_schedule is expected_decode_schedule,
                 "paired decode schedule mismatch",
             ),
             (
@@ -105,7 +121,7 @@ class GroupedForwardPairContract:
                 solution.signed_weight and solution.signed_activation,
                 "paired dot operands must be signed",
             ),
-            (not solution.wmma_clamp, "IQ2_S paired WMMA must not clamp"),
+            (not solution.wmma_clamp, "paired signed WMMA must not clamp"),
         )
         rejection = next(
             (message for accepted, message in checks if not accepted), None
@@ -178,7 +194,7 @@ class GroupedForwardPairRouteState:
 class DerivedGroupedForwardPairState:
     key: GroupedForwardPairSolutionKey
     semantics: QuantForwardSemantics
-    physical_plan: GroupedIQ2SPairPhysicalPlan
+    physical_plan: GroupedIQ2SPairPhysicalPlan | GroupedQ3KPairPhysicalPlan
     contract: GroupedForwardPairContract
     kernel_spec: GroupedForwardPairKernelSpec
     route: GroupedForwardPairRouteState
@@ -197,11 +213,15 @@ class DerivedGroupedForwardPairState:
         problem = key.problem
         solution = key.solution
         contract = GroupedForwardPairContract.from_solution(problem, solution)
-        if problem.quant_data_type != "IQ2_S":
-            raise ValueError("paired research currently supports IQ2_S only")
+        if problem.quant_data_type not in {"IQ2_S", "Q3_K"}:
+            raise ValueError("paired research supports IQ2_S and Q3_K")
         if problem.output_features != 512 or problem.input_features != 2048:
-            raise ValueError("paired IQ2_S requires N512 K2048")
-        physical = grouped_iq2_s_pair_physical_plan(solution.route_ownership)
+            raise ValueError("paired grouped forward requires N512 K2048")
+        physical = (
+            grouped_iq2_s_pair_physical_plan(solution.route_ownership)
+            if problem.quant_data_type == "IQ2_S"
+            else grouped_q3_k_pair_physical_plan(solution.route_ownership)
+        )
         semantics = QuantForwardSemantics.for_quant_type(problem.quant_data_type)
         blocks_per_weight_row = problem.input_features // contract.block_values
         activation_blocks_per_row = problem.input_features // Q8_1_D4_BLOCK_VALUES

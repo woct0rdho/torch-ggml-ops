@@ -39,10 +39,16 @@ class GroupedIQ2SPairedK128Lowering:
     GRID_BASE: ClassVar[int] = 42
 
     def _physical_plan(self) -> GroupedIQ2SPairPhysicalPlan:
-        return self.context.state.physical_plan
+        physical = self.context.state.physical_plan
+        if not isinstance(physical, GroupedIQ2SPairPhysicalPlan):
+            raise TypeError("IQ2_S paired lowering requires its IQ2_S physical plan")
+        return physical
 
     def _uses_payload_prefetch(self) -> bool:
         return True
+
+    def _activation_label_token(self) -> str:
+        return "IQ2S"
 
     def emission(self) -> GroupedForwardLoweringResult:
         return GroupedForwardLoweringResult(

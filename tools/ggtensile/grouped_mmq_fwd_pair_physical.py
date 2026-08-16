@@ -1,4 +1,4 @@
-"""Deterministic physical ownership for paired grouped IQ2_S forward."""
+"""Deterministic physical ownership for paired grouped forward."""
 
 from dataclasses import dataclass
 
@@ -109,6 +109,126 @@ class GroupedIQ2SPairVectorRegisterPlan:
             decode_auxiliary=fixed("decode_auxiliary", 5, 95, 1, 1),
             producer_address=fixed("producer_address", 1, 100, 1, 1),
             producer_lds_address=fixed("producer_lds_address", 1, 101, 1, 1),
+            c=fixed("c", 32, 64, 3, 3),
+            weight_payload=fixed("weight_payload", 4, 96, 3, 3),
+            activation_payload=fixed("activation_payload", 16, 100, 3, 3),
+            weight_scales=fixed("weight_scales", 8, 116, 3, 3),
+            zero_accumulator=fixed("zero_accumulator", 8, 124, 0, 3),
+            temporary=fixed("temporary", 2, 132, 0, 5),
+            weight_scale_address=fixed("weight_scale_address", 4, 134, 0, 3),
+            output_address=fixed("output_address", 1, 96, 5, 5),
+            weight_address=fixed("weight_address", 1, 138, 0, 5),
+            activation_lds_address=fixed("activation_lds_address", 1, 139, 0, 3),
+            activation_read_address=fixed("activation_read_address", 1, 140, 0, 3),
+            weight_lds_address=fixed("weight_lds_address", 1, 141, 0, 3),
+            lane=fixed("lane", 1, 142, 0, 5),
+            wave=fixed("wave", 1, 143, 0, 5),
+            activation_scale=fixed("activation_scale", 4, 144, 3, 3),
+            register_count=148,
+            declared_vgprs=148,
+        )
+
+
+@dataclass(frozen=True)
+class GroupedQ3KPairHalfLdsLayout:
+    activation_rows: int = 64
+    weight_rows: int = 64
+    activation_row_stride: int = 144
+    weight_row_stride: int = 160
+    half_payload_bytes: int = 128
+    half_payload_stride: int = 160
+    weight_scale_offset: int = 128
+
+    def __post_init__(self) -> None:
+        if (
+            self.activation_rows,
+            self.weight_rows,
+            self.activation_row_stride,
+            self.weight_row_stride,
+            self.half_payload_bytes,
+            self.half_payload_stride,
+            self.weight_scale_offset,
+        ) != (64, 64, 144, 160, 128, 160, 128):
+            raise ValueError("paired Q3_K half-LDS layout has fixed dimensions")
+
+    @property
+    def activation_bytes(self) -> int:
+        return self.activation_rows * self.activation_row_stride
+
+    @property
+    def weight_base(self) -> int:
+        return self.activation_bytes
+
+    @property
+    def weight_bytes(self) -> int:
+        return self.weight_rows * self.weight_row_stride
+
+    @property
+    def total_bytes(self) -> int:
+        return self.activation_bytes + self.weight_bytes
+
+
+@dataclass(frozen=True)
+class GroupedQ3KPairVectorRegisterPlan:
+    sums_first: RegisterAssignment
+    sums_second: RegisterAssignment
+    activation_stage: RegisterAssignment
+    producer_low_raw: RegisterAssignment
+    producer_high_raw: RegisterAssignment
+    producer_metadata: RegisterAssignment
+    decoded_payload: RegisterAssignment
+    decode_auxiliary: RegisterAssignment
+    decode_d: RegisterAssignment
+    decode_scale: RegisterAssignment
+    producer_address: RegisterAssignment
+    producer_lds_address: RegisterAssignment
+    c: RegisterAssignment
+    weight_payload: RegisterAssignment
+    activation_payload: RegisterAssignment
+    weight_scales: RegisterAssignment
+    zero_accumulator: RegisterAssignment
+    temporary: RegisterAssignment
+    weight_scale_address: RegisterAssignment
+    output_address: RegisterAssignment
+    weight_address: RegisterAssignment
+    activation_lds_address: RegisterAssignment
+    activation_read_address: RegisterAssignment
+    weight_lds_address: RegisterAssignment
+    lane: RegisterAssignment
+    wave: RegisterAssignment
+    activation_scale: RegisterAssignment
+    register_count: int
+    declared_vgprs: int
+
+    @staticmethod
+    def _fixed(
+        name: str,
+        width: int,
+        first: int,
+        first_stage: int,
+        last_stage: int,
+    ) -> RegisterAssignment:
+        return RegisterAssignment(
+            RegisterRole(name, width, RegisterLifetime(first_stage, last_stage)),
+            first,
+        )
+
+    @classmethod
+    def allocate(cls) -> "GroupedQ3KPairVectorRegisterPlan":
+        fixed = cls._fixed
+        return cls(
+            sums_first=fixed("sums_first", 32, 0, 0, 5),
+            sums_second=fixed("sums_second", 32, 32, 0, 5),
+            activation_stage=fixed("activation_stage", 18, 64, 2, 2),
+            producer_low_raw=fixed("producer_low_raw", 4, 64, 1, 1),
+            producer_high_raw=fixed("producer_high_raw", 4, 68, 1, 1),
+            producer_metadata=fixed("producer_metadata", 4, 72, 1, 1),
+            decoded_payload=fixed("decoded_payload", 4, 76, 1, 1),
+            decode_auxiliary=fixed("decode_auxiliary", 2, 80, 1, 1),
+            decode_d=fixed("decode_d", 1, 82, 1, 1),
+            decode_scale=fixed("decode_scale", 1, 83, 1, 1),
+            producer_address=fixed("producer_address", 1, 84, 1, 1),
+            producer_lds_address=fixed("producer_lds_address", 1, 85, 1, 1),
             c=fixed("c", 32, 64, 3, 3),
             weight_payload=fixed("weight_payload", 4, 96, 3, 3),
             activation_payload=fixed("activation_payload", 16, 100, 3, 3),
@@ -345,6 +465,14 @@ class GroupedIQ2SPairPhysicalPlan:
     resources: ForwardResourceUsage
 
 
+@dataclass(frozen=True)
+class GroupedQ3KPairPhysicalPlan:
+    layout: GroupedQ3KPairHalfLdsLayout
+    registers: GroupedQ3KPairVectorRegisterPlan
+    scalar_registers: GroupedIQ2SPairScalarRegisterPlan
+    resources: ForwardResourceUsage
+
+
 def grouped_iq2_s_pair_physical_plan(
     route_ownership: GroupedPairRouteOwnership = GroupedPairRouteOwnership.SerialRoutes,
 ) -> GroupedIQ2SPairPhysicalPlan:
@@ -356,6 +484,28 @@ def grouped_iq2_s_pair_physical_plan(
         else GroupedIQ2SPairScalarRegisterPlan.allocate()
     )
     return GroupedIQ2SPairPhysicalPlan(
+        layout=layout,
+        registers=vector,
+        scalar_registers=scalar,
+        resources=ForwardResourceUsage(
+            vector.declared_vgprs,
+            scalar.declared_sgprs,
+            layout.total_bytes,
+        ),
+    )
+
+
+def grouped_q3_k_pair_physical_plan(
+    route_ownership: GroupedPairRouteOwnership = GroupedPairRouteOwnership.SerialRoutes,
+) -> GroupedQ3KPairPhysicalPlan:
+    layout = GroupedQ3KPairHalfLdsLayout()
+    vector = GroupedQ3KPairVectorRegisterPlan.allocate()
+    scalar = (
+        GroupedIQ2SPairScalarRegisterPlan.allocate_row_tasks()
+        if route_ownership is GroupedPairRouteOwnership.DeviceRowTasks64
+        else GroupedIQ2SPairScalarRegisterPlan.allocate()
+    )
+    return GroupedQ3KPairPhysicalPlan(
         layout=layout,
         registers=vector,
         scalar_registers=scalar,

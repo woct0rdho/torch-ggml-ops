@@ -1,4 +1,4 @@
-"""Strict identities for the research-only paired grouped IQ2_S forward path."""
+"""Strict identities for research-only paired grouped forward paths."""
 
 import hashlib
 import json
@@ -24,6 +24,7 @@ from .quant_formats import Q8_1_F32_D4_BLOCK_BYTES
 
 class GroupedPairOperandSource(str, Enum):
     IQ2SHalfWeightLds = "IQ2SHalfWeightLds"
+    Q3KHalfWeightLds = "Q3KHalfWeightLds"
 
 
 class GroupedPairProjectionSchedule(str, Enum):
@@ -32,6 +33,7 @@ class GroupedPairProjectionSchedule(str, Enum):
 
 class GroupedPairDecodeSchedule(str, Enum):
     TwoLaneSelectedHalfPayloadPrefetch = "TwoLaneSelectedHalfPayloadPrefetch"
+    TwoLaneSelectedHalfQ3 = "TwoLaneSelectedHalfQ3"
 
 
 class GroupedPairRouteOwnership(str, Enum):
@@ -66,6 +68,10 @@ class GroupedForwardPairProblem:
     @classmethod
     def iq2_s(cls, aggregate_rows: int) -> Self:
         return cls("IQ2_S", aggregate_rows, 512, 2048, 256, 256, 2)
+
+    @classmethod
+    def q3_k(cls, aggregate_rows: int) -> Self:
+        return cls("Q3_K", aggregate_rows, 512, 2048, 256, 256, 2)
 
     @classmethod
     def from_mapping(cls, value: object) -> Self:
@@ -188,6 +194,44 @@ class GroupedForwardPairSolution:
     def iq2_s_k128_interleaved_row_tasks(cls) -> Self:
         return replace(
             cls.iq2_s_k128_interleaved(),
+            group_mapping="RowTaskGemmPair",
+            route_layout="DeviceRowTasks64",
+        )
+
+    @classmethod
+    def q3_k_k128_interleaved(cls) -> Self:
+        return cls(
+            kernel_language="Assembly",
+            isa=(11, 5, 1),
+            wavefront_size=32,
+            work_group=(128, 1, 1),
+            matrix_instruction=(16, 16, 16, 1, 1, 1, 4, 4, 1),
+            macro_tile0=64,
+            macro_tile1=64,
+            depth_u=128,
+            activation_layout="F32_D4",
+            activation_block_bytes=Q8_1_F32_D4_BLOCK_BYTES,
+            packed_weight_block_bytes=110,
+            operand_source=GroupedPairOperandSource.Q3KHalfWeightLds,
+            projection_schedule=GroupedPairProjectionSchedule.K128Interleaved,
+            weight_decode="TwoLaneSelectedHalfQ3Signed",
+            group_mapping="SerialGemmPair",
+            route_layout="CumulativeOffsetsExpertIndices",
+            activation_addressing=GroupedActivationAddressing.AggregateRowsTiledLinear,
+            metadata_conversion="Float16DSignedSixBitScaleToFloat32",
+            metadata_schedule=GroupedPairDecodeSchedule.TwoLaneSelectedHalfQ3,
+            output_store=GroupedOutputStore.BFloat16RNEClause4Masked,
+            scale_arithmetic="Int32ScaleF32",
+            projection_count=2,
+            signed_weight=True,
+            signed_activation=True,
+            wmma_clamp=False,
+        )
+
+    @classmethod
+    def q3_k_k128_interleaved_row_tasks(cls) -> Self:
+        return replace(
+            cls.q3_k_k128_interleaved(),
             group_mapping="RowTaskGemmPair",
             route_layout="DeviceRowTasks64",
         )

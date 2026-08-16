@@ -1,7 +1,6 @@
-"""Paired routed ABI emission for research grouped IQ2_S kernels."""
+"""Paired routed ABI emission for research grouped forward kernels."""
 
 from dataclasses import dataclass
-from typing import ClassVar
 
 from .grouped_mmq_fwd_pair_physical import GroupedIQ2SPairScalarRegisterPlan
 from .grouped_mmq_fwd_pair_spec import GroupedForwardPairRouteState
@@ -12,8 +11,12 @@ from .kernel_writer_assembly import Assembly
 class GroupedPairRouteEmitter:
     registers: GroupedIQ2SPairScalarRegisterPlan
     state: GroupedForwardPairRouteState
+    quant_type: str = "IQ2_S"
+    label_token: str = "IQ2S"
 
-    EXIT_LABEL: ClassVar[str] = ".LGroupedPairIQ2SExit"
+    @property
+    def exit_label(self) -> str:
+        return f".LGroupedPair{self.label_token}Exit"
 
     def emit(self, asm: Assembly) -> None:
         self._emit_kernarg_loads(asm)
@@ -23,7 +26,7 @@ class GroupedPairRouteEmitter:
 
     def _emit_kernarg_loads(self, asm: Assembly) -> None:
         scalar = self.registers
-        asm.comment("Load the paired 80-byte grouped IQ2_S ABI.")
+        asm.comment(f"Load the paired 80-byte grouped {self.quant_type} ABI.")
         for pointer, offset in (
             (scalar.weights_first, 0x00),
             (scalar.weights_second, 0x08),
@@ -71,7 +74,7 @@ class GroupedPairRouteEmitter:
         asm.comment("Reject paired launch arguments outside the exact shape key.")
         for register, expected in checks:
             asm.inst(f"s_cmp_lg_u32 s{register}, {expected}")
-            asm.inst(f"s_cbranch_scc1 {self.EXIT_LABEL}")
+            asm.inst(f"s_cbranch_scc1 {self.exit_label}")
 
     def _emit_route_load_and_guard(self, asm: Assembly) -> None:
         scalar = self.registers
@@ -89,17 +92,17 @@ class GroupedPairRouteEmitter:
             f"s[{scalar.expert_indices.first_register}:{scalar.expert_indices.first_register + 1}], s{route_offset}"
         )
         asm.inst(f"s_cmp_eq_u32 s{gemm_index}, 0")
-        asm.inst("s_cbranch_scc1 .LGroupedPairIQ2SFirstRoute")
+        asm.inst(f"s_cbranch_scc1 .LGroupedPair{self.label_token}FirstRoute")
         asm.inst(f"s_lshl_b32 s{route_offset}, s{gemm_index}, 2")
         asm.inst(f"s_sub_u32 s{route_offset}, s{route_offset}, 4")
         asm.inst(
             f"s_load_dword s{scalar.row_begin.first_register}, "
             f"s[{scalar.expert_offsets.first_register}:{scalar.expert_offsets.first_register + 1}], s{route_offset}"
         )
-        asm.inst("s_branch .LGroupedPairIQ2SRouteLoaded")
-        asm.label(".LGroupedPairIQ2SFirstRoute")
+        asm.inst(f"s_branch .LGroupedPair{self.label_token}RouteLoaded")
+        asm.label(f".LGroupedPair{self.label_token}FirstRoute")
         asm.inst(f"s_mov_b32 s{scalar.row_begin.first_register}, 0")
-        asm.label(".LGroupedPairIQ2SRouteLoaded")
+        asm.label(f".LGroupedPair{self.label_token}RouteLoaded")
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.comment("Invalid paired experts and cumulative ranges are inert.")
         for instruction in (
@@ -110,7 +113,7 @@ class GroupedPairRouteEmitter:
             f"s_cmp_gt_u32 s{scalar.row_end.first_register}, s{scalar.nrows_activation.first_register}",
         ):
             asm.inst(instruction)
-            asm.inst(f"s_cbranch_scc1 {self.EXIT_LABEL}")
+            asm.inst(f"s_cbranch_scc1 {self.exit_label}")
 
     def _emit_expert_pointer_rebase(self, asm: Assembly) -> None:
         scalar = self.registers
@@ -138,8 +141,12 @@ class GroupedPairRouteEmitter:
 class GroupedPairRowTaskEmitter:
     registers: GroupedIQ2SPairScalarRegisterPlan
     state: GroupedForwardPairRouteState
+    quant_type: str = "IQ2_S"
+    label_token: str = "IQ2S"
 
-    EXIT_LABEL: ClassVar[str] = ".LGroupedPairIQ2SExit"
+    @property
+    def exit_label(self) -> str:
+        return f".LGroupedPair{self.label_token}Exit"
 
     def emit(self, asm: Assembly) -> None:
         self._emit_kernarg_loads(asm)
@@ -149,7 +156,7 @@ class GroupedPairRowTaskEmitter:
 
     def _emit_kernarg_loads(self, asm: Assembly) -> None:
         scalar = self.registers
-        asm.comment("Load the paired 96-byte grouped IQ2_S row-task ABI.")
+        asm.comment(f"Load the paired 96-byte grouped {self.quant_type} row-task ABI.")
         for pointer, offset in (
             (scalar.weights_first, 0x00),
             (scalar.weights_second, 0x08),
@@ -199,7 +206,7 @@ class GroupedPairRowTaskEmitter:
         asm.comment("Reject paired row-task arguments outside the exact shape key.")
         for register, expected in checks:
             asm.inst(f"s_cmp_lg_u32 s{register}, {expected}")
-            asm.inst(f"s_cbranch_scc1 {self.EXIT_LABEL}")
+            asm.inst(f"s_cbranch_scc1 {self.exit_label}")
 
     def _emit_task_load_and_guard(self, asm: Assembly) -> None:
         scalar = self.registers
@@ -212,7 +219,7 @@ class GroupedPairRowTaskEmitter:
         )
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst(f"s_cmp_ge_u32 s{task_index}, s{task_offset}")
-        asm.inst(f"s_cbranch_scc1 {self.EXIT_LABEL}")
+        asm.inst(f"s_cbranch_scc1 {self.exit_label}")
         asm.inst(f"s_lshl_b32 s{task_offset}, s{task_index}, 2")
         for destination, pointer in (
             (scalar.expert, scalar.task_experts),
@@ -232,7 +239,7 @@ class GroupedPairRowTaskEmitter:
             f"s_cmp_gt_u32 s{scalar.row_end.first_register}, s{scalar.nrows_activation.first_register}",
         ):
             asm.inst(instruction)
-            asm.inst(f"s_cbranch_scc1 {self.EXIT_LABEL}")
+            asm.inst(f"s_cbranch_scc1 {self.exit_label}")
 
     def _emit_expert_pointer_rebase(self, asm: Assembly) -> None:
         scalar = self.registers

@@ -1,4 +1,4 @@
-"""Strict validation for the research-only paired IQ2_S forward identity."""
+"""Strict validation for research-only paired grouped forward identities."""
 
 from .grouped_mmq_fwd_pair_model import (
     GroupedForwardPairProblem,
@@ -12,12 +12,15 @@ def validate_grouped_forward_pair_solution(
     key: GroupedForwardPairSolutionKey,
 ) -> tuple[RejectReason, ...]:
     reasons: list[RejectReason] = []
-    expected = GroupedForwardPairProblem.iq2_s(key.problem.aggregate_rows)
-    if key.problem != expected:
+    expected = {
+        "IQ2_S": GroupedForwardPairProblem.iq2_s,
+        "Q3_K": GroupedForwardPairProblem.q3_k,
+    }.get(key.problem.quant_data_type)
+    if expected is None or key.problem != expected(key.problem.aggregate_rows):
         reasons.append(
             RejectReason(
                 "grouped_forward_pair.problem.unsupported",
-                "paired grouped IQ2_S requires exact N512/K2048 geometry, two projections, 256 experts, and at most 256 routes",
+                "paired grouped forward requires a supported quant type, exact N512/K2048 geometry, two projections, 256 experts, and at most 256 routes",
                 ("Problem",),
                 "GroupedForwardPairProblem",
             )
@@ -31,15 +34,21 @@ def validate_grouped_forward_pair_solution(
                 "GroupedForwardPairProblem",
             )
         )
-    supported_solutions = (
-        GroupedForwardPairSolution.iq2_s_k128_interleaved(),
-        GroupedForwardPairSolution.iq2_s_k128_interleaved_row_tasks(),
-    )
+    supported_solutions = {
+        "IQ2_S": (
+            GroupedForwardPairSolution.iq2_s_k128_interleaved(),
+            GroupedForwardPairSolution.iq2_s_k128_interleaved_row_tasks(),
+        ),
+        "Q3_K": (
+            GroupedForwardPairSolution.q3_k_k128_interleaved(),
+            GroupedForwardPairSolution.q3_k_k128_interleaved_row_tasks(),
+        ),
+    }.get(key.problem.quant_data_type, ())
     if key.solution not in supported_solutions:
         reasons.append(
             RejectReason(
                 "grouped_forward_pair.solution.unimplemented",
-                "paired grouped forward implements IQ2_S K128 interleaving with serial-route or device-row-task ownership",
+                "paired grouped forward implements quant-specific K128 interleaving with serial-route or device-row-task ownership",
                 ("Solution",),
                 "GroupedForwardPairSolution",
             )

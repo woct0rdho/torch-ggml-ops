@@ -37,6 +37,9 @@ class GroupedIQ2SFullWeightLdsLowering:
             raise TypeError("IQ2_S lowering requires an IQ2_S decode policy")
         return policy.payload_prefetch
 
+    def _activation_label_token(self) -> str:
+        return "IQ2S"
+
     def emission(self) -> GroupedForwardLoweringResult:
         return GroupedForwardLoweringResult(
             self.body(),
@@ -503,9 +506,10 @@ class GroupedIQ2SFullWeightLdsLowering:
         local_address = registers.activation_lds_address.first_register
         payload = registers.activation_stage.first_register
         activations = scalar.activations.first_register
-        partial_label = f".LGroupedIQ2SActivationPartial{stage_index}"
-        store_label = f".LGroupedIQ2SActivationStore{stage_index}"
-        done_label = f".LGroupedIQ2SActivationDone{stage_index}"
+        label_token = self._activation_label_token()
+        partial_label = f".LGrouped{label_token}ActivationPartial{stage_index}"
+        store_label = f".LGrouped{label_token}ActivationStore{stage_index}"
+        done_label = f".LGrouped{label_token}ActivationDone{stage_index}"
 
         asm.comment("Linearly stage one coalesced 9,216-byte F32_D4 activation tile.")
         asm.inst(f"v_lshlrev_b32 v{serial}, 5, v{registers.wave.first_register}")
