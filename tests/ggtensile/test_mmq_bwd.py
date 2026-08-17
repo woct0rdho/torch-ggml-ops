@@ -24,7 +24,9 @@ from tools.ggtensile.kernel_writer_assembly_mmq_bwd import (
     BackwardDiagnosticMode,
     BackwardKernelWriterAssembly,
 )
+from tools.ggtensile.mmq_bwd_physical import derive_backward_physical_plan
 from tools.ggtensile.mmq_bwd_search import backward_candidate_mapping
+from tools.ggtensile.mmq_bwd_spec import DerivedBackwardState
 from tools.ggtensile.model import (
     BackwardSolution,
     ProblemSize,
@@ -934,6 +936,64 @@ def test_build_and_inspect_q8_0_m256_packed_vopd_identity(tmp_path: Path) -> Non
     assert inspection.vopd_count == 20
     assert inspection.valu_issue_count == 541
     assert inspection.wmma_count == 32
+    assert_resource_clean(inspection)
+
+
+@pytest.mark.parametrize(
+    ("size", "vgpr_count", "lds_num_bytes", "wmma_count"),
+    (
+        (ProblemSize(32768, 2048, 512), 234, 5120, 32),
+        (ProblemSize(32768, 2048, 8192), 212, 16384, 64),
+    ),
+)
+def test_build_and_inspect_q4_k_dependency_batch4_identity(
+    tmp_path: Path,
+    size: ProblemSize,
+    vgpr_count: int,
+    lds_num_bytes: int,
+    wmma_count: int,
+) -> None:
+    parent = _selected_solution("Q4_K", size)
+    assert parent.q4_k_decode_schedule == "Serial"
+    candidate = replace(parent, q4_k_decode_schedule="DependencyBatch4")
+    key = SolutionKey(ProblemType.mmq_backward("Q4_K"), size, candidate)
+    assert validate_solution(key) == ()
+    kernel_spec = key.to_mapping()["KernelSpec"]
+    assert isinstance(kernel_spec, dict)
+    assert kernel_spec["decode"] == {"schedule": "DependencyBatch4"}
+
+    physical = derive_backward_physical_plan(
+        DerivedBackwardState.from_solution_key(key)
+    )
+    assert physical.q4_decode.dependency_width == 4
+    assert physical.q4_decode.value_registers == tuple(
+        physical.registers.valu_b + 2 * slot for slot in range(4)
+    )
+    assert physical.q4_decode.rounding_registers == tuple(
+        value + 1 for value in physical.q4_decode.value_registers
+    )
+
+    toolchain = Toolchain.discover()
+    artifact = build_and_inspect(
+        key,
+        BackwardKernelWriterAssembly(key, toolchain),
+        toolchain,
+        tmp_path,
+        stem=f"q4_k_batch4_k{size.k}",
+    )
+    source = artifact.source
+    values = physical.q4_decode.value_registers
+    conversions = [
+        source.index(f"v_cvt_f32_ubyte{slot}_e32 v{value}")
+        for slot, value in enumerate(values)
+    ]
+    first_fma = source.index(f"v_fma_f32 v{values[0]}", conversions[-1])
+    assert max(conversions) < first_fma
+    inspection = artifact.inspection
+    assert inspection.vgpr_count == vgpr_count
+    assert inspection.sgpr_count == 16
+    assert inspection.lds_num_bytes == lds_num_bytes
+    assert inspection.wmma_count == wmma_count
     assert_resource_clean(inspection)
 
 

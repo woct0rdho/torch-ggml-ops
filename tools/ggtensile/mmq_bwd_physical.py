@@ -2,7 +2,11 @@
 
 from dataclasses import dataclass
 
-from .mmq_bwd_spec import BackwardQ3Pairing, DerivedBackwardState
+from .mmq_bwd_spec import (
+    BackwardQ3Pairing,
+    BackwardQ4DecodeSchedule,
+    DerivedBackwardState,
+)
 
 
 @dataclass(frozen=True)
@@ -33,6 +37,17 @@ class BackwardDecoderPlan:
     payload_register_count: int
     packed_load_count: int
     q3_full_vopd: bool
+
+
+@dataclass(frozen=True)
+class BackwardQ4DecodePlan:
+    schedule: BackwardQ4DecodeSchedule
+    value_registers: tuple[int, ...]
+    rounding_registers: tuple[int, ...]
+
+    @property
+    def dependency_width(self) -> int:
+        return self.schedule.dependency_width
 
 
 @dataclass(frozen=True)
@@ -83,6 +98,7 @@ class BackwardResourcePlan:
 class BackwardPhysicalPlan:
     registers: BackwardRegisterPlan
     decoder: BackwardDecoderPlan
+    q4_decode: BackwardQ4DecodePlan
     address: BackwardAddressPlan
     lds: BackwardLdsPlan
     resources: BackwardResourcePlan
@@ -217,6 +233,16 @@ def derive_backward_physical_plan(
         scalar_temporary=scalar_temporary,
         total_sgprs=scalar_temporary + 2,
     )
+    q4_schedule = spec.decode.q4.schedule
+    if q4_schedule is BackwardQ4DecodeSchedule.DependencyBatch4:
+        q4_values = tuple(registers.valu_b + 2 * slot for slot in range(4))
+    else:
+        q4_values = (registers.temporary + 1 + 2 * decoder.rows,)
+    q4_decode = BackwardQ4DecodePlan(
+        schedule=q4_schedule,
+        value_registers=q4_values,
+        rounding_registers=tuple(value + 1 for value in q4_values),
+    )
     lds_address_register = (
         address + 4 + geometry.matrix_instruction[5] if extended_a else address + 6
     )
@@ -238,6 +264,7 @@ def derive_backward_physical_plan(
     return BackwardPhysicalPlan(
         registers=registers,
         decoder=decoder,
+        q4_decode=q4_decode,
         address=address_plan,
         lds=lds,
         resources=BackwardResourcePlan(

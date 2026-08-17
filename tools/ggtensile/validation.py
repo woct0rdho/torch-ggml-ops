@@ -6,6 +6,7 @@ from .mmq_bwd_spec import (
     BackwardLdsBuffering,
     BackwardPackedWeightPrefetch,
     BackwardQ3Pairing,
+    BackwardQ4DecodeSchedule,
     BackwardQ5MetadataLoad,
     BackwardQ5NibbleShift,
     BackwardScheduleIterAlg,
@@ -626,6 +627,9 @@ def _validate_backward_solution_parameters(
     packed_prefetch = BackwardPackedWeightPrefetch.from_solution(solution)
     q3_extraction = BackwardExtraction.try_from_serialized(solution.q3_k_extraction)
     q3_pairing = BackwardQ3Pairing.try_from_serialized(solution.q3_k_pairing)
+    q4_decode_schedule = BackwardQ4DecodeSchedule.try_from_serialized(
+        solution.q4_k_decode_schedule
+    )
     q5_extraction = BackwardExtraction.try_from_serialized(solution.q5_k_extraction)
     q6_extraction = BackwardExtraction.try_from_serialized(solution.q6_k_extraction)
     q8_extraction = BackwardExtraction.try_from_serialized(solution.q8_0_extraction)
@@ -735,6 +739,13 @@ def _validate_backward_solution_parameters(
             "solution.q3kpairing.unimplemented",
             "Q3KPairing must be 'Inactive', 'Partial', or 'Full'",
             "Q3KPairing",
+        )
+    if q4_decode_schedule is None:
+        _reject(
+            reasons,
+            "solution.q4kdecodeschedule.unimplemented",
+            "Q4KDecodeSchedule must be 'Serial' or 'DependencyBatch4'",
+            "Q4KDecodeSchedule",
         )
     if q5_extraction not in (BackwardExtraction.packed, BackwardExtraction.scalar):
         _reject(
@@ -902,6 +913,9 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
     q3_pairing = BackwardQ3Pairing.try_from_serialized(
         solution_key.solution.q3_k_pairing
     )
+    q4_decode_schedule = BackwardQ4DecodeSchedule.try_from_serialized(
+        solution_key.solution.q4_k_decode_schedule
+    )
     q5_extraction = BackwardExtraction.try_from_serialized(
         solution_key.solution.q5_k_extraction
     )
@@ -1025,6 +1039,16 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             "solution.q8.controls.inert",
             "Q8KExtraction='packed_vopd' or 'scalar' is valid only for Q8_0",
             "Q8KExtraction",
+            source="ProblemType",
+        )
+    if quant_type != "Q4_K" and (
+        q4_decode_schedule is not BackwardQ4DecodeSchedule.Serial
+    ):
+        _reject(
+            reasons,
+            "solution.q4.controls.inert",
+            "Q4-specific decode scheduling is valid only for Q4_K",
+            "Q4KDecodeSchedule",
             source="ProblemType",
         )
     if solution_key.problem_type.quant_data_type != "Q5_K" and (

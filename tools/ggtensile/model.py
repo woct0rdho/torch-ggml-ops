@@ -234,6 +234,7 @@ class BackwardSolution:
     packed_weight_lane_share: int
     q3_k_extraction: str
     q3_k_pairing: str
+    q4_k_decode_schedule: str
     q5_k_extraction: str
     q5_k_nibble_shift_hoist: bool
     q5_k_metadata_vector_load: bool
@@ -272,6 +273,7 @@ class BackwardSolution:
             packed_weight_lane_share=1,
             q3_k_extraction="packed",
             q3_k_pairing="Inactive",
+            q4_k_decode_schedule="Serial",
             q5_k_extraction="packed",
             q5_k_nibble_shift_hoist=False,
             q5_k_metadata_vector_load=False,

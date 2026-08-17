@@ -32,6 +32,7 @@ from tools.ggtensile.mmq_bwd_spec import (
     BackwardPipelineSpec,
     BackwardProblemContract,
     BackwardQ3Pairing,
+    BackwardQ4DecodeSchedule,
     DerivedBackwardState,
     backward_mechanism_contract,
 )
@@ -68,7 +69,16 @@ def test_backward_pipeline_policy_rejects_unparseable_modes() -> None:
         BackwardPipelineSpec.try_from_solution(replace(pilot, one_lds_buffer=99))
         is None
     )
+    assert (
+        BackwardPipelineSpec.from_solution(
+            replace(
+                pilot, prefetch_packed_weight=False, prefetch_packed_weight_next=True
+            )
+        ).packed_weight_prefetch
+        is not None
+    )
     assert BackwardQ3Pairing.try_from_serialized("invalid") is None
+    assert BackwardQ4DecodeSchedule.try_from_serialized("invalid") is None
     assert BackwardExtraction.try_from_serialized("invalid") is None
 
 
@@ -99,8 +109,20 @@ def test_backward_canonical_schema_rejects_every_noncanonical_boundary() -> None
 
     invalid = copy.deepcopy(mapping)
     invalid["decode"] = {"extraction": "packed"}
-    with pytest.raises(SchemaError, match="no serialized backward decode"):
+    with pytest.raises(SchemaError, match="invalid BackwardKernelSpec.decode"):
         BackwardKernelSpec.from_mapping(invalid, "Q4_K")
+
+    invalid = copy.deepcopy(mapping)
+    invalid["decode"] = {"schedule": "Serial"}
+    with pytest.raises(SchemaError, match="canonically represented by absent"):
+        BackwardKernelSpec.from_mapping(invalid, "Q4_K")
+
+    batched = replace(pilot, q4_k_decode_schedule="DependencyBatch4")
+    batched_mapping = BackwardKernelSpec.from_solution(batched).to_mapping("Q4_K")
+    assert batched_mapping["decode"] == {"schedule": "DependencyBatch4"}
+    assert BackwardKernelSpec.from_mapping(batched_mapping, "Q4_K") == (
+        BackwardKernelSpec.from_solution(batched)
+    )
 
     invalid = copy.deepcopy(mapping)
     invalid["geometry"]["work_group"] = [0, 4, 1]
@@ -156,6 +178,12 @@ def test_backward_pipeline_validation_keeps_field_errors_independent() -> None:
     lds_rules = {reason.rule_id for reason in validate_solution(invalid_lds)}
     assert "solution.1ldsbuffer.unimplemented" in lds_rules
     assert "solution.scheduleiteralg.unimplemented" not in lds_rules
+
+    inactive_q4 = _key(
+        "Q8_0", (128, 256, 128), replace(pilot, q4_k_decode_schedule="DependencyBatch4")
+    )
+    inactive_q4_rules = {reason.rule_id for reason in validate_solution(inactive_q4)}
+    assert "solution.q4.controls.inert" in inactive_q4_rules
 
 
 @pytest.mark.parametrize(
@@ -520,6 +548,7 @@ def test_backward_solution_fields_project_into_kernel_spec_or_reject() -> None:
         "packed_weight_lane_share": 2,
         "q3_k_extraction": "scalar",
         "q3_k_pairing": "Partial",
+        "q4_k_decode_schedule": "DependencyBatch4",
         "q5_k_extraction": "scalar",
         "q5_k_nibble_shift_hoist": True,
         "q5_k_metadata_vector_load": True,

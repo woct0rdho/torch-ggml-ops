@@ -45,6 +45,22 @@ class BackwardQ3Pairing(str, Enum):
             return None
 
 
+class BackwardQ4DecodeSchedule(str, Enum):
+    Serial = "Serial"
+    DependencyBatch4 = "DependencyBatch4"
+
+    @classmethod
+    def try_from_serialized(cls, value: str) -> BackwardQ4DecodeSchedule | None:
+        try:
+            return cls(value)
+        except ValueError:
+            return None
+
+    @property
+    def dependency_width(self) -> int:
+        return 4 if self is BackwardQ4DecodeSchedule.DependencyBatch4 else 1
+
+
 class BackwardExtraction(str, Enum):
     packed = "packed"
     packed_vopd = "packed_vopd"
@@ -530,6 +546,11 @@ class BackwardQ3DecodePolicy:
 
 
 @dataclass(frozen=True)
+class BackwardQ4DecodePolicy:
+    schedule: BackwardQ4DecodeSchedule
+
+
+@dataclass(frozen=True)
 class BackwardQ5DecodePolicy:
     extraction: BackwardExtraction
     nibble_shift: BackwardQ5NibbleShift
@@ -558,6 +579,7 @@ class BackwardQ8DecodePolicy:
 class BackwardDecodeSpec:
     decoder_width: int
     q3: BackwardQ3DecodePolicy
+    q4: BackwardQ4DecodePolicy
     q5: BackwardQ5DecodePolicy
     q6: BackwardQ6DecodePolicy
     q8: BackwardQ8DecodePolicy
@@ -569,6 +591,9 @@ class BackwardDecodeSpec:
             q3=BackwardQ3DecodePolicy(
                 BackwardExtraction(solution.q3_k_extraction),
                 BackwardQ3Pairing(solution.q3_k_pairing),
+            ),
+            q4=BackwardQ4DecodePolicy(
+                BackwardQ4DecodeSchedule(solution.q4_k_decode_schedule)
             ),
             q5=BackwardQ5DecodePolicy(
                 BackwardExtraction(solution.q5_k_extraction),
@@ -686,6 +711,9 @@ class BackwardKernelSpec:
                 "extraction": self.decode.q3.extraction.value,
                 "pairing": self.decode.q3.pairing.value,
             }
+        elif quant_type == "Q4_K":
+            if self.decode.q4.schedule is not BackwardQ4DecodeSchedule.Serial:
+                mapping["decode"] = {"schedule": self.decode.q4.schedule.value}
         elif quant_type == "Q5_K":
             mapping["decode"] = {
                 "extraction": self.decode.q5.extraction.value,
@@ -696,7 +724,7 @@ class BackwardKernelSpec:
             mapping["decode"] = {"extraction": self.decode.q6.extraction.value}
         elif quant_type == "Q8_0":
             mapping["decode"] = {"extraction": self.decode.q8.extraction.value}
-        elif quant_type != "Q4_K":
+        else:
             raise ValueError(f"unsupported backward quant type {quant_type!r}")
         return mapping
 
@@ -712,8 +740,6 @@ class BackwardKernelSpec:
             ),
             optional=frozenset() if decode_required else frozenset({"decode"}),
         )
-        if quant_type == "Q4_K" and "decode" in item:
-            raise SchemaError("Q4_K has no serialized backward decode policy")
         geometry = _strict_mapping(
             item["geometry"],
             name="BackwardKernelSpec.geometry",
@@ -820,6 +846,7 @@ class BackwardKernelSpec:
         q3 = BackwardQ3DecodePolicy(
             BackwardExtraction.packed, BackwardQ3Pairing.Inactive
         )
+        q4 = BackwardQ4DecodePolicy(BackwardQ4DecodeSchedule.Serial)
         q5 = BackwardQ5DecodePolicy(
             BackwardExtraction.packed,
             BackwardQ5NibbleShift.Inline,
@@ -827,7 +854,24 @@ class BackwardKernelSpec:
         )
         q6 = BackwardQ6DecodePolicy(BackwardExtraction.packed)
         q8 = BackwardQ8DecodePolicy(BackwardExtraction.packed)
-        if decode_required:
+        if quant_type == "Q4_K" and "decode" in item:
+            decode_item = _strict_mapping(
+                item["decode"],
+                name="BackwardKernelSpec.decode",
+                keys=frozenset({"schedule"}),
+            )
+            q4 = BackwardQ4DecodePolicy(
+                _serialized_enum(
+                    BackwardQ4DecodeSchedule,
+                    decode_item["schedule"],
+                    "decode.schedule",
+                )
+            )
+            if q4.schedule is BackwardQ4DecodeSchedule.Serial:
+                raise SchemaError(
+                    "serial Q4_K decode is canonically represented by absent decode"
+                )
+        elif decode_required:
             if quant_type == "Q3_K":
                 decode_item = _strict_mapping(
                     item["decode"],
@@ -919,6 +963,7 @@ class BackwardKernelSpec:
             decode=BackwardDecodeSpec(
                 decoder_width=16,
                 q3=q3,
+                q4=q4,
                 q5=q5,
                 q6=q6,
                 q8=q8,
@@ -970,6 +1015,7 @@ class BackwardKernelSpec:
             packed_weight_lane_share=self.pipeline.packed_weight_lane_share,
             q3_k_extraction=self.decode.q3.extraction.value,
             q3_k_pairing=self.decode.q3.pairing.value,
+            q4_k_decode_schedule=self.decode.q4.schedule.value,
             q5_k_extraction=self.decode.q5.extraction.value,
             q5_k_nibble_shift_hoist=(
                 self.decode.q5.nibble_shift is BackwardQ5NibbleShift.Hoisted
