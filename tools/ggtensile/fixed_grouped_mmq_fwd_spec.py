@@ -77,6 +77,21 @@ class FixedForwardProblemContract:
                 "unsupported fixed Q8 physical dataflow",
             ),
             (
+                solution.lds_address_hoist
+                in ("SmallMTile", "CompactDepth32WeightRows"),
+                "unsupported fixed Q8 LDS addressing policy",
+            ),
+            (
+                solution.fixed_address_hoist
+                in ("None", "ReductionLoop", "ReductionLoopAndWeightStage"),
+                "unsupported fixed Q8 address hoist",
+            ),
+            (
+                solution.fixed_address_hoist == "None"
+                or solution.lds_address_hoist == "CompactDepth32WeightRows",
+                "fixed Q8 reduction-loop hoist requires compact DepthU32 LDS",
+            ),
+            (
                 solution.weight_decode == "DirectSignedInt8",
                 "fixed Q8 weight decode must be signed int8",
             ),
@@ -128,7 +143,9 @@ class DerivedFixedForwardState:
         ordinary_key = key.to_standard_solution_key()
         ordinary_state = DerivedForwardState.from_solution_key(ordinary_key)
         kernel_spec = ordinary_state.kernel_spec
-        fixed_plan = fixed_q8_forward_physical_plan(kernel_spec)
+        fixed_plan = fixed_q8_forward_physical_plan(
+            kernel_spec, key.solution.fixed_address_hoist
+        )
         fixed_stride = (
             key.problem.total_activation_rows * contract.activation_block_bytes
         )

@@ -1110,9 +1110,6 @@ class SignedInt8ForwardLowering:
         weight_lds_address = registers.weight_lds_address.first_register
         weight_stage_address = registers.weight_stage_address.first_register
         weight_scale_stage_address = registers.weight_scale_stage_address.first_register
-        weight_payload = registers.weight_payload.first_register
-        weight_stage_payload = registers.weight_stage_payload.first_register
-        weight_scales = registers.weight_scales.first_register
         lane = registers.lane.first_register
         temporary = registers.temporary.first_register
         asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{lane}")
@@ -1140,6 +1137,20 @@ class SignedInt8ForwardLowering:
             f"v_add_nc_u32 v{weight_scale_stage_address}, v{weight_lds_address}, "
             f"v{weight_scale_stage_address}"
         )
+        self._emit_signed_int8_tiled_weight_loads(asm, registers, group_base=group_base)
+
+    def _emit_signed_int8_tiled_weight_loads(
+        self,
+        asm: Assembly,
+        registers: SignedInt8TiledLdsRegisters,
+        *,
+        group_base: int,
+    ) -> None:
+        """Load two packed signed-int8 groups from a ready global address."""
+        weight_stage_address = registers.weight_stage_address.first_register
+        weight_payload = registers.weight_payload.first_register
+        weight_stage_payload = registers.weight_stage_payload.first_register
+        weight_scales = registers.weight_scales.first_register
         asm.inst("s_clause 5")
         for group in range(2):
             payload = weight_payload if group == 0 else weight_stage_payload
@@ -1169,11 +1180,31 @@ class SignedInt8ForwardLowering:
         wait_counts: tuple[int, int] = (3, 0),
     ) -> None:
         """Commit the packed-weight loads after their VMEM dependencies mature."""
+        weight_scale_stage_address = registers.weight_scale_stage_address.first_register
+        lds_address = registers.temporary.first_register
+        self._emit_signed_int8_tiled_weight_writes_to_addresses(
+            asm,
+            registers,
+            group_base=group_base,
+            wait_counts=wait_counts,
+            lds_address=lds_address,
+            scale_lds_address=weight_scale_stage_address,
+        )
+
+    def _emit_signed_int8_tiled_weight_writes_to_addresses(
+        self,
+        asm: Assembly,
+        registers: SignedInt8TiledLdsRegisters,
+        *,
+        group_base: int,
+        wait_counts: tuple[int, int],
+        lds_address: int,
+        scale_lds_address: int,
+    ) -> None:
+        """Commit packed-weight loads to ready payload and scale LDS addresses."""
         weight_payload = registers.weight_payload.first_register
         weight_stage_payload = registers.weight_stage_payload.first_register
         weight_scales = registers.weight_scales.first_register
-        weight_scale_stage_address = registers.weight_scale_stage_address.first_register
-        lds_address = registers.temporary.first_register
         for group, wait_count in enumerate(wait_counts):
             asm.inst(f"s_waitcnt vmcnt({wait_count})")
             payload = weight_payload if group == 0 else weight_stage_payload
@@ -1189,7 +1220,7 @@ class SignedInt8ForwardLowering:
                 f"v_cvt_f32_f16 v{weight_scales + group}, v{weight_scales + group}"
             )
             asm.inst(
-                f"ds_write_b32 v{weight_scale_stage_address}, "
+                f"ds_write_b32 v{scale_lds_address}, "
                 f"v{weight_scales + group} "
                 f"offset:{4 * (group_base + group)}"
             )
@@ -1204,6 +1235,7 @@ class SignedInt8ForwardLowering:
         *,
         activation_group: int | None = None,
         m_fragments: int = 8,
+        paired_weight_scale_address: int | None = None,
     ) -> None:
         """Read one staged Q8 group and accumulate eight activation fragments."""
         if m_fragments not in (2, 4, 8):
@@ -1235,9 +1267,12 @@ class SignedInt8ForwardLowering:
         if policy.scale_read == "PairedHoistedSecondBase":
             if layout.weight_scale_pair_base_delta is None:
                 raise ValueError("paired Q8 scale reads require a second-base delta")
+            second_scale_address = paired_weight_scale_address
+            if second_scale_address is None:
+                second_scale_address = temporary
             for pair in range(4):
                 relative_element = 2 * (pair % 2)
-                address = weight_scale_address if pair < 2 else temporary
+                address = weight_scale_address if pair < 2 else second_scale_address
                 offset0 = (
                     layout.weight_scale_offset
                     + layout.weight_scale_element_stride * relative_element

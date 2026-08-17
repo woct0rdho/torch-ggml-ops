@@ -113,7 +113,9 @@ The nine-repeat B16 screen measured `60.0484 ms` for P2 versus `67.8355 ms` for 
 
 Reversed-order 25-repeat confirmation passed at every production shape. Timings are weighted medians over the five fitted Qwen confirmation medoids and include fixed HIP Q8_1 F32_D4 quantization, one allocated activation workspace, device task setup, and both projections. The adjacent row-task parent performs one task setup followed by two installed single-projection launches and reproduces public timing.
 
-| Batch | Rows | P2 body | Row-task parent body | P2 complete | Public complete | Public/P2 | P2 effective TFLOPS | Public effective TFLOPS |
+The public pair is the installed HIP control. Effective TFLOPS is nominal dense-equivalent complete-call throughput, calculated as `4 * rows * N * K / seconds`: two FLOPs per FMA across both projections.
+
+| Batch | Rows | P2 body | Row-task parent body | P2 complete | Public HIP complete | HIP/P2 speedup | P2 effective TFLOPS | HIP effective TFLOPS |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1 | 16,384 | 4.9848 ms | 6.0176 ms | 5.3592 ms | 6.3949 ms | 1.1933x | 12.82 | 10.75 |
 | 4 | 65,536 | 14.8498 ms | 17.2497 ms | 16.1971 ms | 18.5947 ms | 1.1480x | 16.97 | 14.78 |

@@ -88,7 +88,9 @@ The B16 nine-repeat fitted-prior screen measured `54.5254 ms` complete for P2 ve
 
 Reversed-order 25-repeat confirmation passed at every production shape. Timings are weighted medians over 512 deterministic draws reduced to five weighted medoids, with three warmups and order rotation. Complete-call measurements include fixed HIP Q8_1 F32_D4 quantization, one allocated workspace, device task setup, and both projections. The row-task parent is one task setup followed by two adjacent installed Q3_K J64 row-task launches.
 
-| Batch | Rows | P2 body | Row-task parent body | P2 complete | Public complete | Parent/P2 | Public/P2 | P2 effective TFLOPS | Public effective TFLOPS |
+The public pair is the installed HIP control. Effective TFLOPS is nominal dense-equivalent complete-call throughput, calculated as `4 * rows * N * K / seconds`: two FLOPs per FMA across both projections.
+
+| Batch | Rows | P2 body | Row-task parent body | P2 complete | Public HIP complete | Parent/P2 | HIP/P2 speedup | P2 effective TFLOPS | HIP effective TFLOPS |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1 | 16,384 | 4.4513 ms | 5.3532 ms | 4.8117 ms | 5.7575 ms | 1.1806x | 1.1966x | 14.28 | 11.94 |
 | 4 | 65,536 | 12.7549 ms | 14.0354 ms | 14.6721 ms | 15.9899 ms | 1.0892x | 1.0898x | 18.73 | 17.19 |

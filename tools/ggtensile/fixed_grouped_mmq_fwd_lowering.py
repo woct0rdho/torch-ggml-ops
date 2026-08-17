@@ -54,6 +54,7 @@ class FixedGroupedQ8ForwardLowering(SignedInt8ForwardLowering):
         zero_accumulator = registers.zero_accumulator.first_register
         weight_scale_address = registers.weight_scale_address.first_register
         weight_address = registers.weight_address.first_register
+        weight_stage_address = registers.weight_stage_address.first_register
         activation_address = registers.activation_address.first_register
         activation_scale_stage_address = (
             registers.activation_scale_stage_address.first_register
@@ -81,6 +82,17 @@ class FixedGroupedQ8ForwardLowering(SignedInt8ForwardLowering):
         weight_lds_base = layout.weight_base
         weight_lds_row_stride = layout.weight_row_stride
         paired_scale_reads = policy.scale_read == "PairedHoistedSecondBase"
+        paired_scale_address = (
+            state.fixed_physical_plan.paired_weight_scale_address_vgpr
+        )
+        activation_stride_sgpr = state.fixed_physical_plan.activation_plane_stride_sgpr
+        weight_lane_offset = state.fixed_physical_plan.weight_lane_offset_vgpr
+        weight_payload_lds_address = (
+            state.fixed_physical_plan.weight_payload_lds_address_vgpr
+        )
+        weight_scale_lds_address = (
+            state.fixed_physical_plan.weight_scale_lds_address_vgpr
+        )
 
         asm.comment("Load the fixed-group Q8_0 pointers and scalar dimensions.")
         emit_pointer_kernarg_loads(asm, self.KERNARG)
@@ -165,6 +177,56 @@ class FixedGroupedQ8ForwardLowering(SignedInt8ForwardLowering):
         )
         asm.inst(f"v_mul_lo_u32 v{temporary}, {weight_lds_row_stride}, v{weight_row}")
         asm.inst(f"v_add_nc_u32 v{weight_lds_address}, {weight_lds_base}, v{temporary}")
+        if paired_scale_address is not None:
+            if not paired_scale_reads or activation_stride_sgpr is None:
+                raise ValueError("fixed Q8 address hoist requires paired scale reads")
+            weight_scale_pair_base_delta = layout.weight_scale_pair_base_delta
+            if weight_scale_pair_base_delta is None:
+                raise ValueError("paired Q8 scale reads require a second-base delta")
+            asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{lane}")
+            asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
+            asm.inst(f"v_lshlrev_b32 v{weight_scale_address}, 4, v{wave}")
+            asm.inst(
+                f"v_add_nc_u32 v{weight_scale_address}, "
+                f"v{weight_scale_address}, v{temporary}"
+            )
+            asm.inst(
+                f"v_mul_lo_u32 v{weight_scale_address}, "
+                f"{weight_lds_row_stride}, v{weight_scale_address}"
+            )
+            asm.inst(
+                f"v_add_nc_u32 v{weight_scale_address}, {weight_lds_base}, "
+                f"v{weight_scale_address}"
+            )
+            asm.inst(
+                f"v_add_nc_u32 v{paired_scale_address}, "
+                f"{weight_scale_pair_base_delta}, v{weight_scale_address}"
+            )
+            asm.inst(f"s_mul_i32 s{activation_stride_sgpr}, s{self.KERNARG + 6}, 1152")
+        if weight_lane_offset is not None:
+            if weight_payload_lds_address is None or weight_scale_lds_address is None:
+                raise ValueError("fixed Q8 weight-stage hoist is incomplete")
+            asm.inst(f"v_lshrrev_b32 v{weight_lane_offset}, 4, v{lane}")
+            asm.inst(f"v_and_b32 v{weight_lane_offset}, 1, v{weight_lane_offset}")
+            asm.inst(
+                f"v_lshlrev_b32 v{weight_payload_lds_address}, 6, v{weight_lane_offset}"
+            )
+            asm.inst(
+                f"v_add_nc_u32 v{weight_payload_lds_address}, "
+                f"v{weight_lds_address}, v{weight_payload_lds_address}"
+            )
+            asm.inst(
+                f"v_lshlrev_b32 v{weight_scale_lds_address}, 3, v{weight_lane_offset}"
+            )
+            asm.inst(
+                f"v_add_nc_u32 v{weight_scale_lds_address}, "
+                f"{layout.weight_scale_offset}, v{weight_scale_lds_address}"
+            )
+            asm.inst(
+                f"v_add_nc_u32 v{weight_scale_lds_address}, "
+                f"v{weight_lds_address}, v{weight_scale_lds_address}"
+            )
+            asm.inst(f"v_mul_lo_u32 v{weight_lane_offset}, 68, v{weight_lane_offset}")
 
         for register in range(sums, sums + 8 * m_fragments, 2):
             asm.inst(
@@ -177,12 +239,21 @@ class FixedGroupedQ8ForwardLowering(SignedInt8ForwardLowering):
         asm.inst(f"s_mov_b32 s{self.LOOP_COUNTER}, 0")
 
         asm.label(".LFixedGroupedQ80BlockLoop")
-        self._emit_signed_int8_tiled_weight_stage(
-            asm,
-            tiled_registers,
-            tiled_scale_layout,
-            group_base=0,
-        )
+        if weight_lane_offset is None:
+            self._emit_signed_int8_tiled_weight_stage(
+                asm,
+                tiled_registers,
+                tiled_scale_layout,
+                group_base=0,
+            )
+        else:
+            asm.inst(
+                f"v_add_nc_u32 v{weight_stage_address}, "
+                f"v{weight_address}, v{weight_lane_offset}"
+            )
+            self._emit_signed_int8_tiled_weight_loads(
+                asm, tiled_registers, group_base=0
+            )
         self._emit_signed_int8_tiled_activation_loads(
             asm,
             tiled_registers,
@@ -190,12 +261,24 @@ class FixedGroupedQ8ForwardLowering(SignedInt8ForwardLowering):
             registers.activation_scale_stage_address,
             groups_per_lane,
         )
-        self._emit_signed_int8_tiled_weight_writes(
-            asm,
-            tiled_registers,
-            group_base=0,
-            wait_counts=(6, 0),
-        )
+        if weight_lane_offset is None:
+            self._emit_signed_int8_tiled_weight_writes(
+                asm,
+                tiled_registers,
+                group_base=0,
+                wait_counts=(6, 0),
+            )
+        else:
+            if weight_payload_lds_address is None or weight_scale_lds_address is None:
+                raise ValueError("fixed Q8 weight-stage hoist is incomplete")
+            self._emit_signed_int8_tiled_weight_writes_to_addresses(
+                asm,
+                tiled_registers,
+                group_base=0,
+                wait_counts=(6, 0),
+                lds_address=weight_payload_lds_address,
+                scale_lds_address=weight_scale_lds_address,
+            )
         self._emit_signed_int8_tiled_activation_writes(
             asm,
             tiled_registers,
@@ -206,22 +289,23 @@ class FixedGroupedQ8ForwardLowering(SignedInt8ForwardLowering):
         )
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
-        asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{lane}")
-        asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
-        asm.inst(f"v_lshlrev_b32 v{weight_scale_address}, 4, v{wave}")
-        asm.inst(
-            f"v_add_nc_u32 v{weight_scale_address}, "
-            f"v{weight_scale_address}, v{temporary}"
-        )
-        asm.inst(
-            f"v_mul_lo_u32 v{weight_scale_address}, "
-            f"{weight_lds_row_stride}, v{weight_scale_address}"
-        )
-        asm.inst(
-            f"v_add_nc_u32 v{weight_scale_address}, {weight_lds_base}, "
-            f"v{weight_scale_address}"
-        )
-        if paired_scale_reads:
+        if paired_scale_address is None:
+            asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{lane}")
+            asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
+            asm.inst(f"v_lshlrev_b32 v{weight_scale_address}, 4, v{wave}")
+            asm.inst(
+                f"v_add_nc_u32 v{weight_scale_address}, "
+                f"v{weight_scale_address}, v{temporary}"
+            )
+            asm.inst(
+                f"v_mul_lo_u32 v{weight_scale_address}, "
+                f"{weight_lds_row_stride}, v{weight_scale_address}"
+            )
+            asm.inst(
+                f"v_add_nc_u32 v{weight_scale_address}, {weight_lds_base}, "
+                f"v{weight_scale_address}"
+            )
+        if paired_scale_reads and paired_scale_address is None:
             weight_scale_pair_base_delta = layout.weight_scale_pair_base_delta
             if weight_scale_pair_base_delta is None:
                 raise ValueError("paired Q8 scale reads require a second-base delta")
@@ -237,15 +321,20 @@ class FixedGroupedQ8ForwardLowering(SignedInt8ForwardLowering):
                 tiled_scale_layout,
                 policy,
                 m_fragments=m_fragments,
+                paired_weight_scale_address=paired_scale_address,
             )
         asm.inst("s_barrier")
         asm.inst(
             f"v_add_nc_u32 v{weight_address}, "
             f"{4 * state.contract.packed_weight_block_bytes}, v{weight_address}"
         )
-        asm.inst(f"v_mul_lo_u32 v{temporary}, 1152, s{self.KERNARG + 6}")
+        if activation_stride_sgpr is None:
+            asm.inst(f"v_mul_lo_u32 v{temporary}, 1152, s{self.KERNARG + 6}")
+            activation_stride = f"v{temporary}"
+        else:
+            activation_stride = f"s{activation_stride_sgpr}"
         for address in (activation_address, activation_scale_stage_address):
-            asm.inst(f"v_add_nc_u32 v{address}, v{temporary}, v{address}")
+            asm.inst(f"v_add_nc_u32 v{address}, {activation_stride}, v{address}")
         asm.inst(f"s_add_u32 s{self.LOOP_COUNTER}, s{self.LOOP_COUNTER}, 1")
         asm.inst(f"s_cmp_lt_u32 s{self.LOOP_COUNTER}, {iteration_count}")
         asm.inst("s_cbranch_scc1 .LFixedGroupedQ80BlockLoop")

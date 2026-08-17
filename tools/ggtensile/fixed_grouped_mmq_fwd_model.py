@@ -141,6 +141,8 @@ class FixedForwardSolution:
     activation_block_bytes: int
     packed_weight_block_bytes: int
     operand_source: FixedForwardOperandSource
+    lds_address_hoist: str
+    fixed_address_hoist: str
     weight_decode: str
     activation_addressing: str
     scale_arithmetic: str
@@ -163,6 +165,8 @@ class FixedForwardSolution:
             "ActivationBlockBytes",
             "PackedWeightBlockBytes",
             "OperandSource",
+            "LdsAddressHoist",
+            "FixedAddressHoist",
             "WeightDecode",
             "ActivationAddressing",
             "ScaleArithmetic",
@@ -188,6 +192,8 @@ class FixedForwardSolution:
             activation_block_bytes=Q8_1_F32_D4_BLOCK_BYTES,
             packed_weight_block_bytes=QUANT_FORMATS["Q8_0"].block_bytes,
             operand_source=FixedForwardOperandSource.Q8SmallMTiledLds,
+            lds_address_hoist="SmallMTile",
+            fixed_address_hoist="None",
             weight_decode="DirectSignedInt8",
             activation_addressing="FixedGroupRows",
             scale_arithmetic="Int32ScaleF32",
@@ -195,6 +201,27 @@ class FixedForwardSolution:
             signed_weight=True,
             signed_activation=True,
             wmma_clamp=False,
+        )
+
+    @classmethod
+    def q8_0_compact_depth32_tiled_lds(cls) -> Self:
+        return replace(
+            cls.q8_0_small_m_tiled_lds(),
+            lds_address_hoist="CompactDepth32WeightRows",
+        )
+
+    @classmethod
+    def q8_0_compact_depth32_tiled_lds_hoisted(cls) -> Self:
+        return replace(
+            cls.q8_0_compact_depth32_tiled_lds(),
+            fixed_address_hoist="ReductionLoop",
+        )
+
+    @classmethod
+    def q8_0_compact_depth32_tiled_lds_weight_hoisted(cls) -> Self:
+        return replace(
+            cls.q8_0_compact_depth32_tiled_lds(),
+            fixed_address_hoist="ReductionLoopAndWeightStage",
         )
 
     @classmethod
@@ -229,6 +256,8 @@ class FixedForwardSolution:
                 item["PackedWeightBlockBytes"], "PackedWeightBlockBytes"
             ),
             operand_source=operand_source,
+            lds_address_hoist=_string(item["LdsAddressHoist"], "LdsAddressHoist"),
+            fixed_address_hoist=_string(item["FixedAddressHoist"], "FixedAddressHoist"),
             weight_decode=_string(item["WeightDecode"], "WeightDecode"),
             activation_addressing=_string(
                 item["ActivationAddressing"], "ActivationAddressing"
@@ -258,6 +287,8 @@ class FixedForwardSolution:
             "ActivationBlockBytes": self.activation_block_bytes,
             "PackedWeightBlockBytes": self.packed_weight_block_bytes,
             "OperandSource": self.operand_source.value,
+            "LdsAddressHoist": self.lds_address_hoist,
+            "FixedAddressHoist": self.fixed_address_hoist,
             "WeightDecode": self.weight_decode,
             "ActivationAddressing": self.activation_addressing,
             "ScaleArithmetic": self.scale_arithmetic,
@@ -304,6 +335,7 @@ class FixedForwardSolutionKey:
             activation_layout=self.solution.activation_layout,
             activation_block_bytes=self.solution.activation_block_bytes,
             packed_weight_block_bytes=self.solution.packed_weight_block_bytes,
+            lds_address_hoist=self.solution.lds_address_hoist,
             output_store=self.solution.output_store,
             signed_weight=self.solution.signed_weight,
             signed_activation=self.solution.signed_activation,

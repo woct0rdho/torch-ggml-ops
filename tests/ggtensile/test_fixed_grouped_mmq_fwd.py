@@ -26,6 +26,27 @@ def _key(tokens: int = 2048) -> FixedForwardSolutionKey:
     )
 
 
+def _compact_key(tokens: int = 2048) -> FixedForwardSolutionKey:
+    return FixedForwardSolutionKey(
+        FixedForwardProblem.deepseek_q8_0(tokens),
+        FixedForwardSolution.q8_0_compact_depth32_tiled_lds(),
+    )
+
+
+def _hoisted_key(tokens: int = 2048) -> FixedForwardSolutionKey:
+    return FixedForwardSolutionKey(
+        FixedForwardProblem.deepseek_q8_0(tokens),
+        FixedForwardSolution.q8_0_compact_depth32_tiled_lds_hoisted(),
+    )
+
+
+def _weight_hoisted_key(tokens: int = 2048) -> FixedForwardSolutionKey:
+    return FixedForwardSolutionKey(
+        FixedForwardProblem.deepseek_q8_0(tokens),
+        FixedForwardSolution.q8_0_compact_depth32_tiled_lds_weight_hoisted(),
+    )
+
+
 def test_fixed_forward_identity_roundtrip_and_derived_shapes() -> None:
     key = _key()
     assert FixedForwardSolutionKey.from_mapping(key.to_mapping()) == key
@@ -39,6 +60,25 @@ def test_fixed_forward_identity_roundtrip_and_derived_shapes() -> None:
     assert state.resources.lds_bytes == 28_672
     assert state.resources.vgprs == 144
     assert state.resources.sgprs == 16
+    compact_key = _compact_key()
+    assert FixedForwardSolutionKey.from_mapping(compact_key.to_mapping()) == compact_key
+    compact_state = DerivedFixedForwardState.from_solution_key(compact_key)
+    assert compact_state.resources.lds_bytes == 18_432
+    assert compact_state.resources.vgprs == 144
+    assert compact_state.resources.sgprs == 16
+    hoisted_key = _hoisted_key()
+    assert FixedForwardSolutionKey.from_mapping(hoisted_key.to_mapping()) == hoisted_key
+    hoisted_state = DerivedFixedForwardState.from_solution_key(hoisted_key)
+    assert hoisted_state.fixed_physical_plan.paired_weight_scale_address_vgpr == 139
+    assert hoisted_state.fixed_physical_plan.activation_plane_stride_sgpr == 15
+    weight_hoisted_state = DerivedFixedForwardState.from_solution_key(
+        _weight_hoisted_key()
+    )
+    assert weight_hoisted_state.fixed_physical_plan.weight_lane_offset_vgpr == 140
+    assert (
+        weight_hoisted_state.fixed_physical_plan.weight_payload_lds_address_vgpr == 141
+    )
+    assert weight_hoisted_state.fixed_physical_plan.weight_scale_lds_address_vgpr == 142
 
 
 @pytest.mark.parametrize(
@@ -64,6 +104,29 @@ def test_fixed_forward_identity_roundtrip_and_derived_shapes() -> None:
                 problem=replace(_key().problem, tokens=4096),
             ),
             "production token count",
+        ),
+        (
+            replace(
+                _key(),
+                solution=replace(_key().solution, lds_address_hoist="Unknown"),
+            ),
+            "LDS addressing policy",
+        ),
+        (
+            replace(
+                _key(),
+                solution=replace(_key().solution, fixed_address_hoist="ReductionLoop"),
+            ),
+            "requires compact DepthU32 LDS",
+        ),
+        (
+            replace(
+                _compact_key(),
+                solution=replace(
+                    _compact_key().solution, fixed_address_hoist="Unknown"
+                ),
+            ),
+            "address hoist",
         ),
     ],
 )
@@ -91,8 +154,41 @@ def test_fixed_forward_source_loads_scalars_and_flattens_group_rows() -> None:
     assert "s[8:9]" in source
 
 
+def test_fixed_forward_compact_source_uses_paired_scale_reads() -> None:
+    key = _compact_key()
+    source = FixedGroupedForwardKernelWriterAssembly(key, Toolchain.discover()).source()
+    assert source.count("ds_read2_b32") == 16
+    assert source.count("ds_read_b32") == 16
+    assert "offset0:179 offset1:251" in source
+    assert DerivedFixedForwardState.from_solution_key(key).resources.lds_bytes == 18_432
+
+
+def test_fixed_forward_hoists_reduction_invariants() -> None:
+    source = FixedGroupedForwardKernelWriterAssembly(
+        _hoisted_key(), Toolchain.discover()
+    ).source()
+    loop = source.index(".LFixedGroupedQ80BlockLoop:")
+    assert source.index("v_add_nc_u32 v139, 1152, v128") < loop
+    assert source.index("s_mul_i32 s15, s12, 1152") < loop
+    assert "v_mul_lo_u32 v135, 1152, s12" not in source
+    assert source.count("v139 offset0:") == 8
+
+
+def test_fixed_forward_hoists_weight_stage_addresses() -> None:
+    source = FixedGroupedForwardKernelWriterAssembly(
+        _weight_hoisted_key(), Toolchain.discover()
+    ).source()
+    loop = source.index(".LFixedGroupedQ80BlockLoop:")
+    assert source.index("v_mul_lo_u32 v140, 68, v140") < loop
+    assert source.index("v_add_nc_u32 v141, v134, v141") < loop
+    assert source.index("v_add_nc_u32 v142, v134, v142") < loop
+    assert source.count("v_add_nc_u32 v8, v129, v140") == 1
+    assert source.count("ds_write_b128 v141") == 4
+    assert source.count("ds_write_b32 v142") == 2
+
+
 def test_fixed_forward_build_is_deterministic_and_inspectable(tmp_path) -> None:
-    key = _key()
+    key = _weight_hoisted_key()
     toolchain = Toolchain.discover()
     first = FixedGroupedForwardKernelWriterAssembly(key, toolchain)
     second = FixedGroupedForwardKernelWriterAssembly(key, toolchain)
@@ -108,9 +204,11 @@ def test_fixed_forward_build_is_deterministic_and_inspectable(tmp_path) -> None:
     toolchain.link(first_object, first_code_object)
     inspection = inspect_artifact(key, first_code_object, toolchain)
     assert inspection.kernarg_segment_size == 40
-    assert inspection.lds_num_bytes == 28_672
+    assert inspection.lds_num_bytes == 18_432
     assert inspection.wmma_count == 32
     assert inspection.barrier_count == 2
     assert inspection.private_segment_bytes == 0
     assert inspection.vgpr_spill_count == 0
     assert inspection.sgpr_spill_count == 0
+    assert inspection.max_vgpr_index == 142
+    assert inspection.max_sgpr_index == 15

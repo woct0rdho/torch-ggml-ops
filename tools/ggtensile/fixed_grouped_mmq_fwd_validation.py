@@ -61,6 +61,20 @@ def fixed_forward_rejection_reason(key: FixedForwardSolutionKey) -> str | None:
             solution.operand_source is FixedForwardOperandSource.Q8SmallMTiledLds,
             "fixed Q8 forward operand source is not retained",
         ),
+        (
+            solution.lds_address_hoist in ("SmallMTile", "CompactDepth32WeightRows"),
+            "fixed Q8 forward LDS addressing policy is not retained",
+        ),
+        (
+            solution.fixed_address_hoist
+            in ("None", "ReductionLoop", "ReductionLoopAndWeightStage"),
+            "fixed Q8 forward address hoist is not retained",
+        ),
+        (
+            solution.fixed_address_hoist == "None"
+            or solution.lds_address_hoist == "CompactDepth32WeightRows",
+            "fixed Q8 forward reduction-loop hoist requires compact DepthU32 LDS",
+        ),
     )
     return next((message for accepted, message in checks if not accepted), None)
 

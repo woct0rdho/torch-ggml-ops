@@ -80,6 +80,16 @@ The B1/B4 25-repeat transfer confirmation is `~/tmp/torch-ggml-ops/ggtensile-gro
 | 1 | 12,288 | 30.4352 | 35.1876 | 40.2553 | 34.5979 | 1.1368x | 1.0605x |
 | 4 | 49,152 | 84.4732 | 93.5025 | 91.2841 | 93.4559 | 1.1063x | 1.0732x |
 
+### Final retained throughput
+
+The public pair is the installed HIP control. Effective TFLOPS is nominal dense-equivalent complete-call throughput, calculated as `4 * rows * N * K / seconds`: two FLOPs per FMA across both projections. B1 and B4 use the transfer confirmation above; B16 uses its dedicated 25-repeat confirmation.
+
+| Batch | Rows | GGTensile complete | Public HIP complete | GGTensile effective TFLOPS | HIP effective TFLOPS | HIP/GGTensile speedup |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 12,288 | 30.4352 ms | 34.5979 ms | 13.55 | 11.92 | 1.1368x |
+| 4 | 49,152 | 84.4732 ms | 93.4559 ms | 19.52 | 17.65 | 1.1063x |
+| 16 | 196,608 | 304.0936 ms | 307.4068 ms | 21.69 | 21.46 | 1.0109x |
+
 All 25-repeat outputs remained bitwise exact. The weakest B16 confirmation profile is still faster than public, while B1 and B4 transfer retain material margins.
 
 ## Synthetic route controls
