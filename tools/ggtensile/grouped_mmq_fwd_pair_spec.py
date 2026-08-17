@@ -116,6 +116,11 @@ class GroupedForwardPairContract:
             expected_weight_decode,
             expected_metadata_conversion,
         ) = expected_mechanism
+        expected_decode_schedules = {expected_decode_schedule}
+        if problem.quant_data_type == "Q3_K":
+            expected_decode_schedules.add(
+                GroupedPairDecodeSchedule.TwoLaneSelectedHalfQ3VariableBFE
+            )
         checks = (
             (problem.projection_count == 2, "paired problem requires two projections"),
             (
@@ -161,7 +166,7 @@ class GroupedForwardPairContract:
                 "paired projection schedule mismatch",
             ),
             (
-                solution.metadata_schedule is expected_decode_schedule,
+                solution.metadata_schedule in expected_decode_schedules,
                 "paired decode schedule mismatch",
             ),
             (
@@ -556,6 +561,13 @@ def grouped_forward_pair_capability_rejection_reason(
     }.get(problem.quant_data_type, set())
     if kernel_spec.route_ownership not in supported_ownership:
         return "paired route ownership is unavailable for the quant format"
+    if (
+        kernel_spec.metadata_schedule
+        is GroupedPairDecodeSchedule.TwoLaneSelectedHalfQ3VariableBFE
+        and kernel_spec.route_ownership
+        is not GroupedPairRouteOwnership.DeviceRowTasks64
+    ):
+        return "paired Q3_K variable-BFE decode requires device row-task ownership"
     return None
 
 

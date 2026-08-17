@@ -32,6 +32,7 @@ class GroupedPairDecodeSchedule(str, Enum):
     TwoLaneSelectedHalfPayloadPrefetch = "TwoLaneSelectedHalfPayloadPrefetch"
     TwoLaneSelectedHalfIQ2XXS = "TwoLaneSelectedHalfIQ2XXS"
     TwoLaneSelectedHalfQ3 = "TwoLaneSelectedHalfQ3"
+    TwoLaneSelectedHalfQ3VariableBFE = "TwoLaneSelectedHalfQ3VariableBFE"
 
 
 class GroupedPairRouteOwnership(str, Enum):
@@ -200,6 +201,15 @@ class GroupedForwardPairSolution:
             cls.q3_k_k128_interleaved(),
             group_mapping="RowTaskGemmPair",
             route_layout="DeviceRowTasks64",
+        )
+
+    @classmethod
+    def q3_k_k128_interleaved_row_tasks_variable_bfe(cls) -> Self:
+        return replace(
+            cls.q3_k_k128_interleaved_row_tasks(),
+            metadata_schedule=(
+                GroupedPairDecodeSchedule.TwoLaneSelectedHalfQ3VariableBFE
+            ),
         )
 
     @property

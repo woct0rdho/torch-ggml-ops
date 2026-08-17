@@ -7,7 +7,10 @@ from .grouped_mmq_fwd_pair_lowering_common import (
     GroupedForwardPairLoweringContext,
     GroupedPairK128Mechanics,
 )
-from .grouped_mmq_fwd_pair_model import GroupedPairRouteOwnership
+from .grouped_mmq_fwd_pair_model import (
+    GroupedPairDecodeSchedule,
+    GroupedPairRouteOwnership,
+)
 from .grouped_mmq_fwd_pair_physical import (
     GroupedQ3KPairHalfLdsLayout,
     GroupedQ3KPairPhysicalPlan,
@@ -256,6 +259,10 @@ class GroupedQ3KPairedK128Lowering:
         asm.inst(f"v_lshlrev_b32 v{shift}, 3, v{part}")
         metadata_load_offset = semantics.payload_plane("scales").byte_offset - 2
         scale_plane_offset = semantics.payload_plane("scales").byte_offset
+        variable_bfe = (
+            self.context.state.kernel_spec.metadata_schedule
+            is GroupedPairDecodeSchedule.TwoLaneSelectedHalfQ3VariableBFE
+        )
         for local_group in range(4):
             group = 8 * half + 2 * local_group
             low_field, high_field = semantics.q3_scale_fields(group)
@@ -268,19 +275,34 @@ class GroupedQ3KPairedK128Lowering:
             low_bit = 8 * (low_byte % 4) + low_field.bit_offset
             high_bit = 8 * (high_byte % 4) + high_field.bit_offset
             asm.inst(f"v_add_nc_u32 v{address}, {low_bit}, v{shift}")
-            asm.inst(
-                f"v_lshrrev_b32 v{registers.decode_scale.first_register}, v{address}, "
-                f"v{metadata + low_word}"
-            )
-            asm.inst(
-                f"v_and_b32 v{registers.decode_scale.first_register}, "
-                f"{(1 << low_field.bit_count) - 1}, v{registers.decode_scale.first_register}"
-            )
+            if variable_bfe:
+                asm.inst(
+                    f"v_bfe_u32 v{registers.decode_scale.first_register}, "
+                    f"v{metadata + low_word}, v{address}, {low_field.bit_count}"
+                )
+            else:
+                asm.inst(
+                    f"v_lshrrev_b32 v{registers.decode_scale.first_register}, v{address}, "
+                    f"v{metadata + low_word}"
+                )
+                asm.inst(
+                    f"v_and_b32 v{registers.decode_scale.first_register}, "
+                    f"{(1 << low_field.bit_count) - 1}, v{registers.decode_scale.first_register}"
+                )
             asm.inst(f"v_add_nc_u32 v{address}, {high_bit}, v{shift}")
-            asm.inst(f"v_lshrrev_b32 v{address}, v{address}, v{metadata + high_word}")
-            asm.inst(
-                f"v_and_b32 v{address}, {(1 << high_field.bit_count) - 1}, v{address}"
-            )
+            if variable_bfe:
+                asm.inst(
+                    f"v_bfe_u32 v{address}, v{metadata + high_word}, "
+                    f"v{address}, {high_field.bit_count}"
+                )
+            else:
+                asm.inst(
+                    f"v_lshrrev_b32 v{address}, v{address}, v{metadata + high_word}"
+                )
+                asm.inst(
+                    f"v_and_b32 v{address}, "
+                    f"{(1 << high_field.bit_count) - 1}, v{address}"
+                )
             asm.inst(
                 f"v_lshl_or_b32 v{registers.decode_scale.first_register}, v{address}, "
                 f"{high_field.destination_shift}, v{registers.decode_scale.first_register}"

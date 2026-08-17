@@ -10,6 +10,7 @@ from tools.ggtensile.grouped_mmq_fwd_pair_model import (
     GroupedForwardPairProblem,
     GroupedForwardPairSolution,
     GroupedForwardPairSolutionKey,
+    GroupedPairDecodeSchedule,
     GroupedPairRouteOwnership,
 )
 from tools.ggtensile.grouped_mmq_fwd_pair_runtime import (
@@ -60,6 +61,15 @@ def _q3_row_task_key(
     return GroupedForwardPairSolutionKey(
         GroupedForwardPairProblem.q3_k(aggregate_rows),
         GroupedForwardPairSolution.q3_k_k128_interleaved_row_tasks(),
+    )
+
+
+def _q3_variable_bfe_row_task_key(
+    aggregate_rows: int = 16_384,
+) -> GroupedForwardPairSolutionKey:
+    return GroupedForwardPairSolutionKey(
+        GroupedForwardPairProblem.q3_k(aggregate_rows),
+        GroupedForwardPairSolution.q3_k_k128_interleaved_row_tasks_variable_bfe(),
     )
 
 
@@ -256,9 +266,38 @@ def test_grouped_q3_k_pair_production_keys_derive(aggregate_rows: int) -> None:
 def test_grouped_q3_k_pair_r35_identities_are_distinct_and_round_trip() -> None:
     serial = _q3_key(35)
     row_task = _q3_row_task_key(35)
-    assert serial.kernel_name != row_task.kernel_name
+    variable_bfe = _q3_variable_bfe_row_task_key(35)
+    assert (
+        len({serial.kernel_name, row_task.kernel_name, variable_bfe.kernel_name}) == 3
+    )
     assert GroupedForwardPairSolutionKey.from_mapping(serial.to_mapping()) == serial
     assert GroupedForwardPairSolutionKey.from_mapping(row_task.to_mapping()) == row_task
+    assert (
+        GroupedForwardPairSolutionKey.from_mapping(variable_bfe.to_mapping())
+        == variable_bfe
+    )
+    mapping = variable_bfe.to_mapping()
+    kernel_spec = mapping["KernelSpec"]
+    assert isinstance(kernel_spec, dict)
+    decode = kernel_spec["decode"]
+    assert isinstance(decode, dict)
+    assert decode["schedule"] == "TwoLaneSelectedHalfQ3VariableBFE"
+
+
+def test_grouped_q3_k_variable_bfe_rejects_wrong_quant_and_ownership() -> None:
+    for key in (_key(), _q3_key()):
+        mapping = key.to_mapping()
+        kernel_spec = mapping["KernelSpec"]
+        assert isinstance(kernel_spec, dict)
+        decode = kernel_spec["decode"]
+        assert isinstance(decode, dict)
+        decode["schedule"] = (
+            GroupedPairDecodeSchedule.TwoLaneSelectedHalfQ3VariableBFE.value
+        )
+        with pytest.raises(
+            (SchemaError, ValueError), match="decode schedule|row-task ownership"
+        ):
+            GroupedForwardPairSolutionKey.from_mapping(mapping)
 
 
 @pytest.mark.parametrize("aggregate_rows", (12_288, 49_152, 196_608))
@@ -418,6 +457,23 @@ def test_grouped_q3_k_pair_row_task_writer_uses_device_descriptors() -> None:
     assert source.count("s_barrier") == 8
 
 
+def test_grouped_q3_k_pair_variable_bfe_writer_uses_typed_decode_policy() -> None:
+    parent = GroupedForwardPairKernelWriterAssembly(
+        _q3_row_task_key(35), Toolchain.discover()
+    ).source()
+    candidate = GroupedForwardPairKernelWriterAssembly(
+        _q3_variable_bfe_row_task_key(35), Toolchain.discover()
+    ).source()
+    assert parent.count("v_lshrrev_b32 v83, v84, v") == 16
+    assert parent.count("v_lshrrev_b32 v84, v84, v") == 16
+    assert candidate.count("v_lshrrev_b32 v83, v84, v") == 0
+    assert candidate.count("v_lshrrev_b32 v84, v84, v") == 0
+    assert candidate.count("v_bfe_u32 v83, v") == 16
+    assert candidate.count("v_bfe_u32 v84, v") == 16
+    assert candidate.count("v_wmma_i32_16x16x16_iu8") == 128
+    assert candidate.count("s_barrier") == 8
+
+
 def test_grouped_iq2_xxs_pair_writer_has_q8_style_k32_dataflow() -> None:
     source = GroupedForwardPairKernelWriterAssembly(
         _iq2_xxs_key(35), Toolchain.discover()
@@ -539,6 +595,29 @@ def test_grouped_q3_k_pair_artifact_is_deterministic_and_resource_clean(
     assert inspection.private_segment_bytes == 0
     assert inspection.vgpr_spill_count == 0
     assert inspection.sgpr_spill_count == 0
+    assert inspection.wmma_count == 128
+    assert inspection.barrier_count == 8
+
+
+def test_grouped_q3_k_pair_variable_bfe_artifact_is_deterministic_and_clean(
+    tmp_path: Path,
+) -> None:
+    key = _q3_variable_bfe_row_task_key(35)
+    toolchain = Toolchain.discover()
+    first_source, first_code, first_path = _build(tmp_path / "first", key, toolchain)
+    second_source, second_code, _ = _build(tmp_path / "second", key, toolchain)
+    assert first_source == second_source
+    assert first_code == second_code
+    inspection = inspect_grouped_forward_pair_artifact(key, first_path, toolchain)
+    assert inspection.kernarg_segment_size == 96
+    assert inspection.wavefront_size == 32
+    assert inspection.vgpr_count == 148
+    assert inspection.sgpr_count == 44
+    assert inspection.lds_num_bytes == 19_456
+    assert inspection.private_segment_bytes == 0
+    assert inspection.vgpr_spill_count == 0
+    assert inspection.sgpr_spill_count == 0
+    assert inspection.valu_issue_count == 2_968
     assert inspection.wmma_count == 128
     assert inspection.barrier_count == 8
 
