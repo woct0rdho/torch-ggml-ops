@@ -32,6 +32,9 @@ from tools.ggtensile.mmq_fwd_lowering_q6 import (
     _emit_q6_scheduled_body,
 )
 from tools.ggtensile.mmq_fwd_lowering_signed_i8 import SignedInt8ForwardLowering
+from tools.ggtensile.mmq_fwd_lowering_signed_i8_tiled import (
+    SignedInt8TiledLdsMechanics,
+)
 from tools.ggtensile.mmq_fwd_physical import (
     DecodedWeightLdsPhysicalPlan,
     DecodedWeightLdsRegisterPlan,
@@ -937,6 +940,10 @@ def test_small_m_q8_helpers_reject_invalid_fragment_counts() -> None:
         ),
         Toolchain.discover(),
     )
+    mechanics = SignedInt8TiledLdsMechanics(
+        SignedInt8ForwardLowering.KERNARG,
+        writer.context.state.contract.activation_block_bytes,
+    )
     lowering = SignedInt8ForwardLowering(writer.context)
     physical = cast(
         SignedInt8SmallMTiledLdsPhysicalPlan,
@@ -945,7 +952,7 @@ def test_small_m_q8_helpers_reject_invalid_fragment_counts() -> None:
     tiled_registers: SignedInt8TiledLdsRegisters = physical.registers
     tiled_scale_layout: SignedInt8TiledLdsScaleLayout = physical.layout
     with pytest.raises(ValueError, match="2, 4, or 8"):
-        lowering._emit_signed_int8_tiled_group(
+        mechanics.emit_group(
             Assembly(),
             0,
             tiled_registers,
@@ -1044,11 +1051,14 @@ def test_signed_int8_tiled_policies_reject_inconsistent_internal_state() -> None
             )
         ).body()
 
-    lowering = SignedInt8ForwardLowering(wave_writer.context)
+    mechanics = SignedInt8TiledLdsMechanics(
+        SignedInt8ForwardLowering.KERNARG,
+        wave_writer.context.state.contract.activation_block_bytes,
+    )
     registers: SignedInt8TiledLdsRegisters = wave.registers
     layout: SignedInt8TiledLdsScaleLayout = wave.layout
     with pytest.raises(ValueError, match="require a second-base delta"):
-        lowering._emit_signed_int8_tiled_group(
+        mechanics.emit_group(
             Assembly(),
             0,
             registers,
@@ -1059,7 +1069,7 @@ def test_signed_int8_tiled_policies_reject_inconsistent_internal_state() -> None
             ),
         )
     with pytest.raises(ValueError, match="unsupported Q8 scale-read policy"):
-        lowering._emit_signed_int8_tiled_group(
+        mechanics.emit_group(
             Assembly(),
             0,
             registers,

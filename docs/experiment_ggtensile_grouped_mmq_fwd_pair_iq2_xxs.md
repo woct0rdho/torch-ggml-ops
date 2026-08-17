@@ -117,3 +117,39 @@ The post-IQ2_XXS validation matrix completed with:
 - changed-file pre-commit hooks (`pyupgrade`, Ruff check, Ruff format, and `ty check`): passed.
 
 The repository test run emitted only the 14 known Python 3.14 `torch.jit.script_method` deprecation warnings. No public dispatch, generated bundle table, package, registration, HIP fallback, or prepared-weight representation file changed in this campaign.
+
+## Reopened source-level optimization review
+
+The repaired IQ2_XXS paired result and its J64/J80 comparison remain historical results for their original bodies. The following probes change code generation or geometry and are therefore pending, independent identities rather than retroactive changes to the retained result.
+
+### X1 paired sign-selector fusion
+
+The paired IQ2_XXS decoder still uses the older sign-selector sequence built from `0x204081`, `0x01010101`, and `v_lshl_or_b32`. The common IQ2_S form uses `0x810204`, `0x04040404`, and an invariant selector base. Source-level enumeration of all 16 sign-nibble values found the two constructions equal modulo 32 bits. X1 replaces the older sequence only after materializing and validating the invariant selector SGPR under the IQ2_XXS physical plan.
+
+The source estimate is one fewer VALU instruction per signed codebook dword, approximately 64 instructions per K256 block and approximately 1,024 per K4096 row tile. These static, per-block, and amortized counts are qualification inputs, not timing. X1 remains unqualified until the exact selector materialization, register ownership, assembly encoding, artifact disassembly, resources, bitwise output, mutation matrix, deterministic rebuilds, and warmed complete-call and prequantized timings pass independently.
+
+### X2 paired zero-accumulator lifetime
+
+The dedicated read-only `v124:v131` zero bank is rewritten before every projection even though it is consumed as the WMMA accumulator and is not identified as clobbered between projections. X2 initializes it once before the K4096 block loop. The repeated body loses 24 static initialization moves, and the amortized dynamic reduction is approximately 504 moves per K4096 row tile after retaining one eight-register setup. The static body, per-projection, and amortized counts remain separate evidence; X2 does not change nominal VGPR, SGPR, LDS, WMMA, or arithmetic requirements by assumption.
+
+### X3 pre-scaled `d`
+
+The decoder currently multiplies by `d` and then by `0.125` in each half. X3 pre-scales `d` once per half and uses that value for the local scale path. The source estimate is four fewer instructions per K256 block and approximately 64 fewer per K4096 row tile. A finite-FP16 source reassociation check over all finite FP16 values and odd scale values from 1 through 127 produced no differing FP32 bit patterns across 4,063,232 comparisons, but that result does not approve the device candidate. Exact output comparison remains mandatory.
+
+### X4 paired epilogue scheduling
+
+The two projections recompute equivalent column, row-mask, and vector-offset setup, but their destination pointers remain independent. X4 first tests shared column setup, then a separate address-materialization identity if dead `c` registers and store order permit it. X4b may interleave two independent exact `v_bfe_u32`/`v_add3_u32` BF16 RNE chains using proven-dead scratch VGPRs. No aliasing of output pointers, approximation, or relaxed rounding is allowed.
+
+### X5 J80 geometry and X6 metadata
+
+The current fused J64 candidate is only approximately 1.09% ahead of the public B16 result, while the installed serial J80 control is already close. X5 is a new serial-only IQ2_XXS geometry identity intended to test whether 25% more routed rows per workgroup amortizes decode, barriers, and route-loop overhead. It requires a new physical plan, output-tail proof, resource point, exact route matrix, deterministic artifacts, and complete-call and prequantized comparison against both fused J64 and the installed control. It must not be combined with `DeviceRowTasks64`; IQ2_XXS row-task ownership remains a separate future identity and is not inferred from IQ2_S or Q3_K.
+
+The HIP control includes `.amdhsa_workgroup_processor_mode 1`, while the inspected GGTensile paired artifacts do not. X6 is an isolated metadata A/B with no assumed benefit. It must prove identical ABI, code-object, resources, correctness, and deterministic generation before any timing interpretation.
+
+The current `s_clause 7`, waits, and barriers remain controls. Clause changes, compiler-produced `s_delay_alu`, and bank-valid GFX11 VOPD pairings are separate low-priority artifact screens. Direct-to-LDS remains closed because the required instruction form was rejected by the gfx1151 assembler, and no wait or barrier is removed by inference.
+
+### Qualification and recursive review
+
+X1-X6 are unqualified until each distinct typed identity and serialized policy passes exact gfx1151 code-object-v5 assembly and linking, ABI and metadata inspection, resource and disassembly inspection, independent exactness and mutation checks, deterministic rebuilds, and warmed complete-call and prequantized timing. Static instruction reductions do not substitute for device timing. Any composition of individually qualified probes receives a new identity and repeats every gate.
+
+The historical retained classification remains scoped to the repaired J64/J80 bodies and the old comparator premise. Implement and qualify every actionable finding, then repeat the complete source, artifact, resource, correctness, determinism, and timing review from the changed premise. A fresh recursive pass must find no actionable in-contract mechanism before this record can close. Public dispatch, generated bundles, packaging, registration, HIP fallback, and prepared representations remain unchanged.

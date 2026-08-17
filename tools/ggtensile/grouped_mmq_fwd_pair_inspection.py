@@ -1,6 +1,5 @@
 """Strict artifact inspection for paired grouped forward research kernels."""
 
-from collections.abc import Mapping
 from pathlib import Path
 
 from .grouped_mmq_fwd_pair_model import (
@@ -19,41 +18,14 @@ from .inspection import (
     _kernel_metadata,
     _max_register_index,
     _metadata,
+    _metadata_arguments,
     _require,
 )
+from .kernel_abi import (
+    GROUPED_FORWARD_PAIR_ABI,
+    GROUPED_FORWARD_PAIR_ROW_TASK_ABI,
+)
 from .toolchain import Toolchain
-
-_EXPECTED_PAIRED_ARGS = (
-    ("weights_first", 0, 8, "global_buffer", "struct"),
-    ("weights_second", 8, 8, "global_buffer", "struct"),
-    ("activations", 16, 8, "global_buffer", "struct"),
-    ("dst_first", 24, 8, "global_buffer", "bf16"),
-    ("dst_second", 32, 8, "global_buffer", "bf16"),
-    ("expert_indices", 40, 8, "global_buffer", "i64"),
-    ("expert_offsets", 48, 8, "global_buffer", "i32"),
-    ("num_experts", 56, 4, "by_value", "u32"),
-    ("nrows_weight", 60, 4, "by_value", "u32"),
-    ("nrows_activation", 64, 4, "by_value", "u32"),
-    ("blocks_per_weight_row", 68, 4, "by_value", "u32"),
-    ("bytes_per_expert", 72, 8, "by_value", "u64"),
-)
-
-_EXPECTED_PAIRED_ROW_TASK_ARGS = (
-    ("weights_first", 0, 8, "global_buffer", "struct"),
-    ("weights_second", 8, 8, "global_buffer", "struct"),
-    ("activations", 16, 8, "global_buffer", "struct"),
-    ("dst_first", 24, 8, "global_buffer", "bf16"),
-    ("dst_second", 32, 8, "global_buffer", "bf16"),
-    ("task_count", 40, 8, "global_buffer", "i32"),
-    ("task_experts", 48, 8, "global_buffer", "i32"),
-    ("task_row_starts", 56, 8, "global_buffer", "i32"),
-    ("task_row_ends", 64, 8, "global_buffer", "i32"),
-    ("num_experts", 72, 4, "by_value", "u32"),
-    ("nrows_weight", 76, 4, "by_value", "u32"),
-    ("nrows_activation", 80, 4, "by_value", "u32"),
-    ("blocks_per_weight_row", 84, 4, "by_value", "u32"),
-    ("bytes_per_expert", 88, 8, "by_value", "u64"),
-)
 
 
 def inspect_grouped_forward_pair_artifact(
@@ -71,8 +43,9 @@ def inspect_grouped_forward_pair_artifact(
         raise InspectionError(f"code object does not exist: {code_object}")
     state = DerivedGroupedForwardPairState.from_solution_key(solution_key)
     row_tasks = (
-        state.contract.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks64
+        state.kernel_spec.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks64
     )
+    abi = GROUPED_FORWARD_PAIR_ROW_TASK_ABI if row_tasks else GROUPED_FORWARD_PAIR_ABI
     readelf = toolchain.readelf_output(code_object)
     disassembly = toolchain.disassembly_output(code_object)
     metadata = _metadata(readelf)
@@ -91,8 +64,8 @@ def inspect_grouped_forward_pair_artifact(
         errors,
     )
     expected_metadata = {
-        ".kernarg_segment_size": 96 if row_tasks else 80,
-        ".kernarg_segment_align": 8,
+        ".kernarg_segment_size": abi.segment_size,
+        ".kernarg_segment_align": abi.segment_alignment,
         ".group_segment_fixed_size": state.physical_plan.resources.lds_bytes,
         ".private_segment_fixed_size": 0,
         ".max_flat_workgroup_size": solution_key.solution.num_threads,
@@ -113,23 +86,8 @@ def inspect_grouped_forward_pair_artifact(
         "dynamic stack is enabled",
         errors,
     )
-    arguments = kernel.get(".args")
-    actual_args = ()
-    if isinstance(arguments, list):
-        actual_args = tuple(
-            (
-                argument.get(".name"),
-                argument.get(".offset"),
-                argument.get(".size"),
-                argument.get(".value_kind"),
-                argument.get(".value_type"),
-            )
-            for argument in arguments
-            if isinstance(argument, Mapping)
-        )
     _require(
-        actual_args
-        == (_EXPECTED_PAIRED_ROW_TASK_ARGS if row_tasks else _EXPECTED_PAIRED_ARGS),
+        _metadata_arguments(kernel) == abi.metadata_arguments,
         "paired kernarg ABI does not match",
         errors,
     )

@@ -1,10 +1,22 @@
 """Typed problem contracts, kernel specifications, and derived MMQ forward state."""
 
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import TYPE_CHECKING, ClassVar, Literal, cast
 
-from .model import ForwardSolution, ProblemSize, SolutionKey
+from .model import (
+    ForwardSolution,
+    ProblemSize,
+    SchemaError,
+    SolutionKey,
+    _boolean,
+    _canonical_value,
+    _integer,
+    _integer_tuple,
+    _strict_mapping,
+    _strict_mapping_optional,
+    _string,
+)
 from .quant_formats import (
     Q8_1_D4_BLOCK_VALUES,
     Q8_1_F16_D4S4_BLOCK_BYTES,
@@ -474,8 +486,83 @@ class ForwardProblemContract:
             arithmetic_contract=traits.arithmetic_contract,
         )
 
+    @classmethod
+    def from_mapping(cls, value: object) -> "ForwardProblemContract":
+        keys = frozenset(
+            {
+                "quant_type",
+                "block_values",
+                "packed_weight_block_bytes",
+                "activation_layout",
+                "activation_block_bytes",
+                "kernel_language",
+                "isa",
+                "wavefront_size",
+                "signed_weight",
+                "signed_activation",
+                "wmma_clamp",
+                "weight_decode",
+                "scale_arithmetic",
+                "arithmetic_contract",
+                "destination_type",
+                "bf16_rounding",
+                "abi",
+            }
+        )
+        item = _strict_mapping(value, name="ForwardProblemContract", keys=keys)
+        contract = cls(
+            quant_type=_string(item["quant_type"], "quant_type"),
+            block_values=_integer(item["block_values"], "block_values"),
+            packed_weight_block_bytes=_integer(
+                item["packed_weight_block_bytes"], "packed_weight_block_bytes"
+            ),
+            activation_layout=_string(item["activation_layout"], "activation_layout"),
+            activation_block_bytes=_integer(
+                item["activation_block_bytes"], "activation_block_bytes"
+            ),
+            kernel_language=_string(item["kernel_language"], "kernel_language"),
+            isa=_integer_tuple(item["isa"], "isa", 3),
+            wavefront_size=_integer(item["wavefront_size"], "wavefront_size"),
+            signed_weight=_boolean(item["signed_weight"], "signed_weight"),
+            signed_activation=_boolean(item["signed_activation"], "signed_activation"),
+            wmma_clamp=_boolean(item["wmma_clamp"], "wmma_clamp"),
+            weight_decode=_string(item["weight_decode"], "weight_decode"),
+            scale_arithmetic=_string(item["scale_arithmetic"], "scale_arithmetic"),
+            arithmetic_contract=_string(
+                item["arithmetic_contract"], "arithmetic_contract"
+            ),
+            destination_type=_string(item["destination_type"], "destination_type"),
+            bf16_rounding=_string(item["bf16_rounding"], "bf16_rounding"),
+            abi=_string(item["abi"], "abi"),
+        )
+        try:
+            traits = QUANT_FORMATS[contract.quant_type]
+        except KeyError:
+            raise SchemaError(
+                f"unsupported MMQ forward quant type {contract.quant_type!r}"
+            ) from None
+        expected = cls(
+            quant_type=contract.quant_type,
+            block_values=traits.block_values,
+            packed_weight_block_bytes=traits.block_bytes,
+            activation_layout=traits.activation_layout,
+            activation_block_bytes=traits.activation_block_bytes,
+            kernel_language="Assembly",
+            isa=(11, 5, 1),
+            wavefront_size=32,
+            signed_weight=True,
+            signed_activation=True,
+            wmma_clamp=traits.wmma_clamp,
+            weight_decode=traits.weight_decode,
+            scale_arithmetic=traits.scale_arithmetic,
+            arithmetic_contract=traits.arithmetic_contract,
+        )
+        if contract != expected:
+            raise SchemaError("ForwardProblemContract is not canonical")
+        return contract
+
     def to_mapping(self) -> dict[str, object]:
-        return asdict(self)
+        return cast(dict[str, object], _canonical_value(self))
 
 
 @dataclass(frozen=True)
@@ -1480,6 +1567,219 @@ class ForwardKernelSpec:
             resource_limits=ResourceLimits(),
         )
 
+    @classmethod
+    def from_mapping(cls, value: object) -> "ForwardKernelSpec":
+        item = _strict_mapping_optional(
+            value,
+            name="ForwardKernelSpec",
+            required=frozenset(
+                {
+                    "geometry",
+                    "ownership",
+                    "global_memory",
+                    "lds",
+                    "decode",
+                    "epilogue",
+                    "resource_limits",
+                }
+            ),
+            optional=frozenset({"instruction_policy", "semantic_schedule"}),
+        )
+        geometry = _strict_mapping(
+            item["geometry"],
+            name="ForwardKernelSpec.geometry",
+            keys=frozenset({"work_group", "matrix_instruction", "depth_u"}),
+        )
+        ownership = _strict_mapping(
+            item["ownership"],
+            name="ForwardKernelSpec.ownership",
+            keys=frozenset({"mi_wave_group", "mi_wave_tile"}),
+        )
+        global_memory = _strict_mapping_optional(
+            item["global_memory"],
+            name="ForwardKernelSpec.global_memory",
+            required=frozenset({"operand_source", "activation_addressing"}),
+            optional=frozenset({"global_read_cache_policy"}),
+        )
+        lds = _strict_mapping(
+            item["lds"],
+            name="ForwardKernelSpec.lds",
+            keys=frozenset({"address_hoist"}),
+        )
+        decode = _strict_mapping_optional(
+            item["decode"],
+            name="ForwardKernelSpec.decode",
+            required=frozenset({"metadata_conversion"}),
+            optional=frozenset({"metadata_schedule"}),
+        )
+        epilogue = _strict_mapping_optional(
+            item["epilogue"],
+            name="ForwardKernelSpec.epilogue",
+            required=frozenset({"output_store"}),
+            optional=frozenset({"pipeline"}),
+        )
+        pipeline = None
+        if "pipeline" in epilogue:
+            pipeline_item = _strict_mapping_optional(
+                epilogue["pipeline"],
+                name="ForwardKernelSpec.epilogue.pipeline",
+                required=frozenset({"dependency_width"}),
+                optional=frozenset({"tiles_ahead", "priority", "scope"}),
+            )
+            pipeline = EpiloguePipelineSpec(
+                tiles_ahead=(
+                    _integer(pipeline_item["tiles_ahead"], "tiles_ahead")
+                    if "tiles_ahead" in pipeline_item
+                    else None
+                ),
+                dependency_width=_integer(
+                    pipeline_item["dependency_width"], "dependency_width"
+                ),
+                priority=(
+                    _integer(pipeline_item["priority"], "priority")
+                    if "priority" in pipeline_item
+                    else None
+                ),
+                scope=(
+                    _string(pipeline_item["scope"], "scope")
+                    if "scope" in pipeline_item
+                    else None
+                ),
+            )
+        instruction = _strict_mapping_optional(
+            item.get("instruction_policy", {}),
+            name="ForwardKernelSpec.instruction_policy",
+            required=frozenset(),
+            optional=frozenset(
+                {
+                    "accumulator_initialization",
+                    "dependency_delay_mode",
+                    "q6_physical_plan",
+                }
+            ),
+        )
+        semantic = (
+            _strict_mapping(
+                item["semantic_schedule"],
+                name="ForwardKernelSpec.semantic_schedule",
+                keys=frozenset(
+                    {
+                        "traversal",
+                        "clustering",
+                        "latency",
+                        "pressure",
+                        "wait",
+                        "pairing",
+                    }
+                ),
+            )
+            if "semantic_schedule" in item
+            else None
+        )
+        limits = _strict_mapping(
+            item["resource_limits"],
+            name="ForwardKernelSpec.resource_limits",
+            keys=frozenset(
+                {"max_vgprs", "max_sgprs", "max_lds_bytes", "require_zero_spills"}
+            ),
+        )
+        return cls(
+            geometry=GeometrySpec(
+                work_group=_integer_tuple(geometry["work_group"], "work_group", 3),
+                matrix_instruction=cast(
+                    tuple[int, int, int, int],
+                    _integer_tuple(
+                        geometry["matrix_instruction"], "matrix_instruction", 4
+                    ),
+                ),
+                depth_u=_integer(geometry["depth_u"], "depth_u"),
+            ),
+            ownership=OwnershipSpec(
+                mi_wave_group=cast(
+                    tuple[int, int],
+                    _integer_tuple(ownership["mi_wave_group"], "mi_wave_group", 2),
+                ),
+                mi_wave_tile=cast(
+                    tuple[int, int],
+                    _integer_tuple(ownership["mi_wave_tile"], "mi_wave_tile", 2),
+                ),
+            ),
+            global_memory=GlobalMemorySpec(
+                operand_source=_string(
+                    global_memory["operand_source"], "operand_source"
+                ),
+                activation_addressing=_string(
+                    global_memory["activation_addressing"], "activation_addressing"
+                ),
+                global_read_cache_policy=(
+                    _string(
+                        global_memory["global_read_cache_policy"],
+                        "global_read_cache_policy",
+                    )
+                    if "global_read_cache_policy" in global_memory
+                    else None
+                ),
+            ),
+            lds=LdsSpec(address_hoist=_string(lds["address_hoist"], "address_hoist")),
+            decode=DecodeSpec(
+                metadata_conversion=_string(
+                    decode["metadata_conversion"], "metadata_conversion"
+                ),
+                metadata_schedule=(
+                    _string(decode["metadata_schedule"], "metadata_schedule")
+                    if "metadata_schedule" in decode
+                    else None
+                ),
+            ),
+            epilogue=EpilogueSpec(
+                output_store=_string(epilogue["output_store"], "output_store"),
+                pipeline=pipeline,
+            ),
+            instruction_policy=InstructionPolicy(
+                accumulator_initialization=(
+                    _string(
+                        instruction["accumulator_initialization"],
+                        "accumulator_initialization",
+                    )
+                    if "accumulator_initialization" in instruction
+                    else None
+                ),
+                dependency_delay_mode=(
+                    _string(
+                        instruction["dependency_delay_mode"],
+                        "dependency_delay_mode",
+                    )
+                    if "dependency_delay_mode" in instruction
+                    else None
+                ),
+                q6_physical_plan=(
+                    _string(instruction["q6_physical_plan"], "q6_physical_plan")
+                    if "q6_physical_plan" in instruction
+                    else None
+                ),
+            ),
+            semantic_schedule=(
+                SemanticSchedulePolicy(
+                    traversal=_string(semantic["traversal"], "traversal"),
+                    clustering=_string(semantic["clustering"], "clustering"),
+                    latency=_string(semantic["latency"], "latency"),
+                    pressure=_string(semantic["pressure"], "pressure"),
+                    wait=_string(semantic["wait"], "wait"),
+                    pairing=_string(semantic["pairing"], "pairing"),
+                )
+                if semantic is not None
+                else SemanticSchedulePolicy.inactive()
+            ),
+            resource_limits=ResourceLimits(
+                max_vgprs=_integer(limits["max_vgprs"], "max_vgprs"),
+                max_sgprs=_integer(limits["max_sgprs"], "max_sgprs"),
+                max_lds_bytes=_integer(limits["max_lds_bytes"], "max_lds_bytes"),
+                require_zero_spills=_boolean(
+                    limits["require_zero_spills"], "require_zero_spills"
+                ),
+            ),
+        )
+
     @property
     def macro_tile(self) -> tuple[int, int]:
         tile_m, tile_n, _, _ = self.geometry.matrix_instruction
@@ -1623,7 +1923,7 @@ class ForwardKernelSpec:
         return solution
 
     def to_mapping(self) -> dict[str, object]:
-        return asdict(self)
+        return cast(dict[str, object], _canonical_value(self))
 
 
 @dataclass(frozen=True)
@@ -1930,9 +2230,34 @@ class ForwardKernelCandidate:
     def to_solution(self) -> ForwardSolution:
         return self.kernel_spec.to_solution(self.problem_contract)
 
+    @classmethod
+    def from_mapping(cls, value: object) -> "ForwardKernelCandidate":
+        item = _strict_mapping(
+            value,
+            name="ForwardKernelCandidate",
+            keys=frozenset(
+                {"ArtifactKind", "KernelFamily", "ProblemContract", "KernelSpec"}
+            ),
+        )
+        if item["ArtifactKind"] != "KernelCandidate":
+            raise ValueError("forward candidate ArtifactKind must be KernelCandidate")
+        if item["KernelFamily"] != "OrdinaryForward":
+            raise ValueError("forward candidate KernelFamily must be OrdinaryForward")
+        candidate = cls(
+            problem_contract=ForwardProblemContract.from_mapping(
+                item["ProblemContract"]
+            ),
+            kernel_spec=ForwardKernelSpec.from_mapping(item["KernelSpec"]),
+        )
+        solution = candidate.to_solution()
+        if ForwardKernelSpec.from_solution(solution) != candidate.kernel_spec:
+            raise SchemaError("ForwardKernelSpec does not round-trip canonically")
+        return candidate
+
     def to_mapping(self) -> dict[str, object]:
         return {
-            "SchemaVersion": 1,
+            "ArtifactKind": "KernelCandidate",
+            "KernelFamily": "OrdinaryForward",
             "ProblemContract": self.problem_contract.to_mapping(),
             "KernelSpec": self.kernel_spec.to_mapping(),
         }

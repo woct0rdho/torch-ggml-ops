@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import ClassVar, cast
 
+from .kernel_abi import ORDINARY_FORWARD_ABI
 from .kernel_writer_assembly import (
     Assembly,
     emit_bf16_rne,
@@ -87,7 +88,7 @@ class DecodedWeightLdsLowering:
         asm.comment(
             "Load the exact packed-weight, Q8_1 F16_D4S4 workspace, and output pointers."
         )
-        emit_pointer_kernarg_loads(asm, self.KERNARG)
+        emit_pointer_kernarg_loads(asm, self.KERNARG, ORDINARY_FORWARD_ABI)
         asm.inst(f"v_mov_b32 v{serial}, v0")
         asm.inst(f"v_and_b32 v{lane}, 15, v{serial}")
         asm.inst(f"v_lshrrev_b32 v{wave}, 5, v{serial}")

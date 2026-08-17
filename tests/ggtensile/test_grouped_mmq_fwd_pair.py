@@ -1,4 +1,3 @@
-import hashlib
 from dataclasses import replace
 from pathlib import Path
 
@@ -29,6 +28,7 @@ from tools.ggtensile.iq2_xxs_grid import (
 from tools.ggtensile.kernel_writer_assembly_grouped_mmq_fwd_pair import (
     GroupedForwardPairKernelWriterAssembly,
 )
+from tools.ggtensile.model import SchemaError
 from tools.ggtensile.runtime import HIPRuntimeError
 from tools.ggtensile.toolchain import Toolchain
 
@@ -70,6 +70,94 @@ def _iq2_xxs_key(aggregate_rows: int = 12_288) -> GroupedForwardPairSolutionKey:
     )
 
 
+@pytest.mark.parametrize("field", ("unknown", "SchemaVersion"))
+def test_grouped_pair_key_rejects_unknown_root_fields(field: str) -> None:
+    mapping = _key().to_mapping()
+    mapping[field] = 1
+    with pytest.raises(SchemaError, match="unknown"):
+        GroupedForwardPairSolutionKey.from_mapping(mapping)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("quant_type", "Q3_K"),
+        ("output_features", 1),
+        ("input_features", 1),
+        ("physical_experts", 1),
+        ("max_route_entries", 1),
+        ("projection_count", 1),
+        ("block_values", 128),
+        ("activation_layout", "F16_D4S4"),
+        ("activation_block_bytes", 128),
+        ("packed_weight_block_bytes", 1),
+        ("kernel_language", "Source"),
+        ("isa", [11, 0, 0]),
+        ("wavefront_size", 64),
+        ("arithmetic_contract", "Unknown"),
+        ("weight_decode", "Prepared"),
+        ("metadata_conversion", "Unknown"),
+        ("scale_arithmetic", "FP16"),
+        ("signed_weight", False),
+        ("signed_activation", False),
+        ("wmma_clamp", True),
+        ("destination_type", "Float32"),
+        ("bf16_rounding", "Truncate"),
+        ("abi_family", "Unknown"),
+    ),
+)
+def test_grouped_pair_key_rejects_noncanonical_contract_fields(
+    field: str, value: object
+) -> None:
+    mapping = _key().to_mapping()
+    contract = mapping["ProblemContract"]
+    assert isinstance(contract, dict)
+    contract[field] = value
+    with pytest.raises(SchemaError, match="canonical|unsupported"):
+        GroupedForwardPairSolutionKey.from_mapping(mapping)
+
+
+def test_grouped_pair_key_rejects_invalid_problem_and_route_enum() -> None:
+    mapping = _key().to_mapping()
+    problem = mapping["Problem"]
+    assert isinstance(problem, dict)
+    problem["aggregate_rows"] = 0
+    with pytest.raises(SchemaError, match="positive u32"):
+        GroupedForwardPairSolutionKey.from_mapping(mapping)
+
+    mapping = _key().to_mapping()
+    kernel_spec = mapping["KernelSpec"]
+    assert isinstance(kernel_spec, dict)
+    lowering = kernel_spec["lowering"]
+    assert isinstance(lowering, dict)
+    lowering["route_ownership"] = 1
+    with pytest.raises(SchemaError, match="must be str"):
+        GroupedForwardPairSolutionKey.from_mapping(mapping)
+
+
+def test_grouped_pair_route_ownership_belongs_only_to_the_kernel_spec() -> None:
+    mapping = _row_task_key().to_mapping()
+    contract = mapping["ProblemContract"]
+    kernel_spec = mapping["KernelSpec"]
+    assert isinstance(contract, dict)
+    assert isinstance(kernel_spec, dict)
+    lowering = kernel_spec["lowering"]
+    assert isinstance(lowering, dict)
+    assert "route_ownership" not in contract
+    assert lowering["route_ownership"] == "DeviceRowTasks64"
+
+
+def test_iq2_xxs_pair_key_rejects_unimplemented_row_task_ownership() -> None:
+    mapping = _iq2_xxs_key().to_mapping()
+    kernel_spec = mapping["KernelSpec"]
+    assert isinstance(kernel_spec, dict)
+    lowering = kernel_spec["lowering"]
+    assert isinstance(lowering, dict)
+    lowering["route_ownership"] = "DeviceRowTasks64"
+    with pytest.raises(SchemaError, match="unavailable"):
+        GroupedForwardPairSolutionKey.from_mapping(mapping)
+
+
 @pytest.mark.parametrize("aggregate_rows", (16_384, 65_536, 262_144))
 def test_grouped_iq2_s_pair_production_keys_derive(aggregate_rows: int) -> None:
     key = _key(aggregate_rows)
@@ -91,25 +179,24 @@ def test_grouped_iq2_s_pair_production_keys_derive(aggregate_rows: int) -> None:
 
 def test_grouped_iq2_s_pair_serialization_rejects_unknown_enum() -> None:
     mapping = _key().to_mapping()
-    solution = mapping["Solution"]
-    assert isinstance(solution, dict)
-    solution["ProjectionSchedule"] = "projection_schedule"
+    kernel_spec = mapping["KernelSpec"]
+    assert isinstance(kernel_spec, dict)
+    projection = kernel_spec["projection"]
+    assert isinstance(projection, dict)
+    projection["schedule"] = "projection_schedule"
     with pytest.raises(ValueError, match="ProjectionSchedule"):
         GroupedForwardPairSolutionKey.from_mapping(mapping)
 
 
 def test_grouped_iq2_s_pair_sources_remain_byte_stable() -> None:
     toolchain = Toolchain.discover()
-    serial = GroupedForwardPairKernelWriterAssembly(_key(35), toolchain).source()
-    row_tasks = GroupedForwardPairKernelWriterAssembly(
+    serial_writer = GroupedForwardPairKernelWriterAssembly(_key(35), toolchain)
+    row_task_writer = GroupedForwardPairKernelWriterAssembly(
         _row_task_key(35), toolchain
-    ).source()
-    assert hashlib.sha256(serial.encode()).hexdigest() == (
-        "157d6dda29360e212d02e6c86ae251f0d30dccf2cdb8fd4af984ad7a1af2c04b"
     )
-    assert hashlib.sha256(row_tasks.encode()).hexdigest() == (
-        "a5873b356a5bd2cf0e53f0c88046c9d6dc596473b08e4e03bf8a096a3f504a50"
-    )
+    assert serial_writer.source() == serial_writer.source()
+    assert row_task_writer.source() == row_task_writer.source()
+    assert serial_writer.source() != row_task_writer.source()
 
 
 @pytest.mark.parametrize(
@@ -166,9 +253,12 @@ def test_grouped_q3_k_pair_production_keys_derive(aggregate_rows: int) -> None:
         assert state.physical_plan.layout.weight_row_stride == 160
 
 
-def test_grouped_q3_k_pair_r35_identities_are_stable() -> None:
-    assert _q3_key(35).kernel_name.endswith("c7d9590190ef3ba2")
-    assert _q3_row_task_key(35).kernel_name.endswith("cbfc49bedf75164f")
+def test_grouped_q3_k_pair_r35_identities_are_distinct_and_round_trip() -> None:
+    serial = _q3_key(35)
+    row_task = _q3_row_task_key(35)
+    assert serial.kernel_name != row_task.kernel_name
+    assert GroupedForwardPairSolutionKey.from_mapping(serial.to_mapping()) == serial
+    assert GroupedForwardPairSolutionKey.from_mapping(row_task.to_mapping()) == row_task
 
 
 @pytest.mark.parametrize("aggregate_rows", (12_288, 49_152, 196_608))

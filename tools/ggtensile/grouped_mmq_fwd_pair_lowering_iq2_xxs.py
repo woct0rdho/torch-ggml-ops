@@ -1,13 +1,11 @@
 """K128-interleaved paired IQ2_XXS lowering for research artifacts."""
 
 from dataclasses import dataclass
-from typing import Any, cast
 
 from .grouped_mmq_fwd_lowering import GroupedForwardLoweringResult
-from .grouped_mmq_fwd_lowering_iq2_s import GroupedIQ2SFullWeightLdsLowering
-from .grouped_mmq_fwd_pair_lowering_iq2_s import (
+from .grouped_mmq_fwd_pair_lowering_common import (
     GroupedForwardPairLoweringContext,
-    GroupedIQ2SPairedK128Lowering,
+    GroupedPairK128Mechanics,
 )
 from .grouped_mmq_fwd_pair_model import GroupedPairRouteOwnership
 from .grouped_mmq_fwd_pair_physical import (
@@ -43,6 +41,13 @@ class GroupedIQ2XXSPairedK128Lowering:
     def _activation_label_token(self) -> str:
         return "PairIQ2XXS"
 
+    def _mechanics(self) -> GroupedPairK128Mechanics:
+        return GroupedPairK128Mechanics(
+            self.context,
+            self._physical_plan(),
+            self._activation_label_token(),
+        )
+
     def emission(self) -> GroupedForwardLoweringResult:
         return GroupedForwardLoweringResult(
             self.body(), (iq2_xxs_grid_rodata(self.GRID_SYMBOL),)
@@ -50,6 +55,7 @@ class GroupedIQ2XXSPairedK128Lowering:
 
     def body(self) -> str:
         physical = self._physical_plan()
+        mechanics = self._mechanics()
         layout = physical.layout
         registers = physical.registers
         scalar = physical.scalar_registers
@@ -57,7 +63,10 @@ class GroupedIQ2XXSPairedK128Lowering:
         asm = Assembly()
         name = self.context.solution_key.kernel_name
 
-        if state.contract.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks64:
+        if (
+            state.kernel_spec.route_ownership
+            is GroupedPairRouteOwnership.DeviceRowTasks64
+        ):
             GroupedPairRowTaskEmitter(scalar, state.route, "IQ2_XXS", "IQ2XXS").emit(
                 asm
             )
@@ -83,7 +92,7 @@ class GroupedIQ2XXSPairedK128Lowering:
             f"s_mov_b32 s{scalar.row_start.first_register}, "
             f"s{scalar.row_begin.first_register}"
         )
-        self._emit_invariant_addresses(asm, layout)
+        mechanics.emit_invariant_addresses(asm, layout)
 
         asm.label(".LGroupedPairIQ2XXSRowLoop")
         asm.inst(
@@ -121,7 +130,7 @@ class GroupedIQ2XXSPairedK128Lowering:
             self._emit_weight_half_decode(
                 asm, layout, scalar.weights_first.first_register, half
             )
-            self._emit_activation_stage(asm, layout, stage_index=half)
+            mechanics.emit_activation_stage(asm, layout, stage_index=half)
             asm.inst("s_waitcnt lgkmcnt(0)")
             asm.inst("s_barrier")
             for register in registers.zero_accumulator.registers:
@@ -187,35 +196,6 @@ class GroupedIQ2XXSPairedK128Lowering:
         asm.label(".LGroupedPairIQ2XXSExit")
         emit_kernel_trailer(asm, name)
         return asm.text()
-
-    def _emit_invariant_addresses(
-        self, asm: Assembly, layout: GroupedIQ2XXSPairHalfLdsLayout
-    ) -> None:
-        cast(Any, GroupedIQ2SPairedK128Lowering._emit_invariant_addresses)(
-            self, asm, layout
-        )
-
-    def _emit_activation_stage(
-        self,
-        asm: Assembly,
-        layout: GroupedIQ2XXSPairHalfLdsLayout,
-        *,
-        stage_index: int,
-    ) -> None:
-        cast(Any, GroupedIQ2SPairedK128Lowering._emit_activation_stage)(
-            self, asm, layout, stage_index=stage_index
-        )
-
-    def _emit_linear_activation_stage(
-        self,
-        asm: Assembly,
-        layout: GroupedIQ2XXSPairHalfLdsLayout,
-        *,
-        stage_index: int,
-    ) -> None:
-        cast(Any, GroupedIQ2SFullWeightLdsLowering._emit_linear_activation_stage)(
-            self, asm, layout, stage_index=stage_index
-        )
 
     def _emit_weight_half_decode(
         self,
@@ -354,31 +334,17 @@ class GroupedIQ2XXSPairedK128Lowering:
 
     def _emit_compute_projection(self, asm: Assembly, sums: int) -> None:
         layout = self._physical_plan().layout
+        mechanics = self._mechanics()
         for group in range(0, 8, 2):
-            self._emit_compute_group_payload_reads(asm, layout, group)
-            self._emit_compute_group_scale_reads(asm, group)
+            mechanics.emit_compute_group_payload_reads(asm, layout, group)
+            mechanics.emit_compute_group_scale_reads(asm, group)
             asm.inst("s_waitcnt lgkmcnt(0)")
             self._emit_compute_group_wmmas_accumulate(asm, accumulate=False)
-            self._emit_compute_group_payload_reads(asm, layout, group + 1)
+            mechanics.emit_compute_group_payload_reads(asm, layout, group + 1)
             asm.inst("s_waitcnt lgkmcnt(0)")
             self._emit_compute_group_wmmas_accumulate(asm, accumulate=True)
-            self._emit_fragment_correction(asm, 0, 3, sums)
-            self._emit_fragment_correction(asm, 1, 2, sums)
-
-    def _emit_compute_group_payload_reads(
-        self, asm: Assembly, layout: GroupedIQ2XXSPairHalfLdsLayout, group: int
-    ) -> None:
-        cast(Any, GroupedIQ2SPairedK128Lowering._emit_compute_group_payload_reads)(
-            self, asm, layout, group
-        )
-
-    def _emit_compute_group_scale_reads(self, asm: Assembly, group: int) -> None:
-        cast(Any, GroupedIQ2SPairedK128Lowering._emit_compute_group_scale_reads)(
-            self, asm, group
-        )
-
-    def _emit_compute_group_wmmas(self, asm: Assembly) -> None:
-        cast(Any, GroupedIQ2SPairedK128Lowering._emit_compute_group_wmmas)(self, asm)
+            mechanics.emit_fragment_correction(asm, 0, 3, sums)
+            mechanics.emit_fragment_correction(asm, 1, 2, sums)
 
     def _emit_compute_group_wmmas_accumulate(
         self, asm: Assembly, *, accumulate: bool
@@ -398,13 +364,6 @@ class GroupedIQ2XXSPairedK128Lowering:
                 ),
                 clamp=False,
             )
-
-    def _emit_fragment_correction(
-        self, asm: Assembly, first: int, second: int, sums: int
-    ) -> None:
-        cast(Any, GroupedIQ2SPairedK128Lowering._emit_fragment_correction)(
-            self, asm, first, second, sums
-        )
 
     def _emit_store_projection(
         self, asm: Assembly, sums: int, output: int, projection: int

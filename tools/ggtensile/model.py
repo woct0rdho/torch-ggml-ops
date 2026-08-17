@@ -1,7 +1,8 @@
 import hashlib
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, is_dataclass, replace
+from enum import Enum
 from pathlib import Path
 from typing import ClassVar, Literal, overload
 
@@ -42,6 +43,55 @@ def _strict_mapping(
             details.append(f"unknown {unknown}")
         raise SchemaError(f"invalid {name}: {', '.join(details)}")
     return normalized
+
+
+def _strict_mapping_optional(
+    value: object,
+    *,
+    name: str,
+    required: frozenset[str],
+    optional: frozenset[str] = frozenset(),
+) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise SchemaError(f"{name} must be a mapping")
+    normalized: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise SchemaError(f"{name} keys must be strings")
+        normalized[key] = item
+    actual = set(normalized)
+    missing = sorted(required - actual)
+    unknown = sorted(actual - required - optional)
+    if missing or unknown:
+        details = []
+        if missing:
+            details.append(f"missing {missing}")
+        if unknown:
+            details.append(f"unknown {unknown}")
+        raise SchemaError(f"invalid {name}: {', '.join(details)}")
+    return normalized
+
+
+def _canonical_value(value: object) -> object:
+    """Project typed records without null inactive-policy sentinels."""
+    if isinstance(value, Enum):
+        return value.value if isinstance(value.value, str) else value.name
+    if is_dataclass(value) and not isinstance(value, type):
+        result: dict[str, object] = {}
+        for field in fields(value):
+            item = getattr(value, field.name)
+            if item is None:
+                continue
+            projected = _canonical_value(item)
+            if isinstance(projected, dict) and not projected:
+                continue
+            result[field.name] = projected
+        return result
+    if isinstance(value, tuple | list):
+        return [_canonical_value(item) for item in value]
+    if isinstance(value, Mapping):
+        return {str(key): _canonical_value(item) for key, item in value.items()}
+    return value
 
 
 def _string(value: object, name: str) -> str:
@@ -89,19 +139,6 @@ class ProblemType:
     transpose_a: bool
     transpose_b: bool
 
-    _KEYS: ClassVar[frozenset[str]] = frozenset(
-        {
-            "OperationType",
-            "QuantDataType",
-            "DataTypeA",
-            "DataTypeB",
-            "DestDataType",
-            "ComputeDataType",
-            "TransposeA",
-            "TransposeB",
-        }
-    )
-
     @classmethod
     def mmq_backward(cls, quant_data_type: str) -> Self:
         if quant_data_type not in {"Q3_K", "Q4_K", "Q5_K", "Q6_K", "Q8_0"}:
@@ -132,32 +169,6 @@ class ProblemType:
             transpose_b=True,
         )
 
-    @classmethod
-    def from_mapping(cls, value: object) -> Self:
-        item = _strict_mapping(value, name="ProblemType", keys=cls._KEYS)
-        return cls(
-            operation_type=_string(item["OperationType"], "OperationType"),
-            quant_data_type=_string(item["QuantDataType"], "QuantDataType"),
-            data_type_a=_string(item["DataTypeA"], "DataTypeA"),
-            data_type_b=_string(item["DataTypeB"], "DataTypeB"),
-            dest_data_type=_string(item["DestDataType"], "DestDataType"),
-            compute_data_type=_string(item["ComputeDataType"], "ComputeDataType"),
-            transpose_a=_boolean(item["TransposeA"], "TransposeA"),
-            transpose_b=_boolean(item["TransposeB"], "TransposeB"),
-        )
-
-    def to_mapping(self) -> dict[str, object]:
-        return {
-            "OperationType": self.operation_type,
-            "QuantDataType": self.quant_data_type,
-            "DataTypeA": self.data_type_a,
-            "DataTypeB": self.data_type_b,
-            "DestDataType": self.dest_data_type,
-            "ComputeDataType": self.compute_data_type,
-            "TransposeA": self.transpose_a,
-            "TransposeB": self.transpose_b,
-        }
-
 
 @dataclass(frozen=True)
 class ProblemSize:
@@ -167,19 +178,27 @@ class ProblemSize:
     n: int
     k: int
 
-    _KEYS: ClassVar[frozenset[str]] = frozenset({"M", "N", "K"})
-
-    @classmethod
-    def from_mapping(cls, value: object) -> Self:
-        item = _strict_mapping(value, name="ProblemSize", keys=cls._KEYS)
-        return cls(
-            m=_integer(item["M"], "M"),
-            n=_integer(item["N"], "N"),
-            k=_integer(item["K"], "K"),
-        )
-
     def to_mapping(self) -> dict[str, int]:
         return {"M": self.m, "N": self.n, "K": self.k}
+
+    @classmethod
+    def from_canonical_mapping(cls, value: object) -> Self:
+        item = _strict_mapping(
+            value,
+            name="Problem",
+            keys=frozenset({"m", "n", "k"}),
+        )
+        problem_size = cls(
+            m=_integer(item["m"], "Problem.m"),
+            n=_integer(item["n"], "Problem.n"),
+            k=_integer(item["k"], "Problem.k"),
+        )
+        if min(problem_size.m, problem_size.n, problem_size.k) <= 0:
+            raise SchemaError("Problem dimensions must be positive")
+        return problem_size
+
+    def to_canonical_mapping(self) -> dict[str, int]:
+        return {"m": self.m, "n": self.n, "k": self.k}
 
 
 @dataclass(frozen=True)
@@ -221,45 +240,6 @@ class BackwardSolution:
     q6_k_extraction: str
     q8_0_extraction: str
 
-    _KEYS: ClassVar[frozenset[str]] = frozenset(
-        {
-            "KernelLanguage",
-            "ISA",
-            "WavefrontSize",
-            "WorkGroup",
-            "MatrixInstruction",
-            "MacroTile0",
-            "MacroTile1",
-            "DepthU",
-            "GlobalReadVectorWidthA",
-            "GlobalReadVectorWidthB",
-            "LocalReadVectorWidth",
-            "PrefetchGlobalRead",
-            "PrefetchLocalRead",
-            "1LDSBuffer",
-            "ScheduleIterAlg",
-            "StorePriorityOpt",
-            "NumElementsPerBatchStore",
-            "StoreVectorWidth",
-            "WorkGroupMapping",
-            "TransposeLDS",
-            "LdsPadB",
-            "LdsBlockSizePerPadB",
-            "LdsSwizzleChunkB",
-            "DecoderWidth",
-            "PrefetchPackedWeight",
-            "PrefetchPackedWeightNext",
-            "PackedWeightLaneShare",
-            "Q3KExtraction",
-            "Q3KPairing",
-            "Q5KExtraction",
-            "Q5KNibbleShiftHoist",
-            "Q5KMetadataVectorLoad",
-            "Q6KExtraction",
-            "Q8KExtraction",
-        }
-    )
-
     @classmethod
     def pilot(cls) -> Self:
         return cls(
@@ -299,72 +279,6 @@ class BackwardSolution:
             q8_0_extraction="packed",
         )
 
-    @classmethod
-    def from_mapping(cls, value: object) -> Self:
-        item = _strict_mapping(value, name="Solution", keys=cls._KEYS)
-        return cls(
-            kernel_language=_string(item["KernelLanguage"], "KernelLanguage"),
-            isa=_integer_tuple(item["ISA"], "ISA", 3),
-            wavefront_size=_integer(item["WavefrontSize"], "WavefrontSize"),
-            work_group=_integer_tuple(item["WorkGroup"], "WorkGroup", 3),
-            matrix_instruction=_integer_tuple(
-                item["MatrixInstruction"], "MatrixInstruction", 9
-            ),
-            macro_tile0=_integer(item["MacroTile0"], "MacroTile0"),
-            macro_tile1=_integer(item["MacroTile1"], "MacroTile1"),
-            depth_u=_integer(item["DepthU"], "DepthU"),
-            global_read_vector_width_a=_integer(
-                item["GlobalReadVectorWidthA"], "GlobalReadVectorWidthA"
-            ),
-            global_read_vector_width_b=_integer(
-                item["GlobalReadVectorWidthB"], "GlobalReadVectorWidthB"
-            ),
-            local_read_vector_width=_integer(
-                item["LocalReadVectorWidth"], "LocalReadVectorWidth"
-            ),
-            prefetch_global_read=_integer(
-                item["PrefetchGlobalRead"], "PrefetchGlobalRead"
-            ),
-            prefetch_local_read=_integer(
-                item["PrefetchLocalRead"], "PrefetchLocalRead"
-            ),
-            one_lds_buffer=_integer(item["1LDSBuffer"], "1LDSBuffer"),
-            schedule_iter_alg=_integer(item["ScheduleIterAlg"], "ScheduleIterAlg"),
-            store_priority_opt=_boolean(item["StorePriorityOpt"], "StorePriorityOpt"),
-            num_elements_per_batch_store=_integer(
-                item["NumElementsPerBatchStore"], "NumElementsPerBatchStore"
-            ),
-            store_vector_width=_integer(item["StoreVectorWidth"], "StoreVectorWidth"),
-            work_group_mapping=_integer(item["WorkGroupMapping"], "WorkGroupMapping"),
-            transpose_lds=_integer(item["TransposeLDS"], "TransposeLDS"),
-            lds_pad_b=_integer(item["LdsPadB"], "LdsPadB"),
-            lds_block_size_per_pad_b=_integer(
-                item["LdsBlockSizePerPadB"], "LdsBlockSizePerPadB"
-            ),
-            lds_swizzle_chunk_b=_integer(item["LdsSwizzleChunkB"], "LdsSwizzleChunkB"),
-            decoder_width=_integer(item["DecoderWidth"], "DecoderWidth"),
-            prefetch_packed_weight=_boolean(
-                item["PrefetchPackedWeight"], "PrefetchPackedWeight"
-            ),
-            prefetch_packed_weight_next=_boolean(
-                item["PrefetchPackedWeightNext"], "PrefetchPackedWeightNext"
-            ),
-            packed_weight_lane_share=_integer(
-                item["PackedWeightLaneShare"], "PackedWeightLaneShare"
-            ),
-            q3_k_extraction=_string(item["Q3KExtraction"], "Q3KExtraction"),
-            q3_k_pairing=_string(item["Q3KPairing"], "Q3KPairing"),
-            q5_k_extraction=_string(item["Q5KExtraction"], "Q5KExtraction"),
-            q5_k_nibble_shift_hoist=_boolean(
-                item["Q5KNibbleShiftHoist"], "Q5KNibbleShiftHoist"
-            ),
-            q5_k_metadata_vector_load=_boolean(
-                item["Q5KMetadataVectorLoad"], "Q5KMetadataVectorLoad"
-            ),
-            q6_k_extraction=_string(item["Q6KExtraction"], "Q6KExtraction"),
-            q8_0_extraction=_string(item["Q8KExtraction"], "Q8KExtraction"),
-        )
-
     @property
     def num_threads(self) -> int:
         return self.work_group[0] * self.work_group[1] * self.work_group[2]
@@ -379,44 +293,6 @@ class BackwardSolution:
         else:
             single_buffer = 2 * (self.depth_u + self.lds_pad_b) * self.macro_tile1
         return single_buffer * (2 if self.one_lds_buffer == 0 else 1)
-
-    def to_mapping(self) -> dict[str, object]:
-        return {
-            "KernelLanguage": self.kernel_language,
-            "ISA": list(self.isa),
-            "WavefrontSize": self.wavefront_size,
-            "WorkGroup": list(self.work_group),
-            "MatrixInstruction": list(self.matrix_instruction),
-            "MacroTile0": self.macro_tile0,
-            "MacroTile1": self.macro_tile1,
-            "DepthU": self.depth_u,
-            "GlobalReadVectorWidthA": self.global_read_vector_width_a,
-            "GlobalReadVectorWidthB": self.global_read_vector_width_b,
-            "LocalReadVectorWidth": self.local_read_vector_width,
-            "PrefetchGlobalRead": self.prefetch_global_read,
-            "PrefetchLocalRead": self.prefetch_local_read,
-            "1LDSBuffer": self.one_lds_buffer,
-            "ScheduleIterAlg": self.schedule_iter_alg,
-            "StorePriorityOpt": self.store_priority_opt,
-            "NumElementsPerBatchStore": self.num_elements_per_batch_store,
-            "StoreVectorWidth": self.store_vector_width,
-            "WorkGroupMapping": self.work_group_mapping,
-            "TransposeLDS": self.transpose_lds,
-            "LdsPadB": self.lds_pad_b,
-            "LdsBlockSizePerPadB": self.lds_block_size_per_pad_b,
-            "LdsSwizzleChunkB": self.lds_swizzle_chunk_b,
-            "DecoderWidth": self.decoder_width,
-            "PrefetchPackedWeight": self.prefetch_packed_weight,
-            "PrefetchPackedWeightNext": self.prefetch_packed_weight_next,
-            "PackedWeightLaneShare": self.packed_weight_lane_share,
-            "Q3KExtraction": self.q3_k_extraction,
-            "Q3KPairing": self.q3_k_pairing,
-            "Q5KExtraction": self.q5_k_extraction,
-            "Q5KNibbleShiftHoist": self.q5_k_nibble_shift_hoist,
-            "Q5KMetadataVectorLoad": self.q5_k_metadata_vector_load,
-            "Q6KExtraction": self.q6_k_extraction,
-            "Q8KExtraction": self.q8_0_extraction,
-        }
 
 
 @dataclass(frozen=True)
@@ -459,47 +335,6 @@ class ForwardSolution:
     q6_wait_policy: str = "ProducerFirstUse"
     q6_pairing_policy: str = "DependencyCompatibleDualIssue"
     q6_physical_plan: str = "CanonicalRegisterRoles"
-
-    _KEYS: ClassVar[frozenset[str]] = frozenset(
-        {
-            "KernelLanguage",
-            "ISA",
-            "WavefrontSize",
-            "WorkGroup",
-            "MatrixInstruction",
-            "MacroTile0",
-            "MacroTile1",
-            "DepthU",
-            "ActivationLayout",
-            "ActivationBlockBytes",
-            "PackedWeightBlockBytes",
-            "OperandSource",
-            "WeightDecode",
-            "LdsAddressHoist",
-            "ActivationAddressing",
-            "MetadataConversion",
-            "ScaleArithmetic",
-            "OutputStore",
-            "SignedWeight",
-            "MetadataSchedule",
-            "EpilogueTilesAhead",
-            "EpilogueDependencyWidth",
-            "EpiloguePriority",
-            "AccumulatorInitialization",
-            "SignedActivation",
-            "WmmaClamp",
-            "Q6EpiloguePipelineScope",
-            "Q6DependencyDelayMode",
-            "Q6GlobalReadCachePolicy",
-            "Q6OutputTraversal",
-            "Q6StageClustering",
-            "Q6LatencyPolicy",
-            "Q6PressurePolicy",
-            "Q6WaitPolicy",
-            "Q6PairingPolicy",
-            "Q6PhysicalPlan",
-        }
-    )
 
     @classmethod
     def q4_k_pilot(cls) -> Self:
@@ -803,90 +638,6 @@ class ForwardSolution:
             epilogue_priority=epilogue_priority,
         )
 
-    @classmethod
-    def from_mapping(cls, value: object) -> Self:
-        if isinstance(value, Mapping):
-            defaults: dict[str, object] = {
-                "AccumulatorInitialization": "ScalarCopy",
-                "Q6EpiloguePipelineScope": "StoreBatch",
-                "Q6DependencyDelayMode": "None",
-                "Q6GlobalReadCachePolicy": "Default",
-                "Q6PhysicalPlan": "CanonicalRegisterRoles",
-            }
-            if value.get("OperandSource") != "Q6StructuredDecoded":
-                defaults.update(
-                    {
-                        "Q6OutputTraversal": "OutputRoleGroupMajor",
-                        "Q6StageClustering": "StageDependencyOrder",
-                        "Q6LatencyPolicy": "SerializedDependencyDistance",
-                        "Q6PressurePolicy": "ExplicitRoleLifetime",
-                        "Q6WaitPolicy": "ProducerFirstUse",
-                        "Q6PairingPolicy": "DependencyCompatibleDualIssue",
-                    }
-                )
-            value = {**defaults, **value}
-        item = _strict_mapping(value, name="Solution", keys=cls._KEYS)
-        return cls(
-            kernel_language=_string(item["KernelLanguage"], "KernelLanguage"),
-            isa=_integer_tuple(item["ISA"], "ISA", 3),
-            wavefront_size=_integer(item["WavefrontSize"], "WavefrontSize"),
-            work_group=_integer_tuple(item["WorkGroup"], "WorkGroup", 3),
-            matrix_instruction=_integer_tuple(
-                item["MatrixInstruction"], "MatrixInstruction", 9
-            ),
-            macro_tile0=_integer(item["MacroTile0"], "MacroTile0"),
-            macro_tile1=_integer(item["MacroTile1"], "MacroTile1"),
-            depth_u=_integer(item["DepthU"], "DepthU"),
-            activation_layout=_string(item["ActivationLayout"], "ActivationLayout"),
-            activation_block_bytes=_integer(
-                item["ActivationBlockBytes"], "ActivationBlockBytes"
-            ),
-            packed_weight_block_bytes=_integer(
-                item["PackedWeightBlockBytes"], "PackedWeightBlockBytes"
-            ),
-            operand_source=_string(item["OperandSource"], "OperandSource"),
-            weight_decode=_string(item["WeightDecode"], "WeightDecode"),
-            lds_address_hoist=_string(item["LdsAddressHoist"], "LdsAddressHoist"),
-            activation_addressing=_string(
-                item["ActivationAddressing"], "ActivationAddressing"
-            ),
-            metadata_conversion=_string(
-                item["MetadataConversion"], "MetadataConversion"
-            ),
-            scale_arithmetic=_string(item["ScaleArithmetic"], "ScaleArithmetic"),
-            output_store=_string(item["OutputStore"], "OutputStore"),
-            signed_weight=_boolean(item["SignedWeight"], "SignedWeight"),
-            signed_activation=_boolean(item["SignedActivation"], "SignedActivation"),
-            wmma_clamp=_boolean(item["WmmaClamp"], "WmmaClamp"),
-            metadata_schedule=_string(item["MetadataSchedule"], "MetadataSchedule"),
-            epilogue_tiles_ahead=_integer(
-                item["EpilogueTilesAhead"], "EpilogueTilesAhead"
-            ),
-            epilogue_dependency_width=_integer(
-                item["EpilogueDependencyWidth"], "EpilogueDependencyWidth"
-            ),
-            epilogue_priority=_integer(item["EpiloguePriority"], "EpiloguePriority"),
-            accumulator_initialization=_string(
-                item["AccumulatorInitialization"], "AccumulatorInitialization"
-            ),
-            q6_epilogue_pipeline_scope=_string(
-                item["Q6EpiloguePipelineScope"], "Q6EpiloguePipelineScope"
-            ),
-            q6_dependency_delay_mode=_string(
-                item["Q6DependencyDelayMode"], "Q6DependencyDelayMode"
-            ),
-            q6_global_read_cache_policy=_string(
-                item["Q6GlobalReadCachePolicy"], "Q6GlobalReadCachePolicy"
-            ),
-            q6_output_traversal=_string(item["Q6OutputTraversal"], "Q6OutputTraversal"),
-            q6_stage_clustering=_string(item["Q6StageClustering"], "Q6StageClustering"),
-            q6_latency_policy=_string(item["Q6LatencyPolicy"], "Q6LatencyPolicy"),
-            q6_pressure_policy=_string(item["Q6PressurePolicy"], "Q6PressurePolicy"),
-            q6_wait_policy=_string(item["Q6WaitPolicy"], "Q6WaitPolicy"),
-            q6_pairing_policy=_string(item["Q6PairingPolicy"], "Q6PairingPolicy"),
-            q6_physical_plan=_string(item["Q6PhysicalPlan"], "Q6PhysicalPlan"),
-        )
-
     @property
     def num_threads(self) -> int:
         return self.work_group[0] * self.work_group[1] * self.work_group[2]
@@ -902,77 +653,6 @@ class ForwardSolution:
             return 39_936
         return 0
 
-    def to_mapping(self) -> dict[str, object]:
-        mapping: dict[str, object] = {
-            "KernelLanguage": self.kernel_language,
-            "ISA": list(self.isa),
-            "WavefrontSize": self.wavefront_size,
-            "WorkGroup": list(self.work_group),
-            "MatrixInstruction": list(self.matrix_instruction),
-            "MacroTile0": self.macro_tile0,
-            "MacroTile1": self.macro_tile1,
-            "DepthU": self.depth_u,
-            "ActivationLayout": self.activation_layout,
-            "ActivationBlockBytes": self.activation_block_bytes,
-            "PackedWeightBlockBytes": self.packed_weight_block_bytes,
-            "OperandSource": self.operand_source,
-            "WeightDecode": self.weight_decode,
-            "LdsAddressHoist": self.lds_address_hoist,
-            "ActivationAddressing": self.activation_addressing,
-            "MetadataConversion": self.metadata_conversion,
-            "ScaleArithmetic": self.scale_arithmetic,
-            "OutputStore": self.output_store,
-            "SignedWeight": self.signed_weight,
-            "SignedActivation": self.signed_activation,
-            "WmmaClamp": self.wmma_clamp,
-            "MetadataSchedule": self.metadata_schedule,
-            "EpilogueTilesAhead": self.epilogue_tiles_ahead,
-            "EpilogueDependencyWidth": self.epilogue_dependency_width,
-            "EpiloguePriority": self.epilogue_priority,
-        }
-        if self.accumulator_initialization != "ScalarCopy":
-            mapping["AccumulatorInitialization"] = self.accumulator_initialization
-        if self.q6_epilogue_pipeline_scope != "StoreBatch":
-            mapping["Q6EpiloguePipelineScope"] = self.q6_epilogue_pipeline_scope
-        if self.q6_dependency_delay_mode != "None":
-            mapping["Q6DependencyDelayMode"] = self.q6_dependency_delay_mode
-        if self.q6_global_read_cache_policy != "Default":
-            mapping["Q6GlobalReadCachePolicy"] = self.q6_global_read_cache_policy
-        q6_policy_fields = (
-            (
-                "Q6OutputTraversal",
-                self.q6_output_traversal,
-                "OutputRoleGroupMajor",
-            ),
-            (
-                "Q6StageClustering",
-                self.q6_stage_clustering,
-                "StageDependencyOrder",
-            ),
-            (
-                "Q6LatencyPolicy",
-                self.q6_latency_policy,
-                "SerializedDependencyDistance",
-            ),
-            (
-                "Q6PressurePolicy",
-                self.q6_pressure_policy,
-                "ExplicitRoleLifetime",
-            ),
-            ("Q6WaitPolicy", self.q6_wait_policy, "ProducerFirstUse"),
-            (
-                "Q6PairingPolicy",
-                self.q6_pairing_policy,
-                "DependencyCompatibleDualIssue",
-            ),
-        )
-        for key, value, default in q6_policy_fields:
-            if self.operand_source == "Q6StructuredDecoded" or value != default:
-                mapping[key] = value
-        if self.q6_physical_plan != "CanonicalRegisterRoles":
-            mapping["Q6PhysicalPlan"] = self.q6_physical_plan
-        return mapping
-
 
 @dataclass(frozen=True)
 class SolutionKey:
@@ -981,23 +661,41 @@ class SolutionKey:
     solution: BackwardSolution | ForwardSolution
 
     _KEYS: ClassVar[frozenset[str]] = frozenset(
-        {"ProblemType", "ProblemSize", "Solution"}
+        {"ArtifactKind", "KernelFamily", "ProblemContract", "Problem", "KernelSpec"}
     )
 
     @classmethod
     def from_mapping(cls, value: object) -> Self:
         item = _strict_mapping(value, name="SolutionKey", keys=cls._KEYS)
-        problem_type = ProblemType.from_mapping(item["ProblemType"])
-        solution_type = (
-            ForwardSolution
-            if problem_type.operation_type == "MMQForward"
-            else BackwardSolution
-        )
-        return cls(
-            problem_type=problem_type,
-            problem_size=ProblemSize.from_mapping(item["ProblemSize"]),
-            solution=solution_type.from_mapping(item["Solution"]),
-        )
+        if item["ArtifactKind"] != "ExactKernel":
+            raise SchemaError("SolutionKey ArtifactKind must be ExactKernel")
+        family = _string(item["KernelFamily"], "KernelFamily")
+        problem_size = ProblemSize.from_canonical_mapping(item["Problem"])
+        if family == "OrdinaryForward":
+            from .mmq_fwd_spec import ForwardKernelSpec, ForwardProblemContract
+
+            contract = ForwardProblemContract.from_mapping(item["ProblemContract"])
+            spec = ForwardKernelSpec.from_mapping(item["KernelSpec"])
+            solution = spec.to_solution(contract)
+            if ForwardKernelSpec.from_solution(solution) != spec:
+                raise SchemaError("ForwardKernelSpec does not round-trip canonically")
+            problem_type = ProblemType.mmq_forward(contract.quant_type)
+        elif family == "OrdinaryBackward":
+            from .mmq_bwd_spec import BackwardKernelSpec, BackwardProblemContract
+
+            contract = BackwardProblemContract.from_mapping(
+                item["ProblemContract"], problem_size
+            )
+            spec = BackwardKernelSpec.from_mapping(
+                item["KernelSpec"], contract.quant_type
+            )
+            solution = spec.to_solution(contract)
+            if BackwardKernelSpec.from_solution(solution) != spec:
+                raise SchemaError("BackwardKernelSpec does not round-trip canonically")
+            problem_type = ProblemType.mmq_backward(contract.quant_type)
+        else:
+            raise SchemaError(f"unsupported KernelFamily {family!r}")
+        return cls(problem_type, problem_size, solution)
 
     @classmethod
     def from_json_file(cls, path: Path) -> Self:
@@ -1005,10 +703,28 @@ class SolutionKey:
         return cls.from_mapping(value)
 
     def to_mapping(self) -> dict[str, object]:
+        if isinstance(self.solution, ForwardSolution):
+            from .mmq_fwd_spec import ForwardKernelSpec, ForwardProblemContract
+
+            family = "OrdinaryForward"
+            contract = ForwardProblemContract.from_solution(
+                self.problem_type.quant_data_type, self.solution
+            )
+            spec_mapping = ForwardKernelSpec.from_solution(self.solution).to_mapping()
+        else:
+            from .mmq_bwd_spec import BackwardKernelSpec, BackwardProblemContract
+
+            family = "OrdinaryBackward"
+            contract = BackwardProblemContract.from_solution_key(self)
+            spec_mapping = BackwardKernelSpec.from_solution(self.solution).to_mapping(
+                contract.quant_type
+            )
         return {
-            "ProblemType": self.problem_type.to_mapping(),
-            "ProblemSize": self.problem_size.to_mapping(),
-            "Solution": self.solution.to_mapping(),
+            "ArtifactKind": "ExactKernel",
+            "KernelFamily": family,
+            "ProblemContract": contract.to_mapping(),
+            "Problem": self.problem_size.to_canonical_mapping(),
+            "KernelSpec": spec_mapping,
         }
 
     @property

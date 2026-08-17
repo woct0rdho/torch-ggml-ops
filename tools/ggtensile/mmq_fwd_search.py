@@ -50,13 +50,7 @@ def q6_candidate_mapping(schedule: Q6ForwardSchedule) -> dict[str, object]:
     """Return the complete parameter-only identity of one Q6 candidate."""
     base = ForwardSolution.q6_k_structured_decoded(macro_tile0=schedule.macro_tile0)
     solution = q6_solution_with_schedule(base, schedule)
-    candidate = ForwardKernelCandidate.from_solution("Q6_K", solution)
-    return {
-        "SchemaVersion": 2,
-        "KernelFamily": "Q6StructuredDecoded",
-        "ProblemContract": candidate.problem_contract.to_mapping(),
-        "KernelSpec": candidate.kernel_spec.to_mapping(),
-    }
+    return ForwardKernelCandidate.from_solution("Q6_K", solution).to_mapping()
 
 
 def q6_candidate_hash(schedule: Q6ForwardSchedule) -> str:
@@ -117,7 +111,6 @@ class ForwardExactPairManifest:
     def to_mapping(self) -> dict[str, object]:
         solution_key = self.solution_key
         return {
-            "SchemaVersion": 1,
             "QuantType": self.quant_type,
             "ProblemSize": self.problem_size.to_mapping(),
             "CandidateHash": self.candidate_hash,
@@ -158,7 +151,6 @@ class Q6ExactPairManifest:
     def to_mapping(self) -> dict[str, object]:
         solution_key = self.solution_key
         return {
-            "SchemaVersion": 1,
             "ProblemSize": self.problem_size.to_mapping(),
             "CandidateHash": self.candidate_hash,
             "Candidate": q6_candidate_mapping(self.schedule),

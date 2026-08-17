@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import ClassVar, Protocol
 
 from .grouped_mmq_fwd_spec import GroupedRouteState
+from .kernel_abi import GROUPED_FORWARD_ABI
 from .kernel_writer_assembly import Assembly, RegisterAssignment
 
 
@@ -75,36 +76,37 @@ class GroupedRouteEmitter:
 
     def _emit_kernarg_loads(self, asm: Assembly) -> None:
         scalar = self.registers
-        asm.comment("Load the routed 64-byte grouped forward ABI.")
-        for pointer, offset in (
-            (scalar.weights, 0x00),
-            (scalar.activations, 0x08),
-            (scalar.output, 0x10),
-            (scalar.expert_indices, 0x18),
-            (scalar.expert_offsets, 0x20),
+        abi = GROUPED_FORWARD_ABI
+        asm.comment(f"Load the routed {abi.segment_size}-byte grouped forward ABI.")
+        for pointer, argument_name in (
+            (scalar.weights, "weights"),
+            (scalar.activations, "activations"),
+            (scalar.output, "dst"),
+            (scalar.expert_indices, "expert_indices"),
+            (scalar.expert_offsets, "expert_offsets"),
         ):
             asm.inst(
                 f"s_load_dwordx2 s[{pointer.first_register}:{pointer.first_register + 1}], "
                 f"s[{scalar.kernarg.first_register}:{scalar.kernarg.first_register + 1}], "
-                f"0x{offset:x}"
+                f"0x{abi.offset(argument_name):x}"
             )
         asm.inst(
             f"s_load_dwordx2 s[{scalar.num_experts.first_register}:"
             f"{scalar.num_experts.first_register + 1}], "
             f"s[{scalar.kernarg.first_register}:{scalar.kernarg.first_register + 1}], "
-            "0x28"
+            f"0x{abi.offset('num_experts'):x}"
         )
         asm.inst(
             f"s_load_dwordx2 s[{scalar.nrows_activation.first_register}:"
             f"{scalar.blocks_per_weight_row.first_register}], "
             f"s[{scalar.kernarg.first_register}:{scalar.kernarg.first_register + 1}], "
-            "0x30"
+            f"0x{abi.offset('nrows_activation'):x}"
         )
         asm.inst(
             f"s_load_dwordx2 s[{scalar.bytes_per_expert.first_register}:"
             f"{scalar.bytes_per_expert.first_register + 1}], "
             f"s[{scalar.kernarg.first_register}:{scalar.kernarg.first_register + 1}], "
-            "0x38"
+            f"0x{abi.offset('bytes_per_expert'):x}"
         )
         asm.inst("s_waitcnt lgkmcnt(0)")
 

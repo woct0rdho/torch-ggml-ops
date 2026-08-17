@@ -363,7 +363,6 @@ def _enumerate_forward(
     _write_json_exclusive(
         output_dir / "index.json",
         {
-            "SchemaVersion": 1,
             "KernelFamily": quant_type,
             "ProblemSize": problem_size.to_mapping(),
             "KnobGroups": list(knob_groups),
@@ -422,7 +421,6 @@ def _enumerate_forward_q6(
     _write_json_exclusive(
         output_dir / "index.json",
         {
-            "SchemaVersion": 1,
             "KernelFamily": "Q6StructuredDecoded",
             "ProblemSize": problem_size.to_mapping(),
             "MacroTile0": macro_tile,

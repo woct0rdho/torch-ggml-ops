@@ -197,6 +197,10 @@ R4 is unavailable in the configured gfx1151 assembler. The local RDNA 3.5 XML na
 
 R1, R2, and R3 are rejected by timing under the current routed representation. R4 is unsupported by the current gfx1151 assembler target. Existing solution identities, selected source, public dispatch, generated bundles, packaging, and HIP fallback remain unchanged. The retained scripts, reports, and independent artifacts are under `~/tmp/torch-ggml-ops/` without embedding object identities in this record.
 
+### Post-review disposition: zero-bank initialization
+
+The later paired-source audit does not transfer a zero-bank hoisting candidate to Q4_K. The decoded-LDS Q4_K body already initializes its zero bank once per row tile, so it has no repeated per-projection lifetime matching the paired `v124:v131` finding. The existing route/address and direct-to-LDS closures remain scoped to their recorded Q4 body and gates; no new Q4 local accumulator experiment is pending.
+
 ## Recursive Final Review
 
 A fresh recursive pass classifies the current state as follows. The direct-global body remains the routing and arithmetic control. The 64-row decoded-LDS schedule with mixed 32-row tails is retained for the B1/B4 research keys because it clears the complete-call gate with material weighted margin. The scheduled 128-row `a1d2-p2` body is retained only as the B16 control because its complete-call margin is approximately neutral. The 128-row initial body, serialized 64-row body without the metadata schedule, alternate local epilogue schedules, four-wave direct-global geometry, packed kernarg loads, paired route-bound loads, and exact address reductions are rejected or superseded by measured timing. Direct-to-LDS is unsupported by the configured gfx1151 assembler.

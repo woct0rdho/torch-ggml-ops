@@ -16,6 +16,7 @@ from tools.ggtensile.inspection import inspect_artifact
 from tools.ggtensile.kernel_writer_assembly_fixed_grouped_mmq_fwd import (
     FixedGroupedForwardKernelWriterAssembly,
 )
+from tools.ggtensile.model import SchemaError
 from tools.ggtensile.toolchain import Toolchain
 
 
@@ -45,6 +46,69 @@ def _weight_hoisted_key(tokens: int = 2048) -> FixedForwardSolutionKey:
         FixedForwardProblem.deepseek_q8_0(tokens),
         FixedForwardSolution.q8_0_compact_depth32_tiled_lds_weight_hoisted(),
     )
+
+
+@pytest.mark.parametrize("field", ("unknown", "SchemaVersion"))
+def test_fixed_forward_key_rejects_unknown_root_fields(field: str) -> None:
+    mapping = _key().to_mapping()
+    mapping[field] = 1
+    with pytest.raises(SchemaError, match="unknown"):
+        FixedForwardSolutionKey.from_mapping(mapping)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("quant_type", "Q4_K"),
+        ("output_features", 512),
+        ("input_features", 2048),
+        ("groups", 4),
+        ("block_values", 256),
+        ("packed_weight_block_bytes", 144),
+        ("activation_layout", "F16_D4S4"),
+        ("activation_block_bytes", 128),
+        ("arithmetic_contract", "Unknown"),
+        ("kernel_language", "Source"),
+        ("isa", [11, 0, 0]),
+        ("wavefront_size", 64),
+        ("weight_decode", "Prepared"),
+        ("activation_addressing", "Routed"),
+        ("scale_arithmetic", "FP16"),
+        ("signed_weight", False),
+        ("signed_activation", False),
+        ("wmma_clamp", True),
+        ("destination_type", "Float32"),
+        ("bf16_rounding", "Truncate"),
+        ("abi", "Unknown"),
+    ),
+)
+def test_fixed_forward_key_rejects_noncanonical_contract_fields(
+    field: str, value: object
+) -> None:
+    mapping = _key().to_mapping()
+    contract = mapping["ProblemContract"]
+    assert isinstance(contract, dict)
+    contract[field] = value
+    with pytest.raises(SchemaError, match="canonical|unsupported"):
+        FixedForwardSolutionKey.from_mapping(mapping)
+
+
+def test_fixed_forward_key_rejects_invalid_problem_and_enum() -> None:
+    mapping = _key().to_mapping()
+    problem = mapping["Problem"]
+    assert isinstance(problem, dict)
+    problem["tokens"] = 0
+    with pytest.raises(ValueError, match="production token count"):
+        FixedForwardSolutionKey.from_mapping(mapping)
+
+    mapping = _key().to_mapping()
+    kernel_spec = mapping["KernelSpec"]
+    assert isinstance(kernel_spec, dict)
+    lowering = kernel_spec["lowering"]
+    assert isinstance(lowering, dict)
+    lowering["operand_source"] = 1
+    with pytest.raises(SchemaError, match="must be str"):
+        FixedForwardSolutionKey.from_mapping(mapping)
 
 
 def test_fixed_forward_identity_roundtrip_and_derived_shapes() -> None:

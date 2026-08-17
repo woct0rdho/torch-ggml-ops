@@ -1,157 +1,173 @@
 {
-  "ProblemType": {
-    "OperationType": "MMQForward",
-    "QuantDataType": "Q3_K",
-    "DataTypeA": "Q8_1",
-    "DataTypeB": "Q3_K",
-    "DestDataType": "BFloat16",
-    "ComputeDataType": "Float",
-    "TransposeA": false,
-    "TransposeB": true
+  "ArtifactKind": "DeploymentCatalog",
+  "KernelFamily": "OrdinaryForward",
+  "ProblemContract": {
+    "quant_type": "Q3_K",
+    "block_values": 256,
+    "packed_weight_block_bytes": 110,
+    "activation_layout": "F32_D4",
+    "activation_block_bytes": 144,
+    "kernel_language": "Assembly",
+    "isa": [
+      11,
+      5,
+      1
+    ],
+    "wavefront_size": 32,
+    "signed_weight": true,
+    "signed_activation": true,
+    "wmma_clamp": false,
+    "weight_decode": "DirectQ3Signed",
+    "scale_arithmetic": "Int32ScaleF32",
+    "arithmetic_contract": "SignedQ3Int8ScaleIntegerWmmaF32Correction",
+    "destination_type": "BFloat16",
+    "bf16_rounding": "RNEPreserveNaN",
+    "abi": "PackedWeightQ81OutputV1"
   },
-  "Solutions": [
+  "KernelSpecs": [
     {
-      "KernelLanguage": "Assembly",
-      "ISA": [
-        11,
-        5,
-        1
-      ],
-      "WavefrontSize": 32,
-      "WorkGroup": [
-        32,
-        4,
-        1
-      ],
-      "MatrixInstruction": [
-        16,
-        16,
-        16,
-        1,
-        1,
-        1,
-        4,
-        4,
-        1
-      ],
-      "MacroTile0": 128,
-      "MacroTile1": 64,
-      "DepthU": 16,
-      "ActivationLayout": "F32_D4",
-      "ActivationBlockBytes": 144,
-      "PackedWeightBlockBytes": 110,
-      "OperandSource": "Q3FullWeightTiledLds",
-      "WeightDecode": "DirectQ3Signed",
-      "LdsAddressHoist": "Q3FullTile336",
-      "ActivationAddressing": "ScalarPlaneBase",
-      "MetadataConversion": "Float16DToFloat32Signed6ScaleShared",
-      "ScaleArithmetic": "Int32ScaleF32",
-      "OutputStore": "BFloat16RNEClause8",
-      "SignedWeight": true,
-      "SignedActivation": true,
-      "WmmaClamp": false,
-      "MetadataSchedule": "Q3FullTileSharedDecode",
-      "EpilogueTilesAhead": 8,
-      "EpilogueDependencyWidth": 1,
-      "EpiloguePriority": 0
+      "geometry": {
+        "work_group": [
+          32,
+          4,
+          1
+        ],
+        "matrix_instruction": [
+          16,
+          16,
+          16,
+          1
+        ],
+        "depth_u": 16
+      },
+      "ownership": {
+        "mi_wave_group": [
+          4,
+          1
+        ],
+        "mi_wave_tile": [
+          2,
+          4
+        ]
+      },
+      "global_memory": {
+        "operand_source": "Q3FullWeightTiledLds",
+        "activation_addressing": "ScalarPlaneBase"
+      },
+      "lds": {
+        "address_hoist": "Q3FullTile336"
+      },
+      "decode": {
+        "metadata_conversion": "Float16DToFloat32Signed6ScaleShared",
+        "metadata_schedule": "Q3FullTileSharedDecode"
+      },
+      "epilogue": {
+        "output_store": "BFloat16RNEClause8"
+      },
+      "resource_limits": {
+        "max_vgprs": 256,
+        "max_sgprs": 106,
+        "max_lds_bytes": 65536,
+        "require_zero_spills": true
+      }
     }
   ],
   "ExactLogic": [
     {
-      "ProblemSize": {
-        "M": 2048,
-        "N": 512,
-        "K": 2048
+      "Problem": {
+        "m": 2048,
+        "n": 512,
+        "k": 2048
       },
-      "SolutionIndex": 0
+      "KernelSpecIndex": 0
     },
     {
-      "ProblemSize": {
-        "M": 8192,
-        "N": 512,
-        "K": 2048
+      "Problem": {
+        "m": 8192,
+        "n": 512,
+        "k": 2048
       },
-      "SolutionIndex": 0
+      "KernelSpecIndex": 0
     },
     {
-      "ProblemSize": {
-        "M": 32768,
-        "N": 512,
-        "K": 2048
+      "Problem": {
+        "m": 32768,
+        "n": 512,
+        "k": 2048
       },
-      "SolutionIndex": 0
+      "KernelSpecIndex": 0
     },
     {
-      "ProblemSize": {
-        "M": 2048,
-        "N": 8192,
-        "K": 2048
+      "Problem": {
+        "m": 2048,
+        "n": 8192,
+        "k": 2048
       },
-      "SolutionIndex": 0
+      "KernelSpecIndex": 0
     },
     {
-      "ProblemSize": {
-        "M": 8192,
-        "N": 8192,
-        "K": 2048
+      "Problem": {
+        "m": 8192,
+        "n": 8192,
+        "k": 2048
       },
-      "SolutionIndex": 0
+      "KernelSpecIndex": 0
     },
     {
-      "ProblemSize": {
-        "M": 32768,
-        "N": 8192,
-        "K": 2048
+      "Problem": {
+        "m": 32768,
+        "n": 8192,
+        "k": 2048
       },
-      "SolutionIndex": 0
+      "KernelSpecIndex": 0
     },
     {
-      "ProblemSize": {
-        "M": 2048,
-        "N": 4096,
-        "K": 2048
+      "Problem": {
+        "m": 2048,
+        "n": 4096,
+        "k": 2048
       },
-      "SolutionIndex": 0
+      "KernelSpecIndex": 0
     },
     {
-      "ProblemSize": {
-        "M": 8192,
-        "N": 4096,
-        "K": 2048
+      "Problem": {
+        "m": 8192,
+        "n": 4096,
+        "k": 2048
       },
-      "SolutionIndex": 0
+      "KernelSpecIndex": 0
     },
     {
-      "ProblemSize": {
-        "M": 32768,
-        "N": 4096,
-        "K": 2048
+      "Problem": {
+        "m": 32768,
+        "n": 4096,
+        "k": 2048
       },
-      "SolutionIndex": 0
+      "KernelSpecIndex": 0
     },
     {
-      "ProblemSize": {
-        "M": 2048,
-        "N": 2048,
-        "K": 4096
+      "Problem": {
+        "m": 2048,
+        "n": 2048,
+        "k": 4096
       },
-      "SolutionIndex": 0
+      "KernelSpecIndex": 0
     },
     {
-      "ProblemSize": {
-        "M": 8192,
-        "N": 2048,
-        "K": 4096
+      "Problem": {
+        "m": 8192,
+        "n": 2048,
+        "k": 4096
       },
-      "SolutionIndex": 0
+      "KernelSpecIndex": 0
     },
     {
-      "ProblemSize": {
-        "M": 32768,
-        "N": 2048,
-        "K": 4096
+      "Problem": {
+        "m": 32768,
+        "n": 2048,
+        "k": 4096
       },
-      "SolutionIndex": 0
+      "KernelSpecIndex": 0
     }
   ]
 }

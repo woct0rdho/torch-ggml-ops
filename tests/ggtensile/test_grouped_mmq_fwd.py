@@ -28,6 +28,7 @@ from tools.ggtensile.grouped_mmq_fwd_validation import (
 from tools.ggtensile.kernel_writer_assembly_grouped_mmq_fwd import (
     GroupedForwardKernelWriterAssembly,
 )
+from tools.ggtensile.model import SchemaError
 from tools.ggtensile.runtime import (
     GroupedForwardModule,
     HIPRuntimeError,
@@ -106,6 +107,104 @@ def _iq2_s_payload_prefetch_key(
         GroupedForwardProblem.iq2_s(aggregate_rows),
         GroupedForwardSolution.iq2_s_serial_full_weight_lds_64_linear_payload_prefetch(),
     )
+
+
+@pytest.mark.parametrize("field", ("unknown", "SchemaVersion"))
+def test_grouped_key_rejects_unknown_root_fields(field: str) -> None:
+    mapping = _key().to_mapping()
+    mapping[field] = 1
+    with pytest.raises(SchemaError, match="unknown"):
+        GroupedForwardSolutionKey.from_mapping(mapping)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("quant_type", "Q3_K"),
+        ("output_features", 1),
+        ("input_features", 1),
+        ("physical_experts", 1),
+        ("max_route_entries", 1),
+        ("block_values", 128),
+        ("activation_layout", "F32_D4"),
+        ("activation_block_bytes", 128),
+        ("packed_weight_block_bytes", 1),
+        ("kernel_language", "Source"),
+        ("isa", [11, 0, 0]),
+        ("wavefront_size", 64),
+        ("signed_weight", False),
+        ("signed_activation", False),
+        ("wmma_clamp", False),
+        ("weight_decode", "Prepared"),
+        ("scale_arithmetic", "FP32"),
+        ("arithmetic_contract", "Unknown"),
+        ("destination_type", "Float32"),
+        ("bf16_rounding", "Truncate"),
+        ("abi", "Unknown"),
+    ),
+)
+def test_grouped_key_rejects_noncanonical_contract_fields(
+    field: str, value: object
+) -> None:
+    mapping = _q2_key().to_mapping()
+    contract = mapping["ProblemContract"]
+    assert isinstance(contract, dict)
+    contract[field] = value
+    with pytest.raises(SchemaError, match="canonical|unsupported"):
+        GroupedForwardSolutionKey.from_mapping(mapping)
+
+
+def test_grouped_key_rejects_invalid_exact_problem_and_inactive_policy() -> None:
+    mapping = _key().to_mapping()
+    problem = mapping["Problem"]
+    assert isinstance(problem, dict)
+    problem["aggregate_rows"] = 0
+    with pytest.raises(SchemaError, match="positive u32"):
+        GroupedForwardSolutionKey.from_mapping(mapping)
+
+    mapping = _key().to_mapping()
+    kernel_spec = mapping["KernelSpec"]
+    assert isinstance(kernel_spec, dict)
+    decode = kernel_spec["decode"]
+    assert isinstance(decode, dict)
+    decode["unrolled_groups"] = False
+    with pytest.raises(SchemaError, match="unknown"):
+        GroupedForwardSolutionKey.from_mapping(mapping)
+
+
+@pytest.mark.parametrize(
+    "disabled_requirement",
+    (
+        "unrolled_groups",
+        "hip_association",
+        "partial_lds",
+        "pre_negated_dm",
+        "paired_payload_writes",
+        "paired_metadata_writes",
+    ),
+)
+def test_grouped_q2_key_rejects_broken_policy_dependencies(
+    disabled_requirement: str,
+) -> None:
+    mapping = _q2_key().to_mapping()
+    kernel_spec = mapping["KernelSpec"]
+    assert isinstance(kernel_spec, dict)
+    decode = kernel_spec["decode"]
+    assert isinstance(decode, dict)
+    decode[disabled_requirement] = False
+    with pytest.raises(SchemaError, match="require"):
+        GroupedForwardSolutionKey.from_mapping(mapping)
+
+
+def test_grouped_q2_key_rejects_numeric_boolean_policy() -> None:
+    mapping = _q2_key().to_mapping()
+    kernel_spec = mapping["KernelSpec"]
+    assert isinstance(kernel_spec, dict)
+    decode = kernel_spec["decode"]
+    assert isinstance(decode, dict)
+    decode["unrolled_groups"] = 1
+    with pytest.raises(SchemaError, match="must be bool"):
+        GroupedForwardSolutionKey.from_mapping(mapping)
 
 
 @pytest.mark.parametrize("aggregate_rows", (16_384, 65_536, 262_144))

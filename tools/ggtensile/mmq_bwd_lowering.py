@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 
+from .kernel_abi import ORDINARY_BACKWARD_ABI
 from .kernel_writer_assembly import (
     emit_add_pointer,
     emit_bf16_rne,
@@ -57,7 +58,7 @@ class BackwardKernelLowering(BackwardQuantLowering):
             asm.inst(f"s_mul_i32 s4, s4, {group_m}")
             asm.inst("s_add_u32 s2, s4, s2")
         kernarg = r.kernarg
-        emit_pointer_kernarg_loads(asm, kernarg)
+        emit_pointer_kernarg_loads(asm, kernarg, ORDINARY_BACKWARD_ABI)
         accumulator_count = (
             8
             * self.state.solution.matrix_instruction[5]

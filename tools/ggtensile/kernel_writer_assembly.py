@@ -4,8 +4,13 @@ import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Protocol
 
 import rocisa  # ty: ignore[unresolved-import]
+from rocisa import code  # ty: ignore[unresolved-import]
+from rocisa.enum import SignatureValueKind as SVK  # ty: ignore[unresolved-import]
+
+from .kernel_abi import KernelAbi, KernelArgumentKind
 
 
 @dataclass(frozen=True)
@@ -190,6 +195,88 @@ class Assembly:
         return "\n".join(self.lines) + "\n"
 
 
+class _Signature(Protocol):
+    def addArg(
+        self,
+        name: str,
+        value_kind: Any,
+        value_type: str,
+        address_space: str | None = None,
+    ) -> None: ...
+
+
+def add_kernel_abi_arguments(signature: _Signature, abi: KernelAbi) -> None:
+    for argument in abi.arguments:
+        if argument.kind is KernelArgumentKind.GlobalBuffer:
+            signature.addArg(
+                argument.name,
+                SVK.SIG_GLOBALBUFFER,
+                argument.value_type.value,
+                "generic",
+            )
+        else:
+            signature.addArg(
+                argument.name,
+                SVK.SIG_VALUE,
+                argument.value_type.value,
+            )
+
+
+@dataclass(frozen=True)
+class KernelEnvelope:
+    module_name: str
+    kernel_name: str
+    isa: tuple[int, int, int]
+    wavefront_size: int
+    assembler: Path
+    temporary_prefix: str
+    code_object_version: int
+    group_segment_size: int
+    sgpr_work_group: tuple[int, int, int]
+    vgpr_work_item: int
+    flat_workgroup_size: int
+    total_vgprs: int
+    total_sgprs: int
+    abi: KernelAbi
+    description: str
+
+    def initialize(self) -> None:
+        initialize_rocisa(
+            self.isa,
+            self.wavefront_size,
+            self.assembler,
+            temporary_prefix=self.temporary_prefix,
+        )
+
+    def render(
+        self,
+        body: str,
+        *,
+        trailing_sections: tuple[str, ...] = (),
+    ) -> str:
+        signature = code.SignatureBase(
+            kernelName=self.kernel_name,
+            kernArgsVersion=0,
+            codeObjectVersion=str(self.code_object_version),
+            groupSegmentSize=self.group_segment_size,
+            sgprWorkGroup=self.sgpr_work_group,
+            vgprWorkItem=self.vgpr_work_item,
+            flatWorkGroupSize=self.flat_workgroup_size,
+            totalVgprs=self.total_vgprs,
+            totalAgprs=0,
+            totalSgprs=self.total_sgprs,
+        )
+        signature.addDescriptionTopic(self.description)
+        add_kernel_abi_arguments(signature, self.abi)
+        module = code.Module(self.module_name)
+        module.add(signature)
+        module.add(code.TextBlock(body))
+        source = str(module)
+        for section in trailing_sections:
+            source += "\n" + section
+        return source
+
+
 def initialize_rocisa(
     isa: tuple[int, int, int],
     wavefront_size: int,
@@ -216,10 +303,23 @@ def write_assembly_source(output: Path, source: str) -> str:
     return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
 
-def emit_pointer_kernarg_loads(assembly: Assembly, kernarg: int) -> None:
-    assembly.inst(f"s_load_dwordx2 s[{kernarg}:{kernarg + 1}], s[0:1], 0x0")
-    assembly.inst(f"s_load_dwordx2 s[{kernarg + 2}:{kernarg + 3}], s[0:1], 0x8")
-    assembly.inst(f"s_load_dwordx2 s[{kernarg + 4}:{kernarg + 5}], s[0:1], 0x10")
+def emit_pointer_kernarg_loads(
+    assembly: Assembly,
+    kernarg: int,
+    abi: KernelAbi,
+) -> None:
+    pointers = tuple(
+        item
+        for item in abi.layout
+        if item.argument.kind is KernelArgumentKind.GlobalBuffer
+    )
+    if len(pointers) < 3:
+        raise ValueError("kernel ABI requires three leading pointer arguments")
+    for index, pointer in enumerate(pointers[:3]):
+        first = kernarg + 2 * index
+        assembly.inst(
+            f"s_load_dwordx2 s[{first}:{first + 1}], s[0:1], 0x{pointer.offset:x}"
+        )
     assembly.inst("s_waitcnt lgkmcnt(0)")
 
 

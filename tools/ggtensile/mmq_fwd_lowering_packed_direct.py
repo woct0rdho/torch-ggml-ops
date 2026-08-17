@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import ClassVar, cast
 
+from .kernel_abi import ORDINARY_FORWARD_ABI
 from .kernel_writer_assembly import (
     Assembly,
     emit_bf16_rne,
@@ -54,7 +55,7 @@ class PackedScaleMinimumDirectLowering:
         asm.comment(
             "Load the exact packed-weight, Q8_1 F16_D4S4 workspace, and output pointers."
         )
-        emit_pointer_kernarg_loads(asm, self.KERNARG)
+        emit_pointer_kernarg_loads(asm, self.KERNARG, ORDINARY_FORWARD_ABI)
 
         asm.comment("Map one wave to an exact 16x16 output tile.")
         asm.inst(f"v_mov_b32 v{registers.serial.first_register}, v0")

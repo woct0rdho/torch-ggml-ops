@@ -147,7 +147,7 @@ def test_q6_manual_candidate_uses_normal_solution_and_writer_path() -> None:
     assert validate_solution(key) == ()
     source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert "buffer_gl0_inv" not in source
-    assert solution.to_mapping()["EpilogueDependencyWidth"] == 4
+    assert solution.epilogue_dependency_width == 4
 
 
 def test_generic_manual_enumeration_writes_q4_q5_pair_manifests(tmp_path: Path) -> None:
@@ -215,4 +215,7 @@ def test_q6_exact_pair_manifest_separates_candidate_and_shape_identity() -> None
     assert first.exact_pair_hash != second.exact_pair_hash
     mapping = json.loads(json.dumps(first.to_mapping()))
     assert mapping["CandidateHash"] == first.candidate_hash
-    assert mapping["SolutionKey"]["Solution"]["Q6EpiloguePipelineScope"] == "FullTile"
+    assert (
+        mapping["SolutionKey"]["KernelSpec"]["epilogue"]["pipeline"]["scope"]
+        == "FullTile"
+    )

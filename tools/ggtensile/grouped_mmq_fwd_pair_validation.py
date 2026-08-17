@@ -1,9 +1,10 @@
 """Strict validation for research-only paired grouped forward identities."""
 
 from .grouped_mmq_fwd_pair_model import (
-    GroupedForwardPairProblem,
-    GroupedForwardPairSolution,
     GroupedForwardPairSolutionKey,
+)
+from .grouped_mmq_fwd_pair_spec import (
+    grouped_forward_pair_capability_rejection_reason,
 )
 from .validation import RejectReason
 
@@ -12,12 +13,18 @@ def validate_grouped_forward_pair_solution(
     key: GroupedForwardPairSolutionKey,
 ) -> tuple[RejectReason, ...]:
     reasons: list[RejectReason] = []
-    expected = {
-        "IQ2_S": GroupedForwardPairProblem.iq2_s,
-        "IQ2_XXS": GroupedForwardPairProblem.iq2_xxs,
-        "Q3_K": GroupedForwardPairProblem.q3_k,
+    expected_shape = {
+        "IQ2_S": (512, 2048),
+        "IQ2_XXS": (2048, 4096),
+        "Q3_K": (512, 2048),
     }.get(key.problem.quant_data_type)
-    if expected is None or key.problem != expected(key.problem.aggregate_rows):
+    if (
+        expected_shape is None
+        or (key.problem.output_features, key.problem.input_features) != expected_shape
+        or key.problem.projection_count != 2
+        or key.problem.physical_experts != 256
+        or key.problem.max_route_entries != 256
+    ):
         reasons.append(
             RejectReason(
                 "grouped_forward_pair.problem.unsupported",
@@ -35,22 +42,15 @@ def validate_grouped_forward_pair_solution(
                 "GroupedForwardPairProblem",
             )
         )
-    supported_solutions = {
-        "IQ2_S": (
-            GroupedForwardPairSolution.iq2_s_k128_interleaved(),
-            GroupedForwardPairSolution.iq2_s_k128_interleaved_row_tasks(),
-        ),
-        "IQ2_XXS": (GroupedForwardPairSolution.iq2_xxs_k128_interleaved(),),
-        "Q3_K": (
-            GroupedForwardPairSolution.q3_k_k128_interleaved(),
-            GroupedForwardPairSolution.q3_k_k128_interleaved_row_tasks(),
-        ),
-    }.get(key.problem.quant_data_type, ())
-    if key.solution not in supported_solutions:
+    rejection = grouped_forward_pair_capability_rejection_reason(
+        key.problem,
+        key.solution,
+    )
+    if rejection is not None:
         reasons.append(
             RejectReason(
                 "grouped_forward_pair.solution.unimplemented",
-                "paired grouped forward implements quant-specific K128 interleaving with serial-route or device-row-task ownership",
+                rejection,
                 ("Solution",),
                 "GroupedForwardPairSolution",
             )

@@ -1,7 +1,6 @@
 """Derived state for isolated grouped MMQ forward kernels."""
 
 from dataclasses import dataclass
-from typing import cast
 
 from .grouped_mmq_fwd_model import (
     GroupedActivationAddressing,
@@ -11,6 +10,13 @@ from .grouped_mmq_fwd_model import (
     GroupedMetadataSchedule,
     GroupedOperandSource,
     GroupedOutputStore,
+    _boolean,
+    _enum,
+    _integer,
+    _integer_triple,
+    _integer_tuple,
+    _mapping,
+    _string,
 )
 from .grouped_mmq_fwd_physical import (
     GroupedActivationStagingPlan,
@@ -22,7 +28,7 @@ from .grouped_mmq_fwd_physical import (
     grouped_iq2_s_full_weight_physical_plan,
 )
 from .mmq_fwd_spec import QuantForwardSemantics
-from .model import ProblemSize
+from .model import ProblemSize, SchemaError
 from .quant_formats import GROUPED_QUANT_FORMATS, Q8_1_D4_BLOCK_VALUES
 
 
@@ -31,6 +37,10 @@ class GroupedForwardProblemContract:
     """Non-tunable grouped data, arithmetic, ISA, and destination contract."""
 
     quant_type: str
+    output_features: int
+    input_features: int
+    physical_experts: int
+    max_route_entries: int
     block_values: int
     activation_layout: str
     activation_block_bytes: int
@@ -44,6 +54,9 @@ class GroupedForwardProblemContract:
     weight_decode: str
     scale_arithmetic: str
     arithmetic_contract: str
+    destination_type: str = "BFloat16"
+    bf16_rounding: str = "RNEPreserveNaN"
+    abi: str = "GroupedSerialRoutesV1"
 
     @classmethod
     def from_solution(
@@ -108,6 +121,10 @@ class GroupedForwardProblemContract:
             raise ValueError(rejection)
         return cls(
             quant_type=problem.quant_data_type,
+            output_features=problem.output_features,
+            input_features=problem.input_features,
+            physical_experts=problem.physical_experts,
+            max_route_entries=problem.max_route_entries,
             block_values=quant_format.block_values,
             activation_layout=quant_format.activation_layout,
             activation_block_bytes=quant_format.activation_block_bytes,
@@ -121,6 +138,141 @@ class GroupedForwardProblemContract:
             weight_decode=solution.weight_decode,
             scale_arithmetic=solution.scale_arithmetic,
             arithmetic_contract=quant_format.arithmetic_contract,
+        )
+
+    @classmethod
+    def from_mapping(cls, value: object) -> "GroupedForwardProblemContract":
+        item = _mapping(
+            value,
+            "GroupedForwardProblemContract",
+            frozenset(
+                {
+                    "quant_type",
+                    "output_features",
+                    "input_features",
+                    "physical_experts",
+                    "max_route_entries",
+                    "block_values",
+                    "activation_layout",
+                    "activation_block_bytes",
+                    "packed_weight_block_bytes",
+                    "kernel_language",
+                    "isa",
+                    "wavefront_size",
+                    "signed_weight",
+                    "signed_activation",
+                    "wmma_clamp",
+                    "weight_decode",
+                    "scale_arithmetic",
+                    "arithmetic_contract",
+                    "destination_type",
+                    "bf16_rounding",
+                    "abi",
+                }
+            ),
+        )
+        quant_type = _string(item["quant_type"], "quant_type")
+        try:
+            quant_format = GROUPED_QUANT_FORMATS[quant_type]
+        except KeyError:
+            raise SchemaError(
+                f"unsupported grouped forward quant type {quant_type!r}"
+            ) from None
+        expected_shape = {
+            "Q2_K": (4096, 2048),
+            "Q4_K": (2048, 512),
+            "Q5_K": (2048, 512),
+            "IQ2_S": (2048, 512),
+        }.get(quant_type)
+        if expected_shape is None:
+            raise SchemaError(f"unsupported grouped forward quant type {quant_type!r}")
+        contract = cls(
+            quant_type=quant_type,
+            output_features=_integer(item["output_features"], "output_features"),
+            input_features=_integer(item["input_features"], "input_features"),
+            physical_experts=_integer(item["physical_experts"], "physical_experts"),
+            max_route_entries=_integer(item["max_route_entries"], "max_route_entries"),
+            block_values=_integer(item["block_values"], "block_values"),
+            activation_layout=_string(item["activation_layout"], "activation_layout"),
+            activation_block_bytes=_integer(
+                item["activation_block_bytes"], "activation_block_bytes"
+            ),
+            packed_weight_block_bytes=_integer(
+                item["packed_weight_block_bytes"], "packed_weight_block_bytes"
+            ),
+            kernel_language=_string(item["kernel_language"], "kernel_language"),
+            isa=_integer_triple(item["isa"], "isa"),
+            wavefront_size=_integer(item["wavefront_size"], "wavefront_size"),
+            signed_weight=_boolean(item["signed_weight"], "signed_weight"),
+            signed_activation=_boolean(item["signed_activation"], "signed_activation"),
+            wmma_clamp=_boolean(item["wmma_clamp"], "wmma_clamp"),
+            weight_decode=_string(item["weight_decode"], "weight_decode"),
+            scale_arithmetic=_string(item["scale_arithmetic"], "scale_arithmetic"),
+            arithmetic_contract=_string(
+                item["arithmetic_contract"], "arithmetic_contract"
+            ),
+            destination_type=_string(item["destination_type"], "destination_type"),
+            bf16_rounding=_string(item["bf16_rounding"], "bf16_rounding"),
+            abi=_string(item["abi"], "abi"),
+        )
+        fixed = (
+            (contract.output_features, contract.input_features) == expected_shape
+            and contract.physical_experts == 256
+            and contract.max_route_entries == 256
+            and contract.block_values == quant_format.block_values
+            and contract.activation_layout == quant_format.activation_layout
+            and contract.activation_block_bytes == quant_format.activation_block_bytes
+            and contract.packed_weight_block_bytes == quant_format.block_bytes
+            and contract.kernel_language == "Assembly"
+            and contract.isa == (11, 5, 1)
+            and contract.wavefront_size == 32
+            and contract.signed_weight
+            and contract.signed_activation
+            and contract.wmma_clamp == quant_format.wmma_clamp
+            and contract.weight_decode == quant_format.weight_decode
+            and contract.scale_arithmetic == quant_format.scale_arithmetic
+            and contract.arithmetic_contract == quant_format.arithmetic_contract
+            and contract.destination_type == "BFloat16"
+            and contract.bf16_rounding == "RNEPreserveNaN"
+            and contract.abi == "GroupedSerialRoutesV1"
+        )
+        if not fixed:
+            raise SchemaError("GroupedForwardProblemContract is not canonical")
+        return contract
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "quant_type": self.quant_type,
+            "output_features": self.output_features,
+            "input_features": self.input_features,
+            "physical_experts": self.physical_experts,
+            "max_route_entries": self.max_route_entries,
+            "block_values": self.block_values,
+            "activation_layout": self.activation_layout,
+            "activation_block_bytes": self.activation_block_bytes,
+            "packed_weight_block_bytes": self.packed_weight_block_bytes,
+            "kernel_language": self.kernel_language,
+            "isa": list(self.isa),
+            "wavefront_size": self.wavefront_size,
+            "signed_weight": self.signed_weight,
+            "signed_activation": self.signed_activation,
+            "wmma_clamp": self.wmma_clamp,
+            "weight_decode": self.weight_decode,
+            "scale_arithmetic": self.scale_arithmetic,
+            "arithmetic_contract": self.arithmetic_contract,
+            "destination_type": self.destination_type,
+            "bf16_rounding": self.bf16_rounding,
+            "abi": self.abi,
+        }
+
+    def problem(self, aggregate_rows: int) -> GroupedForwardProblem:
+        return GroupedForwardProblem(
+            self.quant_type,
+            aggregate_rows,
+            self.output_features,
+            self.input_features,
+            self.physical_experts,
+            self.max_route_entries,
         )
 
 
@@ -166,6 +318,7 @@ class GroupedRowTileDispatchPolicy:
 @dataclass(frozen=True)
 class GroupedDecodedSchedulePolicy:
     schedule: GroupedMetadataSchedule
+    metadata_conversion: str
 
     @property
     def independent_metadata_extraction(self) -> bool:
@@ -184,59 +337,58 @@ class GroupedDecodedSchedulePolicy:
 
 @dataclass(frozen=True)
 class GroupedQ2SchedulePolicy:
-    schedule: GroupedMetadataSchedule
+    metadata_conversion: str
+    unrolled_groups: bool
+    hip_association: bool
+    partial_lds: bool
+    pre_negated_dm: bool
+    paired_payload_writes: bool
+    paired_metadata_writes: bool
+    distributed_producer: bool
 
-    @property
-    def unrolled_groups(self) -> bool:
-        return self.schedule is not GroupedMetadataSchedule.Q2ScaleMinimumNibble
-
-    @property
-    def hip_association(self) -> bool:
-        return self.schedule not in (
-            GroupedMetadataSchedule.Q2ScaleMinimumNibble,
-            GroupedMetadataSchedule.Q2ScaleMinimumNibbleUnrolled,
+    def __post_init__(self) -> None:
+        dependencies = (
+            (
+                self.hip_association,
+                self.unrolled_groups,
+                "HIP association requires unrolling",
+            ),
+            (
+                self.partial_lds,
+                self.hip_association,
+                "partial LDS requires HIP association",
+            ),
+            (
+                self.pre_negated_dm,
+                self.partial_lds,
+                "pre-negated dm requires partial LDS",
+            ),
+            (
+                self.paired_payload_writes,
+                self.pre_negated_dm,
+                "paired payload writes require pre-negated dm",
+            ),
+            (
+                self.paired_metadata_writes,
+                self.paired_payload_writes,
+                "paired metadata writes require paired payload writes",
+            ),
+            (
+                self.distributed_producer,
+                self.paired_metadata_writes,
+                "distributed production requires paired metadata writes",
+            ),
         )
-
-    @property
-    def partial_lds(self) -> bool:
-        return self.schedule in (
-            GroupedMetadataSchedule.Q2HipAssociationPartialLds,
-            GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDm,
-            GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDmWrite2,
-            GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2,
-            GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2DistributedProducer,
+        rejection = next(
+            (
+                message
+                for enabled, required, message in dependencies
+                if enabled and not required
+            ),
+            None,
         )
-
-    @property
-    def pre_negated_dm(self) -> bool:
-        return self.schedule in (
-            GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDm,
-            GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDmWrite2,
-            GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2,
-            GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2DistributedProducer,
-        )
-
-    @property
-    def paired_payload_writes(self) -> bool:
-        return self.schedule in (
-            GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDmWrite2,
-            GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2,
-            GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2DistributedProducer,
-        )
-
-    @property
-    def paired_metadata_writes(self) -> bool:
-        return self.schedule in (
-            GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2,
-            GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2DistributedProducer,
-        )
-
-    @property
-    def distributed_producer(self) -> bool:
-        return (
-            self.schedule
-            is GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2DistributedProducer
-        )
+        if rejection is not None:
+            raise ValueError(rejection)
 
     @property
     def independent_metadata_extraction(self) -> bool:
@@ -250,6 +402,7 @@ class GroupedQ2SchedulePolicy:
 @dataclass(frozen=True)
 class GroupedIQ2SSchedulePolicy:
     schedule: GroupedMetadataSchedule
+    metadata_conversion: str
 
     @property
     def payload_prefetch(self) -> bool:
@@ -272,6 +425,7 @@ GroupedDecodePolicy = (
 def _grouped_decode_policy(
     quant_type: str,
     schedule: GroupedMetadataSchedule,
+    metadata_conversion: str,
 ) -> GroupedDecodePolicy:
     if quant_type == "Q2_K":
         supported = frozenset(
@@ -290,7 +444,81 @@ def _grouped_decode_policy(
             raise ValueError(
                 f"unsupported {quant_type} grouped decode schedule {schedule.value!r}"
             )
-        return GroupedQ2SchedulePolicy(schedule)
+        flags = {
+            GroupedMetadataSchedule.Q2ScaleMinimumNibble: (
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+            ),
+            GroupedMetadataSchedule.Q2ScaleMinimumNibbleUnrolled: (
+                True,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+            ),
+            GroupedMetadataSchedule.Q2ScaleMinimumNibbleUnrolledHipAssociation: (
+                True,
+                True,
+                False,
+                False,
+                False,
+                False,
+                False,
+            ),
+            GroupedMetadataSchedule.Q2HipAssociationPartialLds: (
+                True,
+                True,
+                True,
+                False,
+                False,
+                False,
+                False,
+            ),
+            GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDm: (
+                True,
+                True,
+                True,
+                True,
+                False,
+                False,
+                False,
+            ),
+            GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDmWrite2: (
+                True,
+                True,
+                True,
+                True,
+                True,
+                False,
+                False,
+            ),
+            GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2: (
+                True,
+                True,
+                True,
+                True,
+                True,
+                True,
+                False,
+            ),
+            GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2DistributedProducer: (
+                True,
+                True,
+                True,
+                True,
+                True,
+                True,
+                True,
+            ),
+        }[schedule]
+        return GroupedQ2SchedulePolicy(metadata_conversion, *flags)
     elif quant_type == "IQ2_S":
         supported = frozenset(
             {
@@ -302,7 +530,7 @@ def _grouped_decode_policy(
             raise ValueError(
                 f"unsupported {quant_type} grouped decode schedule {schedule.value!r}"
             )
-        return GroupedIQ2SSchedulePolicy(schedule)
+        return GroupedIQ2SSchedulePolicy(schedule, metadata_conversion)
     else:
         supported = frozenset(
             {
@@ -314,7 +542,207 @@ def _grouped_decode_policy(
             raise ValueError(
                 f"unsupported {quant_type} grouped decode schedule {schedule.value!r}"
             )
-        return GroupedDecodedSchedulePolicy(schedule)
+        return GroupedDecodedSchedulePolicy(schedule, metadata_conversion)
+
+
+def _grouped_metadata_schedule(policy: GroupedDecodePolicy) -> GroupedMetadataSchedule:
+    if isinstance(policy, GroupedDecodedSchedulePolicy | GroupedIQ2SSchedulePolicy):
+        return policy.schedule
+    flags = (
+        policy.unrolled_groups,
+        policy.hip_association,
+        policy.partial_lds,
+        policy.pre_negated_dm,
+        policy.paired_payload_writes,
+        policy.paired_metadata_writes,
+        policy.distributed_producer,
+    )
+    schedules = {
+        (
+            False,
+            False,
+            False,
+            False,
+            False,
+            False,
+            False,
+        ): GroupedMetadataSchedule.Q2ScaleMinimumNibble,
+        (
+            True,
+            False,
+            False,
+            False,
+            False,
+            False,
+            False,
+        ): GroupedMetadataSchedule.Q2ScaleMinimumNibbleUnrolled,
+        (
+            True,
+            True,
+            False,
+            False,
+            False,
+            False,
+            False,
+        ): GroupedMetadataSchedule.Q2ScaleMinimumNibbleUnrolledHipAssociation,
+        (
+            True,
+            True,
+            True,
+            False,
+            False,
+            False,
+            False,
+        ): GroupedMetadataSchedule.Q2HipAssociationPartialLds,
+        (
+            True,
+            True,
+            True,
+            True,
+            False,
+            False,
+            False,
+        ): GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDm,
+        (
+            True,
+            True,
+            True,
+            True,
+            True,
+            False,
+            False,
+        ): GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDmWrite2,
+        (
+            True,
+            True,
+            True,
+            True,
+            True,
+            True,
+            False,
+        ): GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2,
+        (
+            True,
+            True,
+            True,
+            True,
+            True,
+            True,
+            True,
+        ): GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2DistributedProducer,
+    }
+    try:
+        return schedules[flags]
+    except KeyError:
+        raise ValueError("unsupported orthogonal Q2 grouped decode policy") from None
+
+
+def _grouped_decode_mapping(policy: GroupedDecodePolicy) -> dict[str, object]:
+    if isinstance(policy, GroupedQ2SchedulePolicy):
+        return {
+            "kind": "Q2ScaleMinimum",
+            "metadata_conversion": policy.metadata_conversion,
+            "unrolled_groups": policy.unrolled_groups,
+            "hip_association": policy.hip_association,
+            "partial_lds": policy.partial_lds,
+            "pre_negated_dm": policy.pre_negated_dm,
+            "paired_payload_writes": policy.paired_payload_writes,
+            "paired_metadata_writes": policy.paired_metadata_writes,
+            "distributed_producer": policy.distributed_producer,
+        }
+    if isinstance(policy, GroupedIQ2SSchedulePolicy):
+        return {
+            "kind": "IQ2SGrid",
+            "metadata_conversion": policy.metadata_conversion,
+            "payload_prefetch": policy.payload_prefetch,
+        }
+    return {
+        "kind": "ScaleMinimum",
+        "metadata_conversion": policy.metadata_conversion,
+        "schedule": policy.schedule.value,
+    }
+
+
+def _mapping_for_grouped_decode(
+    value: object,
+    quant_type: str,
+) -> GroupedDecodePolicy:
+    if quant_type == "Q2_K":
+        item = _mapping(
+            value,
+            "GroupedForwardKernelSpec.decode",
+            frozenset(
+                {
+                    "kind",
+                    "metadata_conversion",
+                    "unrolled_groups",
+                    "hip_association",
+                    "partial_lds",
+                    "pre_negated_dm",
+                    "paired_payload_writes",
+                    "paired_metadata_writes",
+                    "distributed_producer",
+                }
+            ),
+        )
+        if item["kind"] != "Q2ScaleMinimum":
+            raise SchemaError("Q2_K grouped decode kind must be Q2ScaleMinimum")
+        try:
+            return GroupedQ2SchedulePolicy(
+                metadata_conversion=_string(
+                    item["metadata_conversion"], "metadata_conversion"
+                ),
+                unrolled_groups=_boolean(item["unrolled_groups"], "unrolled_groups"),
+                hip_association=_boolean(item["hip_association"], "hip_association"),
+                partial_lds=_boolean(item["partial_lds"], "partial_lds"),
+                pre_negated_dm=_boolean(item["pre_negated_dm"], "pre_negated_dm"),
+                paired_payload_writes=_boolean(
+                    item["paired_payload_writes"], "paired_payload_writes"
+                ),
+                paired_metadata_writes=_boolean(
+                    item["paired_metadata_writes"], "paired_metadata_writes"
+                ),
+                distributed_producer=_boolean(
+                    item["distributed_producer"], "distributed_producer"
+                ),
+            )
+        except ValueError as error:
+            raise SchemaError(str(error)) from None
+    if quant_type == "IQ2_S":
+        item = _mapping(
+            value,
+            "GroupedForwardKernelSpec.decode",
+            frozenset({"kind", "metadata_conversion", "payload_prefetch"}),
+        )
+        if item["kind"] != "IQ2SGrid":
+            raise SchemaError("IQ2_S grouped decode kind must be IQ2SGrid")
+        schedule = (
+            GroupedMetadataSchedule.IQ2SPayloadPrefetch
+            if _boolean(item["payload_prefetch"], "payload_prefetch")
+            else GroupedMetadataSchedule.IQ2SDistributedFullWeightDecode
+        )
+        return GroupedIQ2SSchedulePolicy(
+            schedule,
+            _string(item["metadata_conversion"], "metadata_conversion"),
+        )
+    if quant_type not in {"Q4_K", "Q5_K"}:
+        raise SchemaError(f"unsupported grouped forward quant type {quant_type!r}")
+    item = _mapping(
+        value,
+        "GroupedForwardKernelSpec.decode",
+        frozenset({"kind", "metadata_conversion", "schedule"}),
+    )
+    if item["kind"] != "ScaleMinimum":
+        raise SchemaError("Q4_K/Q5_K grouped decode kind must be ScaleMinimum")
+    schedule = _enum(item["schedule"], "schedule", GroupedMetadataSchedule)
+    try:
+        return _grouped_decode_policy(
+            quant_type,
+            schedule,
+            _string(item["metadata_conversion"], "metadata_conversion"),
+        )
+    except ValueError as error:
+        raise SchemaError(str(error)) from None
 
 
 @dataclass(frozen=True)
@@ -328,6 +756,23 @@ class GroupedEpiloguePolicy:
     def from_solution(
         cls,
         solution: GroupedForwardSolution,
+        row_dispatch: GroupedRowTileDispatchPolicy,
+    ) -> "GroupedEpiloguePolicy":
+        return cls.from_parameters(
+            solution.output_store,
+            solution.epilogue_tiles_ahead,
+            solution.epilogue_dependency_width,
+            solution.epilogue_priority,
+            row_dispatch,
+        )
+
+    @classmethod
+    def from_parameters(
+        cls,
+        output_store: GroupedOutputStore,
+        tiles_ahead: int,
+        dependency_width: int,
+        priority: int,
         row_dispatch: GroupedRowTileDispatchPolicy,
     ) -> "GroupedEpiloguePolicy":
         stores_by_body_rows = {
@@ -346,15 +791,15 @@ class GroupedEpiloguePolicy:
             ),
         }
         supported_stores = stores_by_body_rows.get(row_dispatch.body_rows, ())
-        if solution.output_store not in supported_stores:
+        if output_store not in supported_stores:
             raise ValueError(
                 "grouped output-store policy does not match row-body ownership"
             )
         return cls(
-            output_store=solution.output_store,
-            tiles_ahead=solution.epilogue_tiles_ahead,
-            dependency_width=solution.epilogue_dependency_width,
-            priority=solution.epilogue_priority,
+            output_store=output_store,
+            tiles_ahead=tiles_ahead,
+            dependency_width=dependency_width,
+            priority=priority,
         )
 
     def scheduled_for(self, row_tiles: int) -> bool:
@@ -368,7 +813,7 @@ class GroupedEpiloguePolicy:
 @dataclass(frozen=True)
 class GroupedGeometrySpec:
     work_group: tuple[int, int, int]
-    matrix_instruction: tuple[int, int, int, int]
+    matrix_instruction: tuple[int, ...]
     macro_tile: tuple[int, int]
     tail_macro_tile0: int
     depth_u: int
@@ -390,7 +835,9 @@ class GroupedForwardKernelSpec:
         solution: GroupedForwardSolution,
     ) -> "GroupedForwardKernelSpec":
         decode = _grouped_decode_policy(
-            problem.quant_data_type, solution.metadata_schedule
+            problem.quant_data_type,
+            solution.metadata_schedule,
+            solution.metadata_conversion,
         )
         row_dispatch = GroupedRowTileDispatchPolicy.from_geometry(
             solution.macro_tile0, solution.tail_macro_tile0
@@ -398,9 +845,7 @@ class GroupedForwardKernelSpec:
         return cls(
             geometry=GroupedGeometrySpec(
                 work_group=solution.work_group,
-                matrix_instruction=cast(
-                    tuple[int, int, int, int], solution.matrix_instruction[:4]
-                ),
+                matrix_instruction=solution.matrix_instruction,
                 macro_tile=(solution.macro_tile0, solution.macro_tile1),
                 tail_macro_tile0=solution.tail_macro_tile0,
                 depth_u=solution.depth_u,
@@ -413,6 +858,324 @@ class GroupedForwardKernelSpec:
             decode=decode,
             epilogue=GroupedEpiloguePolicy.from_solution(solution, row_dispatch),
         )
+
+    @classmethod
+    def from_mapping(
+        cls,
+        value: object,
+        contract: GroupedForwardProblemContract,
+    ) -> "GroupedForwardKernelSpec":
+        item = _mapping(
+            value,
+            "GroupedForwardKernelSpec",
+            frozenset({"geometry", "lowering", "decode", "epilogue"}),
+        )
+        geometry_item = _mapping(
+            item["geometry"],
+            "GroupedForwardKernelSpec.geometry",
+            frozenset(
+                {
+                    "work_group",
+                    "matrix_instruction",
+                    "macro_tile",
+                    "tail_macro_tile0",
+                    "depth_u",
+                }
+            ),
+        )
+        macro_tile = _integer_tuple(geometry_item["macro_tile"], "macro_tile", 2)
+        geometry = GroupedGeometrySpec(
+            work_group=_integer_triple(geometry_item["work_group"], "work_group"),
+            matrix_instruction=_integer_tuple(
+                geometry_item["matrix_instruction"], "matrix_instruction", 9
+            ),
+            macro_tile=(macro_tile[0], macro_tile[1]),
+            tail_macro_tile0=_integer(
+                geometry_item["tail_macro_tile0"], "tail_macro_tile0"
+            ),
+            depth_u=_integer(geometry_item["depth_u"], "depth_u"),
+        )
+        row_dispatch = GroupedRowTileDispatchPolicy.from_geometry(
+            geometry.macro_tile[0], geometry.tail_macro_tile0
+        )
+        lowering = _mapping(
+            item["lowering"],
+            "GroupedForwardKernelSpec.lowering",
+            frozenset({"operand_source", "activation_addressing"}),
+        )
+        decode_item = _mapping_for_grouped_decode(item["decode"], contract.quant_type)
+        epilogue_item = _mapping(
+            item["epilogue"],
+            "GroupedForwardKernelSpec.epilogue",
+            frozenset({"tiles_ahead", "dependency_width", "priority", "output_store"}),
+        )
+        return cls(
+            geometry=geometry,
+            operand_source=_enum(
+                lowering["operand_source"], "operand_source", GroupedOperandSource
+            ),
+            activation=GroupedActivationPolicy(
+                _enum(
+                    lowering["activation_addressing"],
+                    "activation_addressing",
+                    GroupedActivationAddressing,
+                ),
+                contract.activation_block_bytes,
+            ),
+            row_dispatch=row_dispatch,
+            decode=decode_item,
+            epilogue=GroupedEpiloguePolicy.from_parameters(
+                _enum(
+                    epilogue_item["output_store"],
+                    "output_store",
+                    GroupedOutputStore,
+                ),
+                _integer(epilogue_item["tiles_ahead"], "tiles_ahead"),
+                _integer(epilogue_item["dependency_width"], "dependency_width"),
+                _integer(epilogue_item["priority"], "priority"),
+                row_dispatch,
+            ),
+        )
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "geometry": {
+                "work_group": list(self.geometry.work_group),
+                "matrix_instruction": list(self.geometry.matrix_instruction),
+                "macro_tile": list(self.geometry.macro_tile),
+                "tail_macro_tile0": self.geometry.tail_macro_tile0,
+                "depth_u": self.geometry.depth_u,
+            },
+            "lowering": {
+                "operand_source": self.operand_source.value,
+                "activation_addressing": self.activation.addressing.value,
+            },
+            "decode": _grouped_decode_mapping(self.decode),
+            "epilogue": {
+                "tiles_ahead": self.epilogue.tiles_ahead,
+                "dependency_width": self.epilogue.dependency_width,
+                "priority": self.epilogue.priority,
+                "output_store": self.epilogue.output_store.value,
+            },
+        }
+
+    def to_solution(
+        self,
+        contract: GroupedForwardProblemContract,
+    ) -> GroupedForwardSolution:
+        return GroupedForwardSolution(
+            kernel_language=contract.kernel_language,
+            isa=contract.isa,
+            wavefront_size=contract.wavefront_size,
+            work_group=self.geometry.work_group,
+            matrix_instruction=self.geometry.matrix_instruction,
+            macro_tile0=self.geometry.macro_tile[0],
+            tail_macro_tile0=self.geometry.tail_macro_tile0,
+            macro_tile1=self.geometry.macro_tile[1],
+            depth_u=self.geometry.depth_u,
+            activation_layout=contract.activation_layout,
+            activation_block_bytes=contract.activation_block_bytes,
+            packed_weight_block_bytes=contract.packed_weight_block_bytes,
+            operand_source=self.operand_source,
+            weight_decode=contract.weight_decode,
+            group_mapping="SerialGemm",
+            route_layout="CumulativeOffsetsExpertIndices",
+            activation_addressing=self.activation.addressing,
+            metadata_conversion=self.decode.metadata_conversion,
+            metadata_schedule=_grouped_metadata_schedule(self.decode),
+            epilogue_tiles_ahead=self.epilogue.tiles_ahead,
+            epilogue_dependency_width=self.epilogue.dependency_width,
+            epilogue_priority=self.epilogue.priority,
+            scale_arithmetic=contract.scale_arithmetic,
+            output_store=self.epilogue.output_store,
+            signed_weight=contract.signed_weight,
+            signed_activation=contract.signed_activation,
+            wmma_clamp=contract.wmma_clamp,
+        )
+
+
+def grouped_forward_capability_rejection_reason(
+    problem: GroupedForwardProblem,
+    solution: GroupedForwardSolution,
+) -> str | None:
+    try:
+        GroupedForwardProblemContract.from_solution(problem, solution)
+        kernel_spec = GroupedForwardKernelSpec.from_solution(problem, solution)
+    except (KeyError, TypeError, ValueError) as error:
+        return str(error)
+
+    common_checks = ((solution.depth_u == 32, "grouped forward requires DepthU=32"),)
+    rejection = next(
+        (message for accepted, message in common_checks if not accepted), None
+    )
+    if rejection is not None:
+        return rejection
+
+    source = kernel_spec.operand_source
+    supported_sources = {
+        "Q2_K": {GroupedOperandSource.GroupedDecodedWeightLds},
+        "Q4_K": {
+            GroupedOperandSource.GroupedDirectGlobal,
+            GroupedOperandSource.GroupedDecodedWeightLds,
+        },
+        "Q5_K": {GroupedOperandSource.GroupedDecodedWeightLds},
+        "IQ2_S": {GroupedOperandSource.GroupedIQ2SFullWeightLds},
+    }.get(problem.quant_data_type, set())
+    if source not in supported_sources:
+        return "grouped operand source is unavailable for the quant format"
+
+    if source is GroupedOperandSource.GroupedDirectGlobal:
+        checks = (
+            (solution.work_group == (32, 1, 1), "direct grouped workgroup mismatch"),
+            (
+                solution.matrix_instruction == (16, 16, 16, 1, 1, 1, 1, 1, 1),
+                "direct grouped matrix instruction mismatch",
+            ),
+            (
+                (solution.macro_tile0, solution.tail_macro_tile0, solution.macro_tile1)
+                == (16, 16, 16),
+                "direct grouped tile geometry mismatch",
+            ),
+            (
+                solution.activation_addressing
+                is GroupedActivationAddressing.AggregateRows,
+                "direct grouped activation addressing mismatch",
+            ),
+            (
+                solution.metadata_schedule is GroupedMetadataSchedule.Serialized,
+                "direct grouped metadata schedule mismatch",
+            ),
+            (
+                solution.metadata_conversion == "Float32ThenFloat16",
+                "direct grouped metadata conversion mismatch",
+            ),
+            (
+                (
+                    solution.epilogue_tiles_ahead,
+                    solution.epilogue_dependency_width,
+                    solution.epilogue_priority,
+                )
+                == (1, 1, 0),
+                "direct grouped epilogue policy mismatch",
+            ),
+        )
+        return next((message for accepted, message in checks if not accepted), None)
+
+    if source is GroupedOperandSource.GroupedIQ2SFullWeightLds:
+        checks = (
+            (solution.work_group == (128, 1, 1), "IQ2_S workgroup mismatch"),
+            (
+                solution.matrix_instruction == (16, 16, 16, 1, 1, 1, 4, 4, 1),
+                "IQ2_S matrix instruction mismatch",
+            ),
+            (
+                (solution.macro_tile0, solution.tail_macro_tile0, solution.macro_tile1)
+                == (64, 64, 64),
+                "IQ2_S tile geometry mismatch",
+            ),
+            (
+                solution.activation_addressing
+                in {
+                    GroupedActivationAddressing.AggregateRowsTiled,
+                    GroupedActivationAddressing.AggregateRowsTiledLinear,
+                },
+                "IQ2_S activation addressing mismatch",
+            ),
+            (
+                solution.metadata_conversion == "Float16DUnsignedNibbleScaleToFloat32",
+                "IQ2_S metadata conversion mismatch",
+            ),
+            (
+                (
+                    solution.epilogue_tiles_ahead,
+                    solution.epilogue_dependency_width,
+                    solution.epilogue_priority,
+                )
+                == (4, 1, 0),
+                "IQ2_S epilogue policy mismatch",
+            ),
+        )
+        return next((message for accepted, message in checks if not accepted), None)
+
+    row_tiles = solution.macro_tile0 // 16
+    checks = (
+        (solution.work_group == (128, 1, 1), "decoded grouped workgroup mismatch"),
+        (
+            solution.matrix_instruction == (16, 16, 16, 1, 1, 1, 4, 4, 1),
+            "decoded grouped matrix instruction mismatch",
+        ),
+        (solution.macro_tile1 == 64, "decoded grouped output tile mismatch"),
+        (
+            solution.activation_addressing
+            is GroupedActivationAddressing.AggregateRowsTiled,
+            "decoded grouped activation addressing mismatch",
+        ),
+        (
+            solution.metadata_conversion
+            == (
+                "DirectQ2Float16NibblePairs"
+                if problem.quant_data_type == "Q2_K"
+                else "DirectFloat16Unsigned16"
+            ),
+            "decoded grouped metadata conversion mismatch",
+        ),
+        (
+            solution.epilogue_tiles_ahead in {1, row_tiles},
+            "decoded grouped epilogue distance is unsupported",
+        ),
+        (
+            solution.epilogue_dependency_width in {1, 2, 4}
+            and solution.epilogue_dependency_width <= row_tiles,
+            "decoded grouped epilogue dependency width is unsupported",
+        ),
+        (
+            solution.epilogue_priority in {0, 2},
+            "decoded grouped epilogue priority is unsupported",
+        ),
+    )
+    rejection = next((message for accepted, message in checks if not accepted), None)
+    if rejection is not None:
+        return rejection
+
+    if problem.quant_data_type == "Q2_K":
+        q2_rows = {
+            GroupedMetadataSchedule.Q2ScaleMinimumNibble: {32, 64},
+            GroupedMetadataSchedule.Q2ScaleMinimumNibbleUnrolled: {32, 64, 128},
+            GroupedMetadataSchedule.Q2ScaleMinimumNibbleUnrolledHipAssociation: {
+                32,
+                64,
+            },
+            GroupedMetadataSchedule.Q2HipAssociationPartialLds: {32},
+            GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDm: {32},
+            GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDmWrite2: {32},
+            GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2: {
+                32
+            },
+            GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2DistributedProducer: {
+                32,
+                64,
+            },
+        }
+        if solution.macro_tile0 not in q2_rows.get(solution.metadata_schedule, set()):
+            return "Q2 decode schedule does not support the requested row tile"
+    elif solution.macro_tile0 not in {64, 128}:
+        return "Q4/Q5 decoded lowering requires a 64- or 128-row tile"
+
+    try:
+        activation_staging = GroupedActivationStagingPlan(
+            addressing=kernel_spec.activation.addressing,
+            block_bytes=kernel_spec.activation.block_bytes,
+            participating_threads=solution.num_threads,
+        )
+        grouped_decoded_physical_plan(
+            solution.activation_block_bytes,
+            solution.macro_tile0,
+            problem.quant_data_type,
+            activation_staging,
+        )
+    except ValueError as error:
+        return str(error)
+    return None
 
 
 @dataclass(frozen=True)

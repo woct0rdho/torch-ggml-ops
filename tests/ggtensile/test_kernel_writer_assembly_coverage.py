@@ -9,6 +9,13 @@ from tests.ggtensile.support import (
     SHARED_WRITER_SOURCE_PATH,
     assert_writer_methods_have_complete_line_coverage,
 )
+from tools.ggtensile.kernel_abi import (
+    ORDINARY_FORWARD_ABI,
+    KernelAbi,
+    KernelArgument,
+    KernelArgumentKind,
+    KernelValueType,
+)
 from tools.ggtensile.kernel_writer_assembly import (
     Assembly,
     DeterministicRegisterPlan,
@@ -30,7 +37,7 @@ def test_shared_assembly_primitives_and_source_write(tmp_path: Path) -> None:
     assembly.comment("shared")
     assembly.label(".LShared")
     assembly.inst("s_nop 0", "comment")
-    emit_pointer_kernarg_loads(assembly, 4)
+    emit_pointer_kernarg_loads(assembly, 4, ORDINARY_FORWARD_ABI)
     emit_scale_u32(assembly, 0, 8, 1)
     emit_scale_u32(assembly, 2, 3, 4)
     emit_add_pointer(assembly, 6, 8, 10)
@@ -43,6 +50,18 @@ def test_shared_assembly_primitives_and_source_write(tmp_path: Path) -> None:
     assert digest == hashlib.sha256(source.encode("utf-8")).hexdigest()
     assert "v_lshlrev_b32 v0, 3, v1" in source
     assert "v_mul_lo_u32 v2, 3, v4" in source
+
+    short_abi = KernelAbi(
+        (
+            KernelArgument(
+                "only_pointer",
+                KernelArgumentKind.GlobalBuffer,
+                KernelValueType.Struct,
+            ),
+        )
+    )
+    with pytest.raises(ValueError, match="three leading pointer"):
+        emit_pointer_kernarg_loads(Assembly(), 4, short_abi)
 
 
 def test_deterministic_register_plan_uses_explicit_order_and_lifetimes() -> None:

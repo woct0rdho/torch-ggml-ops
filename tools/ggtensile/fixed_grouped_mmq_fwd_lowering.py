@@ -5,13 +5,14 @@ from typing import ClassVar, cast
 
 from .fixed_grouped_mmq_fwd_model import FixedForwardSolutionKey
 from .fixed_grouped_mmq_fwd_spec import DerivedFixedForwardState
+from .kernel_abi import FIXED_GROUPED_FORWARD_ABI
 from .kernel_writer_assembly import (
     Assembly,
     emit_bf16_rne,
     emit_kernel_trailer,
     emit_pointer_kernarg_loads,
 )
-from .mmq_fwd_lowering_signed_i8 import SignedInt8ForwardLowering
+from .mmq_fwd_lowering_signed_i8_tiled import SignedInt8TiledLdsMechanics
 from .mmq_fwd_physical import (
     SignedInt8SmallMTiledLdsPhysicalPlan,
     SignedInt8TiledLdsRegisters,
@@ -27,8 +28,8 @@ class FixedForwardLoweringContext:
 
 
 @dataclass(frozen=True)
-class FixedGroupedQ8ForwardLowering(SignedInt8ForwardLowering):
-    """Reuse signed-int8 staging and WMMA helpers under the fixed ABI."""
+class FixedGroupedQ8ForwardLowering:
+    """Emit the fixed ABI around composed signed-int8 tiled-LDS mechanics."""
 
     context: FixedForwardLoweringContext
     KERNARG: ClassVar[int] = 6
@@ -40,6 +41,9 @@ class FixedGroupedQ8ForwardLowering(SignedInt8ForwardLowering):
     def _body_fixed_grouped_small_m_tiled_lds(self) -> str:
         asm = Assembly()
         state = self.context.state
+        mechanics = SignedInt8TiledLdsMechanics(
+            self.KERNARG, state.contract.activation_block_bytes
+        )
         macro_tile_m = state.kernel_spec.macro_tile[0]
         m_fragments = macro_tile_m // 16
         activation_row_share = 128 // macro_tile_m
@@ -95,11 +99,18 @@ class FixedGroupedQ8ForwardLowering(SignedInt8ForwardLowering):
         )
 
         asm.comment("Load the fixed-group Q8_0 pointers and scalar dimensions.")
-        emit_pointer_kernarg_loads(asm, self.KERNARG)
-        asm.inst(f"s_load_dword s{self.KERNARG + 6}, s[0:1], 0x18")
-        asm.inst(f"s_load_dword s{self.KERNARG + 7}, s[0:1], 0x1c")
+        emit_pointer_kernarg_loads(asm, self.KERNARG, FIXED_GROUPED_FORWARD_ABI)
         asm.inst(
-            f"s_load_dwordx2 s[{self.KERNARG + 8}:{self.KERNARG + 9}], s[0:1], 0x20"
+            f"s_load_dword s{self.KERNARG + 6}, s[0:1], "
+            f"0x{FIXED_GROUPED_FORWARD_ABI.offset('tokens'):x}"
+        )
+        asm.inst(
+            f"s_load_dword s{self.KERNARG + 7}, s[0:1], "
+            f"0x{FIXED_GROUPED_FORWARD_ABI.offset('out_features'):x}"
+        )
+        asm.inst(
+            f"s_load_dwordx2 s[{self.KERNARG + 8}:{self.KERNARG + 9}], "
+            f"s[0:1], 0x{FIXED_GROUPED_FORWARD_ABI.offset('bytes_per_group'):x}"
         )
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.comment("Map four waves to sixteen output-feature rows each.")
@@ -240,7 +251,7 @@ class FixedGroupedQ8ForwardLowering(SignedInt8ForwardLowering):
 
         asm.label(".LFixedGroupedQ80BlockLoop")
         if weight_lane_offset is None:
-            self._emit_signed_int8_tiled_weight_stage(
+            mechanics.emit_weight_stage(
                 asm,
                 tiled_registers,
                 tiled_scale_layout,
@@ -251,10 +262,8 @@ class FixedGroupedQ8ForwardLowering(SignedInt8ForwardLowering):
                 f"v_add_nc_u32 v{weight_stage_address}, "
                 f"v{weight_address}, v{weight_lane_offset}"
             )
-            self._emit_signed_int8_tiled_weight_loads(
-                asm, tiled_registers, group_base=0
-            )
-        self._emit_signed_int8_tiled_activation_loads(
+            mechanics.emit_weight_loads(asm, tiled_registers, group_base=0)
+        mechanics.emit_activation_loads(
             asm,
             tiled_registers,
             registers.activation_address,
@@ -262,7 +271,7 @@ class FixedGroupedQ8ForwardLowering(SignedInt8ForwardLowering):
             groups_per_lane,
         )
         if weight_lane_offset is None:
-            self._emit_signed_int8_tiled_weight_writes(
+            mechanics.emit_weight_writes(
                 asm,
                 tiled_registers,
                 group_base=0,
@@ -271,7 +280,7 @@ class FixedGroupedQ8ForwardLowering(SignedInt8ForwardLowering):
         else:
             if weight_payload_lds_address is None or weight_scale_lds_address is None:
                 raise ValueError("fixed Q8 weight-stage hoist is incomplete")
-            self._emit_signed_int8_tiled_weight_writes_to_addresses(
+            mechanics.emit_weight_writes_to_addresses(
                 asm,
                 tiled_registers,
                 group_base=0,
@@ -279,7 +288,7 @@ class FixedGroupedQ8ForwardLowering(SignedInt8ForwardLowering):
                 lds_address=weight_payload_lds_address,
                 scale_lds_address=weight_scale_lds_address,
             )
-        self._emit_signed_int8_tiled_activation_writes(
+        mechanics.emit_activation_writes(
             asm,
             tiled_registers,
             registers.activation_lds_address,
@@ -314,7 +323,7 @@ class FixedGroupedQ8ForwardLowering(SignedInt8ForwardLowering):
                 f"v{weight_scale_address}"
             )
         for group in range(4):
-            self._emit_signed_int8_tiled_group(
+            mechanics.emit_group(
                 asm,
                 group,
                 tiled_registers,

@@ -162,3 +162,21 @@ The Q4_K B1 transfer screen measured R1 at +0.030% candidate time, R2 at -0.086%
 The local RDNA 3.5 XML inventory names direct global/buffer-to-LDS encodings, but the configured gfx1151 assembler does not expose a usable compute-kernel instruction. rocISA-style buffer `dword`, `b32`, `dwordx4`, and `b128` spellings with an LDS destination failed with invalid operands. LLVM's `global_load_dword ... lds` spelling rejected the LDS operand, and canonical `global_load_lds_dword` reported that the instruction is unsupported on gfx1151. The corresponding LLVM gfx11 assembler test also classifies `global_load_lds_dword` as unsupported. R4 is therefore unsupported by the current target/toolchain, not an implementable IQ2_S candidate.
 
 The reopened pass is closed: R1-R3 are rejected by the shared timing gate and R4 is target/toolchain-unsupported. The retained payload-prefetch identity, selected source, public dispatch, generated bundles, packaging, and HIP fallback remain unchanged. Durable scripts, reports, probe source, and independent artifacts are under `~/tmp/torch-ggml-ops/`.
+
+## Reopened source-level optimization review
+
+The R1-R4 closure above remains valid for its original routed-prologue, address-reduction, and direct-to-LDS premises. A later source review found one narrower non-paired initialization premise that was not part of that campaign. It is recorded here as a pending experiment, not as a retained result.
+
+### N1 partial zero-bank initialization
+
+The non-paired IQ2_S decoder uses `v92:v93` for live decoder state and also places those registers in the nominal eight-register zero-accumulator bank. Full zero-bank hoisting would therefore corrupt values that must be repaired after every decode. The safe candidate initializes only `v94:v99` once before the row-tile decode loop and retains the two `v92:v93` repairs after each decoded block.
+
+The source-level accounting is separate at each scale. The candidate removes six repeated vector moves from each decoded-block body and adds the same six moves to one row-tile setup. For the K512 row tile, which has two decoded blocks, the amortized dynamic reduction is six moves per row tile; this is not a timing result. Static emitted instructions, per-block instructions, and amortized row-tile instructions must be reported separately after lowering.
+
+N1 requires its own typed initialization policy and canonical identity. It must preserve the existing decoder register ownership, direct packed-weight consumption, exact integer and BF16 arithmetic, four barriers, waits, zero private storage, no spills or scratch, deterministic generation, and complete-call contract. It is unqualified until independent gfx1151 assembly and linking, metadata and resource inspection, exactness and mutation checks, deterministic rebuilds, and warmed prequantized and complete-call timing against the installed control all pass.
+
+The ordinary decoded-LDS Q2_K, Q4_K, and Q5_K bodies do not inherit N1: their zero bank is already initialized once per row tile. Any cross-format transfer must be re-derived from the physical plan rather than inferred from the paired lifetime finding.
+
+### Recursive review continuation
+
+The historical final classification remains scoped to the old R1-R4 premise. Implement and qualify every actionable N1 finding, then repeat the complete source, artifact, resource, correctness, determinism, and timing review from the changed premise. A fresh recursive pass is required before completion can be declared; source-level instruction reductions alone cannot close this record. Public dispatch, generated bundles, packaging, and HIP fallback remain outside this experiment.

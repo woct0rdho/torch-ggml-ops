@@ -1,202 +1,154 @@
 {
-  "ProblemType": {
-    "OperationType": "MMQBackward",
-    "QuantDataType": "Q6_K",
-    "DataTypeA": "BFloat16",
-    "DataTypeB": "Q6_K",
-    "DestDataType": "BFloat16",
-    "ComputeDataType": "Float",
-    "TransposeA": false,
-    "TransposeB": false
+  "ArtifactKind": "DeploymentCatalog",
+  "KernelFamily": "OrdinaryBackward",
+  "ProblemContract": {
+    "quant_type": "Q6_K",
+    "block_values": 256,
+    "packed_weight_block_bytes": 210,
+    "kernel_language": "Assembly",
+    "isa": [
+      11,
+      5,
+      1
+    ],
+    "wavefront_size": 32,
+    "activation_type": "BFloat16",
+    "destination_type": "BFloat16",
+    "compute_type": "Float32",
+    "abi": "BackwardOutputA",
+    "code_object_version": 5
   },
-  "Solutions": [
+  "KernelSpecs": [
     {
-      "KernelLanguage": "Assembly",
-      "ISA": [
-        11,
-        5,
-        1
-      ],
-      "WavefrontSize": 32,
-      "WorkGroup": [
-        32,
-        4,
-        1
-      ],
-      "MatrixInstruction": [
-        16,
-        16,
-        16,
-        1,
-        1,
-        1,
-        2,
-        4,
-        1
-      ],
-      "MacroTile0": 64,
-      "MacroTile1": 32,
-      "DepthU": 64,
-      "GlobalReadVectorWidthA": 16,
-      "GlobalReadVectorWidthB": 16,
-      "LocalReadVectorWidth": 16,
-      "PrefetchGlobalRead": 2,
-      "PrefetchLocalRead": 1,
-      "1LDSBuffer": 1,
-      "ScheduleIterAlg": 4,
-      "StorePriorityOpt": true,
-      "NumElementsPerBatchStore": 8,
-      "StoreVectorWidth": 1,
-      "WorkGroupMapping": 1,
-      "TransposeLDS": 0,
-      "LdsPadB": 8,
-      "LdsBlockSizePerPadB": 0,
-      "LdsSwizzleChunkB": 0,
-      "DecoderWidth": 16,
-      "PrefetchPackedWeight": true,
-      "PrefetchPackedWeightNext": false,
-      "PackedWeightLaneShare": 1,
-      "Q3KExtraction": "packed",
-      "Q3KPairing": "Inactive",
-      "Q5KExtraction": "packed",
-      "Q5KNibbleShiftHoist": false,
-      "Q5KMetadataVectorLoad": false,
-      "Q6KExtraction": "packed_vopd",
-      "Q8KExtraction": "packed"
+      "geometry": {
+        "work_group": [
+          32,
+          4,
+          1
+        ],
+        "mi_wave_tile": [
+          1,
+          2
+        ],
+        "depth_u": 64,
+        "work_group_mapping": 1
+      },
+      "memory": {
+        "lds_layout": {
+          "kind": "Padded",
+          "pad_b": 8
+        }
+      },
+      "pipeline": {
+        "global_read_prefetch": 2,
+        "local_read_prefetch": 1,
+        "lds_buffering": "Single",
+        "schedule": "SIA4",
+        "packed_weight_prefetch": "CurrentTile",
+        "packed_weight_lane_share": 1
+      },
+      "store": {
+        "priority": "Raised"
+      },
+      "decode": {
+        "extraction": "packed_vopd"
+      }
     },
     {
-      "KernelLanguage": "Assembly",
-      "ISA": [
-        11,
-        5,
-        1
-      ],
-      "WavefrontSize": 32,
-      "WorkGroup": [
-        32,
-        4,
-        1
-      ],
-      "MatrixInstruction": [
-        16,
-        16,
-        16,
-        1,
-        1,
-        2,
-        2,
-        4,
-        1
-      ],
-      "MacroTile0": 128,
-      "MacroTile1": 32,
-      "DepthU": 64,
-      "GlobalReadVectorWidthA": 16,
-      "GlobalReadVectorWidthB": 16,
-      "LocalReadVectorWidth": 16,
-      "PrefetchGlobalRead": 2,
-      "PrefetchLocalRead": 1,
-      "1LDSBuffer": 1,
-      "ScheduleIterAlg": 4,
-      "StorePriorityOpt": true,
-      "NumElementsPerBatchStore": 8,
-      "StoreVectorWidth": 1,
-      "WorkGroupMapping": 1,
-      "TransposeLDS": 0,
-      "LdsPadB": 8,
-      "LdsBlockSizePerPadB": 0,
-      "LdsSwizzleChunkB": 0,
-      "DecoderWidth": 16,
-      "PrefetchPackedWeight": true,
-      "PrefetchPackedWeightNext": false,
-      "PackedWeightLaneShare": 1,
-      "Q3KExtraction": "packed",
-      "Q3KPairing": "Inactive",
-      "Q5KExtraction": "packed",
-      "Q5KNibbleShiftHoist": false,
-      "Q5KMetadataVectorLoad": false,
-      "Q6KExtraction": "packed_vopd",
-      "Q8KExtraction": "packed"
+      "geometry": {
+        "work_group": [
+          32,
+          4,
+          1
+        ],
+        "mi_wave_tile": [
+          2,
+          2
+        ],
+        "depth_u": 64,
+        "work_group_mapping": 1
+      },
+      "memory": {
+        "lds_layout": {
+          "kind": "Padded",
+          "pad_b": 8
+        }
+      },
+      "pipeline": {
+        "global_read_prefetch": 2,
+        "local_read_prefetch": 1,
+        "lds_buffering": "Single",
+        "schedule": "SIA4",
+        "packed_weight_prefetch": "CurrentTile",
+        "packed_weight_lane_share": 1
+      },
+      "store": {
+        "priority": "Raised"
+      },
+      "decode": {
+        "extraction": "packed_vopd"
+      }
     },
     {
-      "KernelLanguage": "Assembly",
-      "ISA": [
-        11,
-        5,
-        1
-      ],
-      "WavefrontSize": 32,
-      "WorkGroup": [
-        32,
-        4,
-        1
-      ],
-      "MatrixInstruction": [
-        16,
-        16,
-        16,
-        1,
-        1,
-        4,
-        4,
-        4,
-        1
-      ],
-      "MacroTile0": 256,
-      "MacroTile1": 64,
-      "DepthU": 32,
-      "GlobalReadVectorWidthA": 16,
-      "GlobalReadVectorWidthB": 16,
-      "LocalReadVectorWidth": 16,
-      "PrefetchGlobalRead": 2,
-      "PrefetchLocalRead": 1,
-      "1LDSBuffer": 1,
-      "ScheduleIterAlg": 4,
-      "StorePriorityOpt": true,
-      "NumElementsPerBatchStore": 8,
-      "StoreVectorWidth": 1,
-      "WorkGroupMapping": 1,
-      "TransposeLDS": 0,
-      "LdsPadB": 8,
-      "LdsBlockSizePerPadB": 0,
-      "LdsSwizzleChunkB": 0,
-      "DecoderWidth": 16,
-      "PrefetchPackedWeight": true,
-      "PrefetchPackedWeightNext": true,
-      "PackedWeightLaneShare": 1,
-      "Q3KExtraction": "packed",
-      "Q3KPairing": "Inactive",
-      "Q5KExtraction": "packed",
-      "Q5KNibbleShiftHoist": false,
-      "Q5KMetadataVectorLoad": false,
-      "Q6KExtraction": "packed_vopd",
-      "Q8KExtraction": "packed"
+      "geometry": {
+        "work_group": [
+          32,
+          4,
+          1
+        ],
+        "mi_wave_tile": [
+          4,
+          4
+        ],
+        "depth_u": 32,
+        "work_group_mapping": 1
+      },
+      "memory": {
+        "lds_layout": {
+          "kind": "Padded",
+          "pad_b": 8
+        }
+      },
+      "pipeline": {
+        "global_read_prefetch": 2,
+        "local_read_prefetch": 1,
+        "lds_buffering": "Single",
+        "schedule": "SIA4",
+        "packed_weight_prefetch": "CurrentAndNextTile",
+        "packed_weight_lane_share": 1
+      },
+      "store": {
+        "priority": "Raised"
+      },
+      "decode": {
+        "extraction": "packed_vopd"
+      }
     }
   ],
   "ExactLogic": [
     {
-      "ProblemSize": {
-        "M": 64,
-        "N": 2048,
-        "K": 248320
+      "Problem": {
+        "m": 64,
+        "n": 2048,
+        "k": 248320
       },
-      "SolutionIndex": 0
+      "KernelSpecIndex": 0
     },
     {
-      "ProblemSize": {
-        "M": 128,
-        "N": 2048,
-        "K": 248320
+      "Problem": {
+        "m": 128,
+        "n": 2048,
+        "k": 248320
       },
-      "SolutionIndex": 1
+      "KernelSpecIndex": 1
     },
     {
-      "ProblemSize": {
-        "M": 256,
-        "N": 2048,
-        "K": 248320
+      "Problem": {
+        "m": 256,
+        "n": 2048,
+        "k": 248320
       },
-      "SolutionIndex": 2
+      "KernelSpecIndex": 2
     }
   ]
 }

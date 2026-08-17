@@ -1,146 +1,179 @@
 {
-  "ProblemType": {
-    "OperationType": "MMQForward",
-    "QuantDataType": "Q6_K",
-    "DataTypeA": "Q8_1",
-    "DataTypeB": "Q6_K",
-    "DestDataType": "BFloat16",
-    "ComputeDataType": "Float",
-    "TransposeA": false,
-    "TransposeB": true
+  "ArtifactKind": "DeploymentCatalog",
+  "KernelFamily": "OrdinaryForward",
+  "ProblemContract": {
+    "quant_type": "Q6_K",
+    "block_values": 256,
+    "packed_weight_block_bytes": 210,
+    "activation_layout": "F32_D4",
+    "activation_block_bytes": 144,
+    "kernel_language": "Assembly",
+    "isa": [
+      11,
+      5,
+      1
+    ],
+    "wavefront_size": 32,
+    "signed_weight": true,
+    "signed_activation": true,
+    "wmma_clamp": false,
+    "weight_decode": "DirectQ6Signed",
+    "scale_arithmetic": "Int32ScaleF32",
+    "arithmetic_contract": "SignedQ6Int8ScaleIntegerWmmaF32Correction",
+    "destination_type": "BFloat16",
+    "bf16_rounding": "RNEPreserveNaN",
+    "abi": "PackedWeightQ81OutputV1"
   },
-  "Solutions": [
+  "KernelSpecs": [
     {
-      "KernelLanguage": "Assembly",
-      "ISA": [
-        11,
-        5,
-        1
-      ],
-      "WavefrontSize": 32,
-      "WorkGroup": [
-        32,
-        4,
-        1
-      ],
-      "MatrixInstruction": [
-        16,
-        16,
-        16,
-        1,
-        1,
-        1,
-        4,
-        4,
-        1
-      ],
-      "MacroTile0": 64,
-      "MacroTile1": 64,
-      "DepthU": 32,
-      "ActivationLayout": "F32_D4",
-      "ActivationBlockBytes": 144,
-      "PackedWeightBlockBytes": 210,
-      "OperandSource": "Q6StructuredDecoded",
-      "WeightDecode": "DirectQ6Signed",
-      "LdsAddressHoist": "StructuredDecodeDot",
-      "ActivationAddressing": "MadU24",
-      "MetadataConversion": "Float16DToFloat32Signed8Scale",
-      "ScaleArithmetic": "Int32ScaleF32",
-      "OutputStore": "BFloat16RNEClauseBatch8IncrementRows",
-      "SignedWeight": true,
-      "SignedActivation": true,
-      "WmmaClamp": false,
-      "MetadataSchedule": "Serialized",
-      "EpilogueTilesAhead": 8,
-      "EpilogueDependencyWidth": 2,
-      "EpiloguePriority": 0,
-      "Q6GlobalReadCachePolicy": "InvalidateL0",
-      "Q6OutputTraversal": "OutputRoleWavefront",
-      "Q6StageClustering": "RowBatchedDecodeOrder",
-      "Q6LatencyPolicy": "WavefrontDependencyDistance",
-      "Q6PressurePolicy": "ExplicitRoleLifetime",
-      "Q6WaitPolicy": "ProducerFirstUse",
-      "Q6PairingPolicy": "DependencyCompatibleDualIssue"
+      "geometry": {
+        "work_group": [
+          32,
+          4,
+          1
+        ],
+        "matrix_instruction": [
+          16,
+          16,
+          16,
+          1
+        ],
+        "depth_u": 32
+      },
+      "ownership": {
+        "mi_wave_group": [
+          4,
+          1
+        ],
+        "mi_wave_tile": [
+          1,
+          4
+        ]
+      },
+      "global_memory": {
+        "operand_source": "Q6StructuredDecoded",
+        "activation_addressing": "MadU24",
+        "global_read_cache_policy": "InvalidateL0"
+      },
+      "lds": {
+        "address_hoist": "StructuredDecodeDot"
+      },
+      "decode": {
+        "metadata_conversion": "Float16DToFloat32Signed8Scale"
+      },
+      "epilogue": {
+        "output_store": "BFloat16RNEClauseBatch8IncrementRows",
+        "pipeline": {
+          "dependency_width": 2,
+          "scope": "StoreBatch"
+        }
+      },
+      "instruction_policy": {
+        "dependency_delay_mode": "None",
+        "q6_physical_plan": "CanonicalRegisterRoles"
+      },
+      "semantic_schedule": {
+        "traversal": "OutputRoleWavefront",
+        "clustering": "RowBatchedDecodeOrder",
+        "latency": "WavefrontDependencyDistance",
+        "pressure": "ExplicitRoleLifetime",
+        "wait": "ProducerFirstUse",
+        "pairing": "DependencyCompatibleDualIssue"
+      },
+      "resource_limits": {
+        "max_vgprs": 256,
+        "max_sgprs": 106,
+        "max_lds_bytes": 65536,
+        "require_zero_spills": true
+      }
     },
     {
-      "KernelLanguage": "Assembly",
-      "ISA": [
-        11,
-        5,
-        1
-      ],
-      "WavefrontSize": 32,
-      "WorkGroup": [
-        32,
-        4,
-        1
-      ],
-      "MatrixInstruction": [
-        16,
-        16,
-        16,
-        1,
-        1,
-        1,
-        4,
-        4,
-        1
-      ],
-      "MacroTile0": 128,
-      "MacroTile1": 64,
-      "DepthU": 32,
-      "ActivationLayout": "F32_D4",
-      "ActivationBlockBytes": 144,
-      "PackedWeightBlockBytes": 210,
-      "OperandSource": "Q6StructuredDecoded",
-      "WeightDecode": "DirectQ6Signed",
-      "LdsAddressHoist": "StructuredDecodeDot",
-      "ActivationAddressing": "MadU24",
-      "MetadataConversion": "Float16DToFloat32Signed8Scale",
-      "ScaleArithmetic": "Int32ScaleF32",
-      "OutputStore": "BFloat16RNEClauseBatch8IncrementRows",
-      "SignedWeight": true,
-      "SignedActivation": true,
-      "WmmaClamp": false,
-      "MetadataSchedule": "Serialized",
-      "EpilogueTilesAhead": 8,
-      "EpilogueDependencyWidth": 2,
-      "EpiloguePriority": 0,
-      "Q6EpiloguePipelineScope": "FullTile",
-      "Q6DependencyDelayMode": "Explicit",
-      "Q6GlobalReadCachePolicy": "InvalidateL0",
-      "Q6OutputTraversal": "OutputRoleWavefront",
-      "Q6StageClustering": "RowBatchedDecodeOrder",
-      "Q6LatencyPolicy": "WavefrontDependencyDistance",
-      "Q6PressurePolicy": "ExplicitRoleLifetime",
-      "Q6WaitPolicy": "ProducerFirstUse",
-      "Q6PairingPolicy": "DependencyCompatibleDualIssue"
+      "geometry": {
+        "work_group": [
+          32,
+          4,
+          1
+        ],
+        "matrix_instruction": [
+          16,
+          16,
+          16,
+          1
+        ],
+        "depth_u": 32
+      },
+      "ownership": {
+        "mi_wave_group": [
+          4,
+          1
+        ],
+        "mi_wave_tile": [
+          2,
+          4
+        ]
+      },
+      "global_memory": {
+        "operand_source": "Q6StructuredDecoded",
+        "activation_addressing": "MadU24",
+        "global_read_cache_policy": "InvalidateL0"
+      },
+      "lds": {
+        "address_hoist": "StructuredDecodeDot"
+      },
+      "decode": {
+        "metadata_conversion": "Float16DToFloat32Signed8Scale"
+      },
+      "epilogue": {
+        "output_store": "BFloat16RNEClauseBatch8IncrementRows",
+        "pipeline": {
+          "dependency_width": 2,
+          "scope": "FullTile"
+        }
+      },
+      "instruction_policy": {
+        "dependency_delay_mode": "Explicit",
+        "q6_physical_plan": "CanonicalRegisterRoles"
+      },
+      "semantic_schedule": {
+        "traversal": "OutputRoleWavefront",
+        "clustering": "RowBatchedDecodeOrder",
+        "latency": "WavefrontDependencyDistance",
+        "pressure": "ExplicitRoleLifetime",
+        "wait": "ProducerFirstUse",
+        "pairing": "DependencyCompatibleDualIssue"
+      },
+      "resource_limits": {
+        "max_vgprs": 256,
+        "max_sgprs": 106,
+        "max_lds_bytes": 65536,
+        "require_zero_spills": true
+      }
     }
   ],
   "ExactLogic": [
     {
-      "ProblemSize": {
-        "M": 64,
-        "N": 248320,
-        "K": 2048
+      "Problem": {
+        "m": 64,
+        "n": 248320,
+        "k": 2048
       },
-      "SolutionIndex": 0
+      "KernelSpecIndex": 0
     },
     {
-      "ProblemSize": {
-        "M": 128,
-        "N": 248320,
-        "K": 2048
+      "Problem": {
+        "m": 128,
+        "n": 248320,
+        "k": 2048
       },
-      "SolutionIndex": 1
+      "KernelSpecIndex": 1
     },
     {
-      "ProblemSize": {
-        "M": 256,
-        "N": 248320,
-        "K": 2048
+      "Problem": {
+        "m": 256,
+        "n": 248320,
+        "k": 2048
       },
-      "SolutionIndex": 1
+      "KernelSpecIndex": 1
     }
   ]
 }

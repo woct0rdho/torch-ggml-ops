@@ -1,5 +1,6 @@
 """Targeted branch and complete executable-line coverage for the backward writer."""
 
+import copy
 from dataclasses import asdict, fields, replace
 
 import pytest
@@ -29,6 +30,7 @@ from tools.ggtensile.mmq_bwd_spec import (
     BackwardExtraction,
     BackwardKernelSpec,
     BackwardPipelineSpec,
+    BackwardProblemContract,
     BackwardQ3Pairing,
     DerivedBackwardState,
     backward_mechanism_contract,
@@ -38,6 +40,7 @@ from tools.ggtensile.model import (
     ForwardSolution,
     ProblemSize,
     ProblemType,
+    SchemaError,
     SolutionKey,
 )
 from tools.ggtensile.toolchain import Toolchain
@@ -67,6 +70,77 @@ def test_backward_pipeline_policy_rejects_unparseable_modes() -> None:
     )
     assert BackwardQ3Pairing.try_from_serialized("invalid") is None
     assert BackwardExtraction.try_from_serialized("invalid") is None
+
+
+def test_backward_canonical_schema_rejects_every_noncanonical_boundary() -> None:
+    size = ProblemSize(128, 256, 128)
+    pilot = BackwardSolution.pilot()
+    key = SolutionKey(ProblemType.mmq_backward("Q4_K"), size, pilot)
+    contract = BackwardProblemContract.from_solution_key(key)
+    spec = BackwardKernelSpec.from_solution(pilot)
+    mapping = spec.to_mapping("Q4_K")
+
+    invalid_contract = contract.to_mapping()
+    invalid_contract["quant_type"] = "Q2_K"
+    with pytest.raises(SchemaError, match="unsupported backward quant"):
+        BackwardProblemContract.from_mapping(invalid_contract, size)
+
+    invalid_contract = contract.to_mapping()
+    invalid_contract["activation_type"] = "Float16"
+    with pytest.raises(SchemaError, match="not canonical"):
+        BackwardProblemContract.from_mapping(invalid_contract, size)
+
+    with pytest.raises(ValueError, match="not canonically representable"):
+        BackwardKernelSpec.from_solution(
+            replace(pilot, lds_pad_b=8, lds_swizzle_chunk_b=8)
+        ).to_mapping("Q4_K")
+    with pytest.raises(ValueError, match="unsupported backward quant type"):
+        spec.to_mapping("Q2_K")
+
+    invalid = copy.deepcopy(mapping)
+    invalid["decode"] = {"extraction": "packed"}
+    with pytest.raises(SchemaError, match="no serialized backward decode"):
+        BackwardKernelSpec.from_mapping(invalid, "Q4_K")
+
+    invalid = copy.deepcopy(mapping)
+    invalid["geometry"]["work_group"] = [0, 4, 1]
+    with pytest.raises(SchemaError, match="must be positive"):
+        BackwardKernelSpec.from_mapping(invalid, "Q4_K")
+
+    invalid = copy.deepcopy(mapping)
+    invalid["geometry"]["work_group"] = [33, 1, 1]
+    with pytest.raises(SchemaError, match="whole wave32"):
+        BackwardKernelSpec.from_mapping(invalid, "Q4_K")
+
+    invalid = copy.deepcopy(mapping)
+    invalid["memory"]["lds_layout"] = "Padded"
+    with pytest.raises(SchemaError, match="lds_layout must be a mapping"):
+        BackwardKernelSpec.from_mapping(invalid, "Q4_K")
+
+    invalid = copy.deepcopy(mapping)
+    invalid["memory"]["lds_layout"] = {"kind": "Unknown"}
+    with pytest.raises(SchemaError, match="invalid backward LDS layout kind"):
+        BackwardKernelSpec.from_mapping(invalid, "Q4_K")
+
+    invalid = copy.deepcopy(mapping)
+    invalid["pipeline"]["schedule"] = "SIA99"
+    with pytest.raises(SchemaError, match="invalid schedule"):
+        BackwardKernelSpec.from_mapping(invalid, "Q4_K")
+
+    q3 = replace(pilot, q3_k_pairing="Full")
+    invalid = BackwardKernelSpec.from_solution(q3).to_mapping("Q3_K")
+    invalid["decode"]["pairing"] = "Inactive"
+    with pytest.raises(SchemaError, match="must be an active policy"):
+        BackwardKernelSpec.from_mapping(invalid, "Q3_K")
+
+    with pytest.raises(SchemaError, match="unsupported backward quant type"):
+        BackwardKernelSpec.from_mapping(
+            BackwardKernelSpec.from_solution(q3).to_mapping("Q3_K"), "Q2_K"
+        )
+
+    invalid_spec = replace(spec, geometry=replace(spec.geometry, isa=(11, 0, 0)))
+    with pytest.raises(ValueError, match="ISA and wavefront"):
+        invalid_spec.to_solution(contract)
 
 
 def test_backward_pipeline_validation_keeps_field_errors_independent() -> None:

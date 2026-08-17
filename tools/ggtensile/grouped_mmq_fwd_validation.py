@@ -1,10 +1,9 @@
 """Validation for isolated grouped MMQ forward solution keys."""
 
 from .grouped_mmq_fwd_model import (
-    GroupedForwardProblem,
-    GroupedForwardSolution,
     GroupedForwardSolutionKey,
 )
+from .grouped_mmq_fwd_spec import grouped_forward_capability_rejection_reason
 from .validation import RejectReason
 
 
@@ -12,14 +11,17 @@ def validate_grouped_forward_solution(
     key: GroupedForwardSolutionKey,
 ) -> tuple[RejectReason, ...]:
     reasons: list[RejectReason] = []
-    expected_problem = {
-        "Q2_K": GroupedForwardProblem.q2_k,
-        "Q4_K": GroupedForwardProblem.q4_k,
-        "Q5_K": GroupedForwardProblem.q5_k,
-        "IQ2_S": GroupedForwardProblem.iq2_s,
+    expected_shape = {
+        "Q2_K": (4096, 2048),
+        "Q4_K": (2048, 512),
+        "Q5_K": (2048, 512),
+        "IQ2_S": (2048, 512),
     }.get(key.problem.quant_data_type)
-    if expected_problem is None or key.problem != expected_problem(
-        key.problem.aggregate_rows
+    if (
+        expected_shape is None
+        or (key.problem.output_features, key.problem.input_features) != expected_shape
+        or key.problem.physical_experts != 256
+        or key.problem.max_route_entries != 256
     ):
         reasons.append(
             RejectReason(
@@ -38,69 +40,15 @@ def validate_grouped_forward_solution(
                 "GroupedForwardProblem",
             )
         )
-    q2_solutions = {
-        GroupedForwardSolution.q2_k_serial_decoded_lds_32(),
-        GroupedForwardSolution.q2_k_serial_decoded_lds_64(),
-        GroupedForwardSolution.q2_k_serial_decoded_lds_32_unrolled(),
-        GroupedForwardSolution.q2_k_serial_decoded_lds_64_unrolled(),
-        GroupedForwardSolution.q2_k_serial_decoded_lds_128_unrolled(),
-        GroupedForwardSolution.q2_k_serial_decoded_lds_32_hip_association(),
-        GroupedForwardSolution.q2_k_serial_decoded_lds_64_hip_association(),
-        GroupedForwardSolution.q2_k_serial_decoded_lds_32_hip_partial_lds(),
-        GroupedForwardSolution.q2_k_serial_decoded_lds_32_hip_pre_negated_dm(),
-        GroupedForwardSolution.q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2(),
-        GroupedForwardSolution.q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2_meta2(),
-        GroupedForwardSolution.q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2_meta2_distributed(),
-        GroupedForwardSolution.q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2_meta2_mixed16(),
-        GroupedForwardSolution.q2_k_serial_decoded_lds_32_hip_pre_negated_dm_write2_meta2_distributed_mixed16(),
-        GroupedForwardSolution.q2_k_serial_decoded_lds_64_hip_distributed(),
-    }
-    q4_solutions = {
-        GroupedForwardSolution.q4_k_serial_direct(),
-        GroupedForwardSolution.q4_k_serial_decoded_lds(),
-        GroupedForwardSolution.q4_k_serial_decoded_lds_64(),
-        GroupedForwardSolution.q4_k_serial_decoded_lds_scheduled(),
-        GroupedForwardSolution.q4_k_serial_decoded_lds_scheduled_a1d2p2(),
-        GroupedForwardSolution.q4_k_serial_decoded_lds_scheduled_a1d4p2(),
-        GroupedForwardSolution.q4_k_serial_decoded_lds_64_scheduled(),
-        GroupedForwardSolution.q4_k_serial_decoded_lds_64_scheduled_mixed32(),
-        GroupedForwardSolution.q4_k_serial_decoded_lds_64_scheduled_mixed32_a1d2p2(),
-        GroupedForwardSolution.q4_k_serial_decoded_lds_64_scheduled_mixed32_a1d4p2(),
-    }
-    q5_solutions = {
-        GroupedForwardSolution.q5_k_serial_decoded_lds(),
-        GroupedForwardSolution.q5_k_serial_decoded_lds_scheduled(),
-        GroupedForwardSolution.q5_k_serial_decoded_lds_scheduled_a1d2p2(),
-        GroupedForwardSolution.q5_k_serial_decoded_lds_scheduled_mixed64(),
-        GroupedForwardSolution.q5_k_serial_decoded_lds_scheduled_mixed64_a1d2p2(),
-        GroupedForwardSolution.q5_k_serial_decoded_lds_scheduled_mixed64_a1d4p2(),
-        GroupedForwardSolution.q5_k_serial_decoded_lds_scheduled_mixed64_mixed32(),
-        GroupedForwardSolution.q5_k_serial_decoded_lds_scheduled_mixed64_mixed32_a1d2p2(),
-        GroupedForwardSolution.q5_k_serial_decoded_lds_scheduled_mixed64_mixed32_a1d4p2(),
-        GroupedForwardSolution.q5_k_serial_decoded_lds_64(),
-        GroupedForwardSolution.q5_k_serial_decoded_lds_64_scheduled(),
-        GroupedForwardSolution.q5_k_serial_decoded_lds_64_scheduled_a1d2p2(),
-        GroupedForwardSolution.q5_k_serial_decoded_lds_64_scheduled_a1d4p2(),
-        GroupedForwardSolution.q5_k_serial_decoded_lds_64_scheduled_mixed32(),
-        GroupedForwardSolution.q5_k_serial_decoded_lds_64_scheduled_mixed32_a1d2p2(),
-        GroupedForwardSolution.q5_k_serial_decoded_lds_64_scheduled_mixed32_a1d4p2(),
-    }
-    iq2_s_solutions = {
-        GroupedForwardSolution.iq2_s_serial_full_weight_lds_64(),
-        GroupedForwardSolution.iq2_s_serial_full_weight_lds_64_linear_activation(),
-        GroupedForwardSolution.iq2_s_serial_full_weight_lds_64_linear_payload_prefetch(),
-    }
-    expected_solutions = {
-        "Q2_K": q2_solutions,
-        "Q4_K": q4_solutions,
-        "Q5_K": q5_solutions,
-        "IQ2_S": iq2_s_solutions,
-    }.get(key.problem.quant_data_type, set())
-    if key.solution not in expected_solutions:
+    rejection = grouped_forward_capability_rejection_reason(
+        key.problem,
+        key.solution,
+    )
+    if rejection is not None:
         reasons.append(
             RejectReason(
                 "grouped_forward.solution.unimplemented",
-                "grouped forward currently implements Q2_K/Q4_K/Q5_K decoded controls, IQ2_S full-weight LDS, and the Q4_K direct control",
+                rejection,
                 ("Solution",),
                 "GroupedForwardSolution",
             )

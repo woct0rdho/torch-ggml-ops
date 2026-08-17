@@ -4,6 +4,10 @@ from dataclasses import dataclass
 
 from .grouped_mmq_fwd_pair_physical import GroupedIQ2SPairScalarRegisterPlan
 from .grouped_mmq_fwd_pair_spec import GroupedForwardPairRouteState
+from .kernel_abi import (
+    GROUPED_FORWARD_PAIR_ABI,
+    GROUPED_FORWARD_PAIR_ROW_TASK_ABI,
+)
 from .kernel_writer_assembly import Assembly
 
 
@@ -26,35 +30,41 @@ class GroupedPairRouteEmitter:
 
     def _emit_kernarg_loads(self, asm: Assembly) -> None:
         scalar = self.registers
-        asm.comment(f"Load the paired 80-byte grouped {self.quant_type} ABI.")
-        for pointer, offset in (
-            (scalar.weights_first, 0x00),
-            (scalar.weights_second, 0x08),
-            (scalar.activations, 0x10),
-            (scalar.output_first, 0x18),
-            (scalar.output_second, 0x20),
-            (scalar.expert_indices, 0x28),
-            (scalar.expert_offsets, 0x30),
+        abi = GROUPED_FORWARD_PAIR_ABI
+        asm.comment(
+            f"Load the paired {abi.segment_size}-byte grouped {self.quant_type} ABI."
+        )
+        for pointer, argument_name in (
+            (scalar.weights_first, "weights_first"),
+            (scalar.weights_second, "weights_second"),
+            (scalar.activations, "activations"),
+            (scalar.output_first, "dst_first"),
+            (scalar.output_second, "dst_second"),
+            (scalar.expert_indices, "expert_indices"),
+            (scalar.expert_offsets, "expert_offsets"),
         ):
             asm.inst(
                 f"s_load_dwordx2 s[{pointer.first_register}:{pointer.first_register + 1}], "
                 f"s[{scalar.kernarg.first_register}:{scalar.kernarg.first_register + 1}], "
-                f"0x{offset:x}"
+                f"0x{abi.offset(argument_name):x}"
             )
         asm.inst(
             f"s_load_dwordx2 s[{scalar.num_experts.first_register}:"
             f"{scalar.nrows_weight.first_register}], "
-            f"s[{scalar.kernarg.first_register}:{scalar.kernarg.first_register + 1}], 0x38"
+            f"s[{scalar.kernarg.first_register}:{scalar.kernarg.first_register + 1}], "
+            f"0x{abi.offset('num_experts'):x}"
         )
         asm.inst(
             f"s_load_dwordx2 s[{scalar.nrows_activation.first_register}:"
             f"{scalar.blocks_per_weight_row.first_register}], "
-            f"s[{scalar.kernarg.first_register}:{scalar.kernarg.first_register + 1}], 0x40"
+            f"s[{scalar.kernarg.first_register}:{scalar.kernarg.first_register + 1}], "
+            f"0x{abi.offset('nrows_activation'):x}"
         )
         asm.inst(
             f"s_load_dwordx2 s[{scalar.bytes_per_expert.first_register}:"
             f"{scalar.bytes_per_expert.first_register + 1}], "
-            f"s[{scalar.kernarg.first_register}:{scalar.kernarg.first_register + 1}], 0x48"
+            f"s[{scalar.kernarg.first_register}:{scalar.kernarg.first_register + 1}], "
+            f"0x{abi.offset('bytes_per_expert'):x}"
         )
         asm.inst("s_waitcnt lgkmcnt(0)")
 
@@ -156,37 +166,44 @@ class GroupedPairRowTaskEmitter:
 
     def _emit_kernarg_loads(self, asm: Assembly) -> None:
         scalar = self.registers
-        asm.comment(f"Load the paired 96-byte grouped {self.quant_type} row-task ABI.")
-        for pointer, offset in (
-            (scalar.weights_first, 0x00),
-            (scalar.weights_second, 0x08),
-            (scalar.activations, 0x10),
-            (scalar.output_first, 0x18),
-            (scalar.output_second, 0x20),
-            (scalar.task_count, 0x28),
-            (scalar.task_experts, 0x30),
-            (scalar.task_row_starts, 0x38),
-            (scalar.task_row_ends, 0x40),
+        abi = GROUPED_FORWARD_PAIR_ROW_TASK_ABI
+        asm.comment(
+            f"Load the paired {abi.segment_size}-byte grouped {self.quant_type} "
+            "row-task ABI."
+        )
+        for pointer, argument_name in (
+            (scalar.weights_first, "weights_first"),
+            (scalar.weights_second, "weights_second"),
+            (scalar.activations, "activations"),
+            (scalar.output_first, "dst_first"),
+            (scalar.output_second, "dst_second"),
+            (scalar.task_count, "task_count"),
+            (scalar.task_experts, "task_experts"),
+            (scalar.task_row_starts, "task_row_starts"),
+            (scalar.task_row_ends, "task_row_ends"),
         ):
             asm.inst(
                 f"s_load_dwordx2 s[{pointer.first_register}:{pointer.first_register + 1}], "
                 f"s[{scalar.kernarg.first_register}:{scalar.kernarg.first_register + 1}], "
-                f"0x{offset:x}"
+                f"0x{abi.offset(argument_name):x}"
             )
         asm.inst(
             f"s_load_dwordx2 s[{scalar.num_experts.first_register}:"
             f"{scalar.nrows_weight.first_register}], "
-            f"s[{scalar.kernarg.first_register}:{scalar.kernarg.first_register + 1}], 0x48"
+            f"s[{scalar.kernarg.first_register}:{scalar.kernarg.first_register + 1}], "
+            f"0x{abi.offset('num_experts'):x}"
         )
         asm.inst(
             f"s_load_dwordx2 s[{scalar.nrows_activation.first_register}:"
             f"{scalar.blocks_per_weight_row.first_register}], "
-            f"s[{scalar.kernarg.first_register}:{scalar.kernarg.first_register + 1}], 0x50"
+            f"s[{scalar.kernarg.first_register}:{scalar.kernarg.first_register + 1}], "
+            f"0x{abi.offset('nrows_activation'):x}"
         )
         asm.inst(
             f"s_load_dwordx2 s[{scalar.bytes_per_expert.first_register}:"
             f"{scalar.bytes_per_expert.first_register + 1}], "
-            f"s[{scalar.kernarg.first_register}:{scalar.kernarg.first_register + 1}], 0x58"
+            f"s[{scalar.kernarg.first_register}:{scalar.kernarg.first_register + 1}], "
+            f"0x{abi.offset('bytes_per_expert'):x}"
         )
         asm.inst("s_waitcnt lgkmcnt(0)")
 

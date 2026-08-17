@@ -5,6 +5,7 @@ from typing import ClassVar
 
 from rocisa import code  # ty: ignore[unresolved-import]
 
+from .kernel_abi import ORDINARY_FORWARD_ABI
 from .kernel_writer_assembly import (
     Assembly,
     DeterministicRegisterPlan,
@@ -92,9 +93,19 @@ class Q6ScheduleEmitter:
 
     def scalar_argument_loads(self) -> None:
         self.inst("s_clause", "0x2")
-        self.inst("s_load_b128", "s[12:15], s[0:1], 0x0")
-        self.inst("s_load_b64", "s[16:17], s[0:1], 0x10")
-        self.inst("s_load_b32", "s22, s[0:1], 0x20")
+        self.inst(
+            "s_load_b128",
+            f"s[12:15], s[0:1], 0x{ORDINARY_FORWARD_ABI.offset('packed_weight'):x}",
+        )
+        self.inst(
+            "s_load_b64",
+            f"s[16:17], s[0:1], 0x{ORDINARY_FORWARD_ABI.offset('output'):x}",
+        )
+        self.inst(
+            "s_load_b32",
+            "s22, s[0:1], "
+            f"0x{ORDINARY_FORWARD_ABI.offset('nrows_activation_padded'):x}",
+        )
 
     def add_u64(self, address: Q6AddressAdd) -> None:
         self.inst(
@@ -1358,7 +1369,10 @@ def _q6_initialize_epilogue_address_cursor(
     emitter: Q6ScheduleEmitter,
     layout: Q6PhysicalLayout,
 ) -> None:
-    emitter.inst("s_load_b32", "s4, s[0:1], 0x18")
+    emitter.inst(
+        "s_load_b32",
+        f"s4, s[0:1], 0x{ORDINARY_FORWARD_ABI.offset('nrows_weight'):x}",
+    )
     emitter.inst("s_lshl_b32", "s0, s2, 6")
     emitter.inst("s_waitcnt", "lgkmcnt(0)")
     emitter.inst(

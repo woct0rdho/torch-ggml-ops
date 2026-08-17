@@ -5,6 +5,7 @@ import pytest
 
 from tools.ggtensile.mmq_bwd_search import (
     backward_candidate_hash,
+    backward_candidate_mapping,
     candidate_domains,
     candidate_neighbors,
     explain_invalid,
@@ -29,9 +30,9 @@ def test_backward_domains_are_linked_deterministic_and_capability_valid() -> Non
             shape,
             domain.knob_groups,
         )
-        assert len({backward_candidate_hash(item) for item in candidates}) == len(
-            candidates
-        )
+        assert len(
+            {backward_candidate_hash(item, quant_type) for item in candidates}
+        ) == len(candidates)
         assert all(not explain_invalid(item, quant_type, shape) for item in candidates)
 
 
@@ -47,7 +48,13 @@ def test_q3_neighbors_serialize_pairing_as_complete_policy() -> None:
         ("packed", "Full"),
         ("scalar", "Inactive"),
     }
-    assert all("Q3KPairing" in candidate.to_mapping() for candidate in candidates)
+    for candidate in candidates:
+        mapping = backward_candidate_mapping(candidate, "Q3_K")
+        kernel_spec = mapping["KernelSpec"]
+        assert isinstance(kernel_spec, dict)
+        decode = kernel_spec["decode"]
+        assert isinstance(decode, dict)
+        assert decode
 
 
 def test_backward_search_rejects_unknown_domains_and_groups() -> None:
@@ -67,7 +74,9 @@ def test_backward_search_rejects_unknown_domains_and_groups() -> None:
 
 def test_backward_candidate_identity_covers_every_serialized_policy() -> None:
     seed = BackwardSolution.pilot()
-    assert backward_candidate_hash(seed) == backward_candidate_hash(seed)
-    assert backward_candidate_hash(seed) != backward_candidate_hash(
-        replace(seed, q8_0_extraction="packed_vopd")
+    assert backward_candidate_hash(seed, "Q8_0") == backward_candidate_hash(
+        seed, "Q8_0"
+    )
+    assert backward_candidate_hash(seed, "Q8_0") != backward_candidate_hash(
+        replace(seed, q8_0_extraction="packed_vopd"), "Q8_0"
     )

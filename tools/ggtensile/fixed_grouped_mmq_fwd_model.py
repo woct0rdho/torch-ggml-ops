@@ -5,7 +5,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from enum import Enum
-from typing import ClassVar
+from typing import ClassVar, TypeVar
 
 from typing_extensions import Self
 
@@ -59,6 +59,17 @@ def _integer_triple(value: object, name: str) -> tuple[int, int, int]:
     return values[0], values[1], values[2]
 
 
+_EnumT = TypeVar("_EnumT", bound=Enum)
+
+
+def _enum(value: object, name: str, enum_type: type[_EnumT]) -> _EnumT:
+    serialized = _string(value, name)
+    try:
+        return enum_type(serialized)
+    except ValueError:
+        raise SchemaError(f"{name} has unsupported value {serialized!r}") from None
+
+
 class FixedForwardOperandSource(str, Enum):
     """Physical Q8_0 dataflow families owned by this experiment."""
 
@@ -75,30 +86,9 @@ class FixedForwardProblem:
     input_features: int
     groups: int
 
-    _KEYS: ClassVar[frozenset[str]] = frozenset(
-        {
-            "QuantDataType",
-            "Tokens",
-            "OutputFeatures",
-            "InputFeatures",
-            "Groups",
-        }
-    )
-
     @classmethod
     def deepseek_q8_0(cls, tokens: int) -> Self:
         return cls("Q8_0", tokens, 1024, 4096, 8)
-
-    @classmethod
-    def from_mapping(cls, value: object) -> Self:
-        item = _mapping(value, "FixedForwardProblem", cls._KEYS)
-        return cls(
-            quant_data_type=_string(item["QuantDataType"], "QuantDataType"),
-            tokens=_integer(item["Tokens"], "Tokens"),
-            output_features=_integer(item["OutputFeatures"], "OutputFeatures"),
-            input_features=_integer(item["InputFeatures"], "InputFeatures"),
-            groups=_integer(item["Groups"], "Groups"),
-        )
 
     @property
     def packed_row_bytes(self) -> int:
@@ -114,15 +104,6 @@ class FixedForwardProblem:
     @property
     def total_activation_rows(self) -> int:
         return self.tokens * self.groups
-
-    def to_mapping(self) -> dict[str, object]:
-        return {
-            "QuantDataType": self.quant_data_type,
-            "Tokens": self.tokens,
-            "OutputFeatures": self.output_features,
-            "InputFeatures": self.input_features,
-            "Groups": self.groups,
-        }
 
 
 @dataclass(frozen=True)
@@ -150,32 +131,6 @@ class FixedForwardSolution:
     signed_weight: bool
     signed_activation: bool
     wmma_clamp: bool
-
-    _KEYS: ClassVar[frozenset[str]] = frozenset(
-        {
-            "KernelLanguage",
-            "ISA",
-            "WavefrontSize",
-            "WorkGroup",
-            "MatrixInstruction",
-            "MacroTileTokens",
-            "MacroTileFeatures",
-            "DepthU",
-            "ActivationLayout",
-            "ActivationBlockBytes",
-            "PackedWeightBlockBytes",
-            "OperandSource",
-            "LdsAddressHoist",
-            "FixedAddressHoist",
-            "WeightDecode",
-            "ActivationAddressing",
-            "ScaleArithmetic",
-            "OutputStore",
-            "SignedWeight",
-            "SignedActivation",
-            "WmmaClamp",
-        }
-    )
 
     @classmethod
     def q8_0_small_m_tiled_lds(cls) -> Self:
@@ -224,79 +179,9 @@ class FixedForwardSolution:
             fixed_address_hoist="ReductionLoopAndWeightStage",
         )
 
-    @classmethod
-    def from_mapping(cls, value: object) -> Self:
-        item = _mapping(value, "FixedForwardSolution", cls._KEYS)
-        try:
-            operand_source = FixedForwardOperandSource(
-                _string(item["OperandSource"], "OperandSource")
-            )
-        except ValueError:
-            raise SchemaError(
-                f"OperandSource has unsupported value {item['OperandSource']!r}"
-            ) from None
-        return cls(
-            kernel_language=_string(item["KernelLanguage"], "KernelLanguage"),
-            isa=_integer_triple(item["ISA"], "ISA"),
-            wavefront_size=_integer(item["WavefrontSize"], "WavefrontSize"),
-            work_group=_integer_triple(item["WorkGroup"], "WorkGroup"),
-            matrix_instruction=tuple(
-                _integer_tuple(item["MatrixInstruction"], "MatrixInstruction", 9)
-            ),
-            macro_tile_tokens=_integer(item["MacroTileTokens"], "MacroTileTokens"),
-            macro_tile_features=_integer(
-                item["MacroTileFeatures"], "MacroTileFeatures"
-            ),
-            depth_u=_integer(item["DepthU"], "DepthU"),
-            activation_layout=_string(item["ActivationLayout"], "ActivationLayout"),
-            activation_block_bytes=_integer(
-                item["ActivationBlockBytes"], "ActivationBlockBytes"
-            ),
-            packed_weight_block_bytes=_integer(
-                item["PackedWeightBlockBytes"], "PackedWeightBlockBytes"
-            ),
-            operand_source=operand_source,
-            lds_address_hoist=_string(item["LdsAddressHoist"], "LdsAddressHoist"),
-            fixed_address_hoist=_string(item["FixedAddressHoist"], "FixedAddressHoist"),
-            weight_decode=_string(item["WeightDecode"], "WeightDecode"),
-            activation_addressing=_string(
-                item["ActivationAddressing"], "ActivationAddressing"
-            ),
-            scale_arithmetic=_string(item["ScaleArithmetic"], "ScaleArithmetic"),
-            output_store=_string(item["OutputStore"], "OutputStore"),
-            signed_weight=_boolean(item["SignedWeight"], "SignedWeight"),
-            signed_activation=_boolean(item["SignedActivation"], "SignedActivation"),
-            wmma_clamp=_boolean(item["WmmaClamp"], "WmmaClamp"),
-        )
-
     @property
     def num_threads(self) -> int:
         return self.work_group[0] * self.work_group[1] * self.work_group[2]
-
-    def to_mapping(self) -> dict[str, object]:
-        return {
-            "KernelLanguage": self.kernel_language,
-            "ISA": list(self.isa),
-            "WavefrontSize": self.wavefront_size,
-            "WorkGroup": list(self.work_group),
-            "MatrixInstruction": list(self.matrix_instruction),
-            "MacroTileTokens": self.macro_tile_tokens,
-            "MacroTileFeatures": self.macro_tile_features,
-            "DepthU": self.depth_u,
-            "ActivationLayout": self.activation_layout,
-            "ActivationBlockBytes": self.activation_block_bytes,
-            "PackedWeightBlockBytes": self.packed_weight_block_bytes,
-            "OperandSource": self.operand_source.value,
-            "LdsAddressHoist": self.lds_address_hoist,
-            "FixedAddressHoist": self.fixed_address_hoist,
-            "WeightDecode": self.weight_decode,
-            "ActivationAddressing": self.activation_addressing,
-            "ScaleArithmetic": self.scale_arithmetic,
-            "OutputStore": self.output_store,
-            "SignedWeight": self.signed_weight,
-            "SignedActivation": self.signed_activation,
-            "WmmaClamp": self.wmma_clamp,
-        }
 
 
 @dataclass(frozen=True)
@@ -304,20 +189,56 @@ class FixedForwardSolutionKey:
     problem: FixedForwardProblem
     solution: FixedForwardSolution
 
-    _KEYS: ClassVar[frozenset[str]] = frozenset({"Problem", "Solution"})
+    _KEYS: ClassVar[frozenset[str]] = frozenset(
+        {"ArtifactKind", "KernelFamily", "ProblemContract", "Problem", "KernelSpec"}
+    )
 
     @classmethod
     def from_mapping(cls, value: object) -> Self:
         item = _mapping(value, "FixedForwardSolutionKey", cls._KEYS)
-        return cls(
-            FixedForwardProblem.from_mapping(item["Problem"]),
-            FixedForwardSolution.from_mapping(item["Solution"]),
+        if item["ArtifactKind"] != "ExactKernel":
+            raise SchemaError("fixed key ArtifactKind must be ExactKernel")
+        if item["KernelFamily"] != "FixedGroupedForward":
+            raise SchemaError("fixed key KernelFamily must be FixedGroupedForward")
+        from .fixed_grouped_mmq_fwd_spec import (
+            FixedForwardKernelSpec,
+            FixedForwardProblemContract,
         )
 
+        contract = FixedForwardProblemContract.from_mapping(item["ProblemContract"])
+        problem_item = _mapping(
+            item["Problem"], "FixedForwardProblem", frozenset({"tokens"})
+        )
+        problem = contract.problem(_integer(problem_item["tokens"], "tokens"))
+        spec = FixedForwardKernelSpec.from_mapping(item["KernelSpec"])
+        solution = spec.to_solution(contract)
+        if FixedForwardProblemContract.from_problem(problem, solution) != contract:
+            raise SchemaError(
+                "FixedForwardProblemContract does not round-trip canonically"
+            )
+        from .fixed_grouped_mmq_fwd_validation import fixed_forward_rejection_reason
+
+        rejection = fixed_forward_rejection_reason(cls(problem, solution))
+        if rejection is not None:
+            raise SchemaError(
+                f"fixed kernel specification is not canonical: {rejection}"
+            )
+        return cls(problem, solution)
+
     def to_mapping(self) -> dict[str, object]:
+        from .fixed_grouped_mmq_fwd_spec import (
+            FixedForwardKernelSpec,
+            FixedForwardProblemContract,
+        )
+
+        contract = FixedForwardProblemContract.from_problem(self.problem, self.solution)
+        spec = FixedForwardKernelSpec.from_solution(self.solution)
         return {
-            "Problem": self.problem.to_mapping(),
-            "Solution": self.solution.to_mapping(),
+            "ArtifactKind": "ExactKernel",
+            "KernelFamily": "FixedGroupedForward",
+            "ProblemContract": contract.to_mapping(),
+            "Problem": {"tokens": self.problem.tokens},
+            "KernelSpec": spec.to_mapping(),
         }
 
     def to_standard_solution_key(self) -> SolutionKey:

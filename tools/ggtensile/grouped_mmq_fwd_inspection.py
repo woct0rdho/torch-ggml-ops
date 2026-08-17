@@ -1,6 +1,5 @@
 """Artifact inspection for isolated grouped MMQ forward kernels."""
 
-from collections.abc import Mapping
 from pathlib import Path
 
 from .grouped_mmq_fwd_model import (
@@ -19,22 +18,11 @@ from .inspection import (
     _kernel_metadata,
     _max_register_index,
     _metadata,
+    _metadata_arguments,
     _require,
 )
+from .kernel_abi import GROUPED_FORWARD_ABI
 from .toolchain import Toolchain
-
-_EXPECTED_GROUPED_ARGS = (
-    ("weights", 0, 8, "global_buffer", "struct"),
-    ("activations", 8, 8, "global_buffer", "struct"),
-    ("dst", 16, 8, "global_buffer", "bf16"),
-    ("expert_indices", 24, 8, "global_buffer", "i64"),
-    ("expert_offsets", 32, 8, "global_buffer", "i32"),
-    ("num_experts", 40, 4, "by_value", "u32"),
-    ("nrows_weight", 44, 4, "by_value", "u32"),
-    ("nrows_activation", 48, 4, "by_value", "u32"),
-    ("blocks_per_weight_row", 52, 4, "by_value", "u32"),
-    ("bytes_per_expert", 56, 8, "by_value", "u64"),
-)
 
 
 def inspect_grouped_forward_artifact(
@@ -69,8 +57,8 @@ def inspect_grouped_forward_artifact(
     )
 
     expected_metadata = {
-        ".kernarg_segment_size": 64,
-        ".kernarg_segment_align": 8,
+        ".kernarg_segment_size": GROUPED_FORWARD_ABI.segment_size,
+        ".kernarg_segment_align": GROUPED_FORWARD_ABI.segment_alignment,
         ".group_segment_fixed_size": state.physical_plan.resources.lds_bytes,
         ".private_segment_fixed_size": 0,
         ".max_flat_workgroup_size": solution_key.solution.num_threads,
@@ -91,22 +79,8 @@ def inspect_grouped_forward_artifact(
         "dynamic stack is enabled",
         errors,
     )
-    arguments = kernel.get(".args")
-    actual_args = ()
-    if isinstance(arguments, list):
-        actual_args = tuple(
-            (
-                argument.get(".name"),
-                argument.get(".offset"),
-                argument.get(".size"),
-                argument.get(".value_kind"),
-                argument.get(".value_type"),
-            )
-            for argument in arguments
-            if isinstance(argument, Mapping)
-        )
     _require(
-        actual_args == _EXPECTED_GROUPED_ARGS,
+        _metadata_arguments(kernel) == GROUPED_FORWARD_ABI.metadata_arguments,
         "grouped kernarg ABI does not match",
         errors,
     )

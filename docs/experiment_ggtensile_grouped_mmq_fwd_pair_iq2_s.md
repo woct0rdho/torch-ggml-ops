@@ -130,3 +130,31 @@ The quantizer's authoritative K2048 F32_D4 tensor shape is `[16,R,144]`: sixteen
 The focused paired module passes 12 tests. The complete GGTensile suite passes 422 tests, and the full repository suite passes 523 tests with 14 pre-existing Python 3.14 deprecation warnings. Ruff, formatting, Python compilation, `ty check`, deterministic source checks, and diff whitespace checks pass.
 
 The retained research identity is `iq2_s_k128_interleaved_row_tasks()`. P1 remains a qualified serial-route precursor, not the selected production-shape candidate. Public selectors, generated bundle tables, extension registration, packaging, and the HIP fallback remain unchanged. Promotion now requires a separate integration campaign that preserves the public fallback and independently qualifies generated artifacts, package ownership, registration, complete public-call timing, and deployment behavior.
+
+## Reopened source-level optimization review
+
+The P1 and P2 qualification remains valid for the measured serial and row-task identities and their original schedules. A later audit of the paired emitter found bounded code-generation probes that were not included in those measurements. None below is implemented, timed, or retained.
+
+### P3 paired zero-accumulator lifetime
+
+All three paired families currently reinitialize the dedicated read-only `v124:v131` zero bank before each projection phase. The paired physical plan gives that bank a lifetime spanning row setup and compute, and `emit_signed_i8_wmma` consumes it as the WMMA accumulator without an identified intervening clobber. P3 would initialize it once before the K-block loop while preserving the existing waits, barriers, LDS image reuse, projection-specific scales, and output stores.
+
+The current repeated body contains 24 initialization moves that can be removed from the repeated projection schedule while retaining one eight-register initialization. At K2048 the amortized dynamic reduction is approximately 248 moves per row tile after retaining that setup. The static repeated-body count, the per-projection count, and the amortized row-tile count must be reported independently; none is a timing claim. Serial-route and device-row-task ownership are separate P3 identities and require separate exact qualification.
+
+### P4 paired epilogue sharing
+
+The two projections recompute equivalent vector column extraction, wave/workgroup offsets, row masks, and vector offsets even though their output base pointers remain independent. A first probe may share only the six identical column-setup instructions. A broader probe may materialize per-fragment addresses in dead `c` registers, with an estimated source reduction of about 25 vector instructions, but it requires an explicit destination-aliasing and store-order contract. These are separate identities and must not silently merge the two output pointers.
+
+P5 is an exact BF16 RNE scheduling probe. The existing `v_bfe_u32` plus `v_add3_u32` helper must remain unchanged semantically; two dead scratch VGPRs may interleave independent chains for the two projections if the physical plan proves their lifetimes. The work occurs once per output tile, so it is lower priority than P3. Approximate conversion, relaxed rounding, and changed accumulation are excluded.
+
+### P6 isolated ISA and metadata screens
+
+The paired control emits `s_clause 7` and explicit wait/barrier structure. Clause-boundary changes, compiler-produced `s_delay_alu`, and bank-valid GFX11 VOPD pairings may be screened only as independent artifact experiments. VOPD eligibility must use the exact gfx1151 instruction list and register-bank masks; `v_bfe_u32` is not assumed to be a legal generic VOPD operand. The reusable LDS image creates an overwrite hazard, so activation waits or barriers are not removed by inference from `BackOffBarrier` or compiler behavior.
+
+The HIP paired control contains `.amdhsa_workgroup_processor_mode 1`, while the inspected GGTensile paired artifacts do not. A metadata-only A/B is a separate P6 identity. It has no assumed performance benefit and must first prove identical ABI, code-object, resource, correctness, and deterministic-build behavior before timing is considered.
+
+### Qualification and recursive review
+
+Each P3-P6 probe requires a distinct typed identity and serialized policy, exact gfx1151 code-object-v5 assembly and linking, ABI and metadata inspection, resource and disassembly inspection, independent exactness and mutation checks, two deterministic builds, and warmed prequantized and complete-call timing against both the installed public control and the ownership-matched parent. Any composed candidate receives a new identity and repeats the full gate.
+
+The historical final classification is scoped to P1/P2 and their old premise. Implement and qualify every actionable finding, then repeat the complete source, artifact, resource, correctness, determinism, and timing review from the changed premise. Completion is valid only after a fresh recursive pass finds no actionable in-contract mechanism. Public selectors, generated bundles, packaging, registration, and HIP fallback remain outside this experiment.

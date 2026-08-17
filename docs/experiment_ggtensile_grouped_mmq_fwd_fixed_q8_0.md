@@ -128,3 +128,25 @@ Effective TFLOPS is nominal dense-equivalent throughput, calculated as `2 * toke
 | 32,768 | Complete call | 81.4954 / 81.5626 | 174.6957 / 174.9922 | 26.98 / 26.96 | 12.59 / 12.57 | 2.1436x / 2.1455x |
 
 - P3 is retained as the qualified fixed-group Q8_0 research winner. Final verification passed `552` tests with the existing 14 warnings, all 238 protected writer streams byte-identical, Ruff check and format, `ty check`, compileall, diff checks, and all pre-commit hooks. Public dispatch, generated bundle registration, packaging, fallback selection, and prepared-weight integration remain deferred to a separate change.
+
+## Reopened source-level and artifact probes
+
+The P3 retention and the earlier recursive review remain valid for the fixed Q8_0 body, comparator, and geometry that were actually measured. A later source review did not find a new fixed-family zero-bank opportunity: important addresses are already hoisted and the fixed path already uses its dual zero moves. The following bounded probes remain separate, unqualified work items rather than retained results.
+
+### F1 processor-mode metadata A/B
+
+The installed HIP control contains `.amdhsa_workgroup_processor_mode 1`, while the inspected GGTensile fixed artifacts do not. F1 adds or removes only this metadata in independently built artifacts, then checks code-object version, ABI, resources, disassembly, correctness, and deterministic rebuilds before any device timing. No performance benefit is presumed, and the result cannot be transferred to paired or ordinary families without their own artifact and device checks.
+
+### F2 exact epilogue and clause scheduling screens
+
+The fixed lowerer forms flattened `[tokens * groups, N]` addresses, increments each fragment address, applies exact BF16 RNE, and emits the final store clause. F2 may test an interleaving of independent BF16 conversion chains or a clause-boundary change only when the physical plan proves dead scratch lifetimes, unchanged store order, and legal assembler output. Static instruction counts are separate from timing, and any candidate that changes address ownership or the flattened layout is a new representation experiment rather than a local schedule probe.
+
+### F3 delay-ALU and bank-valid VOPD screen
+
+The current grouped lowerer does not directly emit `s_delay_alu`; compiler-produced delay instructions may be inspected in the linked gfx1151 artifact when a concrete dependency schedule changes. VOPD is eligible only for the exact GFX11 X/Y instruction lists and register-bank masks. It is not an automatic replacement for scalar or vector moves, and `v_bfe_u32` is not assumed to be a legal generic VOPD operand. Existing wait and barrier behavior remains the control because the fixed LDS and store hazards have not changed.
+
+F1-F3 are pending only if an exact target-level mechanism can be materialized. Each requires a distinct typed identity and serialized policy, independent assembly and linking, ABI and metadata inspection, resource and disassembly inspection, exactness and mutation checks, deterministic rebuilds, and warmed prequantized and complete-call comparison against the retained P3 body and the installed controls. Public dispatch, generated bundles, packaging, fallback selection, and prepared representations remain outside the experiment.
+
+## Recursive Final Review Continuation
+
+The prior recursive final-review rule is still mandatory. Its retained and rejected classifications are scoped to the old P3 premise and must not be rewritten by these pending probes. Implement and qualify every actionable finding, then repeat the complete source, artifact, resource, correctness, determinism, and timing review from the changed premise. Completion is valid only when a fresh recursive pass finds no actionable in-contract mechanism and the selected fixed key remains exact, deterministic, resource-clean, and faster than its exact controls.

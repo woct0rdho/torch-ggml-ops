@@ -13,6 +13,13 @@ from .grouped_mmq_fwd_pair_model import (
 )
 from .grouped_mmq_fwd_pair_spec import DerivedGroupedForwardPairState
 from .grouped_mmq_fwd_pair_validation import validate_grouped_forward_pair_solution
+from .kernel_abi import (
+    GROUPED_FORWARD_ABI,
+    GROUPED_FORWARD_PAIR_ABI,
+    GROUPED_FORWARD_PAIR_ROW_TASK_ABI,
+    GROUPED_FORWARD_ROW_TASK_ABI,
+    GROUPED_ROW_TASK_SETUP_ABI,
+)
 from .runtime import (
     HIPRuntimeError,
     _find_installed_kernel,
@@ -38,7 +45,7 @@ class GroupedForwardPairModule(_HIPModule):
         self.solution_key = solution_key
         self.state = DerivedGroupedForwardPairState.from_solution_key(solution_key)
         if (
-            self.state.contract.route_ownership
+            self.state.kernel_spec.route_ownership
             is not GroupedPairRouteOwnership.SerialRoutes
         ):
             raise HIPRuntimeError(
@@ -120,25 +127,21 @@ class GroupedForwardPairModule(_HIPModule):
         if len({tensor.device for tensor in tensors}) != 1:
             raise HIPRuntimeError("all paired launch tensors must be on one device")
 
-        arguments = (
-            ctypes.c_uint64(first_packed_weight.data_ptr()),
-            ctypes.c_uint64(second_packed_weight.data_ptr()),
-            ctypes.c_uint64(activations.data_ptr()),
-            ctypes.c_uint64(first_output.data_ptr()),
-            ctypes.c_uint64(second_output.data_ptr()),
-            ctypes.c_uint64(expert_indices.data_ptr()),
-            ctypes.c_uint64(expert_offsets.data_ptr()),
-            ctypes.c_uint32(self.solution_key.problem.physical_experts),
-            ctypes.c_uint32(self.solution_key.problem.output_features),
-            ctypes.c_uint32(self.solution_key.problem.aggregate_rows),
-            ctypes.c_uint32(state.blocks_per_weight_row),
-            ctypes.c_uint64(state.bytes_per_expert),
-        )
-        parameters = (ctypes.c_void_p * len(arguments))(
-            *(
-                ctypes.cast(ctypes.byref(argument), ctypes.c_void_p)
-                for argument in arguments
-            )
+        packed_arguments = GROUPED_FORWARD_PAIR_ABI.pack(
+            {
+                "weights_first": first_packed_weight.data_ptr(),
+                "weights_second": second_packed_weight.data_ptr(),
+                "activations": activations.data_ptr(),
+                "dst_first": first_output.data_ptr(),
+                "dst_second": second_output.data_ptr(),
+                "expert_indices": expert_indices.data_ptr(),
+                "expert_offsets": expert_offsets.data_ptr(),
+                "num_experts": self.solution_key.problem.physical_experts,
+                "nrows_weight": self.solution_key.problem.output_features,
+                "nrows_activation": self.solution_key.problem.aggregate_rows,
+                "blocks_per_weight_row": state.blocks_per_weight_row,
+                "bytes_per_expert": state.bytes_per_expert,
+            }
         )
         grid = state.grid(route_entries)
         block = self.solution_key.solution.work_group
@@ -149,7 +152,7 @@ class GroupedForwardPairModule(_HIPModule):
                 *block,
                 0,
                 ctypes.c_void_p(stream),
-                parameters,
+                packed_arguments.parameters,
                 None,
             ),
             "hipModuleLaunchKernel",
@@ -252,23 +255,19 @@ class InstalledGroupedForwardRowTaskSetup(_HIPModule):
             raise HIPRuntimeError("row-task workspace capacity does not match")
         if len({tensor.device for tensor in tensors}) != 1:
             raise HIPRuntimeError("row-task setup tensors must share one device")
-        arguments = (
-            ctypes.c_uint64(expert_indices.data_ptr()),
-            ctypes.c_uint64(expert_offsets.data_ptr()),
-            ctypes.c_uint64(workspace.task_count.data_ptr()),
-            ctypes.c_uint64(workspace.task_experts.data_ptr()),
-            ctypes.c_uint64(workspace.task_row_starts.data_ptr()),
-            ctypes.c_uint64(workspace.task_row_ends.data_ptr()),
-            ctypes.c_uint32(256),
-            ctypes.c_uint32(route_entries),
-            ctypes.c_uint32(aggregate_rows),
-            ctypes.c_uint32(64),
-        )
-        parameters = (ctypes.c_void_p * len(arguments))(
-            *(
-                ctypes.cast(ctypes.byref(argument), ctypes.c_void_p)
-                for argument in arguments
-            )
+        packed_arguments = GROUPED_ROW_TASK_SETUP_ABI.pack(
+            {
+                "expert_indices": expert_indices.data_ptr(),
+                "expert_offsets": expert_offsets.data_ptr(),
+                "task_count": workspace.task_count.data_ptr(),
+                "task_experts": workspace.task_experts.data_ptr(),
+                "task_row_starts": workspace.task_row_starts.data_ptr(),
+                "task_row_ends": workspace.task_row_ends.data_ptr(),
+                "num_experts": 256,
+                "num_groups": route_entries,
+                "nrows_activation": aggregate_rows,
+                "row_tile": 64,
+            }
         )
         self._check(
             self._lib.hipModuleLaunchKernel(
@@ -281,7 +280,7 @@ class InstalledGroupedForwardRowTaskSetup(_HIPModule):
                 1,
                 0,
                 ctypes.c_void_p(stream),
-                parameters,
+                packed_arguments.parameters,
                 None,
             ),
             "hipModuleLaunchKernel",
@@ -304,7 +303,7 @@ class GroupedForwardPairRowTaskModule(_HIPModule):
         self.solution_key = solution_key
         self.state = DerivedGroupedForwardPairState.from_solution_key(solution_key)
         if (
-            self.state.contract.route_ownership
+            self.state.kernel_spec.route_ownership
             is not GroupedPairRouteOwnership.DeviceRowTasks64
         ):
             raise HIPRuntimeError("row-task launcher requires row-task ownership")
@@ -372,27 +371,23 @@ class GroupedForwardPairRowTaskModule(_HIPModule):
             )
         if len({tensor.device for tensor in tensors}) != 1:
             raise HIPRuntimeError("paired row-task tensors must share one device")
-        arguments = (
-            ctypes.c_uint64(first_packed_weight.data_ptr()),
-            ctypes.c_uint64(second_packed_weight.data_ptr()),
-            ctypes.c_uint64(activations.data_ptr()),
-            ctypes.c_uint64(first_output.data_ptr()),
-            ctypes.c_uint64(second_output.data_ptr()),
-            ctypes.c_uint64(tasks.task_count.data_ptr()),
-            ctypes.c_uint64(tasks.task_experts.data_ptr()),
-            ctypes.c_uint64(tasks.task_row_starts.data_ptr()),
-            ctypes.c_uint64(tasks.task_row_ends.data_ptr()),
-            ctypes.c_uint32(self.solution_key.problem.physical_experts),
-            ctypes.c_uint32(self.solution_key.problem.output_features),
-            ctypes.c_uint32(self.solution_key.problem.aggregate_rows),
-            ctypes.c_uint32(state.blocks_per_weight_row),
-            ctypes.c_uint64(state.bytes_per_expert),
-        )
-        parameters = (ctypes.c_void_p * len(arguments))(
-            *(
-                ctypes.cast(ctypes.byref(argument), ctypes.c_void_p)
-                for argument in arguments
-            )
+        packed_arguments = GROUPED_FORWARD_PAIR_ROW_TASK_ABI.pack(
+            {
+                "weights_first": first_packed_weight.data_ptr(),
+                "weights_second": second_packed_weight.data_ptr(),
+                "activations": activations.data_ptr(),
+                "dst_first": first_output.data_ptr(),
+                "dst_second": second_output.data_ptr(),
+                "task_count": tasks.task_count.data_ptr(),
+                "task_experts": tasks.task_experts.data_ptr(),
+                "task_row_starts": tasks.task_row_starts.data_ptr(),
+                "task_row_ends": tasks.task_row_ends.data_ptr(),
+                "num_experts": self.solution_key.problem.physical_experts,
+                "nrows_weight": self.solution_key.problem.output_features,
+                "nrows_activation": self.solution_key.problem.aggregate_rows,
+                "blocks_per_weight_row": state.blocks_per_weight_row,
+                "bytes_per_expert": state.bytes_per_expert,
+            }
         )
         grid = state.row_task_grid(tasks.route_entries)
         self._check(
@@ -402,7 +397,7 @@ class GroupedForwardPairRowTaskModule(_HIPModule):
                 *self.solution_key.solution.work_group,
                 0,
                 ctypes.c_void_p(stream),
-                parameters,
+                packed_arguments.parameters,
                 None,
             ),
             "hipModuleLaunchKernel",
@@ -451,22 +446,18 @@ class InstalledGroupedForwardPairRowTaskControl(_HIPModule):
             raise HIPRuntimeError(
                 "installed row-task control tensor dtypes are invalid"
             )
-        arguments = (
-            ctypes.c_uint64(packed_weight.data_ptr()),
-            ctypes.c_uint64(activations.data_ptr()),
-            ctypes.c_uint64(output.data_ptr()),
-            ctypes.c_uint64(tasks.task_count.data_ptr()),
-            ctypes.c_uint64(tasks.task_experts.data_ptr()),
-            ctypes.c_uint64(tasks.task_row_starts.data_ptr()),
-            ctypes.c_uint64(tasks.task_row_ends.data_ptr()),
-            ctypes.c_uint32(aggregate_rows),
-            ctypes.c_uint64(self.BYTES_PER_EXPERT),
-        )
-        parameters = (ctypes.c_void_p * len(arguments))(
-            *(
-                ctypes.cast(ctypes.byref(argument), ctypes.c_void_p)
-                for argument in arguments
-            )
+        packed_arguments = GROUPED_FORWARD_ROW_TASK_ABI.pack(
+            {
+                "weights": packed_weight.data_ptr(),
+                "activations": activations.data_ptr(),
+                "dst": output.data_ptr(),
+                "task_count": tasks.task_count.data_ptr(),
+                "task_experts": tasks.task_experts.data_ptr(),
+                "task_row_starts": tasks.task_row_starts.data_ptr(),
+                "task_row_ends": tasks.task_row_ends.data_ptr(),
+                "nrows_activation": aggregate_rows,
+                "bytes_per_expert": self.BYTES_PER_EXPERT,
+            }
         )
         self._check(
             self._lib.hipModuleLaunchKernel(
@@ -479,7 +470,7 @@ class InstalledGroupedForwardPairRowTaskControl(_HIPModule):
                 1,
                 self.DYNAMIC_LDS_BYTES,
                 ctypes.c_void_p(stream),
-                parameters,
+                packed_arguments.parameters,
                 None,
             ),
             "hipModuleLaunchKernel",
@@ -529,23 +520,19 @@ class InstalledGroupedForwardPairSerialControl(_HIPModule):
         route_entries = expert_indices.numel()
         if expert_indices.dtype != torch.int64 or expert_offsets.dtype != torch.int32:
             raise HIPRuntimeError("installed paired control route dtypes are invalid")
-        arguments = (
-            ctypes.c_uint64(packed_weight.data_ptr()),
-            ctypes.c_uint64(activations.data_ptr()),
-            ctypes.c_uint64(output.data_ptr()),
-            ctypes.c_uint64(expert_indices.data_ptr()),
-            ctypes.c_uint64(expert_offsets.data_ptr()),
-            ctypes.c_uint32(256),
-            ctypes.c_uint32(512),
-            ctypes.c_uint32(aggregate_rows),
-            ctypes.c_uint32(8),
-            ctypes.c_uint64(self.BYTES_PER_EXPERT),
-        )
-        parameters = (ctypes.c_void_p * len(arguments))(
-            *(
-                ctypes.cast(ctypes.byref(argument), ctypes.c_void_p)
-                for argument in arguments
-            )
+        packed_arguments = GROUPED_FORWARD_ABI.pack(
+            {
+                "weights": packed_weight.data_ptr(),
+                "activations": activations.data_ptr(),
+                "dst": output.data_ptr(),
+                "expert_indices": expert_indices.data_ptr(),
+                "expert_offsets": expert_offsets.data_ptr(),
+                "num_experts": 256,
+                "nrows_weight": 512,
+                "nrows_activation": aggregate_rows,
+                "blocks_per_weight_row": 8,
+                "bytes_per_expert": self.BYTES_PER_EXPERT,
+            }
         )
         self._check(
             self._lib.hipModuleLaunchKernel(
@@ -558,7 +545,7 @@ class InstalledGroupedForwardPairSerialControl(_HIPModule):
                 1,
                 self.DYNAMIC_LDS_BYTES,
                 ctypes.c_void_p(stream),
-                parameters,
+                packed_arguments.parameters,
                 None,
             ),
             "hipModuleLaunchKernel",
@@ -637,23 +624,19 @@ class InstalledGroupedForwardPairIQ2XXSSerialControl(_HIPModule):
             raise HIPRuntimeError("installed IQ2_XXS output shape is invalid")
         if len({tensor.device for tensor in tensors}) != 1:
             raise HIPRuntimeError("installed IQ2_XXS tensors must share one device")
-        arguments = (
-            ctypes.c_uint64(packed_weight.data_ptr()),
-            ctypes.c_uint64(activations.data_ptr()),
-            ctypes.c_uint64(output.data_ptr()),
-            ctypes.c_uint64(expert_indices.data_ptr()),
-            ctypes.c_uint64(expert_offsets.data_ptr()),
-            ctypes.c_uint32(256),
-            ctypes.c_uint32(2048),
-            ctypes.c_uint32(aggregate_rows),
-            ctypes.c_uint32(16),
-            ctypes.c_uint64(self.BYTES_PER_EXPERT),
-        )
-        parameters = (ctypes.c_void_p * len(arguments))(
-            *(
-                ctypes.cast(ctypes.byref(argument), ctypes.c_void_p)
-                for argument in arguments
-            )
+        packed_arguments = GROUPED_FORWARD_ABI.pack(
+            {
+                "weights": packed_weight.data_ptr(),
+                "activations": activations.data_ptr(),
+                "dst": output.data_ptr(),
+                "expert_indices": expert_indices.data_ptr(),
+                "expert_offsets": expert_offsets.data_ptr(),
+                "num_experts": 256,
+                "nrows_weight": 2048,
+                "nrows_activation": aggregate_rows,
+                "blocks_per_weight_row": 16,
+                "bytes_per_expert": self.BYTES_PER_EXPERT,
+            }
         )
         self._check(
             self._lib.hipModuleLaunchKernel(
@@ -666,7 +649,7 @@ class InstalledGroupedForwardPairIQ2XXSSerialControl(_HIPModule):
                 1,
                 self.dynamic_lds_bytes,
                 ctypes.c_void_p(stream),
-                parameters,
+                packed_arguments.parameters,
                 None,
             ),
             "hipModuleLaunchKernel",

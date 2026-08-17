@@ -2,9 +2,6 @@
 
 from pathlib import Path
 
-from rocisa import code  # ty: ignore[unresolved-import]
-from rocisa.enum import SignatureValueKind as SVK  # ty: ignore[unresolved-import]
-
 from .grouped_mmq_fwd_lowering import (
     GroupedForwardLoweringContext,
     GroupedPackedScaleMinimumDirectLowering,
@@ -15,7 +12,8 @@ from .grouped_mmq_fwd_lowering_q2_k import grouped_q2_decoded_lowering
 from .grouped_mmq_fwd_model import GroupedForwardSolutionKey, GroupedOperandSource
 from .grouped_mmq_fwd_spec import DerivedGroupedForwardState
 from .grouped_mmq_fwd_validation import validate_grouped_forward_solution
-from .kernel_writer_assembly import initialize_rocisa, write_assembly_source
+from .kernel_abi import GROUPED_FORWARD_ABI
+from .kernel_writer_assembly import KernelEnvelope, write_assembly_source
 from .mmq_fwd_lowering import ForwardKernelWriterError
 from .toolchain import Toolchain
 
@@ -45,43 +43,28 @@ class GroupedForwardKernelWriterAssembly:
     def source(self) -> str:
         solution = self.solution_key.solution
         resources = self.state.physical_plan.resources
-        initialize_rocisa(
-            solution.isa,
-            solution.wavefront_size,
-            self.toolchain.assembler,
-            temporary_prefix="ggtensile-grouped-forward-rocisa-",
-        )
-
-        signature = code.SignatureBase(
-            kernelName=self.solution_key.kernel_name,
-            kernArgsVersion=0,
-            codeObjectVersion="5",
-            groupSegmentSize=resources.lds_bytes,
-            sgprWorkGroup=(1, 1, 0),
-            vgprWorkItem=1,
-            flatWorkGroupSize=solution.num_threads,
-            totalVgprs=resources.vgprs,
-            totalAgprs=0,
-            totalSgprs=resources.sgprs,
-        )
         quant_type = self.solution_key.problem.quant_data_type
-        signature.addDescriptionTopic(
-            f"GGTensile grouped {quant_type} MMQ forward, serial GEMM ownership, "
-            f"fixed Q8_1 {solution.activation_layout} producer"
+        envelope = KernelEnvelope(
+            module_name="GGTensileGroupedForwardKernel",
+            kernel_name=self.solution_key.kernel_name,
+            isa=solution.isa,
+            wavefront_size=solution.wavefront_size,
+            assembler=self.toolchain.assembler,
+            temporary_prefix="ggtensile-grouped-forward-rocisa-",
+            code_object_version=5,
+            group_segment_size=resources.lds_bytes,
+            sgpr_work_group=(1, 1, 0),
+            vgpr_work_item=1,
+            flat_workgroup_size=solution.num_threads,
+            total_vgprs=resources.vgprs,
+            total_sgprs=resources.sgprs,
+            abi=GROUPED_FORWARD_ABI,
+            description=(
+                f"GGTensile grouped {quant_type} MMQ forward, serial GEMM "
+                f"ownership, fixed Q8_1 {solution.activation_layout} producer"
+            ),
         )
-        signature.addArg("weights", SVK.SIG_GLOBALBUFFER, "struct", "generic")
-        signature.addArg("activations", SVK.SIG_GLOBALBUFFER, "struct", "generic")
-        signature.addArg("dst", SVK.SIG_GLOBALBUFFER, "bf16", "generic")
-        signature.addArg("expert_indices", SVK.SIG_GLOBALBUFFER, "i64", "generic")
-        signature.addArg("expert_offsets", SVK.SIG_GLOBALBUFFER, "i32", "generic")
-        signature.addArg("num_experts", SVK.SIG_VALUE, "u32")
-        signature.addArg("nrows_weight", SVK.SIG_VALUE, "u32")
-        signature.addArg("nrows_activation", SVK.SIG_VALUE, "u32")
-        signature.addArg("blocks_per_weight_row", SVK.SIG_VALUE, "u32")
-        signature.addArg("bytes_per_expert", SVK.SIG_VALUE, "u64")
-
-        module = code.Module("GGTensileGroupedForwardKernel")
-        module.add(signature)
+        envelope.initialize()
         if solution.operand_source is GroupedOperandSource.GroupedDirectGlobal:
             emission = GroupedPackedScaleMinimumDirectLowering(self.context).emission()
         elif solution.operand_source is GroupedOperandSource.GroupedDecodedWeightLds:
@@ -95,8 +78,7 @@ class GroupedForwardKernelWriterAssembly:
             raise TypeError(
                 f"unsupported grouped operand source {solution.operand_source!r}"
             )
-        module.add(code.TextBlock(emission.body))
-        source = str(module)
-        for section in emission.trailing_sections:
-            source += "\n" + section
-        return source
+        return envelope.render(
+            emission.body,
+            trailing_sections=emission.trailing_sections,
+        )

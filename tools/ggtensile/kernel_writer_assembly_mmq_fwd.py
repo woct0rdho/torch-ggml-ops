@@ -1,12 +1,7 @@
 from pathlib import Path
 
-from rocisa import code  # ty: ignore[unresolved-import]
-from rocisa.enum import SignatureValueKind as SVK  # ty: ignore[unresolved-import]
-
-from .kernel_writer_assembly import (
-    initialize_rocisa,
-    write_assembly_source,
-)
+from .kernel_abi import ORDINARY_FORWARD_ABI
+from .kernel_writer_assembly import KernelEnvelope, write_assembly_source
 from .mmq_fwd_lowering import ForwardKernelWriterError, ForwardLoweringContext
 from .mmq_fwd_lowering_decoded_lds import DecodedWeightLdsLowering
 from .mmq_fwd_lowering_packed_3bit import Packed3BitTiledLdsLowering
@@ -44,45 +39,32 @@ class ForwardKernelWriterAssembly:
         return write_assembly_source(output, self.source())
 
     def source(self) -> str:
-        initialize_rocisa(
-            self.state.contract.isa,
-            self.state.contract.wavefront_size,
-            self.toolchain.assembler,
+        envelope = KernelEnvelope(
+            module_name="GGTensileForwardKernel",
+            kernel_name=self.solution_key.kernel_name,
+            isa=self.state.contract.isa,
+            wavefront_size=self.state.contract.wavefront_size,
+            assembler=self.toolchain.assembler,
             temporary_prefix="ggtensile-forward-rocisa-",
-        )
-
-        signature = code.SignatureBase(
-            kernelName=self.solution_key.kernel_name,
-            kernArgsVersion=0,
-            codeObjectVersion="5",
-            groupSegmentSize=self.state.resources.lds_bytes,
-            sgprWorkGroup=(1, 1, 0),
-            vgprWorkItem=int(
+            code_object_version=5,
+            group_segment_size=self.state.resources.lds_bytes,
+            sgpr_work_group=(1, 1, 0),
+            vgpr_work_item=int(
                 forward_mechanism_contract(
                     self.state.kernel_spec.global_memory.operand_source
                 ).uses_workitem_id
             ),
-            flatWorkGroupSize=self.state.num_threads,
-            totalVgprs=self.state.resources.vgprs,
-            totalAgprs=0,
-            totalSgprs=self.state.resources.sgprs,
+            flat_workgroup_size=self.state.num_threads,
+            total_vgprs=self.state.resources.vgprs,
+            total_sgprs=self.state.resources.sgprs,
+            abi=ORDINARY_FORWARD_ABI,
+            description=(
+                f"GGTensile {self.state.contract.quant_type} MMQ forward, fixed "
+                f"Q8_1 {self.state.contract.activation_layout} producer"
+            ),
         )
-        signature.addDescriptionTopic(
-            f"GGTensile {self.state.contract.quant_type} MMQ forward, fixed Q8_1 "
-            f"{self.state.contract.activation_layout} producer"
-        )
-        signature.addArg("packed_weight", SVK.SIG_GLOBALBUFFER, "struct", "generic")
-        signature.addArg("activations", SVK.SIG_GLOBALBUFFER, "struct", "generic")
-        signature.addArg("output", SVK.SIG_GLOBALBUFFER, "bf16", "generic")
-        signature.addArg("nrows_weight", SVK.SIG_VALUE, "u32")
-        signature.addArg("nrows_activation", SVK.SIG_VALUE, "u32")
-        signature.addArg("nrows_activation_padded", SVK.SIG_VALUE, "u32")
-        signature.addArg("blocks_per_weight_row", SVK.SIG_VALUE, "u32")
-
-        module = code.Module("GGTensileForwardKernel")
-        module.add(signature)
-        module.add(code.TextBlock(self._body()))
-        return str(module)
+        envelope.initialize()
+        return envelope.render(self._body())
 
     def _body(self) -> str:
         operand_source = self.state.kernel_spec.global_memory.operand_source

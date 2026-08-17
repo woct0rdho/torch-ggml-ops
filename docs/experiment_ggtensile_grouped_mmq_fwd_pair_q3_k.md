@@ -111,3 +111,27 @@ The first installed-control probe used 29,952 dynamic LDS bytes and differed in 
 The focused paired suite passes 22 tests, the complete GGTensile suite passes 432 tests, and the full repository suite passes 533 tests with only the 14 known Python 3.14 `torch.jit.script_method` deprecation warnings. Ruff, formatting, Python compilation, `ty check`, and `git diff --check` pass. The retained Q3 source and artifacts were rebuilt and inspected independently, and the fresh review found no actionable implementation, ABI, ISA, resource, runtime, benchmark, or documentation finding.
 
 The retained research identities are `q3_k_k128_interleaved()` and `q3_k_k128_interleaved_row_tasks()`. Public selectors, generated bundle tables, extension registration, packaging, and HIP fallback behavior remain unchanged. Promotion remains a separate integration campaign with its own generated-artifact, registration, packaging, public-call, fallback, and deployment qualification.
+
+## Reopened source-level optimization review
+
+The P2 qualification and its conclusion that no candidate was actionable remain scoped to the previously emitted Q3_K paired body. A later source review found two exact local probes and several bounded artifact screens that were not part of P2. They are pending and have no new timing result.
+
+### Q3-1 paired zero-accumulator lifetime
+
+The paired physical plan assigns `v124:v131` as a read-only zero accumulator after row setup, but each projection rewrites it before WMMA. Q3-1 initializes the bank once before the K2048 block loop and preserves all waits, barriers, LDS reuse, scales, corrections, and output ownership. The repeated body loses 24 static initialization moves and the amortized dynamic reduction is approximately 248 moves per K2048 row tile after retaining one eight-register setup. These counts must be reported as static, per-projection, and amortized values, not as timing.
+
+### Q3-2 variable-offset BFE scale extraction
+
+Each Q3_K scale field currently uses `v_lshrrev_b32` followed by `v_and_b32`. Q3-2 replaces each pair with one variable-offset `v_bfe_u32`. Source semantics are exact for the unsigned field extraction, with an estimate of eight fewer instructions per half decode, 32 per K256 block, and approximately 256 per K2048 row tile. The variable-offset encoding, target support, register latency, disassembly, and generated artifact must be inspected; source equivalence alone is insufficient. `v_bfe_u32` is not treated as a generic VOPD operand.
+
+### Q3-3 epilogue and Q3-4 metadata screens
+
+The two projections recompute equivalent column, mask, and vector-offset setup while retaining independent output bases. Q3-3 may share only proven-identical setup first, then separately test exact width-two BF16 RNE chain interleaving if dead scratch VGPR lifetimes and store order permit it. The existing `v_bfe_u32`/`v_add3_u32` conversion remains the arithmetic contract; no relaxed rounding is allowed.
+
+The HIP paired control carries `.amdhsa_workgroup_processor_mode 1`, absent from the inspected GGTensile paired artifacts. Q3-4 is an isolated metadata A/B with no presumed performance effect. The existing `s_clause 7`, waits, and barriers remain controls. Clause changes, compiler-produced `s_delay_alu`, and bank-valid GFX11 VOPD pairings are separate artifact screens, and LDS overwrite hazards prevent wait or barrier deletion by inference.
+
+### Qualification and recursive review
+
+Q3-1 through Q3-4 require distinct typed identities and serialized policies, exact gfx1151 code-object-v5 assembly and linking, ABI and metadata inspection, resource and disassembly inspection, independent exactness and mutation checks, deterministic rebuilds, and warmed prequantized and complete-call timings against the public and ownership-matched controls. Any combined identity repeats the full qualification order. Static or amortized instruction estimates are not timing claims.
+
+The historical P2 final classification remains scoped to the old body and schedule. Implement and qualify every actionable finding, then repeat the complete source, artifact, resource, correctness, determinism, and timing review from the changed premise. Completion requires a fresh recursive pass with no actionable in-contract mechanism. Public selectors, generated bundles, packaging, registration, and HIP fallback remain outside this experiment.

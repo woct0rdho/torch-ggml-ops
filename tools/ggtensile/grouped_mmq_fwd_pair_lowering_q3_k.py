@@ -1,12 +1,11 @@
 """K128-interleaved paired Q3_K lowering for research artifacts."""
 
 from dataclasses import dataclass
-from typing import Any, cast
 
 from .grouped_mmq_fwd_lowering import GroupedForwardLoweringResult
-from .grouped_mmq_fwd_pair_lowering_iq2_s import (
+from .grouped_mmq_fwd_pair_lowering_common import (
     GroupedForwardPairLoweringContext,
-    GroupedIQ2SPairedK128Lowering,
+    GroupedPairK128Mechanics,
 )
 from .grouped_mmq_fwd_pair_model import GroupedPairRouteOwnership
 from .grouped_mmq_fwd_pair_physical import (
@@ -35,67 +34,19 @@ class GroupedQ3KPairedK128Lowering:
     def _activation_label_token(self) -> str:
         return "PairQ3K"
 
+    def _mechanics(self) -> GroupedPairK128Mechanics:
+        return GroupedPairK128Mechanics(
+            self.context,
+            self._physical_plan(),
+            self._activation_label_token(),
+        )
+
     def emission(self) -> GroupedForwardLoweringResult:
         return GroupedForwardLoweringResult(self.body())
 
-    def _emit_invariant_addresses(
-        self, asm: Assembly, layout: GroupedQ3KPairHalfLdsLayout
-    ) -> None:
-        cast(Any, GroupedIQ2SPairedK128Lowering._emit_invariant_addresses)(
-            self, asm, layout
-        )
-
-    def _emit_activation_stage(
-        self,
-        asm: Assembly,
-        layout: GroupedQ3KPairHalfLdsLayout,
-        *,
-        stage_index: int,
-    ) -> None:
-        cast(Any, GroupedIQ2SPairedK128Lowering._emit_activation_stage)(
-            self, asm, layout, stage_index=stage_index
-        )
-
-    def _emit_linear_activation_stage(
-        self,
-        asm: Assembly,
-        layout: GroupedQ3KPairHalfLdsLayout,
-        *,
-        stage_index: int,
-    ) -> None:
-        cast(Any, GroupedIQ2SPairedK128Lowering._emit_linear_activation_stage)(
-            self, asm, layout, stage_index=stage_index
-        )
-
-    def _emit_compute_projection(self, asm: Assembly, sums: int) -> None:
-        cast(Any, GroupedIQ2SPairedK128Lowering._emit_compute_projection)(
-            self, asm, sums
-        )
-
-    def _emit_compute_group_payload_reads(
-        self, asm: Assembly, layout: GroupedQ3KPairHalfLdsLayout, group: int
-    ) -> None:
-        cast(Any, GroupedIQ2SPairedK128Lowering._emit_compute_group_payload_reads)(
-            self, asm, layout, group
-        )
-
-    def _emit_compute_group_scale_reads(self, asm: Assembly, group: int) -> None:
-        cast(Any, GroupedIQ2SPairedK128Lowering._emit_compute_group_scale_reads)(
-            self, asm, group
-        )
-
-    def _emit_compute_group_wmmas(self, asm: Assembly) -> None:
-        cast(Any, GroupedIQ2SPairedK128Lowering._emit_compute_group_wmmas)(self, asm)
-
-    def _emit_fragment_correction(
-        self, asm: Assembly, first: int, second: int, sums: int
-    ) -> None:
-        cast(Any, GroupedIQ2SPairedK128Lowering._emit_fragment_correction)(
-            self, asm, first, second, sums
-        )
-
     def body(self) -> str:
         physical = self._physical_plan()
+        mechanics = self._mechanics()
         layout = physical.layout
         registers = physical.registers
         scalar = physical.scalar_registers
@@ -103,7 +54,10 @@ class GroupedQ3KPairedK128Lowering:
         asm = Assembly()
         name = self.context.solution_key.kernel_name
 
-        if state.contract.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks64:
+        if (
+            state.kernel_spec.route_ownership
+            is GroupedPairRouteOwnership.DeviceRowTasks64
+        ):
             GroupedPairRowTaskEmitter(scalar, state.route, "Q3_K", "Q3K").emit(asm)
         else:
             GroupedPairRouteEmitter(scalar, state.route, "Q3_K", "Q3K").emit(asm)
@@ -116,7 +70,7 @@ class GroupedQ3KPairedK128Lowering:
             f"s_mov_b32 s{scalar.row_start.first_register}, "
             f"s{scalar.row_begin.first_register}"
         )
-        self._emit_invariant_addresses(asm, layout)
+        mechanics.emit_invariant_addresses(asm, layout)
 
         asm.label(".LGroupedPairQ3KRowLoop")
         asm.inst(
@@ -154,12 +108,12 @@ class GroupedQ3KPairedK128Lowering:
             self._emit_weight_half_decode(
                 asm, layout, scalar.weights_first.first_register, half
             )
-            self._emit_activation_stage(asm, layout, stage_index=half)
+            mechanics.emit_activation_stage(asm, layout, stage_index=half)
             asm.inst("s_waitcnt lgkmcnt(0)")
             asm.inst("s_barrier")
             for register in registers.zero_accumulator.registers:
                 asm.inst(f"v_mov_b32 v{register}, 0")
-            self._emit_compute_projection(asm, registers.sums_first.first_register)
+            mechanics.emit_compute_projection(asm, registers.sums_first.first_register)
             asm.inst("s_barrier")
 
             self._emit_weight_half_decode(
@@ -169,7 +123,7 @@ class GroupedQ3KPairedK128Lowering:
             asm.inst("s_barrier")
             for register in registers.zero_accumulator.registers:
                 asm.inst(f"v_mov_b32 v{register}, 0")
-            self._emit_compute_projection(asm, registers.sums_second.first_register)
+            mechanics.emit_compute_projection(asm, registers.sums_second.first_register)
             asm.inst("s_barrier")
 
         asm.inst(

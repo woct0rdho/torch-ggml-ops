@@ -5,6 +5,7 @@ import json
 from dataclasses import dataclass, replace
 from typing import Literal
 
+from .mmq_bwd_spec import BackwardKernelSpec, BackwardProblemContract
 from .model import BackwardSolution, ProblemSize, ProblemType, SolutionKey
 from .quant_formats import QUANT_FORMATS
 from .validation import RejectReason, validate_solution
@@ -24,8 +25,27 @@ def _canonical_json(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
-def backward_candidate_hash(candidate: BackwardSolution) -> str:
-    return hashlib.sha256(_canonical_json(candidate.to_mapping()).encode()).hexdigest()
+def backward_candidate_mapping(
+    candidate: BackwardSolution, quant_type: str
+) -> dict[str, object]:
+    key = SolutionKey(
+        ProblemType.mmq_backward(quant_type), ProblemSize(1, 1, 1), candidate
+    )
+    contract = BackwardProblemContract.from_solution_key(key)
+    return {
+        "ArtifactKind": "KernelCandidate",
+        "KernelFamily": "OrdinaryBackward",
+        "ProblemContract": contract.to_mapping(),
+        "KernelSpec": BackwardKernelSpec.from_solution(candidate).to_mapping(
+            quant_type
+        ),
+    }
+
+
+def backward_candidate_hash(candidate: BackwardSolution, quant_type: str) -> str:
+    return hashlib.sha256(
+        _canonical_json(backward_candidate_mapping(candidate, quant_type)).encode()
+    ).hexdigest()
 
 
 def explain_invalid(
@@ -150,7 +170,9 @@ def candidate_neighbors(
         for candidate in proposed
         if not explain_invalid(candidate, quant_type, shape)
     )
-    unique = {backward_candidate_hash(candidate): candidate for candidate in valid}
+    unique = {
+        backward_candidate_hash(candidate, quant_type): candidate for candidate in valid
+    }
     return tuple(unique[digest] for digest in sorted(unique))
 
 

@@ -228,6 +228,10 @@ The two independent build passes covered Q2_K R35 and all three production keys.
 
 The B16 complete-call screen included fresh fixed `F16_D2S6` quantization before every multiply. The current J64 parent measured 207.0560 ms weighted versus 263.8539 ms for its adjacent installed J32 control, or `1.2743x`. R3 measured 210.2218 ms versus 268.7908 ms for its adjacent installed control, or `1.2786x`. All ten learned/hash medoids were bitwise exact, but R3 regressed candidate time by 1.529% relative to the generated parent. It failed the advancement gate, so no 25-repeat confirmation was run. R1 and R2 were also stopped by the common Q4_K transfer gate. Existing selected identities remain unchanged.
 
+### Post-review disposition: zero-bank initialization
+
+The later paired-source audit does not reopen a paired zero-bank experiment for Q2_K. The selected decoded-LDS Q2_K bodies initialize their zero bank once per row tile; they do not repeat the paired projection-phase initialization that motivates the IQ2_S, IQ2_XXS, and Q3_K probes. The previously measured VOPD initialization and the J128 geometry result remain closed under their recorded resource and timing gates. No new Q2_K local accumulator experiment is pending, and the recursive classification below remains the final review for the current Q2 premise.
+
 ## Recursive Final Classification
 
 - Retained: dedicated grouped Q2_K semantics and ABI; bounded `F16_D2S6` workspace production; exact partial-LDS retirement; pre-negated dmin; paired payload and metadata stores; all-wave distributed producer; compact 320-byte decoded LDS rows; J32/J16 one-tile-ahead and J64 four-tile BF16 epilogues, both at width two and priority two; eight-wide correction dependency phases; J32/J16 for B1/B4; and J64 for B16. The test suite locks both selected identities, strict resources, deterministic rebuilds, installed-control boundaries, and cross-format rejection.

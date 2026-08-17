@@ -116,6 +116,10 @@ The shared build and correctness matrix included Q5_K R35 and all three producti
 
 The Q4_K B1 transfer screen measured R1 at +0.030% candidate time relative to its parent, R2 at -0.086%, and R3 at -0.083%. None cleared two percent. Because Q5_K performs the same route setup around a longer high-bit decode body, the prespecified upper-bound gate rejects production timing transfer. R1-R3 are closed as neutral shared micro-optimizations, not retained Q5_K mechanisms. No Q5 solution identity, selected artifact, or public integration changed.
 
+### Post-review disposition: zero-bank initialization
+
+The later paired-source audit does not transfer a zero-bank hoisting candidate to Q5_K. The decoded-LDS Q5_K body already initializes its zero bank once per row tile, and grouped VOPD accumulator initialization was separately measured and rejected. The Q5 route/address transfer closure and representation-level bottleneck classification therefore remain unchanged; no new Q5 local accumulator experiment is pending.
+
 ## Recursive Final Review
 
 A fresh pass reread the grouped Q4 record, dense Q5 forward and backward records, grouped forward and backward histories, installed HIP ownership and normalized ISA, final generated artifacts and reports, the TensileLite and Composable Kernel grouped mechanisms, and the gfx1151 instruction constraints. The resulting classification is:

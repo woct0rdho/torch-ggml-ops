@@ -8,6 +8,11 @@ import yaml
 
 from .fixed_grouped_mmq_fwd_model import FixedForwardSolutionKey
 from .fixed_grouped_mmq_fwd_spec import DerivedFixedForwardState
+from .kernel_abi import (
+    FIXED_GROUPED_FORWARD_ABI,
+    ORDINARY_BACKWARD_ABI,
+    ORDINARY_FORWARD_ABI,
+)
 from .mmq_bwd_physical import derive_backward_physical_plan
 from .mmq_bwd_spec import DerivedBackwardState
 from .mmq_fwd_physical import (
@@ -86,36 +91,6 @@ class ArtifactInspection:
             "StaticDelayAluCount": self.delay_alu_count,
             "StaticBufferGl0InvCount": self.buffer_gl0_inv_count,
         }
-
-
-_EXPECTED_BACKWARD_ARGS = (
-    ("grad_output", 0, 8, "global_buffer", "bf16"),
-    ("packed_weight", 8, 8, "global_buffer", "struct"),
-    ("grad_input", 16, 8, "global_buffer", "bf16"),
-    ("rows", 24, 4, "by_value", "u32"),
-    ("out_features", 28, 4, "by_value", "u32"),
-    ("in_features", 32, 4, "by_value", "u32"),
-    ("blocks_per_weight_row", 36, 4, "by_value", "u32"),
-)
-
-_EXPECTED_FORWARD_ARGS = (
-    ("packed_weight", 0, 8, "global_buffer", "struct"),
-    ("activations", 8, 8, "global_buffer", "struct"),
-    ("output", 16, 8, "global_buffer", "bf16"),
-    ("nrows_weight", 24, 4, "by_value", "u32"),
-    ("nrows_activation", 28, 4, "by_value", "u32"),
-    ("nrows_activation_padded", 32, 4, "by_value", "u32"),
-    ("blocks_per_weight_row", 36, 4, "by_value", "u32"),
-)
-
-_EXPECTED_FIXED_FORWARD_ARGS = (
-    ("packed_weight", 0, 8, "global_buffer", "struct"),
-    ("activations", 8, 8, "global_buffer", "struct"),
-    ("output", 16, 8, "global_buffer", "bf16"),
-    ("tokens", 24, 4, "by_value", "u32"),
-    ("out_features", 28, 4, "by_value", "u32"),
-    ("bytes_per_group", 32, 8, "by_value", "u64"),
-)
 
 
 def inspect_artifact(
@@ -341,8 +316,8 @@ def _validate_metadata(
     state = DerivedBackwardState.from_solution_key(solution_key)
     physical = derive_backward_physical_plan(state)
     expected = {
-        ".kernarg_segment_size": state.contract.kernarg_segment_size,
-        ".kernarg_segment_align": 8,
+        ".kernarg_segment_size": ORDINARY_BACKWARD_ABI.segment_size,
+        ".kernarg_segment_align": ORDINARY_BACKWARD_ABI.segment_alignment,
         ".group_segment_fixed_size": physical.resources.lds_num_bytes,
         ".private_segment_fixed_size": physical.resources.private_segment_bytes,
         ".max_flat_workgroup_size": state.spec.geometry.num_threads,
@@ -360,22 +335,8 @@ def _validate_metadata(
         "dynamic stack is enabled",
         errors,
     )
-    arguments = kernel.get(".args")
-    actual_args = ()
-    if isinstance(arguments, list):
-        actual_args = tuple(
-            (
-                argument.get(".name"),
-                argument.get(".offset"),
-                argument.get(".size"),
-                argument.get(".value_kind"),
-                argument.get(".value_type"),
-            )
-            for argument in arguments
-            if isinstance(argument, Mapping)
-        )
     _require(
-        actual_args == _EXPECTED_BACKWARD_ARGS,
+        _metadata_arguments(kernel) == ORDINARY_BACKWARD_ABI.metadata_arguments,
         "kernarg ABI does not match",
         errors,
     )
@@ -389,8 +350,8 @@ def _validate_forward_metadata(
     kernel_spec = ForwardKernelSpec.from_solution(solution)
     resources = derive_forward_resource_usage(kernel_spec)
     expected = {
-        ".kernarg_segment_size": 40,
-        ".kernarg_segment_align": 8,
+        ".kernarg_segment_size": ORDINARY_FORWARD_ABI.segment_size,
+        ".kernarg_segment_align": ORDINARY_FORWARD_ABI.segment_alignment,
         ".group_segment_fixed_size": resources.lds_bytes,
         ".private_segment_fixed_size": 0,
         ".max_flat_workgroup_size": (
@@ -412,22 +373,8 @@ def _validate_forward_metadata(
         "dynamic stack is enabled",
         errors,
     )
-    arguments = kernel.get(".args")
-    actual_args = ()
-    if isinstance(arguments, list):
-        actual_args = tuple(
-            (
-                argument.get(".name"),
-                argument.get(".offset"),
-                argument.get(".size"),
-                argument.get(".value_kind"),
-                argument.get(".value_type"),
-            )
-            for argument in arguments
-            if isinstance(argument, Mapping)
-        )
     _require(
-        actual_args == _EXPECTED_FORWARD_ARGS,
+        _metadata_arguments(kernel) == ORDINARY_FORWARD_ABI.metadata_arguments,
         "forward kernarg ABI does not match",
         errors,
     )
@@ -440,8 +387,8 @@ def _validate_fixed_forward_metadata(
 ) -> None:
     state = DerivedFixedForwardState.from_solution_key(solution_key)
     expected = {
-        ".kernarg_segment_size": 40,
-        ".kernarg_segment_align": 8,
+        ".kernarg_segment_size": FIXED_GROUPED_FORWARD_ABI.segment_size,
+        ".kernarg_segment_align": FIXED_GROUPED_FORWARD_ABI.segment_alignment,
         ".group_segment_fixed_size": state.resources.lds_bytes,
         ".private_segment_fixed_size": 0,
         ".max_flat_workgroup_size": state.num_threads,
@@ -459,24 +406,29 @@ def _validate_fixed_forward_metadata(
         "dynamic stack is enabled",
         errors,
     )
-    arguments = kernel.get(".args")
-    actual_args = ()
-    if isinstance(arguments, list):
-        actual_args = tuple(
-            (
-                argument.get(".name"),
-                argument.get(".offset"),
-                argument.get(".size"),
-                argument.get(".value_kind"),
-                argument.get(".value_type"),
-            )
-            for argument in arguments
-            if isinstance(argument, Mapping)
-        )
     _require(
-        actual_args == _EXPECTED_FIXED_FORWARD_ARGS,
+        _metadata_arguments(kernel) == FIXED_GROUPED_FORWARD_ABI.metadata_arguments,
         "fixed forward kernarg ABI does not match",
         errors,
+    )
+
+
+def _metadata_arguments(
+    kernel: Mapping[str, Any],
+) -> tuple[tuple[object, object, object, object, object], ...]:
+    arguments = kernel.get(".args")
+    if not isinstance(arguments, list):
+        return ()
+    return tuple(
+        (
+            argument.get(".name"),
+            argument.get(".offset"),
+            argument.get(".size"),
+            argument.get(".value_kind"),
+            argument.get(".value_type"),
+        )
+        for argument in arguments
+        if isinstance(argument, Mapping)
     )
 
 

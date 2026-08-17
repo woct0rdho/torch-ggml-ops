@@ -1,6 +1,6 @@
 import hashlib
 import json
-from dataclasses import fields, replace
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -24,6 +24,7 @@ from tools.ggtensile.mmq_fwd_physical import (
     SignedInt8SmallMTiledLdsRegisterPlan,
     SignedInt8WaveNTiledLdsRegisterPlan,
 )
+from tools.ggtensile.mmq_fwd_spec import ForwardKernelCandidate
 from tools.ggtensile.model import (
     ForwardSolution,
     ProblemSize,
@@ -150,7 +151,15 @@ def test_forward_campaign_inventory_is_exact_and_versionless(
         assert narrow.expected_physical_weight_shape == (512, expected_row_bytes)
     raw = json.loads(case.catalog_path.read_text(encoding="utf-8"))
     assert catalog.to_mapping() == raw
-    assert set(raw) == {"ProblemType", "Solutions", "ExactLogic"}
+    assert set(raw) == {
+        "ArtifactKind",
+        "KernelFamily",
+        "ProblemContract",
+        "KernelSpecs",
+        "ExactLogic",
+    }
+    assert raw["ArtifactKind"] == "DeploymentCatalog"
+    assert raw["KernelFamily"] == "OrdinaryForward"
     forbidden = {
         "Family",
         "RepresentativeTensor",
@@ -160,7 +169,7 @@ def test_forward_campaign_inventory_is_exact_and_versionless(
         "SelectedSolution",
     }
     serialized = json.dumps(raw)
-    assert not any(field in serialized for field in forbidden)
+    assert not any(f'"{field}":' in serialized for field in forbidden)
 
 
 def test_q3_forward_inventory_selects_all_qualified_exact_keys() -> None:
@@ -212,12 +221,69 @@ def test_forward_solution_key_is_strict_and_round_trips(quant_type: str) -> None
     assert SolutionKey.from_mapping(key.to_mapping()) == key
     assert f"mmq_fwd_{quant_type.lower()}" in key.kernel_name
     mapping = key.to_mapping()
-    solution_mapping = mapping["Solution"]
-    assert isinstance(solution_mapping, dict)
-    solution = dict(solution_mapping)
-    solution["Unknown"] = 1
-    mapping["Solution"] = solution
-    with pytest.raises(SchemaError, match="invalid Solution"):
+    kernel_spec = mapping["KernelSpec"]
+    assert isinstance(kernel_spec, dict)
+    mutated = dict(kernel_spec)
+    mutated["unknown"] = 1
+    mapping["KernelSpec"] = mutated
+    with pytest.raises(SchemaError, match="invalid ForwardKernelSpec"):
+        SolutionKey.from_mapping(mapping)
+
+
+@pytest.mark.parametrize("field", ("unknown", "SchemaVersion"))
+def test_forward_exact_key_rejects_unknown_root_fields(field: str) -> None:
+    mapping = _key().to_mapping()
+    mapping[field] = 1
+    with pytest.raises(SchemaError, match="invalid SolutionKey"):
+        SolutionKey.from_mapping(mapping)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("quant_type", "Unknown"),
+        ("block_values", 1),
+        ("packed_weight_block_bytes", 1),
+        ("activation_layout", "F32_D4"),
+        ("activation_block_bytes", 1),
+        ("kernel_language", "Source"),
+        ("isa", [11, 0, 0]),
+        ("wavefront_size", 64),
+        ("signed_weight", False),
+        ("signed_activation", False),
+        ("wmma_clamp", False),
+        ("weight_decode", "Prepared"),
+        ("scale_arithmetic", "FP32"),
+        ("arithmetic_contract", "Unknown"),
+        ("destination_type", "Float32"),
+        ("bf16_rounding", "Truncate"),
+        ("abi", "Unknown"),
+    ),
+)
+def test_forward_exact_key_rejects_noncanonical_contract_fields(
+    field: str, value: object
+) -> None:
+    mapping = _key().to_mapping()
+    contract = mapping["ProblemContract"]
+    assert isinstance(contract, dict)
+    contract[field] = value
+    with pytest.raises(SchemaError, match="canonical|unsupported"):
+        SolutionKey.from_mapping(mapping)
+
+
+def test_forward_exact_key_rejects_nonpositive_problem_and_numeric_boolean() -> None:
+    mapping = _key().to_mapping()
+    problem = mapping["Problem"]
+    assert isinstance(problem, dict)
+    problem["m"] = 0
+    with pytest.raises(SchemaError, match="dimensions must be positive"):
+        SolutionKey.from_mapping(mapping)
+
+    mapping = _key().to_mapping()
+    contract = mapping["ProblemContract"]
+    assert isinstance(contract, dict)
+    contract["signed_weight"] = 1
+    with pytest.raises(SchemaError, match="must be bool"):
         SolutionKey.from_mapping(mapping)
 
 
@@ -237,52 +303,43 @@ def test_forward_quant_types_have_distinct_problem_and_solution_identity() -> No
     assert q5_key.solution.weight_decode == "DirectNibbleHighBit"
 
 
-def test_forward_solution_identity_normalizes_scalar_accumulator_initialization() -> (
-    None
-):
-    mapping = ForwardSolution.q4_k_pilot().to_mapping()
-    assert len(mapping) == len(fields(ForwardSolution)) - 11
-    assert "AccumulatorInitialization" not in mapping
-    assert "Q6EpiloguePipelineScope" not in mapping
-    assert "Q6DependencyDelayMode" not in mapping
-    assert "Q6GlobalReadCachePolicy" not in mapping
-    assert ForwardSolution.from_mapping(mapping).to_mapping() == mapping
-
-    vopd = replace(
-        _q5_extraction(),
-        accumulator_initialization="VopdPair",
+def test_forward_candidate_serializes_only_active_typed_policies() -> None:
+    direct = ForwardKernelCandidate.from_solution(
+        "Q8_0", ForwardSolution.q8_0_direct_global()
     )
-    vopd_mapping = vopd.to_mapping()
-    assert len(vopd_mapping) == len(fields(ForwardSolution)) - 10
-    assert vopd_mapping["AccumulatorInitialization"] == "VopdPair"
-    assert ForwardSolution.from_mapping(vopd_mapping) == vopd
+    direct_mapping = direct.to_mapping()
+    direct_spec = direct_mapping["KernelSpec"]
+    assert isinstance(direct_spec, dict)
+    assert "instruction_policy" not in direct_spec
+    assert "semantic_schedule" not in direct_spec
+    assert ForwardKernelCandidate.from_mapping(direct_mapping) == direct
 
-    structured = ForwardSolution.q6_k_structured_decoded(macro_tile0=128)
+    structured = ForwardKernelCandidate.from_solution(
+        "Q6_K", ForwardSolution.q6_k_structured_decoded(macro_tile0=128)
+    )
     structured_mapping = structured.to_mapping()
-    assert structured_mapping["Q6EpiloguePipelineScope"] == "FullTile"
-    assert structured_mapping["Q6DependencyDelayMode"] == "Explicit"
-    assert structured_mapping["Q6GlobalReadCachePolicy"] == "InvalidateL0"
-    assert structured_mapping["Q6OutputTraversal"] == "OutputRoleGroupMajor"
-    assert structured_mapping["Q6StageClustering"] == "StageDependencyOrder"
-    assert structured_mapping["Q6LatencyPolicy"] == "SerializedDependencyDistance"
-    assert structured_mapping["Q6PressurePolicy"] == "ExplicitRoleLifetime"
-    assert structured_mapping["Q6WaitPolicy"] == "ProducerFirstUse"
-    assert structured_mapping["Q6PairingPolicy"] == "DependencyCompatibleDualIssue"
-    assert len(structured_mapping) == len(fields(ForwardSolution)) - 2
-    assert ForwardSolution.from_mapping(structured_mapping) == structured
+    structured_spec = structured_mapping["KernelSpec"]
+    assert isinstance(structured_spec, dict)
+    semantic = structured_spec["semantic_schedule"]
+    assert isinstance(semantic, dict)
+    assert semantic == {
+        "traversal": "OutputRoleGroupMajor",
+        "clustering": "StageDependencyOrder",
+        "latency": "SerializedDependencyDistance",
+        "pressure": "ExplicitRoleLifetime",
+        "wait": "ProducerFirstUse",
+        "pairing": "DependencyCompatibleDualIssue",
+    }
+    assert ForwardKernelCandidate.from_mapping(structured_mapping) == structured
 
-    for policy in (
-        "Q6OutputTraversal",
-        "Q6StageClustering",
-        "Q6LatencyPolicy",
-        "Q6PressurePolicy",
-        "Q6WaitPolicy",
-        "Q6PairingPolicy",
-    ):
-        incomplete = dict(structured_mapping)
-        del incomplete[policy]
-        with pytest.raises(SchemaError, match="invalid Solution"):
-            ForwardSolution.from_mapping(incomplete)
+    incomplete = dict(structured_mapping)
+    incomplete_spec = dict(structured_spec)
+    incomplete_semantic = dict(semantic)
+    del incomplete_semantic["pairing"]
+    incomplete_spec["semantic_schedule"] = incomplete_semantic
+    incomplete["KernelSpec"] = incomplete_spec
+    with pytest.raises(SchemaError, match="semantic_schedule"):
+        ForwardKernelCandidate.from_mapping(incomplete)
 
 
 @pytest.mark.parametrize(

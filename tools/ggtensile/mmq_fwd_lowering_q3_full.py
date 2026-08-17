@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import ClassVar, cast
 
+from .kernel_abi import ORDINARY_FORWARD_ABI
 from .kernel_writer_assembly import (
     Assembly,
     emit_bf16_rne,
@@ -51,7 +52,7 @@ class FullWeightQ3TiledLdsLowering:
         blocks = state.blocks_per_weight_row
 
         asm.comment("Load pointers for the typed full-weight Q3 tile.")
-        emit_pointer_kernarg_loads(asm, self.KERNARG)
+        emit_pointer_kernarg_loads(asm, self.KERNARG, ORDINARY_FORWARD_ABI)
         asm.comment("Map each wave to sixteen output-feature rows.")
         asm.inst(f"v_bfe_u32 v{registers.wave.first_register}, v0, 10, 10")
         asm.inst(f"v_and_b32 v{registers.lane.first_register}, 0x3ff, v0")

@@ -138,17 +138,6 @@ class GroupedForwardProblem:
     physical_experts: int
     max_route_entries: int
 
-    _KEYS: ClassVar[frozenset[str]] = frozenset(
-        {
-            "QuantDataType",
-            "AggregateRows",
-            "OutputFeatures",
-            "InputFeatures",
-            "PhysicalExperts",
-            "MaxRouteEntries",
-        }
-    )
-
     @classmethod
     def q2_k(cls, aggregate_rows: int) -> Self:
         return cls("Q2_K", aggregate_rows, 4096, 2048, 256, 256)
@@ -164,28 +153,6 @@ class GroupedForwardProblem:
     @classmethod
     def iq2_s(cls, aggregate_rows: int) -> Self:
         return cls("IQ2_S", aggregate_rows, 2048, 512, 256, 256)
-
-    @classmethod
-    def from_mapping(cls, value: object) -> Self:
-        item = _mapping(value, "GroupedForwardProblem", cls._KEYS)
-        return cls(
-            quant_data_type=_string(item["QuantDataType"], "QuantDataType"),
-            aggregate_rows=_integer(item["AggregateRows"], "AggregateRows"),
-            output_features=_integer(item["OutputFeatures"], "OutputFeatures"),
-            input_features=_integer(item["InputFeatures"], "InputFeatures"),
-            physical_experts=_integer(item["PhysicalExperts"], "PhysicalExperts"),
-            max_route_entries=_integer(item["MaxRouteEntries"], "MaxRouteEntries"),
-        )
-
-    def to_mapping(self) -> dict[str, object]:
-        return {
-            "QuantDataType": self.quant_data_type,
-            "AggregateRows": self.aggregate_rows,
-            "OutputFeatures": self.output_features,
-            "InputFeatures": self.input_features,
-            "PhysicalExperts": self.physical_experts,
-            "MaxRouteEntries": self.max_route_entries,
-        }
 
 
 @dataclass(frozen=True)
@@ -219,38 +186,6 @@ class GroupedForwardSolution:
     signed_weight: bool
     signed_activation: bool
     wmma_clamp: bool
-
-    _KEYS: ClassVar[frozenset[str]] = frozenset(
-        {
-            "KernelLanguage",
-            "ISA",
-            "WavefrontSize",
-            "WorkGroup",
-            "MatrixInstruction",
-            "MacroTile0",
-            "TailMacroTile0",
-            "MacroTile1",
-            "DepthU",
-            "ActivationLayout",
-            "ActivationBlockBytes",
-            "PackedWeightBlockBytes",
-            "OperandSource",
-            "WeightDecode",
-            "GroupMapping",
-            "RouteLayout",
-            "ActivationAddressing",
-            "MetadataConversion",
-            "MetadataSchedule",
-            "EpilogueTilesAhead",
-            "EpilogueDependencyWidth",
-            "EpiloguePriority",
-            "ScaleArithmetic",
-            "OutputStore",
-            "SignedWeight",
-            "SignedActivation",
-            "WmmaClamp",
-        }
-    )
 
     @classmethod
     def q4_k_serial_direct(cls) -> Self:
@@ -691,95 +626,9 @@ class GroupedForwardSolution:
             epilogue_priority=2,
         )
 
-    @classmethod
-    def from_mapping(cls, value: object) -> Self:
-        item = _mapping(value, "GroupedForwardSolution", cls._KEYS)
-        return cls(
-            kernel_language=_string(item["KernelLanguage"], "KernelLanguage"),
-            isa=_integer_triple(item["ISA"], "ISA"),
-            wavefront_size=_integer(item["WavefrontSize"], "WavefrontSize"),
-            work_group=_integer_triple(item["WorkGroup"], "WorkGroup"),
-            matrix_instruction=_integer_tuple(
-                item["MatrixInstruction"], "MatrixInstruction", 9
-            ),
-            macro_tile0=_integer(item["MacroTile0"], "MacroTile0"),
-            tail_macro_tile0=_integer(item["TailMacroTile0"], "TailMacroTile0"),
-            macro_tile1=_integer(item["MacroTile1"], "MacroTile1"),
-            depth_u=_integer(item["DepthU"], "DepthU"),
-            activation_layout=_string(item["ActivationLayout"], "ActivationLayout"),
-            activation_block_bytes=_integer(
-                item["ActivationBlockBytes"], "ActivationBlockBytes"
-            ),
-            packed_weight_block_bytes=_integer(
-                item["PackedWeightBlockBytes"], "PackedWeightBlockBytes"
-            ),
-            operand_source=_enum(
-                item["OperandSource"], "OperandSource", GroupedOperandSource
-            ),
-            weight_decode=_string(item["WeightDecode"], "WeightDecode"),
-            group_mapping=_string(item["GroupMapping"], "GroupMapping"),
-            route_layout=_string(item["RouteLayout"], "RouteLayout"),
-            activation_addressing=_enum(
-                item["ActivationAddressing"],
-                "ActivationAddressing",
-                GroupedActivationAddressing,
-            ),
-            metadata_conversion=_string(
-                item["MetadataConversion"], "MetadataConversion"
-            ),
-            metadata_schedule=_enum(
-                item["MetadataSchedule"],
-                "MetadataSchedule",
-                GroupedMetadataSchedule,
-            ),
-            epilogue_tiles_ahead=_integer(
-                item["EpilogueTilesAhead"], "EpilogueTilesAhead"
-            ),
-            epilogue_dependency_width=_integer(
-                item["EpilogueDependencyWidth"], "EpilogueDependencyWidth"
-            ),
-            epilogue_priority=_integer(item["EpiloguePriority"], "EpiloguePriority"),
-            scale_arithmetic=_string(item["ScaleArithmetic"], "ScaleArithmetic"),
-            output_store=_enum(item["OutputStore"], "OutputStore", GroupedOutputStore),
-            signed_weight=_boolean(item["SignedWeight"], "SignedWeight"),
-            signed_activation=_boolean(item["SignedActivation"], "SignedActivation"),
-            wmma_clamp=_boolean(item["WmmaClamp"], "WmmaClamp"),
-        )
-
     @property
     def num_threads(self) -> int:
         return self.work_group[0] * self.work_group[1] * self.work_group[2]
-
-    def to_mapping(self) -> dict[str, object]:
-        return {
-            "KernelLanguage": self.kernel_language,
-            "ISA": list(self.isa),
-            "WavefrontSize": self.wavefront_size,
-            "WorkGroup": list(self.work_group),
-            "MatrixInstruction": list(self.matrix_instruction),
-            "MacroTile0": self.macro_tile0,
-            "TailMacroTile0": self.tail_macro_tile0,
-            "MacroTile1": self.macro_tile1,
-            "DepthU": self.depth_u,
-            "ActivationLayout": self.activation_layout,
-            "ActivationBlockBytes": self.activation_block_bytes,
-            "PackedWeightBlockBytes": self.packed_weight_block_bytes,
-            "OperandSource": self.operand_source.value,
-            "WeightDecode": self.weight_decode,
-            "GroupMapping": self.group_mapping,
-            "RouteLayout": self.route_layout,
-            "ActivationAddressing": self.activation_addressing.value,
-            "MetadataConversion": self.metadata_conversion,
-            "MetadataSchedule": self.metadata_schedule.value,
-            "EpilogueTilesAhead": self.epilogue_tiles_ahead,
-            "EpilogueDependencyWidth": self.epilogue_dependency_width,
-            "EpiloguePriority": self.epilogue_priority,
-            "ScaleArithmetic": self.scale_arithmetic,
-            "OutputStore": self.output_store.value,
-            "SignedWeight": self.signed_weight,
-            "SignedActivation": self.signed_activation,
-            "WmmaClamp": self.wmma_clamp,
-        }
 
 
 @dataclass(frozen=True)
@@ -787,20 +636,61 @@ class GroupedForwardSolutionKey:
     problem: GroupedForwardProblem
     solution: GroupedForwardSolution
 
-    _KEYS: ClassVar[frozenset[str]] = frozenset({"Problem", "Solution"})
+    _KEYS: ClassVar[frozenset[str]] = frozenset(
+        {"ArtifactKind", "KernelFamily", "ProblemContract", "Problem", "KernelSpec"}
+    )
 
     @classmethod
     def from_mapping(cls, value: object) -> Self:
         item = _mapping(value, "GroupedForwardSolutionKey", cls._KEYS)
-        return cls(
-            GroupedForwardProblem.from_mapping(item["Problem"]),
-            GroupedForwardSolution.from_mapping(item["Solution"]),
+        if item["ArtifactKind"] != "ExactKernel":
+            raise SchemaError("grouped key ArtifactKind must be ExactKernel")
+        if item["KernelFamily"] != "GroupedForward":
+            raise SchemaError("grouped key KernelFamily must be GroupedForward")
+        from .grouped_mmq_fwd_spec import (
+            GroupedForwardKernelSpec,
+            GroupedForwardProblemContract,
+            grouped_forward_capability_rejection_reason,
         )
 
+        contract = GroupedForwardProblemContract.from_mapping(item["ProblemContract"])
+        problem_item = _mapping(
+            item["Problem"], "GroupedForwardProblem", frozenset({"aggregate_rows"})
+        )
+        problem = contract.problem(
+            _integer(problem_item["aggregate_rows"], "aggregate_rows")
+        )
+        if not 0 < problem.aggregate_rows <= 0xFFFFFFFF:
+            raise SchemaError("grouped aggregate_rows must fit in a positive u32")
+        spec = GroupedForwardKernelSpec.from_mapping(item["KernelSpec"], contract)
+        solution = spec.to_solution(contract)
+        if GroupedForwardProblemContract.from_solution(problem, solution) != contract:
+            raise SchemaError(
+                "GroupedForwardProblemContract does not round-trip canonically"
+            )
+        rejection = grouped_forward_capability_rejection_reason(problem, solution)
+        if rejection is not None:
+            raise SchemaError(
+                f"grouped kernel specification is not canonical: {rejection}"
+            )
+        return cls(problem, solution)
+
     def to_mapping(self) -> dict[str, object]:
+        from .grouped_mmq_fwd_spec import (
+            GroupedForwardKernelSpec,
+            GroupedForwardProblemContract,
+        )
+
+        contract = GroupedForwardProblemContract.from_solution(
+            self.problem, self.solution
+        )
+        spec = GroupedForwardKernelSpec.from_solution(self.problem, self.solution)
         return {
-            "Problem": self.problem.to_mapping(),
-            "Solution": self.solution.to_mapping(),
+            "ArtifactKind": "ExactKernel",
+            "KernelFamily": "GroupedForward",
+            "ProblemContract": contract.to_mapping(),
+            "Problem": {"aggregate_rows": self.problem.aggregate_rows},
+            "KernelSpec": spec.to_mapping(),
         }
 
     @property

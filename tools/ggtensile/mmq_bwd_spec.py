@@ -4,9 +4,32 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum, IntEnum
+from typing import TypeVar, cast
 
-from .model import BackwardSolution, ProblemSize, SolutionKey
+from .model import (
+    BackwardSolution,
+    ProblemSize,
+    SchemaError,
+    SolutionKey,
+    _integer,
+    _integer_tuple,
+    _strict_mapping,
+    _strict_mapping_optional,
+    _string,
+)
 from .quant_formats import QUANT_FORMATS, QuantFormat
+
+EnumT = TypeVar("EnumT", bound=Enum)
+
+
+def _serialized_enum(enum_type: type[EnumT], value: object, name: str) -> EnumT:
+    serialized = _string(value, name)
+    try:
+        if issubclass(enum_type, IntEnum):
+            return enum_type[serialized]
+        return enum_type(serialized)
+    except (KeyError, ValueError):
+        raise SchemaError(f"invalid {name}: {serialized!r}") from None
 
 
 class BackwardQ3Pairing(str, Enum):
@@ -319,7 +342,6 @@ class BackwardProblemContract:
     quant_type: str
     quant_format: QuantFormat
     mechanism: BackwardMechanismContract
-    kernarg_segment_size: int = 40
     code_object_version: int = 5
 
     @classmethod
@@ -332,6 +354,90 @@ class BackwardProblemContract:
                 solution_key.problem_type.quant_data_type
             ),
         )
+
+    @classmethod
+    def from_mapping(
+        cls,
+        value: object,
+        problem_size: ProblemSize,
+    ) -> BackwardProblemContract:
+        item = _strict_mapping(
+            value,
+            name="BackwardProblemContract",
+            keys=frozenset(
+                {
+                    "quant_type",
+                    "block_values",
+                    "packed_weight_block_bytes",
+                    "kernel_language",
+                    "isa",
+                    "wavefront_size",
+                    "activation_type",
+                    "destination_type",
+                    "compute_type",
+                    "abi",
+                    "code_object_version",
+                }
+            ),
+        )
+        quant_type = _string(item["quant_type"], "quant_type")
+        if quant_type not in QUANT_FORMATS:
+            raise SchemaError(f"unsupported backward quant type {quant_type!r}")
+        quant_format = QUANT_FORMATS[quant_type]
+        expected: dict[str, object] = {
+            "quant_type": quant_type,
+            "block_values": quant_format.block_values,
+            "packed_weight_block_bytes": quant_format.block_bytes,
+            "kernel_language": "Assembly",
+            "isa": [11, 5, 1],
+            "wavefront_size": 32,
+            "activation_type": "BFloat16",
+            "destination_type": "BFloat16",
+            "compute_type": "Float32",
+            "abi": "BackwardOutputA",
+            "code_object_version": 5,
+        }
+        actual = {
+            "quant_type": quant_type,
+            "block_values": _integer(item["block_values"], "block_values"),
+            "packed_weight_block_bytes": _integer(
+                item["packed_weight_block_bytes"], "packed_weight_block_bytes"
+            ),
+            "kernel_language": _string(item["kernel_language"], "kernel_language"),
+            "isa": list(_integer_tuple(item["isa"], "isa", 3)),
+            "wavefront_size": _integer(item["wavefront_size"], "wavefront_size"),
+            "activation_type": _string(item["activation_type"], "activation_type"),
+            "destination_type": _string(item["destination_type"], "destination_type"),
+            "compute_type": _string(item["compute_type"], "compute_type"),
+            "abi": _string(item["abi"], "abi"),
+            "code_object_version": _integer(
+                item["code_object_version"], "code_object_version"
+            ),
+        }
+        if actual != expected:
+            raise SchemaError("BackwardProblemContract is not canonical")
+        return cls(
+            problem_size=problem_size,
+            quant_type=quant_type,
+            quant_format=quant_format,
+            mechanism=backward_mechanism_contract(quant_type),
+            code_object_version=5,
+        )
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "quant_type": self.quant_type,
+            "block_values": self.quant_format.block_values,
+            "packed_weight_block_bytes": self.quant_format.block_bytes,
+            "kernel_language": "Assembly",
+            "isa": [11, 5, 1],
+            "wavefront_size": 32,
+            "activation_type": "BFloat16",
+            "destination_type": "BFloat16",
+            "compute_type": "Float32",
+            "abi": "BackwardOutputA",
+            "code_object_version": self.code_object_version,
+        }
 
 
 @dataclass(frozen=True)
@@ -530,6 +636,349 @@ class BackwardKernelSpec:
                 num_elements_per_batch_store=solution.num_elements_per_batch_store,
                 store_vector_width=solution.store_vector_width,
             ),
+        )
+
+    @property
+    def mi_wave_tile(self) -> tuple[int, int]:
+        return (
+            self.geometry.matrix_instruction[5],
+            self.geometry.matrix_instruction[6],
+        )
+
+    def to_mapping(self, quant_type: str) -> dict[str, object]:
+        memory = self.memory
+        if memory.lds_pad_b > 0 and memory.lds_swizzle_chunk_b == 0:
+            lds_layout: dict[str, object] = {
+                "kind": "Padded",
+                "pad_b": memory.lds_pad_b,
+            }
+        elif memory.lds_pad_b == 0 and memory.lds_swizzle_chunk_b > 0:
+            lds_layout = {
+                "kind": "Swizzled",
+                "chunk_b": memory.lds_swizzle_chunk_b,
+            }
+        elif memory.lds_pad_b == 0 and memory.lds_swizzle_chunk_b == 0:
+            lds_layout = {"kind": "Linear"}
+        else:
+            raise ValueError("backward LDS layout is not canonically representable")
+        mapping: dict[str, object] = {
+            "geometry": {
+                "work_group": list(self.geometry.work_group),
+                "mi_wave_tile": list(self.mi_wave_tile),
+                "depth_u": self.geometry.depth_u,
+                "work_group_mapping": self.geometry.work_group_mapping,
+            },
+            "memory": {"lds_layout": lds_layout},
+            "pipeline": {
+                "global_read_prefetch": self.pipeline.global_read_prefetch,
+                "local_read_prefetch": self.pipeline.local_read_prefetch,
+                "lds_buffering": self.pipeline.lds_buffering.name,
+                "schedule": self.pipeline.schedule.name,
+                "packed_weight_prefetch": self.pipeline.packed_weight_prefetch.value,
+                "packed_weight_lane_share": self.pipeline.packed_weight_lane_share,
+            },
+            "store": {
+                "priority": self.store.priority.value,
+            },
+        }
+        if quant_type == "Q3_K":
+            mapping["decode"] = {
+                "extraction": self.decode.q3.extraction.value,
+                "pairing": self.decode.q3.pairing.value,
+            }
+        elif quant_type == "Q5_K":
+            mapping["decode"] = {
+                "extraction": self.decode.q5.extraction.value,
+                "nibble_shift": self.decode.q5.nibble_shift.value,
+                "metadata_load": self.decode.q5.metadata_load.value,
+            }
+        elif quant_type == "Q6_K":
+            mapping["decode"] = {"extraction": self.decode.q6.extraction.value}
+        elif quant_type == "Q8_0":
+            mapping["decode"] = {"extraction": self.decode.q8.extraction.value}
+        elif quant_type != "Q4_K":
+            raise ValueError(f"unsupported backward quant type {quant_type!r}")
+        return mapping
+
+    @classmethod
+    def from_mapping(cls, value: object, quant_type: str) -> BackwardKernelSpec:
+        decode_required = quant_type != "Q4_K"
+        item = _strict_mapping_optional(
+            value,
+            name="BackwardKernelSpec",
+            required=frozenset(
+                {"geometry", "memory", "pipeline", "store"}
+                | ({"decode"} if decode_required else set())
+            ),
+            optional=frozenset() if decode_required else frozenset({"decode"}),
+        )
+        if quant_type == "Q4_K" and "decode" in item:
+            raise SchemaError("Q4_K has no serialized backward decode policy")
+        geometry = _strict_mapping(
+            item["geometry"],
+            name="BackwardKernelSpec.geometry",
+            keys=frozenset(
+                {"work_group", "mi_wave_tile", "depth_u", "work_group_mapping"}
+            ),
+        )
+        work_group = _integer_tuple(geometry["work_group"], "work_group", 3)
+        mi_wave_tile = cast(
+            tuple[int, int],
+            _integer_tuple(geometry["mi_wave_tile"], "mi_wave_tile", 2),
+        )
+        if min(*work_group, *mi_wave_tile) <= 0:
+            raise SchemaError("backward workgroup and wave tile must be positive")
+        thread_count = work_group[0] * work_group[1] * work_group[2]
+        if thread_count % 32:
+            raise SchemaError("backward workgroup must contain whole wave32 waves")
+        wave_count = thread_count // 32
+        matrix_instruction = (
+            16,
+            16,
+            16,
+            1,
+            1,
+            mi_wave_tile[0],
+            mi_wave_tile[1],
+            wave_count,
+            1,
+        )
+        memory_item = _strict_mapping(
+            item["memory"],
+            name="BackwardKernelSpec.memory",
+            keys=frozenset({"lds_layout"}),
+        )
+        lds_layout_value = memory_item["lds_layout"]
+        if not isinstance(lds_layout_value, dict):
+            raise SchemaError("BackwardKernelSpec.memory.lds_layout must be a mapping")
+        kind = _string(lds_layout_value.get("kind"), "lds_layout.kind")
+        if kind == "Padded":
+            layout_item = _strict_mapping(
+                lds_layout_value,
+                name="BackwardKernelSpec.memory.lds_layout",
+                keys=frozenset({"kind", "pad_b"}),
+            )
+            lds_pad_b = _integer(layout_item["pad_b"], "lds_layout.pad_b")
+            lds_swizzle_chunk_b = 0
+        elif kind == "Swizzled":
+            layout_item = _strict_mapping(
+                lds_layout_value,
+                name="BackwardKernelSpec.memory.lds_layout",
+                keys=frozenset({"kind", "chunk_b"}),
+            )
+            lds_pad_b = 0
+            lds_swizzle_chunk_b = _integer(layout_item["chunk_b"], "lds_layout.chunk_b")
+        elif kind == "Linear":
+            _strict_mapping(
+                lds_layout_value,
+                name="BackwardKernelSpec.memory.lds_layout",
+                keys=frozenset({"kind"}),
+            )
+            lds_pad_b = 0
+            lds_swizzle_chunk_b = 0
+        else:
+            raise SchemaError(f"invalid backward LDS layout kind {kind!r}")
+        pipeline_item = _strict_mapping(
+            item["pipeline"],
+            name="BackwardKernelSpec.pipeline",
+            keys=frozenset(
+                {
+                    "global_read_prefetch",
+                    "local_read_prefetch",
+                    "lds_buffering",
+                    "schedule",
+                    "packed_weight_prefetch",
+                    "packed_weight_lane_share",
+                }
+            ),
+        )
+        pipeline = BackwardPipelineSpec(
+            global_read_prefetch=_integer(
+                pipeline_item["global_read_prefetch"], "global_read_prefetch"
+            ),
+            local_read_prefetch=_integer(
+                pipeline_item["local_read_prefetch"], "local_read_prefetch"
+            ),
+            lds_buffering=_serialized_enum(
+                BackwardLdsBuffering,
+                pipeline_item["lds_buffering"],
+                "lds_buffering",
+            ),
+            schedule=_serialized_enum(
+                BackwardScheduleIterAlg, pipeline_item["schedule"], "schedule"
+            ),
+            packed_weight_prefetch=_serialized_enum(
+                BackwardPackedWeightPrefetch,
+                pipeline_item["packed_weight_prefetch"],
+                "packed_weight_prefetch",
+            ),
+            packed_weight_lane_share=_integer(
+                pipeline_item["packed_weight_lane_share"],
+                "packed_weight_lane_share",
+            ),
+        )
+        q3 = BackwardQ3DecodePolicy(
+            BackwardExtraction.packed, BackwardQ3Pairing.Inactive
+        )
+        q5 = BackwardQ5DecodePolicy(
+            BackwardExtraction.packed,
+            BackwardQ5NibbleShift.Inline,
+            BackwardQ5MetadataLoad.Scalar,
+        )
+        q6 = BackwardQ6DecodePolicy(BackwardExtraction.packed)
+        q8 = BackwardQ8DecodePolicy(BackwardExtraction.packed)
+        if decode_required:
+            if quant_type == "Q3_K":
+                decode_item = _strict_mapping(
+                    item["decode"],
+                    name="BackwardKernelSpec.decode",
+                    keys=frozenset({"extraction", "pairing"}),
+                )
+                q3 = BackwardQ3DecodePolicy(
+                    _serialized_enum(
+                        BackwardExtraction,
+                        decode_item["extraction"],
+                        "decode.extraction",
+                    ),
+                    _serialized_enum(
+                        BackwardQ3Pairing,
+                        decode_item["pairing"],
+                        "decode.pairing",
+                    ),
+                )
+                if q3.pairing is BackwardQ3Pairing.Inactive:
+                    raise SchemaError("Q3_K pairing must be an active policy")
+            elif quant_type == "Q5_K":
+                decode_item = _strict_mapping(
+                    item["decode"],
+                    name="BackwardKernelSpec.decode",
+                    keys=frozenset({"extraction", "nibble_shift", "metadata_load"}),
+                )
+                q5 = BackwardQ5DecodePolicy(
+                    _serialized_enum(
+                        BackwardExtraction,
+                        decode_item["extraction"],
+                        "decode.extraction",
+                    ),
+                    _serialized_enum(
+                        BackwardQ5NibbleShift,
+                        decode_item["nibble_shift"],
+                        "decode.nibble_shift",
+                    ),
+                    _serialized_enum(
+                        BackwardQ5MetadataLoad,
+                        decode_item["metadata_load"],
+                        "decode.metadata_load",
+                    ),
+                )
+            elif quant_type in ("Q6_K", "Q8_0"):
+                decode_item = _strict_mapping(
+                    item["decode"],
+                    name="BackwardKernelSpec.decode",
+                    keys=frozenset({"extraction"}),
+                )
+                extraction = _serialized_enum(
+                    BackwardExtraction,
+                    decode_item["extraction"],
+                    "decode.extraction",
+                )
+                if quant_type == "Q6_K":
+                    q6 = BackwardQ6DecodePolicy(extraction)
+                else:
+                    q8 = BackwardQ8DecodePolicy(extraction)
+            else:
+                raise SchemaError(f"unsupported backward quant type {quant_type!r}")
+        store_item = _strict_mapping(
+            item["store"],
+            name="BackwardKernelSpec.store",
+            keys=frozenset({"priority"}),
+        )
+        return cls(
+            geometry=BackwardGeometrySpec(
+                isa=(11, 5, 1),
+                wavefront_size=32,
+                work_group=work_group,
+                matrix_instruction=matrix_instruction,
+                macro_tile0=16 * wave_count * mi_wave_tile[0],
+                macro_tile1=16 * mi_wave_tile[1],
+                depth_u=_integer(geometry["depth_u"], "depth_u"),
+                work_group_mapping=_integer(
+                    geometry["work_group_mapping"], "work_group_mapping"
+                ),
+            ),
+            memory=BackwardMemorySpec(
+                global_read_vector_width_a=16,
+                global_read_vector_width_b=16,
+                local_read_vector_width=16,
+                transpose_lds=0,
+                lds_pad_b=lds_pad_b,
+                lds_block_size_per_pad_b=0,
+                lds_swizzle_chunk_b=lds_swizzle_chunk_b,
+            ),
+            pipeline=pipeline,
+            decode=BackwardDecodeSpec(
+                decoder_width=16,
+                q3=q3,
+                q5=q5,
+                q6=q6,
+                q8=q8,
+            ),
+            store=BackwardStoreSpec(
+                priority=_serialized_enum(
+                    BackwardStorePriority, store_item["priority"], "store.priority"
+                ),
+                num_elements_per_batch_store=8,
+                store_vector_width=1,
+            ),
+        )
+
+    def to_solution(self, contract: BackwardProblemContract) -> BackwardSolution:
+        if self.geometry.isa != (11, 5, 1) or self.geometry.wavefront_size != 32:
+            raise ValueError("backward ISA and wavefront are fixed contracts")
+        prefetch = self.pipeline.packed_weight_prefetch
+        return BackwardSolution(
+            kernel_language="Assembly",
+            isa=self.geometry.isa,
+            wavefront_size=self.geometry.wavefront_size,
+            work_group=self.geometry.work_group,
+            matrix_instruction=self.geometry.matrix_instruction,
+            macro_tile0=self.geometry.macro_tile0,
+            macro_tile1=self.geometry.macro_tile1,
+            depth_u=self.geometry.depth_u,
+            global_read_vector_width_a=self.memory.global_read_vector_width_a,
+            global_read_vector_width_b=self.memory.global_read_vector_width_b,
+            local_read_vector_width=self.memory.local_read_vector_width,
+            prefetch_global_read=self.pipeline.global_read_prefetch,
+            prefetch_local_read=self.pipeline.local_read_prefetch,
+            one_lds_buffer=self.pipeline.lds_buffering.value,
+            schedule_iter_alg=self.pipeline.schedule.value,
+            store_priority_opt=self.store.priority is BackwardStorePriority.Raised,
+            num_elements_per_batch_store=self.store.num_elements_per_batch_store,
+            store_vector_width=self.store.store_vector_width,
+            work_group_mapping=self.geometry.work_group_mapping,
+            transpose_lds=self.memory.transpose_lds,
+            lds_pad_b=self.memory.lds_pad_b,
+            lds_block_size_per_pad_b=self.memory.lds_block_size_per_pad_b,
+            lds_swizzle_chunk_b=self.memory.lds_swizzle_chunk_b,
+            decoder_width=self.decode.decoder_width,
+            prefetch_packed_weight=prefetch
+            in (
+                BackwardPackedWeightPrefetch.CurrentTile,
+                BackwardPackedWeightPrefetch.CurrentAndNextTile,
+            ),
+            prefetch_packed_weight_next=prefetch.includes_next_tile,
+            packed_weight_lane_share=self.pipeline.packed_weight_lane_share,
+            q3_k_extraction=self.decode.q3.extraction.value,
+            q3_k_pairing=self.decode.q3.pairing.value,
+            q5_k_extraction=self.decode.q5.extraction.value,
+            q5_k_nibble_shift_hoist=(
+                self.decode.q5.nibble_shift is BackwardQ5NibbleShift.Hoisted
+            ),
+            q5_k_metadata_vector_load=(
+                self.decode.q5.metadata_load is BackwardQ5MetadataLoad.Vector
+            ),
+            q6_k_extraction=self.decode.q6.extraction.value,
+            q8_0_extraction=self.decode.q8.extraction.value,
         )
 
 

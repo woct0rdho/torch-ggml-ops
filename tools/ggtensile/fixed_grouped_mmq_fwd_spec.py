@@ -7,6 +7,13 @@ from .fixed_grouped_mmq_fwd_model import (
     FixedForwardProblem,
     FixedForwardSolution,
     FixedForwardSolutionKey,
+    _boolean,
+    _enum,
+    _integer,
+    _integer_triple,
+    _integer_tuple,
+    _mapping,
+    _string,
 )
 from .fixed_grouped_mmq_fwd_physical import (
     FixedQ8ForwardPhysicalPlan,
@@ -17,6 +24,7 @@ from .mmq_fwd_spec import (
     ForwardKernelSpec,
     ForwardResourceUsage,
 )
+from .model import SchemaError
 from .quant_formats import QUANT_FORMATS
 
 
@@ -25,13 +33,26 @@ class FixedForwardProblemContract:
     """Non-tunable fixed-group data, arithmetic, and ABI contract."""
 
     quant_type: str
+    output_features: int
+    input_features: int
     groups: int
     block_values: int
     packed_weight_block_bytes: int
     activation_layout: str
     activation_block_bytes: int
     arithmetic_contract: str
-    abi: str = "FixedGroupedQ8ForwardV1"
+    kernel_language: str
+    isa: tuple[int, int, int]
+    wavefront_size: int
+    weight_decode: str
+    activation_addressing: str
+    scale_arithmetic: str
+    signed_weight: bool
+    signed_activation: bool
+    wmma_clamp: bool
+    destination_type: str = "BFloat16"
+    bf16_rounding: str = "RNEPreserveNaN"
+    abi: str = "FixedGroupedQ8OutputV1"
 
     @classmethod
     def from_problem(
@@ -112,12 +133,278 @@ class FixedForwardProblemContract:
             raise ValueError(rejection)
         return cls(
             quant_type=problem.quant_data_type,
+            output_features=problem.output_features,
+            input_features=problem.input_features,
             groups=problem.groups,
             block_values=quant.block_values,
             packed_weight_block_bytes=quant.block_bytes,
             activation_layout=quant.activation_layout,
             activation_block_bytes=quant.activation_block_bytes,
             arithmetic_contract=quant.arithmetic_contract,
+            kernel_language=solution.kernel_language,
+            isa=solution.isa,
+            wavefront_size=solution.wavefront_size,
+            weight_decode=solution.weight_decode,
+            activation_addressing=solution.activation_addressing,
+            scale_arithmetic=solution.scale_arithmetic,
+            signed_weight=solution.signed_weight,
+            signed_activation=solution.signed_activation,
+            wmma_clamp=solution.wmma_clamp,
+        )
+
+    @classmethod
+    def from_mapping(cls, value: object) -> "FixedForwardProblemContract":
+        item = _mapping(
+            value,
+            "FixedForwardProblemContract",
+            frozenset(
+                {
+                    "quant_type",
+                    "output_features",
+                    "input_features",
+                    "groups",
+                    "block_values",
+                    "packed_weight_block_bytes",
+                    "activation_layout",
+                    "activation_block_bytes",
+                    "arithmetic_contract",
+                    "kernel_language",
+                    "isa",
+                    "wavefront_size",
+                    "weight_decode",
+                    "activation_addressing",
+                    "scale_arithmetic",
+                    "signed_weight",
+                    "signed_activation",
+                    "wmma_clamp",
+                    "destination_type",
+                    "bf16_rounding",
+                    "abi",
+                }
+            ),
+        )
+        quant_type = _string(item["quant_type"], "quant_type")
+        quant = QUANT_FORMATS.get(quant_type)
+        if quant is None:
+            raise SchemaError(f"unsupported fixed forward quant type {quant_type!r}")
+        contract = cls(
+            quant_type=quant_type,
+            output_features=_integer(item["output_features"], "output_features"),
+            input_features=_integer(item["input_features"], "input_features"),
+            groups=_integer(item["groups"], "groups"),
+            block_values=_integer(item["block_values"], "block_values"),
+            packed_weight_block_bytes=_integer(
+                item["packed_weight_block_bytes"], "packed_weight_block_bytes"
+            ),
+            activation_layout=_string(item["activation_layout"], "activation_layout"),
+            activation_block_bytes=_integer(
+                item["activation_block_bytes"], "activation_block_bytes"
+            ),
+            arithmetic_contract=_string(
+                item["arithmetic_contract"], "arithmetic_contract"
+            ),
+            kernel_language=_string(item["kernel_language"], "kernel_language"),
+            isa=_integer_triple(item["isa"], "isa"),
+            wavefront_size=_integer(item["wavefront_size"], "wavefront_size"),
+            weight_decode=_string(item["weight_decode"], "weight_decode"),
+            activation_addressing=_string(
+                item["activation_addressing"], "activation_addressing"
+            ),
+            scale_arithmetic=_string(item["scale_arithmetic"], "scale_arithmetic"),
+            signed_weight=_boolean(item["signed_weight"], "signed_weight"),
+            signed_activation=_boolean(item["signed_activation"], "signed_activation"),
+            wmma_clamp=_boolean(item["wmma_clamp"], "wmma_clamp"),
+            destination_type=_string(item["destination_type"], "destination_type"),
+            bf16_rounding=_string(item["bf16_rounding"], "bf16_rounding"),
+            abi=_string(item["abi"], "abi"),
+        )
+        fixed = (
+            contract.quant_type == "Q8_0"
+            and contract.output_features == 1024
+            and contract.input_features == 4096
+            and contract.groups == 8
+            and contract.block_values == quant.block_values
+            and contract.packed_weight_block_bytes == quant.block_bytes
+            and contract.activation_layout == quant.activation_layout
+            and contract.activation_block_bytes == quant.activation_block_bytes
+            and contract.arithmetic_contract == quant.arithmetic_contract
+            and contract.kernel_language == "Assembly"
+            and contract.isa == (11, 5, 1)
+            and contract.wavefront_size == 32
+            and contract.weight_decode == "DirectSignedInt8"
+            and contract.activation_addressing == "FixedGroupRows"
+            and contract.scale_arithmetic == "Int32ScaleF32"
+            and contract.signed_weight
+            and contract.signed_activation
+            and not contract.wmma_clamp
+            and contract.destination_type == "BFloat16"
+            and contract.bf16_rounding == "RNEPreserveNaN"
+            and contract.abi == "FixedGroupedQ8OutputV1"
+        )
+        if not fixed:
+            raise SchemaError("FixedForwardProblemContract is not canonical")
+        return contract
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "quant_type": self.quant_type,
+            "output_features": self.output_features,
+            "input_features": self.input_features,
+            "groups": self.groups,
+            "block_values": self.block_values,
+            "packed_weight_block_bytes": self.packed_weight_block_bytes,
+            "activation_layout": self.activation_layout,
+            "activation_block_bytes": self.activation_block_bytes,
+            "arithmetic_contract": self.arithmetic_contract,
+            "kernel_language": self.kernel_language,
+            "isa": list(self.isa),
+            "wavefront_size": self.wavefront_size,
+            "weight_decode": self.weight_decode,
+            "activation_addressing": self.activation_addressing,
+            "scale_arithmetic": self.scale_arithmetic,
+            "signed_weight": self.signed_weight,
+            "signed_activation": self.signed_activation,
+            "wmma_clamp": self.wmma_clamp,
+            "destination_type": self.destination_type,
+            "bf16_rounding": self.bf16_rounding,
+            "abi": self.abi,
+        }
+
+    def problem(self, tokens: int) -> FixedForwardProblem:
+        return FixedForwardProblem(
+            self.quant_type,
+            tokens,
+            self.output_features,
+            self.input_features,
+            self.groups,
+        )
+
+
+@dataclass(frozen=True)
+class FixedForwardKernelSpec:
+    work_group: tuple[int, int, int]
+    matrix_instruction: tuple[int, ...]
+    macro_tile_tokens: int
+    macro_tile_features: int
+    depth_u: int
+    operand_source: FixedForwardOperandSource
+    lds_address_hoist: str
+    fixed_address_hoist: str
+    output_store: str
+
+    @classmethod
+    def from_solution(cls, solution: FixedForwardSolution) -> "FixedForwardKernelSpec":
+        return cls(
+            work_group=solution.work_group,
+            matrix_instruction=solution.matrix_instruction,
+            macro_tile_tokens=solution.macro_tile_tokens,
+            macro_tile_features=solution.macro_tile_features,
+            depth_u=solution.depth_u,
+            operand_source=solution.operand_source,
+            lds_address_hoist=solution.lds_address_hoist,
+            fixed_address_hoist=solution.fixed_address_hoist,
+            output_store=solution.output_store,
+        )
+
+    @classmethod
+    def from_mapping(cls, value: object) -> "FixedForwardKernelSpec":
+        item = _mapping(
+            value,
+            "FixedForwardKernelSpec",
+            frozenset({"geometry", "lowering", "epilogue"}),
+        )
+        geometry = _mapping(
+            item["geometry"],
+            "FixedForwardKernelSpec.geometry",
+            frozenset(
+                {
+                    "work_group",
+                    "matrix_instruction",
+                    "macro_tile_tokens",
+                    "macro_tile_features",
+                    "depth_u",
+                }
+            ),
+        )
+        lowering = _mapping(
+            item["lowering"],
+            "FixedForwardKernelSpec.lowering",
+            frozenset({"operand_source", "lds_address_hoist", "fixed_address_hoist"}),
+        )
+        epilogue = _mapping(
+            item["epilogue"],
+            "FixedForwardKernelSpec.epilogue",
+            frozenset({"output_store"}),
+        )
+        return cls(
+            work_group=_integer_triple(geometry["work_group"], "work_group"),
+            matrix_instruction=_integer_tuple(
+                geometry["matrix_instruction"], "matrix_instruction", 9
+            ),
+            macro_tile_tokens=_integer(
+                geometry["macro_tile_tokens"], "macro_tile_tokens"
+            ),
+            macro_tile_features=_integer(
+                geometry["macro_tile_features"], "macro_tile_features"
+            ),
+            depth_u=_integer(geometry["depth_u"], "depth_u"),
+            operand_source=_enum(
+                lowering["operand_source"],
+                "operand_source",
+                FixedForwardOperandSource,
+            ),
+            lds_address_hoist=_string(
+                lowering["lds_address_hoist"], "lds_address_hoist"
+            ),
+            fixed_address_hoist=_string(
+                lowering["fixed_address_hoist"], "fixed_address_hoist"
+            ),
+            output_store=_string(epilogue["output_store"], "output_store"),
+        )
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "geometry": {
+                "work_group": list(self.work_group),
+                "matrix_instruction": list(self.matrix_instruction),
+                "macro_tile_tokens": self.macro_tile_tokens,
+                "macro_tile_features": self.macro_tile_features,
+                "depth_u": self.depth_u,
+            },
+            "lowering": {
+                "operand_source": self.operand_source.value,
+                "lds_address_hoist": self.lds_address_hoist,
+                "fixed_address_hoist": self.fixed_address_hoist,
+            },
+            "epilogue": {"output_store": self.output_store},
+        }
+
+    def to_solution(
+        self,
+        contract: FixedForwardProblemContract,
+    ) -> FixedForwardSolution:
+        return FixedForwardSolution(
+            kernel_language=contract.kernel_language,
+            isa=contract.isa,
+            wavefront_size=contract.wavefront_size,
+            work_group=self.work_group,
+            matrix_instruction=self.matrix_instruction,
+            macro_tile_tokens=self.macro_tile_tokens,
+            macro_tile_features=self.macro_tile_features,
+            depth_u=self.depth_u,
+            activation_layout=contract.activation_layout,
+            activation_block_bytes=contract.activation_block_bytes,
+            packed_weight_block_bytes=contract.packed_weight_block_bytes,
+            operand_source=self.operand_source,
+            lds_address_hoist=self.lds_address_hoist,
+            fixed_address_hoist=self.fixed_address_hoist,
+            weight_decode=contract.weight_decode,
+            activation_addressing=contract.activation_addressing,
+            scale_arithmetic=contract.scale_arithmetic,
+            output_store=self.output_store,
+            signed_weight=contract.signed_weight,
+            signed_activation=contract.signed_activation,
+            wmma_clamp=contract.wmma_clamp,
         )
 
 

@@ -14,6 +14,13 @@ from .fixed_grouped_mmq_fwd_validation import validate_fixed_forward_solution_ke
 from .grouped_mmq_fwd_model import GroupedForwardSolutionKey
 from .grouped_mmq_fwd_spec import DerivedGroupedForwardState
 from .grouped_mmq_fwd_validation import validate_grouped_forward_solution
+from .kernel_abi import (
+    FIXED_GROUPED_FORWARD_ABI,
+    GROUPED_FORWARD_ABI,
+    ORDINARY_BACKWARD_ABI,
+    ORDINARY_FORWARD_ABI,
+    Q8_1_QUANTIZER_ABI,
+)
 from .mmq_fwd_spec import DerivedForwardState
 from .model import BackwardSolution, ForwardSolution, SolutionKey
 from .quant_formats import (
@@ -183,20 +190,16 @@ class BackwardModule(_SolutionHIPModule):
         if len(devices) != 1:
             raise HIPRuntimeError("all launch tensors must be on the same device")
 
-        arguments = (
-            ctypes.c_uint64(grad_output.data_ptr()),
-            ctypes.c_uint64(packed_weight.data_ptr()),
-            ctypes.c_uint64(grad_input.data_ptr()),
-            ctypes.c_uint32(size.m),
-            ctypes.c_uint32(size.k),
-            ctypes.c_uint32(size.n),
-            ctypes.c_uint32(size.n // 256),
-        )
-        parameters = (ctypes.c_void_p * len(arguments))(
-            *(
-                ctypes.cast(ctypes.byref(argument), ctypes.c_void_p)
-                for argument in arguments
-            )
+        packed_arguments = ORDINARY_BACKWARD_ABI.pack(
+            {
+                "grad_output": grad_output.data_ptr(),
+                "packed_weight": packed_weight.data_ptr(),
+                "grad_input": grad_input.data_ptr(),
+                "rows": size.m,
+                "out_features": size.k,
+                "in_features": size.n,
+                "blocks_per_weight_row": size.n // 256,
+            }
         )
         solution = self.solution_key.solution
         if not isinstance(solution, BackwardSolution):
@@ -212,7 +215,7 @@ class BackwardModule(_SolutionHIPModule):
                 *solution.work_group,
                 0,
                 ctypes.c_void_p(stream),
-                parameters,
+                packed_arguments.parameters,
                 None,
             ),
             "hipModuleLaunchKernel",
@@ -279,20 +282,16 @@ class ForwardModule(_SolutionHIPModule):
         if len(devices) != 1:
             raise HIPRuntimeError("all launch tensors must be on the same device")
 
-        arguments = (
-            ctypes.c_uint64(packed_weight.data_ptr()),
-            ctypes.c_uint64(activations.data_ptr()),
-            ctypes.c_uint64(output.data_ptr()),
-            ctypes.c_uint32(size.n),
-            ctypes.c_uint32(size.m),
-            ctypes.c_uint32(size.m),
-            ctypes.c_uint32(state.blocks_per_weight_row),
-        )
-        parameters = (ctypes.c_void_p * len(arguments))(
-            *(
-                ctypes.cast(ctypes.byref(argument), ctypes.c_void_p)
-                for argument in arguments
-            )
+        packed_arguments = ORDINARY_FORWARD_ABI.pack(
+            {
+                "packed_weight": packed_weight.data_ptr(),
+                "activations": activations.data_ptr(),
+                "output": output.data_ptr(),
+                "nrows_weight": size.n,
+                "nrows_activation": size.m,
+                "nrows_activation_padded": size.m,
+                "blocks_per_weight_row": state.blocks_per_weight_row,
+            }
         )
         grid, block, shared_memory = self._launch_configuration()
         self._check(
@@ -302,7 +301,7 @@ class ForwardModule(_SolutionHIPModule):
                 *block,
                 shared_memory,
                 ctypes.c_void_p(stream),
-                parameters,
+                packed_arguments.parameters,
                 None,
             ),
             "hipModuleLaunchKernel",
@@ -392,23 +391,19 @@ class GroupedForwardModule(_HIPModule):
                 "all grouped launch tensors must be on the same device"
             )
 
-        arguments = (
-            ctypes.c_uint64(packed_weight.data_ptr()),
-            ctypes.c_uint64(activations.data_ptr()),
-            ctypes.c_uint64(output.data_ptr()),
-            ctypes.c_uint64(expert_indices.data_ptr()),
-            ctypes.c_uint64(expert_offsets.data_ptr()),
-            ctypes.c_uint32(self.solution_key.problem.physical_experts),
-            ctypes.c_uint32(self.solution_key.problem.output_features),
-            ctypes.c_uint32(self.solution_key.problem.aggregate_rows),
-            ctypes.c_uint32(state.blocks_per_weight_row),
-            ctypes.c_uint64(state.bytes_per_expert),
-        )
-        parameters = (ctypes.c_void_p * len(arguments))(
-            *(
-                ctypes.cast(ctypes.byref(argument), ctypes.c_void_p)
-                for argument in arguments
-            )
+        packed_arguments = GROUPED_FORWARD_ABI.pack(
+            {
+                "weights": packed_weight.data_ptr(),
+                "activations": activations.data_ptr(),
+                "dst": output.data_ptr(),
+                "expert_indices": expert_indices.data_ptr(),
+                "expert_offsets": expert_offsets.data_ptr(),
+                "num_experts": self.solution_key.problem.physical_experts,
+                "nrows_weight": self.solution_key.problem.output_features,
+                "nrows_activation": self.solution_key.problem.aggregate_rows,
+                "blocks_per_weight_row": state.blocks_per_weight_row,
+                "bytes_per_expert": state.bytes_per_expert,
+            }
         )
         grid, block, shared_memory = self._launch_configuration(route_entries)
         self._check(
@@ -418,7 +413,7 @@ class GroupedForwardModule(_HIPModule):
                 *block,
                 shared_memory,
                 ctypes.c_void_p(stream),
-                parameters,
+                packed_arguments.parameters,
                 None,
             ),
             "hipModuleLaunchKernel",
@@ -692,18 +687,14 @@ class FixedQ81F16D2S6QuantizerModule(_HIPModule):
             )
         if input_tensor.device != output.device:
             raise HIPRuntimeError("quantizer tensors must be on the same device")
-        arguments = (
-            ctypes.c_uint64(input_tensor.data_ptr()),
-            ctypes.c_uint64(output.data_ptr()),
-            ctypes.c_int64(rows),
-            ctypes.c_int64(rows),
-            ctypes.c_int64(k),
-        )
-        parameters = (ctypes.c_void_p * len(arguments))(
-            *(
-                ctypes.cast(ctypes.byref(argument), ctypes.c_void_p)
-                for argument in arguments
-            )
+        packed_arguments = Q8_1_QUANTIZER_ABI.pack(
+            {
+                "input": input_tensor.data_ptr(),
+                "output": output.data_ptr(),
+                "rows": rows,
+                "rows_padded": rows,
+                "k": k,
+            }
         )
         self._check(
             self._lib.hipModuleLaunchKernel(
@@ -716,7 +707,7 @@ class FixedQ81F16D2S6QuantizerModule(_HIPModule):
                 1,
                 0,
                 ctypes.c_void_p(stream),
-                parameters,
+                packed_arguments.parameters,
                 None,
             ),
             "hipModuleLaunchKernel",
@@ -845,26 +836,22 @@ class FixedGroupedQ8ForwardModule(_HIPModule):
         if len({tensor.device for tensor in tensors}) != 1:
             raise HIPRuntimeError("all fixed launch tensors must be on the same device")
 
-        arguments = (
-            ctypes.c_uint64(packed_weight.data_ptr()),
-            ctypes.c_uint64(activations.data_ptr()),
-            ctypes.c_uint64(output.data_ptr()),
-            ctypes.c_uint32(state.problem.tokens),
-            ctypes.c_uint32(state.problem.output_features),
-            ctypes.c_uint64(state.problem.bytes_per_group),
-        )
-        parameters = (ctypes.c_void_p * len(arguments))(
-            *(
-                ctypes.cast(ctypes.byref(argument), ctypes.c_void_p)
-                for argument in arguments
-            )
+        packed_arguments = FIXED_GROUPED_FORWARD_ABI.pack(
+            {
+                "packed_weight": packed_weight.data_ptr(),
+                "activations": activations.data_ptr(),
+                "output": output.data_ptr(),
+                "tokens": state.problem.tokens,
+                "out_features": state.problem.output_features,
+                "bytes_per_group": state.problem.bytes_per_group,
+            }
         )
         self._check(
             self._lib.hipModuleLaunchKernel(
                 self._function,
                 *self._launch_configuration(),
                 ctypes.c_void_p(stream),
-                parameters,
+                packed_arguments.parameters,
                 None,
             ),
             "hipModuleLaunchKernel",
@@ -960,18 +947,14 @@ class FixedQ81F16D4S4QuantizerModule(_HIPModule):
         if input_tensor.device != output.device:
             raise HIPRuntimeError("quantizer tensors must be on the same device")
 
-        arguments = (
-            ctypes.c_uint64(input_tensor.data_ptr()),
-            ctypes.c_uint64(output.data_ptr()),
-            ctypes.c_int64(rows),
-            ctypes.c_int64(rows),
-            ctypes.c_int64(k),
-        )
-        parameters = (ctypes.c_void_p * len(arguments))(
-            *(
-                ctypes.cast(ctypes.byref(argument), ctypes.c_void_p)
-                for argument in arguments
-            )
+        packed_arguments = Q8_1_QUANTIZER_ABI.pack(
+            {
+                "input": input_tensor.data_ptr(),
+                "output": output.data_ptr(),
+                "rows": rows,
+                "rows_padded": rows,
+                "k": k,
+            }
         )
         self._check(
             self._lib.hipModuleLaunchKernel(
@@ -984,7 +967,7 @@ class FixedQ81F16D4S4QuantizerModule(_HIPModule):
                 1,
                 0,
                 ctypes.c_void_p(stream),
-                parameters,
+                packed_arguments.parameters,
                 None,
             ),
             "hipModuleLaunchKernel",
@@ -1041,18 +1024,14 @@ class FixedQ81F32D4QuantizerModule(_HIPModule):
             )
         if input_tensor.device != output.device:
             raise HIPRuntimeError("quantizer tensors must be on the same device")
-        arguments = (
-            ctypes.c_uint64(input_tensor.data_ptr()),
-            ctypes.c_uint64(output.data_ptr()),
-            ctypes.c_int64(rows),
-            ctypes.c_int64(rows),
-            ctypes.c_int64(k),
-        )
-        parameters = (ctypes.c_void_p * len(arguments))(
-            *(
-                ctypes.cast(ctypes.byref(argument), ctypes.c_void_p)
-                for argument in arguments
-            )
+        packed_arguments = Q8_1_QUANTIZER_ABI.pack(
+            {
+                "input": input_tensor.data_ptr(),
+                "output": output.data_ptr(),
+                "rows": rows,
+                "rows_padded": rows,
+                "k": k,
+            }
         )
         self._check(
             self._lib.hipModuleLaunchKernel(
@@ -1065,7 +1044,7 @@ class FixedQ81F32D4QuantizerModule(_HIPModule):
                 1,
                 0,
                 ctypes.c_void_p(stream),
-                parameters,
+                packed_arguments.parameters,
                 None,
             ),
             "hipModuleLaunchKernel",

@@ -2,13 +2,8 @@
 
 from pathlib import Path
 
-from rocisa import code  # ty: ignore[unresolved-import]
-from rocisa.enum import SignatureValueKind as SVK  # ty: ignore[unresolved-import]
-
-from .grouped_mmq_fwd_pair_lowering_iq2_s import (
-    GroupedForwardPairLoweringContext,
-    GroupedIQ2SPairedK128Lowering,
-)
+from .grouped_mmq_fwd_pair_lowering_common import GroupedForwardPairLoweringContext
+from .grouped_mmq_fwd_pair_lowering_iq2_s import GroupedIQ2SPairedK128Lowering
 from .grouped_mmq_fwd_pair_lowering_iq2_xxs import (
     GroupedIQ2XXSPairedK128Lowering,
 )
@@ -19,7 +14,11 @@ from .grouped_mmq_fwd_pair_model import (
 )
 from .grouped_mmq_fwd_pair_spec import DerivedGroupedForwardPairState
 from .grouped_mmq_fwd_pair_validation import validate_grouped_forward_pair_solution
-from .kernel_writer_assembly import initialize_rocisa, write_assembly_source
+from .kernel_abi import (
+    GROUPED_FORWARD_PAIR_ABI,
+    GROUPED_FORWARD_PAIR_ROW_TASK_ABI,
+)
+from .kernel_writer_assembly import KernelEnvelope, write_assembly_source
 from .mmq_fwd_lowering import ForwardKernelWriterError
 from .toolchain import Toolchain
 
@@ -49,57 +48,39 @@ class GroupedForwardPairKernelWriterAssembly:
     def source(self) -> str:
         solution = self.solution_key.solution
         resources = self.state.physical_plan.resources
-        initialize_rocisa(
-            solution.isa,
-            solution.wavefront_size,
-            self.toolchain.assembler,
-            temporary_prefix="ggtensile-grouped-forward-pair-rocisa-",
-        )
-        signature = code.SignatureBase(
-            kernelName=self.solution_key.kernel_name,
-            kernArgsVersion=0,
-            codeObjectVersion="5",
-            groupSegmentSize=resources.lds_bytes,
-            sgprWorkGroup=(1, 1, 0),
-            vgprWorkItem=1,
-            flatWorkGroupSize=solution.num_threads,
-            totalVgprs=resources.vgprs,
-            totalAgprs=0,
-            totalSgprs=resources.sgprs,
-        )
         row_tasks = (
-            self.state.contract.route_ownership
+            self.state.kernel_spec.route_ownership
             is GroupedPairRouteOwnership.DeviceRowTasks64
         )
         quant_type = self.solution_key.problem.quant_data_type
         ownership = (
             "device 64-row task ownership" if row_tasks else "serial GEMM ownership"
         )
-        signature.addDescriptionTopic(
-            f"GGTensile paired grouped {quant_type} MMQ forward, K128 interleaved "
-            f"{ownership}, one fixed Q8_1 F32_D4 workspace"
+        envelope = KernelEnvelope(
+            module_name="GGTensileGroupedForwardPairKernel",
+            kernel_name=self.solution_key.kernel_name,
+            isa=solution.isa,
+            wavefront_size=solution.wavefront_size,
+            assembler=self.toolchain.assembler,
+            temporary_prefix="ggtensile-grouped-forward-pair-rocisa-",
+            code_object_version=5,
+            group_segment_size=resources.lds_bytes,
+            sgpr_work_group=(1, 1, 0),
+            vgpr_work_item=1,
+            flat_workgroup_size=solution.num_threads,
+            total_vgprs=resources.vgprs,
+            total_sgprs=resources.sgprs,
+            abi=(
+                GROUPED_FORWARD_PAIR_ROW_TASK_ABI
+                if row_tasks
+                else GROUPED_FORWARD_PAIR_ABI
+            ),
+            description=(
+                f"GGTensile paired grouped {quant_type} MMQ forward, K128 "
+                f"interleaved {ownership}, one fixed Q8_1 F32_D4 workspace"
+            ),
         )
-        signature.addArg("weights_first", SVK.SIG_GLOBALBUFFER, "struct", "generic")
-        signature.addArg("weights_second", SVK.SIG_GLOBALBUFFER, "struct", "generic")
-        signature.addArg("activations", SVK.SIG_GLOBALBUFFER, "struct", "generic")
-        signature.addArg("dst_first", SVK.SIG_GLOBALBUFFER, "bf16", "generic")
-        signature.addArg("dst_second", SVK.SIG_GLOBALBUFFER, "bf16", "generic")
-        if row_tasks:
-            signature.addArg("task_count", SVK.SIG_GLOBALBUFFER, "i32", "generic")
-            signature.addArg("task_experts", SVK.SIG_GLOBALBUFFER, "i32", "generic")
-            signature.addArg("task_row_starts", SVK.SIG_GLOBALBUFFER, "i32", "generic")
-            signature.addArg("task_row_ends", SVK.SIG_GLOBALBUFFER, "i32", "generic")
-        else:
-            signature.addArg("expert_indices", SVK.SIG_GLOBALBUFFER, "i64", "generic")
-            signature.addArg("expert_offsets", SVK.SIG_GLOBALBUFFER, "i32", "generic")
-        signature.addArg("num_experts", SVK.SIG_VALUE, "u32")
-        signature.addArg("nrows_weight", SVK.SIG_VALUE, "u32")
-        signature.addArg("nrows_activation", SVK.SIG_VALUE, "u32")
-        signature.addArg("blocks_per_weight_row", SVK.SIG_VALUE, "u32")
-        signature.addArg("bytes_per_expert", SVK.SIG_VALUE, "u64")
-
-        module = code.Module("GGTensileGroupedForwardPairKernel")
-        module.add(signature)
+        envelope.initialize()
         if quant_type == "IQ2_S":
             emission = GroupedIQ2SPairedK128Lowering(self.context).emission()
         elif quant_type == "IQ2_XXS":
@@ -110,8 +91,7 @@ class GroupedForwardPairKernelWriterAssembly:
             raise ForwardKernelWriterError(
                 f"paired lowering is unavailable for {quant_type!r}"
             )
-        module.add(code.TextBlock(emission.body))
-        source = str(module)
-        for section in emission.trailing_sections:
-            source += "\n" + section
-        return source
+        return envelope.render(
+            emission.body,
+            trailing_sections=emission.trailing_sections,
+        )

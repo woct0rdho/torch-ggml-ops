@@ -6,7 +6,6 @@ from pathlib import Path
 from tests.ggtensile.support import (
     BWD_IMPLEMENTATION_SOURCE_PATHS,
     BWD_LOWERING_SOURCE_PATHS,
-    BWD_PHYSICAL_SOURCE_PATHS,
     BWD_WRITER_SOURCE_PATH,
     FWD_LOWERING_SOURCE_PATHS,
     FWD_PHYSICAL_SOURCE_PATH,
@@ -15,23 +14,49 @@ from tests.ggtensile.support import (
 )
 
 _ROOT = Path(__file__).resolve().parents[2]
-_VALIDATION = _ROOT / "tools/ggtensile/validation.py"
-_INSPECTION = _ROOT / "tools/ggtensile/inspection.py"
+_TOOLS = _ROOT / "tools/ggtensile"
+_VALIDATION = _TOOLS / "validation.py"
+_INSPECTION = _TOOLS / "inspection.py"
+_KERNEL_ABI = _TOOLS / "kernel_abi.py"
+_RUNTIME_MODULES = (
+    _TOOLS / "runtime.py",
+    _TOOLS / "grouped_mmq_fwd_pair_runtime.py",
+)
+_ALL_LOWERING_MODULES = tuple(sorted(_TOOLS.glob("*lowering*.py")))
+_ALL_PHYSICAL_MODULES = tuple(sorted(_TOOLS.glob("*physical*.py")))
 _FORWARD_AUTHORITY_CONSUMERS = (
     FWD_WRITER_SOURCE_PATH,
     FWD_PHYSICAL_SOURCE_PATH,
     _INSPECTION,
 )
-_GROUPED_ROUTE = _ROOT / "tools/ggtensile/grouped_mmq_fwd_route.py"
-_GROUPED_WRITER = _ROOT / "tools/ggtensile/kernel_writer_assembly_grouped_mmq_fwd.py"
-_GROUPED_IQ2S_LOWERING = _ROOT / "tools/ggtensile/grouped_mmq_fwd_lowering_iq2_s.py"
-_GROUPED_Q2_LOWERING = _ROOT / "tools/ggtensile/grouped_mmq_fwd_lowering_q2_k.py"
-_BACKWARD_WRITER = _ROOT / "tools/ggtensile/kernel_writer_assembly_mmq_bwd.py"
-_ASSEMBLY = _ROOT / "tools/ggtensile/kernel_writer_assembly.py"
-_MMQ_FWD_PHYSICAL = _ROOT / "tools/ggtensile/mmq_fwd_physical.py"
-_GROUPED_LOWERINGS = tuple(
-    sorted((_ROOT / "tools/ggtensile").glob("grouped_mmq_fwd_lowering*.py"))
-)
+_GROUPED_ROUTE = _TOOLS / "grouped_mmq_fwd_route.py"
+_GROUPED_WRITER = _TOOLS / "kernel_writer_assembly_grouped_mmq_fwd.py"
+_GROUPED_IQ2S_LOWERING = _TOOLS / "grouped_mmq_fwd_lowering_iq2_s.py"
+_GROUPED_Q2_LOWERING = _TOOLS / "grouped_mmq_fwd_lowering_q2_k.py"
+_BACKWARD_WRITER = _TOOLS / "kernel_writer_assembly_mmq_bwd.py"
+_ASSEMBLY = _TOOLS / "kernel_writer_assembly.py"
+_MMQ_FWD_PHYSICAL = _TOOLS / "mmq_fwd_physical.py"
+_GROUPED_LOWERINGS = tuple(sorted(_TOOLS.glob("grouped_mmq_fwd_lowering*.py")))
+_LEGACY_FLAT_RECORD_METHODS = {
+    _TOOLS / "model.py": {
+        "ProblemType": {"from_mapping", "to_mapping"},
+        "ProblemSize": {"from_mapping"},
+        "BackwardSolution": {"from_mapping", "to_mapping"},
+        "ForwardSolution": {"from_mapping", "to_mapping"},
+    },
+    _TOOLS / "grouped_mmq_fwd_model.py": {
+        "GroupedForwardProblem": {"from_mapping", "to_mapping"},
+        "GroupedForwardSolution": {"from_mapping", "to_mapping"},
+    },
+    _TOOLS / "grouped_mmq_fwd_pair_model.py": {
+        "GroupedForwardPairProblem": {"from_mapping", "to_mapping"},
+        "GroupedForwardPairSolution": {"from_mapping", "to_mapping"},
+    },
+    _TOOLS / "fixed_grouped_mmq_fwd_model.py": {
+        "FixedForwardProblem": {"from_mapping", "to_mapping"},
+        "FixedForwardSolution": {"from_mapping", "to_mapping"},
+    },
+}
 
 
 def _source(path: Path) -> str:
@@ -43,6 +68,19 @@ def _class_names(path: Path) -> set[str]:
         node.name
         for node in ast.parse(_source(path), filename=str(path)).body
         if isinstance(node, ast.ClassDef)
+    }
+
+
+def _class_methods(path: Path, class_name: str) -> set[str]:
+    class_node = next(
+        node
+        for node in ast.parse(_source(path), filename=str(path)).body
+        if isinstance(node, ast.ClassDef) and node.name == class_name
+    )
+    return {
+        node.name
+        for node in class_node.body
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
     }
 
 
@@ -143,8 +181,16 @@ def test_backward_emission_inherits_ordinary_instruction_formatting() -> None:
 
 
 def test_planners_and_lowerers_preserve_import_boundaries() -> None:
-    forbidden_lowerer_modules = ("campaign", "inspection", "runtime", "toolchain")
-    for path in (*FWD_LOWERING_SOURCE_PATHS, *BWD_LOWERING_SOURCE_PATHS):
+    forbidden_lowerer_modules = (
+        "benchmark",
+        "campaign",
+        "catalog",
+        "cli",
+        "inspection",
+        "runtime",
+        "toolchain",
+    )
+    for path in _ALL_LOWERING_MODULES:
         assert not {
             module
             for module in _imported_modules(path)
@@ -157,8 +203,14 @@ def test_planners_and_lowerers_preserve_import_boundaries() -> None:
         "toolchain",
         "lowering",
         "emission",
+        "benchmark",
+        "campaign",
+        "catalog",
+        "cli",
+        "runtime",
+        "validation",
     )
-    for path in (FWD_PHYSICAL_SOURCE_PATH, *BWD_PHYSICAL_SOURCE_PATHS):
+    for path in _ALL_PHYSICAL_MODULES:
         source = _source(path)
         assert not {
             module
@@ -166,6 +218,47 @@ def test_planners_and_lowerers_preserve_import_boundaries() -> None:
             if any(name in module for name in forbidden_planner_modules)
         }, path
         assert "Assembly(" not in source
+
+
+def test_flat_solution_and_problem_compatibility_methods_are_absent() -> None:
+    for path, classes in _LEGACY_FLAT_RECORD_METHODS.items():
+        for class_name, forbidden_methods in classes.items():
+            assert not _class_methods(path, class_name) & forbidden_methods, (
+                path,
+                class_name,
+            )
+
+
+def test_kernel_abi_definitions_and_runtime_packing_have_one_owner() -> None:
+    for path in _TOOLS.glob("*.py"):
+        if path != _KERNEL_ABI:
+            assert "KernelAbi(" not in _source(path), path
+    for path in _RUNTIME_MODULES:
+        source = _source(path)
+        assert "ctypes.byref(argument)" not in source, path
+        assert "ctypes.c_void_p * len(arguments)" not in source, path
+    for path in (
+        _INSPECTION,
+        _TOOLS / "grouped_mmq_fwd_inspection.py",
+        _TOOLS / "grouped_mmq_fwd_pair_inspection.py",
+    ):
+        assert "_EXPECTED_" not in _source(path), path
+
+
+def test_lowerers_do_not_use_untyped_cross_lowerer_borrowing() -> None:
+    for path in _ALL_LOWERING_MODULES:
+        source = _source(path)
+        assert "cast(Any" not in source, path
+        assert "getattr(" not in source, path
+
+    fixed_tree = ast.parse(_source(_TOOLS / "fixed_grouped_mmq_fwd_lowering.py"))
+    fixed_lowering = next(
+        node
+        for node in fixed_tree.body
+        if isinstance(node, ast.ClassDef)
+        and node.name == "FixedGroupedQ8ForwardLowering"
+    )
+    assert fixed_lowering.bases == []
 
 
 def test_backward_lowerers_consume_derived_state_without_one_hop_aliases() -> None:

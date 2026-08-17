@@ -24,10 +24,12 @@ from tools.ggtensile.kernel_writer_assembly_mmq_bwd import (
     BackwardDiagnosticMode,
     BackwardKernelWriterAssembly,
 )
+from tools.ggtensile.mmq_bwd_search import backward_candidate_mapping
 from tools.ggtensile.model import (
     BackwardSolution,
     ProblemSize,
     ProblemType,
+    SchemaError,
     SolutionKey,
 )
 from tools.ggtensile.toolchain import Toolchain
@@ -71,7 +73,15 @@ def test_backward_campaign_inventory_is_exact_and_versionless(
     assert all(validate_solution(key) == () for key in selected_solution_keys(catalog))
     raw = json.loads(case.catalog_path.read_text(encoding="utf-8"))
     assert catalog.to_mapping() == raw
-    assert set(raw) == {"ProblemType", "Solutions", "ExactLogic"}
+    assert set(raw) == {
+        "ArtifactKind",
+        "KernelFamily",
+        "ProblemContract",
+        "KernelSpecs",
+        "ExactLogic",
+    }
+    assert raw["ArtifactKind"] == "DeploymentCatalog"
+    assert raw["KernelFamily"] == "OrdinaryBackward"
     forbidden = {
         "Family",
         "RepresentativeTensor",
@@ -81,7 +91,7 @@ def test_backward_campaign_inventory_is_exact_and_versionless(
         "SelectedSolution",
     }
     serialized = json.dumps(raw)
-    assert not any(field in serialized for field in forbidden)
+    assert not any(f'"{field}":' in serialized for field in forbidden)
 
 
 @pytest.mark.parametrize(
@@ -258,13 +268,31 @@ def test_backward_quant_types_have_distinct_problem_and_solution_identity() -> N
     )
 
 
-def test_q4_k_deployment_catalog_rejects_schema_version(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("legacy_root", "canonical_root"),
+    (
+        ("ProblemType", "ProblemContract"),
+        ("Solutions", "KernelSpecs"),
+    ),
+)
+def test_q4_k_deployment_catalog_rejects_legacy_roots(
+    tmp_path: Path, legacy_root: str, canonical_root: str
+) -> None:
     catalog_path = tmp_path / "catalog.json"
     value = json.loads(_Q4_CATALOG.read_text())
-    value["SchemaVersion"] = 1
+    value[legacy_root] = value.pop(canonical_root)
     catalog_path.write_text(json.dumps(value))
     with pytest.raises(CatalogError, match="invalid deployment catalog keys"):
         load_catalog(catalog_path)
+
+
+def test_ordinary_exact_key_rejects_nonpositive_problem_dimensions() -> None:
+    mapping = _pilot_key().to_mapping()
+    problem = mapping["Problem"]
+    assert isinstance(problem, dict)
+    problem["n"] = 0
+    with pytest.raises(SchemaError, match="dimensions must be positive"):
+        SolutionKey.from_mapping(mapping)
 
 
 def test_q4_k_campaign_prepare_is_serial_and_immutable(tmp_path: Path) -> None:
@@ -301,7 +329,8 @@ def test_q4_k_campaign_prepare_accepts_explicit_solution(tmp_path: Path) -> None
     solution = (
         load_catalog(_Q4_CATALOG).entry_for(ProblemSize(2048, 512, 2048)).solution
     )
-    solution_path.write_text(json.dumps(solution.to_mapping()))
+    assert isinstance(solution, BackwardSolution)
+    solution_path.write_text(json.dumps(backward_candidate_mapping(solution, "Q4_K")))
     root = tmp_path / "campaign"
     assert (
         campaign_main(
@@ -901,7 +930,6 @@ def test_cli_generate_build_and_inspect_manifests(tmp_path: Path) -> None:
     generate = json.loads((artifact_dir / "generate.json").read_text())
     assert generate["Phase"] == "Generate"
     assert generate["Status"] == "Accepted"
-    assert "SchemaVersion" not in generate
     assert len(generate["AssemblySHA256"]) == 64
 
     assert (

@@ -10,7 +10,7 @@ from .fixed_grouped_mmq_fwd_spec import FixedForwardProblemContract
 def fixed_forward_rejection_reason(key: FixedForwardSolutionKey) -> str | None:
     """Return the first contract violation without deriving or emitting state."""
     try:
-        contract = FixedForwardProblemContract.from_problem(key.problem, key.solution)
+        FixedForwardProblemContract.from_problem(key.problem, key.solution)
     except ValueError as error:
         return str(error)
     problem = key.problem
@@ -44,10 +44,6 @@ def fixed_forward_rejection_reason(key: FixedForwardSolutionKey) -> str | None:
         (
             solution.num_threads == 128,
             "fixed Q8 forward requires 128 work-items",
-        ),
-        (
-            contract.abi == "FixedGroupedQ8ForwardV1",
-            "fixed Q8 forward ABI identity is not recognized",
         ),
         (
             key.problem.packed_row_bytes == 4352,
