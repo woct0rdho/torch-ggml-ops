@@ -31,6 +31,7 @@ class GroupedPairProjectionSchedule(str, Enum):
 class GroupedPairDecodeSchedule(str, Enum):
     TwoLaneSelectedHalfPayloadPrefetch = "TwoLaneSelectedHalfPayloadPrefetch"
     TwoLaneSelectedHalfIQ2XXS = "TwoLaneSelectedHalfIQ2XXS"
+    TwoLaneSelectedHalfIQ2XXSFusedSelector = "TwoLaneSelectedHalfIQ2XXSFusedSelector"
     TwoLaneSelectedHalfQ3 = "TwoLaneSelectedHalfQ3"
     TwoLaneSelectedHalfQ3VariableBFE = "TwoLaneSelectedHalfQ3VariableBFE"
 
@@ -163,6 +164,15 @@ class GroupedForwardPairSolution:
             signed_weight=True,
             signed_activation=True,
             wmma_clamp=False,
+        )
+
+    @classmethod
+    def iq2_xxs_k128_interleaved_fused_selector(cls) -> Self:
+        return replace(
+            cls.iq2_xxs_k128_interleaved(),
+            metadata_schedule=(
+                GroupedPairDecodeSchedule.TwoLaneSelectedHalfIQ2XXSFusedSelector
+            ),
         )
 
     @classmethod

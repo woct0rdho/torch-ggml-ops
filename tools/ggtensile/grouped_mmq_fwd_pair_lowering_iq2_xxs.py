@@ -7,7 +7,10 @@ from .grouped_mmq_fwd_pair_lowering_common import (
     GroupedForwardPairLoweringContext,
     GroupedPairK128Mechanics,
 )
-from .grouped_mmq_fwd_pair_model import GroupedPairRouteOwnership
+from .grouped_mmq_fwd_pair_model import (
+    GroupedPairDecodeSchedule,
+    GroupedPairRouteOwnership,
+)
 from .grouped_mmq_fwd_pair_physical import (
     GroupedIQ2XXSPairHalfLdsLayout,
     GroupedIQ2XXSPairPhysicalPlan,
@@ -92,6 +95,8 @@ class GroupedIQ2XXSPairedK128Lowering:
             f"s_mov_b32 s{scalar.row_start.first_register}, "
             f"s{scalar.row_begin.first_register}"
         )
+        if self._uses_fused_selector():
+            asm.inst(f"s_mov_b32 s{scalar.group_offset.first_register}, 0x03020100")
         mechanics.emit_invariant_addresses(asm, layout)
 
         asm.label(".LGroupedPairIQ2XXSRowLoop")
@@ -325,12 +330,26 @@ class GroupedIQ2XXSPairedK128Lowering:
         selector = auxiliary + 3
         negative = auxiliary + 4
         asm.inst(f"v_bfe_u32 v{sign_bits}, v{sign_byte}, {sign_shift}, 4")
-        asm.inst(f"v_mul_lo_u32 v{selector}, 0x204081, v{sign_bits}")
-        asm.inst(f"v_and_b32 v{selector}, 0x01010101, v{selector}")
-        asm.inst(f"v_lshl_or_b32 v{selector}, v{selector}, 2, 0x03020100")
+        if self._uses_fused_selector():
+            scalar = self._physical_plan().scalar_registers
+            asm.inst(f"v_mul_lo_u32 v{selector}, 0x810204, v{sign_bits}")
+            asm.inst(
+                f"v_and_or_b32 v{selector}, v{selector}, 0x04040404, "
+                f"s{scalar.group_offset.first_register}"
+            )
+        else:
+            asm.inst(f"v_mul_lo_u32 v{selector}, 0x204081, v{sign_bits}")
+            asm.inst(f"v_and_b32 v{selector}, 0x01010101, v{selector}")
+            asm.inst(f"v_lshl_or_b32 v{selector}, v{selector}, 2, 0x03020100")
         asm.inst(f"v_not_b32 v{negative}, v{positive}")
         asm.inst(f"v_add_nc_u32 v{negative}, 0x01010101, v{negative}")
         asm.inst(f"v_perm_b32 v{destination}, v{negative}, v{positive}, v{selector}")
+
+    def _uses_fused_selector(self) -> bool:
+        return (
+            self.context.state.kernel_spec.metadata_schedule
+            is GroupedPairDecodeSchedule.TwoLaneSelectedHalfIQ2XXSFusedSelector
+        )
 
     def _emit_compute_projection(self, asm: Assembly, sums: int) -> None:
         layout = self._physical_plan().layout

@@ -121,6 +121,10 @@ class GroupedForwardPairContract:
             expected_decode_schedules.add(
                 GroupedPairDecodeSchedule.TwoLaneSelectedHalfQ3VariableBFE
             )
+        elif problem.quant_data_type == "IQ2_XXS":
+            expected_decode_schedules.add(
+                GroupedPairDecodeSchedule.TwoLaneSelectedHalfIQ2XXSFusedSelector
+            )
         checks = (
             (problem.projection_count == 2, "paired problem requires two projections"),
             (
@@ -568,6 +572,12 @@ def grouped_forward_pair_capability_rejection_reason(
         is not GroupedPairRouteOwnership.DeviceRowTasks64
     ):
         return "paired Q3_K variable-BFE decode requires device row-task ownership"
+    if (
+        kernel_spec.metadata_schedule
+        is GroupedPairDecodeSchedule.TwoLaneSelectedHalfIQ2XXSFusedSelector
+        and kernel_spec.route_ownership is not GroupedPairRouteOwnership.SerialRoutes
+    ):
+        return "paired IQ2_XXS fused selector requires serial-route ownership"
     return None
 
 
