@@ -910,6 +910,33 @@ def test_build_and_inspect_q8_0_packed_vopd_decode(tmp_path: Path) -> None:
     assert_resource_clean(inspection)
 
 
+def test_build_and_inspect_q8_0_m256_packed_vopd_identity(tmp_path: Path) -> None:
+    size = ProblemSize(256, 4096, 129280)
+    parent = _selected_solution("Q8_0", size)
+    assert parent.q8_0_extraction == "packed"
+    candidate = replace(parent, q8_0_extraction="packed_vopd")
+    key = SolutionKey(ProblemType.mmq_backward("Q8_0"), size, candidate)
+    assert validate_solution(key) == ()
+
+    toolchain = Toolchain.discover()
+    artifact = build_and_inspect(
+        key,
+        BackwardKernelWriterAssembly(key, toolchain),
+        toolchain,
+        tmp_path,
+        stem="q8_0_m256_vopd",
+    )
+    assert "v_dual_mul_f32" in artifact.source
+    inspection = artifact.inspection
+    assert inspection.vgpr_count == 231
+    assert inspection.sgpr_count == 16
+    assert inspection.lds_num_bytes == 5120
+    assert inspection.vopd_count == 20
+    assert inspection.valu_issue_count == 541
+    assert inspection.wmma_count == 32
+    assert_resource_clean(inspection)
+
+
 def test_cli_generate_build_and_inspect_manifests(tmp_path: Path) -> None:
     solution_path = tmp_path / "requested.json"
     solution_path.write_text(json.dumps(_pilot_key().to_mapping()))
