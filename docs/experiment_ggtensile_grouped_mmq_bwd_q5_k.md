@@ -92,11 +92,11 @@ A 25-repeat same-process bracket on the disjoint confirmation medoids fixes the 
 
 The retained identities are:
 
-| Key | Solution hash | Body and ownership | Source / HSACO SHA-256 |
-| --- | --- | --- | --- |
-| B1 | `ggsol_98b9ce678d4cb09f` | SIA5 padded M128/N64 plus M64/N64 tail, `Mixed128_64`, serial routes | `7e360fd3861fc0d...` / `a9bc91f862ba5fd8...` |
-| B4 | `ggsol_a45127a1814ae728` | SIA5 padded M128/N128, `SplitRoutes16` | `fc50750afe1880fc...` / `d4d6231101501f5...` |
-| B16 | `ggsol_c518830e3a59d061` | SIA5 padded M128/N128, `SplitRoutes16` | `4a0dd994382c48d...` / `75ebdd8adcbe9d99...` |
+| Key | Solution hash | Body and ownership |
+| --- | --- | --- |
+| B1 | `ggsol_98b9ce678d4cb09f` | SIA5 padded M128/N64 plus M64/N64 tail, `Mixed128_64`, serial routes |
+| B4 | `ggsol_a45127a1814ae728` | SIA5 padded M128/N128, `SplitRoutes16` |
+| B16 | `ggsol_c518830e3a59d061` | SIA5 padded M128/N128, `SplitRoutes16` |
 
 | Key | VGPR / SGPR / LDS | WMMA / barrier / wait / VMEM / VALU issue |
 | --- | ---: | ---: |
@@ -104,7 +104,7 @@ The retained identities are:
 | B4 | `216 / 35 / 10240 B` | `32 / 2 / 24 / 148 / 719` |
 | B16 | `216 / 35 / 10240 B` | `32 / 2 / 24 / 148 / 719` |
 
-All three artifacts report gfx1151, wave32, code object v5, 56-byte kernargs, zero private bytes, and zero VGPR/SGPR spills. Independent generate/build/inspect roots reproduce each complete assembly and HSACO byte-for-byte. The retained Q4 B1 source remains byte-identical at SHA-256 `06a0b9d459b98d7fef7b612ba5bf608080b00f5323aa5e1893422b1d44c654b8`.
+All three artifacts report gfx1151, wave32, code object v5, 56-byte kernargs, zero private bytes, and zero VGPR/SGPR spills. Independent generate/build/inspect roots reproduce each complete assembly and HSACO byte-for-byte. The retained Q4 B1 source remains byte-identical.
 
 Full-row qualification passes every packed HIP, independent oracle, determinism, mutation, malformed-route, and sentinel control:
 

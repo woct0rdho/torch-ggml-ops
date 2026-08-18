@@ -18,7 +18,7 @@ The exact aggregate-row keys are `R={12288,49152,196608}`. The physical Q2_K exp
 
 The grouped ABI remains the 56-byte routed backward research ABI: `grad_output`, `packed_weight`, `grad_input`, `expert_indices`, `expert_offsets`, `num_experts`, `rows`, and `bytes_per_expert`. Route count and optional split ownership are launch geometry. No host route inspection, dense shadow, prepared bank, atomics, reduction workspace, or companion setup kernel is in scope.
 
-The authoritative packed control is `/home/wd/models/ds4/DeepSeek-V4-Flash-IQ2XXS.gguf`, tensor `blk.0.ffn_down_exps.weight` (`Q2_K`, `[256,4096,672]`). The independent oracle dequantizes only selected routed experts to BF16 before matmul.
+The authoritative packed control is `~/models/ds4/DeepSeek-V4-Flash-IQ2XXS.gguf`, tensor `blk.0.ffn_down_exps.weight` (`Q2_K`, `[256,4096,672]`). The independent oracle dequantizes only selected routed experts to BF16 before matmul.
 
 ## Arithmetic Boundary
 
@@ -58,7 +58,7 @@ The dedicated decoder maps each lane to one aligned 16-value group, loads one 12
 
 The first M128/N64 double-LDS artifact failed packed HIP, determinism, mutations, and the independent oracle. The Q2 one-row metadata allocation exposed an existing pipeline lifetime requirement: the shared decoded-B pipeline uses a second scale-adjacent register for LDS read addressing while next-tile metadata is pending. Reserving that register removes the alias with the swizzled write-address bank. Rebuilt B1/B4/B16 double-LDS artifacts are exact and deterministic at 139 VGPRs; no wait or arithmetic waiver was used. All initial SIA5 geometry controls also pass. Current serial resources are 87 VGPR for M64/N64, 135 for M128/N64, and 206 for M128/N128, all at 35 SGPR with zero private bytes or spills.
 
-Regenerated retained Q4 and Q5 B1 sources remain byte-identical at SHA-256 `06a0b9d459b98d7fef7b612ba5bf608080b00f5323aa5e1893422b1d44c654b8` and `7e360fd3861fc0daf6622d49f1d248918524ece1948cebb1473d5a46667762a1`.
+Regenerated retained Q4 and Q5 B1 sources remain byte-identical.
 
 ### First fitted-prior geometry screen
 
@@ -99,3 +99,19 @@ Fifteen-repeat same-process brackets lock the macro parents. B1 padded M64/N64 S
 ### Q2 decode scheduling
 
 A typed Q2 `DependencyBatch4` schedule reuses four dead `valu_b` register pairs and adds no resources. All three controls are exact. Same-process brackets show B1 improving from `15.1730` to `14.8558 ms` (`2.14%`) and B4 from `37.2895` to `35.0546 ms` (`6.38%`). B16 instead regresses from `127.0026` to `128.8607 ms` (`1.46%`) and loses every medoid, so B16 remains serial. A temporary dependency-width-two endpoint was also exact but lost B16 serial in a bracket (`126.3994` versus `127.0545 ms`, `0.51%`) and was removed. Final decoder choices are batch4 at B1/B4 and serial at B16; no other decode arithmetic is opened.
+
+### Final confirmation
+
+The final artifacts use five warmups, 25 repeats, reversed rotating order, and disjoint confirmation-bank learned/hash medoids. Timings are weighted by the declared `40/43` learned and `3/43` hash reporting weights; both HIP and candidate complete-call paths include output allocation.
+
+| Key | Final identity | Weighted HIP / GGTensile ms | HIP / GGTensile TFLOPS | Speedup vs HIP |
+| --- | --- | ---: | ---: | ---: |
+| B1 (`R=12288`) | SIA4 M64/N64, padded, serial routes, Q2 batch4 | `22.1611 / 14.9114` | `9.3027 / 13.8256` | `1.4862x` |
+| B4 (`R=49152`) | SIA5 M128/N64, padded, <=64 M64 mixed tail, serial routes, Q2 batch4 | `51.1721 / 35.4964` | `16.1149 / 23.2315` | `1.4416x` |
+| B16 (`R=196608`) | SIA5 M128/N128, padded, masked tail, SplitRoutes32, serial Q2 decode | `191.5512 / 125.8210` | `17.2201 / 26.2161` | `1.5224x` |
+
+Full-row correctness (`--correctness-rows 0`) is packed-HIP bit-exact at every final key: 12,288, 49,152, and 196,608 rows. Deterministic reruns, gradient mutation, route mutation, and active-weight mutation are exact with zero tail writes. Independent BF16-oracle NRMSE is `8.55e-6`, `5.60e-5`, and `9.81e-5` respectively; all remain below `0.01`.
+
+Final inspected resources are B1 `87 VGPR / 35 SGPR / 5 KiB LDS`, B4 `135 / 35 / 5 KiB`, and B16 `206 / 35 / 10 KiB`, with zero private bytes and zero VGPR/SGPR spills. Two disjoint generate/build/inspect roots produce byte-identical artifacts.
+
+The Q2 research route remains isolated: production dispatch, generated bundles, registration, packaging, extension integration, and HIP fallback were not changed. The final repository gate passes `pytest -q tests` with `718 passed` (14 external PyTorch Python 3.14 deprecation warnings) and `pre-commit run --all-files` with pyupgrade, Ruff check, Ruff format, and ty all passing.
