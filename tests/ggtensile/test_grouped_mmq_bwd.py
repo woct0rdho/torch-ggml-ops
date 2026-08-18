@@ -81,6 +81,41 @@ def test_grouped_backward_q5_identity_and_source() -> None:
     assert source.count("s_barrier") == 2
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "rule_id"),
+    (
+        (
+            "q5_k_metadata_vector_load",
+            True,
+            "solution.q5kmetadata.n64",
+        ),
+        (
+            "packed_weight_lane_share",
+            2,
+            "solution.packedweightlaneshare.q5n64",
+        ),
+    ),
+)
+def test_grouped_backward_q5_n64_rejects_unimplemented_sharing(
+    field: str, value: object, rule_id: str
+) -> None:
+    key = _key(quant_type="Q5_K")
+    solution = key.solution
+    assert isinstance(solution, GroupedBackwardSolution)
+    n64 = replace(
+        solution.compute,
+        matrix_instruction=(16, 16, 16, 1, 1, 2, 4, 4, 1),
+        macro_tile1=64,
+        **{field: value},
+    )
+    invalid = replace(key, solution=replace(solution, compute=n64))
+    assert rule_id in {reason.rule_id for reason in validate_solution(invalid)}
+
+    n128 = replace(solution.compute, **{field: value})
+    valid = replace(key, solution=replace(solution, compute=n128))
+    assert rule_id not in {reason.rule_id for reason in validate_solution(valid)}
+
+
 def test_grouped_backward_rejects_unsupported_quant_type() -> None:
     with pytest.raises(ValueError, match="unsupported grouped"):
         ProblemType.grouped_mmq_backward("Q3_K")

@@ -55,3 +55,27 @@ The completed grouped Q4_K route shell, ordinary Q5_K backward record, productio
 The grouped contract now accepts only Q4_K and Q5_K, derives the quant block geometry from the strict problem type, and rejects Q3_K/Q6_K identities. The shared benchmark validates the requested GGUF tensor type and `[256,K,row_bytes]` shape instead of assuming Q4_K's 288-byte row. Q4 source generation remains unchanged; Q5 symbols and hashes are distinct, and the Q5 guard requires `bytes_per_expert=720896`.
 
 The Q5 pilot and initial SIA5 M128/N128, SIA5 M128/N64, SIA5 M64/N64, SIA4 double-LDS, and split-route artifacts all pass the partial 625-row route matrix. Packed HIP comparisons are BF16 bit-exact, deterministic reruns are bit-exact, and the independent dequantized BF16 oracle NRMSE is `6.85e-5`. Initial resource envelopes are 216/35/10 KiB for SIA5 M128/N128, 140/35/5 KiB for M128/N64, 100/35/4 KiB for M64/N64, and 220/35/16 KiB for double-LDS; all have zero private bytes and spills.
+
+### First fitted-prior geometry screen
+
+Nine-repeat search-bank weighted results are:
+
+| Candidate | Key | Weighted HIP / candidate ms | Speedup vs HIP | Decision |
+| --- | --- | ---: | ---: | --- |
+| Pilot M128/N128 SIA2 | B1 | `3.7423 / 4.1997` | `0.8911x` | Rejected by timing |
+| SIA5 M128/N128 | B1 | `3.7552 / 3.1414` | `1.1954x` | Loses to N64 |
+| SIA5 M128/N64 | B1 | `3.8012 / 2.9121` | `1.3053x` | Provisional B1 parent |
+| SIA5 M64/N64 | B1 | `3.8023 / 3.1782` | `1.1964x` | Rejected by timing |
+| Split4 SIA5 M128/N128 | B4 | `9.3391 / 8.1098` | `1.1516x` | Provisional ownership control |
+| Split4 double-LDS SIA4 M128/N128 | B4 | `9.4809 / 8.0422` | `1.1789x` | Provisional B4 parent; direct bracket required |
+| Split8 SIA5 M128/N128 | B16 | `32.0196 / 25.4768` | `1.2568x` | Provisional B16 parent |
+
+The pilot and M64 primary are closed. Q5 high-bit decode changes the B4 pipeline ranking relative to Q4, so double-LDS remains open at B4/B16. M128/N64 remains the B1 geometry premise; mixed tails and Q5 decode knobs will be evaluated against that parent rather than the slower M64 body.
+
+### Q5 control qualification
+
+Mixed M128/M64 tails, inline and hoisted nibble shifts, scalar extraction, lane sharing, and plain/padded/swizzled N64 layouts all assemble without private storage or spills. Double-LDS plus lane sharing is rejected by the typed pipeline contract before generation. The N64 vector-metadata artifact assembles at 140 VGPRs and removes three static VMEM instructions, but fails packed HIP, gradient/route/weight mutation, and independent-reference comparisons. N64 packed lane sharing fails the same gates. Both are rejected by correctness and are not timed. Vector metadata is exact on N128 double-LDS, proving the vector path itself is valid while those two N64 sharing combinations require strict rejection.
+
+The valid-control fitted screen retains nibble-shift hoisting and the padded N64 layout. Inline shifts (`2.9642 ms`), scalar extraction (`2.9626 ms`), swizzle4 (`3.0641 ms`), swizzle8 (`3.0044 ms`), and plain LDS (`3.3103 ms`) all lose to the B1 parent at `2.9121 ms`. Mixed M128/M64 tails reduce weighted B1 candidate time to `2.6312 ms` and raise HIP-relative throughput from `1.3053x` to `1.4444x`; they advance to confirmation.
+
+Route splitting is Q5-specific in the larger keys. At B4, split2 loses, split8 improves both pipeline controls, and split8 double-LDS SIA4 leads split8 single-LDS SIA5 by `7.8789` versus `8.0056 ms`. N128 vector metadata and inline shifts regress the double-LDS parent and are rejected. At B16, single-LDS SIA5 split8 leads double-LDS by `25.4768` versus `25.9548 ms`, while split4 regresses to `26.4956 ms`. The sub-two-percent B4/B16 pipeline gaps require same-process brackets before retention.

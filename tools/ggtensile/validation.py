@@ -998,6 +998,32 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
         solution_key.solution.q8_0_extraction
     )
     if (
+        solution_key.problem_type.quant_data_type == "Q5_K"
+        and solution_key.solution.macro_tile1 == 64
+        and solution_key.solution.q5_k_metadata_vector_load
+    ):
+        _reject(
+            reasons,
+            "solution.q5kmetadata.n64",
+            "Q5_K N64 does not implement vector metadata loading",
+            "MacroTile1",
+            "Q5KMetadataVectorLoad",
+            source="ProblemType",
+        )
+    if (
+        solution_key.problem_type.quant_data_type == "Q5_K"
+        and solution_key.solution.macro_tile1 == 64
+        and solution_key.solution.packed_weight_lane_share != 1
+    ):
+        _reject(
+            reasons,
+            "solution.packedweightlaneshare.q5n64",
+            "Q5_K N64 requires independent packed-weight loads",
+            "MacroTile1",
+            "PackedWeightLaneShare",
+            source="ProblemType",
+        )
+    if (
         solution_key.solution.depth_u == 64
         and solution_key.solution.lds_pad_b in (8, 16, 24)
         and not mechanism.supports_padded_depth(solution_key.solution.depth_u)
