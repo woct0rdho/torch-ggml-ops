@@ -338,7 +338,7 @@ def backward_mechanism_contract(quant_type: str) -> BackwardMechanismContract:
             )
         ),
         quant_register_shape=(
-            BackwardQuantRegisterShape(1, 1, None)
+            BackwardQuantRegisterShape(1, 2, None)
             if quant_type == "Q2_K"
             else BackwardQuantRegisterShape(1, 2, None)
             if quant_type == "Q3_K"
