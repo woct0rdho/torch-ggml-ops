@@ -57,13 +57,14 @@ class GroupedBackwardProblemContract:
 
     @classmethod
     def from_solution_key(cls, solution_key: SolutionKey):
-        if solution_key.problem_type != ProblemType.grouped_mmq_backward("Q4_K"):
-            raise ValueError("grouped backward currently requires Q4_K")
+        quant_type = solution_key.problem_type.quant_data_type
+        if solution_key.problem_type != ProblemType.grouped_mmq_backward(quant_type):
+            raise ValueError("invalid grouped backward problem type")
         cls._validate_problem(solution_key.problem_size)
         return cls(
             problem_size=solution_key.problem_size,
-            quant_type="Q4_K",
-            quant_format=QUANT_FORMATS["Q4_K"],
+            quant_type=quant_type,
+            quant_format=QUANT_FORMATS[quant_type],
         )
 
     @classmethod
@@ -90,9 +91,21 @@ class GroupedBackwardProblemContract:
             ),
         )
         cls._validate_problem(problem_size)
-        expected = cls(problem_size, "Q4_K", QUANT_FORMATS["Q4_K"]).to_mapping()
+        quant_type = _string(item["quant_type"], "quant_type")
+        if quant_type not in {"Q4_K", "Q5_K"}:
+            raise SchemaError(f"unsupported grouped backward quant type {quant_type!r}")
+        try:
+            expected = cls(
+                problem_size,
+                quant_type,
+                QUANT_FORMATS[quant_type],
+            ).to_mapping()
+        except (KeyError, ValueError):
+            raise SchemaError(
+                f"unsupported grouped backward quant type {quant_type!r}"
+            ) from None
         actual = {
-            "quant_type": _string(item["quant_type"], "quant_type"),
+            "quant_type": quant_type,
             "block_values": _integer(item["block_values"], "block_values"),
             "packed_weight_block_bytes": _integer(
                 item["packed_weight_block_bytes"], "packed_weight_block_bytes"
@@ -114,7 +127,7 @@ class GroupedBackwardProblemContract:
         }
         if actual != expected:
             raise SchemaError("GroupedBackwardProblemContract is not canonical")
-        return cls(problem_size, "Q4_K", QUANT_FORMATS["Q4_K"])
+        return cls(problem_size, quant_type, QUANT_FORMATS[quant_type])
 
     @staticmethod
     def _validate_problem(problem_size: ProblemSize) -> None:
@@ -124,7 +137,7 @@ class GroupedBackwardProblemContract:
             or problem_size.k != 2048
         ):
             raise SchemaError(
-                "grouped Q4_K backward requires exact (R,512,2048) with "
+                "grouped Q4_K/Q5_K backward requires exact (R,512,2048) with "
                 "R in {16384,65536,262144}"
             )
 

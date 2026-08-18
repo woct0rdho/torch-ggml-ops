@@ -15,7 +15,7 @@ from .model import SolutionKey
 
 
 class GroupedBackwardKernelLowering(BackwardKernelLowering):
-    """Emit routed Q4_K backward with typed aggregate-row tails."""
+    """Emit routed packed backward with typed aggregate-row tails."""
 
     EXIT_LABEL = ".LGroupedBackwardExit"
 

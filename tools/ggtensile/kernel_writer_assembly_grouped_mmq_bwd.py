@@ -56,7 +56,9 @@ class GroupedBackwardKernelWriterAssembly:
             total_vgprs=resources.total_vgprs,
             total_sgprs=resources.total_sgprs,
             abi=GROUPED_BACKWARD_ABI,
-            description="GGTensile Q4_K grouped MMQ backward",
+            description=(
+                f"GGTensile {self.state.contract.quant_type} grouped MMQ backward"
+            ),
         )
         envelope.initialize()
         return envelope.render(self.lowering.body())

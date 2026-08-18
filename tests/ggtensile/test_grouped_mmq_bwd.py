@@ -22,9 +22,9 @@ from tools.ggtensile.toolchain import Toolchain
 from tools.ggtensile.validation import validate_solution
 
 
-def _key(rows: int = 16_384) -> SolutionKey:
+def _key(rows: int = 16_384, quant_type: str = "Q4_K") -> SolutionKey:
     return SolutionKey(
-        ProblemType.grouped_mmq_backward("Q4_K"),
+        ProblemType.grouped_mmq_backward(quant_type),
         ProblemSize(rows, 512, 2048),
         GroupedBackwardSolution.pilot(),
     )
@@ -59,6 +59,31 @@ def test_grouped_backward_identity_roundtrip_and_exact_rows() -> None:
     for rows in (16_383, 32_768, 262_145):
         with pytest.raises(SchemaError, match="exact"):
             _key(rows).to_mapping()
+
+
+def test_grouped_backward_q5_identity_and_source() -> None:
+    q4 = _key()
+    q5 = _key(quant_type="Q5_K")
+    assert SolutionKey.from_mapping(q5.to_mapping()) == q5
+    assert not validate_solution(q5)
+    assert q4.hash != q5.hash
+    assert "grouped_mmq_bwd_q5_k" in q5.kernel_name
+    contract = q5.to_mapping()["ProblemContract"]
+    assert isinstance(contract, dict)
+    assert contract["packed_weight_block_bytes"] == 176
+
+    source = GroupedBackwardKernelWriterAssembly(q5, Toolchain.discover()).source()
+    assert "GGTensile Q5_K grouped MMQ backward" in source
+    assert "Build Q5_K payload and scale-byte addresses." in source
+    assert "Decode Q5_K low nibbles and high payload bits into LDS." in source
+    assert "s_cmp_lg_u32 s22, 720896" in source
+    assert source.count("v_wmma_f32_16x16x16_bf16") == 32
+    assert source.count("s_barrier") == 2
+
+
+def test_grouped_backward_rejects_unsupported_quant_type() -> None:
+    with pytest.raises(ValueError, match="unsupported grouped"):
+        ProblemType.grouped_mmq_backward("Q3_K")
 
 
 @pytest.mark.parametrize(

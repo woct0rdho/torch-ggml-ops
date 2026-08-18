@@ -6,7 +6,7 @@ import json
 import statistics
 import sys
 from pathlib import Path
-from typing import TypedDict
+from typing import TypedDict, cast
 
 import gguf
 import numpy as np
@@ -21,7 +21,7 @@ for path in (REPO_ROOT, BENCH_ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from grouped_mmq_benchmark_common import (
+from grouped_mmq_benchmark_common import (  # ty: ignore[unresolved-import]
     RouteDistribution,
     distribution_summary,
     make_route_tensors,
@@ -30,6 +30,7 @@ from grouped_mmq_benchmark_common import (
 )
 
 from tools.ggtensile.model import SolutionKey
+from tools.ggtensile.quant_formats import QUANT_FORMATS
 from tools.ggtensile.runtime import GroupedBackwardModule
 
 DEFAULT_MODEL = Path.home() / "models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf"
@@ -57,9 +58,21 @@ class TimingSummary(TypedDict):
     wmma_roofline_fraction: float
 
 
+class TimingReport(TypedDict, total=False):
+    distribution: str
+    group_summary: dict[str, object]
+    logical_flops: int
+    hip_complete: TimingSummary
+    candidate_complete: TimingSummary
+    candidate_kernel: TimingSummary
+    candidate_to_hip_latency: float
+    candidate_to_hip_throughput: float
+    medoid_weight: float
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Benchmark exact grouped GGTensile Q4_K backward against HIP"
+        description="Benchmark exact grouped GGTensile packed backward against HIP"
     )
     parser.add_argument("--solution-key", type=Path, required=True)
     parser.add_argument("--code-object", type=Path, required=True)
@@ -174,11 +187,21 @@ def _load_packed(
     tensor = next((item for item in reader.tensors if item.name == tensor_name), None)
     if tensor is None:
         raise KeyError(f"GGUF tensor not found: {tensor_name}")
-    if tensor.tensor_type.name != "Q4_K":
-        raise ValueError(f"expected Q4_K tensor, found {tensor.tensor_type.name}")
+    quant_type = key.problem_type.quant_data_type
+    if tensor.tensor_type.name != quant_type:
+        raise ValueError(
+            f"expected {quant_type} tensor, found {tensor.tensor_type.name}"
+        )
+    quant_format = QUANT_FORMATS[quant_type]
+    packed_row_bytes = (
+        key.problem_size.n // quant_format.block_values * quant_format.block_bytes
+    )
     physical_shape = [int(value) for value in tensor.data.shape]
-    if physical_shape != [256, key.problem_size.k, 288]:
-        raise ValueError(f"unexpected packed expert shape {physical_shape}")
+    expected_shape = [256, key.problem_size.k, packed_row_bytes]
+    if physical_shape != expected_shape:
+        raise ValueError(
+            f"unexpected packed expert shape {physical_shape}, expected {expected_shape}"
+        )
     host = np.array(tensor.data, dtype=np.uint8, copy=True, order="C")
     packed = torch.from_numpy(host).cuda()
     del host
@@ -423,7 +446,7 @@ def _timings(
     repeats: int,
     weight: float | None = None,
     reverse_order: bool = False,
-) -> dict[str, object]:
+) -> TimingReport:
     expert_indices, expert_offsets, _ = make_route_tensors(distribution)
     kernel_output = torch.empty(
         (grad_output.shape[0], 512), device="cuda", dtype=torch.bfloat16
@@ -487,21 +510,24 @@ def _timings(
     }
     hip_ms = summaries["hip_complete"]["median_ms"]
     complete_ms = summaries["candidate_complete"]["median_ms"]
-    report = {
-        "distribution": distribution.name,
-        "group_summary": distribution_summary(distribution),
-        "logical_flops": logical_flops,
-        **summaries,
-        "candidate_to_hip_latency": complete_ms / hip_ms,
-        "candidate_to_hip_throughput": hip_ms / complete_ms,
-    }
+    report = cast(
+        TimingReport,
+        {
+            "distribution": distribution.name,
+            "group_summary": distribution_summary(distribution),
+            "logical_flops": logical_flops,
+            **summaries,
+            "candidate_to_hip_latency": complete_ms / hip_ms,
+            "candidate_to_hip_throughput": hip_ms / complete_ms,
+        },
+    )
     if weight is not None:
         report["medoid_weight"] = weight
     return report
 
 
 def _weighted_prior_summary(
-    reports: list[dict[str, object]],
+    reports: list[TimingReport],
 ) -> dict[str, float] | None:
     prior_reports = [report for report in reports if "medoid_weight" in report]
     if not prior_reports:
@@ -512,7 +538,8 @@ def _weighted_prior_summary(
 
     def weighted_median_ms(name: str) -> float:
         return sum(
-            float(report["medoid_weight"]) * float(report[name]["median_ms"])
+            float(report["medoid_weight"])
+            * cast(TimingSummary, report.get(name))["median_ms"]
             for report in prior_reports
         )
 
@@ -566,7 +593,10 @@ def _require_correctness(report: dict[str, object]) -> None:
         "invalid_offset_later_route_written_elements",
         "invalid_final_offset_prior_routes_written_elements",
     )
-    failures.extend(name for name in changed_controls if int(report.get(name, 0)) <= 0)
+    for name in changed_controls:
+        value = report.get(name, 0)
+        if not isinstance(value, int | float) or value <= 0:
+            failures.append(name)
     independent = report.get("candidate_vs_independent_bf16")
     if not isinstance(independent, dict):
         failures.append("candidate_vs_independent_bf16")
@@ -624,7 +654,7 @@ def main() -> None:
     )
 
     correctness = None
-    timing_reports: list[dict[str, object]] = []
+    timing_reports: list[TimingReport] = []
     with contextlib.ExitStack() as stack:
         module = stack.enter_context(GroupedBackwardModule(key, args.code_object))
         if not args.skip_correctness:
