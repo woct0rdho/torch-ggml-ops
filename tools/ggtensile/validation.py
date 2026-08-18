@@ -5,6 +5,7 @@ from .mmq_bwd_spec import (
     BackwardExtraction,
     BackwardLdsBuffering,
     BackwardPackedWeightPrefetch,
+    BackwardQ2DecodeSchedule,
     BackwardQ3Pairing,
     BackwardQ4DecodeSchedule,
     BackwardQ5MetadataLoad,
@@ -626,6 +627,9 @@ def _validate_backward_solution_parameters(
     lds_buffering = BackwardLdsBuffering.try_from_serialized(solution.one_lds_buffer)
     schedule = BackwardScheduleIterAlg.try_from_serialized(solution.schedule_iter_alg)
     packed_prefetch = BackwardPackedWeightPrefetch.from_solution(solution)
+    q2_decode_schedule = BackwardQ2DecodeSchedule.try_from_serialized(
+        solution.q2_k_decode_schedule
+    )
     q3_extraction = BackwardExtraction.try_from_serialized(solution.q3_k_extraction)
     q3_pairing = BackwardQ3Pairing.try_from_serialized(solution.q3_k_pairing)
     q4_decode_schedule = BackwardQ4DecodeSchedule.try_from_serialized(
@@ -726,6 +730,13 @@ def _validate_backward_solution_parameters(
             "solution.packedweightlaneshare.unimplemented",
             "MMQ backward writer implements PackedWeightLaneShare=1 or 2",
             "PackedWeightLaneShare",
+        )
+    if q2_decode_schedule is None:
+        _reject(
+            reasons,
+            "solution.q2kdecodeschedule.unimplemented",
+            "Q2KDecodeSchedule must be 'Serial' or 'DependencyBatch4'",
+            "Q2KDecodeSchedule",
         )
     if q3_extraction not in (BackwardExtraction.packed, BackwardExtraction.scalar):
         _reject(
@@ -969,6 +980,9 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
         solution_key.solution.schedule_iter_alg
     )
     packed_prefetch = BackwardPackedWeightPrefetch.from_solution(solution_key.solution)
+    q2_decode_schedule = BackwardQ2DecodeSchedule.try_from_serialized(
+        solution_key.solution.q2_k_decode_schedule
+    )
     q3_extraction = BackwardExtraction.try_from_serialized(
         solution_key.solution.q3_k_extraction
     )
@@ -1127,6 +1141,16 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             "solution.q8.controls.inert",
             "Q8KExtraction='packed_vopd' or 'scalar' is valid only for Q8_0",
             "Q8KExtraction",
+            source="ProblemType",
+        )
+    if quant_type != "Q2_K" and (
+        q2_decode_schedule is not BackwardQ2DecodeSchedule.Serial
+    ):
+        _reject(
+            reasons,
+            "solution.q2.controls.inert",
+            "Q2-specific decode scheduling is valid only for Q2_K",
+            "Q2KDecodeSchedule",
             source="ProblemType",
         )
     if quant_type != "Q4_K" and (

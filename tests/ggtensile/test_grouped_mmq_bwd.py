@@ -89,6 +89,44 @@ def test_grouped_backward_q2_identity_and_source() -> None:
     assert source.count("s_barrier") == 2
 
 
+def test_grouped_backward_q2_dependency_batch_identity_and_source() -> None:
+    key = _key(quant_type="Q2_K")
+    solution = key.solution
+    assert isinstance(solution, GroupedBackwardSolution)
+    candidate = replace(
+        key,
+        solution=replace(
+            solution,
+            compute=replace(
+                solution.compute,
+                q2_k_decode_schedule="DependencyBatch4",
+            ),
+        ),
+    )
+    assert SolutionKey.from_mapping(candidate.to_mapping()) == candidate
+    assert not validate_solution(candidate)
+    spec = candidate.to_mapping()["KernelSpec"]
+    assert isinstance(spec, dict)
+    assert spec["decode"] == {"schedule": "DependencyBatch4"}
+
+    physical = derive_grouped_backward_physical_plan(
+        DerivedGroupedBackwardState.from_solution_key(candidate)
+    ).compute
+    assert physical.q2_decode.dependency_width == 4
+    values = physical.q2_decode.value_registers
+    assert values == tuple(physical.registers.valu_b + 2 * slot for slot in range(4))
+
+    source = GroupedBackwardKernelWriterAssembly(
+        candidate, Toolchain.discover()
+    ).source()
+    conversions = [
+        source.index(f"v_cvt_f32_ubyte{slot}_e32 v{value}")
+        for slot, value in enumerate(values)
+    ]
+    first_fma = source.index(f"v_fma_f32 v{values[0]}", conversions[-1])
+    assert max(conversions) < first_fma
+
+
 def test_grouped_backward_q5_identity_and_source() -> None:
     q4 = _key()
     q5 = _key(quant_type="Q5_K")
@@ -268,6 +306,7 @@ def test_grouped_backward_rejects_unknown_ownership_and_mapping() -> None:
         ("SplitRoutes4", 4),
         ("SplitRoutes8", 8),
         ("SplitRoutes16", 16),
+        ("SplitRoutes32", 32),
     ),
 )
 def test_grouped_backward_split_route_identity_and_source(

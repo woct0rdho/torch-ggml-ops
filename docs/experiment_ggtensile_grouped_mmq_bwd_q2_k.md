@@ -59,3 +59,43 @@ The dedicated decoder maps each lane to one aligned 16-value group, loads one 12
 The first M128/N64 double-LDS artifact failed packed HIP, determinism, mutations, and the independent oracle. The Q2 one-row metadata allocation exposed an existing pipeline lifetime requirement: the shared decoded-B pipeline uses a second scale-adjacent register for LDS read addressing while next-tile metadata is pending. Reserving that register removes the alias with the swizzled write-address bank. Rebuilt B1/B4/B16 double-LDS artifacts are exact and deterministic at 139 VGPRs; no wait or arithmetic waiver was used. All initial SIA5 geometry controls also pass. Current serial resources are 87 VGPR for M64/N64, 135 for M128/N64, and 206 for M128/N128, all at 35 SGPR with zero private bytes or spills.
 
 Regenerated retained Q4 and Q5 B1 sources remain byte-identical at SHA-256 `06a0b9d459b98d7fef7b612ba5bf608080b00f5323aa5e1893422b1d44c654b8` and `7e360fd3861fc0daf6622d49f1d248918524ece1948cebb1473d5a46667762a1`.
+
+### First fitted-prior geometry screen
+
+Nine-repeat search-bank results combine the learned/hash components with their declared reporting weights:
+
+| Candidate | Key | Weighted HIP / candidate ms | Speedup vs HIP | Decision |
+| --- | --- | ---: | ---: | --- |
+| Pilot M128/N128 SIA2 | B1 | `21.5154 / 27.3304` | `0.7872x` | Correctness anchor; rejected by timing |
+| SIA5 M64/N64 | B1 | `22.4126 / 15.3135` | `1.4636x` | B1 parent |
+| SIA5 M128/N64 | B1 | `22.0206 / 18.5717` | `1.1857x` | Loses M64 |
+| SIA5 M128/N128 | B1 | `22.0305 / 20.4270` | `1.0785x` | Loses M64 |
+| Double-LDS M128/N64 | B1 | `21.8743 / 19.4817` | `1.1228x` | Rejected by timing |
+| SIA5 M128/N64 | B4 | `50.5124 / 37.4635` | `1.3483x` | Provisional B4 parent |
+| SIA5 M128/N128 | B4 | `49.6191 / 37.7143` | `1.3157x` | Direct bracket required |
+| Double-LDS M128/N64 | B4 | `50.3349 / 39.9505` | `1.2599x` | Rejected by timing |
+| SIA5 M128/N64 | B16 | `190.4396 / 161.5854` | `1.1786x` | Rejected by N128 |
+| SIA5 M128/N128 | B16 | `191.3111 / 132.1376` | `1.4478x` | B16 parent |
+| Double-LDS M128/N64 | B16 | `190.9867 / 162.6025` | `1.1746x` | Rejected by timing |
+
+The result differs from the installed HIP geometry because the assembly N128 body is 206 VGPR rather than the historical 255-VGPR cliff. B1 route tails still favor the 87-VGPR M64 body; B4 is within one percent between N64 and N128 and requires same-process resolution; B16 gains materially from N128 packed reuse. Double-LDS is closed unless a later changed mechanism removes work rather than only rescheduling it.
+
+### Layout, schedule, and first tail controls
+
+Every control remains packed-HIP exact. Eight-byte row padding is essential: plain LDS regresses the B1 M64 body from `15.3135` to `27.5238 ms` and the B4 M128/N64 body from `37.4635` to `44.3643 ms`. Swizzle4/swizzle8 regress B1 to `17.5561/17.6736 ms` and do not beat padding at B4. SIA2 plus plain LDS loses at `27.5723 ms`; SIA5/PGR1 loses at `15.5173 ms`. Padded SIA4 and SIA5 remain close at B1 (`15.1463/15.3135 ms`) and B4 (`37.4354/37.4635 ms`), requiring same-process brackets.
+
+Existing `Mixed128_64` tails, which select M64 only through 64 rows, improve B4 modestly to `37.2586 ms`. The installed Q2 body uses M64 below 128 rows, providing a changed and format-specific premise for one `<128` tail-policy control. The first threshold-only artifact failed correctness because the established M64 branch emits one tile by construction; this was rejected before timing. A typed Q2-only policy with a proper M64 route loop then passed the complete mutation matrix, but regressed to `39.9595 ms` (`1.2283x` HIP) versus `37.2586 ms` for the <=64 policy. Rows 65-127 prefer one masked 135-VGPR M128 tile over two M64 tiles. The failed policy was removed, and no broader threshold is opened.
+
+### B16 layout and ownership controls
+
+The padded N128 body is ownership-bound on the skewed B16 prior. SIA5 serial is `132.1376 ms`; split2/4/8/16 improve monotonically to `128.827/128.088/127.692/127.524 ms`, with split16 at `1.5000x` HIP. Plain LDS collapses to `170.905 ms`, swizzle8 regresses to `134.621 ms`, and double-LDS reaches only `133.517 ms`. Padded SIA4 serial is slightly ahead of SIA5 at `131.487` versus `132.138 ms`.
+
+Split32 passes all controls and improves SIA5 to `125.3000 ms` (`1.5186x` HIP), unlike the rejected Q5 endpoint. SIA4 split16 is `126.7151 ms` versus SIA5 split16 at `127.5237 ms`, but SIA4 split32 regresses to `126.0449 ms` versus SIA5 at `125.3000 ms`. The dominant learned medoid has routes up to 50 M128 tiles, so split64 was tested as the sole endpoint that removes the last two-tile loop. It is exact but a 15-repeat same-process bracket favors split32 at `126.1163` versus `126.4909 ms` (`0.30%`); split32 wins the dominant learned profile and every hash medoid. Split64 is removed and SplitRoutes32 is retained as the typed maximum.
+
+The existing <=64 mixed tail materially changes B4 N128: it reaches `37.1417 ms` versus N64 mixed at `37.2586 ms`, while raising the minimum medoid speedup from `1.1639x` to `1.2277x`. At B16, mixed tails regress split32 from `125.3000` to `126.2204 ms`; the B16 parent remains masked.
+
+Fifteen-repeat same-process brackets lock the macro parents. B1 padded M64/N64 SIA4 is `15.2892 ms` versus SIA5 at `15.4012 ms` (`0.73%`). B4 N64 mixed is `36.9186 ms` versus N128 mixed at `38.6898 ms` (`4.58%`), and N64 mixed SIA5 is `37.3181 ms` versus pure N64 SIA4 at `37.8544 ms` (`1.44%`). B16 SIA5 split32 is `126.9932 ms` versus SIA4 at `127.5897 ms` (`0.47%`). Geometry, tail ownership, SIA, LDS layout, and route splitting are therefore closed around these three parents.
+
+### Q2 decode scheduling
+
+A typed Q2 `DependencyBatch4` schedule reuses four dead `valu_b` register pairs and adds no resources. All three controls are exact. Same-process brackets show B1 improving from `15.1730` to `14.8558 ms` (`2.14%`) and B4 from `37.2895` to `35.0546 ms` (`6.38%`). B16 instead regresses from `127.0026` to `128.8607 ms` (`1.46%`) and loses every medoid, so B16 remains serial. A temporary dependency-width-two endpoint was also exact but lost B16 serial in a bracket (`126.3994` versus `127.0545 ms`, `0.51%`) and was removed. Final decoder choices are batch4 at B1/B4 and serial at B16; no other decode arithmetic is opened.

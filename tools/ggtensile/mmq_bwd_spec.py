@@ -32,6 +32,22 @@ def _serialized_enum(enum_type: type[EnumT], value: object, name: str) -> EnumT:
         raise SchemaError(f"invalid {name}: {serialized!r}") from None
 
 
+class BackwardQ2DecodeSchedule(str, Enum):
+    Serial = "Serial"
+    DependencyBatch4 = "DependencyBatch4"
+
+    @classmethod
+    def try_from_serialized(cls, value: str) -> BackwardQ2DecodeSchedule | None:
+        try:
+            return cls(value)
+        except ValueError:
+            return None
+
+    @property
+    def dependency_width(self) -> int:
+        return 4 if self is BackwardQ2DecodeSchedule.DependencyBatch4 else 1
+
+
 class BackwardQ3Pairing(str, Enum):
     Inactive = "Inactive"
     Partial = "Partial"
@@ -548,6 +564,11 @@ class BackwardPipelineSpec:
 
 
 @dataclass(frozen=True)
+class BackwardQ2DecodePolicy:
+    schedule: BackwardQ2DecodeSchedule
+
+
+@dataclass(frozen=True)
 class BackwardQ3DecodePolicy:
     extraction: BackwardExtraction
     pairing: BackwardQ3Pairing
@@ -586,6 +607,7 @@ class BackwardQ8DecodePolicy:
 @dataclass(frozen=True)
 class BackwardDecodeSpec:
     decoder_width: int
+    q2: BackwardQ2DecodePolicy
     q3: BackwardQ3DecodePolicy
     q4: BackwardQ4DecodePolicy
     q5: BackwardQ5DecodePolicy
@@ -596,6 +618,9 @@ class BackwardDecodeSpec:
     def from_solution(cls, solution: BackwardSolution) -> BackwardDecodeSpec:
         return cls(
             decoder_width=solution.decoder_width,
+            q2=BackwardQ2DecodePolicy(
+                BackwardQ2DecodeSchedule(solution.q2_k_decode_schedule)
+            ),
             q3=BackwardQ3DecodePolicy(
                 BackwardExtraction(solution.q3_k_extraction),
                 BackwardQ3Pairing(solution.q3_k_pairing),
@@ -715,7 +740,8 @@ class BackwardKernelSpec:
             },
         }
         if quant_type == "Q2_K":
-            pass
+            if self.decode.q2.schedule is not BackwardQ2DecodeSchedule.Serial:
+                mapping["decode"] = {"schedule": self.decode.q2.schedule.value}
         elif quant_type == "Q3_K":
             mapping["decode"] = {
                 "extraction": self.decode.q3.extraction.value,
@@ -853,6 +879,7 @@ class BackwardKernelSpec:
                 "packed_weight_lane_share",
             ),
         )
+        q2 = BackwardQ2DecodePolicy(BackwardQ2DecodeSchedule.Serial)
         q3 = BackwardQ3DecodePolicy(
             BackwardExtraction.packed, BackwardQ3Pairing.Inactive
         )
@@ -865,7 +892,22 @@ class BackwardKernelSpec:
         q6 = BackwardQ6DecodePolicy(BackwardExtraction.packed)
         q8 = BackwardQ8DecodePolicy(BackwardExtraction.packed)
         if quant_type == "Q2_K" and "decode" in item:
-            raise SchemaError("Q2_K decode is canonically represented by absent decode")
+            decode_item = _strict_mapping(
+                item["decode"],
+                name="BackwardKernelSpec.decode",
+                keys=frozenset({"schedule"}),
+            )
+            q2 = BackwardQ2DecodePolicy(
+                _serialized_enum(
+                    BackwardQ2DecodeSchedule,
+                    decode_item["schedule"],
+                    "decode.schedule",
+                )
+            )
+            if q2.schedule is BackwardQ2DecodeSchedule.Serial:
+                raise SchemaError(
+                    "serial Q2_K decode is canonically represented by absent decode"
+                )
         if quant_type == "Q4_K" and "decode" in item:
             decode_item = _strict_mapping(
                 item["decode"],
@@ -974,6 +1016,7 @@ class BackwardKernelSpec:
             pipeline=pipeline,
             decode=BackwardDecodeSpec(
                 decoder_width=16,
+                q2=q2,
                 q3=q3,
                 q4=q4,
                 q5=q5,
@@ -1025,6 +1068,7 @@ class BackwardKernelSpec:
             ),
             prefetch_packed_weight_next=prefetch.includes_next_tile,
             packed_weight_lane_share=self.pipeline.packed_weight_lane_share,
+            q2_k_decode_schedule=self.decode.q2.schedule.value,
             q3_k_extraction=self.decode.q3.extraction.value,
             q3_k_pairing=self.decode.q3.pairing.value,
             q4_k_decode_schedule=self.decode.q4.schedule.value,

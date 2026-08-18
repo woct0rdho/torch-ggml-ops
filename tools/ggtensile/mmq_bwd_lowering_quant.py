@@ -794,14 +794,55 @@ class BackwardQuantLowering:
         k_span = self.state.solution.depth_u // decoder_rows
         t = r.temporary
         packed = r.global_read_b + 4 * row + first_element // 4
-        value = t + 1 + 2 * decoder_rows
-        rounding = value + 1
         d_scaled = t + 1 + 2 * row
         min_scaled = d_scaled + 1
         asm.inst(
             f"v_lshrrev_b32 v{packed}, v{self.physical.address.quant_shift}, v{packed}"
         )
         asm.inst(f"v_and_b32 v{packed}, 0x03030303, v{packed}")
+        decode_plan = self.physical.q2_decode
+        if decode_plan.dependency_width > 1:
+            elements = tuple(range(first_element, first_element + 4))
+            locations = tuple(
+                self.physical.lds.decoded_store_location(
+                    self.registers, self.physical.address, element, row, k_span
+                )
+                for element in elements
+            )
+            width = decode_plan.dependency_width
+            for first in range(0, 4, width):
+                group = elements[first : first + width]
+                group_locations = locations[first : first + width]
+                for element, value in zip(
+                    group, decode_plan.value_registers, strict=True
+                ):
+                    asm.inst(f"v_cvt_f32_ubyte{element % 4}_e32 v{value}, v{packed}")
+                for value in decode_plan.value_registers:
+                    asm.inst(
+                        f"v_fma_f32 v{value}, v{d_scaled}, v{value}, -v{min_scaled}"
+                    )
+                for value, rounding in zip(
+                    decode_plan.value_registers,
+                    decode_plan.rounding_registers,
+                    strict=True,
+                ):
+                    asm.inst(f"v_bfe_u32 v{rounding}, v{value}, 16, 1")
+                for value, rounding in zip(
+                    decode_plan.value_registers,
+                    decode_plan.rounding_registers,
+                    strict=True,
+                ):
+                    asm.inst(f"v_add3_u32 v{value}, v{rounding}, v{value}, 0x7fff")
+                for value, (lds_address, lds_offset) in zip(
+                    decode_plan.value_registers, group_locations, strict=True
+                ):
+                    asm.inst(
+                        f"ds_store_b16_d16_hi v{lds_address}, v{value} "
+                        f"offset:{lds_offset}"
+                    )
+            return
+        value = decode_plan.value_registers[0]
+        rounding = decode_plan.rounding_registers[0]
         for element in range(first_element, first_element + 4):
             lds_address, lds_offset = self.physical.lds.decoded_store_location(
                 self.registers, self.physical.address, element, row, k_span

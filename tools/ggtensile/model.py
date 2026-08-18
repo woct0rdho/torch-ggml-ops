@@ -248,6 +248,7 @@ class BackwardSolution:
     prefetch_packed_weight: bool
     prefetch_packed_weight_next: bool
     packed_weight_lane_share: int
+    q2_k_decode_schedule: str
     q3_k_extraction: str
     q3_k_pairing: str
     q4_k_decode_schedule: str
@@ -287,6 +288,7 @@ class BackwardSolution:
             prefetch_packed_weight=True,
             prefetch_packed_weight_next=False,
             packed_weight_lane_share=1,
+            q2_k_decode_schedule="Serial",
             q3_k_extraction="packed",
             q3_k_pairing="Inactive",
             q4_k_decode_schedule="Serial",

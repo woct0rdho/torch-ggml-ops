@@ -165,7 +165,7 @@ def test_backward_canonical_schema_rejects_every_noncanonical_boundary() -> None
         invalid_spec.to_solution(contract)
 
 
-def test_q2_backward_contract_and_spec_roundtrip_without_decode_knobs() -> None:
+def test_q2_backward_contract_and_spec_roundtrip_with_decode_schedule() -> None:
     key = SolutionKey(
         ProblemType.mmq_backward("Q2_K"),
         ProblemSize(128, 2048, 4096),
@@ -183,9 +183,16 @@ def test_q2_backward_contract_and_spec_roundtrip_without_decode_knobs() -> None:
     mapping = spec.to_mapping("Q2_K")
     assert "decode" not in mapping
     assert BackwardKernelSpec.from_mapping(mapping, "Q2_K") == spec
-    mapping["decode"] = {}
+    serial_mapping = copy.deepcopy(mapping)
+    serial_mapping["decode"] = {"schedule": "Serial"}
     with pytest.raises(SchemaError, match="canonically represented by absent"):
-        BackwardKernelSpec.from_mapping(mapping, "Q2_K")
+        BackwardKernelSpec.from_mapping(serial_mapping, "Q2_K")
+
+    batched = replace(solution, q2_k_decode_schedule="DependencyBatch4")
+    batched_spec = BackwardKernelSpec.from_solution(batched)
+    batched_mapping = batched_spec.to_mapping("Q2_K")
+    assert batched_mapping["decode"] == {"schedule": "DependencyBatch4"}
+    assert BackwardKernelSpec.from_mapping(batched_mapping, "Q2_K") == batched_spec
 
 
 def test_backward_pipeline_validation_keeps_field_errors_independent() -> None:
@@ -201,6 +208,18 @@ def test_backward_pipeline_validation_keeps_field_errors_independent() -> None:
     lds_rules = {reason.rule_id for reason in validate_solution(invalid_lds)}
     assert "solution.1ldsbuffer.unimplemented" in lds_rules
     assert "solution.scheduleiteralg.unimplemented" not in lds_rules
+
+    invalid_q2 = _key(
+        "Q2_K", (128, 2048, 4096), replace(pilot, q2_k_decode_schedule="Unknown")
+    )
+    invalid_q2_rules = {reason.rule_id for reason in validate_solution(invalid_q2)}
+    assert "solution.q2kdecodeschedule.unimplemented" in invalid_q2_rules
+
+    inactive_q2 = _key(
+        "Q8_0", (128, 256, 128), replace(pilot, q2_k_decode_schedule="DependencyBatch4")
+    )
+    inactive_q2_rules = {reason.rule_id for reason in validate_solution(inactive_q2)}
+    assert "solution.q2.controls.inert" in inactive_q2_rules
 
     inactive_q4 = _key(
         "Q8_0", (128, 256, 128), replace(pilot, q4_k_decode_schedule="DependencyBatch4")
@@ -385,6 +404,11 @@ def _targeted_writer_keys() -> tuple[SolutionKey, ...]:
             ),
         ),
         _key("Q2_K", (128, 2048, 4096), pilot),
+        _key(
+            "Q2_K",
+            (128, 2048, 4096),
+            replace(pilot, q2_k_decode_schedule="DependencyBatch4"),
+        ),
         _key(
             "Q2_K",
             (128, 2048, 4096),
@@ -583,6 +607,7 @@ def test_backward_solution_fields_project_into_kernel_spec_or_reject() -> None:
         "prefetch_packed_weight": False,
         "prefetch_packed_weight_next": True,
         "packed_weight_lane_share": 2,
+        "q2_k_decode_schedule": "DependencyBatch4",
         "q3_k_extraction": "scalar",
         "q3_k_pairing": "Partial",
         "q4_k_decode_schedule": "DependencyBatch4",
