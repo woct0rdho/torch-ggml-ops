@@ -18,7 +18,7 @@ The exact aggregate-row keys are `R={16384,65536,262144}`. The physical Q5_K exp
 
 The grouped ABI remains the 56-byte Q4_K research ABI: `grad_output`, `packed_weight`, `grad_input`, `expert_indices`, `expert_offsets`, `num_experts`, `rows`, and `bytes_per_expert`. Route count and optional split ownership are launch geometry. No host route inspection, dense shadow, prepared bank, atomics, reduction workspace, or companion setup kernel is in scope.
 
-The authoritative packed control is `/home/wd/models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf`, tensor `blk.0.ffn_down_exps.weight` (`Q5_K`, `[256,2048,352]`). The independent oracle dequantizes only selected routed experts to BF16 before matmul.
+The authoritative packed control is `~/models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf`, tensor `blk.0.ffn_down_exps.weight` (`Q5_K`, `[256,2048,352]`). The independent oracle dequantizes only selected routed experts to BF16 before matmul.
 
 ## Reuse Boundary
 
@@ -85,3 +85,47 @@ A 15-repeat same-process rotating bracket reverses the tiny B4 order: single-LDS
 Split16 passes the full partial route matrix and advances decisively: SIA5 reaches `7.7649 ms` at B4 (`1.2160x` versus HIP) and `24.7998 ms` at B16 (`1.2892x`). Double-LDS split16 loses at both keys. Split32 is also correct, but regresses to `7.9267 ms` at B4 and `24.8375 ms` at B16. It helps low-weight high-skew profiles while adding inactive ownership at the dominant medoids, so split32 is removed and split16 is retained as the typed maximum.
 
 The ordinary-Q5-inspired M256/N64 control is correct, but rises to 238 VGPRs and regresses to `8.6587 ms` at B4 and `31.3354 ms` at B16. Reduced packed decode does not overcome accumulator pressure and route masking. Geometry is therefore closed around mixed M128/N64 plus M64/N64 tails for B1 and M128/N128 split16 for B4/B16.
+
+A 25-repeat same-process bracket on the disjoint confirmation medoids fixes the final identities. Mixed tails beat pure M128/N64 by `2.8353` versus `3.1084 ms` (`9.63%`). Split16 beats split8 by `7.8985` versus `8.0076 ms` at B4 (`1.38%`) and by `24.9272` versus `25.4524 ms` at B16 (`2.11%`). These confirmation-bank orders agree with the changed-premise mechanism decisions even where the search-bank B4 gap was noisy.
+
+### Final qualification
+
+The retained identities are:
+
+| Key | Solution hash | Body and ownership | Source / HSACO SHA-256 |
+| --- | --- | --- | --- |
+| B1 | `ggsol_98b9ce678d4cb09f` | SIA5 padded M128/N64 plus M64/N64 tail, `Mixed128_64`, serial routes | `7e360fd3861fc0d...` / `a9bc91f862ba5fd8...` |
+| B4 | `ggsol_a45127a1814ae728` | SIA5 padded M128/N128, `SplitRoutes16` | `fc50750afe1880fc...` / `d4d6231101501f5...` |
+| B16 | `ggsol_c518830e3a59d061` | SIA5 padded M128/N128, `SplitRoutes16` | `4a0dd994382c48d...` / `75ebdd8adcbe9d99...` |
+
+| Key | VGPR / SGPR / LDS | WMMA / barrier / wait / VMEM / VALU issue |
+| --- | ---: | ---: |
+| B1 | `140 / 35 / 5120 B` | `24 / 4 / 27 / 120 / 709` |
+| B4 | `216 / 35 / 10240 B` | `32 / 2 / 24 / 148 / 719` |
+| B16 | `216 / 35 / 10240 B` | `32 / 2 / 24 / 148 / 719` |
+
+All three artifacts report gfx1151, wave32, code object v5, 56-byte kernargs, zero private bytes, and zero VGPR/SGPR spills. Independent generate/build/inspect roots reproduce each complete assembly and HSACO byte-for-byte. The retained Q4 B1 source remains byte-identical at SHA-256 `06a0b9d459b98d7fef7b612ba5bf608080b00f5323aa5e1893422b1d44c654b8`.
+
+Full-row qualification passes every packed HIP, independent oracle, determinism, mutation, malformed-route, and sentinel control:
+
+| Key | Rows | HIP BF16 differences | Independent NRMSE | Deterministic differences / tail writes |
+| --- | ---: | ---: | ---: | ---: |
+| B1 | `16384` | `0` | `6.47e-5` | `0 / 0` |
+| B4 | `65536` | `0` | `8.78e-5` | `0 / 0` |
+| B16 | `262144` | `0` | `8.06e-5` | `0 / 0` |
+
+ginal disjoint confirmation uses 5 warmups, 25 repeats, reversed rotating order, complete-call allocation in both paths, and fitted medoid weights:
+
+| Key | HIP / GGTensile ms | HIP / GGTensile TFLOPS | Speedup vs HIP |
+| --- | ---: | ---: | ---: |
+| B1 | `3.9549 / 2.8721` | `8.6879 / 11.9633` | `1.3770x` |
+| B4 | `9.2931 / 7.8143` | `14.7893 / 17.5881` | `1.1892x` |
+| B16 | `31.7727 / 24.7802` | `17.3028 / 22.1853` | `1.2822x` |
+
+The B1 weighted win is concentrated in the dominant confirmation medoid; its minimum individual-medoid throughput is `0.7859x`. B4 and B16 remain above HIP on every confirmation medoid, at minimum `1.1749x` and `1.2733x`. This follows the declared fitted weighted objective rather than introducing a post hoc per-medoid veto.
+
+The isolated result does not modify public dispatch, generated bundle tables, registration, packaging, or HIP fallback. Integration remains a separate review.
+
+### Final gates
+
+`pytest -q tests` passes with `711 passed` and 14 unrelated PyTorch/Python 3.14 deprecation warnings. `pre-commit run --all-files` passes pyupgrade, Ruff check, Ruff format, and ty. The worktree contains no production integration changes.
