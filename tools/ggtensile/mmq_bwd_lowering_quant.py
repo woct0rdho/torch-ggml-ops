@@ -1212,11 +1212,11 @@ class BackwardQuantLowering:
         rows = self.physical.decoder.rows
         t = r.temporary
         asm.comment("Load the two IQ2_S codebook entries for each lane-owned group.")
+        asm.inst(f"v_and_b32 v{t}, 1, v{r.serial}")
+        asm.inst(f"v_lshlrev_b32 v{t}, 2, v{t}")
         for row in range(rows):
             metadata = r.quant_scale + 4 * row
             payload = r.global_read_b + 4 * row
-            asm.inst(f"v_and_b32 v{t}, 1, v{r.serial}")
-            asm.inst(f"v_lshlrev_b32 v{t}, 2, v{t}")
             asm.inst(f"v_lshrrev_b32 v{t + 1}, v{t}, v{metadata + 2}")
             asm.inst(f"v_and_b32 v{t + 3}, 3, v{t + 1}")
             asm.inst(f"v_and_b32 v{t + 2}, 0xff, v{metadata}")
@@ -1226,10 +1226,8 @@ class BackwardQuantLowering:
                 f"ds_load_b64 v[{payload}:{payload + 1}], v{t + 4} "
                 f"offset:{self.physical.lds.num_bytes}"
             )
-            asm.inst(f"v_lshrrev_b32 v{t + 2}, 8, v{metadata}")
-            asm.inst(f"v_and_b32 v{t + 2}, 0xff, v{t + 2}")
-            asm.inst(f"v_lshrrev_b32 v{t + 3}, 2, v{t + 1}")
-            asm.inst(f"v_and_b32 v{t + 3}, 3, v{t + 3}")
+            asm.inst(f"v_bfe_u32 v{t + 2}, v{metadata}, 8, 8")
+            asm.inst(f"v_bfe_u32 v{t + 3}, v{t + 1}, 2, 2")
             asm.inst(f"v_lshl_or_b32 v{t + 2}, v{t + 3}, 8, v{t + 2}")
             asm.inst(f"v_lshlrev_b32 v{t + 4}, 3, v{t + 2}")
             asm.inst(
@@ -1237,8 +1235,7 @@ class BackwardQuantLowering:
                 f"offset:{self.physical.lds.num_bytes}"
             )
             asm.inst(f"v_cvt_f32_f16 v{r.quant_dm + row}, v{r.quant_dm + row}.l")
-            asm.inst(f"v_lshrrev_b32 v{t + 1}, v{t}, v{metadata + 3}")
-            asm.inst(f"v_and_b32 v{t + 1}, 15, v{t + 1}")
+            asm.inst(f"v_bfe_u32 v{t + 1}, v{metadata + 3}, v{t}, 4")
             asm.inst(f"v_cvt_f32_u32 v{t + 1}, v{t + 1}")
             asm.inst(f"v_add_f32 v{t + 1}, 0.5, v{t + 1}")
             asm.inst(f"v_mul_f32 v{metadata + 2}, 0.25, v{r.quant_dm + row}")

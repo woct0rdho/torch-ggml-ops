@@ -131,3 +131,21 @@ B16 materially benefits from combining double LDS with split32: it reaches `29.2
 The global-codebook decoder performs two random 64-bit VMEM reads per lane in every DepthU iteration. A retained mechanism now stages the full 8 KiB codebook contiguously into a disjoint LDS region once per active workgroup, then uses `ds_load_b64` for all lookups. The decoded-B buffer size and double-buffer toggle remain unchanged; total LDS grows by exactly 8 KiB and setup adds one barrier. B1/B4/B16 resources become `137/38/13 KiB`, `214/38/24 KiB`, and `214/38/24 KiB`; VGPR/SGPR counts and spill-free status are unchanged.
 
 All three staged controls pass the packed-HIP matrix. Separate fitted results are B1 `2.6069 ms` (`1.6042x` HIP), B4 `8.1090 ms` (`1.2455x`), and B16 `26.7127 ms` (`1.2966x`). Same-process 15-repeat brackets against preserved global-codebook artifacts confirm every medoid and improve weighted latency `2.8282 -> 2.5811 ms` (`9.57%`) at B1, `8.5783 -> 8.0955 ms` (`5.96%`) at B4, and `29.2852 -> 26.8259 ms` (`9.17%`) at B16. Workgroup-local staging is retained unconditionally; repeated global codebook lookup is closed.
+
+### Post-staging schedule and ownership reopening
+
+Moving codebook traffic from VMEM to LDS changes the buffering premise, so schedule, layout, and ownership were reopened without revisiting closed arithmetic mechanisms. B1 remains M128/N64 SIA5/pad8 single LDS with `Mixed128_64`: SIA4/full, SIA5/swizzle8/mixed, and M128/N128 double-LDS controls reach `2.9787`, `2.6472`, and `3.5112 ms` versus the retained `2.6069 ms` fitted result.
+
+At B4 and B16, pad8 single LDS now decisively beats XOR-8 double LDS. SIA2 remains slow. Fixed-ownership 15-repeat brackets choose SIA5 over SIA4 by `8.0677 -> 8.0170 ms` (`0.63%`) at B4 and `24.3643 -> 24.2527 ms` (`0.46%`) at B16. B4 split16 versus split64 then improves every medoid and weighted latency `8.0449 -> 7.9961 ms` (`0.61%`). A mixed tail helps the four skew medoids, but at fixed split64 it slows the 96.5%-weight medoid and loses weighted latency `8.0358 -> 8.0901 ms`; B4 therefore retains the full M128 path. B16 split64 improves every medoid over split32 in a 25-repeat bracket, narrowly lowering `24.2857 -> 24.2689 ms` (`0.07%`). Its mixed control also loses. The final post-staging parents are:
+
+| Key | Geometry and ownership | VGPR / SGPR / LDS | Tail |
+| --- | --- | ---: | --- |
+| B1 | M128/N64, SIA5/PGR2, pad8 single LDS, serial routes | `137 / 38 / 13 KiB` | `Mixed128_64` |
+| B4 | M128/N128, SIA5/PGR2, pad8 single LDS, split64 | `210 / 38 / 18 KiB` | Full M128 |
+| B16 | M128/N128, SIA5/PGR2, pad8 single LDS, split64 | `210 / 38 / 18 KiB` | Full M128 |
+
+### Decode extraction cleanup
+
+The lane-half selector is now hoisted out of the per-row preparation loop, and equivalent shift/mask pairs use direct bitfield extracts. This removes six static VALU issues at N64 (`751 -> 745`) and eight at N128 (`771 -> 763`) without changing resources. All three keys pass the complete packed-HIP matrix. Same-process 15-repeat brackets improve weighted latency `2.5846 -> 2.5697 ms` (`0.58%`) at B1, `8.0378 -> 7.9967 ms` (`0.51%`) at B4, and `24.0933 -> 23.9533 ms` (`0.58%`) at B16.
+
+An attempted FMA/output-modifier replacement for `(scale + 0.5) * 0.25` assembled and reduced one more issue per row, but failed candidate, mutation, and independent-oracle comparisons. The proven add/multiply sequence was restored; no arithmetic or correctness waiver is retained.
