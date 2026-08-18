@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from .iq2_s_grid import IQ2_S_GRID_BYTES
 from .mmq_bwd_spec import (
     BackwardQ2DecodeSchedule,
     BackwardQ3Pairing,
@@ -286,6 +287,9 @@ def derive_backward_physical_plan(
         q3_low_shift=q3_low_shift,
     )
     lds_num_bytes = _derive_lds_num_bytes(state)
+    resource_lds_num_bytes = lds_num_bytes + (
+        IQ2_S_GRID_BYTES if state.contract.quant_type == "IQ2_S" else 0
+    )
     lds = BackwardLdsPlan(
         num_bytes=lds_num_bytes,
         row_stride_bytes=2 * (geometry.depth_u + spec.memory.lds_pad_b),
@@ -301,6 +305,6 @@ def derive_backward_physical_plan(
         resources=BackwardResourcePlan(
             total_vgprs=registers.total_vgprs,
             total_sgprs=registers.total_sgprs,
-            lds_num_bytes=lds_num_bytes,
+            lds_num_bytes=resource_lds_num_bytes,
         ),
     )

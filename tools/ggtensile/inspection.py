@@ -254,6 +254,8 @@ def inspect_artifact(
                 and solution.row_tail == GroupedBackwardRowTail.Mixed128_64.value
             ):
                 expected_barriers += 2
+            if solution_key.problem_type.quant_data_type == "IQ2_S":
+                expected_barriers += 1
     _require(
         barrier_count == expected_barriers,
         f"expected {expected_barriers} barriers, found {barrier_count}",

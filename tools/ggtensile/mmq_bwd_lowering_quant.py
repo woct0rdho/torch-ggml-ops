@@ -1,5 +1,6 @@
 """Packed-weight readers and decoders for MMQ backward lowering."""
 
+from .iq2_s_grid import IQ2_S_GRID_BYTES
 from .kernel_writer_assembly import emit_bf16_rne
 from .mmq_bwd_emission import _Assembly
 from .mmq_bwd_physical import BackwardPhysicalPlan, BackwardRegisterPlan
@@ -25,6 +26,44 @@ class BackwardQuantLowering:
         asm.inst(
             f"s_addc_u32 s{base + 1}, s{base + 1}, {IQ2_S_GRID_SYMBOL}@rel32@hi+12"
         )
+
+    def _emit_quant_codebook_stage(self, asm: _Assembly) -> None:
+        if self.state.contract.quant_type != "IQ2_S":
+            return
+        r = self.registers
+        threads = self.state.solution.num_threads
+        bytes_per_thread = IQ2_S_GRID_BYTES // threads
+        loads_per_thread = bytes_per_thread // 16
+        address = r.temporary
+        lds_address = address + 1
+        asm.comment("Stage the IQ2_S codebook once in disjoint LDS.")
+        asm.inst(
+            f"v_lshlrev_b32 v{address}, {bytes_per_thread.bit_length() - 1}, "
+            f"v{r.serial}"
+        )
+        asm.inst(
+            f"v_add_nc_u32 v{lds_address}, {self.physical.lds.num_bytes}, v{address}"
+        )
+        for batch in range(0, loads_per_thread, 4):
+            batch_loads = min(4, loads_per_thread - batch)
+            for item in range(batch_loads):
+                destination = r.valu_b + 4 * item
+                offset = 16 * (batch + item)
+                asm.inst(
+                    f"global_load_b128 v[{destination}:{destination + 3}], "
+                    f"v{address}, s[{r.codebook_base}:{r.codebook_base + 1}] "
+                    f"offset:{offset}"
+                )
+            asm.inst("s_waitcnt vmcnt(0)")
+            for item in range(batch_loads):
+                source = r.valu_b + 4 * item
+                offset = 16 * (batch + item)
+                asm.inst(
+                    f"ds_write_b128 v{lds_address}, v[{source}:{source + 3}] "
+                    f"offset:{offset}"
+                )
+            asm.inst("s_waitcnt lgkmcnt(0)")
+        asm.inst("s_barrier")
 
     def _emit_quant_global_reads(
         self,
@@ -1184,8 +1223,8 @@ class BackwardQuantLowering:
             asm.inst(f"v_lshl_or_b32 v{t + 2}, v{t + 3}, 8, v{t + 2}")
             asm.inst(f"v_lshlrev_b32 v{t + 4}, 3, v{t + 2}")
             asm.inst(
-                f"global_load_b64 v[{payload}:{payload + 1}], v{t + 4}, "
-                f"s[{r.codebook_base}:{r.codebook_base + 1}]"
+                f"ds_load_b64 v[{payload}:{payload + 1}], v{t + 4} "
+                f"offset:{self.physical.lds.num_bytes}"
             )
             asm.inst(f"v_lshrrev_b32 v{t + 2}, 8, v{metadata}")
             asm.inst(f"v_and_b32 v{t + 2}, 0xff, v{t + 2}")
@@ -1194,8 +1233,8 @@ class BackwardQuantLowering:
             asm.inst(f"v_lshl_or_b32 v{t + 2}, v{t + 3}, 8, v{t + 2}")
             asm.inst(f"v_lshlrev_b32 v{t + 4}, 3, v{t + 2}")
             asm.inst(
-                f"global_load_b64 v[{payload + 2}:{payload + 3}], v{t + 4}, "
-                f"s[{r.codebook_base}:{r.codebook_base + 1}]"
+                f"ds_load_b64 v[{payload + 2}:{payload + 3}], v{t + 4} "
+                f"offset:{self.physical.lds.num_bytes}"
             )
             asm.inst(f"v_cvt_f32_f16 v{r.quant_dm + row}, v{r.quant_dm + row}.l")
             asm.inst(f"v_lshrrev_b32 v{t + 1}, v{t}, v{metadata + 3}")
@@ -1205,7 +1244,7 @@ class BackwardQuantLowering:
             asm.inst(f"v_mul_f32 v{metadata + 2}, 0.25, v{r.quant_dm + row}")
             asm.inst(f"v_mul_f32 v{metadata + 2}, v{t + 1}, v{metadata + 2}")
             asm.inst(f"v_mov_b32 v{metadata + 3}, v{metadata + 1}")
-        asm.inst("s_waitcnt vmcnt(0)")
+        asm.inst("s_waitcnt lgkmcnt(0)")
         for row in range(rows):
             metadata = r.quant_scale + 4 * row
             payload = r.global_read_b + 4 * row

@@ -66,6 +66,7 @@ class BackwardKernelLowering(BackwardQuantLowering):
         kernarg = r.kernarg
         emit_pointer_kernarg_loads(asm, kernarg, ORDINARY_BACKWARD_ABI)
         self._emit_quant_constants(asm)
+        self._emit_quant_codebook_stage(asm)
         self._defer_accumulator_zero(asm)
         self._emit_static_packed_coordinates(asm)
         self._emit_compute_tile(asm)

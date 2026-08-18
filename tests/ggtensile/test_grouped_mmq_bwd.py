@@ -170,7 +170,9 @@ def test_grouped_backward_iq2_s_identity_source_and_inspection(tmp_path) -> None
     assert "s_getpc_b64 s[36:37]" in source
     assert "s_mov_b32 s13, 0x03020100" in source
     assert "s_cmp_lg_u32 s22, 335872" in source
-    assert source.count("global_load_b64") == 4
+    assert source.count("global_load_b64") == 0
+    assert source.count("ds_load_b64") == 4
+    assert "Stage the IQ2_S codebook once in disjoint LDS." in source
     assert source.count("v_perm_b32") == 8
     assert source.count(".quad") == 256
     assert ".size .LGGTensileIQ2SGrid, 8192" in source
@@ -184,12 +186,12 @@ def test_grouped_backward_iq2_s_identity_source_and_inspection(tmp_path) -> None
     result = inspect_artifact(key, code_object, toolchain)
     assert result.vgpr_count == 194
     assert result.sgpr_count == 38
-    assert result.lds_num_bytes == 8192
+    assert result.lds_num_bytes == 16384
     assert result.private_segment_bytes == 0
     assert result.vgpr_spill_count == 0
     assert result.sgpr_spill_count == 0
     assert result.wmma_count == 32
-    assert result.barrier_count == 2
+    assert result.barrier_count == 3
 
 
 @pytest.mark.parametrize(

@@ -88,6 +88,8 @@ class GroupedBackwardKernelLowering(BackwardKernelLowering):
             asm.inst(f"s_cmp_ge_u32 s{route.tile_end}, s{route.route_rows}")
             asm.inst(f"s_cbranch_scc1 {self.EXIT_LABEL}")
 
+        self._emit_quant_codebook_stage(asm)
+
         if self.tail_lowering is None:
             self._emit_static_packed_coordinates(asm)
             self._emit_main_route_tiles(asm, split_factor)
