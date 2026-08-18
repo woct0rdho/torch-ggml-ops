@@ -91,3 +91,11 @@ The B1 fitted screen closes the first mechanism set:
 | M128/N64 SIA5 pad8, `Mixed128_64` | `2.9452` | `1.4111x` | `0.7942x` | B1 parent |
 
 The mixed tail is the only material improvement, reducing weighted latency by roughly ten percent while improving every medoid. Plain and swizzled LDS are closed. Double LDS is now correct but loses the single-LDS N64 parent decisively. Pad8/SIA5 mixed becomes the B1 parent; a direct bracket and mixed-layout controls remain before closure.
+
+Mixed pad16 is effectively tied with pad8 in separate screens (`2.9378` versus `2.9452 ms`), while mixed swizzle8 (`2.9790 ms`), plain LDS (`3.4686 ms`), and M128/N128 mixed (`3.1626 ms`) lose. A 15-repeat same-process pad8/pad16 bracket is statistically flat: `2.91844/2.91568 ms`, only `0.095%` in pad16's favor. Pad8 wins four of five medoids and uses 1 KiB less LDS, so the layout choice remains open for disjoint confirmation rather than treating this noise-sized result as promotion evidence.
+
+### Signed codebook preapply
+
+The baseline decoded each magnitude and sign separately, then used XOR/subtract to form a signed integer. A retained lowering optimization now applies four sign nibbles to the four loaded codebook dwords with the forward-proven `v_perm_b32` selector construction. Each element then needs one signed-byte extraction. The IQ2_S-unused `input_half` SGPR holds `0x03020100`, so the change adds no resources and removes 48 static VALU issues from the mixed M128/M64 artifact (`797 -> 749`).
+
+The candidate passes the complete packed-HIP matrix. A separate fitted run reaches weighted `2.8520 ms` (`1.4481x` HIP). More importantly, a 15-repeat same-process bracket against the preserved scalar-sign artifact improves every medoid and lowers weighted latency `2.9112 -> 2.8261 ms`, a `3.01%` gain. Signed-dword preapply is retained unconditionally for IQ2_S; the per-element sign path is closed.

@@ -1206,6 +1206,34 @@ class BackwardQuantLowering:
             asm.inst(f"v_mul_f32 v{metadata + 2}, v{t + 1}, v{metadata + 2}")
             asm.inst(f"v_mov_b32 v{metadata + 3}, v{metadata + 1}")
         asm.inst("s_waitcnt vmcnt(0)")
+        for row in range(rows):
+            metadata = r.quant_scale + 4 * row
+            payload = r.global_read_b + 4 * row
+            for dword in range(4):
+                self._emit_iq2_s_signed_dword(
+                    asm,
+                    payload + dword,
+                    metadata + 3,
+                    4 * dword,
+                )
+
+    def _emit_iq2_s_signed_dword(
+        self,
+        asm: _Assembly,
+        payload: int,
+        signs: int,
+        sign_shift: int,
+    ) -> None:
+        r = self.registers
+        sign_bits = r.temporary
+        selector = sign_bits + 1
+        negative = sign_bits + 2
+        asm.inst(f"v_bfe_u32 v{sign_bits}, v{signs}, {sign_shift}, 4")
+        asm.inst(f"v_mul_lo_u32 v{selector}, 0x810204, v{sign_bits}")
+        asm.inst(f"v_and_or_b32 v{selector}, v{selector}, 0x04040404, s{r.input_half}")
+        asm.inst(f"v_not_b32 v{negative}, v{payload}")
+        asm.inst(f"v_add_nc_u32 v{negative}, 0x01010101, v{negative}")
+        asm.inst(f"v_perm_b32 v{payload}, v{negative}, v{payload}, v{selector}")
 
     def _emit_iq2_s_decode_chunk(self, asm: _Assembly, chunk: int) -> None:
         r = self.registers
@@ -1213,16 +1241,11 @@ class BackwardQuantLowering:
         element_start = 4 * (chunk % 4)
         k_span = self.state.solution.depth_u // self.physical.decoder.rows
         packed = r.global_read_b + 4 * row + chunk % 4
-        signs = r.quant_scale + 4 * row + 3
         value = r.temporary
-        sign = value + 1
-        rounding = value + 2
+        rounding = value + 1
         db = r.quant_scale + 4 * row + 2
         for element in range(element_start, element_start + 4):
-            asm.inst(f"v_bfe_u32 v{value}, v{packed}, {8 * (element % 4)}, 8")
-            asm.inst(f"v_bfe_i32 v{sign}, v{signs}, {element}, 1")
-            asm.inst(f"v_xor_b32 v{value}, v{value}, v{sign}")
-            asm.inst(f"v_sub_nc_u32 v{value}, v{value}, v{sign}")
+            asm.inst(f"v_bfe_i32 v{value}, v{packed}, {8 * (element % 4)}, 8")
             asm.inst(f"v_cvt_f32_i32_e32 v{value}, v{value}")
             asm.inst(f"v_mul_f32 v{value}, v{db}, v{value}")
             lds_address, lds_offset = self.physical.lds.decoded_store_location(

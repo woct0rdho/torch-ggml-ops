@@ -168,8 +168,10 @@ def test_grouped_backward_iq2_s_identity_source_and_inspection(tmp_path) -> None
     assert "Map each lane to one IQ2_S aligned 16-value group." in source
     assert "Decode IQ2_S codebook values and signed scales into LDS." in source
     assert "s_getpc_b64 s[36:37]" in source
+    assert "s_mov_b32 s13, 0x03020100" in source
     assert "s_cmp_lg_u32 s22, 335872" in source
     assert source.count("global_load_b64") == 4
+    assert source.count("v_perm_b32") == 8
     assert source.count(".quad") == 256
     assert ".size .LGGTensileIQ2SGrid, 8192" in source
 

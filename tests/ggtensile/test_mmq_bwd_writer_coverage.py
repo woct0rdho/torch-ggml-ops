@@ -226,7 +226,9 @@ def test_iq2_s_backward_contract_source_and_codebook() -> None:
     source = BackwardKernelWriterAssembly(key, Toolchain.discover()).source()
     assert "GGTensile IQ2_S MMQ backward" in source
     assert "s_getpc_b64 s[16:17]" in source
+    assert "s_mov_b32 s13, 0x03020100" in source
     assert source.count("global_load_b64") == 4
+    assert source.count("v_perm_b32") == 8
     assert source.count(".quad") == 256
     assert ".size .LGGTensileIQ2SGrid, 8192" in source
 
