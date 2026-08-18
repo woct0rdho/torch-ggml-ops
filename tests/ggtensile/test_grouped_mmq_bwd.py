@@ -239,6 +239,7 @@ def test_grouped_backward_rejects_unknown_ownership_and_mapping() -> None:
         ("SplitRoutes2", 2),
         ("SplitRoutes4", 4),
         ("SplitRoutes8", 8),
+        ("SplitRoutes16", 16),
     ),
 )
 def test_grouped_backward_split_route_identity_and_source(

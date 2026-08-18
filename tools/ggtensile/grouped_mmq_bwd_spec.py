@@ -30,6 +30,7 @@ class GroupedBackwardOwnership(str, Enum):
     SplitRoutes2 = "SplitRoutes2"
     SplitRoutes4 = "SplitRoutes4"
     SplitRoutes8 = "SplitRoutes8"
+    SplitRoutes16 = "SplitRoutes16"
 
     @property
     def split_factor(self) -> int:
@@ -38,6 +39,7 @@ class GroupedBackwardOwnership(str, Enum):
             GroupedBackwardOwnership.SplitRoutes2: 2,
             GroupedBackwardOwnership.SplitRoutes4: 4,
             GroupedBackwardOwnership.SplitRoutes8: 8,
+            GroupedBackwardOwnership.SplitRoutes16: 16,
         }[self]
 
 
