@@ -593,14 +593,27 @@ class BackwardQuantLowering:
                     asm.inst(f"v_add_nc_u32 v{pointer}, 32, v{pointer}")
             for m_tile, (_, pointer) in enumerate(row_pointers):
                 valu_a = r.valu_a + 8 * (k_half * m_tiles + m_tile)
-                asm.inst(
-                    f"global_load_b128 v[{valu_a}:{valu_a + 3}], "
-                    f"v{pointer}, s[{r.kernarg}:{r.kernarg + 1}]"
-                )
-                asm.inst(
-                    f"global_load_b128 v[{valu_a + 4}:{valu_a + 7}], "
-                    f"v{pointer}, s[{r.kernarg}:{r.kernarg + 1}] offset:16"
-                )
+                self._emit_a_global_loads(asm, valu_a, pointer, pointer)
+
+    def _emit_a_global_loads(
+        self,
+        asm: _Assembly,
+        valu_a: int,
+        address: int,
+        byte_offset: int,
+        *,
+        address_pair: bool = False,
+        offset_is_bytes: bool = True,
+    ) -> None:
+        del byte_offset, offset_is_bytes
+        r = self.registers
+        source = (
+            f"v[{address}:{address + 1}], off"
+            if address_pair
+            else f"v{address}, s[{r.kernarg}:{r.kernarg + 1}]"
+        )
+        asm.inst(f"global_load_b128 v[{valu_a}:{valu_a + 3}], {source}")
+        asm.inst(f"global_load_b128 v[{valu_a + 4}:{valu_a + 7}], {source} offset:16")
 
     def _emit_quant_decode(
         self,

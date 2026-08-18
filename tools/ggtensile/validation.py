@@ -22,6 +22,7 @@ from .mmq_fwd_spec import (
 from .model import (
     BackwardSolution,
     ForwardSolution,
+    GroupedBackwardSolution,
     ProblemSize,
     ProblemType,
     SolutionKey,
@@ -884,6 +885,67 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
     reasons: list[RejectReason] = []
     if solution_key.problem_type.operation_type == "MMQForward":
         _validate_forward_solution(solution_key, reasons)
+        return tuple(reasons)
+    if isinstance(solution_key.solution, GroupedBackwardSolution):
+        try:
+            from .grouped_mmq_bwd_spec import DerivedGroupedBackwardState
+
+            state = DerivedGroupedBackwardState.from_solution_key(solution_key)
+        except (TypeError, ValueError) as error:
+            _reject(
+                reasons,
+                "solution.grouped_backward.schema",
+                str(error),
+                "Problem",
+                "Solution",
+                source="GroupedBackwardContract",
+            )
+            return tuple(reasons)
+        reasons.extend(validate_solution(state.ordinary.solution_key))
+        compute = solution_key.solution.compute
+        if compute.work_group_mapping != 1:
+            _reject(
+                reasons,
+                "solution.grouped_backward.work_group_mapping",
+                "routed backward requires WorkGroupMapping=1",
+                "WorkGroupMapping",
+                source="GroupedBackwardContract",
+            )
+        if state.spec.row_tail.value == "Mixed128_64":
+            mixed_tail_valid = (
+                compute.macro_tile0 == 128
+                and compute.matrix_instruction[5] == 2
+                and compute.matrix_instruction[7] == 4
+                and compute.num_threads == 128
+                and compute.one_lds_buffer == 1
+                and compute.schedule_iter_alg == 5
+                and compute.prefetch_global_read == 2
+                and compute.prefetch_local_read == 1
+                and not compute.prefetch_packed_weight_next
+            )
+            if not mixed_tail_valid:
+                _reject(
+                    reasons,
+                    "solution.grouped_backward.row_tail",
+                    "Mixed128_64 requires the supported 128xN, two-M-tile, 128-thread, single-LDS primary geometry",
+                    "MacroTile0",
+                    "MatrixInstruction",
+                    "NumThreads",
+                    "1LDSBuffer",
+                    "ScheduleIterAlg",
+                    "PrefetchGlobalRead",
+                    "PrefetchLocalRead",
+                    "PrefetchPackedWeightNext",
+                    source="GroupedBackwardContract",
+                )
+        if 512 % compute.macro_tile1:
+            _reject(
+                reasons,
+                "solution.grouped_backward.n_tile",
+                "grouped backward N must be exactly divisible by MacroTile1",
+                "MacroTile1",
+                source="GroupedBackwardContract",
+            )
         return tuple(reasons)
     if not isinstance(solution_key.solution, BackwardSolution):
         _reject(

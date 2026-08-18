@@ -8,8 +8,14 @@ import yaml
 
 from .fixed_grouped_mmq_fwd_model import FixedForwardSolutionKey
 from .fixed_grouped_mmq_fwd_spec import DerivedFixedForwardState
+from .grouped_mmq_bwd_physical import derive_grouped_backward_physical_plan
+from .grouped_mmq_bwd_spec import (
+    DerivedGroupedBackwardState,
+    GroupedBackwardRowTail,
+)
 from .kernel_abi import (
     FIXED_GROUPED_FORWARD_ABI,
+    GROUPED_BACKWARD_ABI,
     ORDINARY_BACKWARD_ABI,
     ORDINARY_FORWARD_ABI,
 )
@@ -27,7 +33,12 @@ from .mmq_fwd_physical import (
     derive_forward_physical_plan,
 )
 from .mmq_fwd_spec import ForwardKernelSpec, derive_forward_resource_usage
-from .model import BackwardSolution, ForwardSolution, SolutionKey
+from .model import (
+    BackwardSolution,
+    ForwardSolution,
+    GroupedBackwardSolution,
+    SolutionKey,
+)
 from .toolchain import Toolchain
 
 
@@ -175,16 +186,26 @@ def inspect_artifact(
                 if isinstance(physical, SignedInt8SmallMTiledLdsPhysicalPlan)
                 else 16
             )
-        elif isinstance(solution, BackwardSolution):
+        elif isinstance(solution, BackwardSolution | GroupedBackwardSolution):
+            compute = (
+                solution.compute
+                if isinstance(solution, GroupedBackwardSolution)
+                else solution
+            )
             expected_wmmas = (
-                solution.matrix_instruction[5]
-                * solution.matrix_instruction[6]
-                * solution.depth_u
+                compute.matrix_instruction[5]
+                * compute.matrix_instruction[6]
+                * compute.depth_u
                 // 16
             )
-            if solution.one_lds_buffer == 0:
-                expected_wmmas *= 1 + int(
-                    solution_key.problem_size.k > solution.depth_u
+            if compute.one_lds_buffer == 0:
+                expected_wmmas *= 1 + int(solution_key.problem_size.k > compute.depth_u)
+            if (
+                isinstance(solution, GroupedBackwardSolution)
+                and solution.row_tail == GroupedBackwardRowTail.Mixed128_64.value
+            ):
+                expected_wmmas += (
+                    1 * compute.matrix_instruction[6] * compute.depth_u // 16
                 )
     _require(
         wmma_count == expected_wmmas,
@@ -216,10 +237,23 @@ def inspect_artifact(
                 if isinstance(physical, SignedInt8SmallMTiledLdsPhysicalPlan)
                 else 0
             )
-        elif isinstance(solution, BackwardSolution) and solution.one_lds_buffer == 0:
-            expected_barriers = 1 + int(solution_key.problem_size.k > solution.depth_u)
-        elif isinstance(solution, BackwardSolution):
-            expected_barriers = 3 if solution.prefetch_packed_weight_next else 2
+        elif isinstance(solution, BackwardSolution | GroupedBackwardSolution):
+            compute = (
+                solution.compute
+                if isinstance(solution, GroupedBackwardSolution)
+                else solution
+            )
+            if compute.one_lds_buffer == 0:
+                expected_barriers = 1 + int(
+                    solution_key.problem_size.k > compute.depth_u
+                )
+            else:
+                expected_barriers = 3 if compute.prefetch_packed_weight_next else 2
+            if (
+                isinstance(solution, GroupedBackwardSolution)
+                and solution.row_tail == GroupedBackwardRowTail.Mixed128_64.value
+            ):
+                expected_barriers += 2
     _require(
         barrier_count == expected_barriers,
         f"expected {expected_barriers} barriers, found {barrier_count}",
@@ -313,6 +347,9 @@ def _validate_metadata(
     if isinstance(solution, ForwardSolution):
         _validate_forward_metadata(kernel, solution, errors)
         return
+    if isinstance(solution, GroupedBackwardSolution):
+        _validate_grouped_backward_metadata(kernel, solution_key, errors)
+        return
     state = DerivedBackwardState.from_solution_key(solution_key)
     physical = derive_backward_physical_plan(state)
     expected = {
@@ -338,6 +375,40 @@ def _validate_metadata(
     _require(
         _metadata_arguments(kernel) == ORDINARY_BACKWARD_ABI.metadata_arguments,
         "kernarg ABI does not match",
+        errors,
+    )
+
+
+def _validate_grouped_backward_metadata(
+    kernel: Mapping[str, Any],
+    solution_key: SolutionKey,
+    errors: list[str],
+) -> None:
+    state = DerivedGroupedBackwardState.from_solution_key(solution_key)
+    physical = derive_grouped_backward_physical_plan(state)
+    expected = {
+        ".kernarg_segment_size": GROUPED_BACKWARD_ABI.segment_size,
+        ".kernarg_segment_align": GROUPED_BACKWARD_ABI.segment_alignment,
+        ".group_segment_fixed_size": physical.resources.lds_num_bytes,
+        ".private_segment_fixed_size": physical.resources.private_segment_bytes,
+        ".max_flat_workgroup_size": state.spec.compute.geometry.num_threads,
+        ".wavefront_size": state.spec.compute.geometry.wavefront_size,
+        ".vgpr_count": physical.resources.total_vgprs,
+        ".sgpr_count": physical.resources.total_sgprs,
+        ".vgpr_spill_count": 0,
+        ".sgpr_spill_count": 0,
+    }
+    for field, value in expected.items():
+        actual = kernel.get(field)
+        _require(actual == value, f"{field} is {actual!r}, expected {value}", errors)
+    _require(
+        kernel.get(".uses_dynamic_stack", False) is False,
+        "dynamic stack is enabled",
+        errors,
+    )
+    _require(
+        _metadata_arguments(kernel) == GROUPED_BACKWARD_ABI.metadata_arguments,
+        "grouped backward kernarg ABI does not match",
         errors,
     )
 

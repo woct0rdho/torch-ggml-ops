@@ -155,6 +155,15 @@ class ProblemType:
         )
 
     @classmethod
+    def grouped_mmq_backward(cls, quant_data_type: str) -> Self:
+        if quant_data_type != "Q4_K":
+            raise ValueError(
+                f"unsupported grouped MMQ backward quant type {quant_data_type!r}"
+            )
+        ordinary = cls.mmq_backward(quant_data_type)
+        return replace(ordinary, operation_type="GroupedMMQBackward")
+
+    @classmethod
     def mmq_forward(cls, quant_data_type: str) -> Self:
         if quant_data_type not in {"Q3_K", "Q4_K", "Q5_K", "Q6_K", "Q8_0"}:
             raise ValueError(f"unsupported MMQ forward quant type {quant_data_type!r}")
@@ -295,6 +304,47 @@ class BackwardSolution:
         else:
             single_buffer = 2 * (self.depth_u + self.lds_pad_b) * self.macro_tile1
         return single_buffer * (2 if self.one_lds_buffer == 0 else 1)
+
+
+@dataclass(frozen=True)
+class GroupedBackwardSolution:
+    """Grouped ownership wrapped around one reusable backward compute spec."""
+
+    compute: BackwardSolution
+    route_ownership: str
+    row_tail: str
+
+    @classmethod
+    def pilot(cls) -> Self:
+        return cls(
+            compute=BackwardSolution.pilot(),
+            route_ownership="SerialRoutes",
+            row_tail="Masked",
+        )
+
+    @property
+    def num_threads(self) -> int:
+        return self.compute.num_threads
+
+    @property
+    def lds_num_bytes(self) -> int:
+        return self.compute.lds_num_bytes
+
+    @property
+    def matrix_instruction(self) -> tuple[int, ...]:
+        return self.compute.matrix_instruction
+
+    @property
+    def macro_tile0(self) -> int:
+        return self.compute.macro_tile0
+
+    @property
+    def macro_tile1(self) -> int:
+        return self.compute.macro_tile1
+
+    @property
+    def depth_u(self) -> int:
+        return self.compute.depth_u
 
 
 @dataclass(frozen=True)
@@ -660,7 +710,7 @@ class ForwardSolution:
 class SolutionKey:
     problem_type: ProblemType
     problem_size: ProblemSize
-    solution: BackwardSolution | ForwardSolution
+    solution: BackwardSolution | ForwardSolution | GroupedBackwardSolution
 
     _KEYS: ClassVar[frozenset[str]] = frozenset(
         {"ArtifactKind", "KernelFamily", "ProblemContract", "Problem", "KernelSpec"}
@@ -695,6 +745,24 @@ class SolutionKey:
             if BackwardKernelSpec.from_solution(solution) != spec:
                 raise SchemaError("BackwardKernelSpec does not round-trip canonically")
             problem_type = ProblemType.mmq_backward(contract.quant_type)
+        elif family == "GroupedBackward":
+            from .grouped_mmq_bwd_spec import (
+                GroupedBackwardKernelSpec,
+                GroupedBackwardProblemContract,
+            )
+
+            contract = GroupedBackwardProblemContract.from_mapping(
+                item["ProblemContract"], problem_size
+            )
+            spec = GroupedBackwardKernelSpec.from_mapping(
+                item["KernelSpec"], contract.quant_type
+            )
+            solution = spec.to_solution(contract)
+            if GroupedBackwardKernelSpec.from_solution(solution) != spec:
+                raise SchemaError(
+                    "GroupedBackwardKernelSpec does not round-trip canonically"
+                )
+            problem_type = ProblemType.grouped_mmq_backward(contract.quant_type)
         else:
             raise SchemaError(f"unsupported KernelFamily {family!r}")
         return cls(problem_type, problem_size, solution)
@@ -705,7 +773,18 @@ class SolutionKey:
         return cls.from_mapping(value)
 
     def to_mapping(self) -> dict[str, object]:
-        if isinstance(self.solution, ForwardSolution):
+        if isinstance(self.solution, GroupedBackwardSolution):
+            from .grouped_mmq_bwd_spec import (
+                GroupedBackwardKernelSpec,
+                GroupedBackwardProblemContract,
+            )
+
+            family = "GroupedBackward"
+            contract = GroupedBackwardProblemContract.from_solution_key(self)
+            spec_mapping = GroupedBackwardKernelSpec.from_solution(
+                self.solution
+            ).to_mapping(contract.quant_type)
+        elif isinstance(self.solution, ForwardSolution):
             from .mmq_fwd_spec import ForwardKernelSpec, ForwardProblemContract
 
             family = "OrdinaryForward"
@@ -739,9 +818,11 @@ class SolutionKey:
     def kernel_name(self) -> str:
         size = self.problem_size
         quant_type = self.problem_type.quant_data_type.lower()
-        operation = (
-            "mmq_fwd" if self.problem_type.operation_type == "MMQForward" else "mmq_bwd"
-        )
+        operation = {
+            "MMQForward": "mmq_fwd",
+            "MMQBackward": "mmq_bwd",
+            "GroupedMMQBackward": "grouped_mmq_bwd",
+        }[self.problem_type.operation_type]
         return (
             f"torch_ggml_ops_ggtensile_gfx1151_v1_{operation}_"
             f"{quant_type}_"

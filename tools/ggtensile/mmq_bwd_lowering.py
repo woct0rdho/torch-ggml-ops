@@ -32,18 +32,24 @@ class BackwardKernelLowering(BackwardQuantLowering):
         solution_key: SolutionKey,
         *,
         diagnostic_mode: BackwardDiagnosticMode | None = None,
+        label_suffix: str = "",
     ) -> None:
         self.state = DerivedBackwardState.from_solution_key(solution_key)
         self.physical: BackwardPhysicalPlan = derive_backward_physical_plan(self.state)
         self.diagnostic_mode = diagnostic_mode
+        self.label_suffix = label_suffix
         self.registers = self.physical.registers
+
+    def _label(self, name: str) -> str:
+        return f".L{name}{self.label_suffix}"
+
+    def _decode_label_suffix(self, suffix: str) -> str:
+        return f"{suffix}{self.label_suffix}"
 
     def body(self) -> str:
         asm = _Assembly()
         r = self.registers
-        size = self.state.contract.problem_size
         name = self.state.solution_key.kernel_name
-        quant_format = self.state.contract.quant_format
 
         asm.comment("Flatten gfx11 packed workitem X/Y before v0 becomes C storage.")
         asm.inst(f"v_bfe_u32 v{r.serial}, v0, 10, 10")
@@ -59,17 +65,27 @@ class BackwardKernelLowering(BackwardQuantLowering):
             asm.inst("s_add_u32 s2, s4, s2")
         kernarg = r.kernarg
         emit_pointer_kernarg_loads(asm, kernarg, ORDINARY_BACKWARD_ABI)
+        self._defer_accumulator_zero(asm)
+        self._emit_static_packed_coordinates(asm)
+        self._emit_compute_tile(asm)
+        emit_kernel_trailer(asm, name)
+        return asm.text()
+
+    def _defer_accumulator_zero(self, asm: _Assembly) -> None:
+        if self.diagnostic_mode == BackwardDiagnosticMode.DECODE_FLOOR:
+            return
+        r = self.registers
         accumulator_count = (
             8
             * self.state.solution.matrix_instruction[5]
             * self.state.solution.matrix_instruction[6]
         )
-        if self.diagnostic_mode != BackwardDiagnosticMode.DECODE_FLOOR:
-            asm.comment(
-                "Pair accumulator zeroing with independent pre-loop address VALU."
-            )
-            asm.defer_zero_moves(range(r.accum, r.accum + accumulator_count))
+        asm.comment("Pair accumulator zeroing with independent pre-loop address VALU.")
+        asm.defer_zero_moves(range(r.accum, r.accum + accumulator_count))
 
+    def _emit_static_packed_coordinates(self, asm: _Assembly) -> None:
+        r = self.registers
+        quant_format = self.state.contract.quant_format
         n_per_block = self.state.solution.macro_tile1
         if (
             self.state.contract.mechanism.decoder.row_address
@@ -103,6 +119,10 @@ class BackwardKernelLowering(BackwardQuantLowering):
                 f"s_lshl_b32 s{r.scalar_temporary}, s{r.scalar_temporary}, "
                 f"{quant_tile_shift}"
             )
+
+    def _emit_compute_tile(self, asm: _Assembly) -> None:
+        r = self.registers
+        size = self.state.contract.problem_size
         asm.inst(f"s_mov_b32 s{r.loop_counter}, 0")
 
         self._emit_static_thread_coordinates(asm)
@@ -118,12 +138,12 @@ class BackwardKernelLowering(BackwardQuantLowering):
         elif self.state.spec.pipeline.prefetches_next_packed_tile:
             self._emit_packed_weight_pipeline(asm)
         else:
-            asm.label(".LDepthULoop")
+            asm.label(self._label("DepthULoop"))
             if self.state.solution.num_threads > 128:
                 asm.comment("Only the first four waves cooperatively decode B.")
                 asm.inst(f"v_readfirstlane_b32 s{r.scalar_temporary + 1}, v{r.serial}")
                 asm.inst(f"s_cmp_lt_u32 s{r.scalar_temporary + 1}, 128")
-                asm.inst("s_cbranch_scc0 .LDecodeReady")
+                asm.inst(f"s_cbranch_scc0 {self._label('DecodeReady')}")
             schedule = self.state.spec.pipeline.schedule
             self._emit_quant_global_reads(asm, wait_for_reads=not schedule.prefetches_a)
             if schedule.prefetches_a:
@@ -135,9 +155,9 @@ class BackwardKernelLowering(BackwardQuantLowering):
                 )
                 asm.inst(f"s_waitcnt vmcnt({a_load_count})")
             self._emit_packed_weight_lane_share(asm)
-            self._emit_quant_decode(asm)
+            self._emit_quant_decode(asm, label_suffix=self._decode_label_suffix(""))
             if self.state.solution.num_threads > 128:
-                asm.label(".LDecodeReady")
+                asm.label(self._label("DecodeReady"))
             asm.inst("s_waitcnt lgkmcnt(0)")
             asm.inst("s_barrier")
             self._emit_wmma(asm)
@@ -148,11 +168,9 @@ class BackwardKernelLowering(BackwardQuantLowering):
                 f"{self.state.solution.depth_u}"
             )
             asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
-            asm.inst("s_cbranch_scc1 .LDepthULoop")
+            asm.inst(f"s_cbranch_scc1 {self._label('DepthULoop')}")
         if store_output:
             self._emit_store(asm)
-        emit_kernel_trailer(asm, name)
-        return asm.text()
 
     def _emit_wmma_floor(self, asm: _Assembly) -> None:
         r = self.registers
@@ -168,19 +186,21 @@ class BackwardKernelLowering(BackwardQuantLowering):
         self._emit_quant_global_reads(asm, wait_for_reads=False)
         self._emit_first_a_global_reads(asm)
         asm.inst(f"s_waitcnt vmcnt({a_load_count})")
-        self._emit_quant_decode(asm, label_suffix="WmmaFloorPrime")
+        self._emit_quant_decode(
+            asm, label_suffix=self._decode_label_suffix("WmmaFloorPrime")
+        )
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
 
-        asm.label(".LWmmaFloorLoop")
+        asm.label(self._label("WmmaFloorLoop"))
         asm.inst("s_waitcnt vmcnt(0)")
         self._emit_wmma(asm, pipeline=self.state.spec.pipeline.decoded_b_pipeline)
         asm.inst(f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, {solution.depth_u}")
         asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
-        asm.inst("s_cbranch_scc0 .LWmmaFloorDone")
+        asm.inst(f"s_cbranch_scc0 {self._label('WmmaFloorDone')}")
         self._emit_first_a_global_reads(asm)
-        asm.inst("s_branch .LWmmaFloorLoop")
-        asm.label(".LWmmaFloorDone")
+        asm.inst(f"s_branch {self._label('WmmaFloorLoop')}")
+        asm.label(self._label("WmmaFloorDone"))
 
     def _emit_decode_floor(self, asm: _Assembly) -> None:
         r = self.registers
@@ -189,14 +209,16 @@ class BackwardKernelLowering(BackwardQuantLowering):
         asm.comment(
             "Measure packed Q4_K reads, decode, LDS stores, and synchronization."
         )
-        asm.label(".LDecodeFloorLoop")
+        asm.label(self._label("DecodeFloorLoop"))
         self._emit_quant_global_reads(asm)
-        self._emit_quant_decode(asm, label_suffix="DecodeFloor")
+        self._emit_quant_decode(
+            asm, label_suffix=self._decode_label_suffix("DecodeFloor")
+        )
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
         asm.inst(f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, {solution.depth_u}")
         asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
-        asm.inst("s_cbranch_scc1 .LDecodeFloorLoop")
+        asm.inst(f"s_cbranch_scc1 {self._label('DecodeFloorLoop')}")
 
     def _emit_packed_weight_pipeline(self, asm: _Assembly) -> None:
         r = self.registers
@@ -213,39 +235,39 @@ class BackwardKernelLowering(BackwardQuantLowering):
         self._emit_first_a_global_reads(asm)
         asm.inst(f"s_waitcnt vmcnt({a_load_count})")
         self._emit_packed_weight_lane_share(asm)
-        self._emit_quant_decode(asm, label_suffix="Initial")
+        self._emit_quant_decode(asm, label_suffix=self._decode_label_suffix("Initial"))
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
 
-        asm.label(".LPackedDepthULoop")
+        asm.label(self._label("PackedDepthULoop"))
         asm.inst("s_waitcnt vmcnt(0)", "current A before next packed reads")
         asm.inst(f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, {solution.depth_u}")
         if solution.depth_u != 64:
             asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
-            asm.inst("s_cbranch_scc0 .LPackedNoPrefetch")
+            asm.inst(f"s_cbranch_scc0 {self._label('PackedNoPrefetch')}")
             self._emit_quant_global_reads(asm, wait_for_reads=False)
-            asm.label(".LPackedNoPrefetch")
+            asm.label(self._label("PackedNoPrefetch"))
 
         self._emit_wmma(asm)
         if solution.depth_u == 64:
             asm.comment("Preserve current A addresses through the second DepthU half.")
             asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
-            asm.inst("s_cbranch_scc0 .LPackedNoLatePrefetch")
+            asm.inst(f"s_cbranch_scc0 {self._label('PackedNoLatePrefetch')}")
             self._emit_quant_global_reads(asm, wait_for_reads=False)
-            asm.label(".LPackedNoLatePrefetch")
+            asm.label(self._label("PackedNoLatePrefetch"))
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
         asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
-        asm.inst("s_cbranch_scc0 .LPackedDepthUDone")
+        asm.inst(f"s_cbranch_scc0 {self._label('PackedDepthUDone')}")
 
         self._emit_first_a_global_reads(asm)
         asm.inst(f"s_waitcnt vmcnt({a_load_count})")
         self._emit_packed_weight_lane_share(asm)
-        self._emit_quant_decode(asm, label_suffix="Steady")
+        self._emit_quant_decode(asm, label_suffix=self._decode_label_suffix("Steady"))
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
-        asm.inst("s_branch .LPackedDepthULoop")
-        asm.label(".LPackedDepthUDone")
+        asm.inst(f"s_branch {self._label('PackedDepthULoop')}")
+        asm.label(self._label("PackedDepthUDone"))
 
     def _emit_decoded_b_pipeline(self, asm: _Assembly) -> None:
         r = self.registers
@@ -267,13 +289,15 @@ class BackwardKernelLowering(BackwardQuantLowering):
         if prefetch_a:
             self._emit_first_a_global_reads(asm)
         asm.inst(f"s_waitcnt vmcnt({a_load_count})")
-        self._emit_quant_decode(asm, label_suffix="PipelinePrime")
+        self._emit_quant_decode(
+            asm, label_suffix=self._decode_label_suffix("PipelinePrime")
+        )
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
         self._emit_toggle_lds_write_buffer(asm)
 
         if size.k > solution.depth_u:
-            asm.label(".LDecodedBPipelineLoop")
+            asm.label(self._label("DecodedBPipelineLoop"))
             asm.inst(
                 f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, {solution.depth_u}"
             )
@@ -287,7 +311,9 @@ class BackwardKernelLowering(BackwardQuantLowering):
                 pair += n_tile // 2
                 if pair == 0:
                     asm.inst("s_waitcnt vmcnt(0)")
-                    self._emit_quant_decode_prepare(asm, label_suffix="PipelineSteady")
+                    self._emit_quant_decode_prepare(
+                        asm, label_suffix=self._decode_label_suffix("PipelineSteady")
+                    )
                     self._emit_pipeline_lds_read_addresses(asm, 0)
                     if (
                         self.state.contract.quant_type == "Q5_K"
@@ -319,9 +345,9 @@ class BackwardKernelLowering(BackwardQuantLowering):
             asm.inst("s_barrier")
             self._emit_swap_lds_buffers(asm)
             asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k - solution.depth_u}")
-            asm.inst("s_cbranch_scc1 .LDecodedBPipelineLoop")
+            asm.inst(f"s_cbranch_scc1 {self._label('DecodedBPipelineLoop')}")
 
-        asm.label(".LDecodedBPipelineFinal")
+        asm.label(self._label("DecodedBPipelineFinal"))
         asm.inst("s_waitcnt vmcnt(0)")
         self._emit_wmma(asm, pipeline=True)
 
@@ -344,14 +370,7 @@ class BackwardKernelLowering(BackwardQuantLowering):
                 asm.inst(f"v_add_nc_u32 v{pointer}, 32, v{pointer}")
         for m_tile, pointer in enumerate(pointers):
             valu_a = r.valu_a + 8 * (k_half * m_tiles + m_tile)
-            asm.inst(
-                f"global_load_b128 v[{valu_a}:{valu_a + 3}], "
-                f"v{pointer}, s[{r.kernarg}:{r.kernarg + 1}]"
-            )
-            asm.inst(
-                f"global_load_b128 v[{valu_a + 4}:{valu_a + 7}], "
-                f"v{pointer}, s[{r.kernarg}:{r.kernarg + 1}] offset:16"
-            )
+            self._emit_a_global_loads(asm, valu_a, pointer, pointer)
         if k_half == 1 and solution.depth_u == 64:
             for m_tile, pointer in enumerate(pointers):
                 asm.inst(f"v_mov_b32 v{r.address + m_tile}, v{pointer}")
@@ -602,14 +621,7 @@ class BackwardKernelLowering(BackwardQuantLowering):
                         pointer = a + m_tile
                         asm.inst(f"v_add_nc_u32 v{pointer}, {2 * k_tile}, v{pointer}")
                         valu_a = r.valu_a + 8 * m_tile
-                        asm.inst(
-                            f"global_load_b128 v[{valu_a}:{valu_a + 3}], "
-                            f"v{pointer}, s[{r.kernarg}:{r.kernarg + 1}]"
-                        )
-                        asm.inst(
-                            f"global_load_b128 v[{valu_a + 4}:{valu_a + 7}], "
-                            f"v{pointer}, s[{r.kernarg}:{r.kernarg + 1}] offset:16"
-                        )
+                        self._emit_a_global_loads(asm, valu_a, pointer, pointer)
                 elif (
                     solution.depth_u == 64
                     and self.state.spec.pipeline.global_read_prefetch == 2
@@ -638,14 +650,7 @@ class BackwardKernelLowering(BackwardQuantLowering):
                             pointer = a + m_tile
                             asm.inst(f"v_add_nc_u32 v{pointer}, 32, v{pointer}")
                             valu_a = r.valu_a + 8 * (k_half * m_tiles + m_tile)
-                            asm.inst(
-                                f"global_load_b128 v[{valu_a}:{valu_a + 3}], "
-                                f"v{pointer}, s[{r.kernarg}:{r.kernarg + 1}]"
-                            )
-                            asm.inst(
-                                f"global_load_b128 v[{valu_a + 4}:{valu_a + 7}], "
-                                f"v{pointer}, s[{r.kernarg}:{r.kernarg + 1}] offset:16"
-                            )
+                            self._emit_a_global_loads(asm, valu_a, pointer, pointer)
             elif m_tiles == 2:
                 asm.inst(f"s_lshl_b32 s{r.scalar_temporary + 1}, s{r.loop_counter}, 1")
                 for m_tile, row, pointer in (
@@ -657,15 +662,18 @@ class BackwardKernelLowering(BackwardQuantLowering):
                     if k_tile:
                         asm.inst(f"v_add_nc_u32 v{t}, {2 * k_tile}, v{t}")
                     emit_add_pointer(asm, pointer, r.kernarg, t)
-                for m_tile, pointer in ((0, a), (1, a + 2)):
+                for m_tile, pointer, row in (
+                    (0, a, a + 4),
+                    (1, a + 2, a + 5),
+                ):
                     valu_a = r.valu_a + 8 * m_tile
-                    asm.inst(
-                        f"global_load_b128 v[{valu_a}:{valu_a + 3}], "
-                        f"v[{pointer}:{pointer + 1}], off"
-                    )
-                    asm.inst(
-                        f"global_load_b128 v[{valu_a + 4}:{valu_a + 7}], "
-                        f"v[{pointer}:{pointer + 1}], off offset:16"
+                    self._emit_a_global_loads(
+                        asm,
+                        valu_a,
+                        pointer,
+                        row,
+                        address_pair=True,
+                        offset_is_bytes=False,
                     )
             else:
                 asm.inst(f"s_lshl_b32 s{r.scalar_temporary + 1}, s{r.loop_counter}, 1")
@@ -681,13 +689,13 @@ class BackwardKernelLowering(BackwardQuantLowering):
                         asm.inst(f"v_add_nc_u32 v{t}, {2 * k_tile}, v{t}")
                     emit_add_pointer(asm, a, r.kernarg, t)
                     valu_a = r.valu_a + 8 * m_tile
-                    asm.inst(
-                        f"global_load_b128 v[{valu_a}:{valu_a + 3}], "
-                        f"v[{a}:{a + 1}], off"
-                    )
-                    asm.inst(
-                        f"global_load_b128 v[{valu_a + 4}:{valu_a + 7}], "
-                        f"v[{a}:{a + 1}], off offset:16"
+                    self._emit_a_global_loads(
+                        asm,
+                        valu_a,
+                        a,
+                        row if row != t else t,
+                        address_pair=True,
+                        offset_is_bytes=row == t,
                     )
             lds_arguments = self._emit_lds_read_arguments(
                 asm, k_tile, pipeline=pipeline
@@ -1070,6 +1078,7 @@ class BackwardKernelLowering(BackwardQuantLowering):
         asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
         asm.inst(f"v_lshlrev_b32 v{t + 1}, {solution.macro_tile0.bit_length() - 1}, s2")
         asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
+        self._emit_store_row_begin(asm, t)
         emit_scale_u32(asm, t, 2 * size.n, t)
         asm.inst(
             f"v_lshlrev_b32 v{t + 1}, {(2 * solution.macro_tile1).bit_length() - 1}, s3"
@@ -1083,6 +1092,7 @@ class BackwardKernelLowering(BackwardQuantLowering):
             asm.inst("s_setprio 1")
         for m_tile in range(m_tiles):
             for element in range(8):
+                self._emit_store_row_mask_begin(asm)
                 for n_tile in range(n_tiles):
                     accum = r.accum + (n_tiles * m_tile + n_tile) * 8 + element
                     emit_bf16_rne(asm, accum, t + 2)
@@ -1090,7 +1100,21 @@ class BackwardKernelLowering(BackwardQuantLowering):
                         f"global_store_d16_hi_b16 v{a}, v{accum}, "
                         f"s[{r.kernarg + 4}:{r.kernarg + 5}] offset:{32 * n_tile}"
                     )
+                self._emit_store_row_mask_end(asm)
                 if not (m_tile == m_tiles - 1 and element == 7):
                     asm.inst(f"v_add_nc_u32 v{a}, {4 * size.n}, v{a}")
+                    self._emit_store_row_advance(asm)
         if self.state.spec.store.raises_priority:
             asm.inst("s_setprio 0")
+
+    def _emit_store_row_begin(self, asm: _Assembly, row: int) -> None:
+        del asm, row
+
+    def _emit_store_row_mask_begin(self, asm: _Assembly) -> None:
+        del asm
+
+    def _emit_store_row_mask_end(self, asm: _Assembly) -> None:
+        del asm
+
+    def _emit_store_row_advance(self, asm: _Assembly) -> None:
+        del asm

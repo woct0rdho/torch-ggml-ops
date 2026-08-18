@@ -11,18 +11,25 @@ from typing_extensions import Self
 from .fixed_grouped_mmq_fwd_model import FixedForwardSolutionKey
 from .fixed_grouped_mmq_fwd_spec import DerivedFixedForwardState
 from .fixed_grouped_mmq_fwd_validation import validate_fixed_forward_solution_key
+from .grouped_mmq_bwd_spec import DerivedGroupedBackwardState
 from .grouped_mmq_fwd_model import GroupedForwardSolutionKey
 from .grouped_mmq_fwd_spec import DerivedGroupedForwardState
 from .grouped_mmq_fwd_validation import validate_grouped_forward_solution
 from .kernel_abi import (
     FIXED_GROUPED_FORWARD_ABI,
+    GROUPED_BACKWARD_ABI,
     GROUPED_FORWARD_ABI,
     ORDINARY_BACKWARD_ABI,
     ORDINARY_FORWARD_ABI,
     Q8_1_QUANTIZER_ABI,
 )
 from .mmq_fwd_spec import DerivedForwardState
-from .model import BackwardSolution, ForwardSolution, SolutionKey
+from .model import (
+    BackwardSolution,
+    ForwardSolution,
+    GroupedBackwardSolution,
+    SolutionKey,
+)
 from .quant_formats import (
     Q8_1_F16_D2S6_BLOCK_BYTES,
     Q8_1_F16_D4S4_BLOCK_BYTES,
@@ -213,6 +220,120 @@ class BackwardModule(_SolutionHIPModule):
                 size.n // solution.macro_tile1,
                 m_blocks // group_m,
                 *solution.work_group,
+                0,
+                ctypes.c_void_p(stream),
+                packed_arguments.parameters,
+                None,
+            ),
+            "hipModuleLaunchKernel",
+        )
+
+
+class GroupedBackwardModule(_SolutionHIPModule):
+    """Direct launcher for the exact routed grouped backward ABI."""
+
+    def __init__(
+        self,
+        solution_key: SolutionKey,
+        code_object: Path,
+        hip_library: Path | None = None,
+        *,
+        kernel_name: str | None = None,
+    ) -> None:
+        if not isinstance(solution_key.solution, GroupedBackwardSolution):
+            raise HIPRuntimeError(
+                "grouped MMQ backward requires GroupedBackwardSolution"
+            )
+        super().__init__(
+            solution_key,
+            code_object,
+            hip_library,
+            kernel_name=kernel_name,
+        )
+
+    def launch(
+        self,
+        grad_output: torch.Tensor,
+        packed_weight: torch.Tensor,
+        grad_input: torch.Tensor,
+        expert_indices: torch.Tensor,
+        expert_offsets: torch.Tensor,
+        *,
+        stream: int,
+    ) -> None:
+        if not self._module or not self._function:
+            raise HIPRuntimeError("HIP module is closed")
+        state = DerivedGroupedBackwardState.from_solution_key(self.solution_key)
+        size = state.contract.problem_size
+        tensors = (
+            grad_output,
+            packed_weight,
+            grad_input,
+            expert_indices,
+            expert_offsets,
+        )
+        if any(not tensor.is_cuda for tensor in tensors):
+            raise HIPRuntimeError("all launch tensors must be on a HIP device")
+        if any(not tensor.is_contiguous() for tensor in tensors):
+            raise HIPRuntimeError("all launch tensors must be contiguous")
+        if grad_output.dtype != torch.bfloat16:
+            raise HIPRuntimeError("grad_output must be BF16")
+        if packed_weight.dtype != torch.uint8:
+            raise HIPRuntimeError("packed_weight must be uint8")
+        if grad_input.dtype != torch.bfloat16:
+            raise HIPRuntimeError("grad_input must be BF16")
+        if expert_indices.dtype != torch.int64:
+            raise HIPRuntimeError("expert_indices must be int64")
+        if expert_offsets.dtype != torch.int32:
+            raise HIPRuntimeError("expert_offsets must be int32")
+        if tuple(grad_output.shape) != (size.m, size.k):
+            raise HIPRuntimeError("grad_output shape does not match grouped key")
+        if tuple(grad_input.shape) != (size.m, size.n):
+            raise HIPRuntimeError("grad_input shape does not match grouped key")
+        row_bytes = (
+            size.n
+            // state.contract.quant_format.block_values
+            * state.contract.quant_format.block_bytes
+        )
+        expected_weight_shape = (
+            state.contract.physical_experts,
+            size.k,
+            row_bytes,
+        )
+        if tuple(packed_weight.shape) != expected_weight_shape:
+            raise HIPRuntimeError("packed_weight shape does not match grouped key")
+        if expert_indices.ndim != 1 or expert_offsets.ndim != 1:
+            raise HIPRuntimeError("route metadata must be one-dimensional")
+        if expert_indices.numel() != expert_offsets.numel():
+            raise HIPRuntimeError("route metadata lengths differ")
+        num_routes = expert_indices.numel()
+        if not 0 < num_routes <= state.contract.max_route_entries:
+            raise HIPRuntimeError("route count is outside the grouped key")
+        if len({tensor.device for tensor in tensors}) != 1:
+            raise HIPRuntimeError("all launch tensors must be on the same device")
+
+        bytes_per_expert = size.k * row_bytes
+        packed_arguments = GROUPED_BACKWARD_ABI.pack(
+            {
+                "grad_output": grad_output.data_ptr(),
+                "packed_weight": packed_weight.data_ptr(),
+                "grad_input": grad_input.data_ptr(),
+                "expert_indices": expert_indices.data_ptr(),
+                "expert_offsets": expert_offsets.data_ptr(),
+                "num_experts": state.contract.physical_experts,
+                "rows": size.m,
+                "bytes_per_expert": bytes_per_expert,
+            }
+        )
+        compute = state.solution.compute
+        split_factor = state.spec.ownership.split_factor
+        self._check(
+            self._lib.hipModuleLaunchKernel(
+                self._function,
+                size.n // compute.macro_tile1,
+                num_routes,
+                split_factor,
+                *compute.work_group,
                 0,
                 ctypes.c_void_p(stream),
                 packed_arguments.parameters,

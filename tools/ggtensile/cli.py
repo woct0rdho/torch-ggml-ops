@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import Any, cast
 
 from .inspection import inspect_artifact
+from .kernel_writer_assembly_grouped_mmq_bwd import (
+    GroupedBackwardKernelWriterAssembly,
+)
 from .kernel_writer_assembly_mmq_bwd import BackwardKernelWriterAssembly
 from .kernel_writer_assembly_mmq_fwd import ForwardKernelWriterAssembly
 from .mmq_fwd_search import (
@@ -176,11 +179,11 @@ def _generate(solution_path: Path, output_dir: Path) -> int:
     if solution_output.exists() or assembly.exists():
         raise ManifestError("refusing to overwrite generated solution or assembly")
     toolchain = Toolchain.discover()
-    writer_type = (
-        ForwardKernelWriterAssembly
-        if key.problem_type.operation_type == "MMQForward"
-        else BackwardKernelWriterAssembly
-    )
+    writer_type = {
+        "MMQForward": ForwardKernelWriterAssembly,
+        "MMQBackward": BackwardKernelWriterAssembly,
+        "GroupedMMQBackward": GroupedBackwardKernelWriterAssembly,
+    }[key.problem_type.operation_type]
     source = writer_type(key, toolchain).source()
     _write_json_exclusive(solution_output, key.to_mapping())
     assembly.parent.mkdir(parents=True, exist_ok=True)
