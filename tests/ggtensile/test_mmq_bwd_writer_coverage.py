@@ -91,7 +91,7 @@ def test_backward_canonical_schema_rejects_every_noncanonical_boundary() -> None
     mapping = spec.to_mapping("Q4_K")
 
     invalid_contract = contract.to_mapping()
-    invalid_contract["quant_type"] = "IQ2_S"
+    invalid_contract["quant_type"] = "IQ1_S"
     with pytest.raises(SchemaError, match="unsupported backward quant"):
         BackwardProblemContract.from_mapping(invalid_contract, size)
 
@@ -104,8 +104,11 @@ def test_backward_canonical_schema_rejects_every_noncanonical_boundary() -> None
         BackwardKernelSpec.from_solution(
             replace(pilot, lds_pad_b=8, lds_swizzle_chunk_b=8)
         ).to_mapping("Q4_K")
+    iq2_mapping = spec.to_mapping("IQ2_S")
+    assert "decode" not in iq2_mapping
+    assert BackwardKernelSpec.from_mapping(iq2_mapping, "IQ2_S") == spec
     with pytest.raises(ValueError, match="unsupported backward quant type"):
-        spec.to_mapping("IQ2_S")
+        spec.to_mapping("IQ1_S")
 
     invalid = copy.deepcopy(mapping)
     invalid["decode"] = {"extraction": "packed"}
@@ -155,9 +158,13 @@ def test_backward_canonical_schema_rejects_every_noncanonical_boundary() -> None
     with pytest.raises(SchemaError, match="must be an active policy"):
         BackwardKernelSpec.from_mapping(invalid, "Q3_K")
 
-    with pytest.raises(SchemaError, match="unsupported backward quant type"):
+    with pytest.raises(SchemaError, match="invalid BackwardKernelSpec"):
         BackwardKernelSpec.from_mapping(
             BackwardKernelSpec.from_solution(q3).to_mapping("Q3_K"), "IQ2_S"
+        )
+    with pytest.raises(SchemaError, match="unsupported backward quant type"):
+        BackwardKernelSpec.from_mapping(
+            BackwardKernelSpec.from_solution(q3).to_mapping("Q3_K"), "IQ1_S"
         )
 
     invalid_spec = replace(spec, geometry=replace(spec.geometry, isa=(11, 0, 0)))
@@ -193,6 +200,52 @@ def test_q2_backward_contract_and_spec_roundtrip_with_decode_schedule() -> None:
     batched_mapping = batched_spec.to_mapping("Q2_K")
     assert batched_mapping["decode"] == {"schedule": "DependencyBatch4"}
     assert BackwardKernelSpec.from_mapping(batched_mapping, "Q2_K") == batched_spec
+
+
+def test_iq2_s_backward_contract_source_and_codebook() -> None:
+    key = SolutionKey(
+        ProblemType.mmq_backward("IQ2_S"),
+        ProblemSize(128, 512, 2048),
+        BackwardSolution.pilot(),
+    )
+    assert SolutionKey.from_mapping(key.to_mapping()) == key
+    assert validate_solution(key) == ()
+    contract = BackwardProblemContract.from_solution_key(key)
+    assert contract.quant_format.block_bytes == 82
+    assert (
+        BackwardProblemContract.from_mapping(contract.to_mapping(), key.problem_size)
+        == contract
+    )
+    physical = derive_backward_physical_plan(
+        DerivedBackwardState.from_solution_key(key)
+    )
+    assert physical.registers.codebook_base == 16
+    assert physical.resources.total_vgprs == 194
+    assert physical.resources.total_sgprs == 18
+
+    source = BackwardKernelWriterAssembly(key, Toolchain.discover()).source()
+    assert "GGTensile IQ2_S MMQ backward" in source
+    assert "s_getpc_b64 s[16:17]" in source
+    assert source.count("global_load_b64") == 4
+    assert source.count(".quad") == 256
+    assert ".size .LGGTensileIQ2SGrid, 8192" in source
+
+    pipelined = replace(
+        key,
+        solution=replace(
+            key.solution,
+            one_lds_buffer=0,
+            schedule_iter_alg=4,
+            prefetch_global_read=2,
+            lds_swizzle_chunk_b=8,
+        ),
+    )
+    assert validate_solution(pipelined) == ()
+    pipeline_source = BackwardKernelWriterAssembly(
+        pipelined, Toolchain.discover()
+    ).source()
+    assert ".LDecodedBPipelineLoop:" in pipeline_source
+    assert pipeline_source.count("Decode IQ2_S codebook values") == 1
 
 
 def test_backward_pipeline_validation_keeps_field_errors_independent() -> None:
@@ -553,7 +606,7 @@ def test_writer_rejects_forward_solution_schema(
 
 def test_physical_plan_covers_allocator_and_periodic_lds_padding() -> None:
     with pytest.raises(ValueError, match="unknown backward quant mechanism"):
-        backward_mechanism_contract("IQ2_S")
+        backward_mechanism_contract("IQ1_S")
 
     allocator = _FirstFitRegisters(0, 0)
     assert allocator.allocate(1) == 0

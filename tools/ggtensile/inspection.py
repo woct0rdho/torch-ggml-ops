@@ -270,6 +270,11 @@ def inspect_artifact(
         if "call" in mnemonic
         or mnemonic in {"s_getpc_b64", "s_setpc_b64", "s_swappc_b64"}
     }
+    if (
+        solution_key.problem_type.quant_data_type == "IQ2_S"
+        and "s_getpc_b64" in call_mnemonics
+    ):
+        call_mnemonics.remove("s_getpc_b64")
     _require(
         not call_mnemonics, f"call instruction found: {sorted(call_mnemonics)}", errors
     )

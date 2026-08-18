@@ -5,6 +5,8 @@ from .mmq_bwd_emission import _Assembly
 from .mmq_bwd_physical import BackwardPhysicalPlan, BackwardRegisterPlan
 from .mmq_bwd_spec import BackwardExtraction, DerivedBackwardState
 
+IQ2_S_GRID_SYMBOL = ".LGGTensileIQ2SGrid"
+
 
 class BackwardQuantLowering:
     """Substantial quant reader/decoder implementation shared by the pipeline."""
@@ -12,6 +14,17 @@ class BackwardQuantLowering:
     state: DerivedBackwardState
     physical: BackwardPhysicalPlan
     registers: BackwardRegisterPlan
+
+    def _emit_quant_constants(self, asm: _Assembly) -> None:
+        if self.state.contract.quant_type != "IQ2_S":
+            return
+        base = self.registers.codebook_base
+        asm.comment("Materialize the local IQ2_S codebook address.")
+        asm.inst(f"s_getpc_b64 s[{base}:{base + 1}]")
+        asm.inst(f"s_add_u32 s{base}, s{base}, {IQ2_S_GRID_SYMBOL}@rel32@lo+4")
+        asm.inst(
+            f"s_addc_u32 s{base + 1}, s{base + 1}, {IQ2_S_GRID_SYMBOL}@rel32@hi+12"
+        )
 
     def _emit_quant_global_reads(
         self,
@@ -30,6 +43,8 @@ class BackwardQuantLowering:
             self._emit_q5_k_global_reads(asm, wait_for_reads=wait_for_reads)
         elif quant_type == "Q6_K":
             self._emit_q6_k_global_reads(asm, wait_for_reads=wait_for_reads)
+        elif quant_type == "IQ2_S":
+            self._emit_iq2_s_global_reads(asm, wait_for_reads=wait_for_reads)
         else:
             self._emit_q8_0_global_reads(asm, wait_for_reads=wait_for_reads)
 
@@ -199,6 +214,73 @@ class BackwardQuantLowering:
             asm.inst(
                 f"global_load_d16_b16 v{r.quant_dm + row}, v{block_address}, "
                 f"s[{r.kernarg + 2}:{r.kernarg + 3}] offset:208"
+            )
+        if wait_for_reads:
+            asm.inst("s_waitcnt vmcnt(0)")
+
+    def _emit_iq2_s_global_reads(
+        self,
+        asm: _Assembly,
+        *,
+        wait_for_reads: bool = True,
+    ) -> None:
+        r = self.registers
+        decoder_rows = self.physical.decoder.rows
+        n_tiles = self.state.solution.matrix_instruction[6]
+        quant_format = self.state.contract.quant_format
+        k_shift = n_tiles.bit_length() - 1
+        k_span = self.state.solution.depth_u // decoder_rows
+        packed_row_bytes = (
+            self.state.contract.problem_size.n
+            // quant_format.block_values
+            * quant_format.block_bytes
+        )
+        row_delta = k_span * packed_row_bytes
+        a = r.address
+        t = r.temporary
+
+        asm.comment("Build IQ2_S block addresses for decoder-owned output rows.")
+        asm.inst(f"v_lshrrev_b32 v{t}, {k_shift}, v{r.serial}")
+        asm.inst(f"v_add_nc_u32 v{t}, s{r.loop_counter}, v{t}")
+        asm.inst(f"v_mul_lo_u32 v{t}, {packed_row_bytes}, v{t}")
+        asm.inst(f"v_add_nc_u32 v{t}, s{r.block_offset}, v{t}")
+        asm.inst(f"v_mov_b32 v{a}, v{t}")
+        for row in range(1, decoder_rows):
+            asm.inst(f"v_add_nc_u32 v{a + row}, {row * row_delta}, v{a}")
+
+        asm.comment("Map each lane to one IQ2_S aligned 16-value group.")
+        asm.inst(f"v_and_b32 v{t}, {n_tiles - 1}, v{r.serial}")
+        asm.inst(f"v_lshlrev_b32 v{t}, 4, v{t}")
+        asm.inst(f"v_add_nc_u32 v{t}, s{r.scalar_temporary}, v{t}")
+        asm.inst(f"v_lshrrev_b32 v{t + 1}, 4, v{t}")
+        asm.inst(f"v_lshlrev_b32 v{t + 1}, 1, v{t + 1}")
+        for row in range(decoder_rows):
+            block_address = a + row
+            metadata = r.quant_scale + 4 * row
+            asm.inst(f"v_add_nc_u32 v{t + 2}, v{block_address}, v{t + 1}")
+            asm.inst(
+                f"global_load_ushort v{metadata}, v{t + 2}, "
+                f"s[{r.kernarg + 2}:{r.kernarg + 3}] offset:2"
+            )
+            asm.inst(f"v_add_nc_u32 v{t + 2}, v{block_address}, v{t + 1}")
+            asm.inst(
+                f"global_load_ushort v{metadata + 1}, v{t + 2}, "
+                f"s[{r.kernarg + 2}:{r.kernarg + 3}] offset:34"
+            )
+            asm.inst(f"v_lshrrev_b32 v{t + 2}, 2, v{t + 1}")
+            asm.inst(f"v_add_nc_u32 v{t + 3}, v{block_address}, v{t + 2}")
+            asm.inst(
+                f"global_load_d16_u8 v{metadata + 2}, v{t + 3}, "
+                f"s[{r.kernarg + 2}:{r.kernarg + 3}] offset:66"
+            )
+            asm.inst(f"v_add_nc_u32 v{t + 3}, v{block_address}, v{t + 2}")
+            asm.inst(
+                f"global_load_d16_u8 v{metadata + 3}, v{t + 3}, "
+                f"s[{r.kernarg + 2}:{r.kernarg + 3}] offset:74"
+            )
+            asm.inst(
+                f"global_load_d16_b16 v{r.quant_dm + row}, v{block_address}, "
+                f"s[{r.kernarg + 2}:{r.kernarg + 3}]"
             )
         if wait_for_reads:
             asm.inst("s_waitcnt vmcnt(0)")
@@ -702,6 +784,8 @@ class BackwardQuantLowering:
             self._emit_q5_k_decode(asm, label_suffix=label_suffix)
         elif quant_type == "Q6_K":
             self._emit_q6_k_decode(asm, label_suffix=label_suffix)
+        elif quant_type == "IQ2_S":
+            self._emit_iq2_s_decode(asm, label_suffix=label_suffix)
         else:
             self._emit_q8_0_decode(asm, label_suffix=label_suffix)
 
@@ -727,6 +811,8 @@ class BackwardQuantLowering:
             )
         elif quant_type == "Q6_K":
             self._emit_q6_k_decode_prepare(asm, label_suffix=label_suffix)
+        elif quant_type == "IQ2_S":
+            self._emit_iq2_s_decode_prepare(asm, label_suffix=label_suffix)
         else:
             self._emit_q8_0_decode_prepare(asm, label_suffix=label_suffix)
 
@@ -742,6 +828,8 @@ class BackwardQuantLowering:
             self._emit_q5_k_decode_chunk(asm, chunk)
         elif quant_type == "Q6_K":
             self._emit_q6_k_decode_chunk(asm, chunk)
+        elif quant_type == "IQ2_S":
+            self._emit_iq2_s_decode_chunk(asm, chunk)
         else:
             self._emit_q8_0_decode_chunk(asm, chunk)
 
@@ -1062,6 +1150,88 @@ class BackwardQuantLowering:
                     f"ds_store_b16_d16_hi v{lds_address}, v{output_value} "
                     f"offset:{lds_offset}"
                 )
+
+    def _emit_iq2_s_decode(
+        self,
+        asm: _Assembly,
+        *,
+        label_suffix: str = "",
+    ) -> None:
+        self._emit_iq2_s_decode_prepare(asm, label_suffix=label_suffix)
+        asm.comment("Decode IQ2_S codebook values and signed scales into LDS.")
+        for chunk in range(4 * self.physical.decoder.rows):
+            self._emit_iq2_s_decode_chunk(asm, chunk)
+
+    def _emit_iq2_s_decode_prepare(
+        self,
+        asm: _Assembly,
+        *,
+        label_suffix: str,
+    ) -> None:
+        del label_suffix
+        r = self.registers
+        rows = self.physical.decoder.rows
+        t = r.temporary
+        asm.comment("Load the two IQ2_S codebook entries for each lane-owned group.")
+        for row in range(rows):
+            metadata = r.quant_scale + 4 * row
+            payload = r.global_read_b + 4 * row
+            asm.inst(f"v_and_b32 v{t}, 1, v{r.serial}")
+            asm.inst(f"v_lshlrev_b32 v{t}, 2, v{t}")
+            asm.inst(f"v_lshrrev_b32 v{t + 1}, v{t}, v{metadata + 2}")
+            asm.inst(f"v_and_b32 v{t + 3}, 3, v{t + 1}")
+            asm.inst(f"v_and_b32 v{t + 2}, 0xff, v{metadata}")
+            asm.inst(f"v_lshl_or_b32 v{t + 2}, v{t + 3}, 8, v{t + 2}")
+            asm.inst(f"v_lshlrev_b32 v{t + 4}, 3, v{t + 2}")
+            asm.inst(
+                f"global_load_b64 v[{payload}:{payload + 1}], v{t + 4}, "
+                f"s[{r.codebook_base}:{r.codebook_base + 1}]"
+            )
+            asm.inst(f"v_lshrrev_b32 v{t + 2}, 8, v{metadata}")
+            asm.inst(f"v_and_b32 v{t + 2}, 0xff, v{t + 2}")
+            asm.inst(f"v_lshrrev_b32 v{t + 3}, 2, v{t + 1}")
+            asm.inst(f"v_and_b32 v{t + 3}, 3, v{t + 3}")
+            asm.inst(f"v_lshl_or_b32 v{t + 2}, v{t + 3}, 8, v{t + 2}")
+            asm.inst(f"v_lshlrev_b32 v{t + 4}, 3, v{t + 2}")
+            asm.inst(
+                f"global_load_b64 v[{payload + 2}:{payload + 3}], v{t + 4}, "
+                f"s[{r.codebook_base}:{r.codebook_base + 1}]"
+            )
+            asm.inst(f"v_cvt_f32_f16 v{r.quant_dm + row}, v{r.quant_dm + row}.l")
+            asm.inst(f"v_lshrrev_b32 v{t + 1}, v{t}, v{metadata + 3}")
+            asm.inst(f"v_and_b32 v{t + 1}, 15, v{t + 1}")
+            asm.inst(f"v_cvt_f32_u32 v{t + 1}, v{t + 1}")
+            asm.inst(f"v_add_f32 v{t + 1}, 0.5, v{t + 1}")
+            asm.inst(f"v_mul_f32 v{metadata + 2}, 0.25, v{r.quant_dm + row}")
+            asm.inst(f"v_mul_f32 v{metadata + 2}, v{t + 1}, v{metadata + 2}")
+            asm.inst(f"v_mov_b32 v{metadata + 3}, v{metadata + 1}")
+        asm.inst("s_waitcnt vmcnt(0)")
+
+    def _emit_iq2_s_decode_chunk(self, asm: _Assembly, chunk: int) -> None:
+        r = self.registers
+        row = chunk // 4
+        element_start = 4 * (chunk % 4)
+        k_span = self.state.solution.depth_u // self.physical.decoder.rows
+        packed = r.global_read_b + 4 * row + chunk % 4
+        signs = r.quant_scale + 4 * row + 3
+        value = r.temporary
+        sign = value + 1
+        rounding = value + 2
+        db = r.quant_scale + 4 * row + 2
+        for element in range(element_start, element_start + 4):
+            asm.inst(f"v_bfe_u32 v{value}, v{packed}, {8 * (element % 4)}, 8")
+            asm.inst(f"v_bfe_i32 v{sign}, v{signs}, {element}, 1")
+            asm.inst(f"v_xor_b32 v{value}, v{value}, v{sign}")
+            asm.inst(f"v_sub_nc_u32 v{value}, v{value}, v{sign}")
+            asm.inst(f"v_cvt_f32_i32_e32 v{value}, v{value}")
+            asm.inst(f"v_mul_f32 v{value}, v{db}, v{value}")
+            lds_address, lds_offset = self.physical.lds.decoded_store_location(
+                r, self.physical.address, element, row, k_span
+            )
+            emit_bf16_rne(asm, value, rounding)
+            asm.inst(
+                f"ds_store_b16_d16_hi v{lds_address}, v{value} offset:{lds_offset}"
+            )
 
     def _emit_q3_k_decode(
         self,

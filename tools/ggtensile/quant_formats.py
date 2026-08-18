@@ -114,6 +114,7 @@ BACKWARD_QUANT_FORMATS: Mapping[str, QuantFormat] = MappingProxyType(
     {
         **QUANT_FORMATS,
         "Q2_K": Q2_K_FORMAT,
+        "IQ2_S": IQ2_S_FORMAT,
     }
 )
 

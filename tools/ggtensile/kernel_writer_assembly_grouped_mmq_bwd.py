@@ -3,9 +3,11 @@
 from pathlib import Path
 
 from .grouped_mmq_bwd_lowering import GroupedBackwardKernelLowering
+from .iq2_s_grid import iq2_s_grid_rodata
 from .kernel_abi import GROUPED_BACKWARD_ABI
 from .kernel_writer_assembly import KernelEnvelope, write_assembly_source
 from .mmq_bwd_emission import BackwardKernelWriterError
+from .mmq_bwd_lowering_quant import IQ2_S_GRID_SYMBOL
 from .model import GroupedBackwardSolution, SolutionKey
 from .toolchain import Toolchain
 from .validation import validate_solution
@@ -61,4 +63,10 @@ class GroupedBackwardKernelWriterAssembly:
             ),
         )
         envelope.initialize()
-        return envelope.render(self.lowering.body())
+        body = self.lowering.body()
+        if self.state.contract.quant_type == "IQ2_S":
+            return envelope.render(
+                body,
+                trailing_sections=(iq2_s_grid_rodata(IQ2_S_GRID_SYMBOL),),
+            )
+        return envelope.render(body)

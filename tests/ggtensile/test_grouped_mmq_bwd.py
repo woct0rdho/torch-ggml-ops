@@ -147,6 +147,49 @@ def test_grouped_backward_q5_identity_and_source() -> None:
     assert source.count("s_barrier") == 2
 
 
+def test_grouped_backward_iq2_s_identity_source_and_inspection(tmp_path) -> None:
+    for rows in (16_384, 65_536, 262_144):
+        assert not validate_solution(_key(rows, "IQ2_S"))
+    for rows in (16_383, 32_768, 262_145):
+        with pytest.raises(SchemaError, match="exact"):
+            _key(rows, "IQ2_S").to_mapping()
+
+    key = _key(quant_type="IQ2_S")
+    assert SolutionKey.from_mapping(key.to_mapping()) == key
+    assert "grouped_mmq_bwd_iq2_s" in key.kernel_name
+    contract = key.to_mapping()["ProblemContract"]
+    assert isinstance(contract, dict)
+    assert contract["packed_weight_block_bytes"] == 82
+
+    toolchain = Toolchain.discover()
+    writer = GroupedBackwardKernelWriterAssembly(key, toolchain)
+    source = writer.source()
+    assert "GGTensile IQ2_S grouped MMQ backward" in source
+    assert "Map each lane to one IQ2_S aligned 16-value group." in source
+    assert "Decode IQ2_S codebook values and signed scales into LDS." in source
+    assert "s_getpc_b64 s[36:37]" in source
+    assert "s_cmp_lg_u32 s22, 335872" in source
+    assert source.count("global_load_b64") == 4
+    assert source.count(".quad") == 256
+    assert ".size .LGGTensileIQ2SGrid, 8192" in source
+
+    assembly = tmp_path / "iq2_s.s"
+    object_path = tmp_path / "iq2_s.o"
+    code_object = tmp_path / "iq2_s.hsaco"
+    writer.write(assembly)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+    result = inspect_artifact(key, code_object, toolchain)
+    assert result.vgpr_count == 194
+    assert result.sgpr_count == 38
+    assert result.lds_num_bytes == 8192
+    assert result.private_segment_bytes == 0
+    assert result.vgpr_spill_count == 0
+    assert result.sgpr_spill_count == 0
+    assert result.wmma_count == 32
+    assert result.barrier_count == 2
+
+
 @pytest.mark.parametrize(
     ("field", "value", "rule_id"),
     (

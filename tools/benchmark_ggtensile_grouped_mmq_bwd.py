@@ -34,7 +34,11 @@ from tools.ggtensile.quant_formats import BACKWARD_QUANT_FORMATS
 from tools.ggtensile.runtime import GroupedBackwardModule
 
 DEFAULT_MODEL = Path.home() / "models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf"
-DEFAULT_TENSOR = "blk.2.ffn_down_exps.weight"
+DEFAULT_TENSORS = {
+    "Q4_K": "blk.2.ffn_down_exps.weight",
+    "Q5_K": "blk.0.ffn_down_exps.weight",
+    "IQ2_S": "blk.10.ffn_down_exps.weight",
+}
 BF16_WMMA_ROOFLINE_TFLOPS = 59.4
 
 
@@ -78,7 +82,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--code-object", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
-    parser.add_argument("--tensor", default=DEFAULT_TENSOR)
+    parser.add_argument(
+        "--tensor",
+        help="GGUF tensor override; defaults to the quant-specific Qwen down tensor",
+    )
     parser.add_argument(
         "--distributions",
         default="uniform,skewed,sparse,boundary",
@@ -640,6 +647,9 @@ def main() -> None:
     key = SolutionKey.from_json_file(args.solution_key)
     if key.problem_type.operation_type != "GroupedMMQBackward":
         raise ValueError("solution key is not grouped MMQ backward")
+    tensor_name = args.tensor or DEFAULT_TENSORS.get(key.problem_type.quant_data_type)
+    if tensor_name is None:
+        raise ValueError("--tensor is required for this quant type")
     size = key.problem_size
     prior_family = args.prior_family
     if prior_family == "auto":
@@ -673,7 +683,7 @@ def main() -> None:
     if not distributions:
         raise ValueError("no timing distributions were selected")
     packed_weight, quant_type, physical_shape = _load_packed(
-        args.model, args.tensor, key
+        args.model, tensor_name, key
     )
     generator = torch.Generator(device="cuda").manual_seed(args.seed)
     grad_output = torch.randn(
@@ -730,7 +740,7 @@ def main() -> None:
         "KernelName": key.kernel_name,
         "CodeObject": str(args.code_object),
         "Model": str(args.model),
-        "Tensor": args.tensor,
+        "Tensor": tensor_name,
         "PhysicalBatch": batch,
         "PriorFamily": prior_family,
         "PhysicalWeightShape": physical_shape,

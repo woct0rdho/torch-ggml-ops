@@ -68,6 +68,7 @@ class GroupedBackwardKernelLowering(BackwardKernelLowering):
         self._emit_exact_shape_guard(asm)
         self._emit_route_load_and_guard(asm)
         self._emit_pointer_rebase(asm)
+        self._emit_quant_constants(asm)
 
         split_factor = self.grouped_state.spec.ownership.split_factor
         asm.comment("Map grid X to N and walk this grid-Y route in M tiles.")

@@ -46,7 +46,9 @@ class GroupedBackwardPhysicalPlan:
         return self.compute.resources
 
 
-def _roles() -> tuple[dict[str, RegisterRole], tuple[str, ...]]:
+def _roles(
+    include_codebook: bool,
+) -> tuple[dict[str, RegisterRole], tuple[str, ...]]:
     lifetime = RegisterLifetime(0, 3)
     widths = {
         "kernarg": 6,
@@ -69,6 +71,8 @@ def _roles() -> tuple[dict[str, RegisterRole], tuple[str, ...]]:
         "pointer_temporary": 2,
         "tile_end": 1,
     }
+    if include_codebook:
+        widths["codebook_base"] = 2
     align_two = {
         "kernarg",
         "expert_indices",
@@ -77,6 +81,8 @@ def _roles() -> tuple[dict[str, RegisterRole], tuple[str, ...]]:
         "expert",
         "pointer_temporary",
     }
+    if include_codebook:
+        align_two.add("codebook_base")
     order = tuple(widths)
     roles = {
         name: RegisterRole(
@@ -95,7 +101,7 @@ def derive_grouped_backward_physical_plan(
     state: DerivedGroupedBackwardState,
 ) -> GroupedBackwardPhysicalPlan:
     ordinary = derive_backward_physical_plan(state.ordinary)
-    roles, order = _roles()
+    roles, order = _roles(state.contract.quant_type == "IQ2_S")
     scalar = DeterministicRegisterPlan.allocate(
         roles,
         order,
@@ -113,6 +119,11 @@ def derive_grouped_backward_physical_plan(
         block_offset=first("block_offset"),
         input_half=first("input_half"),
         scalar_temporary=first("scalar_temporary"),
+        codebook_base=(
+            first("codebook_base")
+            if state.contract.quant_type == "IQ2_S"
+            else ordinary_registers.codebook_base
+        ),
         total_sgprs=scalar.register_count,
     )
     resources = replace(ordinary.resources, total_sgprs=scalar.register_count)

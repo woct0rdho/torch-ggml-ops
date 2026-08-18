@@ -1,9 +1,11 @@
 from pathlib import Path
 
+from .iq2_s_grid import iq2_s_grid_rodata
 from .kernel_abi import ORDINARY_BACKWARD_ABI
 from .kernel_writer_assembly import KernelEnvelope, write_assembly_source
 from .mmq_bwd_emission import BackwardDiagnosticMode, BackwardKernelWriterError
 from .mmq_bwd_lowering import BackwardKernelLowering
+from .mmq_bwd_lowering_quant import IQ2_S_GRID_SYMBOL
 from .model import BackwardSolution, SolutionKey
 from .toolchain import Toolchain
 from .validation import validate_solution
@@ -63,4 +65,10 @@ class BackwardKernelWriterAssembly:
             description=description,
         )
         envelope.initialize()
-        return envelope.render(self.lowering.body())
+        body = self.lowering.body()
+        if self.state.contract.quant_type == "IQ2_S":
+            return envelope.render(
+                body,
+                trailing_sections=(iq2_s_grid_rodata(IQ2_S_GRID_SYMBOL),),
+            )
+        return envelope.render(body)

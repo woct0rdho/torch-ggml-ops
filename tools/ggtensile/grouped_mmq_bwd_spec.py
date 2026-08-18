@@ -96,7 +96,7 @@ class GroupedBackwardProblemContract:
             ),
         )
         quant_type = _string(item["quant_type"], "quant_type")
-        if quant_type not in {"Q2_K", "Q4_K", "Q5_K"}:
+        if quant_type not in {"Q2_K", "Q4_K", "Q5_K", "IQ2_S"}:
             raise SchemaError(f"unsupported grouped backward quant type {quant_type!r}")
         try:
             expected = cls(
@@ -153,7 +153,8 @@ class GroupedBackwardProblemContract:
                 and problem_size.k == 2048
             )
             message = (
-                "grouped Q4_K/Q5_K backward requires exact (R,512,2048) with "
+                "grouped Q4_K/Q5_K/IQ2_S backward requires exact "
+                "(R,512,2048) with "
                 "R in {16384,65536,262144}"
             )
         if not valid:

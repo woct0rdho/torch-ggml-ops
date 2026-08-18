@@ -28,6 +28,7 @@ class BackwardRegisterPlan:
     block_offset: int
     input_half: int
     scalar_temporary: int
+    codebook_base: int
     total_sgprs: int
 
 
@@ -223,6 +224,9 @@ def derive_backward_physical_plan(
     block_offset = sgprs.allocate(1)
     input_half = sgprs.allocate(1)
     scalar_temporary = sgprs.allocate(2)
+    codebook_base = (
+        sgprs.allocate(2, alignment=2) if state.contract.quant_type == "IQ2_S" else -1
+    )
     registers = BackwardRegisterPlan(
         accum=accum,
         valu_a=valu_a,
@@ -244,7 +248,8 @@ def derive_backward_physical_plan(
         block_offset=block_offset,
         input_half=input_half,
         scalar_temporary=scalar_temporary,
-        total_sgprs=scalar_temporary + 2,
+        codebook_base=codebook_base,
+        total_sgprs=max(scalar_temporary + 2, codebook_base + 2),
     )
     q2_schedule = spec.decode.q2.schedule
     if q2_schedule is not BackwardQ2DecodeSchedule.Serial:

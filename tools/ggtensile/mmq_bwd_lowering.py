@@ -65,6 +65,7 @@ class BackwardKernelLowering(BackwardQuantLowering):
             asm.inst("s_add_u32 s2, s4, s2")
         kernarg = r.kernarg
         emit_pointer_kernarg_loads(asm, kernarg, ORDINARY_BACKWARD_ABI)
+        self._emit_quant_constants(asm)
         self._defer_accumulator_zero(asm)
         self._emit_static_packed_coordinates(asm)
         self._emit_compute_tile(asm)
@@ -132,7 +133,13 @@ class BackwardKernelLowering(BackwardQuantLowering):
             asm.inst(
                 f"s_and_b32 s{r.scalar_temporary}, s3, {tiles_per_weight_block - 1}"
             )
-            quant_tile_shift = n_shift - 1 if n_per_block == 128 else n_shift
+            quant_tile_shift = (
+                n_shift
+                if self.state.contract.quant_type == "IQ2_S"
+                else n_shift - 1
+                if n_per_block == 128
+                else n_shift
+            )
             asm.inst(
                 f"s_lshl_b32 s{r.scalar_temporary}, s{r.scalar_temporary}, "
                 f"{quant_tile_shift}"
