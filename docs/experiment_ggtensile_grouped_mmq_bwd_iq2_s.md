@@ -149,3 +149,21 @@ At B4 and B16, pad8 single LDS now decisively beats XOR-8 double LDS. SIA2 remai
 The lane-half selector is now hoisted out of the per-row preparation loop, and equivalent shift/mask pairs use direct bitfield extracts. This removes six static VALU issues at N64 (`751 -> 745`) and eight at N128 (`771 -> 763`) without changing resources. All three keys pass the complete packed-HIP matrix. Same-process 15-repeat brackets improve weighted latency `2.5846 -> 2.5697 ms` (`0.58%`) at B1, `8.0378 -> 7.9967 ms` (`0.51%`) at B4, and `24.0933 -> 23.9533 ms` (`0.58%`) at B16.
 
 An attempted FMA/output-modifier replacement for `(scale + 0.5) * 0.25` assembled and reduced one more issue per row, but failed candidate, mutation, and independent-oracle comparisons. The proven add/multiply sequence was restored; no arithmetic or correctness waiver is retained.
+
+### Final qualification and confirmation
+
+Each winner was rebuilt independently in two disjoint roots.
+
+Inspection reports `137/38/13312` VGPR/SGPR/LDS bytes, 24 static WMMAs, five barriers, and 745 static VALU issues for B1. B4/B16 report `210/38/18432`, 32 WMMAs, three barriers, and 763 VALU issues. All have zero private bytes and zero VGPR/SGPR spills.
+
+Full boundary-distribution qualification covers all `16384`, `65536`, and `262144` rows, or `8,388,608`, `33,554,432`, and `134,217,728` BF16 outputs. Every candidate output is bit-exact against packed HIP, deterministic reruns and all active mutation controls are bit-exact, malformed routes preserve their target sentinels, and no tail element changes. The independent BF16 oracle has maximum absolute error `0.0078125`; NRMSE is `6.03e-5`, `7.95e-5`, and `7.20e-5` for B1/B4/B16.
+
+Disjoint Qwen learned confirmation uses five warmups, 25 repeats, reversed rotating order, and complete-call latency including output allocation:
+
+| Key | Weighted HIP ms / TFLOPS | Weighted candidate ms / TFLOPS | Speedup | Minimum medoid |
+| --- | ---: | ---: | ---: | ---: |
+| B1 | `4.2894 / 8.01` | `2.7898 / 12.32` | `1.5375x` | `0.8809x` |
+| B4 | `9.9753 / 13.78` | `7.8758 / 17.45` | `1.2666x` | `1.2484x` |
+| B16 | `34.2671 / 16.04` | `24.0656 / 22.84` | `1.4239x` | `1.4123x` |
+
+B4 and B16 beat HIP on every confirmation medoid. B1's `0.97265625`-weight medoid reaches `1.555x`; four sparse, low-weight controls range from `0.881x` to `1.051x`. The retained result satisfies the declared weighted objective without treating those diagnostic controls as ranking vetoes. Production dispatch, generated bundles, extension registration, packaging, and HIP fallback remain unchanged.
