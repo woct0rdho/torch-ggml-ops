@@ -141,7 +141,14 @@ class ProblemType:
 
     @classmethod
     def mmq_backward(cls, quant_data_type: str) -> Self:
-        if quant_data_type not in {"Q3_K", "Q4_K", "Q5_K", "Q6_K", "Q8_0"}:
+        if quant_data_type not in {
+            "Q2_K",
+            "Q3_K",
+            "Q4_K",
+            "Q5_K",
+            "Q6_K",
+            "Q8_0",
+        }:
             raise ValueError(f"unsupported MMQ backward quant type {quant_data_type!r}")
         return cls(
             operation_type="MMQBackward",
@@ -156,7 +163,7 @@ class ProblemType:
 
     @classmethod
     def grouped_mmq_backward(cls, quant_data_type: str) -> Self:
-        if quant_data_type not in {"Q4_K", "Q5_K"}:
+        if quant_data_type not in {"Q2_K", "Q4_K", "Q5_K"}:
             raise ValueError(
                 f"unsupported grouped MMQ backward quant type {quant_data_type!r}"
             )

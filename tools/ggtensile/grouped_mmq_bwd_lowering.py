@@ -206,7 +206,17 @@ class GroupedBackwardKernelLowering(BackwardKernelLowering):
             asm.inst(instruction)
             asm.inst(f"s_cbranch_scc1 {self.EXIT_LABEL}")
         asm.inst(f"s_sub_u32 s{route.route_rows}, s{route.row_end}, s{route.row_begin}")
-        asm.inst(f"s_lshl_b32 s{route.route_output_bytes}, s{route.route_rows}, 12")
+        row_stride_bytes = self.grouped_state.contract.problem_size.k * 2
+        if row_stride_bytes & (row_stride_bytes - 1):
+            asm.inst(
+                f"s_mul_i32 s{route.route_output_bytes}, "
+                f"s{route.route_rows}, {row_stride_bytes}"
+            )
+        else:
+            asm.inst(
+                f"s_lshl_b32 s{route.route_output_bytes}, "
+                f"s{route.route_rows}, {row_stride_bytes.bit_length() - 1}"
+            )
 
     def _emit_pointer_rebase(self, asm: _Assembly) -> None:
         r = self.registers

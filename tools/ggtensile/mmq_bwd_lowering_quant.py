@@ -20,7 +20,9 @@ class BackwardQuantLowering:
         wait_for_reads: bool = True,
     ) -> None:
         quant_type = self.state.contract.quant_type
-        if quant_type == "Q3_K":
+        if quant_type == "Q2_K":
+            self._emit_q2_k_global_reads(asm, wait_for_reads=wait_for_reads)
+        elif quant_type == "Q3_K":
             self._emit_q3_k_global_reads(asm, wait_for_reads=wait_for_reads)
         elif quant_type == "Q4_K":
             self._emit_q4_k_global_reads(asm, wait_for_reads=wait_for_reads)
@@ -30,6 +32,74 @@ class BackwardQuantLowering:
             self._emit_q6_k_global_reads(asm, wait_for_reads=wait_for_reads)
         else:
             self._emit_q8_0_global_reads(asm, wait_for_reads=wait_for_reads)
+
+    def _emit_q2_k_global_reads(
+        self,
+        asm: _Assembly,
+        *,
+        wait_for_reads: bool = True,
+    ) -> None:
+        r = self.registers
+        decoder_rows = self.physical.decoder.rows
+        n_tiles = self.state.solution.matrix_instruction[6]
+        quant_format = self.state.contract.quant_format
+        k_shift = n_tiles.bit_length() - 1
+        k_span = self.state.solution.depth_u // decoder_rows
+        packed_row_bytes = (
+            self.state.contract.problem_size.n
+            // quant_format.block_values
+            * quant_format.block_bytes
+        )
+        row_delta = k_span * packed_row_bytes
+        q = r.global_read_b
+        a = r.address
+        t = r.temporary
+        loop = r.loop_counter
+        block = r.block_offset
+
+        asm.comment("Build Q2_K block addresses for decoder-owned output rows.")
+        asm.inst(f"v_lshrrev_b32 v{t}, {k_shift}, v{r.serial}")
+        asm.inst(f"v_add_nc_u32 v{t}, s{loop}, v{t}")
+        asm.inst(f"v_mul_lo_u32 v{t}, {packed_row_bytes}, v{t}")
+        asm.inst(f"v_add_nc_u32 v{t}, s{block}, v{t}")
+        asm.inst(f"v_mov_b32 v{a}, v{t}")
+        for row in range(1, decoder_rows):
+            asm.inst(f"v_add_nc_u32 v{a + row}, {row * row_delta}, v{a}")
+
+        asm.comment("Map each lane to one Q2_K 16-value scale/minimum group.")
+        asm.inst(f"v_and_b32 v{t}, {n_tiles - 1}, v{r.serial}")
+        asm.inst(f"v_add_nc_u32 v{t}, s{r.scalar_temporary}, v{t}")
+        asm.inst(f"v_lshrrev_b32 v{t + 1}, 3, v{t}")
+        asm.inst(f"v_lshlrev_b32 v{t + 1}, 5, v{t + 1}")
+        asm.inst(f"v_and_b32 v{t + 2}, 1, v{t}")
+        asm.inst(f"v_lshl_add_u32 v{t + 1}, v{t + 2}, 4, v{t + 1}")
+        asm.inst(f"v_lshrrev_b32 v{self.physical.address.quant_shift}, 1, v{t}")
+        asm.inst(
+            f"v_and_b32 v{self.physical.address.quant_shift}, 3, "
+            f"v{self.physical.address.quant_shift}"
+        )
+        asm.inst(
+            f"v_lshlrev_b32 v{self.physical.address.quant_shift}, 1, "
+            f"v{self.physical.address.quant_shift}"
+        )
+
+        for row in range(decoder_rows):
+            asm.inst(f"v_add_nc_u32 v{t + 3}, v{a + row}, v{t + 1}")
+            asm.inst(
+                f"global_load_b128 v[{q + 4 * row}:{q + 4 * row + 3}], "
+                f"v{t + 3}, s[{r.kernarg + 2}:{r.kernarg + 3}] offset:16"
+            )
+            asm.inst(f"v_add_nc_u32 v{t + 4}, v{a + row}, v{t}")
+            asm.inst(
+                f"global_load_d16_u8 v{r.quant_scale + row}, v{t + 4}, "
+                f"s[{r.kernarg + 2}:{r.kernarg + 3}]"
+            )
+            asm.inst(
+                f"global_load_b32 v{r.quant_dm + row}, v{a + row}, "
+                f"s[{r.kernarg + 2}:{r.kernarg + 3}] offset:80"
+            )
+        if wait_for_reads:
+            asm.inst("s_waitcnt vmcnt(0)")
 
     def _emit_q6_k_global_reads(
         self,
@@ -622,7 +692,9 @@ class BackwardQuantLowering:
         label_suffix: str = "",
     ) -> None:
         quant_type = self.state.contract.quant_type
-        if quant_type == "Q3_K":
+        if quant_type == "Q2_K":
+            self._emit_q2_k_decode(asm, label_suffix=label_suffix)
+        elif quant_type == "Q3_K":
             self._emit_q3_k_decode(asm, label_suffix=label_suffix)
         elif quant_type == "Q4_K":
             self._emit_q4_k_decode(asm, label_suffix=label_suffix)
@@ -640,7 +712,9 @@ class BackwardQuantLowering:
         label_suffix: str,
     ) -> None:
         quant_type = self.state.contract.quant_type
-        if quant_type == "Q3_K":
+        if quant_type == "Q2_K":
+            self._emit_q2_k_decode_prepare(asm, label_suffix=label_suffix)
+        elif quant_type == "Q3_K":
             self._emit_q3_k_decode_prepare(asm, label_suffix=label_suffix)
         elif quant_type == "Q4_K":
             self._emit_q45_metadata_prepare(
@@ -658,7 +732,9 @@ class BackwardQuantLowering:
 
     def _emit_quant_decode_chunk(self, asm: _Assembly, chunk: int) -> None:
         quant_type = self.state.contract.quant_type
-        if quant_type == "Q3_K":
+        if quant_type == "Q2_K":
+            self._emit_q2_k_decode_chunk(asm, chunk)
+        elif quant_type == "Q3_K":
             self._emit_q3_k_decode_chunk(asm, chunk)
         elif quant_type == "Q4_K":
             self._emit_q4_k_decode_chunk(asm, chunk)
@@ -668,6 +744,74 @@ class BackwardQuantLowering:
             self._emit_q6_k_decode_chunk(asm, chunk)
         else:
             self._emit_q8_0_decode_chunk(asm, chunk)
+
+    def _emit_q2_k_decode(
+        self,
+        asm: _Assembly,
+        *,
+        label_suffix: str = "",
+    ) -> None:
+        self._emit_q2_k_decode_prepare(asm, label_suffix=label_suffix)
+        asm.comment("Decode Q2_K two-bit payload and scale/minimum metadata into LDS.")
+        for chunk in range(4 * self.physical.decoder.rows):
+            self._emit_q2_k_decode_chunk(asm, chunk)
+
+    def _emit_q2_k_decode_prepare(
+        self,
+        asm: _Assembly,
+        *,
+        label_suffix: str,
+    ) -> None:
+        del label_suffix
+        r = self.registers
+        decoder_rows = self.physical.decoder.rows
+        t = r.temporary
+        asm.comment("Convert and scale Q2_K FP16 d/dmin metadata in FP32.")
+        for row in range(decoder_rows):
+            dm = r.quant_dm + row
+            scale = r.quant_scale + row
+            d_scaled = t + 1 + 2 * row
+            min_scaled = d_scaled + 1
+            asm.inst(f"v_lshrrev_b32 v{min_scaled}, 16, v{dm}")
+            asm.inst(f"v_lshrrev_b32 v{t}, 4, v{scale}")
+            asm.inst(f"v_and_b32 v{scale}, 0x0f, v{scale}")
+            asm.inst(f"v_and_b32 v{t}, 0x0f, v{t}")
+            asm.inst(f"v_cvt_f32_ubyte0_e32 v{scale}, v{scale}")
+            asm.inst(f"v_cvt_f32_ubyte0_e32 v{t}, v{t}")
+            asm.inst(
+                f"v_fma_mix_f32 v{d_scaled}, v{dm}, v{scale}, neg(0) op_sel_hi:[1,0,0]"
+            )
+            asm.inst(
+                f"v_fma_mix_f32 v{min_scaled}, v{min_scaled}, v{t}, "
+                "neg(0) op_sel_hi:[1,0,0]"
+            )
+
+    def _emit_q2_k_decode_chunk(self, asm: _Assembly, chunk: int) -> None:
+        r = self.registers
+        decoder_rows = self.physical.decoder.rows
+        row = chunk // 4
+        first_element = 4 * (chunk % 4)
+        k_span = self.state.solution.depth_u // decoder_rows
+        t = r.temporary
+        packed = r.global_read_b + 4 * row + first_element // 4
+        value = t + 1 + 2 * decoder_rows
+        rounding = value + 1
+        d_scaled = t + 1 + 2 * row
+        min_scaled = d_scaled + 1
+        asm.inst(
+            f"v_lshrrev_b32 v{packed}, v{self.physical.address.quant_shift}, v{packed}"
+        )
+        asm.inst(f"v_and_b32 v{packed}, 0x03030303, v{packed}")
+        for element in range(first_element, first_element + 4):
+            lds_address, lds_offset = self.physical.lds.decoded_store_location(
+                self.registers, self.physical.address, element, row, k_span
+            )
+            asm.inst(f"v_cvt_f32_ubyte{element % 4}_e32 v{value}, v{packed}")
+            asm.inst(f"v_fma_f32 v{value}, v{d_scaled}, v{value}, -v{min_scaled}")
+            emit_bf16_rne(asm, value, rounding)
+            asm.inst(
+                f"ds_store_b16_d16_hi v{lds_address}, v{value} offset:{lds_offset}"
+            )
 
     def _emit_q6_k_decode(
         self,

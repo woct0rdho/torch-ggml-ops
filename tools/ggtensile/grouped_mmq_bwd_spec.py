@@ -20,9 +20,10 @@ from .model import (
     _strict_mapping_optional,
     _string,
 )
-from .quant_formats import QUANT_FORMATS, QuantFormat
+from .quant_formats import BACKWARD_QUANT_FORMATS, QuantFormat
 
-GROUPED_BACKWARD_EXACT_ROWS = frozenset({16_384, 65_536, 262_144})
+GROUPED_BACKWARD_QWEN_ROWS = frozenset({16_384, 65_536, 262_144})
+GROUPED_BACKWARD_DEEPSEEK_ROWS = frozenset({12_288, 49_152, 196_608})
 
 
 class GroupedBackwardOwnership(str, Enum):
@@ -62,11 +63,11 @@ class GroupedBackwardProblemContract:
         quant_type = solution_key.problem_type.quant_data_type
         if solution_key.problem_type != ProblemType.grouped_mmq_backward(quant_type):
             raise ValueError("invalid grouped backward problem type")
-        cls._validate_problem(solution_key.problem_size)
+        cls._validate_problem(solution_key.problem_size, quant_type)
         return cls(
             problem_size=solution_key.problem_size,
             quant_type=quant_type,
-            quant_format=QUANT_FORMATS[quant_type],
+            quant_format=BACKWARD_QUANT_FORMATS[quant_type],
         )
 
     @classmethod
@@ -92,20 +93,20 @@ class GroupedBackwardProblemContract:
                 }
             ),
         )
-        cls._validate_problem(problem_size)
         quant_type = _string(item["quant_type"], "quant_type")
-        if quant_type not in {"Q4_K", "Q5_K"}:
+        if quant_type not in {"Q2_K", "Q4_K", "Q5_K"}:
             raise SchemaError(f"unsupported grouped backward quant type {quant_type!r}")
         try:
             expected = cls(
                 problem_size,
                 quant_type,
-                QUANT_FORMATS[quant_type],
+                BACKWARD_QUANT_FORMATS[quant_type],
             ).to_mapping()
         except (KeyError, ValueError):
             raise SchemaError(
                 f"unsupported grouped backward quant type {quant_type!r}"
             ) from None
+        cls._validate_problem(problem_size, quant_type)
         actual = {
             "quant_type": quant_type,
             "block_values": _integer(item["block_values"], "block_values"),
@@ -129,19 +130,32 @@ class GroupedBackwardProblemContract:
         }
         if actual != expected:
             raise SchemaError("GroupedBackwardProblemContract is not canonical")
-        return cls(problem_size, quant_type, QUANT_FORMATS[quant_type])
+        return cls(problem_size, quant_type, BACKWARD_QUANT_FORMATS[quant_type])
 
     @staticmethod
-    def _validate_problem(problem_size: ProblemSize) -> None:
-        if (
-            problem_size.m not in GROUPED_BACKWARD_EXACT_ROWS
-            or problem_size.n != 512
-            or problem_size.k != 2048
-        ):
-            raise SchemaError(
+    def _validate_problem(problem_size: ProblemSize, quant_type: str) -> None:
+        if quant_type == "Q2_K":
+            valid = (
+                problem_size.m in GROUPED_BACKWARD_DEEPSEEK_ROWS
+                and problem_size.n == 2048
+                and problem_size.k == 4096
+            )
+            message = (
+                "grouped Q2_K backward requires exact (R,2048,4096) with "
+                "R in {12288,49152,196608}"
+            )
+        else:
+            valid = (
+                problem_size.m in GROUPED_BACKWARD_QWEN_ROWS
+                and problem_size.n == 512
+                and problem_size.k == 2048
+            )
+            message = (
                 "grouped Q4_K/Q5_K backward requires exact (R,512,2048) with "
                 "R in {16384,65536,262144}"
             )
+        if not valid:
+            raise SchemaError(message)
 
     def to_mapping(self) -> dict[str, object]:
         return {

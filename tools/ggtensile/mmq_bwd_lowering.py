@@ -87,7 +87,25 @@ class BackwardKernelLowering(BackwardQuantLowering):
         r = self.registers
         quant_format = self.state.contract.quant_format
         n_per_block = self.state.solution.macro_tile1
-        if (
+        if self.state.contract.quant_type == "Q2_K":
+            tiles_per_weight_block = 256 // n_per_block
+            tile_shift = tiles_per_weight_block.bit_length() - 1
+            group_shift = (n_per_block // 16).bit_length() - 1
+            asm.comment("Static Q2_K packed-row and scale-group coordinates.")
+            asm.inst(f"s_lshr_b32 s{r.block_offset}, s3, {tile_shift}")
+            asm.inst(
+                f"s_mul_i32 s{r.block_offset}, s{r.block_offset}, "
+                f"{quant_format.block_bytes}"
+            )
+            asm.inst(f"s_mov_b32 s{r.input_half}, 0")
+            asm.inst(
+                f"s_and_b32 s{r.scalar_temporary}, s3, {tiles_per_weight_block - 1}"
+            )
+            asm.inst(
+                f"s_lshl_b32 s{r.scalar_temporary}, "
+                f"s{r.scalar_temporary}, {group_shift}"
+            )
+        elif (
             self.state.contract.mechanism.decoder.row_address
             is BackwardPackedRowAddress.Block32
         ):

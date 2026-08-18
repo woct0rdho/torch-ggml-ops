@@ -91,7 +91,7 @@ def test_backward_canonical_schema_rejects_every_noncanonical_boundary() -> None
     mapping = spec.to_mapping("Q4_K")
 
     invalid_contract = contract.to_mapping()
-    invalid_contract["quant_type"] = "Q2_K"
+    invalid_contract["quant_type"] = "IQ2_S"
     with pytest.raises(SchemaError, match="unsupported backward quant"):
         BackwardProblemContract.from_mapping(invalid_contract, size)
 
@@ -105,7 +105,7 @@ def test_backward_canonical_schema_rejects_every_noncanonical_boundary() -> None
             replace(pilot, lds_pad_b=8, lds_swizzle_chunk_b=8)
         ).to_mapping("Q4_K")
     with pytest.raises(ValueError, match="unsupported backward quant type"):
-        spec.to_mapping("Q2_K")
+        spec.to_mapping("IQ2_S")
 
     invalid = copy.deepcopy(mapping)
     invalid["decode"] = {"extraction": "packed"}
@@ -157,12 +157,35 @@ def test_backward_canonical_schema_rejects_every_noncanonical_boundary() -> None
 
     with pytest.raises(SchemaError, match="unsupported backward quant type"):
         BackwardKernelSpec.from_mapping(
-            BackwardKernelSpec.from_solution(q3).to_mapping("Q3_K"), "Q2_K"
+            BackwardKernelSpec.from_solution(q3).to_mapping("Q3_K"), "IQ2_S"
         )
 
     invalid_spec = replace(spec, geometry=replace(spec.geometry, isa=(11, 0, 0)))
     with pytest.raises(ValueError, match="ISA and wavefront"):
         invalid_spec.to_solution(contract)
+
+
+def test_q2_backward_contract_and_spec_roundtrip_without_decode_knobs() -> None:
+    key = SolutionKey(
+        ProblemType.mmq_backward("Q2_K"),
+        ProblemSize(128, 2048, 4096),
+        BackwardSolution.pilot(),
+    )
+    contract = BackwardProblemContract.from_solution_key(key)
+    assert (
+        BackwardProblemContract.from_mapping(contract.to_mapping(), key.problem_size)
+        == contract
+    )
+
+    solution = key.solution
+    assert isinstance(solution, BackwardSolution)
+    spec = BackwardKernelSpec.from_solution(solution)
+    mapping = spec.to_mapping("Q2_K")
+    assert "decode" not in mapping
+    assert BackwardKernelSpec.from_mapping(mapping, "Q2_K") == spec
+    mapping["decode"] = {}
+    with pytest.raises(SchemaError, match="canonically represented by absent"):
+        BackwardKernelSpec.from_mapping(mapping, "Q2_K")
 
 
 def test_backward_pipeline_validation_keeps_field_errors_independent() -> None:
@@ -361,6 +384,20 @@ def _targeted_writer_keys() -> tuple[SolutionKey, ...]:
                 macro_tile1=64,
             ),
         ),
+        _key("Q2_K", (128, 2048, 4096), pilot),
+        _key(
+            "Q2_K",
+            (128, 2048, 4096),
+            replace(
+                pilot,
+                matrix_instruction=(16, 16, 16, 1, 1, 2, 4, 4, 1),
+                macro_tile1=64,
+                one_lds_buffer=0,
+                schedule_iter_alg=4,
+                prefetch_global_read=2,
+                lds_swizzle_chunk_b=8,
+            ),
+        ),
     )
 
 
@@ -492,7 +529,7 @@ def test_writer_rejects_forward_solution_schema(
 
 def test_physical_plan_covers_allocator_and_periodic_lds_padding() -> None:
     with pytest.raises(ValueError, match="unknown backward quant mechanism"):
-        backward_mechanism_contract("Q2_K")
+        backward_mechanism_contract("IQ2_S")
 
     allocator = _FirstFitRegisters(0, 0)
     assert allocator.allocate(1) == 0

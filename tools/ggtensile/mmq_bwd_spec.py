@@ -17,7 +17,7 @@ from .model import (
     _strict_mapping_optional,
     _string,
 )
-from .quant_formats import QUANT_FORMATS, QuantFormat
+from .quant_formats import BACKWARD_QUANT_FORMATS, QuantFormat
 
 EnumT = TypeVar("EnumT", bound=Enum)
 
@@ -273,7 +273,7 @@ class BackwardMechanismContract:
 
 
 def backward_mechanism_contract(quant_type: str) -> BackwardMechanismContract:
-    if quant_type not in QUANT_FORMATS:
+    if quant_type not in BACKWARD_QUANT_FORMATS:
         raise ValueError(f"unknown backward quant mechanism: {quant_type}") from None
     return BackwardMechanismContract(
         lane_share_values=(
@@ -287,7 +287,9 @@ def backward_mechanism_contract(quant_type: str) -> BackwardMechanismContract:
             else frozenset({32})
         ),
         pipeline_n_values=(
-            frozenset({64, 128}) if quant_type in ("Q4_K", "Q6_K") else frozenset({128})
+            frozenset({64, 128})
+            if quant_type in ("Q2_K", "Q4_K", "Q6_K")
+            else frozenset({128})
         ),
         pipeline_schedule_iter_algs=(
             frozenset(BackwardScheduleIterAlg)
@@ -307,9 +309,11 @@ def backward_mechanism_contract(quant_type: str) -> BackwardMechanismContract:
             frozenset({32, 64}) if quant_type == "Q6_K" else frozenset({32})
         ),
         decoder=BackwardDecoderCapability(
-            payload_register_count=(4 if quant_type in ("Q4_K", "Q8_0") else 8),
+            payload_register_count=(4 if quant_type in ("Q2_K", "Q4_K", "Q8_0") else 8),
             packed_loads_per_row=(
-                5
+                3
+                if quant_type == "Q2_K"
+                else 5
                 if quant_type in ("Q3_K", "Q4_K")
                 else 4
                 if quant_type == "Q6_K"
@@ -334,7 +338,9 @@ def backward_mechanism_contract(quant_type: str) -> BackwardMechanismContract:
             )
         ),
         quant_register_shape=(
-            BackwardQuantRegisterShape(1, 2, None)
+            BackwardQuantRegisterShape(1, 1, None)
+            if quant_type == "Q2_K"
+            else BackwardQuantRegisterShape(1, 2, None)
             if quant_type == "Q3_K"
             else BackwardQuantRegisterShape(1, 3, None)
             if quant_type == "Q4_K"
@@ -365,7 +371,9 @@ class BackwardProblemContract:
         return cls(
             problem_size=solution_key.problem_size,
             quant_type=solution_key.problem_type.quant_data_type,
-            quant_format=QUANT_FORMATS[solution_key.problem_type.quant_data_type],
+            quant_format=BACKWARD_QUANT_FORMATS[
+                solution_key.problem_type.quant_data_type
+            ],
             mechanism=backward_mechanism_contract(
                 solution_key.problem_type.quant_data_type
             ),
@@ -397,9 +405,9 @@ class BackwardProblemContract:
             ),
         )
         quant_type = _string(item["quant_type"], "quant_type")
-        if quant_type not in QUANT_FORMATS:
+        if quant_type not in BACKWARD_QUANT_FORMATS:
             raise SchemaError(f"unsupported backward quant type {quant_type!r}")
-        quant_format = QUANT_FORMATS[quant_type]
+        quant_format = BACKWARD_QUANT_FORMATS[quant_type]
         expected: dict[str, object] = {
             "quant_type": quant_type,
             "block_values": quant_format.block_values,
@@ -706,7 +714,9 @@ class BackwardKernelSpec:
                 "priority": self.store.priority.value,
             },
         }
-        if quant_type == "Q3_K":
+        if quant_type == "Q2_K":
+            pass
+        elif quant_type == "Q3_K":
             mapping["decode"] = {
                 "extraction": self.decode.q3.extraction.value,
                 "pairing": self.decode.q3.pairing.value,
@@ -730,7 +740,7 @@ class BackwardKernelSpec:
 
     @classmethod
     def from_mapping(cls, value: object, quant_type: str) -> BackwardKernelSpec:
-        decode_required = quant_type != "Q4_K"
+        decode_required = quant_type not in ("Q2_K", "Q4_K")
         item = _strict_mapping_optional(
             value,
             name="BackwardKernelSpec",
@@ -854,6 +864,8 @@ class BackwardKernelSpec:
         )
         q6 = BackwardQ6DecodePolicy(BackwardExtraction.packed)
         q8 = BackwardQ8DecodePolicy(BackwardExtraction.packed)
+        if quant_type == "Q2_K" and "decode" in item:
+            raise SchemaError("Q2_K decode is canonically represented by absent decode")
         if quant_type == "Q4_K" and "decode" in item:
             decode_item = _strict_mapping(
                 item["decode"],

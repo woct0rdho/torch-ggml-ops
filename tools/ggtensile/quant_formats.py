@@ -110,10 +110,17 @@ QUANT_FORMATS: Mapping[str, QuantFormat] = MappingProxyType(
 )
 
 
-GROUPED_QUANT_FORMATS: Mapping[str, QuantFormat] = MappingProxyType(
+BACKWARD_QUANT_FORMATS: Mapping[str, QuantFormat] = MappingProxyType(
     {
         **QUANT_FORMATS,
         "Q2_K": Q2_K_FORMAT,
+    }
+)
+
+
+GROUPED_QUANT_FORMATS: Mapping[str, QuantFormat] = MappingProxyType(
+    {
+        **BACKWARD_QUANT_FORMATS,
         "IQ2_S": IQ2_S_FORMAT,
         "IQ2_XXS": IQ2_XXS_FORMAT,
     }

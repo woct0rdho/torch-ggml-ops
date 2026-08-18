@@ -27,7 +27,7 @@ from .model import (
     ProblemType,
     SolutionKey,
 )
-from .quant_formats import QUANT_FORMATS
+from .quant_formats import BACKWARD_QUANT_FORMATS, QUANT_FORMATS
 
 
 @dataclass(frozen=True)
@@ -59,11 +59,11 @@ def _reject(
 def _validate_backward_problem_type(
     problem_type: ProblemType, reasons: list[RejectReason]
 ) -> None:
-    if problem_type.quant_data_type not in QUANT_FORMATS:
+    if problem_type.quant_data_type not in BACKWARD_QUANT_FORMATS:
         _reject(
             reasons,
             "problem_type.quant_data_type.unsupported",
-            "MMQ backward supports only Q3_K, Q4_K, Q5_K, Q6_K, and Q8_0",
+            "MMQ backward supports only Q2_K, Q3_K, Q4_K, Q5_K, Q6_K, and Q8_0",
             "QuantDataType",
             source="ProblemType",
         )
@@ -503,7 +503,7 @@ def _validate_backward_problem_size(
                 parameter,
                 source="ProblemSize",
             )
-    quant_format = QUANT_FORMATS[problem_type.quant_data_type]
+    quant_format = BACKWARD_QUANT_FORMATS[problem_type.quant_data_type]
     if problem_size.n % quant_format.block_values:
         _reject(
             reasons,
@@ -938,7 +938,7 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
                     "PrefetchPackedWeightNext",
                     source="GroupedBackwardContract",
                 )
-        if 512 % compute.macro_tile1:
+        if state.contract.problem_size.n % compute.macro_tile1:
             _reject(
                 reasons,
                 "solution.grouped_backward.n_tile",
@@ -959,7 +959,7 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
     _validate_backward_problem_type(solution_key.problem_type, reasons)
     _validate_backward_solution_parameters(solution_key.solution, reasons)
     quant_type = solution_key.problem_type.quant_data_type
-    if quant_type not in QUANT_FORMATS:
+    if quant_type not in BACKWARD_QUANT_FORMATS:
         return tuple(reasons)
     mechanism = backward_mechanism_contract(quant_type)
     lds_buffering = BackwardLdsBuffering.try_from_serialized(

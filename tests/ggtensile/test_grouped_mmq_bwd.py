@@ -22,10 +22,14 @@ from tools.ggtensile.toolchain import Toolchain
 from tools.ggtensile.validation import validate_solution
 
 
-def _key(rows: int = 16_384, quant_type: str = "Q4_K") -> SolutionKey:
+def _key(rows: int | None = None, quant_type: str = "Q4_K") -> SolutionKey:
+    if quant_type == "Q2_K":
+        size = ProblemSize(12_288 if rows is None else rows, 2048, 4096)
+    else:
+        size = ProblemSize(16_384 if rows is None else rows, 512, 2048)
     return SolutionKey(
         ProblemType.grouped_mmq_backward(quant_type),
-        ProblemSize(rows, 512, 2048),
+        size,
         GroupedBackwardSolution.pilot(),
     )
 
@@ -59,6 +63,30 @@ def test_grouped_backward_identity_roundtrip_and_exact_rows() -> None:
     for rows in (16_383, 32_768, 262_145):
         with pytest.raises(SchemaError, match="exact"):
             _key(rows).to_mapping()
+
+
+def test_grouped_backward_q2_identity_and_source() -> None:
+    for rows in (12_288, 49_152, 196_608):
+        assert not validate_solution(_key(rows, "Q2_K"))
+    for rows in (12_287, 16_384, 196_609):
+        with pytest.raises(SchemaError, match="exact"):
+            _key(rows, "Q2_K").to_mapping()
+
+    q2 = _key(quant_type="Q2_K")
+    assert SolutionKey.from_mapping(q2.to_mapping()) == q2
+    assert not validate_solution(q2)
+    assert "grouped_mmq_bwd_q2_k" in q2.kernel_name
+    contract = q2.to_mapping()["ProblemContract"]
+    assert isinstance(contract, dict)
+    assert contract["packed_weight_block_bytes"] == 84
+
+    source = GroupedBackwardKernelWriterAssembly(q2, Toolchain.discover()).source()
+    assert "GGTensile Q2_K grouped MMQ backward" in source
+    assert "Decode Q2_K two-bit payload" in source
+    assert "s_cmp_lg_u32 s22, 2752512" in source
+    assert "s_lshl_b32 s30, s27, 13" in source
+    assert source.count("v_wmma_f32_16x16x16_bf16") == 32
+    assert source.count("s_barrier") == 2
 
 
 def test_grouped_backward_q5_identity_and_source() -> None:

@@ -30,7 +30,7 @@ from grouped_mmq_benchmark_common import (  # ty: ignore[unresolved-import]
 )
 
 from tools.ggtensile.model import SolutionKey
-from tools.ggtensile.quant_formats import QUANT_FORMATS
+from tools.ggtensile.quant_formats import BACKWARD_QUANT_FORMATS
 from tools.ggtensile.runtime import GroupedBackwardModule
 
 DEFAULT_MODEL = Path.home() / "models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf"
@@ -85,6 +85,9 @@ def _parser() -> argparse.ArgumentParser:
         help="comma-separated production distribution controls",
     )
     parser.add_argument("--routing-prior", type=Path)
+    parser.add_argument(
+        "--prior-family", choices=("auto", "qwen", "deepseek"), default="auto"
+    )
     parser.add_argument(
         "--prior-bank", choices=("search", "confirmation"), default="search"
     )
@@ -155,24 +158,38 @@ def _prior_distributions(
     path: Path,
     bank: str,
     batch: int,
+    family: str,
 ) -> tuple[tuple[RouteDistribution, ...], dict[str, float]]:
     document = json.loads(path.read_text(encoding="utf-8"))
-    family = document["banks"][bank][f"qwen_learned_b{batch}"]
+    if family == "qwen":
+        components = (("qwen_learned", 1.0),)
+        expected_rows = batch * 16_384
+    else:
+        reporting_weights = document["deepseek_reporting_weights"]
+        components = (
+            ("deepseek_learned", float(reporting_weights["learned"])),
+            ("deepseek_hash", float(reporting_weights["hash"])),
+        )
+        expected_rows = batch * 12_288
+
     distributions = []
     weights = {}
-    expected_rows = batch * 16_384
-    for profile in family["profiles"]:
-        distribution = RouteDistribution(
-            profile["profile_id"],
-            tuple(profile["expert_ids"]),
-            tuple(profile["group_sizes"]),
-        )
-        if distribution.rows != expected_rows:
-            raise ValueError(
-                f"prior profile {distribution.name} has {distribution.rows} rows"
+    for component, component_weight in components:
+        profiles = document["banks"][bank][f"{component}_b{batch}"]["profiles"]
+        for profile in profiles:
+            distribution = RouteDistribution(
+                profile["profile_id"],
+                tuple(profile["expert_ids"]),
+                tuple(profile["group_sizes"]),
             )
-        distributions.append(distribution)
-        weights[distribution.name] = float(profile["medoid_weight"])
+            if distribution.rows != expected_rows:
+                raise ValueError(
+                    f"prior profile {distribution.name} has {distribution.rows} rows"
+                )
+            distributions.append(distribution)
+            weights[distribution.name] = component_weight * float(
+                profile["medoid_weight"]
+            )
     if abs(sum(weights.values()) - 1.0) > 1.0e-12:
         raise ValueError("prior medoid weights do not sum to one")
     return tuple(distributions), weights
@@ -192,7 +209,7 @@ def _load_packed(
         raise ValueError(
             f"expected {quant_type} tensor, found {tensor.tensor_type.name}"
         )
-    quant_format = QUANT_FORMATS[quant_type]
+    quant_format = BACKWARD_QUANT_FORMATS[quant_type]
     packed_row_bytes = (
         key.problem_size.n // quant_format.block_values * quant_format.block_bytes
     )
@@ -233,6 +250,7 @@ def _bf16_route_reference(
     quant_type: int,
     distribution: RouteDistribution,
     expert_indices: torch.Tensor,
+    output_features: int,
 ) -> torch.Tensor:
     selected_packed = packed_weight.index_select(0, expert_indices).contiguous()
     logical = dequantize_gguf_tensor(
@@ -240,7 +258,7 @@ def _bf16_route_reference(
         gguf.GGMLQuantizationType(quant_type),
         dtype=torch.bfloat16,
         device="cuda",
-    ).reshape(len(distribution.group_sizes_cpu), 2048, 512)
+    ).reshape(len(distribution.group_sizes_cpu), grad_output.shape[1], output_features)
     outputs = []
     row_begin = 0
     for group, size in enumerate(distribution.group_sizes_cpu):
@@ -259,13 +277,14 @@ def _correctness(
     quant_type: int,
     distribution: RouteDistribution,
     max_rows: int,
+    output_features: int,
 ) -> dict[str, object]:
     checked = truncate_distribution(distribution, max_rows)
     expert_indices, expert_offsets, _ = make_route_tensors(checked)
     active_rows = checked.rows
     sentinel = 19.0
     actual = torch.full(
-        (grad_output.shape[0], 512),
+        (grad_output.shape[0], output_features),
         sentinel,
         device="cuda",
         dtype=torch.bfloat16,
@@ -278,7 +297,7 @@ def _correctness(
             expert_indices,
             expert_offsets,
             quant_type,
-            512,
+            output_features,
         )
 
     def candidate() -> torch.Tensor:
@@ -311,6 +330,7 @@ def _correctness(
         quant_type,
         checked,
         expert_indices,
+        output_features,
     )
     report["candidate_vs_independent_bf16"] = _metrics(baseline, bf16_reference)
     del bf16_reference
@@ -442,6 +462,7 @@ def _timings(
     packed_weight: torch.Tensor,
     quant_type: int,
     distribution: RouteDistribution,
+    output_features: int,
     warmup: int,
     repeats: int,
     weight: float | None = None,
@@ -449,7 +470,7 @@ def _timings(
 ) -> TimingReport:
     expert_indices, expert_offsets, _ = make_route_tensors(distribution)
     kernel_output = torch.empty(
-        (grad_output.shape[0], 512), device="cuda", dtype=torch.bfloat16
+        (grad_output.shape[0], output_features), device="cuda", dtype=torch.bfloat16
     )
 
     def hip() -> torch.Tensor:
@@ -459,7 +480,7 @@ def _timings(
             expert_indices,
             expert_offsets,
             quant_type,
-            512,
+            output_features,
         )
 
     def candidate_kernel() -> torch.Tensor:
@@ -504,7 +525,7 @@ def _timings(
             samples[name].append(elapsed)
             del output
 
-    logical_flops = 2 * distribution.rows * 512 * 2048
+    logical_flops = 2 * distribution.rows * output_features * grad_output.shape[1]
     summaries = {
         name: _timing_summary(values, logical_flops) for name, values in samples.items()
     }
@@ -620,9 +641,17 @@ def main() -> None:
     if key.problem_type.operation_type != "GroupedMMQBackward":
         raise ValueError("solution key is not grouped MMQ backward")
     size = key.problem_size
-    if size.m % 16_384:
-        raise ValueError("aggregate rows do not map to the Qwen physical batch")
-    batch = size.m // 16_384
+    prior_family = args.prior_family
+    if prior_family == "auto":
+        prior_family = (
+            "deepseek" if key.problem_type.quant_data_type == "Q2_K" else "qwen"
+        )
+    rows_per_batch = 12_288 if prior_family == "deepseek" else 16_384
+    if size.m % rows_per_batch:
+        raise ValueError(
+            f"aggregate rows do not map to the {prior_family} physical batch"
+        )
+    batch = size.m // rows_per_batch
     if batch not in (1, 4, 16):
         raise ValueError("grouped benchmark supports physical batch 1, 4, or 16")
     available = route_distributions(size.m, batch)
@@ -633,6 +662,7 @@ def main() -> None:
             args.routing_prior,
             args.prior_bank,
             batch,
+            prior_family,
         )
     control_distributions = (
         ()
@@ -668,6 +698,7 @@ def main() -> None:
                 quant_type,
                 available["boundary"],
                 correctness_rows,
+                size.n,
             )
             _require_correctness(correctness)
         if not args.skip_timing:
@@ -678,6 +709,7 @@ def main() -> None:
                     packed_weight,
                     quant_type,
                     distribution,
+                    size.n,
                     args.warmup,
                     args.repeats,
                     prior_weights.get(distribution.name),
@@ -700,6 +732,7 @@ def main() -> None:
         "Model": str(args.model),
         "Tensor": args.tensor,
         "PhysicalBatch": batch,
+        "PriorFamily": prior_family,
         "PhysicalWeightShape": physical_shape,
         "GradOutputShape": [size.m, size.k],
         "GradInputShape": [size.m, size.n],
