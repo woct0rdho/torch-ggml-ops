@@ -99,3 +99,29 @@ Mixed pad16 is effectively tied with pad8 in separate screens (`2.9378` versus `
 The baseline decoded each magnitude and sign separately, then used XOR/subtract to form a signed integer. A retained lowering optimization now applies four sign nibbles to the four loaded codebook dwords with the forward-proven `v_perm_b32` selector construction. Each element then needs one signed-byte extraction. The IQ2_S-unused `input_half` SGPR holds `0x03020100`, so the change adds no resources and removes 48 static VALU issues from the mixed M128/M64 artifact (`797 -> 749`).
 
 The candidate passes the complete packed-HIP matrix. A separate fitted run reaches weighted `2.8520 ms` (`1.4481x` HIP). More importantly, a 15-repeat same-process bracket against the preserved scalar-sign artifact improves every medoid and lowers weighted latency `2.9112 -> 2.8261 ms`, a `3.01%` gain. Signed-dword preapply is retained unconditionally for IQ2_S; the per-element sign path is closed.
+
+### First B4/B16 ownership screen
+
+M128/N64, M128/N128, split4/8/16/32, and repaired double-LDS controls pass the 625-row matrix at both larger aggregate keys. Serial ownership is poor on low-weight high-skew B4 medoids, while every split control is faster than HIP on every medoid.
+
+| Key and control | Weighted HIP / candidate ms | Speedup vs HIP | Minimum medoid | Decision |
+| --- | ---: | ---: | ---: | --- |
+| B4 M128/N64 serial | `10.0832 / 9.9899` | `1.0093x` | `0.6655x` | Rejected |
+| B4 M128/N128 serial | `10.1019 / 9.8418` | `1.0264x` | `0.5916x` | Rejected |
+| B4 M128/N128 split4 | `9.9877 / 9.0380` | `1.1051x` | `1.0431x` | Rejected by larger splits |
+| B4 M128/N128 split8 | `10.0122 / 8.8336` | `1.1334x` | `1.1323x` | Provisional control |
+| B4 M128/N128 split16 | `10.0539 / 8.7979` | `1.1428x` | `1.1398x` | Single-LDS control |
+| B4 M128/N128 split32 | `10.0661 / 8.9345` | `1.1266x` | `1.1218x` | Rejected |
+| B4 split16, SIA4/swizzle8 double LDS | `10.0347 / 8.5517` | `1.1734x` | `1.1709x` | B4 parent |
+| B16 M128/N128 split8 | `34.7503 / 30.0098` | `1.1580x` | `1.0201x` | Rejected by split32 |
+| B16 M128/N128 split16 | `34.6549 / 29.8838` | `1.1597x` | `1.1179x` | Provisional control |
+| B16 M128/N128 split32 | `34.7087 / 29.8239` | `1.1638x` | `1.1453x` | B16 parent |
+| B16 split16, SIA4/swizzle8 double LDS | `34.5751 / 29.7977` | `1.1603x` | `1.1197x` | Near-tie; bracket required |
+
+B4 has a clear double-LDS premise; B16 has a noise-sized three-way order. Split, SIA, LDS layout, and buffering will be isolated around these parents before any final bracket.
+
+Padded and swizzle16 double-LDS requests are rejected by the shared typed pipeline boundary before assembly: its two-buffer address toggle is implemented only for XOR-8. They are not timed. Single-LDS padded/swizzled controls and XOR-8 double-LDS SIA/split controls remain valid.
+
+The isolation screen fixes B4 around SIA4/XOR-8 double LDS. SIA4 pad8 single reaches `8.6935 ms`; SIA4 swizzle8/16 single regress to `9.2166/9.4471 ms`; SIA5 XOR-8 double is `8.7720 ms`. Within SIA4 double LDS, split8/16/32 are `8.6233/8.5517/8.7360 ms`. B4 therefore retains split16.
+
+B16 materially benefits from combining double LDS with split32: it reaches `29.2760 ms` (`1.1835x` HIP), versus `30.6796 ms` for SIA4 XOR-8 single LDS and roughly `29.80 ms` for the earlier split16 controls. Its dominant routes still leave two M tiles per split32 owner, so one IQ2_S-only split64 endpoint was opened. Split64 is exact and separately ties split32 (`29.2798` versus `29.2760 ms`) while improving the four low-weight medoids. A 5-warmup/25-repeat same-process bracket resolves the endpoint: split64 improves every medoid and lowers weighted latency `29.5511 -> 29.3369 ms`, or `0.73%`. Split64 is retained only for grouped IQ2_S; all other grouped quant types reject it.

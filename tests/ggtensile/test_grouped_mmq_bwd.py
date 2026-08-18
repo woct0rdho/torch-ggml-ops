@@ -369,6 +369,30 @@ def test_grouped_backward_split_route_identity_and_source(
     assert "s_cmp_ge_u32 s34, s27" in source
 
 
+def test_grouped_iq2_s_split64_is_format_specific() -> None:
+    iq2 = _key(quant_type="IQ2_S")
+    solution = iq2.solution
+    assert isinstance(solution, GroupedBackwardSolution)
+    split64 = replace(iq2, solution=replace(solution, route_ownership="SplitRoutes64"))
+    assert not validate_solution(split64)
+    assert SolutionKey.from_mapping(split64.to_mapping()) == split64
+    source = GroupedBackwardKernelWriterAssembly(split64, Toolchain.discover()).source()
+    assert ".amdhsa_system_sgpr_workgroup_id_z 1" in source
+    assert "s_add_u32 s2, s2, 64" in source
+
+    q4 = _key()
+    q4_solution = q4.solution
+    assert isinstance(q4_solution, GroupedBackwardSolution)
+    invalid = replace(
+        q4,
+        solution=replace(q4_solution, route_ownership="SplitRoutes64"),
+    )
+    assert any(
+        reason.rule_id == "solution.grouped_backward.split64.quant"
+        for reason in validate_solution(invalid)
+    )
+
+
 def test_grouped_backward_physical_plan_is_deterministic() -> None:
     state = DerivedGroupedBackwardState.from_solution_key(_key())
     first = derive_grouped_backward_physical_plan(state)

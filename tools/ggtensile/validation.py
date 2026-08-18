@@ -914,6 +914,17 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             return tuple(reasons)
         reasons.extend(validate_solution(state.ordinary.solution_key))
         compute = solution_key.solution.compute
+        if (
+            state.spec.ownership.split_factor == 64
+            and state.contract.quant_type != "IQ2_S"
+        ):
+            _reject(
+                reasons,
+                "solution.grouped_backward.split64.quant",
+                "SplitRoutes64 is implemented only for grouped IQ2_S backward",
+                "RouteOwnership",
+                source="GroupedBackwardContract",
+            )
         if compute.work_group_mapping != 1:
             _reject(
                 reasons,
