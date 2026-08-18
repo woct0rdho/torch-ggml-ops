@@ -80,9 +80,9 @@ The B1/B4 25-repeat transfer confirmation is `~/tmp/torch-ggml-ops/ggtensile-gro
 | 1 | 12,288 | 30.4352 | 35.1876 | 40.2553 | 34.5979 | 1.1368x | 1.0605x |
 | 4 | 49,152 | 84.4732 | 93.5025 | 91.2841 | 93.4559 | 1.1063x | 1.0732x |
 
-### Final retained throughput
+### Initial P0 throughput (historical)
 
-The public pair is the installed HIP control. Effective TFLOPS is nominal dense-equivalent complete-call throughput, calculated as `4 * rows * N * K / seconds`: two FLOPs per FMA across both projections. B1 and B4 use the transfer confirmation above; B16 uses its dedicated 25-repeat confirmation.
+This table records the original P0 selection before X1 selector fusion and the later typed J80 geometry. It is retained as selection context; the current retained speeds are reported at the end of this log. Effective TFLOPS is nominal dense-equivalent complete-call throughput, calculated as `4 * rows * N * K / seconds`: two FLOPs per FMA across both projections. B1 and B4 use the transfer confirmation above; B16 uses its dedicated 25-repeat confirmation.
 
 | Batch | Rows | GGTensile complete | Public HIP complete | GGTensile effective TFLOPS | HIP effective TFLOPS | HIP/GGTensile speedup |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -153,3 +153,101 @@ The current `s_clause 7`, waits, and barriers remain controls. Clause changes, c
 X1-X6 are unqualified until each distinct typed identity and serialized policy passes exact gfx1151 code-object-v5 assembly and linking, ABI and metadata inspection, resource and disassembly inspection, independent exactness and mutation checks, deterministic rebuilds, and warmed complete-call and prequantized timing. Static instruction reductions do not substitute for device timing. Any composition of individually qualified probes receives a new identity and repeats every gate.
 
 The historical retained classification remains scoped to the repaired J64/J80 bodies and the old comparator premise. Implement and qualify every actionable finding, then repeat the complete source, artifact, resource, correctness, determinism, and timing review from the changed premise. A fresh recursive pass must find no actionable in-contract mechanism before this record can close. Public dispatch, generated bundles, packaging, registration, HIP fallback, and prepared representations remain unchanged.
+
+### X1 qualification result
+
+X1 was materialized as an isolated candidate with the invariant selector SGPR and built independently twice for R35, B1, B4, and B16. The source body removed 64 selector VALU operations and one dependent scalar/vector construction from the old sequence; the linked artifact reported 2,152 VALU issue instructions versus 2,216 for the retained body, with unchanged 148 VGPRs, 44 SGPRs, 19,456 LDS bytes, 128 WMMAs, eight barriers, zero spills, and zero private bytes. All route, malformed-route, independent-reference, finite-output, mutation, and deterministic-build checks were exact.
+
+The fitted complete-call medians improved from 30.0722/83.4574/302.2398 ms to 29.6455/81.8842/296.7120 ms at B1/B4/B16, or 1.42%/1.88%/1.83%. The independent 25-repeat B16 confirmation measured 298.2896 ms versus 304.0936 ms for the retained body, or 1.91%, with every medoid exact and a minimum public/candidate ratio of 1.0211x. X1 is rejected as a retained implementation because it remains below the two-percent advancement gate. Its exact decode equivalence and artifact evidence remain a scoped result; no source or public identity changed.
+
+X1 is now closed under the changed X1 premise. The remaining X2-X6 probes stay independent and must not be composed with X1 without a new identity and a fresh recursive review.
+
+### X2 qualification result
+
+X2 removed the four repeated `v124:v131` zero-bank initializations from the statically emitted body and retained one eight-register setup before the block loop. Independent builds were byte-deterministic; the artifact changed from 2,216 to 2,192 VALU issue instructions while retaining 148 VGPRs, 44 SGPRs, 19,456 LDS bytes, 128 WMMAs, eight barriers, zero spills, and zero private bytes. All exact route, malformed-route, independent-reference, finite-output, mutation, and rerun checks passed.
+
+The fitted complete-call medians were 30.4010/84.2791/303.0949 ms at B1/B4/B16 versus 30.0722/83.4574/302.2398 ms for the retained body, or +1.09%/+0.99%/+0.28%. The B16 screen included a profile below parity (`0.99897x` public/candidate). X2 is rejected as a retained implementation for neutral-to-regressive timing; no confirmation campaign or source integration follows.
+
+X2 is closed under its changed premise. X3-X6 remain independent and must be evaluated without composing rejected X1 or X2 code.
+
+### X3 qualification result
+
+X3 moved the exact `* 0.125` factor from each local decoded scale into the four statically emitted FP32 `d` conversions, removing eight local multiplies and adding four invariant multiplies. Two builds were byte-deterministic. The artifact changed from 2,216 to 2,212 VALU issue instructions while retaining 148 VGPRs, 44 SGPRs, 19,456 LDS bytes, 128 WMMAs, eight barriers, zero spills, and zero private bytes. All exact route, malformed-route, independent-reference, finite-output, mutation, and rerun checks passed.
+
+The fitted complete-call medians were 30.1428/83.1028/300.6703 ms at B1/B4/B16 versus 30.0722/83.4574/302.2398 ms for the retained body, or +0.24%/-0.42%/-0.52%. No point cleared the two-percent advancement gate. X3 is rejected as timing-neutral; no confirmation campaign or source integration follows.
+
+X3 is closed under its changed premise. X4-X6 remain independent and must be evaluated without composing rejected X1-X3 code.
+
+### X1 stability-policy reopening and typed retention
+
+The fixed two-percent gate was subsequently withdrawn for candidates with stable evidence of a smaller gain. A direct same-session 25-repeat A/B against the instruction-identical retained P0 parent measured complete-call candidate/parent medians of 30.3345/30.9198 ms at B1, 83.0066/84.3965 ms at B4, and 299.2489/304.4231 ms at B16, or gains of 1.93%/1.67%/1.73%. Prequantized body gains were 1.97%/1.62%/1.91%. Every complete-call and body medoid was faster; minimum complete-call ratios were `1.01712x`, `1.01161x`, and `1.01453x`. Conservative 95% log-time intervals excluded parity for all fifteen complete-call medoids and fourteen of fifteen body medoids; the remaining body interval overlapped parity by 0.02% and did not favor the parent.
+
+The retained typed identity serializes `TwoLaneSelectedHalfIQ2XXSFusedSelector` and admits it only for IQ2_XXS serial-route ownership. Its lowering materializes `0x03020100` once in the plan-owned scalar register and replaces each three-instruction selector construction with the algebraically equivalent `0x810204` multiply plus `v_and_or_b32`. The typed source reproduced the qualified probe instruction-for-instruction after canonical symbol normalization. Two typed builds were byte-deterministic and retained 2,152 VALU issue instructions, 148 VGPRs, 44 SGPRs, 19,456 LDS bytes, 128 WMMAs, eight barriers, zero spills, and zero private bytes. All bounded and production semantic checks passed exactly.
+
+A fresh typed 25-repeat A/B measured complete-call gains of 1.88%/1.79%/1.86% and body gains of 2.00%/1.90%/1.74% at B1/B4/B16. Every medoid remained faster; minimum complete-call ratios were `1.01140x`, `1.00977x`, and `1.01801x`. Fourteen of fifteen complete-call and fourteen of fifteen body intervals excluded parity at 95% confidence, and neither remaining interval favored the parent. X1 is retained as `iq2_xxs_k128_interleaved_fused_selector()`.
+
+This reopening does not retain X2 or X3 and does not compose them with X1. Public dispatch, generated bundle registration, packaging, prepared representations, and HIP fallback behavior remain unchanged. X4-X6 require independent identities and qualification against the retained X1 body where their mechanism is compatible.
+
+### X6 processor-mode metadata result
+
+X6 inserted `.amdhsa_workgroup_processor_mode 1` into the kernel descriptor of the retained typed X1 source for R35, B1, B4, and B16. The configured gfx1151 assembler accepted the directive. Two independent passes were deterministic, and each transformed source had the same object and HSACO bytes as the unmodified X1 parent at the corresponding row count. Inspection was consequently identical: 148 VGPRs, 44 SGPRs, 19,456 bytes of LDS, 128 WMMAs, eight barriers, zero private bytes, zero spills, the 80-byte ABI, and unchanged VALU/VMEM/LDS/wait/clause counts.
+
+The metadata-only artifacts passed the full R35 and production route, malformed-route, independent-reference, rerun, active-bank, activation, and finiteness matrix against the retained X1 body and installed controls. A five-warmup, alternating 25-repeat parent/candidate measurement over the DeepSeek confirmation medoids was mixed and noise-scale: weighted complete-call parent/candidate ratios were `1.00107x`, `0.99714x`, and `0.99873x` at B1/B4/B16, while prequantized-body ratios were `1.00187x`, `0.99836x`, and `1.00009x`. Complete-call minimum ratios were `0.99660x`, `0.99658x`, and `0.99649x`; all robust 95% per-medoid intervals crossed parity.
+
+X6 is closed as an assembler-accepted but executable-inert metadata spelling under this toolchain. No serialized policy, typed source identity, lowering change, composition, catalog entry, public integration, or source commit follows. The conclusion does not predict the behavior of processor mode under a different compiler artifact or target.
+
+### X4 epilogue qualification result
+
+The narrow shared-column probe removed six projection-1 setup instructions. Independent builds were deterministic and exact, and the linked body changed from 2,152 to 2,146 VALU issues with unchanged 148 VGPRs, 44 SGPRs, 19,456 LDS bytes, 128 WMMAs, eight barriers, waits, private storage, and spills. Its nine-repeat complete-call parent/candidate ratios were `0.99636x`, `1.00007x`, and `0.99875x` at B1/B4/B16; body ratios were `1.00049x`, `0.99835x`, and `0.99909x`. The direction is mixed and noise-scale.
+
+A broader address-materialization probe reused dead accumulator registers to carry the common column and row terms. It removed 25 artifact VALU issues, from 2,152 to 2,127, without changing resources. The implementation preserved the IQ2_XXS N2048 row shift of 12 and passed the full route/reference/mutation matrix. Complete-call ratios were `1.00110x`, `0.99904x`, and `0.99927x`; body ratios were `0.99810x`, `0.99827x`, and `0.99969x`. It is also timing-neutral.
+
+The exact width-two BF16 probe interleaved adjacent `v_bfe_u32`/`v_add3_u32` RNE chains using proven-dead scratch while preserving instruction counts and resources. It passed exact qualification, but complete-call ratios were `0.99651x`, `1.00139x`, and `1.00116x` while body ratios were `1.00342x`, `0.99987x`, and `1.00082x`. Complete/body disagreement closes it. These results exhaust X4's allowed shared-setup, materialized-address, and exact BF16-scheduling subprobes; no X4 source identity is retained.
+
+### X1 plus X3 composition result
+
+Because X1 became the canonical parent, X3 was rebuilt as a distinct X1+X3 composition rather than transferring its old result. Two builds at R35 and every production row count were deterministic. The candidate reduced VALU issues from 2,152 to 2,148 and retained all parent ABI, VGPR, SGPR, LDS, WMMA, barrier, wait, private-storage, and spill properties. The complete R35 and production valid-route, malformed-route, reference, rerun, and mutation matrices were exact.
+
+The nine-repeat complete-call parent/candidate ratios were `1.00554x`, `1.00229x`, and `1.00153x` at B1/B4/B16, but body movement was approximately flat. A 25-repeat top-up measured complete ratios of `1.00166x`, `1.00126x`, and `1.00163x` and body ratios of `1.00071x`, `0.99980x`, and `1.00046x`. All 30 complete-call and body per-medoid 95% intervals crossed parity, and profile direction was mixed. X1+X3 is closed as timing-neutral; no typed composition or source retention follows.
+
+### X5 J80 geometry qualification and B16 retention
+
+The exploratory J80 plan increased the activation tile from 64 to 80 rows, the activation image from 9,216 to 11,520 bytes, total fixed LDS from 19,456 to 21,760 bytes, activation payload from 16 to 20 VGPRs, and M fragments from four to five. The resulting artifact uses 180 VGPRs, 44 SGPRs, 160 static WMMAs, eight barriers, zero private bytes, and zero spills. Its representative counts are 2,590 VALU issues, 3,166 VALU operations, 576 VOPD operations, 148 VMEM instructions, 348 LDS instructions, 52 waits, and ten clauses, versus X1 J64's 2,152/2,664/512/128/298/52/eight.
+
+The initial monkeypatched artifacts intentionally reused the J64 symbol and key and relaxed only the inspector's expected static WMMA count from 128 to 160. They were therefore exploratory and non-retainable. Independent builds at R35, B1, B4, and B16 were nevertheless byte-deterministic, and `ggtensile-grouped-iq2-xxs-pair-j80-semantic.json` reports exact valid and malformed routes, independent references, reruns, both projection mutations, activation mutation, finite outputs, and inert invalid spans at every row count.
+
+The sample-bearing 25-repeat probe was analyzed in median-log space with robust sigma equal to the maximum of standard deviation, scaled MAD, and scaled IQR. B1 was confidently slower on every complete and body medoid. B4 was distribution-dependent: the weighted result favored J80 only because medoid 234 has weight `0.90234375`; the other four complete-call medoids regressed, including two intervals wholly above parity. B16 was faster on all five complete and all five body medoids. These results reject J80 as a global J64 replacement and close the B1 and B4 keys.
+
+J80 was then represented canonically by serialized `macro_tile = [80,64]`, restricted to IQ2_XXS fused-selector serial-route ownership, with a distinct physical allocation and symbol. The typed lowering reproduced the qualified probe instruction-for-instruction after symbol normalization. Two typed builds at all four row counts were byte-deterministic and retained the exact 180-VGPR, 44-SGPR, 21,760-byte-LDS resource point and artifact counts above. The typed semantic report `ggtensile-grouped-iq2-xxs-pair-j80-typed-semantic.json` again passed every exact route, malformed-route, reference, rerun, and mutation gate.
+
+The final seven-warmup, alternating 25-repeat typed report is `ggtensile-grouped-iq2-xxs-pair-j80-typed-ab25.json`; robust intervals are in `ggtensile-grouped-iq2-xxs-pair-j80-typed-confidence.json`.
+
+| Batch | Candidate complete | X1 J64 complete | Candidate body | X1 J64 body | Weighted complete gap 95% | Disposition |
+| ---: | ---: | ---: | ---: | ---: | ---: | :--- |
+| 1 | 33.6193 ms | 30.5768 ms | 33.5219 ms | 30.0065 ms | +8.97% to +10.93% | rejected |
+| 4 | 82.4434 ms | 83.8315 ms | 79.9258 ms | 81.1301 ms | -1.87% to -1.45% | rejected: profile-dependent |
+| 16 | 294.6356 ms | 301.8988 ms | 282.7872 ms | 290.4282 ms | -2.55% to -2.26% | retained |
+
+Every B16 complete-call interval was below parity, ranging from `[-3.17%,-2.55%]` to `[-2.46%,-1.98%]`; every body interval was also below parity. The weighted complete time reduction is 2.41% with a 95% interval of 2.26%-2.55%, and the weighted body reduction is 2.63% with a 2.40%-2.85% interval. The typed J80 candidate is `1.02465x` faster than X1 J64 complete and `1.02700x` faster in the body. It is also `1.05366x` faster complete than the installed serial J80 control.
+
+Only the exact B16 research key, aggregate rows 196,608 with J80 fused-selector serial ownership, is retained. The implementation commit is `5c0a28e`; it changes no catalog, generated bundle, dispatch, registration, package, prepared representation, or HIP fallback. B1 and B4 remain explicit negative timing results, and the constructor's availability for research generation is not deployment evidence for those shapes.
+
+### Post-J80 recursive final review
+
+A separate read-only pass after typed J80 retention reread the paired model, strict spec, physical register/LDS ownership, IQ2_XXS and shared mechanics, inspection, generated J64/J80 artifacts, every X1-X6 result, the other paired formats, fixed and grouped records, and the exact gfx1151 wait/barrier/VOPD constraints. J80 is canonical only through serialized `[80,64]`, owns its 180-VGPR and 21,760-byte-LDS plan, and does not alter the J64 stream.
+
+The changed geometry does not silently inherit or overturn X2-X4. B16 zero-bank hoisting was adverse on J64; X1+X3, shared-column setup, materialized addresses, and exact BF16 interleaving were timing-neutral or directionally incoherent. J80 provides no new dependency or resource transition that predicts a reversal. Its larger body dilutes fixed setup savings, while the one additional epilogue fragment does not change the dependencies behind the linearly repeated address or BF16 forms. This is not J80 timing evidence for an unbuilt composition: any future composition still requires a distinct typed key and full qualification. Rows above 80 and IQ2_XXS row-task ownership are separate geometry or ABI campaigns without a current exact workload premise; constructor availability is not selection evidence.
+
+The eight barriers continue to protect projection-overwritten weight LDS and activation reuse, so no wait or barrier is removed without an artifact-specific hazard proof. No new bank-valid VOPD, delay, direct-to-LDS, exact BF16, clause, or direct-packed representation mechanism was found. The fresh pass therefore finds no actionable in-contract IQ2_XXS mechanism. Public integration and prepared representations remain deferred scope.
+
+### Final retained throughput versus HIP
+
+These are the current typed retained identities compared with the installed HIP serial kernels in the same seven-warmup, 25-repeat J80 session. Effective TFLOPS uses `4 * rows * N * K / (median_ms * 1e9)`. The speedup is `HIP median / retained median`, so values above `1.0x` favor the retained kernel. Public policy selects HIP J64 at B1/B4 and HIP J80 at B16.
+
+| Batch | Retained identity | HIP control | Retained ms | HIP ms | Retained TFLOPS | HIP TFLOPS | Speedup vs HIP |
+| ---: | :--- | :--- | ---: | ---: | ---: | ---: | ---: |
+| 1 | X1 fused selector, J64 | serial J64 | 30.5768 | 34.7361 | 13.485 | 11.870 | 1.1360x |
+| 4 | X1 fused selector, J64 | serial J64 | 83.8315 | 94.2844 | 19.674 | 17.492 | 1.1247x |
+| 16 | J80 fused selector | serial J80 | 294.6356 | 310.4453 | 22.391 | 21.250 | 1.0537x |
+
+The B1/B4 final values are the X1 J64 parent arms in `ggtensile-grouped-iq2-xxs-pair-j80-typed-ab25.json`; B16 uses the typed J80 candidate arm from the same report. All outputs were exact. The typed parent-improvement ratios remain useful acceptance evidence, but the final ratios above are the retained-kernel-versus-HIP results.

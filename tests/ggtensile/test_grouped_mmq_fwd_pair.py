@@ -89,6 +89,15 @@ def _iq2_xxs_fused_selector_key(
     )
 
 
+def _iq2_xxs_fused_selector_j80_key(
+    aggregate_rows: int = 196_608,
+) -> GroupedForwardPairSolutionKey:
+    return GroupedForwardPairSolutionKey(
+        GroupedForwardPairProblem.iq2_xxs(aggregate_rows),
+        GroupedForwardPairSolution.iq2_xxs_k128_interleaved_fused_selector_j80(),
+    )
+
+
 @pytest.mark.parametrize("field", ("unknown", "SchemaVersion"))
 def test_grouped_pair_key_rejects_unknown_root_fields(field: str) -> None:
     mapping = _key().to_mapping()
@@ -344,6 +353,44 @@ def test_grouped_iq2_xxs_fused_selector_key_is_distinct_and_canonical() -> None:
     assert decode["schedule"] == "TwoLaneSelectedHalfIQ2XXSFusedSelector"
 
 
+def test_grouped_iq2_xxs_fused_selector_j80_key_is_canonical_and_plan_owned() -> None:
+    parent = _iq2_xxs_fused_selector_key(196_608)
+    candidate = _iq2_xxs_fused_selector_j80_key()
+    assert candidate.hash != parent.hash
+    assert (
+        GroupedForwardPairSolutionKey.from_mapping(candidate.to_mapping()) == candidate
+    )
+    mapping = candidate.to_mapping()
+    kernel_spec = mapping["KernelSpec"]
+    assert isinstance(kernel_spec, dict)
+    geometry = kernel_spec["geometry"]
+    assert isinstance(geometry, dict)
+    assert geometry["macro_tile"] == [80, 64]
+    state = DerivedGroupedForwardPairState.from_solution_key(candidate)
+    assert state.physical_plan.layout.activation_rows == 80
+    assert state.physical_plan.layout.weight_base == 11_520
+    assert state.physical_plan.resources.vgprs == 180
+    assert state.physical_plan.resources.sgprs == 44
+    assert state.physical_plan.resources.lds_bytes == 21_760
+
+
+def test_grouped_iq2_xxs_fused_selector_j80_rejects_other_mechanisms() -> None:
+    for key in (_key(), _q3_key(), _iq2_xxs_key()):
+        rejected = replace(key, solution=replace(key.solution, macro_tile0=80))
+        assert "grouped_forward_pair.solution.unimplemented" in {
+            reason.rule_id
+            for reason in validate_grouped_forward_pair_solution(rejected)
+        }
+    mapping = _iq2_xxs_fused_selector_j80_key().to_mapping()
+    kernel_spec = mapping["KernelSpec"]
+    assert isinstance(kernel_spec, dict)
+    lowering = kernel_spec["lowering"]
+    assert isinstance(lowering, dict)
+    lowering["route_ownership"] = "DeviceRowTasks64"
+    with pytest.raises(SchemaError, match="unavailable|J80|serial-route"):
+        GroupedForwardPairSolutionKey.from_mapping(mapping)
+
+
 def test_grouped_iq2_xxs_fused_selector_rejects_other_quant_and_ownership() -> None:
     for key in (_key(), _q3_row_task_key()):
         mapping = key.to_mapping()
@@ -551,6 +598,19 @@ def test_grouped_iq2_xxs_pair_writer_has_q8_style_k32_dataflow() -> None:
     assert "Store paired IQ2_XXS projection 1" in source
 
 
+def test_grouped_iq2_xxs_fused_selector_j80_writer_uses_typed_geometry() -> None:
+    source = GroupedForwardPairKernelWriterAssembly(
+        _iq2_xxs_fused_selector_j80_key(), Toolchain.discover()
+    ).source()
+    assert source.count("Linearly stage one 11,520-byte") == 2
+    assert source.count("v_wmma_i32_16x16x16_iu8") == 160
+    assert source.count("Store paired IQ2_XXS projection 0 J80") == 1
+    assert source.count("Store paired IQ2_XXS projection 1 J80") == 1
+    assert "s_cmp_le_u32 s37, 80" in source
+    assert "s_add_u32 s28, s28, 80" in source
+    assert "ds_read_b32 v176, v160 offset:9216" in source
+
+
 def test_grouped_iq2_xxs_fused_selector_writer_uses_typed_decode_policy() -> None:
     parent = GroupedForwardPairKernelWriterAssembly(
         _iq2_xxs_key(35), Toolchain.discover()
@@ -709,6 +769,29 @@ def test_grouped_iq2_xxs_pair_artifact_is_deterministic_and_resource_clean(
     assert inspection.vgpr_spill_count == 0
     assert inspection.sgpr_spill_count == 0
     assert inspection.wmma_count == 128
+    assert inspection.barrier_count == 8
+
+
+def test_grouped_iq2_xxs_fused_selector_j80_artifact_is_deterministic_and_clean(
+    tmp_path: Path,
+) -> None:
+    key = _iq2_xxs_fused_selector_j80_key()
+    toolchain = Toolchain.discover()
+    first_source, first_code, first_path = _build(tmp_path / "first", key, toolchain)
+    second_source, second_code, _ = _build(tmp_path / "second", key, toolchain)
+    assert first_source == second_source
+    assert first_code == second_code
+    inspection = inspect_grouped_forward_pair_artifact(key, first_path, toolchain)
+    assert inspection.kernarg_segment_size == 80
+    assert inspection.wavefront_size == 32
+    assert inspection.vgpr_count == 180
+    assert inspection.sgpr_count == 44
+    assert inspection.lds_num_bytes == 21_760
+    assert inspection.private_segment_bytes == 0
+    assert inspection.vgpr_spill_count == 0
+    assert inspection.sgpr_spill_count == 0
+    assert inspection.valu_issue_count == 2_590
+    assert inspection.wmma_count == 160
     assert inspection.barrier_count == 8
 
 

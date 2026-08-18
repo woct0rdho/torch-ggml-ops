@@ -176,6 +176,13 @@ class GroupedForwardPairSolution:
         )
 
     @classmethod
+    def iq2_xxs_k128_interleaved_fused_selector_j80(cls) -> Self:
+        return replace(
+            cls.iq2_xxs_k128_interleaved_fused_selector(),
+            macro_tile0=80,
+        )
+
+    @classmethod
     def q3_k_k128_interleaved(cls) -> Self:
         return cls(
             kernel_language="Assembly",

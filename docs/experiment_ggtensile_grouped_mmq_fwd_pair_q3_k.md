@@ -88,7 +88,7 @@ The B16 nine-repeat fitted-prior screen measured `54.5254 ms` complete for P2 ve
 
 Reversed-order 25-repeat confirmation passed at every production shape. Timings are weighted medians over 512 deterministic draws reduced to five weighted medoids, with three warmups and order rotation. Complete-call measurements include fixed HIP Q8_1 F32_D4 quantization, one allocated workspace, device task setup, and both projections. The row-task parent is one task setup followed by two adjacent installed Q3_K J64 row-task launches.
 
-The public pair is the installed HIP control. Effective TFLOPS is nominal dense-equivalent complete-call throughput, calculated as `4 * rows * N * K / seconds`: two FLOPs per FMA across both projections.
+The public pair is the installed HIP control. This is the P2-era throughput table; the typed Q3-2 speeds below are the current retained result. Effective TFLOPS is nominal dense-equivalent complete-call throughput, calculated as `4 * rows * N * K / seconds`: two FLOPs per FMA across both projections.
 
 | Batch | Rows | P2 body | Row-task parent body | P2 complete | Public HIP complete | Parent/P2 | HIP/P2 speedup | P2 effective TFLOPS | HIP effective TFLOPS |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -135,3 +135,63 @@ The HIP paired control carries `.amdhsa_workgroup_processor_mode 1`, absent from
 Q3-1 through Q3-4 require distinct typed identities and serialized policies, exact gfx1151 code-object-v5 assembly and linking, ABI and metadata inspection, resource and disassembly inspection, independent exactness and mutation checks, deterministic rebuilds, and warmed prequantized and complete-call timings against the public and ownership-matched controls. Any combined identity repeats the full qualification order. Static or amortized instruction estimates are not timing claims.
 
 The historical P2 final classification remains scoped to the old body and schedule. Implement and qualify every actionable finding, then repeat the complete source, artifact, resource, correctness, determinism, and timing review from the changed premise. Completion requires a fresh recursive pass with no actionable in-contract mechanism. Public selectors, generated bundles, packaging, registration, and HIP fallback remain outside this experiment.
+
+### Q3-1 qualification result
+
+Q3-1 moved the dedicated `v124:v131` initialization before the K2048 block loop and removed the other three statically emitted sets. The current typed parent was verified instruction-for-instruction against retained P2 after normalizing the already-qualified symbol-only identity change. Independent candidate builds were byte-deterministic. The artifact changed from 3,000 to 2,976 VALU issue instructions while retaining 148 VGPRs, 44 SGPRs, 19,456 LDS bytes, 128 WMMAs, eight barriers, zero spills, and zero private bytes.
+
+The full R35 route, malformed-route, independent-reference, rerun, active/inactive weight mutation, projection-isolation, and activation-mutation matrix passed. Production-row route and malformed-route checks also passed at B1, B4, and B16. Direct same-session A/B timing against the rebuilt instruction-identical P2 parent matched both BF16 outputs at every fitted medoid. Weighted candidate/parent complete-call medians were 4.9995/4.9998 ms at B1, 14.5857/14.5849 ms at B4, and 54.5148/54.4689 ms at B16, equivalent to +0.01%/-0.01%/-0.08% candidate movement. Prequantized body movement was -0.28%/-0.07%/+0.16%.
+
+Q3-1 is rejected as timing-neutral. Complete-call movement is effectively zero, body direction is mixed, and the largest observed movement is 0.28%, so the closure does not depend on the obsolete fixed two-percent threshold and no uncertainty top-up is warranted. No source integration or serial-ownership transfer follows. Q3-2 through Q3-4 remain independent and must not compose this rejected change.
+
+### Q3-2 qualification result
+
+Q3-2 replaced each of the 32 statically emitted Q3 scale-field `v_lshrrev_b32` plus `v_and_b32` pairs with one variable-offset `v_bfe_u32`. The configured gfx1151 assembler accepted the exact operand form and independent builds were byte-deterministic. The artifact changed from 3,000 to 2,968 VALU issue instructions while retaining 148 VGPRs, 44 SGPRs, 19,456 LDS bytes, 128 WMMAs, eight barriers, zero spills, and zero private bytes.
+
+The full R35 route, malformed-route, independent-reference, rerun, active/inactive weight mutation, projection-isolation, and activation-mutation matrix passed. Production-row route and malformed-route checks also passed at B1, B4, and B16. Direct same-session A/B timing against the instruction-identical P2 parent matched both BF16 outputs at every fitted medoid. Weighted candidate/parent complete-call medians were 4.8530/4.9415 ms at B1, 14.6109/14.7620 ms at B4, and 54.4895/54.8696 ms at B16, or gains of 1.82%/1.03%/0.70%. Prequantized body gains were 1.33%/0.80%/1.36%. The weakest complete-call medoid ratios were `1.00073x`, `1.00364x`, and `1.00488x`.
+
+Q3-2 is rejected because no shape cleared the strict two-percent advancement gate. The directional movement is retained as evidence, but no 25-repeat confirmation, source integration, or composition with Q3-1 follows. Q3-3 and Q3-4 remain independent.
+
+### Q3-2 stability-policy reopening
+
+The fixed two-percent gate was subsequently withdrawn for candidates with stable evidence of a smaller gain. A same-session 25-repeat confirmation with five warmups retained exact outputs at every medoid. Weighted candidate/parent complete-call medians were 4.9059/4.9525 ms at B1, 14.6099/14.7282 ms at B4, and 54.5834/55.0632 ms at B16, or gains of 0.95%/0.81%/0.88%. Every one of the fifteen medoids was faster; the minimum ratios were `1.00478x`, `1.00648x`, and `1.00819x`. Prequantized body gains were 0.91%/0.82%/1.05%, and every body medoid was also faster.
+
+A conservative independent-sample 95% log-time analysis found nine of fifteen complete-call medoids and twelve of fifteen body medoids individually below parity; all remaining intervals overlapped parity narrowly and none favored the parent. The coherent direction across both timing layers, every shape, and every medoid is stable evidence of a small gain. Q3-2 is therefore reclassified as a retained research mechanism pending typed-source requalification. This reopening does not compose Q3-1 and does not change public dispatch, bundle registration, packaging, or HIP fallback behavior.
+
+### Q3-2 typed retention
+
+The retained source identity serializes `TwoLaneSelectedHalfQ3VariableBFE` as the decode schedule and admits it only for Q3_K device-row-task ownership. Baseline Q3_K, IQ2_S, and IQ2_XXS identities retain their prior schedules. The typed lowering reproduced the qualified probe instruction-for-instruction after canonical symbol normalization. Two typed builds were byte-deterministic and retained 2,968 VALU issue instructions, 148 VGPRs, 44 SGPRs, 19,456 LDS bytes, 128 WMMAs, eight barriers, zero spills, and zero private bytes.
+
+The typed R35 route/reference/mutation matrix and all production-row route and malformed-route checks passed exactly. A fresh same-session 25-repeat typed A/B measured candidate/parent complete-call medians of 4.9006/4.9437 ms at B1, 14.5887/14.7411 ms at B4, and 54.6028/55.0552 ms at B16, or gains of 0.88%/1.04%/0.83%. Body gains were 0.98%/0.89%/1.02%. Every complete-call and body medoid was faster; minimum complete-call ratios were `1.00571x`, `1.00640x`, and `1.00738x`. Conservative 95% log-time intervals excluded parity for twelve of fifteen complete-call medoids and thirteen of fifteen body medoids; none of the remaining intervals favored the parent.
+
+Q3-2 is retained as `q3_k_k128_interleaved_row_tasks_variable_bfe()`. It remains a research identity only: public dispatch, generated bundle registration, packaging, prepared representations, and HIP fallback behavior are unchanged. Any composition with Q3-1, Q3-3, or Q3-4 requires a new identity and full requalification.
+
+### Q3-3 epilogue qualification result
+
+Q3-3 was evaluated against retained typed Q3-2 as three independently materialized subprobes. Shared column setup removed six artifact VALU issues, from 2,968 to 2,962, with unchanged 148 VGPRs, 44 SGPRs, 19,456 LDS bytes, 128 WMMAs, eight barriers, waits, private storage, and spills. It passed the R35 and production route/reference/mutation matrices. Nine-repeat complete-call parent/candidate ratios were `0.99852x`, `1.00189x`, and `1.00059x` at B1/B4/B16; body ratios were `0.99946x`, `0.99988x`, and `1.00262x`. The mixed direction closes this narrow form.
+
+The broader materialized-address form carried common column and row terms in registers proven dead after accumulation. It removed 25 VALU issues, from 2,968 to 2,943, without changing any resource or synchronization count. It preserved the Q3_K N512 row shift of 10 and passed the complete exact matrix. Complete-call ratios were `0.99765x`, `1.00515x`, and `1.00162x`; body ratios were `0.99921x`, `1.00031x`, and `0.99998x`. The apparent B4 complete gain does not transfer to the body or other shapes, so the candidate is timing-incoherent.
+
+The exact width-two BF16 form interleaved adjacent `v_bfe_u32`/`v_add3_u32` RNE chains through a proven-dead scratch register. Builds and outputs were deterministic and exact, with unchanged instruction and resource counts. Complete-call ratios were `0.99711x`, `1.00218x`, and `1.00115x`; body ratios were `1.00394x`, `0.99797x`, and `1.00184x`. Complete/body disagreement again closes the candidate. These three results exhaust Q3-3's allowed shared-setup, address-materialization, and exact BF16-scheduling mechanisms; no source identity or composition is retained.
+
+### Q3-4 processor-mode metadata result
+
+Q3-4 added `.amdhsa_workgroup_processor_mode 1` to retained Q3-2 at R35, B1, B4, and B16. The configured gfx1151 assembler accepted the spelling, and two independent passes were deterministic. At every row count, the candidate object and linked HSACO were byte-identical to the parent. ABI, 148 VGPRs, 44 SGPRs, 19,456 LDS bytes, 128 WMMAs, eight barriers, 2,968 VALU issues, VMEM/LDS/wait/clause counts, private storage, and spills were necessarily unchanged.
+
+Q3-4 is closed as executable-inert under this exact assembler, linker, target, and code-object-v5 artifact. No timing can distinguish byte-identical executables, and no serialized schedule, typed identity, source retention, or public integration follows. This does not predict behavior under another toolchain or target.
+
+### Post-Q3-4 recursive final review
+
+A separate read-only pass over retained Q3-2, its row-task physical plan, decode and epilogue lowerings, generated artifacts, Q3-1 through Q3-4, dense Q3, and the other paired formats found no new exact Q3_K mechanism. Zero-bank motion is timing-neutral, variable BFE is retained, all bounded epilogue forms are timing-incoherent, and processor mode is executable-inert. The reusable LDS image still requires its waits and barriers, and no bank-valid VOPD or exact BF16 replacement supplies a changed premise. No actionable in-contract paired Q3_K mechanism remains; public integration stays deferred.
+
+### Final retained throughput versus HIP
+
+The current typed Q3-2 result was benchmarked against the installed HIP public pair with seven warmups and 25 alternating repeats at every retained production shape. Effective TFLOPS uses `4 * rows * N * K / (median_ms * 1e9)`. The speedup is `HIP public-pair median / Q3-2 median`, so values above `1.0x` favor the retained kernel.
+
+| Batch | Rows | Q3-2 complete ms | HIP public complete ms | Q3-2 TFLOPS | HIP TFLOPS | Speedup vs HIP |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 16,384 | 4.8010 | 5.7829 | 14.314 | 11.883 | 1.2045x |
+| 4 | 65,536 | 14.5876 | 16.0684 | 18.843 | 17.107 | 1.1015x |
+| 16 | 262,144 | 54.8249 | 58.7010 | 20.055 | 18.731 | 1.0707x |
+
+All route, malformed-route, mutation, and finite-output checks were exact. The report files are `ggtensile-grouped-q3-k-pair-q3-2-variable-bfe-vs-hip-b{1,4,16}-ab25.json`. The earlier typed-parent ratios remain useful for explaining the small retained improvement; the final ratios above are the retained-kernel-versus-HIP results.

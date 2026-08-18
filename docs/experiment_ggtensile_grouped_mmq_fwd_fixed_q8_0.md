@@ -150,3 +150,37 @@ F1-F3 are pending only if an exact target-level mechanism can be materialized. E
 ## Recursive Final Review Continuation
 
 The prior recursive final-review rule is still mandatory. Its retained and rejected classifications are scoped to the old P3 premise and must not be rewritten by these pending probes. Implement and qualify every actionable finding, then repeat the complete source, artifact, resource, correctness, determinism, and timing review from the changed premise. Completion is valid only when a fresh recursive pass finds no actionable in-contract mechanism and the selected fixed key remains exact, deterministic, resource-clean, and faster than its exact controls.
+
+### F1 processor-mode result
+
+F1 rebuilt current canonical P3 and inserted `.amdhsa_workgroup_processor_mode 1` at 2,048, 8,192, and 32,768 tokens. This avoided the invalid comparison against archived pre-refactor symbols. Both passes were deterministic. For keys `ggsol_65ea830f809a878c`, `ggsol_03c6517b032619d5`, and `ggsol_e80f2d214da77367`, the transformed object and linked HSACO were byte-identical to the parent. ABI, metadata visible to inspection, 144 VGPRs, 16 SGPRs, 18,432 LDS bytes, 32 WMMAs, two barriers, private storage, spills, and every instruction count were unchanged.
+
+F1 is closed as executable-inert under this exact gfx1151 assembler/linker artifact. Timing cannot distinguish byte-identical executables. No serialized policy, typed identity, source retention, or transfer to another family follows.
+
+### F2 exact epilogue and clause results
+
+F2 independently built exact BF16 width-two interleaving and store-clause widths 32, 16, 8, and none at every required token count. Two builds of each variant were deterministic. Every artifact retained 144 VGPRs, 16 SGPRs, 18,432 LDS bytes, 32 WMMAs, two barriers, 451 VALU issues, zero private bytes, and zero spills. The parent has three total clauses, including one 32-store epilogue clause; width 16 has four total clauses, width 8 has six, and no-clause has two. `fixed-grouped-q8-f2-semantic.json` records bitwise parent/public equality and finite output for every variant and token count, repeated-producer equality, and active packed-weight and activation mutations at 2,048 tokens.
+
+The BF16 width-two schedule was mixed in the nine-repeat screen: parent/candidate body ratios were `0.98619x`, `0.99992x`, and `1.01261x` at 2,048/8,192/32,768 tokens, while complete ratios were `1.00200x`, `1.00230x`, and `0.99956x`. Complete/body direction disagrees at both endpoint shapes, so the resource-neutral instruction motion is closed as timing-neutral.
+
+Removing the store clause was a genuine regression, not a threshold closure. Parent/candidate body ratios were `0.94610x`, `0.95758x`, and `0.96067x`, and complete ratios were `0.95964x`, `0.95567x`, and `0.96245x`. The 32-store clause therefore carries material executable scheduling value on this artifact.
+
+Width 16 and width 8 received two independent seven-warmup, 25-repeat top-ups. Width 16's first bracket had all aggregate medians slightly favorable, but five of six robust intervals crossed parity; the second bracket reversed body direction at 2,048 and 8,192 tokens and complete direction at 8,192 tokens. It is closed as timing-neutral. Width 8 repeatedly favored the 32,768-token complete call by about 0.25%-0.28%, with both complete intervals below parity, but its body intervals crossed parity and the 8,192-token complete direction reversed between brackets.
+
+Because the 32,768-token width-8 result was the only surviving shape-specific signal, it was represented locally as distinct canonical `BFloat16RNEClause8`, restricted to the exact retained P3 32,768-token key. Typed builds reproduced the probe instruction-for-instruction after symbol normalization, were deterministic and resource-clean, and passed exact full-size public equality. The fresh typed 25-repeat A/B did not reproduce the gain: candidate/parent was `69.6846/69.5596 ms` in the body and `85.7680/85.7610 ms` complete, movements of +0.18% and +0.008%. Robust 95% intervals were `[-1.82%,+2.22%]` for body and `[-1.37%,+1.41%]` complete. The typed finalist is timing-neutral, so its source changes were removed and no identity is retained.
+
+F2 is complete: exact BF16 chain interleaving, 32/16/8/no-clause boundaries, and the only plausible typed shape-specific finalist have all reached a measured disposition. P3's original 32-store clause remains canonical.
+
+### F3 delay-ALU and VOPD result
+
+The durable target audit is `fixed-grouped-q8-f3-target-scheduling-audit.json`, generated from current P3 key `ggsol_65ea830f809a878c`. The linked hand-authored artifact contains zero `s_delay_alu` instructions. No compiler scheduling pass lies between this assembly source and the assembler/linker, and no producer/consumer motion survived F2 that would create a concrete delay requirement; inserting a delay without such a change can only add a stall. The delay screen is therefore inapplicable on the current premise rather than an unmeasured performance claim.
+
+The same audit applied the exact GFX11 VOPD X/Y lists. P3 already contains 156 accepted VOPD pairs. Every remaining standalone integer add, shift, and AND is Y-only on GFX11, while 33 `v_bfe_u32`, 32 `v_add3_u32`, 130 conversions, ten `v_mul_lo_u32`, four right shifts, and 32 WMMAs are not eligible X instructions. The artifact has zero standalone X-eligible operations, so no additional legal VOPD pair exists even before register-bank masks are considered. In particular, `v_bfe_u32` is not treated as a generic VOPD operand.
+
+F3 is closed by exact target capability and artifact inspection. No delay or VOPD source policy is retained. F1-F3 now have complete dispositions, and the fixed P3 source remains unchanged.
+
+### Post-F3 recursive final review
+
+A separate read-only pass over the restored P3 model, physical plan, lowering, generated artifacts, P0-P6 history, F1-F3 evidence, ordinary Q8 controls, and gfx1151 target definitions found no new exact fixed-group mechanism. Compact ownership, weight-address lifetime, overlap, persistence, loop unrolling, exact BF16 scheduling, clause boundaries, processor mode, delay insertion, and legal VOPD formation are retained or closed by their recorded correctness, resource, executable, and timing evidence. The original 32-store clause is the only tested clause form with material value.
+
+No wait or barrier change has an artifact-specific hazard proof, and ordinary-Q8 scheduling does not transfer without a fixed-group identity. Prepared weights, changed activation production, persistent or split-K launch ownership, public dispatch, bundles, packaging, and fallback remain contract or integration changes. The fresh pass therefore finds no actionable in-contract fixed Q8_0 mechanism.

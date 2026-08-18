@@ -113,8 +113,11 @@ def inspect_grouped_forward_pair_artifact(
     clause_count = mnemonics.count("s_clause")
     delay_alu_count = mnemonics.count("s_delay_alu")
     buffer_gl0_inv_count = mnemonics.count("buffer_gl0_inv")
+    expected_wmmas = 2 * solution_key.solution.macro_tile0
     _require(
-        wmma_count == 128, f"expected 128 static WMMAs, found {wmma_count}", errors
+        wmma_count == expected_wmmas,
+        f"expected {expected_wmmas} static WMMAs, found {wmma_count}",
+        errors,
     )
     _require(barrier_count == 8, f"expected 8 barriers, found {barrier_count}", errors)
     _require(

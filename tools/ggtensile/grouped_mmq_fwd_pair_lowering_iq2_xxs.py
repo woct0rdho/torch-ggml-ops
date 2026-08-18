@@ -26,7 +26,7 @@ from .mmq_fwd_lowering_mma import emit_signed_i8_wmma
 
 @dataclass(frozen=True)
 class GroupedIQ2XXSPairedK128Lowering:
-    """Emit one J64 tile with explicit IQ2_XXS grid/sign reconstruction."""
+    """Emit one typed row tile with explicit IQ2_XXS grid/sign reconstruction."""
 
     context: GroupedForwardPairLoweringContext
 
@@ -60,6 +60,7 @@ class GroupedIQ2XXSPairedK128Lowering:
         physical = self._physical_plan()
         mechanics = self._mechanics()
         layout = physical.layout
+        row_tile = layout.activation_rows
         registers = physical.registers
         scalar = physical.scalar_registers
         state = self.context.state
@@ -104,9 +105,9 @@ class GroupedIQ2XXSPairedK128Lowering:
             f"s_sub_u32 s{scalar.row_tile_rows.first_register}, "
             f"s{scalar.row_end.first_register}, s{scalar.row_start.first_register}"
         )
-        asm.inst(f"s_cmp_le_u32 s{scalar.row_tile_rows.first_register}, 64")
+        asm.inst(f"s_cmp_le_u32 s{scalar.row_tile_rows.first_register}, {row_tile}")
         asm.inst("s_cbranch_scc1 .LGroupedPairIQ2XXSRowsReady")
-        asm.inst(f"s_mov_b32 s{scalar.row_tile_rows.first_register}, 64")
+        asm.inst(f"s_mov_b32 s{scalar.row_tile_rows.first_register}, {row_tile}")
         asm.label(".LGroupedPairIQ2XXSRowsReady")
         asm.inst(
             f"s_add_u32 s{scalar.row_tile_end.first_register}, "
@@ -191,7 +192,7 @@ class GroupedIQ2XXSPairedK128Lowering:
         )
         asm.inst(
             f"s_add_u32 s{scalar.row_start.first_register}, "
-            f"s{scalar.row_start.first_register}, 64"
+            f"s{scalar.row_start.first_register}, {row_tile}"
         )
         asm.inst(
             f"s_cmp_lt_u32 s{scalar.row_start.first_register}, "
@@ -364,12 +365,40 @@ class GroupedIQ2XXSPairedK128Lowering:
             self._emit_compute_group_wmmas_accumulate(asm, accumulate=True)
             mechanics.emit_fragment_correction(asm, 0, 3, sums)
             mechanics.emit_fragment_correction(asm, 1, 2, sums)
+            if layout.activation_rows == 80:
+                self._emit_single_fragment_correction(asm, sums, 4)
+
+    def _emit_single_fragment_correction(
+        self,
+        asm: Assembly,
+        sums: int,
+        fragment: int,
+    ) -> None:
+        registers = self._physical_plan().registers
+        base = registers.c.first_register + 8 * fragment
+        for element in range(8):
+            asm.inst(f"v_cvt_f32_i32 v{base + element}, v{base + element}")
+        for element in range(0, 8, 2):
+            asm.inst(
+                f"v_dual_mul_f32 v{base + element}, "
+                f"v{registers.weight_scales.first_register + element}, "
+                f"v{base + element} :: v_dual_mul_f32 v{base + element + 1}, "
+                f"v{registers.weight_scales.first_register + element + 1}, "
+                f"v{base + element + 1}"
+            )
+        scale = registers.activation_scale.first_register + fragment
+        for element in range(8):
+            asm.inst(
+                f"v_fmac_f32 v{sums + 8 * fragment + element}, "
+                f"v{scale}, v{base + element}"
+            )
 
     def _emit_compute_group_wmmas_accumulate(
         self, asm: Assembly, *, accumulate: bool
     ) -> None:
-        registers = self._physical_plan().registers
-        for m_index in range(4):
+        physical = self._physical_plan()
+        registers = physical.registers
+        for m_index in range(physical.layout.activation_rows // 16):
             destination = registers.c.first_register + 8 * m_index
             emit_signed_i8_wmma(
                 asm,
@@ -391,7 +420,10 @@ class GroupedIQ2XXSPairedK128Lowering:
         scalar = self._physical_plan().scalar_registers
         temporary = registers.temporary.first_register
         column = registers.decode_auxiliary.first_register
-        asm.comment(f"Store paired IQ2_XXS projection {projection} J64 BF16 fragments.")
+        row_tile = self._physical_plan().layout.activation_rows
+        asm.comment(
+            f"Store paired IQ2_XXS projection {projection} J{row_tile} BF16 fragments."
+        )
         asm.inst(f"v_bfe_u32 v{column}, v{registers.lane.first_register}, 4, 1")
         asm.inst(f"v_lshlrev_b32 v{temporary}, 4, v{registers.wave.first_register}")
         asm.inst(f"v_add_nc_u32 v{column}, v{temporary}, v{column}")
@@ -400,7 +432,7 @@ class GroupedIQ2XXSPairedK128Lowering:
         )
         asm.inst(f"v_add_nc_u32 v{column}, v{temporary}, v{column}")
         asm.inst(f"v_lshlrev_b32 v{column}, 1, v{column}")
-        for m_index in range(4):
+        for m_index in range(row_tile // 16):
             fragment = sums + 8 * m_index
             for element in range(8):
                 emit_bf16_rne(asm, fragment + element, temporary + 1)

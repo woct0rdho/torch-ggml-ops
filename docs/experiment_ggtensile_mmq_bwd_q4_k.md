@@ -228,9 +228,9 @@ Any new resource-bearing mechanism must remain bit-exact, reproducible, resource
 
 The Q4_K 12-key optimization campaign and its repeated optimization-exhaustion review are complete. The selected-solution catalog, exact validation, final correctness, and padded exact-key weighted 25-repeat matrix are the current controls. Further Q4_K work requires a newly actionable large-margin direction with a changed premise; ordinary local tuning is closed.
 
-#### Final result
+#### Historical selected-catalog result
 
-The authoritative 25-repeat matrix reports logical arithmetic throughput. Speedup is `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile.
+The authoritative 25-repeat matrix below is the selected catalog before the later research-only `DependencyBatch4` identity. It remains useful as the HIP control baseline; the current retained decode speeds are reported in the reopened section. Logical throughput is arithmetic throughput, and speedup is `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile.
 
 | Family | `(M,N,K)` | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP |
 | --- | ---: | ---: | ---: | ---: |
@@ -368,3 +368,41 @@ The permanent review was rerun from the padded exact-key catalog after the byte-
 - Rejected complete two-buffer store-priority matrix and query M2048 confirmation: `~/tmp/torch-ggml-ops/ggtensile-q4-k-retained-store-priority-matrix-a/`.
 
 The original K8192 baseline was 122.90 ms versus HIP at 47.61 ms. It remains useful as the start of the trajectory, but it is not a current performance control.
+
+## Reopened Dependency-Batched Decode Under Current Parents
+
+The historical two-value and four-value decode rejection above remains a valid conclusion for its original SIA4/PGR2 parent artifacts and larger-margin gate. It is not a conclusion about the current selected keys: the current K512 parent is the later padded `256x64` SIA5 key, and the current K8192 parent is the selected `128x64` SIA4 key. That changed schedule/geometry premise justified a fresh Q4-only reopening.
+
+The reopened identity groups the four independent Q4 nibble conversions for each packed dword. It converts all four values, issues all four exact FP32 scale/minimum FMAs, performs all four exact BF16 RNE corrections, and stores all four results. The four value/rounding pairs alias the physical plan's dead `valu_b` local-read bank after each WMMA pair and during prime decode; no VGPR, SGPR, LDS, ABI, wait, barrier, or spill resource changes. The accepted serialized identity is `KernelSpec.decode.schedule=DependencyBatch4`. Serial Q4 remains canonically represented by an absent `decode` member, and non-Q4 formats reject the field as inert.
+
+The source-level probe was built independently at widths two and four. Both widths were deterministic, assembled with code-object version 5, and retained the parent allocation class. Width two screened at `0.9500x` candidate/parent on K512 and `0.9771x` on K8192. Width four screened at `0.9336x` and `0.9746x`, respectively. A direct two-arm 25-repeat comparison of width four against width two favored width four by `1.69%` and `2.05%` in the two K512 brackets; K8192 favored it directionally by `0.43%` and `0.36%`, with confidence intervals crossing parity. Width two is therefore recorded as superseded evidence, not as a second retained policy.
+
+The typed `DependencyBatch4` identity is:
+
+| Shape | Parent | Candidate | Resources | Typed candidate median movement | 95% candidate/parent interval |
+| --- | --- | --- | --- | ---: | --- |
+| `M32768,N2048,K512` | `ggsol_62458f19e191e23e` | `ggsol_0d6e1d899fd42b8d` | `234 VGPR, 16 SGPR, 5120 LDS, 32 WMMA` | `-6.25%`, `-6.10%` | `[-7.40%,-5.09%]`, `[-7.68%,-4.49%]` |
+| `M32768,N2048,K8192` | `ggsol_2d4436d7934c58cd` | `ggsol_94c4e086c11877c7` | `212 VGPR, 16 SGPR, 16384 LDS, 64 WMMA` | `-2.55%`, `-2.65%` | `[-4.08%,-1.00%]`, `[-3.59%,-1.70%]` |
+
+Each row is a separate alternating same-session 20-warmup/25-repeat bracket pair. The intervals use median-log centers and the maximum of standard deviation, `1.4826*MAD`, and `IQR/1.349` as robust scale. Every interval excludes parity in favor of the typed candidate. Independent full-call checks found zero differing BF16 elements against installed HIP before and after gradient and packed-weight mutation. The candidates matched the HIP independent-reference error: K512 normalized RMSE `0.0000345316` with `16,684` differing reference elements, and K8192 normalized RMSE `0.0001924804` with `409,880` differing reference elements. Independent source, object, and HSACO builds were deterministic, and normalized typed source matched the qualified width-four probe byte-for-byte.
+
+This is a retained exact research identity only. No Q4 deployment catalog entry, generated bundle, public dispatch path, registration, package, prepared representation, or HIP fallback changed. Evidence is under `~/tmp/torch-ggml-ops/ggtensile-q4-bwd-decode-batch-{reopen-first,typed-first}/`, with build and timing reports named `ggtensile-q4-bwd-decode-batch-*`. The source/test retention commit is intentionally separate from this documentation update.
+
+## Reopened SIA5 On The Current K8192 Key
+
+The historical resource-identical `0.93%` SIA5 screen was also reopened because its rejection depended only on the retired advancement threshold. The exact typed candidate `ggsol_05cb1277767e45a9` changes only `KernelSpec.pipeline.schedule` from `SIA4` to `SIA5` on current K8192 parent `ggsol_2d4436d7934c58cd`. Independent source, object, and HSACO rebuilds were deterministic. Both artifacts use 212 VGPRs, 16 SGPRs, 16,384 LDS bytes, 64 WMMAs, two barriers, zero private bytes, and zero spills, but SIA5 emits 43 waits rather than SIA4's 23.
+
+The candidate exactly matched the parent and installed HIP over all 67,108,864 BF16 outputs. It remained exact and finite after negating the gradient and after mutating a packed-weight byte; those mutations changed 67,108,864 and 23,136 candidate outputs, respectively. Two alternating 20-warmup/25-repeat brackets measured SIA5/SIA4 median movement of `+1.19%` and `+0.94%`. The robust median-log 95% intervals were `[+0.07%,+2.33%]` and `[-0.32%,+2.23%]`: neither favors SIA5, and the first excludes parity on the regression side.
+
+SIA5 is therefore closed for this exact K8192 geometry as a measured schedule regression, not as a threshold-only rejection. It is not composed with `DependencyBatch4`. Evidence is in `~/tmp/torch-ggml-ops/ggtensile-q4-sia5-reopen-current-{first,second}/` and the reports `ggtensile-q4-sia5-reopen-current-{build,semantic}.json` and `ggtensile-q4-bwd-sia5-current-k8192-ab25*.json`.
+
+### Final retained throughput versus HIP
+
+The current typed DependencyBatch4 identity was benchmarked against the installed HIP kernel with 20 warmups and 25 alternating repeats in each of two independent brackets. Logical throughput uses `2 * M * N * K / (median_ms * 1e9)`. The speedup is `HIP median / DependencyBatch4 median`, so values above `1.0x` favor the retained kernel. The summary averages the two bracket medians.
+
+| Shape | Candidate ms A/B | HIP ms A/B | Candidate TFLOPS A/B | HIP TFLOPS A/B | Speedup A/B | Mean candidate TFLOPS | Mean HIP TFLOPS | Mean speedup vs HIP |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `M32768,N2048,K512` | 1.9914 / 1.9827 | 3.1124 / 3.0854 | 34.508 / 34.659 | 22.079 / 22.273 | 1.5629x / 1.5561x | 34.583 | 22.176 | 1.5595x |
+| `M32768,N2048,K8192` | 36.9512 / 37.0071 | 48.0323 / 48.0400 | 29.756 / 29.711 | 22.891 / 22.887 | 1.2999x / 1.2981x | 29.733 | 22.889 | 1.2990x |
+
+All candidate and HIP outputs matched exactly before and after gradient and packed-weight mutation. The fresh reports are `ggtensile-final-vs-hip-q4-k512-{a,b}.json` and `ggtensile-final-vs-hip-q4-k8192-{a,b}.json`. The older typed-parent ratios remain acceptance evidence for the decode change; the final ratios above are the retained-kernel-versus-HIP results.

@@ -147,6 +147,14 @@ All three production artifacts rebuilt byte-identically and passed strict inspec
 
 The retained research identity is `iq2_s_serial_full_weight_lds_64_linear_payload_prefetch()`. Intermediate BFE, selector, and quarter-scale identities were folded into this single final identity. Public dispatch, generated bundle tables, extension registration, packaging, and HIP fallback remain unchanged.
 
+### N1 partial zero-bank hoisting result
+
+The N1 follow-up was qualified as an isolated transformed artifact. It moved only `v94:v99` before `.LGroupedIQ2SBlockLoop` and retained the live `v92:v93` initialization inside the loop; full zero-bank hoisting was not attempted. Two independent builds for rows 35, 16,384, 65,536, and 262,144 were source- and artifact-deterministic and retained the parent resource class: 116 VGPRs, 40 SGPRs, 30,720 bytes of LDS, 64 static WMMAs, four barriers, zero private bytes, and zero spills. Artifact counts were unchanged at 1,552 VALU issues, 2,064 VALU operations, 512 VOPD instructions, 87 VMEM instructions, 186 LDS instructions, 38 waits, and four clauses.
+
+The complete IQ2_S route/reference/malformed-route/rerun/mutation matrix passed, including direct packed-weight consumption and sentinel behavior for invalid routes. Five-warmup, 25-repeat alternating same-session measurements over the production confirmation medoids moved complete-call time by `+0.15%`, `+0.20%`, and `+0.20%` at B1/B4/B16. Prequantized body movement was `-0.01%`, `+0.20%`, and `+0.01%`. Per-medoid direction was mixed, most parent/candidate ratios included values below one, and the uncertainty intervals crossed zero at each layer.
+
+N1 is therefore closed as timing-neutral. The static and amortized move reduction is not a performance result, and no typed source identity, lowering policy, catalog entry, public dispatch change, or source commit follows from this probe. The conclusion is scoped to partial zero-bank hoisting in the current non-paired IQ2_S physical plan; it does not reject other initialization ownership or geometry premises.
+
 ### Reopened routed prologue and direct-to-LDS capability experiments
 
 IQ2_S shares the R1 packed-kernarg, R2 paired cumulative-offset, and guarded high-stride portion of R3. Their timing transfer is gated by Q4_K B1 because both use K512 and 32 output-column workgroups per route, while IQ2_S performs strictly more decode work. IQ2_S output addressing already uses a power-of-two shift, so only a legal shift-add combine remains format-local.
@@ -180,3 +188,7 @@ The ordinary decoded-LDS Q2_K, Q4_K, and Q5_K bodies do not inherit N1: their ze
 ### Recursive review continuation
 
 The historical final classification remains scoped to the old R1-R4 premise. Implement and qualify every actionable N1 finding, then repeat the complete source, artifact, resource, correctness, determinism, and timing review from the changed premise. A fresh recursive pass is required before completion can be declared; source-level instruction reductions alone cannot close this record. Public dispatch, generated bundles, packaging, and HIP fallback remain outside this experiment.
+
+### N1 final disposition
+
+The N1 qualification result recorded above resolves this pending item. Its 25-repeat complete and body evidence is mixed and every uncertainty interval crosses parity, so partial zero-bank hoisting is closed as timing-neutral rather than by a fixed advancement threshold. A separate read-only pass over the restored canonical IQ2_S physical plan, lowering, generated body, and the grouped cross-family results found no new initialization, epilogue, route, address, wait, barrier, VOPD, or geometry mechanism with an exact target and a plausible unmeasured gain. The earlier R1-R4 and J128 dispositions remain scoped and unchanged. No actionable in-contract IQ2_S mechanism remains under the current direct-packed serial ownership premise.

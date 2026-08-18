@@ -145,7 +145,7 @@ class GroupedForwardPairContract:
                 solution.matrix_instruction == (16, 16, 16, 1, 1, 1, 4, 4, 1),
                 "paired matrix instruction mismatch",
             ),
-            (solution.macro_tile0 == 64, "paired row tile must be 64"),
+            (solution.macro_tile0 in (64, 80), "paired row tile must be 64 or 80"),
             (solution.macro_tile1 == 64, "paired output tile must be 64"),
             (solution.depth_u == 128, "paired depth must be K128"),
             (
@@ -565,6 +565,13 @@ def grouped_forward_pair_capability_rejection_reason(
     }.get(problem.quant_data_type, set())
     if kernel_spec.route_ownership not in supported_ownership:
         return "paired route ownership is unavailable for the quant format"
+    if solution.macro_tile0 == 80 and (
+        problem.quant_data_type != "IQ2_XXS"
+        or kernel_spec.metadata_schedule
+        is not GroupedPairDecodeSchedule.TwoLaneSelectedHalfIQ2XXSFusedSelector
+        or kernel_spec.route_ownership is not GroupedPairRouteOwnership.SerialRoutes
+    ):
+        return "paired J80 requires IQ2_XXS fused-selector serial-route ownership"
     if (
         kernel_spec.metadata_schedule
         is GroupedPairDecodeSchedule.TwoLaneSelectedHalfQ3VariableBFE
@@ -630,7 +637,9 @@ class DerivedGroupedForwardPairState:
             grouped_iq2_s_pair_physical_plan(solution.route_ownership)
             if problem.quant_data_type == "IQ2_S"
             else (
-                grouped_iq2_xxs_pair_physical_plan(solution.route_ownership)
+                grouped_iq2_xxs_pair_physical_plan(
+                    solution.route_ownership, solution.macro_tile0
+                )
                 if problem.quant_data_type == "IQ2_XXS"
                 else grouped_q3_k_pair_physical_plan(solution.route_ownership)
             )

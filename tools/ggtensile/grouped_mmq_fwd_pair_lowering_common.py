@@ -185,6 +185,9 @@ class GroupedPairK128Mechanics:
         *,
         stage_index: int,
     ) -> None:
+        if layout.activation_rows == 80:
+            self._emit_linear_activation_stage_j80(asm, layout, stage_index=stage_index)
+            return
         registers = self.physical.registers
         scalar = self.physical.scalar_registers
         serial = registers.temporary.first_register
@@ -287,6 +290,107 @@ class GroupedPairK128Mechanics:
         asm.inst(f"ds_write_b64 v{local_address}, v[{payload + 16}:{payload + 17}]")
         asm.label(done_label)
 
+    def _emit_linear_activation_stage_j80(
+        self,
+        asm: Assembly,
+        layout: GroupedPairHalfLdsLayout,
+        *,
+        stage_index: int,
+    ) -> None:
+        registers = self.physical.registers
+        scalar = self.physical.scalar_registers
+        serial = registers.temporary.first_register
+        global_address = serial + 1
+        local_address = registers.activation_lds_address.first_register
+        payload = registers.activation_stage.first_register
+        activations = scalar.activations.first_register
+        plane_end = scalar.activation_plane_end.first_register
+        exec_mask = scalar.exec_mask.first_register
+        partial_label = f".LGroupedPairIQ2XXSActivationPartial80_{stage_index}"
+        done_label = f".LGroupedPairIQ2XXSActivationDone80_{stage_index}"
+
+        asm.comment("Linearly stage one 11,520-byte F32_D4 activation tile for J80.")
+        asm.inst(
+            f"s_mul_i32 s{plane_end}, s{scalar.row_tile_rows.first_register}, "
+            f"{layout.activation_row_stride}"
+        )
+        asm.inst(f"v_lshlrev_b32 v{serial}, 5, v{registers.wave.first_register}")
+        asm.inst(f"v_add_nc_u32 v{serial}, v{registers.lane.first_register}, v{serial}")
+        asm.inst(f"s_cmp_eq_u32 s{scalar.row_tile_rows.first_register}, 80")
+        asm.inst(f"s_cbranch_scc0 {partial_label}")
+        for band in range(6):
+            self._emit_j80_activation_load(
+                asm,
+                band,
+                serial,
+                global_address,
+                local_address,
+                payload,
+                activations,
+                str(layout.activation_bytes) if band == 5 else None,
+                exec_mask,
+            )
+        asm.inst(f"s_branch {done_label}")
+        asm.label(partial_label)
+        for band in range(6):
+            self._emit_j80_activation_load(
+                asm,
+                band,
+                serial,
+                global_address,
+                local_address,
+                payload,
+                activations,
+                f"s{plane_end}",
+                exec_mask,
+            )
+        asm.label(done_label)
+        asm.inst("s_waitcnt vmcnt(0)")
+        for band in range(6):
+            asm.inst(f"v_lshlrev_b32 v{local_address}, 4, v{serial}")
+            if band:
+                asm.inst(
+                    f"v_add_nc_u32 v{local_address}, {band * 2048}, v{local_address}"
+                )
+            if band == 5:
+                asm.inst(f"v_cmp_lt_u32 vcc_lo, v{local_address}, s{plane_end}")
+                asm.inst(f"s_and_saveexec_b32 s{exec_mask}, vcc_lo")
+            source = payload + 4 * band
+            asm.inst(f"ds_write_b128 v{local_address}, v[{source}:{source + 3}]")
+            if band == 5:
+                asm.inst(f"s_mov_b32 exec_lo, s{exec_mask}")
+
+    def _emit_j80_activation_load(
+        self,
+        asm: Assembly,
+        band: int,
+        serial: int,
+        global_address: int,
+        local_address: int,
+        payload: int,
+        activations: int,
+        limit: str | None,
+        exec_mask: int,
+    ) -> None:
+        scalar = self.physical.scalar_registers
+        asm.inst(f"v_lshlrev_b32 v{local_address}, 4, v{serial}")
+        if band:
+            asm.inst(f"v_add_nc_u32 v{local_address}, {band * 2048}, v{local_address}")
+        if limit is not None:
+            asm.inst(f"v_cmp_lt_u32 vcc_lo, v{local_address}, {limit}")
+            asm.inst(f"s_and_saveexec_b32 s{exec_mask}, vcc_lo")
+        asm.inst(
+            f"v_add_nc_u32 v{global_address}, "
+            f"s{scalar.packed_block_offset.first_register}, v{local_address}"
+        )
+        destination = payload + 4 * band
+        asm.inst(
+            f"global_load_b128 v[{destination}:{destination + 3}], "
+            f"v{global_address}, s[{activations}:{activations + 1}]"
+        )
+        if limit is not None:
+            asm.inst(f"s_mov_b32 exec_lo, s{exec_mask}")
+
     def emit_signed_grid_dword(
         self,
         asm: Assembly,
@@ -338,7 +442,7 @@ class GroupedPairK128Mechanics:
     ) -> None:
         registers = self.physical.registers
         activation_offset = 16 + 16 * group
-        for m_index in range(4):
+        for m_index in range(layout.activation_rows // 16):
             payload = registers.activation_payload.first_register + 4 * m_index
             asm.inst(
                 f"ds_read_b128 v[{payload}:{payload + 3}], "
@@ -376,6 +480,12 @@ class GroupedPairK128Mechanics:
                 asm.inst(
                     f"ds_read2st64_b32 v[{destination}:{destination + 1}], "
                     f"v{temporary} offset0:{offset0} offset1:{offset1}"
+                )
+            if layout.activation_rows == 80:
+                destination = registers.activation_scale.first_register + 4
+                asm.inst(
+                    f"ds_read_b32 v{destination}, v{temporary} "
+                    f"offset:{64 * layout.activation_row_stride}"
                 )
 
     def emit_compute_group_wmmas(self, asm: Assembly) -> None:

@@ -158,3 +158,27 @@ The HIP paired control contains `.amdhsa_workgroup_processor_mode 1`, while the 
 Each P3-P6 probe requires a distinct typed identity and serialized policy, exact gfx1151 code-object-v5 assembly and linking, ABI and metadata inspection, resource and disassembly inspection, independent exactness and mutation checks, two deterministic builds, and warmed prequantized and complete-call timing against both the installed public control and the ownership-matched parent. Any composed candidate receives a new identity and repeats the full gate.
 
 The historical final classification is scoped to P1/P2 and their old premise. Implement and qualify every actionable finding, then repeat the complete source, artifact, resource, correctness, determinism, and timing review from the changed premise. Completion is valid only after a fresh recursive pass finds no actionable in-contract mechanism. Public selectors, generated bundles, packaging, registration, and HIP fallback remain outside this experiment.
+
+### P3 qualification result
+
+The row-task P3 probe moved the dedicated `v124:v131` initialization before the K2048 block loop and removed the other three statically emitted sets. The current typed parent was first verified instruction-for-instruction against retained P2 after normalizing the already-qualified symbol-only identity change. Independent candidate builds were byte-deterministic. The artifact changed from 3,296 to 3,272 VALU issue instructions while retaining 148 VGPRs, 44 SGPRs, 19,456 LDS bytes, 128 WMMAs, eight barriers, zero spills, and zero private bytes.
+
+The full R35 route, malformed-route, independent-reference, rerun, active/inactive weight mutation, projection-isolation, and activation-mutation matrix passed exactly. Direct same-session A/B timing against the rebuilt instruction-identical P2 parent also matched both BF16 outputs at every fitted medoid. Weighted candidate/parent complete-call medians were 5.5457/5.5480 ms at B1, 16.1289/16.1252 ms at B4, and 59.9276/59.9965 ms at B16, equivalent to +0.04%/-0.02%/+0.11% candidate movement. Prequantized body movement was -0.12%/+0.05%/+0.17%.
+
+P3 is rejected as timing-neutral. Its complete-call and body directions are mixed, and the observed movement is at most 0.17%, so the closure does not depend on the obsolete fixed two-percent threshold and no uncertainty top-up is warranted. No source integration or serial-ownership transfer follows.
+
+### P4 and P5 qualification results
+
+P4's shared-column form removed six artifact VALU issues, from 3,296 to 3,290, and its broader materialized-address form removed 25, to 3,271. Both rebuilt deterministically at R35 and every production row count, retained 148 VGPRs, 44 SGPRs, 19,456 LDS bytes, 128 WMMAs, eight barriers, 77 waits, zero private bytes, and zero spills, and passed the complete route, malformed-route, reference, rerun, projection-isolation, and mutation matrices.
+
+Shared-column complete-call parent/candidate ratios were `0.99902x`, `0.99984x`, and `0.99881x` at B1/B4/B16; body ratios were `0.99594x`, `1.00236x`, and `1.00010x`. Materialized-address complete ratios were `0.99695x`, `0.99842x`, and `0.99987x`; body ratios were `0.98697x`, `0.99936x`, and `1.00133x`. The latter regresses the dominant B1 body by 1.30%, and neither form has coherent complete/body direction. Both P4 forms are closed without source retention.
+
+P5 preserved the parent's instruction and resource counts while interleaving adjacent exact `v_bfe_u32`/`v_add3_u32` BF16 RNE chains through proven-dead scratch. It was deterministic and passed the same exact semantic matrix. Complete-call ratios were `1.00562x`, `1.00185x`, and `0.99830x`; body ratios were `0.99304x`, `1.00189x`, and `1.00139x`. The endpoint complete/body disagreement closes P5 as timing-incoherent. No approximate conversion or relaxed rounding was introduced.
+
+### P6 target-level disposition
+
+The processor-mode spelling was finally applied to current P2 row-task sources at R35, B1, B4, and B16. Two independent passes were deterministic, and every transformed object and HSACO was byte-identical to its parent. Inspection consequently remained at 148 VGPRs, 44 SGPRs, 19,456 LDS bytes, 128 WMMAs, eight barriers, zero private bytes, zero spills, and the exact 96-byte ABI. The durable report is `ggtensile-grouped-iq2-s-pair-p6-processor-mode-build.json`. Processor mode is executable-inert for this exact toolchain artifact, so no timing or typed identity follows.
+
+No wait or barrier candidate is admitted: the eight barriers protect projection-overwritten weight LDS and activation reuse, and no exact gfx1151 hazard proof permits removal. The target review found no changed producer/consumer schedule requiring `s_delay_alu` and no independent bank-valid GFX11 VOPD pairing premise; `v_bfe_u32` remains ineligible. Clause spelling has no changed store or VMEM ordering premise. These are target/dependency exclusions rather than inferred timing claims.
+
+P3-P6 are now resolved. A separate read-only pass over the restored P2 lowering, physical lifetimes, exact artifacts, and paired cross-family results found no new actionable IQ2_S mechanism. Public selectors, bundles, packaging, registration, and HIP fallback remain unchanged.

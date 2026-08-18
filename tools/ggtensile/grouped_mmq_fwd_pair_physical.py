@@ -59,16 +59,17 @@ class GroupedIQ2XXSPairHalfLdsLayout:
     weight_scale_offset: int = 128
 
     def __post_init__(self) -> None:
-        if (
-            self.activation_rows,
+        if self.activation_rows not in (64, 80) or (
             self.weight_rows,
             self.activation_row_stride,
             self.weight_row_stride,
             self.half_payload_bytes,
             self.half_payload_stride,
             self.weight_scale_offset,
-        ) != (64, 64, 144, 160, 128, 160, 128):
-            raise ValueError("paired IQ2_XXS half-LDS layout has fixed dimensions")
+        ) != (64, 144, 160, 128, 160, 128):
+            raise ValueError(
+                "paired IQ2_XXS half-LDS layout requires J64 or J80 dimensions"
+            )
 
     @property
     def activation_bytes(self) -> int:
@@ -167,6 +168,42 @@ class GroupedIQ2SPairVectorRegisterPlan:
             activation_scale=fixed("activation_scale", 4, 144, 3, 3),
             register_count=148,
             declared_vgprs=148,
+        )
+
+    @classmethod
+    def allocate_iq2_xxs_j80(cls) -> "GroupedIQ2SPairVectorRegisterPlan":
+        fixed = cls._fixed
+        return cls(
+            sums_first=fixed("sums_first", 40, 0, 0, 5),
+            sums_second=fixed("sums_second", 40, 40, 0, 5),
+            activation_stage=fixed("activation_stage", 24, 80, 2, 2),
+            producer_d=fixed("producer_d", 1, 80, 1, 1),
+            producer_qh=fixed("producer_qh", 1, 81, 1, 1),
+            producer_scales=fixed("producer_scales", 1, 82, 1, 1),
+            producer_indices=fixed("producer_indices", 4, 83, 1, 1),
+            producer_signs=fixed("producer_signs", 4, 87, 1, 1),
+            codebook_payload=fixed("codebook_payload", 16, 91, 1, 1),
+            decoded_payload=fixed("decoded_payload", 4, 107, 1, 1),
+            decode_auxiliary=fixed("decode_auxiliary", 5, 111, 1, 1),
+            producer_address=fixed("producer_address", 1, 116, 1, 1),
+            producer_lds_address=fixed("producer_lds_address", 1, 117, 1, 1),
+            c=fixed("c", 40, 80, 3, 3),
+            weight_payload=fixed("weight_payload", 4, 120, 3, 3),
+            activation_payload=fixed("activation_payload", 20, 124, 3, 3),
+            weight_scales=fixed("weight_scales", 8, 144, 3, 3),
+            zero_accumulator=fixed("zero_accumulator", 8, 152, 0, 3),
+            temporary=fixed("temporary", 2, 160, 0, 5),
+            weight_scale_address=fixed("weight_scale_address", 4, 162, 0, 3),
+            output_address=fixed("output_address", 1, 120, 5, 5),
+            weight_address=fixed("weight_address", 1, 166, 0, 5),
+            activation_lds_address=fixed("activation_lds_address", 1, 167, 0, 3),
+            activation_read_address=fixed("activation_read_address", 1, 168, 0, 3),
+            weight_lds_address=fixed("weight_lds_address", 1, 169, 0, 3),
+            lane=fixed("lane", 1, 170, 0, 5),
+            wave=fixed("wave", 1, 171, 0, 5),
+            activation_scale=fixed("activation_scale", 5, 172, 3, 3),
+            register_count=177,
+            declared_vgprs=180,
         )
 
 
@@ -546,9 +583,14 @@ def grouped_iq2_s_pair_physical_plan(
 
 def grouped_iq2_xxs_pair_physical_plan(
     route_ownership: GroupedPairRouteOwnership = GroupedPairRouteOwnership.SerialRoutes,
+    row_tile: int = 64,
 ) -> GroupedIQ2XXSPairPhysicalPlan:
-    layout = GroupedIQ2XXSPairHalfLdsLayout()
-    vector = GroupedIQ2SPairVectorRegisterPlan.allocate()
+    layout = GroupedIQ2XXSPairHalfLdsLayout(activation_rows=row_tile)
+    vector = (
+        GroupedIQ2SPairVectorRegisterPlan.allocate_iq2_xxs_j80()
+        if row_tile == 80
+        else GroupedIQ2SPairVectorRegisterPlan.allocate()
+    )
     scalar = (
         GroupedIQ2SPairScalarRegisterPlan.allocate_row_tasks()
         if route_ownership is GroupedPairRouteOwnership.DeviceRowTasks64

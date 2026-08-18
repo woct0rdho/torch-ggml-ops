@@ -193,9 +193,9 @@ This section is updated after every coherent implementation milestone. Code mile
 - Recursive optimization-exhaustion review with no actionable mechanism remaining. The final layout neighborhood and the actionable packed-VOPD decode mechanism were tested under the exact-key gates; remaining valid mechanisms are either outside contract or fail timing/resource thresholds.
 - Public runtime dispatch, deferred.
 
-### Final result
+### Historical selected-catalog result
 
-The authoritative serial 25-repeat confirmations report logical arithmetic throughput. Speedup is `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile.
+The authoritative serial 25-repeat confirmations below describe the selected catalog before the later M256 packed-VOPD reopening. They remain the HIP control baseline; the current retained M256 speed is reported in the reopening section. Logical throughput is arithmetic throughput. Speedup is `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile.
 
 | Family | `(M,N,K)` | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP |
 | --- | ---: | ---: | ---: | ---: |
@@ -235,7 +235,7 @@ Q8 scalar `global_load_b32` extraction was neutral for most families but improve
 
 The two decoded-B buffer path was extended to the Q8 XOR8 store layout and passed exact HIP, independent-reference, grad-output mutation, and packed-weight mutation checks. It was timing-neutral on the discriminator keys and is rejected. Pad16/24, XOR4/8/16 one-buffer layouts, PLR2, SIA3, `64x128`, and `256x128` also lost. Next-tile packed prefetch remains only a possible exact-key small mechanism because its broad effects were neutral or unfavorable.
 
-The selected ordinary catalog uses compact padded `256x64` for Q-A, KV, attention output, and the M2048 shared projections; padded `128x64` for M8192/M32768 shared gate/up and shared-down; DepthU64/XOR8 for Q-B M8192; padded scalar next-prefetch for Q-B M2048; and padded packed `128x128` for Q-B M32768. The final per-key throughput and multiplicative HIP speedups are consolidated in the final-result table; the call-weighted candidate/HIP latency ratio is `0.6879975522199318`. The complete final catalog was independently rebuilt with byte-identical assembly and matching resource tuples for all 23 selected keys.
+The selected ordinary catalog uses compact padded `256x64` for Q-A, KV, attention output, and the M2048 shared projections; padded `128x64` for M8192/M32768 shared gate/up and shared-down; DepthU64/XOR8 for Q-B M8192; padded scalar next-prefetch for Q-B M2048; and padded packed `128x128` for Q-B M32768. The historical per-key throughput and multiplicative HIP speedups are consolidated in the selected-catalog table; the call-weighted candidate/HIP latency ratio is `0.6879975522199318`. The complete final catalog was independently rebuilt with byte-identical assembly and matching resource tuples for all 23 selected keys.
 
 ### LM-head screening record
 
@@ -258,4 +258,26 @@ The ordinary floors sum to within 2-5% of complete timing, so the residual is no
 
 Adding the HIP-analogous `64x64` ownership reduced M64 from `5.873` to `4.487 ms` (`0.6308024774361413x` HIP). Q8-specific unswizzled pad8 DepthU64 was then generalized to compact geometries and passed all five LM correctness screens. Packed VOPD decode was tested against the retained packed decoder: M32/M64/M128 screened at `4.248/4.151/5.654 ms`, versus `4.405/4.275/5.863 ms`, and final confirmation measured `4.237/4.141/5.726 ms` with HIP ratios `0.5142/0.5823/0.7475`. M256 improved only `1.44%` with extra VGPRs and was rejected by the resource-bearing threshold; M512 regressed `2.62%`. Alternate pad16/24 and XOR8 lost on every LM geometry. The final LM choices therefore use packed VOPD at M32/M64/M128, DepthU32 packed at M256, and DepthU32 packed with next-tile prefetch at M512. Scalar extraction, SIA4 without prefetch, PGR1, store-priority removal, and WGM2 lose.
 
-The promoted final LM confirmation is fully serial and uses the selected packed-VOPD/packed mix. Its per-key throughput and multiplicative HIP speedups are consolidated in the final-result table; the five-key aggregate candidate/HIP latency ratio is `0.7512901204186552`, and all five keys remain faster than HIP.
+The promoted final LM confirmation is fully serial and uses the selected packed-VOPD/packed mix. Its historical per-key throughput and multiplicative HIP speedups are consolidated in the selected-catalog table; the five-key aggregate candidate/HIP latency ratio is `0.7512901204186552`, and all five keys remain faster than HIP.
+
+## M256 packed-VOPD stability-policy reopening
+
+The historical M256 packed-VOPD result was closed solely by the former fixed two-percent resource-bearing threshold. It was therefore rebuilt against the current canonical M256 parent as the already serialized `decode.extraction=packed_vopd` identity. Two independent source/object/HSACO builds were byte-deterministic. Parent and candidate both inspect in the same 231-VGPR, 16-SGPR, 5,120-byte LDS allocation class with the 40-byte ABI, wave32, code-object v5, 32 WMMAs, two barriers, zero private bytes, and zero spills. The candidate uses 20 VOPD instructions rather than 12 and reduces VALU issue count from 548 to 541; VMEM, LDS, waits, and clauses are unchanged.
+
+The current candidate and parent both matched installed HIP bitwise over all 1,048,576 BF16 outputs. The candidate also passed the independent reference with the same `0.0004991045` normalized RMSE as HIP, finite-output checks, full gradient-output mutation, and packed-weight mutation. Each mutation remained bitwise equal to HIP and changed the candidate output. The exact research identity is `ggsol_45234dc0448fafb4`; the instruction-identical current parent is `ggsol_dd5d0a2953b79821`.
+
+Two seven-warmup, alternating 25-repeat brackets used independent deterministic gradients and reversed launch order. Candidate/parent medians were `9.23366/9.38050 ms` and `9.10986/9.26879 ms`, gains of `1.59%` and `1.72%`. The robust log-time 95% candidate-over-parent intervals were `-2.79%..-0.33%` and `-2.09%..-1.33%`, so both exclude parity in favor of packed VOPD. The adjacent nine-repeat HIP screen measured candidate/parent `9.28981/9.44039 ms`, while both remained faster than HIP.
+
+Packed VOPD is retained for the exact M256 research identity under focused deterministic build/resource coverage. This does not transfer to M512, whose historical packed-VOPD artifact regressed, and it does not alter the selected deployment catalog, generated bundle, public dispatch, package, registration, or HIP fallback. Every future composition or exact-key selection requires a new identity and full requalification.
+
+### Final retained throughput versus HIP
+
+The current typed M256 packed-VOPD identity was benchmarked against the installed HIP kernel with seven warmups and 25 alternating repeats in each of two independent brackets. Logical throughput uses `2 * M * N * K / (median_ms * 1e9)`. The speedup is `HIP median / packed-VOPD median`, so values above `1.0x` favor the retained kernel. The summary averages the two bracket medians.
+
+| Bracket | Candidate ms | HIP ms | Candidate TFLOPS | HIP TFLOPS | Speedup vs HIP |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| A | 9.4599 | 10.3371 | 28.660 | 26.228 | 1.0927x |
+| B | 9.3879 | 10.2873 | 28.880 | 26.355 | 1.0958x |
+| Mean of medians | 9.4239 | 10.3122 | 28.769 | 26.291 | 1.0943x |
+
+All candidate and HIP outputs matched exactly before and after gradient and packed-weight mutation. The fresh reports are `ggtensile-final-vs-hip-q8-m256-{a,b}.json`. The earlier typed-parent ratios remain acceptance evidence for packed VOPD; the final ratios above are the retained-kernel-versus-HIP results. No deployment-catalog or public-dispatch claim follows from this research-only identity.

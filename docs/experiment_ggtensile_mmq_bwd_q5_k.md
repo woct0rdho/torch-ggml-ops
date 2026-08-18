@@ -211,3 +211,11 @@ This section is updated after each coherent implementation or experiment milesto
 - Repaired-path retiming. Corrected SIA3/PGR1 and double-buffer DepthU64 pass exact correctness and mutation gates but regress the current selected M2048 assembly by `39.9%` and `42.5%`; both are closed without confirmation.
 - Recursive final optimization-exhaustion review with no actionable mechanism remaining. The review was repeated after the `v_lshl_or_b32` discovery and after the rejected vector metadata emitter.
 - Public runtime dispatch. Deferred until broader quant coverage and complete workload validation.
+
+## Reopened M2048 Scalar Extraction
+
+The historical two-buffer scalar-extraction result was reopened against the current exact parent because its original closure cited the obsolete 2% resource-bearing threshold. The current M2048 narrow parent is the later padded `256x64`, WGM2, SIA5, single-buffer key `ggsol_10b3507c8f7c52a2`; the candidate changes only `decode.extraction` to `scalar` and has typed identity `ggsol_5c64e62dbe925d6b`.
+
+The candidate is deterministic across independent source, object, and HSACO builds. It remains exact against HIP before and after gradient and packed-weight mutation and matches the HIP independent-reference error (`1,111` differing BF16 elements, normalized RMSE `0.0000335524`). It retains `238 VGPRs`, `16 SGPRs`, `5120 LDS bytes`, `32 WMMAs`, `150 VMEM instructions`, zero private bytes, and zero spills, but increases static VALU issues from `570` to `586` and operations from `589` to `605`.
+
+Two alternating same-session 20-warmup/25-repeat brackets against a freshly built current parent measured candidate-over-parent median movement of `+0.29%` and `+1.40%`. Robust 95% intervals were `[-15.29%,+18.74%]` and `[-2.54%,+5.49%]`, both crossing parity; the first contains an initialization outlier and the second remains directionally slower. The candidate is therefore timing-neutral to mildly regressive under the current parent and is closed. No typed scalar identity was retained, and the Q5 catalog, generated bundle, public dispatch, packaging, registration, and HIP fallback remain unchanged. Evidence is under `~/tmp/torch-ggml-ops/ggtensile-q5-scalar-reopen-current-*`; this documentation update remains uncommitted.
