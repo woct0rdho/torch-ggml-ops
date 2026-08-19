@@ -73,6 +73,106 @@ class GroupedBackwardTileAccess:
         asm.inst(f"v_add_nc_u32 v{tracker}, 2, v{tracker}")
 
 
+class GroupedBackwardTileComputeEmitter(BackwardTileComputeEmitter):
+    """Add route-tail consumer guards around the reusable compute body."""
+
+    def __init__(
+        self,
+        state,
+        physical,
+        *,
+        access: GroupedBackwardTileAccess,
+        route: GroupedBackwardScalarPlan,
+        enabled: bool,
+        label_suffix: str = "",
+    ) -> None:
+        super().__init__(
+            state,
+            physical,
+            access=access,
+            label_suffix=label_suffix,
+        )
+        self.route = route
+        self.enabled = enabled
+        self._consumer_label_index = 0
+
+    @property
+    def _active_m_tiles(self) -> int:
+        # gemm_index is dead after the route prologue and N-coordinate handoff.
+        return self.route.gemm_index
+
+    def _consumer_label(self, stem: str) -> str:
+        index = self._consumer_label_index
+        self._consumer_label_index += 1
+        return self._label(f"GroupedBackward{stem}{index}")
+
+    def emit_tile(self, asm: _Assembly) -> None:
+        if not self.enabled:
+            super().emit_tile(asm)
+            return
+        r = self.registers
+        geometry = self.state.spec.geometry
+        m_tiles = geometry.matrix_instruction[5]
+        m_per_wave = 16 * m_tiles
+        active = self._active_m_tiles
+        scratch = self.route.tile_end
+
+        asm.comment("Count active 16-row M consumers for this wave and route tile.")
+        asm.inst(f"v_lshrrev_b32 v{r.temporary}, 5, v{r.serial}")
+        asm.inst(f"v_readfirstlane_b32 s{active}, v{r.temporary}")
+        asm.inst(f"s_lshl_b32 s{active}, s{active}, {m_per_wave.bit_length() - 1}")
+        asm.inst(f"s_lshl_b32 s{scratch}, s2, {geometry.macro_tile0.bit_length() - 1}")
+        asm.inst(f"s_add_u32 s{active}, s{active}, s{scratch}")
+        asm.inst(f"s_sub_u32 s{scratch}, s{self.route.route_rows}, s{active}")
+        asm.inst(f"s_cmp_ge_u32 s{active}, s{self.route.route_rows}")
+        asm.inst(f"s_cselect_b32 s{active}, 0, s{scratch}")
+        asm.inst(f"s_add_u32 s{active}, s{active}, 15")
+        asm.inst(f"s_lshr_b32 s{active}, s{active}, 4")
+        asm.inst(f"s_cmp_gt_u32 s{active}, {m_tiles}")
+        asm.inst(f"s_cselect_b32 s{active}, {m_tiles}, s{active}")
+        super().emit_tile(asm)
+
+    def _emit_wmma(self, asm: _Assembly, **kwargs) -> None:
+        if not self.enabled:
+            super()._emit_wmma(asm, **kwargs)
+            return
+        done = self._consumer_label("InactiveWave")
+        asm.inst(f"s_cmp_eq_u32 s{self._active_m_tiles}, 0")
+        asm.inst(f"s_cbranch_scc1 {done}")
+        super()._emit_wmma(asm, **kwargs)
+        asm.label(done)
+
+    def _emit_wmma_instruction(
+        self,
+        asm: _Assembly,
+        m_tile: int,
+        n_tile: int,
+        valu_a: int,
+        valu_b: int,
+    ) -> None:
+        if not self.enabled:
+            super()._emit_wmma_instruction(asm, m_tile, n_tile, valu_a, valu_b)
+            return
+        if m_tile == 0:
+            super()._emit_wmma_instruction(asm, m_tile, n_tile, valu_a, valu_b)
+            return
+        done = self._consumer_label(f"InactiveM{m_tile}")
+        asm.inst(f"s_cmp_le_u32 s{self._active_m_tiles}, {m_tile}")
+        asm.inst(f"s_cbranch_scc1 {done}")
+        super()._emit_wmma_instruction(asm, m_tile, n_tile, valu_a, valu_b)
+        asm.label(done)
+
+    def _emit_store(self, asm: _Assembly) -> None:
+        if not self.enabled:
+            super()._emit_store(asm)
+            return
+        done = self._consumer_label("InactiveStoreWave")
+        asm.inst(f"s_cmp_eq_u32 s{self._active_m_tiles}, 0")
+        asm.inst(f"s_cbranch_scc1 {done}")
+        super()._emit_store(asm)
+        asm.label(done)
+
+
 class GroupedBackwardKernelLowering:
     """Emit routed packed backward with typed aggregate-row tails."""
 
@@ -88,16 +188,25 @@ class GroupedBackwardKernelLowering:
         self.state = state
         self.physical = physical
         access = GroupedBackwardTileAccess(physical.route)
-        self.primary = BackwardTileComputeEmitter(
+        suppress_inactive_m = not (
+            state.contract.quant_type == "Q5_K"
+            and state.contract.problem_size.m == 262_144
+            and state.spec.ownership.solution_value == "SplitRoutes16"
+        )
+        self.primary = GroupedBackwardTileComputeEmitter(
             state.primary,
             physical.primary,
             access=access,
+            route=physical.route,
+            enabled=suppress_inactive_m,
         )
         self.secondary = (
-            BackwardTileComputeEmitter(
+            GroupedBackwardTileComputeEmitter(
                 state.secondary,
                 physical.secondary,
                 access=access,
+                route=physical.route,
+                enabled=suppress_inactive_m,
                 label_suffix="Tail",
             )
             if state.secondary is not None and physical.secondary is not None

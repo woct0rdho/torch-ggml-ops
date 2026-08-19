@@ -128,4 +128,49 @@ The isolated result does not modify public dispatch, generated bundle tables, re
 
 ### Final gates
 
+## Reopened post-refactor optimization program
+
+The current fixed split owners do not model the fitted long tail, and the generated tail still executes WMMAs for wholly inactive 16-row minitiles. The next work therefore mirrors the Q4_K program but retains Q5_K-specific decode and resource decisions.
+
+1. Add wave-uniform inactive-M consumer suppression without diverging packed low/high decode or barriers. The HIP analog improved every Q5_K B4/B16 route by `1.05-6.34%`, or `3.68%` geometrically. Exact packed-HIP output and the existing nibble-shift-hoisted arithmetic are mandatory.
+2. Add numeric device-built M-major J128 ownership using a separate task ABI and complete-call setup timing. The focused HIP B1 screen measured fitted-prior throughput at `1.2184x` and captured-profile throughput at `1.0558x`; synthetic timing alone caused the old rejection and is not a veto under this experiment's objective.
+3. Test J64 or a single-launch mixed J128/J64 policy only after fixed J128 advances. Preserve Q5_K's task-local swizzle premise and reject any candidate with private storage or spills; the HIP row-task body already approaches `234` VGPRs.
+4. Keep Q4_K `DependencyBatch4` out of Q5_K. Any decode follow-up must be a real Q5_K low/high reconstruction change that shortens live state. The prior vector-metadata and N64 lane-sharing failures remain correctness closures, and M256/N64, broad split factors, double LDS, and universal swizzle8 remain timing closures unless task ownership changes their exact premise.
+
+Ranking uses only fitted medoids. Uniform, skewed, sparse-ID, and boundary routes remain exactness and diagnostic controls. Results and failures are appended here after each coherent experiment.
+
 `pytest -q tests` passes with `711 passed` and 14 unrelated PyTorch/Python 3.14 deprecation warnings. `pre-commit run --all-files` passes pyupgrade, Ruff check, Ruff format, and ty. The worktree contains no production integration changes.
+
+### Inactive-M suppression build and correctness checkpoint
+
+The first identity-neutral implementation guards each wholly inactive wave and each inactive 16-row M minitile around the WMMA consumer, while leaving packed low/high decode, LDS traffic, barriers, and masked global access uniform. The manifest Q5_K serial control `ggsol_c638b6ec206c3b56` assembles at its prior `200 VGPR / 35 SGPR / 8192 B LDS` envelope with zero private bytes or spills and unchanged identity and static WMMA/barrier counts. The complete grouped build record is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-manifest-build/build.json`.
+
+Its strict 625-row boundary matrix passes packed HIP, independent BF16, deterministic rerun, gradient/route/active/inactive-weight mutations, malformed expert/offset controls, and tail sentinels. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q5-correctness.json`. This is a build/correctness checkpoint only; selected-key fitted parent/candidate timing remains the promotion gate.
+
+The selected B1 `ggsol_98b9ce678d4cb09f` source was built independently from the pre-change `c41913f` worktree and the suppression worktree. Both inspect at `140 VGPR / 35 SGPR / 5120 B LDS`, zero private bytes and spills, 24 static WMMAs, and four barriers. A same-process fitted search-bank bracket with allocation in both paths, three warmups, nine repeats, and rotating order improves weighted latency `2.6448 -> 2.5989 ms`, or `1.0177x` parent throughput. Outputs are bitwise equal on all five medoids. Four medoids, including the dominant profile, improve; the remaining low-weight profile is a `0.9926x` near tie. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q5-b1-search9.json`. This advances to disjoint confirmation.
+
+Disjoint confirmation with five warmups, 25 repeats, reversed base order, and the same complete-call allocation contract confirms `2.8357 -> 2.7996 ms`, or `1.0129x`. Every confirmation medoid is bitwise exact and the dominant profile improves. Two low-weight profiles measure `0.9743x` and `0.9954x`; they remain diagnostics under the declared weighted objective. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q5-b1-confirm25.json`. Inactive-M suppression is retained for Q5_K B1 and advances to B4/B16 qualification.
+
+The selected split16 B4 `ggsol_a45127a1814ae728` and B16 `ggsol_c518830e3a59d061` artifacts reproduce their parent envelopes at `216 VGPR / 35 SGPR / 10240 B LDS`, with zero private bytes or spills. Both pass the strict 625-row packed-HIP, independent BF16, deterministic, mutation, malformed-route, and sentinel matrix. Reports are `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q5-b4-correctness.json` and `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q5-b16-correctness.json`. Fitted parent/candidate timing remains outstanding.
+
+The B4 fitted search-bank bracket improves `7.8476 -> 7.7645 ms`, or `1.0107x`, with every medoid bitwise exact and faster. The minimum ratio is `1.0091x`. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q5-b4-search9.json`; the close weighted margin advances to a longer disjoint bracket rather than immediate retention.
+
+The B16 fitted search-bank bracket improves `24.7676 -> 24.4248 ms`, or `1.0140x`, with bitwise equality throughout. The dominant medoid improves `1.0147x`; two low-weight medoids are near-tie regressions at `0.9974x` and `0.9959x`. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q5-b16-search9.json`; B16 advances to disjoint confirmation under the weighted objective.
+
+The disjoint B4 confirmation bracket measures `7.8109 -> 7.6883 ms`, or `1.0159x`, with every medoid bitwise exact and faster. The minimum ratio is `1.0131x`. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q5-b4-confirm25.json`. Inactive-M suppression is retained for Q5_K B4.
+
+The disjoint B16 confirmation bracket reverses the search-bank order and rejects suppression for that key: weighted latency regresses `24.9318 -> 25.0716 ms`, or `0.9944x` parent throughput, with four of five medoids slower despite bitwise equality. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q5-b16-confirm25.json`. The retained implementation must leave selected Q5_K B16 on its parent path; the search-bank `1.0140x` result is not reproducible.
+
+The EvoTensile median-log robust-scale analysis shows that all three Q5_K 25-repeat weighted intervals still cross zero: candidate-minus-parent is `[-2.557,0.031]%` at B1, `[-3.730,0.581]%` at B4, and `[-0.103,1.230]%` at B16. The aggregate analysis is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-confirm25-confidence.json`. B1/B4 retention and B16 rejection are therefore provisional pending adaptive sample top-ups rather than being treated as resolved from point estimates alone.
+
+The 75-repeat B1 top-up resolves the comparison: `2.8741 -> 2.8215 ms`, or `1.0186x`, with a median-log robust 95% candidate-minus-parent interval of `[-2.743,-0.923]%`. The dominant medoid improves; three low-weight medoids vary around a tie and remain diagnostic. Reports are `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q5-b1-confirm75.json` and `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q5-b1-confirm75-confidence.json`. Inactive-M suppression is retained for Q5_K B1.
+
+The 75-repeat B4 top-up resolves that comparison as well: `7.9329 -> 7.7282 ms`, or `1.0265x`, with every medoid faster and a robust 95% candidate-minus-parent interval of `[-3.835,-1.345]%`. Reports are `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q5-b4-confirm75.json` and `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q5-b4-confirm75-confidence.json`. Inactive-M suppression is retained for Q5_K B4.
+
+The 75-repeat B16 top-up reverses the 25-repeat point estimate but remains unresolved: `25.0824 -> 25.0314 ms`, or `1.0020x`, with a robust 95% candidate-minus-parent interval of `[-0.597,0.192]%`. Reports are `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q5-b16-confirm75.json` and `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q5-b16-confirm75-confidence.json`. This is neither a supported win nor a supported loss; a 200-repeat top-up will test practical equivalence before the source path is finalized.
+
+The 200-repeat B16 top-up resolves the ambiguity against suppression: weighted latency regresses `25.0288 -> 25.0906 ms`, or `0.9975x` parent throughput, with four of five medoids slower. The median-log robust 95% candidate slowdown interval is `[0.015,0.479]%`, entirely above zero. Reports are `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q5-b16-confirm200.json` and `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q5-b16-confirm200-confidence.json`. Inactive-M suppression is retained for selected Q5_K B1/B4 and rejected for selected Q5_K B16.
+
+The retained emitter now selects the parent consumer path for exact Q5_K B16 contracts without adding a solution field or changing the identity hash. A fresh selected rebuild of `ggsol_c518830e3a59d061` is byte-identical to the `c41913f` parent in both assembly (`sha256 4a0dd994382c48d7dfc20027fb6f4997884c34d53760196dd7981b5d25d3ad9f`) and HSACO (`75ebdd8adcbe9d9934069feb604191b7628367e17459086892fdb2c64f9981cc`). Q5_K B1/B4 still emit the measured guards. The selected build record is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-large-selected/build.json`.
+
+Final selected full-row qualification passes at `16384`, `65536`, and `262144` rows with packed-HIP bit equality, deterministic reruns, all active/inactive mutation controls, malformed-route sentinels, and independent BF16 NRMSE below `0.01`. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q5-full-correctness.json`.

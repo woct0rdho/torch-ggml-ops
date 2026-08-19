@@ -167,3 +167,37 @@ Disjoint Qwen learned confirmation uses five warmups, 25 repeats, reversed rotat
 | B16 | `34.2671 / 16.04` | `24.0656 / 22.84` | `1.4239x` | `1.4123x` |
 
 B4 and B16 beat HIP on every confirmation medoid. B1's `0.97265625`-weight medoid reaches `1.555x`; four sparse, low-weight controls range from `0.881x` to `1.051x`. The retained result satisfies the declared weighted objective without treating those diagnostic controls as ranking vetoes. Production dispatch, generated bundles, extension registration, packaging, and HIP fallback remain unchanged.
+
+## Reopened post-refactor optimization program
+
+IQ2_S already retains signed-dword preapplication, workgroup-local codebook staging, split64 ownership, and the selected layout/schedule interactions. The only immediate reopening is the fitted-objective interpretation of inactive-M suppression.
+
+1. Add the same wave-uniform wholly inactive 16-row consumer guard used by the Q4_K/Q5_K/Q2_K controls, leaving codebook staging, per-K decode, LDS traffic required by active siblings, and barriers uniform. The historical HIP candidate improved only `1.06%` geometrically and was rejected because B4 uniform and B16 boundary regressed. Those synthetic timings are diagnostic under the current objective, so run one narrow fitted B1 check and retain only a clear weighted gain.
+2. Device tasks remain secondary to the Q4_K/Q5_K implementation. HIP already retains IQ2_S row tasks at B1, but this GGTensile body is substantially faster and uses split64; no margin transfers automatically. Reuse a proven non-paired task ABI only if the first two quant types establish a resource-clean mechanism.
+3. Do not reopen global codebook lookup, width8 decode, M256/N64, shared pair/down swizzles, or broad decoder-wave designs. Direct controls already close those mechanisms. Any later decode work must reduce state below the current `194-210` VGPR envelope while preserving exact signed grid/scale reconstruction.
+
+Fitted medoids alone rank timing. All route controls still gate exactness, deterministic coverage, malformed-route behavior, private storage, and spills. Each coherent result is appended here when completed.
+
+### Inactive-M suppression build and correctness checkpoint
+
+The first identity-neutral implementation guards each wholly inactive wave and each inactive 16-row M minitile around the WMMA consumer, while leaving codebook staging, packed decode, required LDS traffic, barriers, and masked global access uniform. Both IQ2_S manifest controls assemble at their prior `194 VGPR / 38 SGPR / 16384 B LDS` envelope with zero private bytes or spills and unchanged identity and static WMMA/barrier counts. The complete grouped build record is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-manifest-build/build.json`.
+
+The strict 625-row boundary matrix for split64 `ggsol_2146fed1ffe03582` passes packed HIP, independent BF16, deterministic rerun, gradient/route/active/inactive-weight mutations, malformed expert/offset controls, and tail sentinels. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-iq2-s-split64-correctness.json`. This is a build/correctness checkpoint only; the narrow fitted B1 timing gate remains intentionally unresolved.
+
+The selected B1 `ggsol_67d58c3f849e005f` source was built independently from the pre-change `c41913f` worktree and the suppression worktree. Both inspect at `137 VGPR / 38 SGPR / 13312 B LDS`, zero private bytes and spills, 24 static WMMAs, and five barriers. A same-process fitted search-bank bracket with allocation in both paths, three warmups, nine repeats, and rotating order improves weighted latency `2.6476 -> 2.5891 ms`, or `1.0226x` parent throughput. Outputs are bitwise equal and every medoid improves, with a minimum ratio of `1.0076x`. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-iq2-s-b1-search9.json`. This invalidates the old synthetic-timing rejection for the selected GGTensile parent and advances to disjoint confirmation.
+
+Disjoint confirmation with five warmups, 25 repeats, reversed base order, and the same complete-call allocation contract confirms `2.7853 -> 2.7241 ms`, or `1.0225x`. Every medoid remains bitwise exact and improves individually, with a minimum ratio of `1.0182x`. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-iq2-s-b1-confirm25.json`. Inactive-M suppression is retained for IQ2_S B1 despite the older synthetic-control result.
+
+The selected split64 B4 `ggsol_d82241ad1072e2f0` and B16 `ggsol_8684bd239b31ec32` artifacts reproduce their parent envelopes at `210 VGPR / 38 SGPR / 18432 B LDS`, with zero private bytes or spills. Both pass the strict 625-row packed-HIP, independent BF16, deterministic, mutation, malformed-route, and sentinel matrix, including uniform codebook staging and its three barriers. Reports are `~/tmp/torch-ggml-ops/ggtensile-inactive-m-iq2-s-b4-correctness.json` and `~/tmp/torch-ggml-ops/ggtensile-inactive-m-iq2-s-b16-correctness.json`. Fitted parent/candidate timing remains outstanding.
+
+The B4 fitted search-bank bracket improves `7.9938 -> 7.7650 ms`, or `1.0295x`, with every medoid bitwise exact and faster. The minimum ratio is `1.0276x`. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-iq2-s-b4-search9.json`; B4 advances to disjoint confirmation.
+
+The B16 fitted search-bank bracket improves `24.0904 -> 23.9032 ms`, or `1.0078x`, with every medoid bitwise exact and faster. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-iq2-s-b16-search9.json`. Because the weighted margin is below one percent, B16 remains provisional pending a longer disjoint bracket.
+
+The disjoint B4 confirmation bracket measures `7.8368 -> 7.6381 ms`, or `1.0260x`, with every medoid bitwise exact and faster. The minimum ratio is `1.0239x`. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-iq2-s-b4-confirm25.json`. Inactive-M suppression is retained for IQ2_S B4.
+
+The disjoint B16 confirmation bracket resolves the provisional result positively: `24.0493 -> 23.7761 ms`, or `1.0115x`, with every medoid bitwise exact and faster. The minimum ratio is `1.0074x`. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-iq2-s-b16-confirm25.json`. Inactive-M suppression is retained across all selected IQ2_S B1/B4/B16 keys.
+
+The EvoTensile median-log robust-scale analysis marks all three weighted comparisons confidently faster at 95%: candidate-minus-parent intervals are `[-3.046,-1.344]%` at B1, `[-4.138,-0.955]%` at B4, and `[-1.629,-0.642]%` at B16. The aggregate analysis is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-confirm25-confidence.json`.
+
+Final selected full-row qualification passes at `16384`, `65536`, and `262144` rows with packed-HIP bit equality, deterministic reruns, all active/inactive mutation controls, malformed-route sentinels, and independent BF16 NRMSE below `0.01`. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-iq2-s-full-correctness.json`.

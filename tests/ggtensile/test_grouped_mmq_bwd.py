@@ -567,8 +567,27 @@ def test_grouped_backward_source_has_route_and_tail_guards() -> None:
     assert "s_mul_hi_u32 s33, s28, s22" in source
     assert "s_and_saveexec_b32 s31, vcc_lo" in source
     assert "s_mov_b32 exec_lo, s31" in source
+    assert "Count active 16-row M consumers for this wave and route tile." in source
+    assert "s_cbranch_scc1 .LGroupedBackwardInactiveWave0" in source
+    assert "s_cbranch_scc1 .LGroupedBackwardInactiveM1" in source
+    assert "s_cbranch_scc1 .LGroupedBackwardInactiveStoreWave" in source
     assert source.count(".LGroupedBackwardRowTile:") == 1
     assert source.count("v_wmma_f32_16x16x16_bf16") == 32
+
+
+def test_grouped_backward_q5_b16_keeps_parent_consumer_path() -> None:
+    base = _key(262_144, "Q5_K")
+    solution = base.solution
+    assert isinstance(solution, GroupedBackwardSolution)
+    selected = replace(
+        base,
+        solution=replace(solution, route_ownership="SplitRoutes16"),
+    )
+    source = GroupedBackwardKernelWriterAssembly(
+        selected, Toolchain.discover()
+    ).source()
+    assert "Count active 16-row M consumers for this wave and route tile." not in source
+    assert ".LGroupedBackwardInactiveWave" not in source
 
 
 def test_grouped_backward_build_is_deterministic_and_inspectable(tmp_path) -> None:
