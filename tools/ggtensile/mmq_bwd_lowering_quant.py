@@ -95,7 +95,10 @@ class BackwardQuantLowering:
         )
 
     def _emit_quant_codebook_stage(self, asm: _Assembly) -> None:
-        if self.state.contract.quant_type != "IQ2_S":
+        if (
+            self.state.contract.quant_type != "IQ2_S"
+            or not self.physical.lds.codebook_in_lds
+        ):
             return
         r = self.registers
         threads = self.state.spec.geometry.num_threads
@@ -109,7 +112,8 @@ class BackwardQuantLowering:
             f"v{r.serial}"
         )
         asm.inst(
-            f"v_add_nc_u32 v{lds_address}, {self.physical.lds.num_bytes}, v{address}"
+            f"v_add_nc_u32 v{lds_address}, "
+            f"{self.physical.lds.effective_codebook_offset}, v{address}"
         )
         for batch in range(0, loads_per_thread, 4):
             batch_loads = min(4, loads_per_thread - batch)
@@ -390,6 +394,40 @@ class BackwardQuantLowering:
             )
         if wait_for_reads:
             asm.inst("s_waitcnt vmcnt(0)")
+
+    def _emit_iq2_s_global_reads_from_current_addresses(
+        self,
+        asm: _Assembly,
+    ) -> None:
+        """Issue IQ2_S reads using addresses derived by a paired projection."""
+        r = self.registers
+        a = r.address
+        t = r.temporary
+        for row in range(self.physical.decoder.rows):
+            block_address = a + row
+            metadata = r.quant_scale + 4 * row
+            asm.inst(f"v_add_nc_u32 v{t + 3}, v{block_address}, v{t + 1}")
+            asm.inst(
+                f"global_load_ushort v{metadata}, v{t + 3}, "
+                f"s[{r.kernarg + 2}:{r.kernarg + 3}] offset:2"
+            )
+            asm.inst(
+                f"global_load_ushort v{metadata + 1}, v{t + 3}, "
+                f"s[{r.kernarg + 2}:{r.kernarg + 3}] offset:34"
+            )
+            asm.inst(f"v_add_nc_u32 v{t + 3}, v{block_address}, v{t + 2}")
+            asm.inst(
+                f"global_load_d16_u8 v{metadata + 2}, v{t + 3}, "
+                f"s[{r.kernarg + 2}:{r.kernarg + 3}] offset:66"
+            )
+            asm.inst(
+                f"global_load_d16_u8 v{metadata + 3}, v{t + 3}, "
+                f"s[{r.kernarg + 2}:{r.kernarg + 3}] offset:74"
+            )
+            asm.inst(
+                f"global_load_d16_b16 v{r.quant_dm + row}, v{block_address}, "
+                f"s[{r.kernarg + 2}:{r.kernarg + 3}]"
+            )
 
     def _emit_q8_0_global_reads(
         self,
@@ -1289,18 +1327,12 @@ class BackwardQuantLowering:
             asm.inst(f"v_and_b32 v{t + 2}, 0xff, v{metadata}")
             asm.inst(f"v_lshl_or_b32 v{t + 2}, v{t + 3}, 8, v{t + 2}")
             asm.inst(f"v_lshlrev_b32 v{t + 4}, 3, v{t + 2}")
-            asm.inst(
-                f"ds_load_b64 v[{payload}:{payload + 1}], v{t + 4} "
-                f"offset:{self.physical.lds.num_bytes}"
-            )
+            self._emit_iq2_s_codebook_load(asm, payload, t + 4)
             asm.inst(f"v_bfe_u32 v{t + 2}, v{metadata}, 8, 8")
             asm.inst(f"v_bfe_u32 v{t + 3}, v{t + 1}, 2, 2")
             asm.inst(f"v_lshl_or_b32 v{t + 2}, v{t + 3}, 8, v{t + 2}")
             asm.inst(f"v_lshlrev_b32 v{t + 4}, 3, v{t + 2}")
-            asm.inst(
-                f"ds_load_b64 v[{payload + 2}:{payload + 3}], v{t + 4} "
-                f"offset:{self.physical.lds.num_bytes}"
-            )
+            self._emit_iq2_s_codebook_load(asm, payload + 2, t + 4)
             asm.inst(f"v_cvt_f32_f16 v{r.quant_dm + row}, v{r.quant_dm + row}.l")
             asm.inst(f"v_bfe_u32 v{t + 1}, v{metadata + 3}, v{t}, 4")
             asm.inst(f"v_cvt_f32_u32 v{t + 1}, v{t + 1}")
@@ -1308,7 +1340,8 @@ class BackwardQuantLowering:
             asm.inst(f"v_mul_f32 v{metadata + 2}, 0.25, v{r.quant_dm + row}")
             asm.inst(f"v_mul_f32 v{metadata + 2}, v{t + 1}, v{metadata + 2}")
             asm.inst(f"v_mov_b32 v{metadata + 3}, v{metadata + 1}")
-        asm.inst("s_waitcnt lgkmcnt(0)")
+        wait_domain = "lgkmcnt" if self.physical.lds.codebook_in_lds else "vmcnt"
+        asm.inst(f"s_waitcnt {wait_domain}(0)")
         for row in range(rows):
             metadata = r.quant_scale + 4 * row
             payload = r.global_read_b + 4 * row
@@ -1319,6 +1352,24 @@ class BackwardQuantLowering:
                     metadata + 3,
                     4 * dword,
                 )
+
+    def _emit_iq2_s_codebook_load(
+        self,
+        asm: _Assembly,
+        destination: int,
+        address: int,
+    ) -> None:
+        if self.physical.lds.codebook_in_lds:
+            asm.inst(
+                f"ds_load_b64 v[{destination}:{destination + 1}], v{address} "
+                f"offset:{self.physical.lds.effective_codebook_offset}"
+            )
+            return
+        base = self.registers.codebook_base
+        asm.inst(
+            f"global_load_b64 v[{destination}:{destination + 1}], v{address}, "
+            f"s[{base}:{base + 1}]"
+        )
 
     def _emit_iq2_s_signed_dword(
         self,

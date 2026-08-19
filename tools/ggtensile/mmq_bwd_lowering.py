@@ -642,7 +642,9 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         *,
         pipeline: bool = False,
         after_pair: Callable[[int, int], None] | None = None,
+        after_k_half: Callable[[int], None] | None = None,
         current_a_loop_offset: int = 0,
+        pending_vmem_by_k_tile: dict[int, int] | None = None,
     ) -> None:
         r = self.registers
         geometry = self.state.spec.geometry
@@ -817,7 +819,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
                             elif (
                                 pipeline
                                 or self.state.spec.pipeline.prefetches_next_packed_tile
-                            ):
+                            ) and pending_vmem_by_k_tile is None:
                                 asm.inst("s_waitcnt lgkmcnt(0)")
                             elif n_tile == 0:
                                 pending_a = (
@@ -835,6 +837,10 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
                                     == 0
                                     else 0
                                 )
+                                if pending_vmem_by_k_tile is not None:
+                                    pending_a = pending_vmem_by_k_tile.get(
+                                        k_tile, pending_a
+                                    )
                                 asm.inst(f"s_waitcnt vmcnt({pending_a}) lgkmcnt(0)")
                             else:
                                 asm.inst("s_waitcnt lgkmcnt(0)")
@@ -854,6 +860,8 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
                         )
                     if after_pair is not None:
                         after_pair(k_tile, n_tile)
+            if after_k_half is not None:
+                after_k_half(k_tile)
 
     def _emit_lds_read_arguments(
         self,
@@ -878,6 +886,8 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         t = r.temporary
         asm.inst(f"v_and_b32 v{t}, 15, v{r.serial}")
         emit_scale_u32(asm, t, row_stride, t)
+        if self.physical.lds.base_offset:
+            asm.inst(f"v_add_nc_u32 v{t}, {self.physical.lds.base_offset}, v{t}")
         if pipeline:
             asm.inst(f"v_add_nc_u32 v{t}, v{self.physical.address.lds}, v{t}")
         swizzle = self.state.spec.memory.lds_swizzle_chunk_b

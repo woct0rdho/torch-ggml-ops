@@ -11,7 +11,7 @@ from .grouped_mmq_bwd_spec import (
 )
 from .kernel_abi import GROUPED_BACKWARD_ABI
 from .kernel_writer_assembly import emit_kernel_trailer, emit_pointer_kernarg_loads
-from .mmq_bwd_emission import BackwardLoweringResult, _Assembly
+from .mmq_bwd_emission import BackwardLoweringResult, BackwardTileAccess, _Assembly
 from .mmq_bwd_lowering import BackwardTileComputeEmitter
 from .mmq_bwd_lowering_quant import emit_unbounded_a_global_loads
 from .mmq_bwd_physical import BackwardRegisterPlan
@@ -81,7 +81,7 @@ class GroupedBackwardTileComputeEmitter(BackwardTileComputeEmitter):
         state,
         physical,
         *,
-        access: GroupedBackwardTileAccess,
+        access: BackwardTileAccess,
         route: GroupedBackwardScalarPlan,
         enabled: bool,
         label_suffix: str = "",

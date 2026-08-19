@@ -78,6 +78,13 @@ class BackwardLdsPlan:
     num_bytes: int
     row_stride_bytes: int
     swizzle_chunk: int
+    base_offset: int = 0
+    codebook_offset: int | None = None
+    codebook_in_lds: bool = True
+
+    @property
+    def effective_codebook_offset(self) -> int:
+        return self.num_bytes if self.codebook_offset is None else self.codebook_offset
 
     def decoded_store_location(
         self,
@@ -87,14 +94,18 @@ class BackwardLdsPlan:
         row: int,
         k_span: int,
     ) -> tuple[int, int]:
-        lds_offset = self.row_stride_bytes * element + 2 * k_span * row
+        lds_offset = (
+            self.base_offset + self.row_stride_bytes * element + 2 * k_span * row
+        )
         if not self.swizzle_chunk:
             return address.lds, lds_offset
 
         residues = 32 // self.swizzle_chunk
         residue = element % residues
         logical_k = row * k_span
-        lds_offset = self.row_stride_bytes * element + 64 * (logical_k // 32)
+        lds_offset = (
+            self.base_offset + self.row_stride_bytes * element + 64 * (logical_k // 32)
+        )
         if logical_k % 32:
             lds_offset += 32 if residue < residues // 2 else -32
         return registers.lds_address + residue, lds_offset

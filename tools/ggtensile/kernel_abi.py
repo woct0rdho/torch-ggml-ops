@@ -207,6 +207,21 @@ GROUPED_BACKWARD_ABI = KernelAbi(
     )
 )
 
+GROUPED_BACKWARD_PAIR_ABI = KernelAbi(
+    (
+        _pointer("first_grad_output", KernelValueType.BFloat16),
+        _pointer("second_grad_output", KernelValueType.BFloat16),
+        _pointer("first_packed_weight", KernelValueType.Struct),
+        _pointer("second_packed_weight", KernelValueType.Struct),
+        _pointer("grad_input", KernelValueType.BFloat16),
+        _pointer("expert_indices", KernelValueType.Int64),
+        _pointer("expert_offsets", KernelValueType.Int32),
+        _value("num_experts", KernelValueType.Int32),
+        _value("rows", KernelValueType.Int32),
+        _value("bytes_per_expert", KernelValueType.Int64),
+    )
+)
+
 GROUPED_FORWARD_ABI = KernelAbi(
     (
         _pointer("weights", KernelValueType.Struct),
