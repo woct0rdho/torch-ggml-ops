@@ -9,27 +9,36 @@ from typing import TypeVar, cast
 from .model import (
     BackwardSolution,
     ProblemSize,
-    SchemaError,
     SolutionKey,
-    _integer,
-    _integer_tuple,
-    _strict_mapping,
-    _strict_mapping_optional,
-    _string,
 )
 from .quant_formats import BACKWARD_QUANT_FORMATS, QuantFormat
+from .schema import (
+    SchemaError,
+)
+from .schema import (
+    integer as _integer,
+)
+from .schema import (
+    integer_tuple as _integer_tuple,
+)
+from .schema import (
+    strict_mapping as _strict_mapping,
+)
+from .schema import (
+    strict_mapping_optional as _strict_mapping_optional,
+)
+from .schema import (
+    string as _string,
+)
 
 EnumT = TypeVar("EnumT", bound=Enum)
 
 
 def _serialized_enum(enum_type: type[EnumT], value: object, name: str) -> EnumT:
     serialized = _string(value, name)
-    try:
-        if issubclass(enum_type, IntEnum):
-            return enum_type[serialized]
-        return enum_type(serialized)
-    except (KeyError, ValueError):
+    if serialized not in enum_type._value2member_map_:
         raise SchemaError(f"invalid {name}: {serialized!r}") from None
+    return enum_type(serialized)
 
 
 class BackwardQ2DecodeSchedule(str, Enum):
@@ -38,10 +47,7 @@ class BackwardQ2DecodeSchedule(str, Enum):
 
     @classmethod
     def try_from_serialized(cls, value: str) -> BackwardQ2DecodeSchedule | None:
-        try:
-            return cls(value)
-        except ValueError:
-            return None
+        return cast(BackwardQ2DecodeSchedule | None, cls._value2member_map_.get(value))
 
     @property
     def dependency_width(self) -> int:
@@ -55,10 +61,7 @@ class BackwardQ3Pairing(str, Enum):
 
     @classmethod
     def try_from_serialized(cls, value: str) -> BackwardQ3Pairing | None:
-        try:
-            return cls(value)
-        except ValueError:
-            return None
+        return cast(BackwardQ3Pairing | None, cls._value2member_map_.get(value))
 
 
 class BackwardQ4DecodeSchedule(str, Enum):
@@ -67,10 +70,7 @@ class BackwardQ4DecodeSchedule(str, Enum):
 
     @classmethod
     def try_from_serialized(cls, value: str) -> BackwardQ4DecodeSchedule | None:
-        try:
-            return cls(value)
-        except ValueError:
-            return None
+        return cast(BackwardQ4DecodeSchedule | None, cls._value2member_map_.get(value))
 
     @property
     def dependency_width(self) -> int:
@@ -84,42 +84,58 @@ class BackwardExtraction(str, Enum):
 
     @classmethod
     def try_from_serialized(cls, value: str) -> BackwardExtraction | None:
-        try:
-            return cls(value)
-        except ValueError:
-            return None
+        return cast(BackwardExtraction | None, cls._value2member_map_.get(value))
 
 
-class BackwardScheduleIterAlg(IntEnum):
-    SIA2 = 2
-    SIA3 = 3
-    SIA4 = 4
-    SIA5 = 5
+class BackwardIterationSchedule(str, Enum):
+    Sequential = "Sequential"
+    InterleaveWmmaWaits = "InterleaveWmmaWaits"
+    PrefetchActivation = "PrefetchActivation"
+    PrefetchActivationInterleaveWmmaWaits = "PrefetchActivationInterleaveWmmaWaits"
 
     @classmethod
-    def try_from_serialized(cls, value: int) -> BackwardScheduleIterAlg | None:
-        try:
-            return cls(value)
-        except ValueError:
-            return None
+    def try_from_serialized(cls, value: int) -> BackwardIterationSchedule | None:
+        return {
+            2: cls.Sequential,
+            3: cls.InterleaveWmmaWaits,
+            4: cls.PrefetchActivation,
+            5: cls.PrefetchActivationInterleaveWmmaWaits,
+        }.get(value)
+
+    @property
+    def legacy_value(self) -> int:
+        return {
+            BackwardIterationSchedule.Sequential: 2,
+            BackwardIterationSchedule.InterleaveWmmaWaits: 3,
+            BackwardIterationSchedule.PrefetchActivation: 4,
+            BackwardIterationSchedule.PrefetchActivationInterleaveWmmaWaits: 5,
+        }[self]
 
     @property
     def prefetches_a(self) -> bool:
-        return self in (BackwardScheduleIterAlg.SIA4, BackwardScheduleIterAlg.SIA5)
+        return self in (
+            BackwardIterationSchedule.PrefetchActivation,
+            BackwardIterationSchedule.PrefetchActivationInterleaveWmmaWaits,
+        )
 
     @property
     def interleaves_wmma_waits(self) -> bool:
-        return self in (BackwardScheduleIterAlg.SIA3, BackwardScheduleIterAlg.SIA5)
+        return self in (
+            BackwardIterationSchedule.InterleaveWmmaWaits,
+            BackwardIterationSchedule.PrefetchActivationInterleaveWmmaWaits,
+        )
 
     @property
-    def uses_sia4_waits(self) -> bool:
-        return self is BackwardScheduleIterAlg.SIA4
+    def uses_prefetch_activation_waits(self) -> bool:
+        return self is BackwardIterationSchedule.PrefetchActivation
 
     def supports_global_read_prefetch(self, count: int) -> bool:
         return count == 1 or (count == 2 and self.prefetches_a)
 
     def supports_local_read_prefetch(self, count: int) -> bool:
-        return count == 1 or (count == 2 and self is BackwardScheduleIterAlg.SIA3)
+        return count == 1 or (
+            count == 2 and self is BackwardIterationSchedule.InterleaveWmmaWaits
+        )
 
 
 class BackwardLdsBuffering(IntEnum):
@@ -128,10 +144,7 @@ class BackwardLdsBuffering(IntEnum):
 
     @classmethod
     def try_from_serialized(cls, value: int) -> BackwardLdsBuffering | None:
-        try:
-            return cls(value)
-        except ValueError:
-            return None
+        return cast(BackwardLdsBuffering | None, cls._value2member_map_.get(value))
 
     @property
     def buffer_count(self) -> int:
@@ -232,10 +245,12 @@ class BackwardDecoderCapability:
 class BackwardAddressCapability:
     extended_quant_address_register_count: int
 
-    def uses_extended_a(self, schedule: BackwardScheduleIterAlg, m_tiles: int) -> bool:
+    def uses_extended_a(
+        self, schedule: BackwardIterationSchedule, m_tiles: int
+    ) -> bool:
         return schedule.prefetches_a and m_tiles > 2
 
-    def register_count(self, schedule: BackwardScheduleIterAlg, m_tiles: int) -> int:
+    def register_count(self, schedule: BackwardIterationSchedule, m_tiles: int) -> int:
         if not self.uses_extended_a(schedule, m_tiles):
             return 8
         return 6 + m_tiles + self.extended_quant_address_register_count
@@ -259,7 +274,7 @@ class BackwardMechanismContract:
     lane_share_values: frozenset[int]
     padded_depth_values: frozenset[int]
     pipeline_n_values: frozenset[int]
-    pipeline_schedule_iter_algs: frozenset[BackwardScheduleIterAlg]
+    pipeline_schedule_iter_algs: frozenset[BackwardIterationSchedule]
     pipeline_depth_values: frozenset[int]
     next_packed_depth_values: frozenset[int]
     decoder: BackwardDecoderCapability
@@ -273,7 +288,7 @@ class BackwardMechanismContract:
         return macro_tile1 in self.pipeline_n_values
 
     def supports_pipeline_schedule(
-        self, schedule: BackwardScheduleIterAlg | None
+        self, schedule: BackwardIterationSchedule | None
     ) -> bool:
         return schedule is not None and schedule in self.pipeline_schedule_iter_algs
 
@@ -308,13 +323,13 @@ def backward_mechanism_contract(quant_type: str) -> BackwardMechanismContract:
             else frozenset({128})
         ),
         pipeline_schedule_iter_algs=(
-            frozenset(BackwardScheduleIterAlg)
+            frozenset(BackwardIterationSchedule)
             if quant_type == "Q5_K"
             else frozenset(
                 {
-                    BackwardScheduleIterAlg.SIA2,
-                    BackwardScheduleIterAlg.SIA4,
-                    BackwardScheduleIterAlg.SIA5,
+                    BackwardIterationSchedule.Sequential,
+                    BackwardIterationSchedule.PrefetchActivation,
+                    BackwardIterationSchedule.PrefetchActivationInterleaveWmmaWaits,
                 }
             )
         ),
@@ -518,17 +533,24 @@ class BackwardPipelineSpec:
     global_read_prefetch: int
     local_read_prefetch: int
     lds_buffering: BackwardLdsBuffering
-    schedule: BackwardScheduleIterAlg
+    schedule: BackwardIterationSchedule
     packed_weight_prefetch: BackwardPackedWeightPrefetch
     packed_weight_lane_share: int
 
     @classmethod
     def from_solution(cls, solution: BackwardSolution) -> BackwardPipelineSpec:
+        schedule = BackwardIterationSchedule.try_from_serialized(
+            solution.schedule_iter_alg
+        )
+        if schedule is None:
+            raise ValueError(
+                f"unsupported backward iteration schedule {solution.schedule_iter_alg}"
+            )
         return cls(
             global_read_prefetch=solution.prefetch_global_read,
             local_read_prefetch=solution.prefetch_local_read,
             lds_buffering=BackwardLdsBuffering(solution.one_lds_buffer),
-            schedule=BackwardScheduleIterAlg(solution.schedule_iter_alg),
+            schedule=schedule,
             packed_weight_prefetch=BackwardPackedWeightPrefetch.from_solution(solution),
             packed_weight_lane_share=solution.packed_weight_lane_share,
         )
@@ -538,7 +560,7 @@ class BackwardPipelineSpec:
         lds_buffering = BackwardLdsBuffering.try_from_serialized(
             solution.one_lds_buffer
         )
-        schedule = BackwardScheduleIterAlg.try_from_serialized(
+        schedule = BackwardIterationSchedule.try_from_serialized(
             solution.schedule_iter_alg
         )
         if lds_buffering is None or schedule is None:
@@ -736,8 +758,8 @@ class BackwardKernelSpec:
             "pipeline": {
                 "global_read_prefetch": self.pipeline.global_read_prefetch,
                 "local_read_prefetch": self.pipeline.local_read_prefetch,
-                "lds_buffering": self.pipeline.lds_buffering.name,
-                "schedule": self.pipeline.schedule.name,
+                "lds_buffer_count": self.pipeline.lds_buffering.buffer_count,
+                "schedule": self.pipeline.schedule.value,
                 "packed_weight_prefetch": self.pipeline.packed_weight_prefetch.value,
                 "packed_weight_lane_share": self.pipeline.packed_weight_lane_share,
             },
@@ -747,7 +769,9 @@ class BackwardKernelSpec:
         }
         if quant_type == "Q2_K":
             if self.decode.q2.schedule is not BackwardQ2DecodeSchedule.Serial:
-                mapping["decode"] = {"schedule": self.decode.q2.schedule.value}
+                mapping["decode"] = {
+                    "dependency_batch_size": self.decode.q2.schedule.dependency_width
+                }
         elif quant_type == "Q3_K":
             mapping["decode"] = {
                 "extraction": self.decode.q3.extraction.value,
@@ -755,7 +779,9 @@ class BackwardKernelSpec:
             }
         elif quant_type == "Q4_K":
             if self.decode.q4.schedule is not BackwardQ4DecodeSchedule.Serial:
-                mapping["decode"] = {"schedule": self.decode.q4.schedule.value}
+                mapping["decode"] = {
+                    "dependency_batch_size": self.decode.q4.schedule.dependency_width
+                }
         elif quant_type == "Q5_K":
             mapping["decode"] = {
                 "extraction": self.decode.q5.extraction.value,
@@ -770,6 +796,20 @@ class BackwardKernelSpec:
             pass
         else:
             raise ValueError(f"unsupported backward quant type {quant_type!r}")
+        return mapping
+
+    def to_legacy_hash_mapping(self, quant_type: str) -> dict[str, object]:
+        """Project numeric decode batching onto the frozen enum-like identity."""
+        mapping = self.to_mapping(quant_type)
+        pipeline = mapping["pipeline"]
+        assert isinstance(pipeline, dict)
+        pipeline["lds_buffering"] = self.pipeline.lds_buffering.name
+        del pipeline["lds_buffer_count"]
+        pipeline["schedule"] = f"SIA{self.pipeline.schedule.legacy_value}"
+        if quant_type == "Q2_K" and "decode" in mapping:
+            mapping["decode"] = {"schedule": self.decode.q2.schedule.value}
+        elif quant_type == "Q4_K" and "decode" in mapping:
+            mapping["decode"] = {"schedule": self.decode.q4.schedule.value}
         return mapping
 
     @classmethod
@@ -856,13 +896,18 @@ class BackwardKernelSpec:
                 {
                     "global_read_prefetch",
                     "local_read_prefetch",
-                    "lds_buffering",
+                    "lds_buffer_count",
                     "schedule",
                     "packed_weight_prefetch",
                     "packed_weight_lane_share",
                 }
             ),
         )
+        lds_buffer_count = _integer(
+            pipeline_item["lds_buffer_count"], "lds_buffer_count"
+        )
+        if lds_buffer_count not in (1, 2):
+            raise SchemaError("backward LDS buffer count must be 1 or 2")
         pipeline = BackwardPipelineSpec(
             global_read_prefetch=_integer(
                 pipeline_item["global_read_prefetch"], "global_read_prefetch"
@@ -870,13 +915,13 @@ class BackwardKernelSpec:
             local_read_prefetch=_integer(
                 pipeline_item["local_read_prefetch"], "local_read_prefetch"
             ),
-            lds_buffering=_serialized_enum(
-                BackwardLdsBuffering,
-                pipeline_item["lds_buffering"],
-                "lds_buffering",
+            lds_buffering=(
+                BackwardLdsBuffering.Single
+                if lds_buffer_count == 1
+                else BackwardLdsBuffering.Double
             ),
             schedule=_serialized_enum(
-                BackwardScheduleIterAlg, pipeline_item["schedule"], "schedule"
+                BackwardIterationSchedule, pipeline_item["schedule"], "schedule"
             ),
             packed_weight_prefetch=_serialized_enum(
                 BackwardPackedWeightPrefetch,
@@ -904,36 +949,26 @@ class BackwardKernelSpec:
             decode_item = _strict_mapping(
                 item["decode"],
                 name="BackwardKernelSpec.decode",
-                keys=frozenset({"schedule"}),
+                keys=frozenset({"dependency_batch_size"}),
             )
-            q2 = BackwardQ2DecodePolicy(
-                _serialized_enum(
-                    BackwardQ2DecodeSchedule,
-                    decode_item["schedule"],
-                    "decode.schedule",
-                )
+            dependency_batch_size = _integer(
+                decode_item["dependency_batch_size"], "decode.dependency_batch_size"
             )
-            if q2.schedule is BackwardQ2DecodeSchedule.Serial:
-                raise SchemaError(
-                    "serial Q2_K decode is canonically represented by absent decode"
-                )
+            if dependency_batch_size != 4:
+                raise SchemaError("Q2_K dependency batch size must be 4")
+            q2 = BackwardQ2DecodePolicy(BackwardQ2DecodeSchedule.DependencyBatch4)
         if quant_type == "Q4_K" and "decode" in item:
             decode_item = _strict_mapping(
                 item["decode"],
                 name="BackwardKernelSpec.decode",
-                keys=frozenset({"schedule"}),
+                keys=frozenset({"dependency_batch_size"}),
             )
-            q4 = BackwardQ4DecodePolicy(
-                _serialized_enum(
-                    BackwardQ4DecodeSchedule,
-                    decode_item["schedule"],
-                    "decode.schedule",
-                )
+            dependency_batch_size = _integer(
+                decode_item["dependency_batch_size"], "decode.dependency_batch_size"
             )
-            if q4.schedule is BackwardQ4DecodeSchedule.Serial:
-                raise SchemaError(
-                    "serial Q4_K decode is canonically represented by absent decode"
-                )
+            if dependency_batch_size != 4:
+                raise SchemaError("Q4_K dependency batch size must be 4")
+            q4 = BackwardQ4DecodePolicy(BackwardQ4DecodeSchedule.DependencyBatch4)
         elif decode_required:
             if quant_type == "Q3_K":
                 decode_item = _strict_mapping(
@@ -1060,7 +1095,7 @@ class BackwardKernelSpec:
             prefetch_global_read=self.pipeline.global_read_prefetch,
             prefetch_local_read=self.pipeline.local_read_prefetch,
             one_lds_buffer=self.pipeline.lds_buffering.value,
-            schedule_iter_alg=self.pipeline.schedule.value,
+            schedule_iter_alg=self.pipeline.schedule.legacy_value,
             store_priority_opt=self.store.priority is BackwardStorePriority.Raised,
             num_elements_per_batch_store=self.store.num_elements_per_batch_store,
             store_vector_width=self.store.store_vector_width,
@@ -1095,8 +1130,6 @@ class BackwardKernelSpec:
 
 @dataclass(frozen=True)
 class DerivedBackwardState:
-    solution_key: SolutionKey
-    solution: BackwardSolution
     contract: BackwardProblemContract
     spec: BackwardKernelSpec
 
@@ -1105,9 +1138,15 @@ class DerivedBackwardState:
         solution = solution_key.solution
         if not isinstance(solution, BackwardSolution):
             raise TypeError("MMQ backward state requires BackwardSolution")
-        return cls(
-            solution_key=solution_key,
-            solution=solution,
-            contract=BackwardProblemContract.from_solution_key(solution_key),
-            spec=BackwardKernelSpec.from_solution(solution),
+        return cls.from_contract_spec(
+            BackwardProblemContract.from_solution_key(solution_key),
+            BackwardKernelSpec.from_solution(solution),
         )
+
+    @classmethod
+    def from_contract_spec(
+        cls,
+        contract: BackwardProblemContract,
+        spec: BackwardKernelSpec,
+    ) -> DerivedBackwardState:
+        return cls(contract=contract, spec=spec)

@@ -44,7 +44,7 @@ class PackedScaleMinimumDirectLowering:
         registers = physical.registers
         activation_metadata = physical.activation_metadata
         asm = Assembly()
-        name = self.context.solution_key.kernel_name
+        name = self.context.kernel_name
         quant_type = self.context.state.contract.quant_type
         row_stride = self.context.state.packed_weight_row_bytes
         activation_plane_stride = self.context.state.activation_plane_stride_bytes

@@ -10,6 +10,7 @@ from .grouped_mmq_fwd_pair_lowering_iq2_xxs import (
 from .grouped_mmq_fwd_pair_lowering_q3_k import GroupedQ3KPairedK128Lowering
 from .grouped_mmq_fwd_pair_model import (
     GroupedForwardPairSolutionKey,
+    GroupedPairOperandSource,
     GroupedPairRouteOwnership,
 )
 from .grouped_mmq_fwd_pair_spec import DerivedGroupedForwardPairState
@@ -50,11 +51,13 @@ class GroupedForwardPairKernelWriterAssembly:
         resources = self.state.physical_plan.resources
         row_tasks = (
             self.state.kernel_spec.route_ownership
-            is GroupedPairRouteOwnership.DeviceRowTasks64
+            is GroupedPairRouteOwnership.DeviceRowTasks
         )
         quant_type = self.solution_key.problem.quant_data_type
         ownership = (
-            "device 64-row task ownership" if row_tasks else "serial GEMM ownership"
+            f"device {self.state.kernel_spec.row_task_rows}-row task ownership"
+            if row_tasks
+            else "serial GEMM ownership"
         )
         envelope = KernelEnvelope(
             module_name="GGTensileGroupedForwardPairKernel",
@@ -81,15 +84,16 @@ class GroupedForwardPairKernelWriterAssembly:
             ),
         )
         envelope.initialize()
-        if quant_type == "IQ2_S":
+        operand_source = self.state.kernel_spec.operand_source
+        if operand_source is GroupedPairOperandSource.IQ2SHalfWeightLds:
             emission = GroupedIQ2SPairedK128Lowering(self.context).emission()
-        elif quant_type == "IQ2_XXS":
+        elif operand_source is GroupedPairOperandSource.IQ2XXSHalfWeightLds:
             emission = GroupedIQ2XXSPairedK128Lowering(self.context).emission()
-        elif quant_type == "Q3_K":
+        elif operand_source is GroupedPairOperandSource.Q3KHalfWeightLds:
             emission = GroupedQ3KPairedK128Lowering(self.context).emission()
         else:
             raise ForwardKernelWriterError(
-                f"paired lowering is unavailable for {quant_type!r}"
+                f"paired lowering is unavailable for {operand_source!r}"
             )
         return envelope.render(
             emission.body,

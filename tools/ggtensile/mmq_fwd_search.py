@@ -55,9 +55,12 @@ def q6_candidate_mapping(schedule: Q6ForwardSchedule) -> dict[str, object]:
 
 def q6_candidate_hash(schedule: Q6ForwardSchedule) -> str:
     """Return a stable hash over every assembly-affecting Q6 candidate field."""
-    return hashlib.sha256(
-        _canonical_json(q6_candidate_mapping(schedule)).encode()
-    ).hexdigest()
+    identity = {
+        "ArtifactKind": "KernelCandidate",
+        "KernelFamily": "OrdinaryForward",
+        **q6_candidate_mapping(schedule),
+    }
+    return hashlib.sha256(_canonical_json(identity).encode()).hexdigest()
 
 
 def q6_solution_with_schedule(
@@ -237,9 +240,12 @@ def canonical_candidate(
 
 def forward_candidate_hash(candidate: ForwardSolution, quant_type: str) -> str:
     """Hash a complete forward candidate independently of exact problem shape."""
-    return hashlib.sha256(
-        _canonical_json(canonical_candidate(candidate, quant_type)).encode()
-    ).hexdigest()
+    identity = {
+        "ArtifactKind": "KernelCandidate",
+        "KernelFamily": "OrdinaryForward",
+        **canonical_candidate(candidate, quant_type),
+    }
+    return hashlib.sha256(_canonical_json(identity).encode()).hexdigest()
 
 
 def explain_invalid(

@@ -3,11 +3,11 @@
 from pathlib import Path
 
 from .grouped_mmq_bwd_lowering import GroupedBackwardKernelLowering
-from .iq2_s_grid import iq2_s_grid_rodata
+from .grouped_mmq_bwd_physical import derive_grouped_backward_physical_plan
+from .grouped_mmq_bwd_spec import DerivedGroupedBackwardState
 from .kernel_abi import GROUPED_BACKWARD_ABI
 from .kernel_writer_assembly import KernelEnvelope, write_assembly_source
 from .mmq_bwd_emission import BackwardKernelWriterError
-from .mmq_bwd_lowering_quant import IQ2_S_GRID_SYMBOL
 from .model import GroupedBackwardSolution, SolutionKey
 from .toolchain import Toolchain
 from .validation import validate_solution
@@ -29,16 +29,20 @@ class GroupedBackwardKernelWriterAssembly:
             )
         self.solution_key = solution_key
         self.toolchain = toolchain
-        self.lowering = GroupedBackwardKernelLowering(solution_key)
-        self.state = self.lowering.grouped_state
-        self.physical = self.lowering.grouped_physical
+        self.state = DerivedGroupedBackwardState.from_solution_key(solution_key)
+        self.physical = derive_grouped_backward_physical_plan(self.state)
+        self.lowering = GroupedBackwardKernelLowering(
+            solution_key.kernel_name,
+            self.state,
+            self.physical,
+        )
 
     def write(self, output: Path) -> str:
         return write_assembly_source(output, self.source())
 
     def source(self) -> str:
         compute = self.state.spec.compute
-        resources = self.physical.resources
+        resources = self.physical.primary.resources
         envelope = KernelEnvelope(
             module_name="GGTensileKernel",
             kernel_name=self.solution_key.kernel_name,
@@ -63,10 +67,8 @@ class GroupedBackwardKernelWriterAssembly:
             ),
         )
         envelope.initialize()
-        body = self.lowering.body()
-        if self.state.contract.quant_type == "IQ2_S":
-            return envelope.render(
-                body,
-                trailing_sections=(iq2_s_grid_rodata(IQ2_S_GRID_SYMBOL),),
-            )
-        return envelope.render(body)
+        emission = self.lowering.emission()
+        return envelope.render(
+            emission.body,
+            trailing_sections=emission.trailing_sections,
+        )

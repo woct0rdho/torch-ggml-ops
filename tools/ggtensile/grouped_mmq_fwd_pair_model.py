@@ -11,11 +11,11 @@ from typing_extensions import Self
 from .grouped_mmq_fwd_model import (
     GroupedActivationAddressing,
     GroupedOutputStore,
-    _integer,
-    _mapping,
 )
-from .model import SchemaError
 from .quant_formats import Q8_1_F32_D4_BLOCK_BYTES
+from .schema import SchemaError
+from .schema import integer as _integer
+from .schema import strict_mapping as _mapping
 
 
 class GroupedPairOperandSource(str, Enum):
@@ -25,7 +25,7 @@ class GroupedPairOperandSource(str, Enum):
 
 
 class GroupedPairProjectionSchedule(str, Enum):
-    K128Interleaved = "K128Interleaved"
+    Interleaved = "Interleaved"
 
 
 class GroupedPairDecodeSchedule(str, Enum):
@@ -38,7 +38,7 @@ class GroupedPairDecodeSchedule(str, Enum):
 
 class GroupedPairRouteOwnership(str, Enum):
     SerialRoutes = "SerialRoutes"
-    DeviceRowTasks64 = "DeviceRowTasks64"
+    DeviceRowTasks = "DeviceRowTasks"
 
 
 @dataclass(frozen=True)
@@ -86,6 +86,7 @@ class GroupedForwardPairSolution:
     weight_decode: str
     group_mapping: str
     route_layout: str
+    row_task_rows: int | None
     activation_addressing: GroupedActivationAddressing
     metadata_conversion: str
     metadata_schedule: GroupedPairDecodeSchedule
@@ -111,10 +112,11 @@ class GroupedForwardPairSolution:
             activation_block_bytes=Q8_1_F32_D4_BLOCK_BYTES,
             packed_weight_block_bytes=82,
             operand_source=GroupedPairOperandSource.IQ2SHalfWeightLds,
-            projection_schedule=GroupedPairProjectionSchedule.K128Interleaved,
+            projection_schedule=GroupedPairProjectionSchedule.Interleaved,
             weight_decode="TwoLaneSelectedHalfIQ2SGridSigned",
             group_mapping="SerialGemmPair",
             route_layout="CumulativeOffsetsExpertIndices",
+            row_task_rows=None,
             activation_addressing=GroupedActivationAddressing.AggregateRowsTiledLinear,
             metadata_conversion="Float16DUnsignedNibbleScaleToFloat32",
             metadata_schedule=(
@@ -133,7 +135,8 @@ class GroupedForwardPairSolution:
         return replace(
             cls.iq2_s_k128_interleaved(),
             group_mapping="RowTaskGemmPair",
-            route_layout="DeviceRowTasks64",
+            route_layout="DeviceRowTasks",
+            row_task_rows=64,
         )
 
     @classmethod
@@ -151,10 +154,11 @@ class GroupedForwardPairSolution:
             activation_block_bytes=Q8_1_F32_D4_BLOCK_BYTES,
             packed_weight_block_bytes=66,
             operand_source=GroupedPairOperandSource.IQ2XXSHalfWeightLds,
-            projection_schedule=GroupedPairProjectionSchedule.K128Interleaved,
+            projection_schedule=GroupedPairProjectionSchedule.Interleaved,
             weight_decode="TwoLaneSelectedHalfIQ2XXSGridParitySigned",
             group_mapping="SerialGemmPair",
             route_layout="CumulativeOffsetsExpertIndices",
+            row_task_rows=None,
             activation_addressing=GroupedActivationAddressing.AggregateRowsTiledLinear,
             metadata_conversion="Float16DParitySignsOddScaleToFloat32",
             metadata_schedule=GroupedPairDecodeSchedule.TwoLaneSelectedHalfIQ2XXS,
@@ -197,10 +201,11 @@ class GroupedForwardPairSolution:
             activation_block_bytes=Q8_1_F32_D4_BLOCK_BYTES,
             packed_weight_block_bytes=110,
             operand_source=GroupedPairOperandSource.Q3KHalfWeightLds,
-            projection_schedule=GroupedPairProjectionSchedule.K128Interleaved,
+            projection_schedule=GroupedPairProjectionSchedule.Interleaved,
             weight_decode="TwoLaneSelectedHalfQ3Signed",
             group_mapping="SerialGemmPair",
             route_layout="CumulativeOffsetsExpertIndices",
+            row_task_rows=None,
             activation_addressing=GroupedActivationAddressing.AggregateRowsTiledLinear,
             metadata_conversion="Float16DSignedSixBitScaleToFloat32",
             metadata_schedule=GroupedPairDecodeSchedule.TwoLaneSelectedHalfQ3,
@@ -217,7 +222,8 @@ class GroupedForwardPairSolution:
         return replace(
             cls.q3_k_k128_interleaved(),
             group_mapping="RowTaskGemmPair",
-            route_layout="DeviceRowTasks64",
+            route_layout="DeviceRowTasks",
+            row_task_rows=64,
         )
 
     @classmethod
@@ -234,8 +240,8 @@ class GroupedForwardPairSolution:
         identity = (self.group_mapping, self.route_layout)
         if identity == ("SerialGemmPair", "CumulativeOffsetsExpertIndices"):
             return GroupedPairRouteOwnership.SerialRoutes
-        if identity == ("RowTaskGemmPair", "DeviceRowTasks64"):
-            return GroupedPairRouteOwnership.DeviceRowTasks64
+        if identity == ("RowTaskGemmPair", "DeviceRowTasks"):
+            return GroupedPairRouteOwnership.DeviceRowTasks
         raise ValueError("paired route ownership identity is unsupported")
 
     @property
@@ -249,16 +255,12 @@ class GroupedForwardPairSolutionKey:
     solution: GroupedForwardPairSolution
 
     _KEYS: ClassVar[frozenset[str]] = frozenset(
-        {"ArtifactKind", "KernelFamily", "ProblemContract", "Problem", "KernelSpec"}
+        {"ProblemContract", "Problem", "KernelSpec"}
     )
 
     @classmethod
     def from_mapping(cls, value: object) -> Self:
         item = _mapping(value, "GroupedForwardPairSolutionKey", cls._KEYS)
-        if item["ArtifactKind"] != "ExactKernel":
-            raise SchemaError("paired key ArtifactKind must be ExactKernel")
-        if item["KernelFamily"] != "GroupedForwardPair":
-            raise SchemaError("paired key KernelFamily must be GroupedForwardPair")
         from .grouped_mmq_fwd_pair_spec import (
             GroupedForwardPairContract,
             GroupedForwardPairKernelSpec,
@@ -296,8 +298,6 @@ class GroupedForwardPairSolutionKey:
         contract = GroupedForwardPairContract.from_solution(self.problem, self.solution)
         spec = GroupedForwardPairKernelSpec.from_solution(self.solution)
         return {
-            "ArtifactKind": "ExactKernel",
-            "KernelFamily": "GroupedForwardPair",
             "ProblemContract": contract.to_mapping(),
             "Problem": {"aggregate_rows": self.problem.aggregate_rows},
             "KernelSpec": spec.to_mapping(),
@@ -305,7 +305,18 @@ class GroupedForwardPairSolutionKey:
 
     @property
     def hash(self) -> str:
-        canonical = json.dumps(self.to_mapping(), sort_keys=True, separators=(",", ":"))
+        from .grouped_mmq_fwd_pair_spec import GroupedForwardPairKernelSpec
+
+        mapping = self.to_mapping()
+        mapping["KernelSpec"] = GroupedForwardPairKernelSpec.from_solution(
+            self.solution
+        ).to_legacy_hash_mapping()
+        identity = {
+            "ArtifactKind": "ExactKernel",
+            "KernelFamily": "GroupedForwardPair",
+            **mapping,
+        }
+        canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"))
         digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         return f"ggpair_{digest[:16]}"
 

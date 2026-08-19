@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 
 from .mmq_fwd_spec import DerivedForwardState
-from .model import SolutionKey
 
 
 class ForwardKernelWriterError(RuntimeError):
@@ -14,5 +13,5 @@ class ForwardKernelWriterError(RuntimeError):
 class ForwardLoweringContext:
     """One validated key and its single authoritative derived state."""
 
-    solution_key: SolutionKey
+    kernel_name: str
     state: DerivedForwardState

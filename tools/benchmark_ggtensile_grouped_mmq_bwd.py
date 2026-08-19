@@ -16,19 +16,16 @@ from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 import torch_ggml_ops  # noqa: F401 Register the installed packed control.
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-BENCH_ROOT = REPO_ROOT / "bench"
-for path in (REPO_ROOT, BENCH_ROOT):
-    if str(path) not in sys.path:
-        sys.path.insert(0, str(path))
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
-from grouped_mmq_benchmark_common import (  # ty: ignore[unresolved-import]
+from tools.ggtensile.benchmark_routes import (
     RouteDistribution,
     distribution_summary,
     make_route_tensors,
     route_distributions,
     truncate_distribution,
 )
-
 from tools.ggtensile.model import SolutionKey
 from tools.ggtensile.quant_formats import BACKWARD_QUANT_FORMATS
 from tools.ggtensile.runtime import GroupedBackwardModule
@@ -735,18 +732,18 @@ def main() -> None:
                 )
 
     report = {
-        "SolutionKey": key.to_mapping(),
-        "SolutionHash": key.hash,
-        "KernelName": key.kernel_name,
-        "CodeObject": str(args.code_object),
-        "Model": str(args.model),
-        "Tensor": tensor_name,
-        "PhysicalBatch": batch,
-        "PriorFamily": prior_family,
-        "PhysicalWeightShape": physical_shape,
-        "GradOutputShape": [size.m, size.k],
-        "GradInputShape": [size.m, size.n],
-        "Protocol": {
+        "solution_key": key.to_mapping(),
+        "solution_hash": key.hash,
+        "kernel_name": key.kernel_name,
+        "code_object": str(args.code_object),
+        "model": str(args.model),
+        "tensor": tensor_name,
+        "physical_batch": batch,
+        "prior_family": prior_family,
+        "physical_weight_shape": physical_shape,
+        "grad_output_shape": [size.m, size.k],
+        "grad_input_shape": [size.m, size.n],
+        "protocol": {
             "warmup": args.warmup,
             "repeats": args.repeats,
             "rotating_order": True,
@@ -755,9 +752,9 @@ def main() -> None:
             "candidate_complete_includes_output_allocation": True,
             "candidate_kernel_uses_preallocated_output": True,
         },
-        "Correctness": correctness,
-        "Timings": timing_reports,
-        "PriorSummary": _weighted_prior_summary(timing_reports),
+        "correctness": correctness,
+        "timings": timing_reports,
+        "prior_summary": _weighted_prior_summary(timing_reports),
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")

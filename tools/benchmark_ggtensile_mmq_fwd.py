@@ -34,22 +34,22 @@ MAX_INDEPENDENT_NORMALIZED_RMSE = 0.04
 
 
 class Metrics(TypedDict):
-    DifferentBf16Elements: int
-    Elements: int
-    Finite: bool
-    MaxAbsoluteError: float | None
-    ErrorRms: float | None
-    ReferenceRms: float
-    NormalizedRmse: float | None
+    different_bf16_elements: int
+    elements: int
+    finite: bool
+    max_absolute_error: float | None
+    error_rms: float | None
+    reference_rms: float
+    normalized_rmse: float | None
 
 
 class Timing(TypedDict):
-    SamplesMs: list[float]
-    MedianMs: float
-    MeanMs: float
-    MinMs: float
-    MaxMs: float
-    LogicalTflops: float
+    samples_ms: list[float]
+    median_ms: float
+    mean_ms: float
+    min_ms: float
+    max_ms: float
+    median_tflops: float
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -84,13 +84,13 @@ def _metrics(actual: torch.Tensor, expected: torch.Tensor) -> Metrics:
     reference_rms = float(expected.float().square().mean().sqrt())
     error_rms = float(difference.square().mean().sqrt()) if finite else None
     return {
-        "DifferentBf16Elements": int(torch.count_nonzero(actual != expected)),
-        "Elements": actual.numel(),
-        "Finite": finite,
-        "MaxAbsoluteError": float(difference.abs().max()) if finite else None,
-        "ErrorRms": error_rms,
-        "ReferenceRms": reference_rms,
-        "NormalizedRmse": (
+        "different_bf16_elements": int(torch.count_nonzero(actual != expected)),
+        "elements": actual.numel(),
+        "finite": finite,
+        "max_absolute_error": float(difference.abs().max()) if finite else None,
+        "error_rms": error_rms,
+        "reference_rms": reference_rms,
+        "normalized_rmse": (
             error_rms / reference_rms
             if error_rms is not None and reference_rms
             else None
@@ -101,12 +101,12 @@ def _metrics(actual: torch.Tensor, expected: torch.Tensor) -> Metrics:
 def _timing(samples: list[float], logical_flops: int) -> Timing:
     median_ms = statistics.median(samples)
     return {
-        "SamplesMs": samples,
-        "MedianMs": median_ms,
-        "MeanMs": statistics.fmean(samples),
-        "MinMs": min(samples),
-        "MaxMs": max(samples),
-        "LogicalTflops": logical_flops / (median_ms * 1.0e9),
+        "samples_ms": samples,
+        "median_ms": median_ms,
+        "mean_ms": statistics.fmean(samples),
+        "min_ms": min(samples),
+        "max_ms": max(samples),
+        "median_tflops": logical_flops / (median_ms * 1.0e9),
     }
 
 
@@ -202,11 +202,11 @@ def main() -> None:
         quantize()
         torch.cuda.synchronize()
         correctness: dict[str, object] = {
-            "ProducerRepeat": {
-                "DifferentBytes": int(
+            "producer_repeat": {
+                "different_bytes": int(
                     torch.count_nonzero(workspace != workspace_control)
                 ),
-                "Bytes": workspace.numel(),
+                "bytes": workspace.numel(),
             }
         }
         launch_hip()
@@ -219,8 +219,8 @@ def main() -> None:
         )
         torch.cuda.synchronize()
         baseline_candidate = candidate_output.clone()
-        correctness["CandidateVsHipMultiply"] = _metrics(candidate_output, hip_output)
-        correctness["CandidateVsPublicComplete"] = _metrics(
+        correctness["candidate_vs_hip_kernel"] = _metrics(candidate_output, hip_output)
+        correctness["candidate_vs_public_complete"] = _metrics(
             candidate_output, public_output
         )
 
@@ -235,13 +235,13 @@ def main() -> None:
             size.n,
         )
         torch.cuda.synchronize()
-        correctness["InputMutationVsHipMultiply"] = _metrics(
+        correctness["input_mutation_vs_hip_kernel"] = _metrics(
             candidate_output, hip_output
         )
-        correctness["InputMutationVsPublicComplete"] = _metrics(
+        correctness["input_mutation_vs_public_complete"] = _metrics(
             candidate_output, updated_public
         )
-        correctness["InputMutationChangedElements"] = int(
+        correctness["input_mutation_changed_elements"] = int(
             torch.count_nonzero(candidate_output != baseline_candidate)
         )
         input_tensor.neg_()
@@ -253,10 +253,10 @@ def main() -> None:
         launch_hip()
         launch_candidate()
         torch.cuda.synchronize()
-        correctness["PackedWeightMutationVsHipMultiply"] = _metrics(
+        correctness["packed_weight_mutation_vs_hip_kernel"] = _metrics(
             candidate_output, hip_output
         )
-        correctness["PackedWeightMutationChangedElements"] = int(
+        correctness["packed_weight_mutation_changed_elements"] = int(
             torch.count_nonzero(candidate_output != baseline_candidate)
         )
         packed_bytes[16].copy_(packed_original)
@@ -269,10 +269,10 @@ def main() -> None:
         launch_hip()
         launch_candidate()
         torch.cuda.synchronize()
-        correctness["WorkspaceMutationVsHipMultiply"] = _metrics(
+        correctness["workspace_mutation_vs_hip_kernel"] = _metrics(
             candidate_output, hip_output
         )
-        correctness["WorkspaceMutationChangedElements"] = int(
+        correctness["workspace_mutation_changed_elements"] = int(
             torch.count_nonzero(candidate_output != baseline_candidate)
         )
         workspace_bytes[workspace_index].copy_(workspace_original)
@@ -288,21 +288,21 @@ def main() -> None:
                 device="cuda",
             ).reshape(size.n, size.k)
             reference = torch.mm(input_tensor, logical_weight.transpose(0, 1))
-            correctness["CandidateVsIndependentReference"] = _metrics(
+            correctness["candidate_vs_independent_reference"] = _metrics(
                 candidate_output,
                 reference,
             )
-            correctness["PublicVsIndependentReference"] = _metrics(
+            correctness["public_vs_independent_reference"] = _metrics(
                 public_output,
                 reference,
             )
             del logical_weight, reference
 
         timing_functions = {
-            "HipComplete": hip_complete,
-            "GGTensileComplete": candidate_complete,
-            "HipMultiply": launch_hip,
-            "GGTensileMultiply": launch_candidate,
+            "hip_complete": hip_complete,
+            "candidate_complete": candidate_complete,
+            "hip_kernel": launch_hip,
+            "candidate_kernel": launch_candidate,
         }
         for _ in range(arguments.warmup):
             for function in timing_functions.values():
@@ -318,28 +318,48 @@ def main() -> None:
     logical_flops = 2 * size.m * size.n * size.k
     timing = {name: _timing(values, logical_flops) for name, values in samples.items()}
     report = {
-        "SolutionKey": key.to_mapping(),
-        "KernelName": key.kernel_name,
-        "Model": str(arguments.model),
-        "Tensor": arguments.tensor,
-        "LogicalWeightShape": [size.n, size.k],
-        "PhysicalWeightShape": list(tensor.data.shape),
-        "InputShape": [size.m, size.k],
-        "OutputShape": [size.m, size.n],
-        "WorkspaceShape": [size.k // 128, size.m, 144],
-        "LogicalFlops": logical_flops,
-        "CorrectnessThresholds": {
-            "MaxCandidateToHipNormalizedRmse": (MAX_CANDIDATE_TO_HIP_NORMALIZED_RMSE),
-            "MaxCandidateToHipAbsoluteError": MAX_CANDIDATE_TO_HIP_ABSOLUTE_ERROR,
-            "MaxIndependentNormalizedRmse": MAX_INDEPENDENT_NORMALIZED_RMSE,
+        "solution_key": key.to_mapping(),
+        "solution_hash": key.hash,
+        "kernel_name": key.kernel_name,
+        "code_object": str(arguments.code_object),
+        "model": str(arguments.model),
+        "tensor": arguments.tensor,
+        "logical_weight_shape": [size.n, size.k],
+        "physical_weight_shape": list(tensor.data.shape),
+        "input_shape": [size.m, size.k],
+        "output_shape": [size.m, size.n],
+        "workspace_shape": [size.k // 128, size.m, 144],
+        "logical_flops": logical_flops,
+        "protocol": {
+            "warmup": arguments.warmup,
+            "repeats": arguments.repeats,
+            "rotating_order": True,
         },
-        "Correctness": correctness,
-        "Timing": timing,
-        "CompleteCandidateToHip": (
-            timing["GGTensileComplete"]["MedianMs"] / timing["HipComplete"]["MedianMs"]
+        "correctness_thresholds": {
+            "max_candidate_to_hip_normalized_rmse": (
+                MAX_CANDIDATE_TO_HIP_NORMALIZED_RMSE
+            ),
+            "max_candidate_to_hip_absolute_error": (
+                MAX_CANDIDATE_TO_HIP_ABSOLUTE_ERROR
+            ),
+            "max_independent_normalized_rmse": MAX_INDEPENDENT_NORMALIZED_RMSE,
+        },
+        "correctness": correctness,
+        "timing": timing,
+        "candidate_complete_to_hip_latency": (
+            timing["candidate_complete"]["median_ms"]
+            / timing["hip_complete"]["median_ms"]
         ),
-        "MultiplyCandidateToHip": (
-            timing["GGTensileMultiply"]["MedianMs"] / timing["HipMultiply"]["MedianMs"]
+        "candidate_complete_to_hip_throughput": (
+            timing["candidate_complete"]["median_tflops"]
+            / timing["hip_complete"]["median_tflops"]
+        ),
+        "candidate_kernel_to_hip_latency": (
+            timing["candidate_kernel"]["median_ms"] / timing["hip_kernel"]["median_ms"]
+        ),
+        "candidate_kernel_to_hip_throughput": (
+            timing["candidate_kernel"]["median_tflops"]
+            / timing["hip_kernel"]["median_tflops"]
         ),
     }
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
@@ -350,42 +370,43 @@ def main() -> None:
     print(json.dumps(report, indent=2, allow_nan=False))
 
     hip_agreement_names = (
-        "CandidateVsHipMultiply",
-        "CandidateVsPublicComplete",
-        "InputMutationVsHipMultiply",
-        "InputMutationVsPublicComplete",
-        "PackedWeightMutationVsHipMultiply",
-        "WorkspaceMutationVsHipMultiply",
+        "candidate_vs_hip_kernel",
+        "candidate_vs_public_complete",
+        "input_mutation_vs_hip_kernel",
+        "input_mutation_vs_public_complete",
+        "packed_weight_mutation_vs_hip_kernel",
+        "workspace_mutation_vs_hip_kernel",
     )
     hip_agreement = tuple(
         cast(Metrics, correctness[name]) for name in hip_agreement_names
     )
     if any(
-        not metrics["Finite"]
-        or metrics["NormalizedRmse"] is None
-        or metrics["NormalizedRmse"] > MAX_CANDIDATE_TO_HIP_NORMALIZED_RMSE
-        or metrics["MaxAbsoluteError"] is None
-        or metrics["MaxAbsoluteError"] > MAX_CANDIDATE_TO_HIP_ABSOLUTE_ERROR
+        not metrics["finite"]
+        or metrics["normalized_rmse"] is None
+        or metrics["normalized_rmse"] > MAX_CANDIDATE_TO_HIP_NORMALIZED_RMSE
+        or metrics["max_absolute_error"] is None
+        or metrics["max_absolute_error"] > MAX_CANDIDATE_TO_HIP_ABSOLUTE_ERROR
         for metrics in hip_agreement
     ):
         raise SystemExit("candidate failed forward correctness tolerance")
     if not arguments.skip_reference:
         independent_metrics = cast(
-            Metrics, correctness["CandidateVsIndependentReference"]
+            Metrics, correctness["candidate_vs_independent_reference"]
         )
-        independent_nrmse = independent_metrics["NormalizedRmse"]
+        independent_nrmse = independent_metrics["normalized_rmse"]
         if (
             independent_nrmse is None
             or independent_nrmse > MAX_INDEPENDENT_NORMALIZED_RMSE
         ):
             raise SystemExit("candidate failed independent-reference tolerance")
-    if correctness["ProducerRepeat"]["DifferentBytes"] != 0:
+    producer_repeat = correctness["producer_repeat"]
+    if producer_repeat["different_bytes"] != 0:
         raise SystemExit("fixed Q8_1 F16_D4S4 producer is not deterministic")
-    if correctness["InputMutationChangedElements"] == 0:
+    if correctness["input_mutation_changed_elements"] == 0:
         raise SystemExit("input mutation did not affect output")
-    if correctness["PackedWeightMutationChangedElements"] == 0:
+    if correctness["packed_weight_mutation_changed_elements"] == 0:
         raise SystemExit("packed-weight mutation did not affect output")
-    if correctness["WorkspaceMutationChangedElements"] == 0:
+    if correctness["workspace_mutation_changed_elements"] == 0:
         raise SystemExit("workspace mutation did not affect output")
 
 

@@ -3,6 +3,7 @@ from dataclasses import dataclass, replace
 from .mmq_bwd_physical import derive_backward_physical_plan
 from .mmq_bwd_spec import (
     BackwardExtraction,
+    BackwardIterationSchedule,
     BackwardLdsBuffering,
     BackwardPackedWeightPrefetch,
     BackwardQ2DecodeSchedule,
@@ -10,7 +11,6 @@ from .mmq_bwd_spec import (
     BackwardQ4DecodeSchedule,
     BackwardQ5MetadataLoad,
     BackwardQ5NibbleShift,
-    BackwardScheduleIterAlg,
     DerivedBackwardState,
     backward_mechanism_contract,
 )
@@ -431,17 +431,19 @@ def _validate_forward_solution(
         problem_type.quant_data_type,
         solution,
     )
-    try:
-        mechanism = forward_mechanism_contract(solution.operand_source)
-    except ValueError as error:
+    mechanism_rejection = forward_kernel_spec_rejection_reason(solution)
+    if mechanism_rejection is not None and mechanism_rejection.startswith(
+        "unsupported forward operand source"
+    ):
         _reject(
             reasons,
             "solution.forward.kernel_spec",
-            str(error),
+            mechanism_rejection,
             "OperandSource",
             source="ForwardMechanismContract",
         )
         return
+    mechanism = forward_mechanism_contract(solution.operand_source)
     mechanism_rejection = mechanism.rejection_reason(contract)
     if mechanism_rejection is not None:
         _reject(
@@ -625,7 +627,7 @@ def _validate_backward_solution_parameters(
             "LdsSwizzleChunkB",
         )
     lds_buffering = BackwardLdsBuffering.try_from_serialized(solution.one_lds_buffer)
-    schedule = BackwardScheduleIterAlg.try_from_serialized(solution.schedule_iter_alg)
+    schedule = BackwardIterationSchedule.try_from_serialized(solution.schedule_iter_alg)
     packed_prefetch = BackwardPackedWeightPrefetch.from_solution(solution)
     q2_decode_schedule = BackwardQ2DecodeSchedule.try_from_serialized(
         solution.q2_k_decode_schedule
@@ -646,7 +648,7 @@ def _validate_backward_solution_parameters(
             "1LDSBuffer",
         )
     pipeline_schedule = (
-        schedule is BackwardScheduleIterAlg.SIA3
+        schedule is BackwardIterationSchedule.InterleaveWmmaWaits
         and schedule.supports_global_read_prefetch(solution.prefetch_global_read)
         and solution.prefetch_global_read == 1
         and solution.depth_u == 32
@@ -781,7 +783,7 @@ def _validate_backward_solution_parameters(
             "Q8KExtraction",
         )
     if packed_prefetch.includes_next_tile and (
-        schedule is not BackwardScheduleIterAlg.SIA4
+        schedule is not BackwardIterationSchedule.PrefetchActivation
         or solution.prefetch_global_read != 2
         or solution.prefetch_local_read != 1
     ):
@@ -798,7 +800,7 @@ def _validate_backward_solution_parameters(
         solution.lds_swizzle_chunk_b == 0 and solution.lds_pad_b in (8, 16, 24)
     )
     if solution.depth_u == 64 and (
-        schedule is not BackwardScheduleIterAlg.SIA4
+        schedule is not BackwardIterationSchedule.PrefetchActivation
         or solution.prefetch_global_read != 2
         or solution.prefetch_local_read != 1
         or not depth_u64_layout
@@ -892,140 +894,20 @@ def _validate_backward_solution_parameters(
         )
 
 
-def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
-    reasons: list[RejectReason] = []
-    if solution_key.problem_type.operation_type == "MMQForward":
-        _validate_forward_solution(solution_key, reasons)
-        return tuple(reasons)
-    if isinstance(solution_key.solution, GroupedBackwardSolution):
-        try:
-            from .grouped_mmq_bwd_spec import DerivedGroupedBackwardState
-
-            state = DerivedGroupedBackwardState.from_solution_key(solution_key)
-        except (TypeError, ValueError) as error:
-            _reject(
-                reasons,
-                "solution.grouped_backward.schema",
-                str(error),
-                "Problem",
-                "Solution",
-                source="GroupedBackwardContract",
-            )
-            return tuple(reasons)
-        reasons.extend(validate_solution(state.ordinary.solution_key))
-        compute = solution_key.solution.compute
-        if (
-            state.spec.ownership.split_factor == 64
-            and state.contract.quant_type != "IQ2_S"
-        ):
-            _reject(
-                reasons,
-                "solution.grouped_backward.split64.quant",
-                "SplitRoutes64 is implemented only for grouped IQ2_S backward",
-                "RouteOwnership",
-                source="GroupedBackwardContract",
-            )
-        if compute.work_group_mapping != 1:
-            _reject(
-                reasons,
-                "solution.grouped_backward.work_group_mapping",
-                "routed backward requires WorkGroupMapping=1",
-                "WorkGroupMapping",
-                source="GroupedBackwardContract",
-            )
-        if state.spec.row_tail.value == "Mixed128_64":
-            mixed_tail_valid = (
-                compute.macro_tile0 == 128
-                and compute.matrix_instruction[5] == 2
-                and compute.matrix_instruction[7] == 4
-                and compute.num_threads == 128
-                and compute.one_lds_buffer == 1
-                and compute.schedule_iter_alg == 5
-                and compute.prefetch_global_read == 2
-                and compute.prefetch_local_read == 1
-                and not compute.prefetch_packed_weight_next
-            )
-            if not mixed_tail_valid:
-                _reject(
-                    reasons,
-                    "solution.grouped_backward.row_tail",
-                    "Mixed128_64 requires the supported 128xN, two-M-tile, 128-thread, single-LDS primary geometry",
-                    "MacroTile0",
-                    "MatrixInstruction",
-                    "NumThreads",
-                    "1LDSBuffer",
-                    "ScheduleIterAlg",
-                    "PrefetchGlobalRead",
-                    "PrefetchLocalRead",
-                    "PrefetchPackedWeightNext",
-                    source="GroupedBackwardContract",
-                )
-        if state.contract.problem_size.n % compute.macro_tile1:
-            _reject(
-                reasons,
-                "solution.grouped_backward.n_tile",
-                "grouped backward N must be exactly divisible by MacroTile1",
-                "MacroTile1",
-                source="GroupedBackwardContract",
-            )
-        return tuple(reasons)
-    if not isinstance(solution_key.solution, BackwardSolution):
-        _reject(
-            reasons,
-            "solution.backward.schema",
-            "MMQ backward requires BackwardSolution",
-            "Solution",
-            source="SolutionStructs",
-        )
-        return tuple(reasons)
-    _validate_backward_problem_type(solution_key.problem_type, reasons)
-    _validate_backward_solution_parameters(solution_key.solution, reasons)
-    quant_type = solution_key.problem_type.quant_data_type
-    if quant_type not in BACKWARD_QUANT_FORMATS:
-        return tuple(reasons)
+def _validate_backward_mechanism_capability(
+    problem_type: ProblemType,
+    solution: BackwardSolution,
+    reasons: list[RejectReason],
+) -> None:
+    quant_type = problem_type.quant_data_type
     mechanism = backward_mechanism_contract(quant_type)
-    lds_buffering = BackwardLdsBuffering.try_from_serialized(
-        solution_key.solution.one_lds_buffer
-    )
-    schedule = BackwardScheduleIterAlg.try_from_serialized(
-        solution_key.solution.schedule_iter_alg
-    )
-    packed_prefetch = BackwardPackedWeightPrefetch.from_solution(solution_key.solution)
-    q2_decode_schedule = BackwardQ2DecodeSchedule.try_from_serialized(
-        solution_key.solution.q2_k_decode_schedule
-    )
-    q3_extraction = BackwardExtraction.try_from_serialized(
-        solution_key.solution.q3_k_extraction
-    )
-    q3_pairing = BackwardQ3Pairing.try_from_serialized(
-        solution_key.solution.q3_k_pairing
-    )
-    q4_decode_schedule = BackwardQ4DecodeSchedule.try_from_serialized(
-        solution_key.solution.q4_k_decode_schedule
-    )
-    q5_extraction = BackwardExtraction.try_from_serialized(
-        solution_key.solution.q5_k_extraction
-    )
-    q5_nibble_shift = (
-        BackwardQ5NibbleShift.Hoisted
-        if solution_key.solution.q5_k_nibble_shift_hoist
-        else BackwardQ5NibbleShift.Inline
-    )
-    q5_metadata_load = (
-        BackwardQ5MetadataLoad.Vector
-        if solution_key.solution.q5_k_metadata_vector_load
-        else BackwardQ5MetadataLoad.Scalar
-    )
-    q6_extraction = BackwardExtraction.try_from_serialized(
-        solution_key.solution.q6_k_extraction
-    )
-    q8_extraction = BackwardExtraction.try_from_serialized(
-        solution_key.solution.q8_0_extraction
-    )
+    lds_buffering = BackwardLdsBuffering.try_from_serialized(solution.one_lds_buffer)
+    schedule = BackwardIterationSchedule.try_from_serialized(solution.schedule_iter_alg)
+    packed_prefetch = BackwardPackedWeightPrefetch.from_solution(solution)
     if (
-        solution_key.problem_type.quant_data_type == "Q5_K"
-        and solution_key.solution.macro_tile1 == 64
-        and solution_key.solution.q5_k_metadata_vector_load
+        quant_type == "Q5_K"
+        and solution.macro_tile1 == 64
+        and solution.q5_k_metadata_vector_load
     ):
         _reject(
             reasons,
@@ -1036,9 +918,9 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             source="ProblemType",
         )
     if (
-        solution_key.problem_type.quant_data_type == "Q5_K"
-        and solution_key.solution.macro_tile1 == 64
-        and solution_key.solution.packed_weight_lane_share != 1
+        quant_type == "Q5_K"
+        and solution.macro_tile1 == 64
+        and solution.packed_weight_lane_share != 1
     ):
         _reject(
             reasons,
@@ -1049,9 +931,9 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             source="ProblemType",
         )
     if (
-        solution_key.solution.depth_u == 64
-        and solution_key.solution.lds_pad_b in (8, 16, 24)
-        and not mechanism.supports_padded_depth(solution_key.solution.depth_u)
+        solution.depth_u == 64
+        and solution.lds_pad_b in (8, 16, 24)
+        and not mechanism.supports_padded_depth(solution.depth_u)
     ):
         _reject(
             reasons,
@@ -1061,9 +943,7 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             "LdsPadB",
             source="ProblemType",
         )
-    if solution_key.solution.packed_weight_lane_share not in (
-        mechanism.lane_share_values
-    ):
+    if solution.packed_weight_lane_share not in mechanism.lane_share_values:
         _reject(
             reasons,
             "solution.decoder.packedweightlaneshare",
@@ -1073,8 +953,8 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
         )
     if (
         lds_buffering is BackwardLdsBuffering.Double
-        and solution_key.solution.macro_tile1 == 64
-        and not mechanism.supports_pipeline_n(solution_key.solution.macro_tile1)
+        and solution.macro_tile1 == 64
+        and not mechanism.supports_pipeline_n(solution.macro_tile1)
     ):
         _reject(
             reasons,
@@ -1086,7 +966,7 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
         )
     if (
         lds_buffering is BackwardLdsBuffering.Double
-        and schedule is BackwardScheduleIterAlg.SIA3
+        and schedule is BackwardIterationSchedule.InterleaveWmmaWaits
         and not mechanism.supports_pipeline_schedule(schedule)
     ):
         _reject(
@@ -1099,8 +979,8 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
         )
     if (
         lds_buffering is BackwardLdsBuffering.Double
-        and solution_key.solution.depth_u == 64
-        and not mechanism.supports_pipeline_depth(solution_key.solution.depth_u)
+        and solution.depth_u == 64
+        and not mechanism.supports_pipeline_depth(solution.depth_u)
     ):
         _reject(
             reasons,
@@ -1111,9 +991,9 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             source="ProblemType",
         )
     if (
-        solution_key.solution.depth_u == 64
+        solution.depth_u == 64
         and packed_prefetch.includes_next_tile
-        and not mechanism.supports_next_packed_depth(solution_key.solution.depth_u)
+        and not mechanism.supports_next_packed_depth(solution.depth_u)
     ):
         _reject(
             reasons,
@@ -1123,10 +1003,36 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             "PrefetchPackedWeightNext",
             source="ProblemType",
         )
-    if (
-        solution_key.problem_type.quant_data_type == "Q4_K"
-        and q5_extraction is not BackwardExtraction.packed
-    ):
+
+
+def _validate_backward_decode_capability(
+    problem_type: ProblemType,
+    solution: BackwardSolution,
+    reasons: list[RejectReason],
+) -> None:
+    quant_type = problem_type.quant_data_type
+    q2_decode_schedule = BackwardQ2DecodeSchedule.try_from_serialized(
+        solution.q2_k_decode_schedule
+    )
+    q3_extraction = BackwardExtraction.try_from_serialized(solution.q3_k_extraction)
+    q3_pairing = BackwardQ3Pairing.try_from_serialized(solution.q3_k_pairing)
+    q4_decode_schedule = BackwardQ4DecodeSchedule.try_from_serialized(
+        solution.q4_k_decode_schedule
+    )
+    q5_extraction = BackwardExtraction.try_from_serialized(solution.q5_k_extraction)
+    q5_nibble_shift = (
+        BackwardQ5NibbleShift.Hoisted
+        if solution.q5_k_nibble_shift_hoist
+        else BackwardQ5NibbleShift.Inline
+    )
+    q5_metadata_load = (
+        BackwardQ5MetadataLoad.Vector
+        if solution.q5_k_metadata_vector_load
+        else BackwardQ5MetadataLoad.Scalar
+    )
+    q6_extraction = BackwardExtraction.try_from_serialized(solution.q6_k_extraction)
+    q8_extraction = BackwardExtraction.try_from_serialized(solution.q8_0_extraction)
+    if quant_type == "Q4_K" and q5_extraction is not BackwardExtraction.packed:
         _reject(
             reasons,
             "solution.q5kextraction.q4_inert",
@@ -1134,9 +1040,7 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             "Q5KExtraction",
             source="ProblemType",
         )
-    if solution_key.problem_type.quant_data_type != "Q6_K" and (
-        q6_extraction is not BackwardExtraction.packed
-    ):
+    if quant_type != "Q6_K" and q6_extraction is not BackwardExtraction.packed:
         _reject(
             reasons,
             "solution.q6.controls.inert",
@@ -1144,9 +1048,7 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             "Q6KExtraction",
             source="ProblemType",
         )
-    if solution_key.problem_type.quant_data_type != "Q8_0" and (
-        q8_extraction is not BackwardExtraction.packed
-    ):
+    if quant_type != "Q8_0" and q8_extraction is not BackwardExtraction.packed:
         _reject(
             reasons,
             "solution.q8.controls.inert",
@@ -1154,8 +1056,9 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             "Q8KExtraction",
             source="ProblemType",
         )
-    if quant_type != "Q2_K" and (
-        q2_decode_schedule is not BackwardQ2DecodeSchedule.Serial
+    if (
+        quant_type != "Q2_K"
+        and q2_decode_schedule is not BackwardQ2DecodeSchedule.Serial
     ):
         _reject(
             reasons,
@@ -1164,8 +1067,9 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             "Q2KDecodeSchedule",
             source="ProblemType",
         )
-    if quant_type != "Q4_K" and (
-        q4_decode_schedule is not BackwardQ4DecodeSchedule.Serial
+    if (
+        quant_type != "Q4_K"
+        and q4_decode_schedule is not BackwardQ4DecodeSchedule.Serial
     ):
         _reject(
             reasons,
@@ -1174,7 +1078,7 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             "Q4KDecodeSchedule",
             source="ProblemType",
         )
-    if solution_key.problem_type.quant_data_type != "Q5_K" and (
+    if quant_type != "Q5_K" and (
         q5_extraction is not BackwardExtraction.packed
         or q5_nibble_shift is BackwardQ5NibbleShift.Hoisted
         or q5_metadata_load is BackwardQ5MetadataLoad.Vector
@@ -1189,9 +1093,7 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             source="ProblemType",
         )
     if quant_type == "Q3_K":
-        pairing = q3_pairing
-        extraction = q3_extraction
-        if extraction is BackwardExtraction.packed and pairing not in (
+        if q3_extraction is BackwardExtraction.packed and q3_pairing not in (
             BackwardQ3Pairing.Partial,
             BackwardQ3Pairing.Full,
         ):
@@ -1204,8 +1106,8 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
                 source="ProblemType",
             )
         if (
-            extraction is BackwardExtraction.scalar
-            and pairing is not BackwardQ3Pairing.Inactive
+            q3_extraction is BackwardExtraction.scalar
+            and q3_pairing is not BackwardQ3Pairing.Inactive
         ):
             _reject(
                 reasons,
@@ -1215,13 +1117,13 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
                 "Q3KPairing",
                 source="ProblemType",
             )
-        decoder_threads = min(solution_key.solution.num_threads, 128)
+        decoder_threads = min(solution.num_threads, 128)
         decoder_rows = (
-            solution_key.solution.depth_u
-            * solution_key.solution.macro_tile1
-            // (decoder_threads * solution_key.solution.decoder_width)
+            solution.depth_u
+            * solution.macro_tile1
+            // (decoder_threads * solution.decoder_width)
         )
-        if pairing is BackwardQ3Pairing.Full and decoder_rows > 2:
+        if q3_pairing is BackwardQ3Pairing.Full and decoder_rows > 2:
             _reject(
                 reasons,
                 "solution.q3.full_pairing.decoder_rows",
@@ -1245,34 +1147,274 @@ def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
             "Q3KPairing",
             source="ProblemType",
         )
+
+
+def _validate_backward_state_problem_size(
+    problem_type: ProblemType,
+    problem_size: ProblemSize,
+    state: DerivedBackwardState,
+    reasons: list[RejectReason],
+) -> None:
+    geometry = state.spec.geometry
+    quant_format = BACKWARD_QUANT_FORMATS[problem_type.quant_data_type]
+    for parameter, value in (
+        ("M", problem_size.m),
+        ("N", problem_size.n),
+        ("K", problem_size.k),
+    ):
+        if value <= 0:
+            _reject(
+                reasons,
+                f"problem_size.{parameter.lower()}.positive",
+                f"{parameter} must be positive",
+                parameter,
+                source="ProblemSize",
+            )
+    if problem_size.n % quant_format.block_values:
+        _reject(
+            reasons,
+            "problem_size.n.quant_block",
+            "N must contain complete packed-weight quant blocks",
+            "N",
+            "QuantDataType",
+            source="ProblemSize",
+        )
+    if problem_type.quant_data_type == "Q8_0":
+        compatible_n_tile = geometry.macro_tile1 % quant_format.block_values == 0
+    else:
+        compatible_n_tile = (
+            quant_format.block_values % geometry.macro_tile1 == 0
+            if geometry.macro_tile1 > 0
+            else False
+        )
+    if geometry.macro_tile1 > 0 and not compatible_n_tile:
+        _reject(
+            reasons,
+            "problem_size.n.decoder_tile",
+            "MacroTile1 must preserve complete decoder ownership within a quant block",
+            "N",
+            "MacroTile1",
+            "QuantDataType",
+            source="ProblemSize",
+        )
+    for parameter, value, divisor, divisor_name in (
+        ("M", problem_size.m, geometry.macro_tile0, "MacroTile0"),
+        ("N", problem_size.n, geometry.macro_tile1, "MacroTile1"),
+        ("K", problem_size.k, geometry.depth_u, "DepthU"),
+    ):
+        if divisor > 0 and value % divisor:
+            _reject(
+                reasons,
+                f"problem_size.{parameter.lower()}.tile_multiple",
+                f"{parameter} must be divisible by {divisor_name}",
+                parameter,
+                divisor_name,
+                source="ProblemSize",
+            )
+    decoder_threads = min(geometry.num_threads, 128)
+    decoder_width = state.spec.decode.decoder_width
+    if (
+        decoder_threads > 0
+        and decoder_width > 0
+        and geometry.depth_u * geometry.macro_tile1 // (decoder_threads * decoder_width)
+        == 0
+    ):
+        _reject(
+            reasons,
+            "problem_size.decoder_rows.empty",
+            "DepthU and MacroTile1 must provide at least one decoder row",
+            "DepthU",
+            "MacroTile1",
+            "DecoderWidth",
+            "WorkGroup",
+            source="ProblemSize",
+        )
+    if geometry.macro_tile0 > 0 and geometry.work_group_mapping > 0:
+        m_blocks = problem_size.m // geometry.macro_tile0
+        if m_blocks % geometry.work_group_mapping:
+            _reject(
+                reasons,
+                "problem_size.m.work_group_mapping",
+                "M tile count must be divisible by WorkGroupMapping",
+                "M",
+                "MacroTile0",
+                "WorkGroupMapping",
+                source="ProblemSize",
+            )
+
+
+def _validate_backward_physical_state(
+    state: DerivedBackwardState, reasons: list[RejectReason]
+) -> None:
+    physical = derive_backward_physical_plan(state)
+    if physical.resources.lds_num_bytes > 65536:
+        _reject(
+            reasons,
+            "solution.lds.capacity",
+            "backward physical LDS use exceeds 64 KiB",
+            "DepthU",
+            "MacroTile1",
+            "LdsPadB",
+            "1LDSBuffer",
+            source="BackwardPhysicalPlan",
+        )
+
+
+def validate_solution(solution_key: SolutionKey) -> tuple[RejectReason, ...]:
+    reasons: list[RejectReason] = []
+    if solution_key.problem_type.operation_type == "MMQForward":
+        _validate_forward_solution(solution_key, reasons)
+        return tuple(reasons)
+    if isinstance(solution_key.solution, GroupedBackwardSolution):
+        from .grouped_mmq_bwd_spec import DerivedGroupedBackwardState
+
+        state = DerivedGroupedBackwardState.from_solution_key(solution_key)
+        compute = solution_key.solution.compute
+        m_tile = compute.macro_tile0
+        padded_m = (
+            (state.contract.problem_size.m + m_tile - 1) // m_tile * m_tile
+            if m_tile > 0
+            else state.contract.problem_size.m
+        )
+        ordinary_problem_type = ProblemType.mmq_backward(state.contract.quant_type)
+        padded_problem_size = ProblemSize(
+            padded_m,
+            state.contract.problem_size.n,
+            state.contract.problem_size.k,
+        )
+        _validate_backward_problem_type(ordinary_problem_type, reasons)
+        _validate_backward_solution_parameters(compute, reasons)
+        if state.contract.quant_type in BACKWARD_QUANT_FORMATS:
+            _validate_backward_mechanism_capability(
+                ordinary_problem_type, compute, reasons
+            )
+            _validate_backward_decode_capability(
+                ordinary_problem_type, compute, reasons
+            )
+        _validate_backward_problem_size(
+            ordinary_problem_type, padded_problem_size, compute, reasons
+        )
+        _validate_backward_physical_state(state.primary, reasons)
+        split_factor = state.spec.ownership.split_factor
+        if split_factor * compute.macro_tile0 > 0xFFFFFFFF:
+            _reject(
+                reasons,
+                "solution.grouped_backward.split_factor.range",
+                "route split start coordinates must fit in a u32",
+                "RouteOwnership",
+                "MacroTile0",
+                source="GroupedBackwardContract",
+            )
+        if compute.work_group_mapping != 1:
+            _reject(
+                reasons,
+                "solution.grouped_backward.work_group_mapping",
+                "routed backward requires WorkGroupMapping=1",
+                "WorkGroupMapping",
+                source="GroupedBackwardContract",
+            )
+        row_tail = state.spec.row_tail
+        if row_tail.is_secondary:
+            secondary_repeats = (
+                row_tail.tile_rows // 64 if row_tail.tile_rows is not None else 0
+            )
+            mixed_tail_valid = (
+                row_tail.threshold_rows is not None
+                and row_tail.tile_rows is not None
+                and 0 < row_tail.threshold_rows <= row_tail.tile_rows
+                and row_tail.tile_rows % 64 == 0
+                and compute.macro_tile0 == 2 * row_tail.tile_rows
+                and len(compute.matrix_instruction) == 9
+                and compute.matrix_instruction[5] == 2 * secondary_repeats
+                and compute.matrix_instruction[7] == 4
+                and compute.num_threads == 128
+                and compute.one_lds_buffer == 1
+                and compute.schedule_iter_alg == 5
+                and compute.prefetch_global_read == 2
+                and compute.prefetch_local_read == 1
+                and not compute.prefetch_packed_weight_next
+            )
+            if not mixed_tail_valid:
+                _reject(
+                    reasons,
+                    "solution.grouped_backward.row_tail",
+                    "secondary grouped row tail requires a compatible two-M-tile, 128-thread, single-LDS primary geometry",
+                    "MacroTile0",
+                    "MatrixInstruction",
+                    "NumThreads",
+                    "1LDSBuffer",
+                    "ScheduleIterAlg",
+                    "PrefetchGlobalRead",
+                    "PrefetchLocalRead",
+                    "PrefetchPackedWeightNext",
+                    source="GroupedBackwardContract",
+                )
+            elif state.secondary is not None:
+                secondary_tile = state.secondary.spec.geometry.macro_tile0
+                padded_secondary_m = (
+                    (state.contract.problem_size.m + secondary_tile - 1)
+                    // secondary_tile
+                    * secondary_tile
+                )
+                secondary_reasons: list[RejectReason] = []
+                _validate_backward_state_problem_size(
+                    ordinary_problem_type,
+                    ProblemSize(
+                        padded_secondary_m,
+                        state.contract.problem_size.n,
+                        state.contract.problem_size.k,
+                    ),
+                    state.secondary,
+                    secondary_reasons,
+                )
+                _validate_backward_physical_state(state.secondary, secondary_reasons)
+                if secondary_reasons:
+                    _reject(
+                        reasons,
+                        "solution.grouped_backward.row_tail",
+                        "secondary grouped row tail has no compatible compute capability",
+                        "RowTail",
+                        "MatrixInstruction",
+                        "MacroTile0",
+                        source="GroupedBackwardContract",
+                    )
+        if state.contract.problem_size.n % compute.macro_tile1:
+            _reject(
+                reasons,
+                "solution.grouped_backward.n_tile",
+                "grouped backward N must be exactly divisible by MacroTile1",
+                "MacroTile1",
+                source="GroupedBackwardContract",
+            )
+        return tuple(reasons)
+    if not isinstance(solution_key.solution, BackwardSolution):
+        _reject(
+            reasons,
+            "solution.backward.schema",
+            "MMQ backward requires BackwardSolution",
+            "Solution",
+            source="SolutionStructs",
+        )
+        return tuple(reasons)
+    _validate_backward_problem_type(solution_key.problem_type, reasons)
+    _validate_backward_solution_parameters(solution_key.solution, reasons)
+    quant_type = solution_key.problem_type.quant_data_type
+    if quant_type not in BACKWARD_QUANT_FORMATS:
+        return tuple(reasons)
+    _validate_backward_mechanism_capability(
+        solution_key.problem_type, solution_key.solution, reasons
+    )
+    _validate_backward_decode_capability(
+        solution_key.problem_type, solution_key.solution, reasons
+    )
     _validate_backward_problem_size(
         solution_key.problem_type,
         solution_key.problem_size,
         solution_key.solution,
         reasons,
     )
-    try:
-        physical = derive_backward_physical_plan(
-            DerivedBackwardState.from_solution_key(solution_key)
-        )
-    except (IndexError, ValueError, ZeroDivisionError) as error:
-        _reject(
-            reasons,
-            "solution.physical.capacity",
-            f"backward physical planning failed: {error}",
-            "Solution",
-            source="BackwardPhysicalPlan",
-        )
-    else:
-        if physical.resources.lds_num_bytes > 65536:
-            _reject(
-                reasons,
-                "solution.lds.capacity",
-                "backward physical LDS use exceeds 64 KiB",
-                "DepthU",
-                "MacroTile1",
-                "LdsPadB",
-                "1LDSBuffer",
-                source="BackwardPhysicalPlan",
-            )
+    if reasons:
+        return tuple(reasons)
+    state = DerivedBackwardState.from_solution_key(solution_key)
+    _validate_backward_physical_state(state, reasons)
     return tuple(reasons)

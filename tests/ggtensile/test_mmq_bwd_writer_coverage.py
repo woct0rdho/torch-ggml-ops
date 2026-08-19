@@ -77,6 +77,8 @@ def test_backward_pipeline_policy_rejects_unparseable_modes() -> None:
         ).packed_weight_prefetch
         is not None
     )
+    with pytest.raises(ValueError, match="unsupported backward iteration schedule 99"):
+        BackwardPipelineSpec.from_solution(replace(pilot, schedule_iter_alg=99))
     assert BackwardQ3Pairing.try_from_serialized("invalid") is None
     assert BackwardQ4DecodeSchedule.try_from_serialized("invalid") is None
     assert BackwardExtraction.try_from_serialized("invalid") is None
@@ -89,6 +91,23 @@ def test_backward_canonical_schema_rejects_every_noncanonical_boundary() -> None
     contract = BackwardProblemContract.from_solution_key(key)
     spec = BackwardKernelSpec.from_solution(pilot)
     mapping = spec.to_mapping("Q4_K")
+    assert mapping["pipeline"]["lds_buffer_count"] == 1
+    assert mapping["pipeline"]["schedule"] == "Sequential"
+    legacy_schedule = copy.deepcopy(mapping)
+    legacy_schedule["pipeline"]["schedule"] = "SIA2"
+    with pytest.raises(SchemaError, match="invalid schedule"):
+        BackwardKernelSpec.from_mapping(legacy_schedule, "Q4_K")
+    double_buffered = BackwardKernelSpec.from_solution(replace(pilot, one_lds_buffer=0))
+    double_buffered_mapping = double_buffered.to_mapping("Q4_K")
+    assert double_buffered_mapping["pipeline"]["lds_buffer_count"] == 2
+    assert (
+        BackwardKernelSpec.from_mapping(double_buffered_mapping, "Q4_K")
+        == double_buffered
+    )
+    invalid_buffer_count = copy.deepcopy(mapping)
+    invalid_buffer_count["pipeline"]["lds_buffer_count"] = 3
+    with pytest.raises(SchemaError, match="LDS buffer count must be 1 or 2"):
+        BackwardKernelSpec.from_mapping(invalid_buffer_count, "Q4_K")
 
     invalid_contract = contract.to_mapping()
     invalid_contract["quant_type"] = "IQ1_S"
@@ -116,16 +135,20 @@ def test_backward_canonical_schema_rejects_every_noncanonical_boundary() -> None
         BackwardKernelSpec.from_mapping(invalid, "Q4_K")
 
     invalid = copy.deepcopy(mapping)
-    invalid["decode"] = {"schedule": "Serial"}
-    with pytest.raises(SchemaError, match="canonically represented by absent"):
+    invalid["decode"] = {"dependency_batch_size": 1}
+    with pytest.raises(SchemaError, match="dependency batch size must be 4"):
         BackwardKernelSpec.from_mapping(invalid, "Q4_K")
 
     batched = replace(pilot, q4_k_decode_schedule="DependencyBatch4")
     batched_mapping = BackwardKernelSpec.from_solution(batched).to_mapping("Q4_K")
-    assert batched_mapping["decode"] == {"schedule": "DependencyBatch4"}
+    assert batched_mapping["decode"] == {"dependency_batch_size": 4}
     assert BackwardKernelSpec.from_mapping(batched_mapping, "Q4_K") == (
         BackwardKernelSpec.from_solution(batched)
     )
+    legacy_batch = copy.deepcopy(batched_mapping)
+    legacy_batch["decode"] = {"schedule": "DependencyBatch4"}
+    with pytest.raises(SchemaError, match=r"unknown \['schedule'\]"):
+        BackwardKernelSpec.from_mapping(legacy_batch, "Q4_K")
 
     invalid = copy.deepcopy(mapping)
     invalid["geometry"]["work_group"] = [0, 4, 1]
@@ -191,14 +214,14 @@ def test_q2_backward_contract_and_spec_roundtrip_with_decode_schedule() -> None:
     assert "decode" not in mapping
     assert BackwardKernelSpec.from_mapping(mapping, "Q2_K") == spec
     serial_mapping = copy.deepcopy(mapping)
-    serial_mapping["decode"] = {"schedule": "Serial"}
-    with pytest.raises(SchemaError, match="canonically represented by absent"):
+    serial_mapping["decode"] = {"dependency_batch_size": 1}
+    with pytest.raises(SchemaError, match="dependency batch size must be 4"):
         BackwardKernelSpec.from_mapping(serial_mapping, "Q2_K")
 
     batched = replace(solution, q2_k_decode_schedule="DependencyBatch4")
     batched_spec = BackwardKernelSpec.from_solution(batched)
     batched_mapping = batched_spec.to_mapping("Q2_K")
-    assert batched_mapping["decode"] == {"schedule": "DependencyBatch4"}
+    assert batched_mapping["decode"] == {"dependency_batch_size": 4}
     assert BackwardKernelSpec.from_mapping(batched_mapping, "Q2_K") == batched_spec
 
 

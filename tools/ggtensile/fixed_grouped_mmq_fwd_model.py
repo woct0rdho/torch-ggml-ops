@@ -2,72 +2,22 @@
 
 import hashlib
 import json
-from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from enum import Enum
-from typing import ClassVar, TypeVar
+from typing import ClassVar
 
 from typing_extensions import Self
 
-from .model import ForwardSolution, ProblemSize, ProblemType, SchemaError, SolutionKey
 from .quant_formats import Q8_1_F32_D4_BLOCK_BYTES, QUANT_FORMATS
-
-
-def _mapping(value: object, name: str, keys: frozenset[str]) -> Mapping[str, object]:
-    if not isinstance(value, Mapping):
-        raise SchemaError(f"{name} must be a mapping")
-    if any(not isinstance(key, str) for key in value):
-        raise SchemaError(f"{name} keys must be strings")
-    missing = sorted(keys - set(value))
-    unknown = sorted(set(value) - keys)
-    if missing or unknown:
-        details = []
-        if missing:
-            details.append(f"missing {missing}")
-        if unknown:
-            details.append(f"unknown {unknown}")
-        raise SchemaError(f"invalid {name}: {', '.join(details)}")
-    return value
-
-
-def _string(value: object, name: str) -> str:
-    if type(value) is not str:
-        raise SchemaError(f"{name} must be str, not {type(value).__name__}")
-    return value
-
-
-def _integer(value: object, name: str) -> int:
-    if type(value) is not int:
-        raise SchemaError(f"{name} must be int, not {type(value).__name__}")
-    return value
-
-
-def _boolean(value: object, name: str) -> bool:
-    if type(value) is not bool:
-        raise SchemaError(f"{name} must be bool, not {type(value).__name__}")
-    return value
-
-
-def _integer_tuple(value: object, name: str, length: int) -> tuple[int, ...]:
-    if not isinstance(value, list) or len(value) != length:
-        raise SchemaError(f"{name} must be a {length}-element list")
-    return tuple(_integer(item, f"{name}[{index}]") for index, item in enumerate(value))
-
-
-def _integer_triple(value: object, name: str) -> tuple[int, int, int]:
-    values = _integer_tuple(value, name, 3)
-    return values[0], values[1], values[2]
-
-
-_EnumT = TypeVar("_EnumT", bound=Enum)
-
-
-def _enum(value: object, name: str, enum_type: type[_EnumT]) -> _EnumT:
-    serialized = _string(value, name)
-    try:
-        return enum_type(serialized)
-    except ValueError:
-        raise SchemaError(f"{name} has unsupported value {serialized!r}") from None
+from .schema import (
+    SchemaError,
+)
+from .schema import (
+    integer as _integer,
+)
+from .schema import (
+    strict_mapping as _mapping,
+)
 
 
 class FixedForwardOperandSource(str, Enum):
@@ -190,16 +140,12 @@ class FixedForwardSolutionKey:
     solution: FixedForwardSolution
 
     _KEYS: ClassVar[frozenset[str]] = frozenset(
-        {"ArtifactKind", "KernelFamily", "ProblemContract", "Problem", "KernelSpec"}
+        {"ProblemContract", "Problem", "KernelSpec"}
     )
 
     @classmethod
     def from_mapping(cls, value: object) -> Self:
         item = _mapping(value, "FixedForwardSolutionKey", cls._KEYS)
-        if item["ArtifactKind"] != "ExactKernel":
-            raise SchemaError("fixed key ArtifactKind must be ExactKernel")
-        if item["KernelFamily"] != "FixedGroupedForward":
-            raise SchemaError("fixed key KernelFamily must be FixedGroupedForward")
         from .fixed_grouped_mmq_fwd_spec import (
             FixedForwardKernelSpec,
             FixedForwardProblemContract,
@@ -234,47 +180,19 @@ class FixedForwardSolutionKey:
         contract = FixedForwardProblemContract.from_problem(self.problem, self.solution)
         spec = FixedForwardKernelSpec.from_solution(self.solution)
         return {
-            "ArtifactKind": "ExactKernel",
-            "KernelFamily": "FixedGroupedForward",
             "ProblemContract": contract.to_mapping(),
             "Problem": {"tokens": self.problem.tokens},
             "KernelSpec": spec.to_mapping(),
         }
 
-    def to_standard_solution_key(self) -> SolutionKey:
-        """Project the compatible Q8 mechanics onto the ordinary typed state."""
-        base = ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=64)
-        solution = replace(
-            base,
-            isa=self.solution.isa,
-            wavefront_size=self.solution.wavefront_size,
-            work_group=self.solution.work_group,
-            matrix_instruction=self.solution.matrix_instruction,
-            macro_tile0=self.solution.macro_tile_tokens,
-            macro_tile1=self.solution.macro_tile_features,
-            depth_u=self.solution.depth_u,
-            activation_layout=self.solution.activation_layout,
-            activation_block_bytes=self.solution.activation_block_bytes,
-            packed_weight_block_bytes=self.solution.packed_weight_block_bytes,
-            lds_address_hoist=self.solution.lds_address_hoist,
-            output_store=self.solution.output_store,
-            signed_weight=self.solution.signed_weight,
-            signed_activation=self.solution.signed_activation,
-            wmma_clamp=self.solution.wmma_clamp,
-        )
-        return SolutionKey(
-            ProblemType.mmq_forward(self.problem.quant_data_type),
-            ProblemSize(
-                self.problem.tokens,
-                self.problem.output_features,
-                self.problem.input_features,
-            ),
-            solution,
-        )
-
     @property
     def hash(self) -> str:
-        canonical = json.dumps(self.to_mapping(), sort_keys=True, separators=(",", ":"))
+        identity = {
+            "ArtifactKind": "ExactKernel",
+            "KernelFamily": "FixedGroupedForward",
+            **self.to_mapping(),
+        }
+        canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"))
         return f"ggsol_{hashlib.sha256(canonical.encode()).hexdigest()[:16]}"
 
     @property

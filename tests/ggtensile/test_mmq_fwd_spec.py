@@ -269,11 +269,16 @@ def test_complete_candidate_round_trips_to_the_normal_build_solution() -> None:
         "wait": "ProducerFirstUse",
         "pairing": "DependencyCompatibleDualIssue",
     }
-    with pytest.raises(ValueError, match="resource limits are a fixed"):
-        replace(
-            candidate.kernel_spec,
-            resource_limits=ResourceLimits(max_vgprs=200),
-        ).to_solution(candidate.problem_contract)
+    assert "resource_limits" not in candidate.kernel_spec.to_mapping()
+    legacy_mapping = candidate.kernel_spec.to_legacy_hash_mapping()
+    assert legacy_mapping["resource_limits"] == {
+        "max_vgprs": 256,
+        "max_sgprs": 106,
+        "max_lds_bytes": 65_536,
+        "require_zero_spills": True,
+    }
+    with pytest.raises(ValueError, match=r"unknown \['resource_limits'\]"):
+        ForwardKernelSpec.from_mapping(legacy_mapping)
     wavefront = ForwardKernelCandidate.from_solution(
         "Q6_K",
         replace(

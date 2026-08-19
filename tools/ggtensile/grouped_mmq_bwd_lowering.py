@@ -1,62 +1,113 @@
 """Routed ownership around the reusable ordinary MMQ backward arithmetic."""
 
-from dataclasses import replace
+from dataclasses import dataclass
 
-from .grouped_mmq_bwd_physical import derive_grouped_backward_physical_plan
+from .grouped_mmq_bwd_physical import (
+    GroupedBackwardPhysicalPlan,
+    GroupedBackwardScalarPlan,
+)
 from .grouped_mmq_bwd_spec import (
     DerivedGroupedBackwardState,
-    GroupedBackwardRowTail,
 )
 from .kernel_abi import GROUPED_BACKWARD_ABI
 from .kernel_writer_assembly import emit_kernel_trailer, emit_pointer_kernarg_loads
-from .mmq_bwd_emission import BackwardDiagnosticMode, _Assembly
-from .mmq_bwd_lowering import BackwardKernelLowering
-from .model import SolutionKey
+from .mmq_bwd_emission import BackwardLoweringResult, _Assembly
+from .mmq_bwd_lowering import BackwardTileComputeEmitter
+from .mmq_bwd_lowering_quant import emit_unbounded_a_global_loads
+from .mmq_bwd_physical import BackwardRegisterPlan
 
 
-class GroupedBackwardKernelLowering(BackwardKernelLowering):
+@dataclass(frozen=True)
+class GroupedBackwardTileAccess:
+    route: GroupedBackwardScalarPlan
+
+    def emit_a_global_loads(
+        self,
+        asm: _Assembly,
+        registers: BackwardRegisterPlan,
+        valu_a: int,
+        address: int,
+        byte_offset: int,
+        *,
+        address_pair: bool,
+        offset_is_bytes: bool,
+    ) -> None:
+        limit = (
+            self.route.route_output_bytes if offset_is_bytes else self.route.route_rows
+        )
+        for register in range(valu_a, valu_a + 8):
+            asm.inst(f"v_mov_b32 v{register}, 0")
+        asm.inst(f"v_cmp_gt_u32_e32 vcc_lo, s{limit}, v{byte_offset}")
+        asm.inst(f"s_and_saveexec_b32 s{self.route.saved_exec}, vcc_lo")
+        emit_unbounded_a_global_loads(
+            asm,
+            registers,
+            valu_a,
+            address,
+            address_pair=address_pair,
+        )
+        asm.inst(f"s_mov_b32 exec_lo, s{self.route.saved_exec}")
+
+    def emit_store_row_begin(
+        self, asm: _Assembly, registers: BackwardRegisterPlan, row: int
+    ) -> None:
+        asm.inst(f"v_mov_b32 v{registers.temporary + 3}, v{row}")
+
+    def emit_store_row_mask_begin(
+        self, asm: _Assembly, registers: BackwardRegisterPlan
+    ) -> None:
+        tracker = registers.temporary + 3
+        asm.inst(f"v_cmp_gt_u32_e32 vcc_lo, s{self.route.route_rows}, v{tracker}")
+        asm.inst(f"s_and_saveexec_b32 s{self.route.saved_exec}, vcc_lo")
+
+    def emit_store_row_mask_end(
+        self, asm: _Assembly, registers: BackwardRegisterPlan
+    ) -> None:
+        del registers
+        asm.inst(f"s_mov_b32 exec_lo, s{self.route.saved_exec}")
+
+    def emit_store_row_advance(
+        self, asm: _Assembly, registers: BackwardRegisterPlan
+    ) -> None:
+        tracker = registers.temporary + 3
+        asm.inst(f"v_add_nc_u32 v{tracker}, 2, v{tracker}")
+
+
+class GroupedBackwardKernelLowering:
     """Emit routed packed backward with typed aggregate-row tails."""
 
     EXIT_LABEL = ".LGroupedBackwardExit"
 
-    def __init__(self, solution_key: SolutionKey, *, label_suffix: str = "") -> None:
-        self.grouped_state = DerivedGroupedBackwardState.from_solution_key(solution_key)
-        self.grouped_physical = derive_grouped_backward_physical_plan(
-            self.grouped_state
+    def __init__(
+        self,
+        kernel_name: str,
+        state: DerivedGroupedBackwardState,
+        physical: GroupedBackwardPhysicalPlan,
+    ) -> None:
+        self.kernel_name = kernel_name
+        self.state = state
+        self.physical = physical
+        access = GroupedBackwardTileAccess(physical.route)
+        self.primary = BackwardTileComputeEmitter(
+            state.primary,
+            physical.primary,
+            access=access,
         )
-        self.state = self.grouped_state.ordinary
-        self.physical = self.grouped_physical.compute
-        self.registers = self.physical.registers
-        self.diagnostic_mode: BackwardDiagnosticMode | None = None
-        self.label_suffix = label_suffix
-        self.tail_lowering: GroupedBackwardKernelLowering | None = None
-        if self.grouped_state.spec.row_tail is GroupedBackwardRowTail.Mixed128_64:
-            solution = self.grouped_state.solution
-            compute = solution.compute
-            matrix_instruction = (
-                compute.matrix_instruction[:5] + (1,) + compute.matrix_instruction[6:]
+        self.secondary = (
+            BackwardTileComputeEmitter(
+                state.secondary,
+                physical.secondary,
+                access=access,
+                label_suffix="Tail",
             )
-            tail_compute = replace(
-                compute,
-                matrix_instruction=matrix_instruction,
-                macro_tile0=64,
-            )
-            tail_solution = replace(
-                solution,
-                compute=tail_compute,
-                row_tail="Masked",
-            )
-            tail_key = replace(solution_key, solution=tail_solution)
-            self.tail_lowering = GroupedBackwardKernelLowering(
-                tail_key,
-                label_suffix=f"{label_suffix}Tail",
-            )
+            if state.secondary is not None and physical.secondary is not None
+            else None
+        )
 
     def body(self) -> str:
         asm = _Assembly()
-        r = self.registers
-        route = self.grouped_physical.route
-        name = self.grouped_state.solution_key.kernel_name
+        r = self.primary.registers
+        route = self.physical.route
 
         asm.comment("Flatten gfx11 packed workitem X/Y before v0 becomes C storage.")
         asm.inst(f"v_bfe_u32 v{r.serial}, v0, 10, 10")
@@ -68,64 +119,71 @@ class GroupedBackwardKernelLowering(BackwardKernelLowering):
         self._emit_exact_shape_guard(asm)
         self._emit_route_load_and_guard(asm)
         self._emit_pointer_rebase(asm)
-        self._emit_quant_constants(asm)
+        self.primary.emit_quant_constants(asm)
 
-        split_factor = self.grouped_state.spec.ownership.split_factor
+        split_factor = self.state.spec.ownership.split_factor
         asm.comment("Map grid X to N and walk this grid-Y route in M tiles.")
         asm.inst(f"s_mov_b32 s{route.gemm_index}, s3")
         asm.inst("s_mov_b32 s3, s2")
         asm.inst("s_mov_b32 s2, s4" if split_factor > 1 else "s_mov_b32 s2, 0")
         n_tiles = (
-            self.grouped_state.contract.problem_size.n
-            // self.state.solution.macro_tile1
+            self.state.contract.problem_size.n
+            // self.state.spec.compute.geometry.macro_tile1
         )
         asm.inst(f"s_cmp_ge_u32 s3, {n_tiles}")
         asm.inst(f"s_cbranch_scc1 {self.EXIT_LABEL}")
         if split_factor > 1:
             asm.inst(
-                f"s_mul_i32 s{route.tile_end}, s2, {self.state.solution.macro_tile0}"
+                f"s_mul_i32 s{route.tile_end}, s2, "
+                f"{self.state.spec.compute.geometry.macro_tile0}"
             )
             asm.inst(f"s_cmp_ge_u32 s{route.tile_end}, s{route.route_rows}")
             asm.inst(f"s_cbranch_scc1 {self.EXIT_LABEL}")
 
-        self._emit_quant_codebook_stage(asm)
+        self.primary.emit_quant_codebook_stage(asm)
 
-        if self.tail_lowering is None:
-            self._emit_static_packed_coordinates(asm)
+        if self.secondary is None:
+            self.primary.emit_static_coordinates(asm)
             self._emit_main_route_tiles(asm, split_factor)
         else:
-            tail_label = ".LGroupedBackwardTail64"
+            tail_label = f".LGroupedBackwardTail{self.state.spec.row_tail.tile_rows}"
             done_label = ".LGroupedBackwardTailDone"
-            asm.inst(f"s_cmp_le_u32 s{route.route_rows}, 64")
+            asm.inst(
+                f"s_cmp_le_u32 s{route.route_rows}, "
+                f"{self.state.spec.row_tail.threshold_rows}"
+            )
             asm.inst(f"s_cbranch_scc1 {tail_label}")
-            self._emit_static_packed_coordinates(asm)
+            self.primary.emit_static_coordinates(asm)
             self._emit_main_route_tiles(asm, split_factor)
             asm.inst(f"s_branch {done_label}")
             asm.label(tail_label)
-            tail = self.tail_lowering
-            asm.inst(f"v_mov_b32 v{tail.registers.serial}, v{self.registers.serial}")
-            tail._emit_static_packed_coordinates(asm)
-            tail._defer_accumulator_zero(asm)
-            tail._emit_compute_tile(asm)
+            asm.inst(f"v_mov_b32 v{self.secondary.registers.serial}, v{r.serial}")
+            self.secondary.emit_static_coordinates(asm)
+            self.secondary.emit_tile(asm)
             asm.label(done_label)
 
         asm.label(self.EXIT_LABEL)
-        emit_kernel_trailer(asm, name)
+        emit_kernel_trailer(asm, self.kernel_name)
         return asm.text()
 
+    def emission(self) -> BackwardLoweringResult:
+        return BackwardLoweringResult(self.body(), self.primary.trailing_sections())
+
     def _emit_main_route_tiles(self, asm: _Assembly, split_factor: int) -> None:
-        route = self.grouped_physical.route
+        route = self.physical.route
         asm.label(".LGroupedBackwardRowTile")
-        self._defer_accumulator_zero(asm)
-        self._emit_compute_tile(asm)
+        self.primary.emit_tile(asm)
         asm.inst(f"s_add_u32 s2, s2, {split_factor}")
-        asm.inst(f"s_mul_i32 s{route.tile_end}, s2, {self.state.solution.macro_tile0}")
+        asm.inst(
+            f"s_mul_i32 s{route.tile_end}, s2, "
+            f"{self.state.spec.compute.geometry.macro_tile0}"
+        )
         asm.inst(f"s_cmp_lt_u32 s{route.tile_end}, s{route.route_rows}")
         asm.inst("s_cbranch_scc1 .LGroupedBackwardRowTile")
 
     def _emit_kernarg_loads(self, asm: _Assembly) -> None:
-        r = self.registers
-        route = self.grouped_physical.route
+        r = self.primary.registers
+        route = self.physical.route
         abi = GROUPED_BACKWARD_ABI
         asm.comment(f"Load the routed {abi.segment_size}-byte grouped backward ABI.")
         emit_pointer_kernarg_loads(asm, r.kernarg, abi)
@@ -149,8 +207,8 @@ class GroupedBackwardKernelLowering(BackwardKernelLowering):
         asm.inst("s_waitcnt lgkmcnt(0)")
 
     def _emit_exact_shape_guard(self, asm: _Assembly) -> None:
-        route = self.grouped_physical.route
-        contract = self.grouped_state.contract
+        route = self.physical.route
+        contract = self.state.contract
         bytes_per_expert = (
             contract.problem_size.k
             * (contract.problem_size.n // contract.quant_format.block_values)
@@ -167,13 +225,11 @@ class GroupedBackwardKernelLowering(BackwardKernelLowering):
             asm.inst(f"s_cbranch_scc1 {self.EXIT_LABEL}")
 
     def _emit_route_load_and_guard(self, asm: _Assembly) -> None:
-        route = self.grouped_physical.route
+        route = self.physical.route
         gemm = route.gemm_index
         offset = route.tile_end
         asm.inst(f"s_mov_b32 s{gemm}, s3")
-        asm.inst(
-            f"s_cmp_ge_u32 s{gemm}, {self.grouped_state.contract.max_route_entries}"
-        )
+        asm.inst(f"s_cmp_ge_u32 s{gemm}, {self.state.contract.max_route_entries}")
         asm.inst(f"s_cbranch_scc1 {self.EXIT_LABEL}")
         asm.comment("Load cumulative row bounds and the selected physical expert.")
         asm.inst(f"s_lshl_b32 s{offset}, s{gemm}, 2")
@@ -209,7 +265,7 @@ class GroupedBackwardKernelLowering(BackwardKernelLowering):
             asm.inst(instruction)
             asm.inst(f"s_cbranch_scc1 {self.EXIT_LABEL}")
         asm.inst(f"s_sub_u32 s{route.route_rows}, s{route.row_end}, s{route.row_begin}")
-        row_stride_bytes = self.grouped_state.contract.problem_size.k * 2
+        row_stride_bytes = self.state.contract.problem_size.k * 2
         if row_stride_bytes & (row_stride_bytes - 1):
             asm.inst(
                 f"s_mul_i32 s{route.route_output_bytes}, "
@@ -222,8 +278,8 @@ class GroupedBackwardKernelLowering(BackwardKernelLowering):
             )
 
     def _emit_pointer_rebase(self, asm: _Assembly) -> None:
-        r = self.registers
-        route = self.grouped_physical.route
+        r = self.primary.registers
+        route = self.physical.route
         temporary = route.pointer_temporary
 
         asm.comment("Rebase the packed bank with the full u64 expert stride.")
@@ -240,53 +296,10 @@ class GroupedBackwardKernelLowering(BackwardKernelLowering):
         asm.inst(f"s_addc_u32 s{r.kernarg + 3}, s{r.kernarg + 3}, s{temporary + 1}")
 
         for pointer, stride in (
-            (r.kernarg, self.grouped_state.contract.problem_size.k * 2),
-            (r.kernarg + 4, self.grouped_state.contract.problem_size.n * 2),
+            (r.kernarg, self.state.contract.problem_size.k * 2),
+            (r.kernarg + 4, self.state.contract.problem_size.n * 2),
         ):
             asm.inst(f"s_mul_i32 s{temporary}, s{route.row_begin}, {stride}")
             asm.inst(f"s_mul_hi_u32 s{temporary + 1}, s{route.row_begin}, {stride}")
             asm.inst(f"s_add_u32 s{pointer}, s{pointer}, s{temporary}")
             asm.inst(f"s_addc_u32 s{pointer + 1}, s{pointer + 1}, s{temporary + 1}")
-
-    def _emit_a_global_loads(
-        self,
-        asm: _Assembly,
-        valu_a: int,
-        address: int,
-        byte_offset: int,
-        *,
-        address_pair: bool = False,
-        offset_is_bytes: bool = True,
-    ) -> None:
-        route = self.grouped_physical.route
-        limit = route.route_output_bytes if offset_is_bytes else route.route_rows
-        for register in range(valu_a, valu_a + 8):
-            asm.inst(f"v_mov_b32 v{register}, 0")
-        asm.inst(f"v_cmp_gt_u32_e32 vcc_lo, s{limit}, v{byte_offset}")
-        asm.inst(f"s_and_saveexec_b32 s{route.saved_exec}, vcc_lo")
-        super()._emit_a_global_loads(
-            asm,
-            valu_a,
-            address,
-            byte_offset,
-            address_pair=address_pair,
-            offset_is_bytes=offset_is_bytes,
-        )
-        asm.inst(f"s_mov_b32 exec_lo, s{route.saved_exec}")
-
-    def _emit_store_row_begin(self, asm: _Assembly, row: int) -> None:
-        tracker = self.registers.temporary + 3
-        asm.inst(f"v_mov_b32 v{tracker}, v{row}")
-
-    def _emit_store_row_mask_begin(self, asm: _Assembly) -> None:
-        route = self.grouped_physical.route
-        tracker = self.registers.temporary + 3
-        asm.inst(f"v_cmp_gt_u32_e32 vcc_lo, s{route.route_rows}, v{tracker}")
-        asm.inst(f"s_and_saveexec_b32 s{route.saved_exec}, vcc_lo")
-
-    def _emit_store_row_mask_end(self, asm: _Assembly) -> None:
-        asm.inst(f"s_mov_b32 exec_lo, s{self.grouped_physical.route.saved_exec}")
-
-    def _emit_store_row_advance(self, asm: _Assembly) -> None:
-        tracker = self.registers.temporary + 3
-        asm.inst(f"v_add_nc_u32 v{tracker}, 2, v{tracker}")

@@ -898,7 +898,7 @@ def test_mechanism_lowerers_and_facade_reject_unknown_sources(
         DecodedWeightLdsLowering(invalid_context).body()
     writer.state = invalid_state
     writer.context = replace(writer.context, state=invalid_state)
-    with pytest.raises(TypeError, match="unsupported forward operand source"):
+    with pytest.raises(ValueError, match="unsupported forward operand source"):
         writer._body()
     mechanism = fwd_writer_module.forward_mechanism_contract("Global")
     monkeypatch.setattr(

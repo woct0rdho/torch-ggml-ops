@@ -4,6 +4,7 @@ import json
 import math
 import os
 import statistics
+import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +12,10 @@ from typing import Protocol, TypedDict, TypeVar, cast
 
 import gguf
 import torch
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from tests.deepseek_dense_cases import DEEPSEEK_DENSE_TENSORS_BY_NAME
 

@@ -1,10 +1,8 @@
 import hashlib
 import json
-from collections.abc import Mapping
-from dataclasses import dataclass, fields, is_dataclass, replace
-from enum import Enum
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import ClassVar, Literal, overload
+from typing import ClassVar
 
 from typing_extensions import Self
 
@@ -13,119 +11,18 @@ from .quant_formats import (
     Q8_1_F32_D4_BLOCK_BYTES,
     QUANT_FORMATS,
 )
-
-
-class SchemaError(ValueError):
-    """A GGTensile input does not match its strict schema."""
-
-
-def _strict_mapping(
-    value: object,
-    *,
-    name: str,
-    keys: frozenset[str],
-) -> Mapping[str, object]:
-    if not isinstance(value, Mapping):
-        raise SchemaError(f"{name} must be a mapping")
-    normalized: dict[str, object] = {}
-    for key, item in value.items():
-        if not isinstance(key, str):
-            raise SchemaError(f"{name} keys must be strings")
-        normalized[key] = item
-    actual = set(normalized)
-    missing = sorted(keys - actual)
-    unknown = sorted(actual - keys)
-    if missing or unknown:
-        details = []
-        if missing:
-            details.append(f"missing {missing}")
-        if unknown:
-            details.append(f"unknown {unknown}")
-        raise SchemaError(f"invalid {name}: {', '.join(details)}")
-    return normalized
-
-
-def _strict_mapping_optional(
-    value: object,
-    *,
-    name: str,
-    required: frozenset[str],
-    optional: frozenset[str] = frozenset(),
-) -> Mapping[str, object]:
-    if not isinstance(value, Mapping):
-        raise SchemaError(f"{name} must be a mapping")
-    normalized: dict[str, object] = {}
-    for key, item in value.items():
-        if not isinstance(key, str):
-            raise SchemaError(f"{name} keys must be strings")
-        normalized[key] = item
-    actual = set(normalized)
-    missing = sorted(required - actual)
-    unknown = sorted(actual - required - optional)
-    if missing or unknown:
-        details = []
-        if missing:
-            details.append(f"missing {missing}")
-        if unknown:
-            details.append(f"unknown {unknown}")
-        raise SchemaError(f"invalid {name}: {', '.join(details)}")
-    return normalized
-
-
-def _canonical_value(value: object) -> object:
-    """Project typed records without null inactive-policy sentinels."""
-    if isinstance(value, Enum):
-        return value.value if isinstance(value.value, str) else value.name
-    if is_dataclass(value) and not isinstance(value, type):
-        result: dict[str, object] = {}
-        for field in fields(value):
-            item = getattr(value, field.name)
-            if item is None:
-                continue
-            projected = _canonical_value(item)
-            if isinstance(projected, dict) and not projected:
-                continue
-            result[field.name] = projected
-        return result
-    if isinstance(value, tuple | list):
-        return [_canonical_value(item) for item in value]
-    if isinstance(value, Mapping):
-        return {str(key): _canonical_value(item) for key, item in value.items()}
-    return value
-
-
-def _string(value: object, name: str) -> str:
-    if type(value) is not str:
-        raise SchemaError(f"{name} must be str, not {type(value).__name__}")
-    return value
-
-
-def _integer(value: object, name: str) -> int:
-    if type(value) is not int:
-        raise SchemaError(f"{name} must be int, not {type(value).__name__}")
-    return value
-
-
-def _boolean(value: object, name: str) -> bool:
-    if type(value) is not bool:
-        raise SchemaError(f"{name} must be bool, not {type(value).__name__}")
-    return value
-
-
-@overload
-def _integer_tuple(
-    value: object, name: str, length: Literal[3]
-) -> tuple[int, int, int]: ...
-
-
-@overload
-def _integer_tuple(value: object, name: str, length: int) -> tuple[int, ...]: ...
-
-
-def _integer_tuple(value: object, name: str, length: int) -> tuple[int, ...]:
-    if not isinstance(value, list) or len(value) != length:
-        raise SchemaError(f"{name} must be a {length}-element list")
-    return tuple(_integer(item, f"{name}[{index}]") for index, item in enumerate(value))
+from .schema import (
+    SchemaError,
+)
+from .schema import (
+    integer as _integer,
+)
+from .schema import (
+    strict_mapping as _strict_mapping,
+)
+from .schema import (
+    string as _string,
+)
 
 
 @dataclass(frozen=True)
@@ -323,6 +220,8 @@ class GroupedBackwardSolution:
     compute: BackwardSolution
     route_ownership: str
     row_tail: str
+    row_tail_threshold_rows: int | None = None
+    row_tail_tile_rows: int | None = None
 
     @classmethod
     def pilot(cls) -> Self:
@@ -723,14 +622,12 @@ class SolutionKey:
     solution: BackwardSolution | ForwardSolution | GroupedBackwardSolution
 
     _KEYS: ClassVar[frozenset[str]] = frozenset(
-        {"ArtifactKind", "KernelFamily", "ProblemContract", "Problem", "KernelSpec"}
+        {"KernelFamily", "ProblemContract", "Problem", "KernelSpec"}
     )
 
     @classmethod
     def from_mapping(cls, value: object) -> Self:
         item = _strict_mapping(value, name="SolutionKey", keys=cls._KEYS)
-        if item["ArtifactKind"] != "ExactKernel":
-            raise SchemaError("SolutionKey ArtifactKind must be ExactKernel")
         family = _string(item["KernelFamily"], "KernelFamily")
         problem_size = ProblemSize.from_canonical_mapping(item["Problem"])
         if family == "OrdinaryForward":
@@ -811,7 +708,6 @@ class SolutionKey:
                 contract.quant_type
             )
         return {
-            "ArtifactKind": "ExactKernel",
             "KernelFamily": family,
             "ProblemContract": contract.to_mapping(),
             "Problem": self.problem_size.to_canonical_mapping(),
@@ -820,7 +716,27 @@ class SolutionKey:
 
     @property
     def hash(self) -> str:
-        canonical = json.dumps(self.to_mapping(), sort_keys=True, separators=(",", ":"))
+        mapping = self.to_mapping()
+        if isinstance(self.solution, GroupedBackwardSolution):
+            from .grouped_mmq_bwd_spec import GroupedBackwardKernelSpec
+
+            mapping["KernelSpec"] = GroupedBackwardKernelSpec.from_solution(
+                self.solution
+            ).to_legacy_hash_mapping(self.problem_type.quant_data_type)
+        elif isinstance(self.solution, ForwardSolution):
+            from .mmq_fwd_spec import ForwardKernelSpec
+
+            mapping["KernelSpec"] = ForwardKernelSpec.from_solution(
+                self.solution
+            ).to_legacy_hash_mapping()
+        else:
+            from .mmq_bwd_spec import BackwardKernelSpec
+
+            mapping["KernelSpec"] = BackwardKernelSpec.from_solution(
+                self.solution
+            ).to_legacy_hash_mapping(self.problem_type.quant_data_type)
+        identity = {"ArtifactKind": "ExactKernel", **mapping}
+        canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"))
         digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         return f"ggsol_{digest[:16]}"
 

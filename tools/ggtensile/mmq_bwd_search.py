@@ -33,8 +33,6 @@ def backward_candidate_mapping(
     )
     contract = BackwardProblemContract.from_solution_key(key)
     return {
-        "ArtifactKind": "KernelCandidate",
-        "KernelFamily": "OrdinaryBackward",
         "ProblemContract": contract.to_mapping(),
         "KernelSpec": BackwardKernelSpec.from_solution(candidate).to_mapping(
             quant_type
@@ -43,9 +41,12 @@ def backward_candidate_mapping(
 
 
 def backward_candidate_hash(candidate: BackwardSolution, quant_type: str) -> str:
-    return hashlib.sha256(
-        _canonical_json(backward_candidate_mapping(candidate, quant_type)).encode()
-    ).hexdigest()
+    identity = {
+        "ArtifactKind": "KernelCandidate",
+        "KernelFamily": "OrdinaryBackward",
+        **backward_candidate_mapping(candidate, quant_type),
+    }
+    return hashlib.sha256(_canonical_json(identity).encode()).hexdigest()
 
 
 def explain_invalid(

@@ -325,21 +325,36 @@ class GroupedBackwardModule(_SolutionHIPModule):
                 "bytes_per_expert": bytes_per_expert,
             }
         )
-        compute = state.solution.compute
-        split_factor = state.spec.ownership.split_factor
+        grid, block, shared_memory = self._launch_configuration_for_state(
+            state, num_routes
+        )
         self._check(
             self._lib.hipModuleLaunchKernel(
                 self._function,
-                size.n // compute.macro_tile1,
-                num_routes,
-                split_factor,
-                *compute.work_group,
-                0,
+                *grid,
+                *block,
+                shared_memory,
                 ctypes.c_void_p(stream),
                 packed_arguments.parameters,
                 None,
             ),
             "hipModuleLaunchKernel",
+        )
+
+    @staticmethod
+    def _launch_configuration_for_state(
+        state: DerivedGroupedBackwardState,
+        route_entries: int,
+    ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
+        geometry = state.spec.compute.geometry
+        return (
+            (
+                state.contract.problem_size.n // geometry.macro_tile1,
+                route_entries,
+                state.spec.ownership.split_factor,
+            ),
+            geometry.work_group,
+            0,
         )
 
 
@@ -910,13 +925,8 @@ class FixedGroupedQ8ForwardModule(_HIPModule):
         *,
         kernel_name: str | None = None,
     ) -> None:
-        try:
-            validate_fixed_forward_solution_key(solution_key)
-            self.state = DerivedFixedForwardState.from_solution_key(solution_key)
-        except (TypeError, ValueError) as error:
-            raise HIPRuntimeError(
-                f"cannot launch rejected fixed solution: {error}"
-            ) from error
+        validate_fixed_forward_solution_key(solution_key)
+        self.state = DerivedFixedForwardState.from_solution_key(solution_key)
         self.solution_key = solution_key
         super().__init__(
             code_object, hip_library, kernel_name or solution_key.kernel_name
@@ -980,7 +990,7 @@ class FixedGroupedQ8ForwardModule(_HIPModule):
 
     def _launch_configuration(self) -> tuple[int, int, int, int, int, int, int]:
         state = self.state
-        return (*state.grid, *state.solution.work_group, 0)
+        return (*state.grid, *state.ordinary.kernel_spec.geometry.work_group, 0)
 
 
 class InstalledFixedGroupedQ8ForwardModule(FixedGroupedQ8ForwardModule):
@@ -1012,7 +1022,7 @@ class InstalledFixedGroupedQ8ForwardModule(FixedGroupedQ8ForwardModule):
 
     def _launch_configuration(self) -> tuple[int, int, int, int, int, int, int]:
         state = self.state
-        return (*state.grid, *state.solution.work_group, 28_928)
+        return (*state.grid, *state.ordinary.kernel_spec.geometry.work_group, 28_928)
 
 
 class FixedQ81F16D4S4QuantizerModule(_HIPModule):

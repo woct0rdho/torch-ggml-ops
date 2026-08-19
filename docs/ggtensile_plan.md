@@ -4,7 +4,7 @@
 
 GGTensile is the repository-local assembly kernel generator for packed GGUF matrix multiplication. Its in-memory construction API accepts one exact problem and one complete direction-specific solution. Its serialized boundary accepts only an exact unversioned problem contract, parameter-only kernel specification, and exact problem selection, then either emits reproducible assembly or returns a structured rejection reason.
 
-This document is authoritative for the generic design, implementation principles, supported scope, current implementation status, and writer contracts. Format-specific problem definitions, measurements, rejected mechanisms, artifact identities, and campaign chronology belong in the experiment records. Durable semantic authorities, argument rules, ownership boundaries, source-stability policy, and qualification evidence live here rather than in separate migration plans.
+This document is authoritative for the generic design, implementation principles, supported scope, current implementation status, and writer contracts. Format-specific problem definitions, measurements, rejected mechanisms, artifact identities, and campaign chronology belong in the experiment records. Durable semantic authorities, argument rules, ownership boundaries, source-stability policy, and qualification evidence live here rather than in separate migration plans. Completed refactors contribute those durable decisions and evidence to this document; their temporary phase ordering is not part of the architecture.
 
 GGTensile uses a deliberately small ROCISA surface inspired by TensileLite: structured modules and metadata, explicit register pools, and direct assembler/linker invocation. It does not import TensileLite's solution, problem-type, search, scheduling, allocation, or library-generation machinery. Existing HIP kernels remain the correctness control, performance control, and runtime fallback.
 
@@ -276,6 +276,8 @@ One complete problem and solution must predict one physical assembly stream. Unk
 
 Every accepted serialized field must affect canonical identity and lowering, or be explicitly fixed by the problem contract. Mutation tests enforce that accepted fields are projected or rejected rather than silently ignored.
 
+One common schema-primitives module owns exact mapping shape, required and optional keys, scalar types, tuples, and enum conversion. Family-specific exact-key, candidate, and catalog loaders own their complete outer schemas. They do not infer document kind by probing alternate shapes, catch constructor failures to continue parsing, or translate old records into current ones.
+
 ### Deterministic, self-contained generation
 
 Production generation does not search, benchmark, invoke HIP or LLVM code generation, consult measured winners, run an optimizing allocator or heuristic scheduler, repair register pressure, or fall back to source or insertion order. Formula-derived and deterministic lifetime-aware register assignment remains part of pure physical planning. Search, profiling, compiler experiments, and GPU timing are offline evidence only.
@@ -343,7 +345,9 @@ An actionable finding must be implemented and qualified before the review is rep
 - `RejectReason`: stable rule ID, diagnostic, involved parameters, and source.
 - `KernelArtifact`: symbol, source/object/code-object paths, source identity, ABI, launch geometry, and inspected resources.
 
-Canonical serialization never emits the flat construction records. An ordinary exact key has exactly `ArtifactKind`, `KernelFamily`, `ProblemContract`, `Problem`, and `KernelSpec`; a parameter-only candidate omits only `Problem`. Grouped, paired, and fixed families use their own typed contracts and specifications under the same exact-key separation. Records are deliberately unversioned while this backend remains research-only: `SchemaVersion` is an unknown field and rejects at every input boundary. Parsing is strict, all dimensions are positive, every accepted field reprojects identically, and generation never repairs a request or invokes a compatibility parser.
+Canonical serialization never emits the flat construction records or a document-type tag. A generic ordinary/grouped-backward exact key has exactly `KernelFamily`, `ProblemContract`, `Problem`, and `KernelSpec`; the generic loader consumes `KernelFamily` for closed typed dispatch. A family-specific grouped, paired, or fixed exact key has exactly `ProblemContract`, `Problem`, and `KernelSpec`. A parameter-only candidate has exactly `ProblemContract` and `KernelSpec`. Separate strict loader entry points distinguish exact keys, candidates, and catalogs; they do not inspect a descriptive field or permissively probe alternate schemas. Records are deliberately unversioned while this backend remains research-only: `SchemaVersion` is an unknown field and rejects at every input boundary. Parsing is strict, all dimensions are positive, every accepted field reprojects identically, and generation never repairs a request or invokes a compatibility parser.
+
+The serialized migration does not rename existing kernel symbols. Exact-key and candidate hashing retain their frozen pre-migration domain payload solely as a machine identity projection; that payload is neither emitted as JSON nor accepted by any parser. This preserves source and code-object identity without a compatibility schema.
 
 Named in-memory solution constructors are explicit conveniences for tests and offline experiments. They are not serialized identities, parser defaults, capability whitelists, or admission authorities. Admission derives from the canonical contract, specification, and typed capability predicates.
 
@@ -357,7 +361,7 @@ Named in-memory solution constructors are explicit conveniences for tests and of
 
 ### Deployment catalogs
 
-`tools/ggtensile/configs/` contains one `mmq_<direction>_<quant>_catalog.json` deployment file per supported direction and quant type. Each file has exactly five root fields: `ArtifactKind`, `KernelFamily`, one canonical `ProblemContract`, a deduplicated list of parameter-only `KernelSpecs`, and `ExactLogic` entries that map a lowercase exact `Problem` to a kernel-specification index. Every listed specification must be referenced by at least one exact key. The retired `ProblemType`/`Solutions` root and flat problem or solution records reject as unknown input. An absent key has no GGTensile deployment decision and falls back outside this catalog.
+`tools/ggtensile/configs/` contains one `mmq_<direction>_<quant>_catalog.json` deployment file per supported direction and quant type. Each file has exactly four root fields: `KernelFamily`, one canonical `ProblemContract`, a deduplicated list of parameter-only `KernelSpecs`, and `ExactLogic` entries that map a lowercase exact `Problem` to a kernel-specification index. The generic catalog loader consumes `KernelFamily` for closed typed dispatch. Every listed specification must be referenced by at least one exact key. Document-type tags, the retired `ProblemType`/`Solutions` root, and flat problem or solution records reject as unknown input. An absent key has no GGTensile deployment decision and falls back outside this catalog.
 
 Deployment catalogs do not contain model names, tensor labels, family names, call counts, benchmark medians, experiment status, historical controls, candidate names, or rejected alternatives. Experiment chronology and current research status belong in the corresponding Markdown record. Immutable benchmark reports may contain their own workload and timing context, but they are evidence rather than deployment logic.
 
@@ -379,7 +383,6 @@ ForwardKernelSpec
   decode and iteration policy
   dot and epilogue policy
   instruction policy
-  resource limits
 
 DerivedForwardState
   macro tile and workgroup ownership
@@ -408,7 +411,7 @@ ForwardPhysicalPlan
   sole VGPR, SGPR, LDS, private, and spill usage
 ```
 
-`ForwardResourceUsage` is the shared authority for writer metadata, capability admission, and artifact inspection. Resource limits are candidate constraints; VGPR, SGPR, LDS, private-segment, and spill outcomes are derived facts.
+`ForwardResourceUsage` is the shared authority for writer metadata, capability admission, and artifact inspection. Search resource ceilings remain external candidate constraints unless a choice changes emitted code; VGPR, SGPR, LDS, private-segment, and spill outcomes are derived facts rather than serialized kernel policy.
 
 For gfx1151, admission and inspection account for the 64 KiB workgroup LDS ceiling and wave32's 24-VGPR allocation granularity. A logical high-water register index is not substituted for the allocated resource count reported in kernel metadata.
 
@@ -444,11 +447,13 @@ Complete candidates round-trip through canonical contract/specification inputs. 
 
 Only active mechanism policies serialize. Derived geometry, inactive sentinels, and cumulative experiment-name modes do not. Grouped Q2 scheduling is represented by independently named implemented facts with explicit dependency validation: later association, partial-LDS, pre-negation, paired-write, and distributed-production policies cannot be enabled without their prerequisites.
 
+Numeric policies serialize as numeric fields rather than enum names that encode a value. This includes route split factor, row-task size, secondary-tail threshold and tile rows, decode dependency width, and LDS buffer count. Codebook placement and staging, packed and activation prefetch, store scheduling, paired projection interleave, grouped row dispatch, and fixed-address hoist belong in a specification only where they select a distinct implemented lowering. Every added field preserves the previously selected behavior at its migrated value and is covered by canonical round-trip, validation, and behavioral tests.
+
 ## Lowering Architecture
 
 ### Shared assembly infrastructure
 
-`kernel_writer_assembly.py` owns the direction-neutral assembly module, ROCISA setup, source writing, pointer and address primitives, BF16 RNE emission, metadata/trailer emission, and deterministic register-pool mechanism. Direction writers own their algorithms and do not forward through compatibility writers.
+`kernel_writer_assembly.py` owns the direction-neutral assembly module, ROCISA setup, source writing, pointer and address primitives, BF16 RNE emission, metadata/trailer emission, and deterministic register-pool mechanism. `KernelEnvelope` is the single rendering authority for target, ABI, launch metadata, resources, symbol, and description; it combines a lowering result with its ordered trailing sections. Direction writers own their algorithms and do not forward through compatibility writers.
 
 ### Responsibility map
 
@@ -481,7 +486,10 @@ Specification and physical-planning modules are pure: they do not import ROCISA,
 
 The following boundaries are normative:
 - Public ordinary and grouped facades validate one exact key, construct one typed derived state, initialize the fixed code-object envelope, dispatch to an explicit validated lowerer, and concatenate only generic sections plus typed mechanism-owned trailing sections. They do not own decoder loops, register allocation, LDS offsets, waits, WMMA bodies, epilogues, or resource formulas.
+- A lowering result is an immutable body plus ordered trailing sections. The generic envelope renders those sections without knowing their quant format; codebook rodata and other mechanism data remain owned by the lowering that requires them.
 - Canonical specifications interpret serialized fields once. Grouped compatibility field-copy records are not used. `GroupedForwardProblemContract`, `GroupedForwardKernelSpec`, `GroupedRouteState`, typed activation/row/decode/epilogue policies, and the physical plan are the authorities shared by grouped validation, lowering, and inspection.
+- Grouped backward composes routed ownership around `BackwardTileComputeEmitter`; it does not inherit from an ordinary writer. Primary and optional secondary tile states and physical plans derive together from one grouped contract and specification, and lowering never recurses through a modified solution key. Route splitting is numeric ownership independent of quant format wherever the arithmetic contract permits it, while secondary tails carry explicit threshold and tile geometry with loop, register, and LDS validation.
+- Fixed-group forward composes the typed signed-int8 forward contract and mechanism under fixed-group addressing and launch ownership. It may derive the ordinary signed-int8 state directly from typed contract/specification records, but it does not project through an ordinary `SolutionKey`, borrow an ordinary facade, or transfer fixed address policy into generic dispatch.
 - `GroupedRouteEmitter` owns the complete routed ABI prologue: 64-byte kernarg loads, exact launch guards, int64 expert-ID loads, cumulative int32 offset loads, invalid-route inertness, and full-u64 expert-bank rebasing. It preserves the at-most-256 route-entry contract and final valid offset `R`. Mechanism lowerers compose its single public `emit()` operation and do not call sibling private methods.
 - `GroupedActivationStagingPlan` owns exact versus ceil-sized bounds-masked staging, vector load coverage, and LDS write shape. `GroupedRowTileDispatchPolicy` and `GroupedRowTileDispatchEmitter` own the one-, two-, and three-body activation/MMA/epilogue topology derived from macro/tail geometry. `GroupedOutputStore` is validated against that topology rather than used as an implementation switch.
 - Generic grouped row dispatch and paired K128 collaborators preserve the stable labels, instruction order, and section order of qualified candidates. They share typed mechanics, not copied schedules or sibling lowerer methods.
@@ -636,7 +644,11 @@ Generation, build, inspection, correctness, screening, and confirmation are sepa
 - `screen` ranks qualified candidates under warmed rotating controls.
 - `confirmation` retimes finalists under a fresh, longer rotating protocol.
 
-Each phase refuses to overwrite an existing artifact. Manifests are strict. Source is the primary generated content identity; object and code-object identities are deterministic translations verified by rebuild and inspection.
+Each phase refuses to overwrite an existing artifact. Manifests are strict. Source is the primary generated content identity; object and code-object identities are deterministic translations verified by rebuild and inspection. Any baseline that compares object or code-object bytes records and pins the assembler, linker, target, and relevant toolchain identity used to produce them.
+
+### Benchmark interface
+
+Exact-artifact benchmark entry points for ordinary forward/backward, grouped backward, paired forward, and fixed-group forward share `--solution-key`, `--code-object`, `--warmup`, `--repeats`, and `--seed`. Machine-readable reports use lower-snake-case fields, distinguish complete-call timing from preallocated-kernel timing, rotate control/candidate order, report HIP and candidate latency and throughput, and include explicit correctness thresholds. Routing distributions, projection controls, and other family-specific inputs remain typed extensions; grouped route generation has one deterministic shared owner.
 
 ## Verification and Promotion
 
@@ -691,6 +703,7 @@ There is no fixed percentage threshold. Timing selects winners. Static issue cou
 - Contract/specification state, physical planning, mechanism emission, exact selection, and public dispatch have separate owners.
 - Register assignment, LDS layout, decoder rows, address state, waits, launch metadata, and resources derive once and are consumed by validation, lowering, and inspection.
 - Capability validation contains formulas and typed capability predicates, never production-shape lists, model/tensor names, or selected winners.
+- Expected contract and capability failures return stable `RejectReason` rule IDs before emission; constructor, allocator, and programming failures retain their original exception and traceback.
 - Accepted fields project into canonical state and lowering or reject as inactive. No two accepted compatibility values may produce the same canonical lowering.
 - Lowerers never parse or rewrite emitted instructions, choose instruction policy from exact problem size, or import selection and benchmark state.
 - All current and future physical/lowering modules participate automatically in forbidden-dependency, structural-pattern, and executable-line coverage.
@@ -789,7 +802,7 @@ The implemented backward architecture consists of:
 - shared Q4/Q5 packed metadata addressing and scale/minimum preparation, with Q5 high-bit reconstruction retained as a distinct leaf.
 - strict serialized Q3 `Inactive`/`Partial`/`Full` pairing policy with no exact-size instruction branch.
 - formula-derived quant-block, tile, decoder-row, workgroup-mapping, WMMA, deep-pipeline geometry, LDS, and physical-capacity admission.
-- typed quant mechanism capabilities for lane sharing, padded DepthU64, decoded-B pipelines, SIA3, and next-packed prefetch.
+- typed quant mechanism capabilities for lane sharing, padded DepthU64, decoded-B pipelines, interleaved-WMMA-wait scheduling, and next-packed prefetch.
 - exact typed policies for schedule interpretation, LDS buffering, packed-prefetch combinations, Q3 pairing, Q5 metadata/shift, extraction, store priority, packed row addressing, decoder capability, address capability, and quant-specific register shape; canonical `BackwardKernelSpec` records serialize only the active direction-specific policy.
 - linked bounded decoder, complete-pipeline, and LDS-layout search neighborhoods filtered through normal validation.
 - typed pending-zero VOPD formation at known coordinate sites; ordinary instruction formatting neither parses nor rewrites emitted text.
@@ -827,9 +840,15 @@ The canonical unversioned identity migration was then qualified against an exten
 
 All ten deployment catalogs and the campaign, search, CLI, build, inspection, and active-artifact producers consume the canonical unversioned representation. The old `ProblemType`/`Solutions` catalog root, flat solution records, enum aliases, numeric enum encodings, inactive fields, and silent defaults have no compatibility path.
 
-The complete `tests/ggtensile` suite passes 572 tests covering model identity, strict validation, ordinary, grouped, paired, and fixed source generation, ABI packing, assembly and linking, artifact inspection, deterministic rebuilds, resource limits, route and invalid-route behavior, mutation sensitivity, typed policy branches, and executable-line coverage. The full repository suite passes 673 tests with the 14 existing Python 3.14 deprecation warnings. Ruff, formatting, compileall, `ty check`, pre-commit, and `git diff --check` also pass. Inspected retained artifacts remain code-object v5, gfx1151, wave32, ABI/resource compliant, and free of private storage, spills, scratch instructions, calls, and dynamic stack.
+The structural conformance review keeps the strict outer representation while making the canonical tuning vocabulary semantic: forward resource ceilings are external to `KernelSpec`; backward decode batching and LDS buffering are numeric; backward iteration schedules use semantic names; paired row-task ownership carries numeric row size; and paired projection scheduling is `Interleaved`. Legacy `ArtifactKind`, resource-limit, SIA, buffering, decode-batch, route-ownership, and projection-schedule labels survive only in explicit frozen identity projections or rejection fixtures. They are not emitted by canonical serializers and reject at parser boundaries. Those projections remain intentionally retained until a separately reviewed identity migration; no legacy parser or compatibility serialization is deferred or planned.
 
-The recursive review covered both directions, every ordinary quantization type, grouped Q2_K/Q4_K/Q5_K/IQ2_S, exact production shapes, generated source, inspected artifacts, schedule modules, physical-plan modules, and public-boundary behavior. The subsequent paired review implemented and qualified the Qwen IQ2_S K128-interleaved row-task candidate. Public dispatch, generated bundle tables, extension registration, packaging, and HIP fallback remain unchanged; public grouped selection is deferred until a separate integration campaign qualifies those surfaces.
+The final migration-aware capture compares `~/tmp/torch-ggml-ops/ggtensile-after-phase7-conformance-final` with the 211-record `~/tmp/torch-ggml-ops/ggtensile-baseline-after-capability` authority. All 211 retained records have identical identity hashes, source SHA256, HSACO SHA256, metadata, and static inspection counts. The reviewed capture has exactly two research-only additions: parameterized grouped-backward tail artifact `torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_bwd_q4_k_m16384_n512_k2048_93f56dc0fb4e25c8` and paired IQ2_S 32-row task artifact `torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_pair_iq2_s_r16384_n512_k2048_88145483ff873e47`. No frozen artifact has an assembly-changing exception.
+
+The complete `tests/ggtensile` suite passes 647 tests covering model identity, strict validation, ordinary, grouped, paired, and fixed source generation, ABI packing, assembly and linking, artifact inspection, deterministic rebuilds, resource limits, route and invalid-route behavior, mutation sensitivity, typed policy branches, benchmark structure, and executable-line coverage. The full repository suite passes 748 tests with the 14 existing Python 3.14 deprecation warnings. Ruff, formatting, `py_compile`, `ty check`, direct benchmark CLI loading, and `git diff --check` also pass for the changed surfaces. Inspected retained artifacts remain code-object v5, gfx1151, wave32, ABI/resource compliant, and free of private storage, spills, scratch instructions, calls, and dynamic stack.
+
+One-repeat runtime wiring checks for the fixed Q8_0 and paired IQ2_S paths were producer/task deterministic and bit-identical to installed HIP and public complete controls over 16,777,216 BF16 values per run. Independent dequantized-BF16 reference normalized RMSE was `0.006057` for fixed Q8_0 and `0.006060`/`0.006062` for paired gate/up output, below the declared `0.04` threshold. Reports are `~/tmp/torch-ggml-ops/phase7-fixed-runtime-reference-check.json` and `~/tmp/torch-ggml-ops/phase7-pair-runtime-reference-check.json`. These short runs validate launch packing, tensor layout, correctness controls, and report serialization; representative captured routes, normal repeat counts, reversed-order confirmation, and end-to-end evidence remain required for performance promotion.
+
+The recursive review covered both directions, every ordinary quantization type, grouped Q2_K/Q4_K/Q5_K/IQ2_S, exact production shapes, generated source, inspected artifacts, schedule modules, physical-plan modules, and public-boundary behavior. The subsequent paired review implemented and qualified the Qwen IQ2_S interleaved row-task candidate. Public dispatch, generated bundle tables, extension registration, packaging, and HIP fallback remain unchanged; public grouped selection is deferred until a separate integration campaign qualifies those surfaces.
 
 The source-preserving policy is the default for existing specifications. Any intentional source, executable, ABI, or rodata difference must be isolated as a deliberate stream change and pass independent correctness, mutation, deterministic-build, artifact/resource, and warmed timing gates. This qualification record is evidence of the current implementation, not a license to infer future coverage or promote research kernels through public dispatch.
 
@@ -868,6 +887,8 @@ These records retain campaign chronology and may describe historical premises th
 Each generated artifact owns one exact problem symbol. Runtime selection may use an artifact only when every problem type, exact size, ABI, architecture, solution, and source-identity assertion matches. Every mismatch falls back to the existing implementation.
 
 Public GGTensile integration remains deferred until a useful production set is selected, packaging and identity are stable, exact dispatch engineering is complete, and end-to-end workloads pass correctness and weighted performance validation. Experimental force controls are not public policy.
+
+Formula-capable shapes, the parameterized grouped-backward tail, and paired 32-row tasks are research eligibility rather than deployment selections. Public selection, bundle generation, extension registration, packaging, and HIP fallback remain a separate integration campaign; existing public dispatch stays authoritative until that campaign passes its own gates.
 
 Grouped GGTensile remains a separate deployment and integration scope. The isolated non-paired routed research writers for Q2_K, Q4_K, Q5_K, and IQ2_S, paired IQ2_S/IQ2_XXS/Q3_K writers, and fixed-group Q8_0 writer are implemented under the inventory above. Retained down targets stay non-paired. IQ2_XXS row-task ownership is not implemented and rejects as an unavailable route mode; adding it requires a separate mechanism and qualification campaign. Public paired, single-routed, row-task, and fixed-group ownership still require explicit dispatch, packaging, memory, synchronization, resource, and fallback contracts. Ordinary coverage of an overlapping format does not count as grouped coverage.
 

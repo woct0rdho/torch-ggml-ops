@@ -1,5 +1,4 @@
 import json
-from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -18,32 +17,11 @@ from .model import (
     SolutionKey,
 )
 from .quant_formats import QUANT_FORMATS
+from .schema import integer, strict_mapping
 
 
 class CatalogError(ValueError):
     """A deployment catalog is malformed or internally inconsistent."""
-
-
-def _mapping(value: object, name: str, keys: frozenset[str]) -> Mapping[str, object]:
-    if not isinstance(value, Mapping):
-        raise CatalogError(f"{name} must be a JSON object")
-    normalized: dict[str, object] = {}
-    for key, item in value.items():
-        if not isinstance(key, str):
-            raise CatalogError(f"{name} keys must be strings")
-        normalized[key] = item
-    actual = set(normalized)
-    if actual != keys:
-        raise CatalogError(
-            f"invalid {name} keys: expected {sorted(keys)}, got {sorted(actual)}"
-        )
-    return normalized
-
-
-def _integer(value: object, name: str) -> int:
-    if type(value) is not int:
-        raise CatalogError(f"{name} must be an integer")
-    return value
 
 
 Solution = BackwardSolution | ForwardSolution
@@ -162,7 +140,6 @@ class DeploymentCatalog:
                 if isinstance(solution, BackwardSolution)
             ]
         return {
-            "ArtifactKind": "DeploymentCatalog",
             "KernelFamily": family,
             "ProblemContract": contract.to_mapping(),
             "KernelSpecs": specs,
@@ -187,15 +164,12 @@ def load_solution(
         if candidate.problem_contract.quant_type != problem_type.quant_data_type:
             raise CatalogError("candidate ProblemContract does not match the campaign")
         return candidate.to_solution()
-    item = _mapping(
+    item = strict_mapping(
         value,
         "BackwardKernelCandidate",
-        frozenset({"ArtifactKind", "KernelFamily", "ProblemContract", "KernelSpec"}),
+        frozenset({"ProblemContract", "KernelSpec"}),
+        error_type=CatalogError,
     )
-    if item["ArtifactKind"] != "KernelCandidate":
-        raise CatalogError("candidate ArtifactKind must be KernelCandidate")
-    if item["KernelFamily"] != "OrdinaryBackward":
-        raise CatalogError("backward candidate KernelFamily must be OrdinaryBackward")
     contract = BackwardProblemContract.from_mapping(
         item["ProblemContract"], ProblemSize(1, 1, 1)
     )
@@ -207,21 +181,19 @@ def load_solution(
 
 
 def load_catalog(path: Path) -> DeploymentCatalog:
-    root = _mapping(
+    root = strict_mapping(
         json.loads(path.read_text(encoding="utf-8")),
         "deployment catalog",
         frozenset(
             {
-                "ArtifactKind",
                 "KernelFamily",
                 "ProblemContract",
                 "KernelSpecs",
                 "ExactLogic",
             }
         ),
+        error_type=CatalogError,
     )
-    if root["ArtifactKind"] != "DeploymentCatalog":
-        raise CatalogError("catalog ArtifactKind must be DeploymentCatalog")
     family = root["KernelFamily"]
     if family == "OrdinaryForward":
         contract = ForwardProblemContract.from_mapping(root["ProblemContract"])
@@ -256,16 +228,19 @@ def load_catalog(path: Path) -> DeploymentCatalog:
     entries: list[CatalogEntry] = []
     selected_indices: set[int] = set()
     for index, raw_entry in enumerate(raw_logic):
-        item = _mapping(
+        item = strict_mapping(
             raw_entry,
             f"ExactLogic[{index}]",
             frozenset({"Problem", "KernelSpecIndex"}),
+            error_type=CatalogError,
         )
         size = ProblemSize.from_canonical_mapping(item["Problem"])
         if min(size.m, size.n, size.k) <= 0:
             raise CatalogError(f"ExactLogic[{index}].Problem must be positive")
-        solution_index = _integer(
-            item["KernelSpecIndex"], f"ExactLogic[{index}].KernelSpecIndex"
+        solution_index = integer(
+            item["KernelSpecIndex"],
+            f"ExactLogic[{index}].KernelSpecIndex",
+            error_type=CatalogError,
         )
         if not 0 <= solution_index < len(solutions):
             raise CatalogError(

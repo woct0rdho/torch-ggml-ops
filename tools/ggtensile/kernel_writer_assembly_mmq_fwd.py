@@ -32,7 +32,7 @@ class ForwardKernelWriterAssembly:
             raise ForwardKernelWriterError("forward writer requires ForwardSolution")
         self.solution_key = solution_key
         self.state = DerivedForwardState.from_solution_key(solution_key)
-        self.context = ForwardLoweringContext(solution_key, self.state)
+        self.context = ForwardLoweringContext(solution_key.kernel_name, self.state)
         self.toolchain = toolchain
 
     def write(self, output: Path) -> str:
@@ -68,10 +68,7 @@ class ForwardKernelWriterAssembly:
 
     def _body(self) -> str:
         operand_source = self.state.kernel_spec.global_memory.operand_source
-        try:
-            lowering = forward_mechanism_contract(operand_source).lowering
-        except ValueError as error:
-            raise TypeError(str(error)) from None
+        lowering = forward_mechanism_contract(operand_source).lowering
         if lowering == "StructuredQ6":
             return Q6StructuredLowering(self.context).body()
         if lowering == "Packed3BitTiledLds":

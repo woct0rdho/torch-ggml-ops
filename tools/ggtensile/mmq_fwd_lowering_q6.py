@@ -2026,8 +2026,8 @@ class Q6StructuredLowering:
         )
         return (
             str(body)
-            + f".L{self.context.solution_key.kernel_name}_end:\n"
-            + f".size {self.context.solution_key.kernel_name}, "
-            + f".L{self.context.solution_key.kernel_name}_end - "
-            + f"{self.context.solution_key.kernel_name}\n"
+            + f".L{self.context.kernel_name}_end:\n"
+            + f".size {self.context.kernel_name}, "
+            + f".L{self.context.kernel_name}_end - "
+            + f"{self.context.kernel_name}\n"
         )

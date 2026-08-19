@@ -48,7 +48,9 @@ def _weight_hoisted_key(tokens: int = 2048) -> FixedForwardSolutionKey:
     )
 
 
-@pytest.mark.parametrize("field", ("unknown", "SchemaVersion"))
+@pytest.mark.parametrize(
+    "field", ("unknown", "SchemaVersion", "ArtifactKind", "KernelFamily")
+)
 def test_fixed_forward_key_rejects_unknown_root_fields(field: str) -> None:
     mapping = _key().to_mapping()
     mapping[field] = 1
@@ -60,8 +62,6 @@ def test_fixed_forward_key_rejects_unknown_root_fields(field: str) -> None:
     ("field", "value"),
     (
         ("quant_type", "Q4_K"),
-        ("output_features", 512),
-        ("input_features", 2048),
         ("groups", 4),
         ("block_values", 256),
         ("packed_weight_block_bytes", 144),
@@ -89,7 +89,7 @@ def test_fixed_forward_key_rejects_noncanonical_contract_fields(
     contract = mapping["ProblemContract"]
     assert isinstance(contract, dict)
     contract[field] = value
-    with pytest.raises(SchemaError, match="canonical|unsupported"):
+    with pytest.raises(SchemaError):
         FixedForwardSolutionKey.from_mapping(mapping)
 
 
@@ -98,7 +98,7 @@ def test_fixed_forward_key_rejects_invalid_problem_and_enum() -> None:
     problem = mapping["Problem"]
     assert isinstance(problem, dict)
     problem["tokens"] = 0
-    with pytest.raises(ValueError, match="production token count"):
+    with pytest.raises(ValueError, match="positive u32"):
         FixedForwardSolutionKey.from_mapping(mapping)
 
     mapping = _key().to_mapping()
@@ -117,32 +117,49 @@ def test_fixed_forward_identity_roundtrip_and_derived_shapes() -> None:
     validate_fixed_forward_solution_key(key)
     state = DerivedFixedForwardState.from_solution_key(key)
     assert state.grid == (16, 32, 8)
-    assert state.activation_plane_stride_bytes == 8 * 2048 * 144
+    assert state.ordinary.activation_plane_stride_bytes == 8 * 2048 * 144
     assert state.expected_packed_weight_shape == (8, 1024, 4352)
     assert state.expected_activation_shape == (32, 16_384, 144)
     assert state.expected_output_shape == (2048, 8, 1024)
-    assert state.resources.lds_bytes == 28_672
-    assert state.resources.vgprs == 144
-    assert state.resources.sgprs == 16
+    assert state.physical.resources.lds_bytes == 28_672
+    assert state.physical.resources.vgprs == 144
+    assert state.physical.resources.sgprs == 16
     compact_key = _compact_key()
     assert FixedForwardSolutionKey.from_mapping(compact_key.to_mapping()) == compact_key
     compact_state = DerivedFixedForwardState.from_solution_key(compact_key)
-    assert compact_state.resources.lds_bytes == 18_432
-    assert compact_state.resources.vgprs == 144
-    assert compact_state.resources.sgprs == 16
+    assert compact_state.physical.resources.lds_bytes == 18_432
+    assert compact_state.physical.resources.vgprs == 144
+    assert compact_state.physical.resources.sgprs == 16
     hoisted_key = _hoisted_key()
     assert FixedForwardSolutionKey.from_mapping(hoisted_key.to_mapping()) == hoisted_key
     hoisted_state = DerivedFixedForwardState.from_solution_key(hoisted_key)
-    assert hoisted_state.fixed_physical_plan.paired_weight_scale_address_vgpr == 139
-    assert hoisted_state.fixed_physical_plan.activation_plane_stride_sgpr == 15
+    assert hoisted_state.physical.paired_weight_scale_address_vgpr == 139
+    assert hoisted_state.physical.activation_plane_stride_sgpr == 15
     weight_hoisted_state = DerivedFixedForwardState.from_solution_key(
         _weight_hoisted_key()
     )
-    assert weight_hoisted_state.fixed_physical_plan.weight_lane_offset_vgpr == 140
-    assert (
-        weight_hoisted_state.fixed_physical_plan.weight_payload_lds_address_vgpr == 141
-    )
-    assert weight_hoisted_state.fixed_physical_plan.weight_scale_lds_address_vgpr == 142
+    assert weight_hoisted_state.physical.weight_lane_offset_vgpr == 140
+    assert weight_hoisted_state.physical.weight_payload_lds_address_vgpr == 141
+    assert weight_hoisted_state.physical.weight_scale_lds_address_vgpr == 142
+
+
+def test_fixed_forward_accepts_formula_compatible_noncatalog_shape() -> None:
+    mapping = _key().to_mapping()
+    contract = mapping["ProblemContract"]
+    problem = mapping["Problem"]
+    assert isinstance(contract, dict)
+    assert isinstance(problem, dict)
+    contract["output_features"] = 512
+    contract["input_features"] = 2048
+    problem["tokens"] = 4096
+
+    key = FixedForwardSolutionKey.from_mapping(mapping)
+    validate_fixed_forward_solution_key(key)
+    state = DerivedFixedForwardState.from_solution_key(key)
+    assert state.grid == (8, 64, 8)
+    assert state.expected_packed_weight_shape == (8, 512, 2176)
+    assert state.expected_activation_shape == (16, 32_768, 144)
+    assert state.expected_output_shape == (4096, 8, 512)
 
 
 @pytest.mark.parametrize(
@@ -165,9 +182,9 @@ def test_fixed_forward_identity_roundtrip_and_derived_shapes() -> None:
         (
             replace(
                 _key(),
-                problem=replace(_key().problem, tokens=4096),
+                problem=replace(_key().problem, tokens=32),
             ),
-            "production token count",
+            "64-row tile",
         ),
         (
             replace(
@@ -207,8 +224,8 @@ def test_fixed_forward_source_loads_scalars_and_flattens_group_rows() -> None:
     key = _key()
     source = FixedGroupedForwardKernelWriterAssembly(key, Toolchain.discover()).source()
     state = DerivedFixedForwardState.from_solution_key(key)
-    output_address = state.fixed_physical_plan.registers.output_address.first_register
-    temporary = state.fixed_physical_plan.registers.temporary.first_register
+    output_address = state.physical.ordinary.registers.output_address.first_register
+    temporary = state.physical.ordinary.registers.temporary.first_register
     assert "s_load_dword s12, s[0:1], 0x18" in source
     assert "s_load_dword s13, s[0:1], 0x1c" in source
     assert "s_load_dwordx2 s[14:15], s[0:1], 0x20" in source
@@ -224,7 +241,10 @@ def test_fixed_forward_compact_source_uses_paired_scale_reads() -> None:
     assert source.count("ds_read2_b32") == 16
     assert source.count("ds_read_b32") == 16
     assert "offset0:179 offset1:251" in source
-    assert DerivedFixedForwardState.from_solution_key(key).resources.lds_bytes == 18_432
+    assert (
+        DerivedFixedForwardState.from_solution_key(key).physical.resources.lds_bytes
+        == 18_432
+    )
 
 
 def test_fixed_forward_hoists_reduction_invariants() -> None:

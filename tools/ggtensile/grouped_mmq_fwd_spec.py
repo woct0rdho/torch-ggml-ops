@@ -10,13 +10,6 @@ from .grouped_mmq_fwd_model import (
     GroupedMetadataSchedule,
     GroupedOperandSource,
     GroupedOutputStore,
-    _boolean,
-    _enum,
-    _integer,
-    _integer_triple,
-    _integer_tuple,
-    _mapping,
-    _string,
 )
 from .grouped_mmq_fwd_physical import (
     GroupedActivationStagingPlan,
@@ -28,8 +21,76 @@ from .grouped_mmq_fwd_physical import (
     grouped_iq2_s_full_weight_physical_plan,
 )
 from .mmq_fwd_spec import QuantForwardSemantics
-from .model import ProblemSize, SchemaError
+from .model import ProblemSize
 from .quant_formats import GROUPED_QUANT_FORMATS, Q8_1_D4_BLOCK_VALUES
+from .schema import (
+    SchemaError,
+)
+from .schema import (
+    boolean as _boolean,
+)
+from .schema import (
+    enum_value as _enum,
+)
+from .schema import (
+    integer as _integer,
+)
+from .schema import (
+    integer_triple as _integer_triple,
+)
+from .schema import (
+    integer_tuple as _integer_tuple,
+)
+from .schema import (
+    strict_mapping as _mapping,
+)
+from .schema import (
+    string as _string,
+)
+
+_U32_MAX = 0xFFFFFFFF
+
+
+def grouped_forward_problem_rejection_reason(
+    problem: GroupedForwardProblem,
+) -> str | None:
+    """Return a formula-backed rejection for the routed forward problem."""
+    quant_format = GROUPED_QUANT_FORMATS.get(problem.quant_data_type)
+    if quant_format is None:
+        return "unsupported grouped forward quant type"
+    for name, value in (
+        ("aggregate rows", problem.aggregate_rows),
+        ("output features", problem.output_features),
+        ("input features", problem.input_features),
+    ):
+        if not 0 < value <= _U32_MAX:
+            return f"grouped {name} must fit in a positive u32"
+    if problem.physical_experts != 256:
+        return "grouped forward requires 256 physical experts"
+    if problem.max_route_entries != 256:
+        return "grouped forward requires at most 256 route entries"
+    if problem.output_features % 16:
+        return "grouped output features must contain complete WMMA columns"
+    if problem.input_features % quant_format.block_values:
+        return "grouped input features must contain complete quant blocks"
+    if problem.input_features % Q8_1_D4_BLOCK_VALUES:
+        return "grouped input features must contain complete activation blocks"
+
+    blocks_per_weight_row = problem.input_features // quant_format.block_values
+    packed_weight_row_bytes = blocks_per_weight_row * quant_format.block_bytes
+    bytes_per_expert = problem.output_features * packed_weight_row_bytes
+    activation_blocks = problem.input_features // Q8_1_D4_BLOCK_VALUES
+    activation_bytes = (
+        activation_blocks * problem.aggregate_rows * quant_format.activation_block_bytes
+    )
+    output_bytes = problem.aggregate_rows * problem.output_features * 2
+    if bytes_per_expert > _U32_MAX:
+        return "grouped packed bytes per expert must fit in a u32 offset"
+    if activation_bytes > _U32_MAX:
+        return "grouped activation workspace must fit in a u32 offset"
+    if output_bytes > _U32_MAX:
+        return "grouped output workspace must fit in a u32 offset"
+    return None
 
 
 @dataclass(frozen=True)
@@ -59,17 +120,14 @@ class GroupedForwardProblemContract:
     abi: str = "GroupedSerialRoutesV1"
 
     @classmethod
-    def from_solution(
+    def rejection_reason(
         cls,
         problem: GroupedForwardProblem,
         solution: GroupedForwardSolution,
-    ) -> "GroupedForwardProblemContract":
-        try:
-            quant_format = GROUPED_QUANT_FORMATS[problem.quant_data_type]
-        except KeyError:
-            raise ValueError(
-                f"unsupported grouped forward quant type {problem.quant_data_type!r}"
-            ) from None
+    ) -> str | None:
+        quant_format = GROUPED_QUANT_FORMATS.get(problem.quant_data_type)
+        if quant_format is None:
+            return f"unsupported grouped forward quant type {problem.quant_data_type!r}"
         checks = (
             (
                 solution.activation_layout == quant_format.activation_layout,
@@ -117,6 +175,20 @@ class GroupedForwardProblemContract:
         rejection = next(
             (message for accepted, message in checks if not accepted), None
         )
+        return rejection or grouped_forward_problem_rejection_reason(problem)
+
+    @classmethod
+    def from_solution(
+        cls,
+        problem: GroupedForwardProblem,
+        solution: GroupedForwardSolution,
+    ) -> "GroupedForwardProblemContract":
+        quant_format = GROUPED_QUANT_FORMATS.get(problem.quant_data_type)
+        if quant_format is None:
+            raise ValueError(
+                f"unsupported grouped forward quant type {problem.quant_data_type!r}"
+            ) from None
+        rejection = cls.rejection_reason(problem, solution)
         if rejection is not None:
             raise ValueError(rejection)
         return cls(
@@ -172,20 +244,11 @@ class GroupedForwardProblemContract:
             ),
         )
         quant_type = _string(item["quant_type"], "quant_type")
-        try:
-            quant_format = GROUPED_QUANT_FORMATS[quant_type]
-        except KeyError:
+        quant_format = GROUPED_QUANT_FORMATS.get(quant_type)
+        if quant_format is None:
             raise SchemaError(
                 f"unsupported grouped forward quant type {quant_type!r}"
             ) from None
-        expected_shape = {
-            "Q2_K": (4096, 2048),
-            "Q4_K": (2048, 512),
-            "Q5_K": (2048, 512),
-            "IQ2_S": (2048, 512),
-        }.get(quant_type)
-        if expected_shape is None:
-            raise SchemaError(f"unsupported grouped forward quant type {quant_type!r}")
         contract = cls(
             quant_type=quant_type,
             output_features=_integer(item["output_features"], "output_features"),
@@ -215,9 +278,13 @@ class GroupedForwardProblemContract:
             bf16_rounding=_string(item["bf16_rounding"], "bf16_rounding"),
             abi=_string(item["abi"], "abi"),
         )
+        problem_rejection = grouped_forward_problem_rejection_reason(
+            contract.problem(1)
+        )
+        if problem_rejection is not None:
+            raise SchemaError(problem_rejection)
         fixed = (
-            (contract.output_features, contract.input_features) == expected_shape
-            and contract.physical_experts == 256
+            contract.physical_experts == 256
             and contract.max_route_entries == 256
             and contract.block_values == quant_format.block_values
             and contract.activation_layout == quant_format.activation_layout
@@ -631,10 +698,10 @@ def _grouped_metadata_schedule(policy: GroupedDecodePolicy) -> GroupedMetadataSc
             True,
         ): GroupedMetadataSchedule.Q2HipAssociationPartialLdsPreNegatedDmWrite2Meta2DistributedProducer,
     }
-    try:
-        return schedules[flags]
-    except KeyError:
+    schedule = schedules.get(flags)
+    if schedule is None:
         raise ValueError("unsupported orthogonal Q2 grouped decode policy") from None
+    return schedule
 
 
 def _grouped_decode_mapping(policy: GroupedDecodePolicy) -> dict[str, object]:
@@ -687,27 +754,24 @@ def _mapping_for_grouped_decode(
         )
         if item["kind"] != "Q2ScaleMinimum":
             raise SchemaError("Q2_K grouped decode kind must be Q2ScaleMinimum")
-        try:
-            return GroupedQ2SchedulePolicy(
-                metadata_conversion=_string(
-                    item["metadata_conversion"], "metadata_conversion"
-                ),
-                unrolled_groups=_boolean(item["unrolled_groups"], "unrolled_groups"),
-                hip_association=_boolean(item["hip_association"], "hip_association"),
-                partial_lds=_boolean(item["partial_lds"], "partial_lds"),
-                pre_negated_dm=_boolean(item["pre_negated_dm"], "pre_negated_dm"),
-                paired_payload_writes=_boolean(
-                    item["paired_payload_writes"], "paired_payload_writes"
-                ),
-                paired_metadata_writes=_boolean(
-                    item["paired_metadata_writes"], "paired_metadata_writes"
-                ),
-                distributed_producer=_boolean(
-                    item["distributed_producer"], "distributed_producer"
-                ),
-            )
-        except ValueError as error:
-            raise SchemaError(str(error)) from None
+        return GroupedQ2SchedulePolicy(
+            metadata_conversion=_string(
+                item["metadata_conversion"], "metadata_conversion"
+            ),
+            unrolled_groups=_boolean(item["unrolled_groups"], "unrolled_groups"),
+            hip_association=_boolean(item["hip_association"], "hip_association"),
+            partial_lds=_boolean(item["partial_lds"], "partial_lds"),
+            pre_negated_dm=_boolean(item["pre_negated_dm"], "pre_negated_dm"),
+            paired_payload_writes=_boolean(
+                item["paired_payload_writes"], "paired_payload_writes"
+            ),
+            paired_metadata_writes=_boolean(
+                item["paired_metadata_writes"], "paired_metadata_writes"
+            ),
+            distributed_producer=_boolean(
+                item["distributed_producer"], "distributed_producer"
+            ),
+        )
     if quant_type == "IQ2_S":
         item = _mapping(
             value,
@@ -735,14 +799,11 @@ def _mapping_for_grouped_decode(
     if item["kind"] != "ScaleMinimum":
         raise SchemaError("Q4_K/Q5_K grouped decode kind must be ScaleMinimum")
     schedule = _enum(item["schedule"], "schedule", GroupedMetadataSchedule)
-    try:
-        return _grouped_decode_policy(
-            quant_type,
-            schedule,
-            _string(item["metadata_conversion"], "metadata_conversion"),
-        )
-    except ValueError as error:
-        raise SchemaError(str(error)) from None
+    return _grouped_decode_policy(
+        quant_type,
+        schedule,
+        _string(item["metadata_conversion"], "metadata_conversion"),
+    )
 
 
 @dataclass(frozen=True)
@@ -998,13 +1059,21 @@ def grouped_forward_capability_rejection_reason(
     problem: GroupedForwardProblem,
     solution: GroupedForwardSolution,
 ) -> str | None:
-    try:
-        GroupedForwardProblemContract.from_solution(problem, solution)
-        kernel_spec = GroupedForwardKernelSpec.from_solution(problem, solution)
-    except (KeyError, TypeError, ValueError) as error:
-        return str(error)
+    contract_rejection = GroupedForwardProblemContract.rejection_reason(
+        problem, solution
+    )
+    if contract_rejection is not None:
+        return contract_rejection
+    kernel_spec = GroupedForwardKernelSpec.from_solution(problem, solution)
 
-    common_checks = ((solution.depth_u == 32, "grouped forward requires DepthU=32"),)
+    common_checks = (
+        (solution.depth_u == 32, "grouped forward requires DepthU=32"),
+        (
+            solution.macro_tile1 > 0
+            and problem.output_features % solution.macro_tile1 == 0,
+            "grouped output features must be divisible by the output tile",
+        ),
+    )
     rejection = next(
         (message for accepted, message in common_checks if not accepted), None
     )
@@ -1161,20 +1230,17 @@ def grouped_forward_capability_rejection_reason(
     elif solution.macro_tile0 not in {64, 128}:
         return "Q4/Q5 decoded lowering requires a 64- or 128-row tile"
 
-    try:
-        activation_staging = GroupedActivationStagingPlan(
-            addressing=kernel_spec.activation.addressing,
-            block_bytes=kernel_spec.activation.block_bytes,
-            participating_threads=solution.num_threads,
-        )
-        grouped_decoded_physical_plan(
-            solution.activation_block_bytes,
-            solution.macro_tile0,
-            problem.quant_data_type,
-            activation_staging,
-        )
-    except ValueError as error:
-        return str(error)
+    activation_staging = GroupedActivationStagingPlan(
+        addressing=kernel_spec.activation.addressing,
+        block_bytes=kernel_spec.activation.block_bytes,
+        participating_threads=solution.num_threads,
+    )
+    grouped_decoded_physical_plan(
+        solution.activation_block_bytes,
+        solution.macro_tile0,
+        problem.quant_data_type,
+        activation_staging,
+    )
     return None
 
 

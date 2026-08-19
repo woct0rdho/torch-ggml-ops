@@ -9,11 +9,11 @@ from .fixed_grouped_mmq_fwd_spec import FixedForwardProblemContract
 
 def fixed_forward_rejection_reason(key: FixedForwardSolutionKey) -> str | None:
     """Return the first contract violation without deriving or emitting state."""
-    try:
-        FixedForwardProblemContract.from_problem(key.problem, key.solution)
-    except ValueError as error:
-        return str(error)
-    problem = key.problem
+    contract_rejection = FixedForwardProblemContract.rejection_reason(
+        key.problem, key.solution
+    )
+    if contract_rejection is not None:
+        return contract_rejection
     solution = key.solution
     checks = (
         (
@@ -44,14 +44,6 @@ def fixed_forward_rejection_reason(key: FixedForwardSolutionKey) -> str | None:
         (
             solution.num_threads == 128,
             "fixed Q8 forward requires 128 work-items",
-        ),
-        (
-            key.problem.packed_row_bytes == 4352,
-            "fixed Q8 forward requires 4352 packed bytes per weight row",
-        ),
-        (
-            key.problem.bytes_per_group == problem.output_features * 4352,
-            "fixed Q8 forward bytes_per_group is inconsistent",
         ),
         (
             solution.operand_source is FixedForwardOperandSource.Q8SmallMTiledLds,

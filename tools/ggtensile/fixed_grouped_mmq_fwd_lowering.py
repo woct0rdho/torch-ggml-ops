@@ -1,9 +1,8 @@
 """Dedicated six-argument lowering for fixed-group Q8_0 forward."""
 
 from dataclasses import dataclass
-from typing import ClassVar, cast
+from typing import ClassVar
 
-from .fixed_grouped_mmq_fwd_model import FixedForwardSolutionKey
 from .fixed_grouped_mmq_fwd_spec import DerivedFixedForwardState
 from .kernel_abi import FIXED_GROUPED_FORWARD_ABI
 from .kernel_writer_assembly import (
@@ -14,7 +13,6 @@ from .kernel_writer_assembly import (
 )
 from .mmq_fwd_lowering_signed_i8_tiled import SignedInt8TiledLdsMechanics
 from .mmq_fwd_physical import (
-    SignedInt8SmallMTiledLdsPhysicalPlan,
     SignedInt8TiledLdsRegisters,
     SignedInt8TiledLdsScaleLayout,
 )
@@ -23,7 +21,7 @@ from .model import ProblemSize
 
 @dataclass(frozen=True)
 class FixedForwardLoweringContext:
-    solution_key: FixedForwardSolutionKey
+    kernel_name: str
     state: DerivedFixedForwardState
 
 
@@ -44,16 +42,16 @@ class FixedGroupedQ8ForwardLowering:
         mechanics = SignedInt8TiledLdsMechanics(
             self.KERNARG, state.contract.activation_block_bytes
         )
-        macro_tile_m = state.kernel_spec.macro_tile[0]
+        macro_tile_m = state.ordinary.kernel_spec.macro_tile[0]
         m_fragments = macro_tile_m // 16
         activation_row_share = 128 // macro_tile_m
         groups_per_lane = 4 // activation_row_share
-        physical = cast(SignedInt8SmallMTiledLdsPhysicalPlan, state.physical_plan)
+        physical = state.physical.ordinary
         registers = physical.registers
-        name = self.context.solution_key.kernel_name
-        size = state.problem_size
-        row_stride = state.packed_weight_row_bytes
-        iteration_count = state.activation_blocks_per_row
+        name = self.context.kernel_name
+        size = state.ordinary.problem_size
+        row_stride = state.ordinary.packed_weight_row_bytes
+        iteration_count = state.ordinary.activation_blocks_per_row
         sums = registers.sums.first_register
         zero_accumulator = registers.zero_accumulator.first_register
         weight_scale_address = registers.weight_scale_address.first_register
@@ -86,17 +84,11 @@ class FixedGroupedQ8ForwardLowering:
         weight_lds_base = layout.weight_base
         weight_lds_row_stride = layout.weight_row_stride
         paired_scale_reads = policy.scale_read == "PairedHoistedSecondBase"
-        paired_scale_address = (
-            state.fixed_physical_plan.paired_weight_scale_address_vgpr
-        )
-        activation_stride_sgpr = state.fixed_physical_plan.activation_plane_stride_sgpr
-        weight_lane_offset = state.fixed_physical_plan.weight_lane_offset_vgpr
-        weight_payload_lds_address = (
-            state.fixed_physical_plan.weight_payload_lds_address_vgpr
-        )
-        weight_scale_lds_address = (
-            state.fixed_physical_plan.weight_scale_lds_address_vgpr
-        )
+        paired_scale_address = state.physical.paired_weight_scale_address_vgpr
+        activation_stride_sgpr = state.physical.activation_plane_stride_sgpr
+        weight_lane_offset = state.physical.weight_lane_offset_vgpr
+        weight_payload_lds_address = state.physical.weight_payload_lds_address_vgpr
+        weight_scale_lds_address = state.physical.weight_scale_lds_address_vgpr
 
         asm.comment("Load the fixed-group Q8_0 pointers and scalar dimensions.")
         emit_pointer_kernarg_loads(asm, self.KERNARG, FIXED_GROUPED_FORWARD_ABI)

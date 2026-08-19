@@ -1,5 +1,4 @@
 {
-  "ArtifactKind": "DeploymentCatalog",
   "KernelFamily": "OrdinaryForward",
   "ProblemContract": {
     "quant_type": "Q6_K",
@@ -79,12 +78,6 @@
         "pressure": "ExplicitRoleLifetime",
         "wait": "ProducerFirstUse",
         "pairing": "DependencyCompatibleDualIssue"
-      },
-      "resource_limits": {
-        "max_vgprs": 256,
-        "max_sgprs": 106,
-        "max_lds_bytes": 65536,
-        "require_zero_spills": true
       }
     },
     {
@@ -141,12 +134,6 @@
         "pressure": "ExplicitRoleLifetime",
         "wait": "ProducerFirstUse",
         "pairing": "DependencyCompatibleDualIssue"
-      },
-      "resource_limits": {
-        "max_vgprs": 256,
-        "max_sgprs": 106,
-        "max_lds_bytes": 65536,
-        "require_zero_spills": true
       }
     }
   ],

@@ -275,25 +275,32 @@ def main() -> None:
     control_timing = _timing_summary(samples["hip"], logical_flops)
     candidate_timing = _timing_summary(samples["candidate"], logical_flops)
     report = {
-        "SolutionKey": key.to_mapping(),
-        "SolutionHash": key.hash,
-        "KernelName": key.kernel_name,
-        "CodeObject": str(args.code_object),
-        "Model": str(args.model),
-        "Tensor": args.tensor,
-        "LogicalWeightShape": [size.k, size.n],
-        "PhysicalWeightShape": list(tensor.data.shape),
-        "GradOutputShape": [size.m, size.k],
-        "GradInputShape": [size.m, size.n],
-        "LogicalFlops": logical_flops,
-        "Bf16WmmaRooflineTflops": BF16_WMMA_ROOFLINE_TFLOPS,
-        "Correctness": correctness,
-        "HIP": control_timing,
-        "GGTensile": candidate_timing,
-        "CandidateToHipLatency": (
+        "solution_key": key.to_mapping(),
+        "solution_hash": key.hash,
+        "kernel_name": key.kernel_name,
+        "code_object": str(args.code_object),
+        "model": str(args.model),
+        "tensor": args.tensor,
+        "logical_weight_shape": [size.k, size.n],
+        "physical_weight_shape": list(tensor.data.shape),
+        "grad_output_shape": [size.m, size.k],
+        "grad_input_shape": [size.m, size.n],
+        "logical_flops": logical_flops,
+        "bf16_wmma_roofline_tflops": BF16_WMMA_ROOFLINE_TFLOPS,
+        "protocol": {
+            "warmup": args.warmup,
+            "repeats": args.repeats,
+            "rotating_order": True,
+        },
+        "correctness": correctness,
+        "timing": {
+            "hip_kernel": control_timing,
+            "candidate_kernel": candidate_timing,
+        },
+        "candidate_to_hip_latency": (
             candidate_timing["median_ms"] / control_timing["median_ms"]
         ),
-        "CandidateToHipThroughput": (
+        "candidate_to_hip_throughput": (
             candidate_timing["median_tflops"] / control_timing["median_tflops"]
         ),
     }
@@ -301,17 +308,17 @@ def main() -> None:
         assembly_control_timing = _timing_summary(
             samples["assembly_control"], logical_flops
         )
-        report["AssemblyControl"] = {
-            "SolutionKey": assembly_control_key.to_mapping(),
-            "SolutionHash": assembly_control_key.hash,
-            "KernelName": assembly_control_key.kernel_name,
-            "CodeObject": str(args.assembly_control_code_object),
+        report["assembly_control"] = {
+            "solution_key": assembly_control_key.to_mapping(),
+            "solution_hash": assembly_control_key.hash,
+            "kernel_name": assembly_control_key.kernel_name,
+            "code_object": str(args.assembly_control_code_object),
             **assembly_control_timing,
         }
-        report["CandidateToAssemblyControlLatency"] = (
+        report["candidate_to_assembly_control_latency"] = (
             candidate_timing["median_ms"] / assembly_control_timing["median_ms"]
         )
-        report["CandidateToAssemblyControlThroughput"] = (
+        report["candidate_to_assembly_control_throughput"] = (
             candidate_timing["median_tflops"] / assembly_control_timing["median_tflops"]
         )
     args.output.parent.mkdir(parents=True, exist_ok=True)

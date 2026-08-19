@@ -229,7 +229,9 @@ class GroupedPairRowTaskEmitter:
         scalar = self.registers
         task_offset = scalar.route_offset.first_register
         task_index = scalar.gemm_index.first_register
-        asm.comment("Load one bounded device-built 64-row task.")
+        asm.comment(
+            f"Load one bounded device-built {self.state.row_task_rows}-row task."
+        )
         asm.inst(
             f"s_load_dword s{task_offset}, "
             f"s[{scalar.task_count.first_register}:{scalar.task_count.first_register + 1}], 0x0"

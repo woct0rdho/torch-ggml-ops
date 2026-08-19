@@ -1,5 +1,4 @@
 {
-  "ArtifactKind": "DeploymentCatalog",
   "KernelFamily": "OrdinaryForward",
   "ProblemContract": {
     "quant_type": "Q3_K",
@@ -63,12 +62,6 @@
       },
       "epilogue": {
         "output_store": "BFloat16RNEClause8"
-      },
-      "resource_limits": {
-        "max_vgprs": 256,
-        "max_sgprs": 106,
-        "max_lds_bytes": 65536,
-        "require_zero_spills": true
       }
     }
   ],

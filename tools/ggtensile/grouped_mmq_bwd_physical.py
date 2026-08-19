@@ -34,16 +34,9 @@ class GroupedBackwardScalarPlan:
 
 @dataclass(frozen=True)
 class GroupedBackwardPhysicalPlan:
-    compute: BackwardPhysicalPlan
+    primary: BackwardPhysicalPlan
+    secondary: BackwardPhysicalPlan | None
     route: GroupedBackwardScalarPlan
-
-    @property
-    def registers(self):
-        return self.compute.registers
-
-    @property
-    def resources(self):
-        return self.compute.resources
 
 
 def _roles(
@@ -100,7 +93,12 @@ def _roles(
 def derive_grouped_backward_physical_plan(
     state: DerivedGroupedBackwardState,
 ) -> GroupedBackwardPhysicalPlan:
-    ordinary = derive_backward_physical_plan(state.ordinary)
+    primary = derive_backward_physical_plan(state.primary)
+    secondary = (
+        derive_backward_physical_plan(state.secondary)
+        if state.secondary is not None
+        else None
+    )
     roles, order = _roles(state.contract.quant_type == "IQ2_S")
     scalar = DeterministicRegisterPlan.allocate(
         roles,
@@ -111,23 +109,27 @@ def derive_grouped_backward_physical_plan(
     def first(name: str) -> int:
         return scalar.assignment(name).first_register
 
-    ordinary_registers = ordinary.registers
-    registers = replace(
-        ordinary_registers,
-        kernarg=first("kernarg"),
-        loop_counter=first("loop_counter"),
-        block_offset=first("block_offset"),
-        input_half=first("input_half"),
-        scalar_temporary=first("scalar_temporary"),
-        codebook_base=(
-            first("codebook_base")
-            if state.contract.quant_type == "IQ2_S"
-            else ordinary_registers.codebook_base
-        ),
-        total_sgprs=scalar.register_count,
-    )
-    resources = replace(ordinary.resources, total_sgprs=scalar.register_count)
-    compute = replace(ordinary, registers=registers, resources=resources)
+    def grouped_compute(ordinary: BackwardPhysicalPlan) -> BackwardPhysicalPlan:
+        ordinary_registers = ordinary.registers
+        registers = replace(
+            ordinary_registers,
+            kernarg=first("kernarg"),
+            loop_counter=first("loop_counter"),
+            block_offset=first("block_offset"),
+            input_half=first("input_half"),
+            scalar_temporary=first("scalar_temporary"),
+            codebook_base=(
+                first("codebook_base")
+                if state.contract.quant_type == "IQ2_S"
+                else ordinary_registers.codebook_base
+            ),
+            total_sgprs=scalar.register_count,
+        )
+        resources = replace(ordinary.resources, total_sgprs=scalar.register_count)
+        return replace(ordinary, registers=registers, resources=resources)
+
+    primary = grouped_compute(primary)
+    secondary = grouped_compute(secondary) if secondary is not None else None
     route = GroupedBackwardScalarPlan(
         expert_indices=first("expert_indices"),
         expert_offsets=first("expert_offsets"),
@@ -144,4 +146,8 @@ def derive_grouped_backward_physical_plan(
         pointer_temporary=first("pointer_temporary"),
         tile_end=first("tile_end"),
     )
-    return GroupedBackwardPhysicalPlan(compute=compute, route=route)
+    return GroupedBackwardPhysicalPlan(
+        primary=primary,
+        secondary=secondary,
+        route=route,
+    )

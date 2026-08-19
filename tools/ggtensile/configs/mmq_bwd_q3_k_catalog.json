@@ -1,5 +1,4 @@
 {
-  "ArtifactKind": "DeploymentCatalog",
   "KernelFamily": "OrdinaryBackward",
   "ProblemContract": {
     "quant_type": "Q3_K",
@@ -42,8 +41,8 @@
       "pipeline": {
         "global_read_prefetch": 2,
         "local_read_prefetch": 1,
-        "lds_buffering": "Single",
-        "schedule": "SIA5",
+        "lds_buffer_count": 1,
+        "schedule": "PrefetchActivationInterleaveWmmaWaits",
         "packed_weight_prefetch": "CurrentTile",
         "packed_weight_lane_share": 1
       },
@@ -78,8 +77,8 @@
       "pipeline": {
         "global_read_prefetch": 2,
         "local_read_prefetch": 1,
-        "lds_buffering": "Single",
-        "schedule": "SIA5",
+        "lds_buffer_count": 1,
+        "schedule": "PrefetchActivationInterleaveWmmaWaits",
         "packed_weight_prefetch": "CurrentTile",
         "packed_weight_lane_share": 1
       },
@@ -114,8 +113,8 @@
       "pipeline": {
         "global_read_prefetch": 2,
         "local_read_prefetch": 1,
-        "lds_buffering": "Single",
-        "schedule": "SIA5",
+        "lds_buffer_count": 1,
+        "schedule": "PrefetchActivationInterleaveWmmaWaits",
         "packed_weight_prefetch": "CurrentTile",
         "packed_weight_lane_share": 1
       },
@@ -150,8 +149,8 @@
       "pipeline": {
         "global_read_prefetch": 2,
         "local_read_prefetch": 1,
-        "lds_buffering": "Single",
-        "schedule": "SIA5",
+        "lds_buffer_count": 1,
+        "schedule": "PrefetchActivationInterleaveWmmaWaits",
         "packed_weight_prefetch": "CurrentTile",
         "packed_weight_lane_share": 1
       },
@@ -186,8 +185,8 @@
       "pipeline": {
         "global_read_prefetch": 2,
         "local_read_prefetch": 1,
-        "lds_buffering": "Single",
-        "schedule": "SIA5",
+        "lds_buffer_count": 1,
+        "schedule": "PrefetchActivationInterleaveWmmaWaits",
         "packed_weight_prefetch": "CurrentTile",
         "packed_weight_lane_share": 1
       },

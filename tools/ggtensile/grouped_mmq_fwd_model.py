@@ -2,78 +2,27 @@
 
 import hashlib
 import json
-from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from enum import Enum
-from typing import ClassVar, TypeVar
+from typing import ClassVar
 
 from typing_extensions import Self
 
-from .model import SchemaError
 from .quant_formats import (
     GROUPED_QUANT_FORMATS,
     Q8_1_F16_D2S6_BLOCK_BYTES,
     Q8_1_F16_D4S4_BLOCK_BYTES,
     Q8_1_F32_D4_BLOCK_BYTES,
 )
-
-
-def _mapping(value: object, name: str, keys: frozenset[str]) -> Mapping[str, object]:
-    if not isinstance(value, Mapping):
-        raise SchemaError(f"{name} must be a mapping")
-    normalized = {key: item for key, item in value.items() if isinstance(key, str)}
-    if len(normalized) != len(value):
-        raise SchemaError(f"{name} keys must be strings")
-    missing = sorted(keys - set(normalized))
-    unknown = sorted(set(normalized) - keys)
-    if missing or unknown:
-        details = []
-        if missing:
-            details.append(f"missing {missing}")
-        if unknown:
-            details.append(f"unknown {unknown}")
-        raise SchemaError(f"invalid {name}: {', '.join(details)}")
-    return normalized
-
-
-def _string(value: object, name: str) -> str:
-    if type(value) is not str:
-        raise SchemaError(f"{name} must be str, not {type(value).__name__}")
-    return value
-
-
-_EnumT = TypeVar("_EnumT", bound=Enum)
-
-
-def _enum(value: object, name: str, enum_type: type[_EnumT]) -> _EnumT:
-    serialized = _string(value, name)
-    try:
-        return enum_type(serialized)
-    except ValueError:
-        raise SchemaError(f"{name} has unsupported value {serialized!r}") from None
-
-
-def _integer(value: object, name: str) -> int:
-    if type(value) is not int:
-        raise SchemaError(f"{name} must be int, not {type(value).__name__}")
-    return value
-
-
-def _boolean(value: object, name: str) -> bool:
-    if type(value) is not bool:
-        raise SchemaError(f"{name} must be bool, not {type(value).__name__}")
-    return value
-
-
-def _integer_tuple(value: object, name: str, length: int) -> tuple[int, ...]:
-    if not isinstance(value, list) or len(value) != length:
-        raise SchemaError(f"{name} must be a {length}-element list")
-    return tuple(_integer(item, f"{name}[{index}]") for index, item in enumerate(value))
-
-
-def _integer_triple(value: object, name: str) -> tuple[int, int, int]:
-    items = _integer_tuple(value, name, 3)
-    return (items[0], items[1], items[2])
+from .schema import (
+    SchemaError,
+)
+from .schema import (
+    integer as _integer,
+)
+from .schema import (
+    strict_mapping as _mapping,
+)
 
 
 class GroupedOperandSource(str, Enum):
@@ -637,16 +586,12 @@ class GroupedForwardSolutionKey:
     solution: GroupedForwardSolution
 
     _KEYS: ClassVar[frozenset[str]] = frozenset(
-        {"ArtifactKind", "KernelFamily", "ProblemContract", "Problem", "KernelSpec"}
+        {"ProblemContract", "Problem", "KernelSpec"}
     )
 
     @classmethod
     def from_mapping(cls, value: object) -> Self:
         item = _mapping(value, "GroupedForwardSolutionKey", cls._KEYS)
-        if item["ArtifactKind"] != "ExactKernel":
-            raise SchemaError("grouped key ArtifactKind must be ExactKernel")
-        if item["KernelFamily"] != "GroupedForward":
-            raise SchemaError("grouped key KernelFamily must be GroupedForward")
         from .grouped_mmq_fwd_spec import (
             GroupedForwardKernelSpec,
             GroupedForwardProblemContract,
@@ -686,8 +631,6 @@ class GroupedForwardSolutionKey:
         )
         spec = GroupedForwardKernelSpec.from_solution(self.problem, self.solution)
         return {
-            "ArtifactKind": "ExactKernel",
-            "KernelFamily": "GroupedForward",
             "ProblemContract": contract.to_mapping(),
             "Problem": {"aggregate_rows": self.problem.aggregate_rows},
             "KernelSpec": spec.to_mapping(),
@@ -695,7 +638,12 @@ class GroupedForwardSolutionKey:
 
     @property
     def hash(self) -> str:
-        canonical = json.dumps(self.to_mapping(), sort_keys=True, separators=(",", ":"))
+        identity = {
+            "ArtifactKind": "ExactKernel",
+            "KernelFamily": "GroupedForward",
+            **self.to_mapping(),
+        }
+        canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"))
         digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         return f"ggsol_{digest[:16]}"
 

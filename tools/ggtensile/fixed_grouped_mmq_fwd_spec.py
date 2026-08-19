@@ -1,19 +1,12 @@
 """Typed contract and derived state for fixed-group Q8_0 forward."""
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 from .fixed_grouped_mmq_fwd_model import (
     FixedForwardOperandSource,
     FixedForwardProblem,
     FixedForwardSolution,
     FixedForwardSolutionKey,
-    _boolean,
-    _enum,
-    _integer,
-    _integer_triple,
-    _integer_tuple,
-    _mapping,
-    _string,
 )
 from .fixed_grouped_mmq_fwd_physical import (
     FixedQ8ForwardPhysicalPlan,
@@ -22,10 +15,76 @@ from .fixed_grouped_mmq_fwd_physical import (
 from .mmq_fwd_spec import (
     DerivedForwardState,
     ForwardKernelSpec,
-    ForwardResourceUsage,
+    ForwardProblemContract,
+    signed_int8_small_m_tiled_kernel_spec,
 )
-from .model import SchemaError
-from .quant_formats import QUANT_FORMATS
+from .model import ProblemSize
+from .quant_formats import Q8_1_D4_BLOCK_VALUES, QUANT_FORMATS
+from .schema import (
+    SchemaError,
+)
+from .schema import (
+    boolean as _boolean,
+)
+from .schema import (
+    enum_value as _enum,
+)
+from .schema import (
+    integer as _integer,
+)
+from .schema import (
+    integer_triple as _integer_triple,
+)
+from .schema import (
+    integer_tuple as _integer_tuple,
+)
+from .schema import (
+    strict_mapping as _mapping,
+)
+from .schema import (
+    string as _string,
+)
+
+_U32_MAX = 0xFFFFFFFF
+
+
+def fixed_forward_problem_rejection_reason(
+    problem: FixedForwardProblem,
+) -> str | None:
+    """Return a formula-backed rejection for the fixed eight-group layout."""
+    quant = QUANT_FORMATS.get(problem.quant_data_type)
+    if quant is None or problem.quant_data_type != "Q8_0":
+        return "fixed forward requires Q8_0"
+    for name, value in (
+        ("tokens", problem.tokens),
+        ("output features", problem.output_features),
+        ("input features", problem.input_features),
+    ):
+        if not 0 < value <= _U32_MAX:
+            return f"fixed forward {name} must fit in a positive u32"
+    if problem.groups != 8:
+        return "fixed forward requires eight groups"
+    if problem.tokens % 64:
+        return "fixed forward tokens must be divisible by the 64-row tile"
+    if problem.output_features % 64:
+        return "fixed forward output features must be divisible by the 64-column tile"
+    if problem.input_features % quant.block_values:
+        return "fixed forward input features must contain complete quant blocks"
+    if problem.input_features % Q8_1_D4_BLOCK_VALUES:
+        return "fixed forward input features must contain complete activation blocks"
+
+    activation_blocks = problem.input_features // Q8_1_D4_BLOCK_VALUES
+    activation_bytes = (
+        activation_blocks * problem.total_activation_rows * quant.activation_block_bytes
+    )
+    output_bytes = problem.tokens * problem.groups * problem.output_features * 2
+    if problem.bytes_per_group > _U32_MAX:
+        return "fixed forward packed bytes per group must fit in a u32 offset"
+    if activation_bytes > _U32_MAX:
+        return "fixed forward activation workspace must fit in a u32 offset"
+    if output_bytes > _U32_MAX:
+        return "fixed forward output workspace must fit in a u32 offset"
+    return None
 
 
 @dataclass(frozen=True)
@@ -55,26 +114,20 @@ class FixedForwardProblemContract:
     abi: str = "FixedGroupedQ8OutputV1"
 
     @classmethod
-    def from_problem(
+    def rejection_reason(
         cls,
         problem: FixedForwardProblem,
         solution: FixedForwardSolution,
-    ) -> "FixedForwardProblemContract":
-        try:
-            quant = QUANT_FORMATS[problem.quant_data_type]
-        except KeyError:
-            raise ValueError(
-                f"unsupported fixed forward quant type {problem.quant_data_type!r}"
-            ) from None
+    ) -> str | None:
+        quant = QUANT_FORMATS.get(problem.quant_data_type)
+        if quant is None:
+            return f"unsupported fixed forward quant type {problem.quant_data_type!r}"
+        problem_rejection = fixed_forward_problem_rejection_reason(problem)
+        if problem_rejection is not None:
+            return problem_rejection
         checks = (
             (problem.quant_data_type == "Q8_0", "fixed forward requires Q8_0"),
             (problem.groups == 8, "fixed forward requires eight groups"),
-            (problem.input_features == 4096, "fixed forward requires K=4096"),
-            (problem.output_features == 1024, "fixed forward requires N=1024"),
-            (
-                problem.tokens in (2048, 8192, 32768),
-                "fixed forward requires a production token count",
-            ),
             (
                 solution.kernel_language == "Assembly",
                 "fixed forward language must be Assembly",
@@ -126,9 +179,20 @@ class FixedForwardProblemContract:
             ),
             (not solution.wmma_clamp, "fixed Q8 WMMA must not clamp"),
         )
-        rejection = next(
-            (message for accepted, message in checks if not accepted), None
-        )
+        return next((message for accepted, message in checks if not accepted), None)
+
+    @classmethod
+    def from_problem(
+        cls,
+        problem: FixedForwardProblem,
+        solution: FixedForwardSolution,
+    ) -> "FixedForwardProblemContract":
+        quant = QUANT_FORMATS.get(problem.quant_data_type)
+        if quant is None:
+            raise ValueError(
+                f"unsupported fixed forward quant type {problem.quant_data_type!r}"
+            ) from None
+        rejection = cls.rejection_reason(problem, solution)
         if rejection is not None:
             raise ValueError(rejection)
         return cls(
@@ -218,10 +282,13 @@ class FixedForwardProblemContract:
             bf16_rounding=_string(item["bf16_rounding"], "bf16_rounding"),
             abi=_string(item["abi"], "abi"),
         )
+        contract_problem_rejection = fixed_forward_problem_rejection_reason(
+            contract.problem(64)
+        )
+        if contract_problem_rejection is not None:
+            raise SchemaError(contract_problem_rejection)
         fixed = (
             contract.quant_type == "Q8_0"
-            and contract.output_features == 1024
-            and contract.input_features == 4096
             and contract.groups == 8
             and contract.block_values == quant.block_values
             and contract.packed_weight_block_bytes == quant.block_bytes
@@ -277,6 +344,26 @@ class FixedForwardProblemContract:
             self.output_features,
             self.input_features,
             self.groups,
+        )
+
+    def ordinary(self) -> ForwardProblemContract:
+        return ForwardProblemContract(
+            quant_type=self.quant_type,
+            block_values=self.block_values,
+            packed_weight_block_bytes=self.packed_weight_block_bytes,
+            activation_layout=self.activation_layout,
+            activation_block_bytes=self.activation_block_bytes,
+            kernel_language=self.kernel_language,
+            isa=self.isa,
+            wavefront_size=self.wavefront_size,
+            signed_weight=self.signed_weight,
+            signed_activation=self.signed_activation,
+            wmma_clamp=self.wmma_clamp,
+            weight_decode=self.weight_decode,
+            scale_arithmetic=self.scale_arithmetic,
+            arithmetic_contract=self.arithmetic_contract,
+            destination_type=self.destination_type,
+            bf16_rounding=self.bf16_rounding,
         )
 
 
@@ -379,6 +466,20 @@ class FixedForwardKernelSpec:
             "epilogue": {"output_store": self.output_store},
         }
 
+    def forward_kernel_spec(
+        self, contract: FixedForwardProblemContract
+    ) -> ForwardKernelSpec:
+        return signed_int8_small_m_tiled_kernel_spec(
+            work_group=self.work_group,
+            matrix_instruction=self.matrix_instruction,
+            macro_tile=(self.macro_tile_tokens, self.macro_tile_features),
+            depth_u=self.depth_u,
+            operand_source=self.operand_source.value,
+            activation_addressing=contract.activation_addressing,
+            lds_address_hoist=self.lds_address_hoist,
+            output_store=self.output_store,
+        )
+
     def to_solution(
         self,
         contract: FixedForwardProblemContract,
@@ -413,13 +514,9 @@ class DerivedFixedForwardState:
     """All fixed-group values consumed by validation, lowering, and runtime."""
 
     problem: FixedForwardProblem
-    solution: FixedForwardSolution
     contract: FixedForwardProblemContract
-    ordinary_state: DerivedForwardState
-    physical_plan: object
-    fixed_physical_plan: FixedQ8ForwardPhysicalPlan
-    kernel_spec: ForwardKernelSpec
-    activation_plane_stride_bytes: int
+    ordinary: DerivedForwardState
+    physical: FixedQ8ForwardPhysicalPlan
     grid: tuple[int, int, int]
 
     @classmethod
@@ -427,18 +524,20 @@ class DerivedFixedForwardState:
         cls, key: FixedForwardSolutionKey
     ) -> "DerivedFixedForwardState":
         contract = FixedForwardProblemContract.from_problem(key.problem, key.solution)
-        ordinary_key = key.to_standard_solution_key()
-        ordinary_state = DerivedForwardState.from_solution_key(ordinary_key)
-        kernel_spec = ordinary_state.kernel_spec
+        fixed_spec = FixedForwardKernelSpec.from_solution(key.solution)
+        kernel_spec = fixed_spec.forward_kernel_spec(contract)
+        ordinary_state = DerivedForwardState.from_contract_spec(
+            ProblemSize(
+                key.problem.tokens,
+                key.problem.output_features,
+                key.problem.input_features,
+            ),
+            contract.ordinary(),
+            kernel_spec,
+            activation_rows=key.problem.total_activation_rows,
+        )
         fixed_plan = fixed_q8_forward_physical_plan(
-            kernel_spec, key.solution.fixed_address_hoist
-        )
-        fixed_stride = (
-            key.problem.total_activation_rows * contract.activation_block_bytes
-        )
-        ordinary_state = replace(
-            ordinary_state,
-            activation_plane_stride_bytes=fixed_stride,
+            kernel_spec, fixed_spec.fixed_address_hoist
         )
         solution = key.solution
         for name, value, divisor in (
@@ -456,47 +555,15 @@ class DerivedFixedForwardState:
                 )
         return cls(
             problem=key.problem,
-            solution=solution,
             contract=contract,
-            ordinary_state=ordinary_state,
-            physical_plan=ordinary_state.physical_plan,
-            fixed_physical_plan=fixed_plan,
-            kernel_spec=kernel_spec,
-            activation_plane_stride_bytes=fixed_stride,
+            ordinary=ordinary_state,
+            physical=fixed_plan,
             grid=(
                 key.problem.output_features // solution.macro_tile_features,
                 key.problem.tokens // solution.macro_tile_tokens,
                 key.problem.groups,
             ),
         )
-
-    @property
-    def problem_size(self):
-        return self.ordinary_state.problem_size
-
-    @property
-    def semantics(self):
-        return self.ordinary_state.semantics
-
-    @property
-    def resources(self) -> ForwardResourceUsage:
-        return self.fixed_physical_plan.resources
-
-    @property
-    def num_threads(self) -> int:
-        return self.solution.num_threads
-
-    @property
-    def activation_blocks_per_row(self) -> int:
-        return self.ordinary_state.activation_blocks_per_row
-
-    @property
-    def packed_weight_row_bytes(self) -> int:
-        return self.ordinary_state.packed_weight_row_bytes
-
-    @property
-    def blocks_per_weight_row(self) -> int:
-        return self.ordinary_state.blocks_per_weight_row
 
     @property
     def expected_packed_weight_shape(self) -> tuple[int, int, int]:
@@ -509,7 +576,7 @@ class DerivedFixedForwardState:
     @property
     def expected_activation_shape(self) -> tuple[int, int, int]:
         return (
-            self.activation_blocks_per_row,
+            self.ordinary.activation_blocks_per_row,
             self.problem.total_activation_rows,
             self.contract.activation_block_bytes,
         )

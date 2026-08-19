@@ -18,6 +18,7 @@ from tools.ggtensile.model import (
     SchemaError,
     SolutionKey,
 )
+from tools.ggtensile.runtime import GroupedBackwardModule
 from tools.ggtensile.toolchain import Toolchain
 from tools.ggtensile.validation import validate_solution
 
@@ -51,7 +52,7 @@ def _mixed_key(rows: int = 16_384) -> SolutionKey:
     )
 
 
-def test_grouped_backward_identity_roundtrip_and_exact_rows() -> None:
+def test_grouped_backward_identity_roundtrip_and_formula_compatible_rows() -> None:
     first = _key()
     assert SolutionKey.from_mapping(first.to_mapping()) == first
     assert not validate_solution(first)
@@ -61,16 +62,18 @@ def test_grouped_backward_identity_roundtrip_and_exact_rows() -> None:
     for rows in (16_384, 65_536, 262_144):
         assert not validate_solution(_key(rows))
     for rows in (16_383, 32_768, 262_145):
-        with pytest.raises(SchemaError, match="exact"):
-            _key(rows).to_mapping()
+        key = _key(rows)
+        assert SolutionKey.from_mapping(key.to_mapping()) == key
+        assert not validate_solution(key)
 
 
 def test_grouped_backward_q2_identity_and_source() -> None:
     for rows in (12_288, 49_152, 196_608):
         assert not validate_solution(_key(rows, "Q2_K"))
     for rows in (12_287, 16_384, 196_609):
-        with pytest.raises(SchemaError, match="exact"):
-            _key(rows, "Q2_K").to_mapping()
+        key = _key(rows, "Q2_K")
+        assert SolutionKey.from_mapping(key.to_mapping()) == key
+        assert not validate_solution(key)
 
     q2 = _key(quant_type="Q2_K")
     assert SolutionKey.from_mapping(q2.to_mapping()) == q2
@@ -107,11 +110,11 @@ def test_grouped_backward_q2_dependency_batch_identity_and_source() -> None:
     assert not validate_solution(candidate)
     spec = candidate.to_mapping()["KernelSpec"]
     assert isinstance(spec, dict)
-    assert spec["decode"] == {"schedule": "DependencyBatch4"}
+    assert spec["decode"] == {"dependency_batch_size": 4}
 
     physical = derive_grouped_backward_physical_plan(
         DerivedGroupedBackwardState.from_solution_key(candidate)
-    ).compute
+    ).primary
     assert physical.q2_decode.dependency_width == 4
     values = physical.q2_decode.value_registers
     assert values == tuple(physical.registers.valu_b + 2 * slot for slot in range(4))
@@ -147,12 +150,28 @@ def test_grouped_backward_q5_identity_and_source() -> None:
     assert source.count("s_barrier") == 2
 
 
+def test_grouped_backward_accepts_formula_compatible_noncatalog_shape() -> None:
+    key = replace(_key(12_345), problem_size=ProblemSize(12_345, 1024, 1024))
+    assert SolutionKey.from_mapping(key.to_mapping()) == key
+    assert not validate_solution(key)
+    state = DerivedGroupedBackwardState.from_solution_key(key)
+    assert state.contract.problem_size == ProblemSize(12_345, 1024, 1024)
+
+
+def test_grouped_backward_rejects_incomplete_formula_dimensions() -> None:
+    with pytest.raises(SchemaError, match="quant blocks"):
+        replace(_key(), problem_size=ProblemSize(16_384, 513, 2048)).to_mapping()
+    with pytest.raises(SchemaError, match="DepthU32"):
+        replace(_key(), problem_size=ProblemSize(16_384, 512, 2049)).to_mapping()
+
+
 def test_grouped_backward_iq2_s_identity_source_and_inspection(tmp_path) -> None:
     for rows in (16_384, 65_536, 262_144):
         assert not validate_solution(_key(rows, "IQ2_S"))
     for rows in (16_383, 32_768, 262_145):
-        with pytest.raises(SchemaError, match="exact"):
-            _key(rows, "IQ2_S").to_mapping()
+        key = _key(rows, "IQ2_S")
+        assert SolutionKey.from_mapping(key.to_mapping()) == key
+        assert not validate_solution(key)
 
     key = _key(quant_type="IQ2_S")
     assert SolutionKey.from_mapping(key.to_mapping()) == key
@@ -255,7 +274,7 @@ def test_grouped_backward_rejects_noncanonical_contract(
         SolutionKey.from_mapping(mapping)
 
 
-def test_grouped_backward_mixed_tail_roundtrip_and_schema() -> None:
+def test_grouped_backward_secondary_tail_roundtrip_and_schema() -> None:
     key = _mixed_key()
     assert SolutionKey.from_mapping(key.to_mapping()) == key
     mapping = key.to_mapping()
@@ -263,9 +282,118 @@ def test_grouped_backward_mixed_tail_roundtrip_and_schema() -> None:
     assert isinstance(spec, dict)
     ownership = spec["ownership"]
     assert isinstance(ownership, dict)
-    ownership["row_tail"] = "Mixed96_48"
-    with pytest.raises(SchemaError, match="ownership"):
+    assert ownership == {"kind": "Serial"}
+    spec["row_tail"] = {
+        "kind": "SecondaryTile",
+        "threshold_rows": "96",
+        "tile_rows": 48,
+    }
+    with pytest.raises(SchemaError, match="row_tail"):
         SolutionKey.from_mapping(mapping)
+
+
+def test_grouped_backward_parameterized_tail_roundtrip() -> None:
+    base = _key()
+    solution = base.solution
+    assert isinstance(solution, GroupedBackwardSolution)
+    compute = replace(
+        solution.compute,
+        matrix_instruction=(16, 16, 16, 1, 1, 4, 4, 4, 1),
+        macro_tile0=256,
+        macro_tile1=64,
+        prefetch_global_read=2,
+        schedule_iter_alg=5,
+        lds_pad_b=8,
+        q4_k_decode_schedule="DependencyBatch4",
+    )
+    key = replace(
+        base,
+        solution=replace(
+            solution,
+            compute=compute,
+            row_tail="SecondaryTile",
+            row_tail_threshold_rows=96,
+            row_tail_tile_rows=128,
+        ),
+    )
+    mapping = key.to_mapping()
+    assert SolutionKey.from_mapping(mapping) == key
+    assert not validate_solution(key)
+    spec = mapping["KernelSpec"]
+    assert isinstance(spec, dict)
+    row_tail = spec["row_tail"]
+    assert row_tail == {
+        "kind": "SecondaryTile",
+        "threshold_rows": 96,
+        "tile_rows": 128,
+    }
+
+
+def test_grouped_backward_parameterized_tail_build_and_inspect(tmp_path) -> None:
+    base = _key()
+    solution = base.solution
+    assert isinstance(solution, GroupedBackwardSolution)
+    compute = replace(
+        solution.compute,
+        matrix_instruction=(16, 16, 16, 1, 1, 4, 4, 4, 1),
+        macro_tile0=256,
+        macro_tile1=64,
+        prefetch_global_read=2,
+        schedule_iter_alg=5,
+        lds_pad_b=8,
+        q4_k_decode_schedule="DependencyBatch4",
+    )
+    key = replace(
+        base,
+        solution=replace(
+            solution,
+            compute=compute,
+            row_tail="SecondaryTile",
+            row_tail_threshold_rows=96,
+            row_tail_tile_rows=128,
+        ),
+    )
+    toolchain = Toolchain.discover()
+    assembly = tmp_path / "parameterized.s"
+    object_path = tmp_path / "parameterized.o"
+    code_object = tmp_path / "parameterized.hsaco"
+    writer = GroupedBackwardKernelWriterAssembly(key, toolchain)
+    writer.write(assembly)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+    result = inspect_artifact(key, code_object, toolchain)
+    assert result.vgpr_count == 234
+    assert result.sgpr_count == 35
+    assert result.lds_num_bytes == 5120
+    assert result.wmma_count == 48
+    assert result.barrier_count == 4
+
+
+@pytest.mark.parametrize(
+    ("threshold_rows", "tile_rows"),
+    ((0, 64), (65, 64), (96, 48)),
+)
+def test_grouped_backward_parameterized_tail_rejects_incompatible_geometry(
+    threshold_rows: int, tile_rows: int
+) -> None:
+    base = _key()
+    solution = base.solution
+    assert isinstance(solution, GroupedBackwardSolution)
+    mapping = base.to_mapping()
+    spec = mapping["KernelSpec"]
+    assert isinstance(spec, dict)
+    spec["row_tail"] = {
+        "kind": "SecondaryTile",
+        "threshold_rows": threshold_rows,
+        "tile_rows": tile_rows,
+    }
+    if threshold_rows == 0:
+        with pytest.raises(SchemaError):
+            SolutionKey.from_mapping(mapping)
+        return
+    parsed = SolutionKey.from_mapping(mapping)
+    with pytest.raises(ValueError, match="incompatible numeric geometry"):
+        validate_solution(parsed)
 
 
 def test_grouped_backward_mixed_tail_source_is_namespaced() -> None:
@@ -371,7 +499,7 @@ def test_grouped_backward_split_route_identity_and_source(
     assert "s_cmp_ge_u32 s34, s27" in source
 
 
-def test_grouped_iq2_s_split64_is_format_specific() -> None:
+def test_grouped_split64_route_ownership_is_format_neutral() -> None:
     iq2 = _key(quant_type="IQ2_S")
     solution = iq2.solution
     assert isinstance(solution, GroupedBackwardSolution)
@@ -385,13 +513,20 @@ def test_grouped_iq2_s_split64_is_format_specific() -> None:
     q4 = _key()
     q4_solution = q4.solution
     assert isinstance(q4_solution, GroupedBackwardSolution)
-    invalid = replace(
+    q4_split64 = replace(
         q4,
         solution=replace(q4_solution, route_ownership="SplitRoutes64"),
     )
-    assert any(
-        reason.rule_id == "solution.grouped_backward.split64.quant"
-        for reason in validate_solution(invalid)
+    assert not validate_solution(q4_split64)
+
+
+def test_grouped_backward_runtime_launch_configuration_uses_typed_geometry() -> None:
+    key = _key()
+    state = DerivedGroupedBackwardState.from_solution_key(key)
+    assert GroupedBackwardModule._launch_configuration_for_state(state, 7) == (
+        (4, 7, 1),
+        (32, 4, 1),
+        0,
     )
 
 
@@ -400,10 +535,10 @@ def test_grouped_backward_physical_plan_is_deterministic() -> None:
     first = derive_grouped_backward_physical_plan(state)
     second = derive_grouped_backward_physical_plan(state)
     assert first == second
-    assert first.resources.total_vgprs == 192
-    assert first.resources.total_sgprs == 35
-    assert first.resources.lds_num_bytes == 8192
-    assert first.resources.private_segment_bytes == 0
+    assert first.primary.resources.total_vgprs == 192
+    assert first.primary.resources.total_sgprs == 35
+    assert first.primary.resources.lds_num_bytes == 8192
+    assert first.primary.resources.private_segment_bytes == 0
     assert first.route.saved_exec == 31
     assert first.route.pointer_temporary == 32
 

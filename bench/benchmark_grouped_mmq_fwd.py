@@ -18,19 +18,13 @@ from aiter.ops.triton.gmm import gmm
 from aiter_gmm_heuristics import gmm_config as aiter_gmm_config
 from grouped_mmq_benchmark_common import (
     GroupedMMQCase,
-    GroupSummary,
-    RouteDistribution,
     RoutedWeights,
     bf16_fixed_mmq_reference,
-    fixed_group_distribution,
     grouped_result_metadata,
     load_fixed_weight,
     load_routed_weights,
-    make_route_tensors,
     parse_grouped_benchmark_args,
-    route_distributions,
     select_cases,
-    truncate_distribution,
 )
 from mmq_benchmark_common import (
     BenchmarkTiming,
@@ -47,6 +41,14 @@ from mmq_benchmark_common import (
 )
 
 import torch_ggml_ops
+from tools.ggtensile.benchmark_routes import (
+    GroupSummary,
+    RouteDistribution,
+    fixed_group_distribution,
+    make_route_tensors,
+    route_distributions,
+    truncate_distribution,
+)
 
 DEFAULT_OUTPUT = Path("/tmp/torch_ggml_ops_grouped_mmq_fwd_benchmark.json")
 

@@ -1,12 +1,73 @@
 """Packed-weight readers and decoders for MMQ backward lowering."""
 
-from .iq2_s_grid import IQ2_S_GRID_BYTES
+from .iq2_s_grid import IQ2_S_GRID_BYTES, iq2_s_grid_rodata
 from .kernel_writer_assembly import emit_bf16_rne
-from .mmq_bwd_emission import _Assembly
+from .mmq_bwd_emission import BackwardTileAccess, _Assembly
 from .mmq_bwd_physical import BackwardPhysicalPlan, BackwardRegisterPlan
 from .mmq_bwd_spec import BackwardExtraction, DerivedBackwardState
 
 IQ2_S_GRID_SYMBOL = ".LGGTensileIQ2SGrid"
+
+
+def emit_unbounded_a_global_loads(
+    asm: _Assembly,
+    registers: BackwardRegisterPlan,
+    valu_a: int,
+    address: int,
+    *,
+    address_pair: bool,
+) -> None:
+    source = (
+        f"v[{address}:{address + 1}], off"
+        if address_pair
+        else f"v{address}, s[{registers.kernarg}:{registers.kernarg + 1}]"
+    )
+    asm.inst(f"global_load_b128 v[{valu_a}:{valu_a + 3}], {source}")
+    asm.inst(f"global_load_b128 v[{valu_a + 4}:{valu_a + 7}], {source} offset:16")
+
+
+class UnboundedBackwardTileAccess:
+    """Ordinary MMQ owns complete rows and needs no per-row masks."""
+
+    def emit_a_global_loads(
+        self,
+        asm: _Assembly,
+        registers: BackwardRegisterPlan,
+        valu_a: int,
+        address: int,
+        byte_offset: int,
+        *,
+        address_pair: bool,
+        offset_is_bytes: bool,
+    ) -> None:
+        del byte_offset, offset_is_bytes
+        emit_unbounded_a_global_loads(
+            asm,
+            registers,
+            valu_a,
+            address,
+            address_pair=address_pair,
+        )
+
+    def emit_store_row_begin(
+        self, asm: _Assembly, registers: BackwardRegisterPlan, row: int
+    ) -> None:
+        del asm, registers, row
+
+    def emit_store_row_mask_begin(
+        self, asm: _Assembly, registers: BackwardRegisterPlan
+    ) -> None:
+        del asm, registers
+
+    def emit_store_row_mask_end(
+        self, asm: _Assembly, registers: BackwardRegisterPlan
+    ) -> None:
+        del asm, registers
+
+    def emit_store_row_advance(
+        self, asm: _Assembly, registers: BackwardRegisterPlan
+    ) -> None:
+        del asm, registers
 
 
 class BackwardQuantLowering:
@@ -15,6 +76,12 @@ class BackwardQuantLowering:
     state: DerivedBackwardState
     physical: BackwardPhysicalPlan
     registers: BackwardRegisterPlan
+    access: BackwardTileAccess
+
+    def trailing_sections(self) -> tuple[str, ...]:
+        if self.state.contract.quant_type != "IQ2_S":
+            return ()
+        return (iq2_s_grid_rodata(IQ2_S_GRID_SYMBOL),)
 
     def _emit_quant_constants(self, asm: _Assembly) -> None:
         if self.state.contract.quant_type != "IQ2_S":
@@ -31,7 +98,7 @@ class BackwardQuantLowering:
         if self.state.contract.quant_type != "IQ2_S":
             return
         r = self.registers
-        threads = self.state.solution.num_threads
+        threads = self.state.spec.geometry.num_threads
         bytes_per_thread = IQ2_S_GRID_BYTES // threads
         loads_per_thread = bytes_per_thread // 16
         address = r.temporary
@@ -95,10 +162,10 @@ class BackwardQuantLowering:
     ) -> None:
         r = self.registers
         decoder_rows = self.physical.decoder.rows
-        n_tiles = self.state.solution.matrix_instruction[6]
+        n_tiles = self.state.spec.geometry.matrix_instruction[6]
         quant_format = self.state.contract.quant_format
         k_shift = n_tiles.bit_length() - 1
-        k_span = self.state.solution.depth_u // decoder_rows
+        k_span = self.state.spec.geometry.depth_u // decoder_rows
         packed_row_bytes = (
             self.state.contract.problem_size.n
             // quant_format.block_values
@@ -163,13 +230,13 @@ class BackwardQuantLowering:
     ) -> None:
         r = self.registers
         decoder_rows = self.physical.decoder.rows
-        n_tiles = self.state.solution.matrix_instruction[6]
-        n_per_tile = self.state.solution.macro_tile1
+        n_tiles = self.state.spec.geometry.matrix_instruction[6]
+        n_per_tile = self.state.spec.geometry.macro_tile1
         quant_format = self.state.contract.quant_format
         tiles_per_weight_block = 256 // n_per_tile
         n_shift = n_per_tile.bit_length() - 1
         k_shift = n_tiles.bit_length() - 1
-        k_span = self.state.solution.depth_u // decoder_rows
+        k_span = self.state.spec.geometry.depth_u // decoder_rows
         packed_row_bytes = (
             self.state.contract.problem_size.n
             // quant_format.block_values
@@ -265,10 +332,10 @@ class BackwardQuantLowering:
     ) -> None:
         r = self.registers
         decoder_rows = self.physical.decoder.rows
-        n_tiles = self.state.solution.matrix_instruction[6]
+        n_tiles = self.state.spec.geometry.matrix_instruction[6]
         quant_format = self.state.contract.quant_format
         k_shift = n_tiles.bit_length() - 1
-        k_span = self.state.solution.depth_u // decoder_rows
+        k_span = self.state.spec.geometry.depth_u // decoder_rows
         packed_row_bytes = (
             self.state.contract.problem_size.n
             // quant_format.block_values
@@ -332,10 +399,10 @@ class BackwardQuantLowering:
     ) -> None:
         r = self.registers
         decoder_rows = self.physical.decoder.rows
-        n_tiles = self.state.solution.matrix_instruction[6]
+        n_tiles = self.state.spec.geometry.matrix_instruction[6]
         quant_format = self.state.contract.quant_format
         k_shift = n_tiles.bit_length() - 1
-        k_span = self.state.solution.depth_u // decoder_rows
+        k_span = self.state.spec.geometry.depth_u // decoder_rows
         packed_row_bytes = (
             self.state.contract.problem_size.n
             // quant_format.block_values
@@ -395,13 +462,13 @@ class BackwardQuantLowering:
     ) -> None:
         r = self.registers
         decoder_rows = self.physical.decoder.rows
-        n_tiles = self.state.solution.matrix_instruction[6]
-        n_per_tile = self.state.solution.macro_tile1
+        n_tiles = self.state.spec.geometry.matrix_instruction[6]
+        n_per_tile = self.state.spec.geometry.macro_tile1
         quant_format = self.state.contract.quant_format
         tiles_per_weight_block = 256 // n_per_tile
         n_shift = n_per_tile.bit_length() - 1
-        k_shift = self.state.solution.matrix_instruction[6].bit_length() - 1
-        k_span = self.state.solution.depth_u // decoder_rows
+        k_shift = self.state.spec.geometry.matrix_instruction[6].bit_length() - 1
+        k_span = self.state.spec.geometry.depth_u // decoder_rows
         packed_row_bytes = (
             self.state.contract.problem_size.n
             // quant_format.block_values
@@ -484,11 +551,11 @@ class BackwardQuantLowering:
         wait_for_reads: bool = True,
     ) -> None:
         r = self.registers
-        n_tiles = self.state.solution.matrix_instruction[6]
+        n_tiles = self.state.spec.geometry.matrix_instruction[6]
         decoder_rows = self.physical.decoder.rows
         quant_format = self.state.contract.quant_format
         k_shift = n_tiles.bit_length() - 1
-        k_span = self.state.solution.depth_u // decoder_rows
+        k_span = self.state.spec.geometry.depth_u // decoder_rows
         packed_row_bytes = (
             self.state.contract.problem_size.n
             // quant_format.block_values
@@ -513,7 +580,7 @@ class BackwardQuantLowering:
             asm.inst(f"v_add_nc_u32 v{a + 1}, {row_delta}, v{a}")
 
         asm.comment("Build quant and scale-byte addresses.")
-        direct_quant_mapping = self.state.solution.macro_tile1 == 128
+        direct_quant_mapping = self.state.spec.geometry.macro_tile1 == 128
         if direct_quant_mapping:
             asm.inst(f"v_and_b32 v{t}, 1, v{r.serial}")
             asm.inst(f"v_lshlrev_b32 v{t}, 4, v{t}")
@@ -609,11 +676,11 @@ class BackwardQuantLowering:
         wait_for_reads: bool = True,
     ) -> None:
         r = self.registers
-        n_tiles = self.state.solution.matrix_instruction[6]
+        n_tiles = self.state.spec.geometry.matrix_instruction[6]
         decoder_rows = self.physical.decoder.rows
         quant_format = self.state.contract.quant_format
         k_shift = n_tiles.bit_length() - 1
-        k_span = self.state.solution.depth_u // decoder_rows
+        k_span = self.state.spec.geometry.depth_u // decoder_rows
         packed_row_bytes = (
             self.state.contract.problem_size.n
             // quant_format.block_values
@@ -637,7 +704,7 @@ class BackwardQuantLowering:
             asm.inst(f"v_add_nc_u32 v{a + 1}, {row_delta}, v{a}")
 
         asm.comment("Build Q5_K payload and scale-byte addresses.")
-        direct_quant_mapping = self.state.solution.macro_tile1 == 128
+        direct_quant_mapping = self.state.spec.geometry.macro_tile1 == 128
         if direct_quant_mapping:
             asm.inst(f"v_and_b32 v{t}, 1, v{r.serial}")
             asm.inst(f"v_lshlrev_b32 v{t}, 4, v{t}")
@@ -766,8 +833,8 @@ class BackwardQuantLowering:
 
     def _emit_first_a_global_reads(self, asm: _Assembly) -> None:
         r = self.registers
-        solution = self.state.solution
-        m_tiles = solution.matrix_instruction[5]
+        geometry = self.state.spec.geometry
+        m_tiles = geometry.matrix_instruction[5]
         a = r.address
 
         asm.comment("Prefetch A fragments while Q4_K data is pending.")
@@ -796,15 +863,15 @@ class BackwardQuantLowering:
         address_pair: bool = False,
         offset_is_bytes: bool = True,
     ) -> None:
-        del byte_offset, offset_is_bytes
-        r = self.registers
-        source = (
-            f"v[{address}:{address + 1}], off"
-            if address_pair
-            else f"v{address}, s[{r.kernarg}:{r.kernarg + 1}]"
+        self.access.emit_a_global_loads(
+            asm,
+            self.registers,
+            valu_a,
+            address,
+            byte_offset,
+            address_pair=address_pair,
+            offset_is_bytes=offset_is_bytes,
         )
-        asm.inst(f"global_load_b128 v[{valu_a}:{valu_a + 3}], {source}")
-        asm.inst(f"global_load_b128 v[{valu_a + 4}:{valu_a + 7}], {source} offset:16")
 
     def _emit_quant_decode(
         self,
@@ -918,7 +985,7 @@ class BackwardQuantLowering:
         decoder_rows = self.physical.decoder.rows
         row = chunk // 4
         first_element = 4 * (chunk % 4)
-        k_span = self.state.solution.depth_u // decoder_rows
+        k_span = self.state.spec.geometry.depth_u // decoder_rows
         t = r.temporary
         packed = r.global_read_b + 4 * row + first_element // 4
         d_scaled = t + 1 + 2 * row
@@ -1001,8 +1068,8 @@ class BackwardQuantLowering:
         del label_suffix
         r = self.registers
         decoder_rows = self.physical.decoder.rows
-        n_tiles = self.state.solution.matrix_instruction[6]
-        n_per_tile = self.state.solution.macro_tile1
+        n_tiles = self.state.spec.geometry.matrix_instruction[6]
+        n_per_tile = self.state.spec.geometry.macro_tile1
         tiles_per_weight_block = 256 // n_per_tile
         n_shift = n_per_tile.bit_length() - 1
         t = r.temporary
@@ -1035,7 +1102,7 @@ class BackwardQuantLowering:
         decoder_rows = self.physical.decoder.rows
         row = chunk // 4
         first_element = 4 * (chunk % 4)
-        k_span = self.state.solution.depth_u // decoder_rows
+        k_span = self.state.spec.geometry.depth_u // decoder_rows
         t = r.temporary
         low = r.global_read_b + 4 * row + first_element // 4
         high = r.global_read_b + 4 * decoder_rows + 4 * row + first_element // 4
@@ -1138,7 +1205,7 @@ class BackwardQuantLowering:
         decoder_rows = self.physical.decoder.rows
         row = chunk // 4
         first_element = 4 * (chunk % 4)
-        k_span = self.state.solution.depth_u // decoder_rows
+        k_span = self.state.spec.geometry.depth_u // decoder_rows
         t = r.temporary
         packed = r.global_read_b + 4 * row + first_element // 4
         d_scaled = t + 1 + 2 * row
@@ -1275,7 +1342,7 @@ class BackwardQuantLowering:
         r = self.registers
         row = chunk // 4
         element_start = 4 * (chunk % 4)
-        k_span = self.state.solution.depth_u // self.physical.decoder.rows
+        k_span = self.state.spec.geometry.depth_u // self.physical.decoder.rows
         packed = r.global_read_b + 4 * row + chunk % 4
         value = r.temporary
         rounding = value + 1
@@ -1312,8 +1379,8 @@ class BackwardQuantLowering:
         del label_suffix
         r = self.registers
         decoder_rows = self.physical.decoder.rows
-        n_tiles = self.state.solution.matrix_instruction[6]
-        n_per_tile = self.state.solution.macro_tile1
+        n_tiles = self.state.spec.geometry.matrix_instruction[6]
+        n_per_tile = self.state.spec.geometry.macro_tile1
         tiles_per_weight_block = 256 // n_per_tile
         n_shift = n_per_tile.bit_length() - 1
         scale = r.quant_scale
@@ -1375,7 +1442,7 @@ class BackwardQuantLowering:
         decoder_rows = self.physical.decoder.rows
         row = chunk // 4
         first_element = 4 * (chunk % 4)
-        k_span = self.state.solution.depth_u // decoder_rows
+        k_span = self.state.spec.geometry.depth_u // decoder_rows
         t = r.temporary
         low = r.global_read_b + 4 * row + first_element // 4
         high = r.global_read_b + 4 * decoder_rows + 4 * row + first_element // 4
@@ -1546,7 +1613,7 @@ class BackwardQuantLowering:
         decoder_rows = self.physical.decoder.rows
         row = chunk // 4
         first_element = 4 * (chunk % 4)
-        k_span = self.state.solution.depth_u // decoder_rows
+        k_span = self.state.spec.geometry.depth_u // decoder_rows
         t = r.temporary
         packed = r.global_read_b + 4 * row + first_element // 4
         asm.inst(
@@ -1626,7 +1693,7 @@ class BackwardQuantLowering:
         decoder_rows = self.physical.decoder.rows
         row = chunk // 4
         first_element = 4 * (chunk % 4)
-        k_span = self.state.solution.depth_u // decoder_rows
+        k_span = self.state.spec.geometry.depth_u // decoder_rows
         t = r.temporary
         low = r.global_read_b + 4 * row + first_element // 4
         high = r.global_read_b + 4 * decoder_rows + 4 * row + first_element // 4

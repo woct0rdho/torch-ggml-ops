@@ -43,7 +43,7 @@ def inspect_grouped_forward_pair_artifact(
         raise InspectionError(f"code object does not exist: {code_object}")
     state = DerivedGroupedForwardPairState.from_solution_key(solution_key)
     row_tasks = (
-        state.kernel_spec.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks64
+        state.kernel_spec.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks
     )
     abi = GROUPED_FORWARD_PAIR_ROW_TASK_ABI if row_tasks else GROUPED_FORWARD_PAIR_ABI
     readelf = toolchain.readelf_output(code_object)

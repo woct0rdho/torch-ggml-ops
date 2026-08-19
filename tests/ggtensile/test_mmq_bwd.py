@@ -76,13 +76,11 @@ def test_backward_campaign_inventory_is_exact_and_versionless(
     raw = json.loads(case.catalog_path.read_text(encoding="utf-8"))
     assert catalog.to_mapping() == raw
     assert set(raw) == {
-        "ArtifactKind",
         "KernelFamily",
         "ProblemContract",
         "KernelSpecs",
         "ExactLogic",
     }
-    assert raw["ArtifactKind"] == "DeploymentCatalog"
     assert raw["KernelFamily"] == "OrdinaryBackward"
     forbidden = {
         "Family",
@@ -284,7 +282,7 @@ def test_q4_k_deployment_catalog_rejects_legacy_roots(
     value = json.loads(_Q4_CATALOG.read_text())
     value[legacy_root] = value.pop(canonical_root)
     catalog_path.write_text(json.dumps(value))
-    with pytest.raises(CatalogError, match="invalid deployment catalog keys"):
+    with pytest.raises(CatalogError, match="invalid deployment catalog"):
         load_catalog(catalog_path)
 
 
@@ -960,7 +958,7 @@ def test_build_and_inspect_q4_k_dependency_batch4_identity(
     assert validate_solution(key) == ()
     kernel_spec = key.to_mapping()["KernelSpec"]
     assert isinstance(kernel_spec, dict)
-    assert kernel_spec["decode"] == {"schedule": "DependencyBatch4"}
+    assert kernel_spec["decode"] == {"dependency_batch_size": 4}
 
     physical = derive_backward_physical_plan(
         DerivedBackwardState.from_solution_key(key)

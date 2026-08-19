@@ -21,18 +21,6 @@ class FixedQ8ForwardPhysicalPlan:
     weight_payload_lds_address_vgpr: int | None
     weight_scale_lds_address_vgpr: int | None
 
-    @property
-    def layout(self):
-        return self.ordinary.layout
-
-    @property
-    def registers(self):
-        return self.ordinary.registers
-
-    @property
-    def policy(self):
-        return self.ordinary.policy
-
 
 def fixed_q8_forward_physical_plan(
     kernel_spec: ForwardKernelSpec,

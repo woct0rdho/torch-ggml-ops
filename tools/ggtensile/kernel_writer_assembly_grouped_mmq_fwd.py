@@ -10,7 +10,10 @@ from .grouped_mmq_fwd_lowering_decoded_lds import grouped_decoded_lowering
 from .grouped_mmq_fwd_lowering_iq2_s import GroupedIQ2SFullWeightLdsLowering
 from .grouped_mmq_fwd_lowering_q2_k import grouped_q2_decoded_lowering
 from .grouped_mmq_fwd_model import GroupedForwardSolutionKey, GroupedOperandSource
-from .grouped_mmq_fwd_spec import DerivedGroupedForwardState
+from .grouped_mmq_fwd_spec import (
+    DerivedGroupedForwardState,
+    GroupedQ2SchedulePolicy,
+)
 from .grouped_mmq_fwd_validation import validate_grouped_forward_solution
 from .kernel_abi import GROUPED_FORWARD_ABI
 from .kernel_writer_assembly import KernelEnvelope, write_assembly_source
@@ -68,7 +71,7 @@ class GroupedForwardKernelWriterAssembly:
         if solution.operand_source is GroupedOperandSource.GroupedDirectGlobal:
             emission = GroupedPackedScaleMinimumDirectLowering(self.context).emission()
         elif solution.operand_source is GroupedOperandSource.GroupedDecodedWeightLds:
-            if self.solution_key.problem.quant_data_type == "Q2_K":
+            if isinstance(self.state.kernel_spec.decode, GroupedQ2SchedulePolicy):
                 emission = grouped_q2_decoded_lowering(self.context).emission()
             else:
                 emission = grouped_decoded_lowering(self.context).emission()

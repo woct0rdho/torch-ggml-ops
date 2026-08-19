@@ -1,11 +1,11 @@
 from pathlib import Path
 
-from .iq2_s_grid import iq2_s_grid_rodata
 from .kernel_abi import ORDINARY_BACKWARD_ABI
 from .kernel_writer_assembly import KernelEnvelope, write_assembly_source
 from .mmq_bwd_emission import BackwardDiagnosticMode, BackwardKernelWriterError
-from .mmq_bwd_lowering import BackwardKernelLowering
-from .mmq_bwd_lowering_quant import IQ2_S_GRID_SYMBOL
+from .mmq_bwd_lowering import BackwardTileComputeEmitter
+from .mmq_bwd_physical import derive_backward_physical_plan
+from .mmq_bwd_spec import DerivedBackwardState
 from .model import BackwardSolution, SolutionKey
 from .toolchain import Toolchain
 from .validation import validate_solution
@@ -32,12 +32,13 @@ class BackwardKernelWriterAssembly:
         self.solution_key = solution_key
         self.toolchain = toolchain
         self.diagnostic_mode = diagnostic_mode
-        self.lowering = BackwardKernelLowering(
-            solution_key,
+        self.state = DerivedBackwardState.from_solution_key(solution_key)
+        self.physical = derive_backward_physical_plan(self.state)
+        self.lowering = BackwardTileComputeEmitter(
+            self.state,
+            self.physical,
             diagnostic_mode=diagnostic_mode,
         )
-        self.state = self.lowering.state
-        self.physical = self.lowering.physical
         self.registers = self.physical.registers
 
     def write(self, output: Path) -> str:
@@ -65,10 +66,8 @@ class BackwardKernelWriterAssembly:
             description=description,
         )
         envelope.initialize()
-        body = self.lowering.body()
-        if self.state.contract.quant_type == "IQ2_S":
-            return envelope.render(
-                body,
-                trailing_sections=(iq2_s_grid_rodata(IQ2_S_GRID_SYMBOL),),
-            )
-        return envelope.render(body)
+        emission = self.lowering.ordinary_emission(self.solution_key.kernel_name)
+        return envelope.render(
+            emission.body,
+            trailing_sections=emission.trailing_sections,
+        )

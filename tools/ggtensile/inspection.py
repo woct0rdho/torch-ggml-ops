@@ -11,7 +11,6 @@ from .fixed_grouped_mmq_fwd_spec import DerivedFixedForwardState
 from .grouped_mmq_bwd_physical import derive_grouped_backward_physical_plan
 from .grouped_mmq_bwd_spec import (
     DerivedGroupedBackwardState,
-    GroupedBackwardRowTail,
 )
 from .kernel_abi import (
     FIXED_GROUPED_FORWARD_ABI,
@@ -104,6 +103,26 @@ class ArtifactInspection:
         }
 
 
+def _backward_static_wmma_count(state: DerivedBackwardState) -> int:
+    geometry = state.spec.geometry
+    count = (
+        geometry.matrix_instruction[5]
+        * geometry.matrix_instruction[6]
+        * geometry.depth_u
+        // 16
+    )
+    if state.spec.pipeline.decoded_b_pipeline:
+        count *= 1 + int(state.contract.problem_size.k > geometry.depth_u)
+    return count
+
+
+def _backward_static_barrier_count(state: DerivedBackwardState) -> int:
+    pipeline = state.spec.pipeline
+    if pipeline.decoded_b_pipeline:
+        return 1 + int(state.contract.problem_size.k > state.spec.geometry.depth_u)
+    return 3 if pipeline.prefetches_next_packed_tile else 2
+
+
 def inspect_artifact(
     solution_key: SolutionKey | FixedForwardSolutionKey,
     code_object: Path,
@@ -133,7 +152,26 @@ def inspect_artifact(
         f"global kernel symbols are {sorted(functions)!r}",
         errors,
     )
-    _validate_metadata(kernel, solution_key, errors)
+    solution = solution_key.solution
+    grouped_state = (
+        DerivedGroupedBackwardState.from_solution_key(solution_key)
+        if isinstance(solution_key, SolutionKey)
+        and isinstance(solution, GroupedBackwardSolution)
+        else None
+    )
+    backward_state = (
+        DerivedBackwardState.from_solution_key(solution_key)
+        if isinstance(solution_key, SolutionKey)
+        and isinstance(solution, BackwardSolution)
+        else None
+    )
+    _validate_metadata(
+        kernel,
+        solution_key,
+        errors,
+        backward_state=backward_state,
+        grouped_backward_state=grouped_state,
+    )
 
     mnemonics = tuple(instruction.split(None, 1)[0] for instruction in instructions)
     wmma_count = sum(
@@ -157,7 +195,6 @@ def inspect_artifact(
     clause_count = mnemonics.count("s_clause")
     delay_alu_count = mnemonics.count("s_delay_alu")
     buffer_gl0_inv_count = mnemonics.count("buffer_gl0_inv")
-    solution = solution_key.solution
     expected_wmmas = expected_wmma_count
     if expected_wmmas is None:
         if isinstance(solution_key, FixedForwardSolutionKey):
@@ -187,26 +224,14 @@ def inspect_artifact(
                 else 16
             )
         elif isinstance(solution, BackwardSolution | GroupedBackwardSolution):
-            compute = (
-                solution.compute
-                if isinstance(solution, GroupedBackwardSolution)
-                else solution
+            primary_state = (
+                grouped_state.primary if grouped_state is not None else backward_state
             )
-            expected_wmmas = (
-                compute.matrix_instruction[5]
-                * compute.matrix_instruction[6]
-                * compute.depth_u
-                // 16
-            )
-            if compute.one_lds_buffer == 0:
-                expected_wmmas *= 1 + int(solution_key.problem_size.k > compute.depth_u)
-            if (
-                isinstance(solution, GroupedBackwardSolution)
-                and solution.row_tail == GroupedBackwardRowTail.Mixed128_64.value
-            ):
-                expected_wmmas += (
-                    1 * compute.matrix_instruction[6] * compute.depth_u // 16
-                )
+            if primary_state is None:
+                raise TypeError("backward inspection requires derived state")
+            expected_wmmas = _backward_static_wmma_count(primary_state)
+            if grouped_state is not None and grouped_state.secondary is not None:
+                expected_wmmas += _backward_static_wmma_count(grouped_state.secondary)
     _require(
         wmma_count == expected_wmmas,
         f"expected {expected_wmmas} static WMMAs, found {wmma_count}",
@@ -238,22 +263,16 @@ def inspect_artifact(
                 else 0
             )
         elif isinstance(solution, BackwardSolution | GroupedBackwardSolution):
-            compute = (
-                solution.compute
-                if isinstance(solution, GroupedBackwardSolution)
-                else solution
+            primary_state = (
+                grouped_state.primary if grouped_state is not None else backward_state
             )
-            if compute.one_lds_buffer == 0:
-                expected_barriers = 1 + int(
-                    solution_key.problem_size.k > compute.depth_u
+            if primary_state is None:
+                raise TypeError("backward inspection requires derived state")
+            expected_barriers = _backward_static_barrier_count(primary_state)
+            if grouped_state is not None and grouped_state.secondary is not None:
+                expected_barriers += _backward_static_barrier_count(
+                    grouped_state.secondary
                 )
-            else:
-                expected_barriers = 3 if compute.prefetch_packed_weight_next else 2
-            if (
-                isinstance(solution, GroupedBackwardSolution)
-                and solution.row_tail == GroupedBackwardRowTail.Mixed128_64.value
-            ):
-                expected_barriers += 2
             if solution_key.problem_type.quant_data_type == "IQ2_S":
                 expected_barriers += 1
     _require(
@@ -347,6 +366,9 @@ def _validate_metadata(
     kernel: Mapping[str, Any],
     solution_key: SolutionKey | FixedForwardSolutionKey,
     errors: list[str],
+    *,
+    backward_state: DerivedBackwardState | None,
+    grouped_backward_state: DerivedGroupedBackwardState | None,
 ) -> None:
     if isinstance(solution_key, FixedForwardSolutionKey):
         _validate_fixed_forward_metadata(kernel, solution_key, errors)
@@ -356,17 +378,20 @@ def _validate_metadata(
         _validate_forward_metadata(kernel, solution, errors)
         return
     if isinstance(solution, GroupedBackwardSolution):
-        _validate_grouped_backward_metadata(kernel, solution_key, errors)
+        if grouped_backward_state is None:
+            raise TypeError("grouped backward metadata requires derived state")
+        _validate_grouped_backward_metadata(kernel, grouped_backward_state, errors)
         return
-    state = DerivedBackwardState.from_solution_key(solution_key)
-    physical = derive_backward_physical_plan(state)
+    if backward_state is None:
+        raise TypeError("backward metadata requires derived state")
+    physical = derive_backward_physical_plan(backward_state)
     expected = {
         ".kernarg_segment_size": ORDINARY_BACKWARD_ABI.segment_size,
         ".kernarg_segment_align": ORDINARY_BACKWARD_ABI.segment_alignment,
         ".group_segment_fixed_size": physical.resources.lds_num_bytes,
         ".private_segment_fixed_size": physical.resources.private_segment_bytes,
-        ".max_flat_workgroup_size": state.spec.geometry.num_threads,
-        ".wavefront_size": state.spec.geometry.wavefront_size,
+        ".max_flat_workgroup_size": backward_state.spec.geometry.num_threads,
+        ".wavefront_size": backward_state.spec.geometry.wavefront_size,
         ".vgpr_count": physical.resources.total_vgprs,
         ".sgpr_count": physical.resources.total_sgprs,
         ".vgpr_spill_count": 0,
@@ -389,20 +414,19 @@ def _validate_metadata(
 
 def _validate_grouped_backward_metadata(
     kernel: Mapping[str, Any],
-    solution_key: SolutionKey,
+    state: DerivedGroupedBackwardState,
     errors: list[str],
 ) -> None:
-    state = DerivedGroupedBackwardState.from_solution_key(solution_key)
     physical = derive_grouped_backward_physical_plan(state)
     expected = {
         ".kernarg_segment_size": GROUPED_BACKWARD_ABI.segment_size,
         ".kernarg_segment_align": GROUPED_BACKWARD_ABI.segment_alignment,
-        ".group_segment_fixed_size": physical.resources.lds_num_bytes,
-        ".private_segment_fixed_size": physical.resources.private_segment_bytes,
+        ".group_segment_fixed_size": physical.primary.resources.lds_num_bytes,
+        ".private_segment_fixed_size": physical.primary.resources.private_segment_bytes,
         ".max_flat_workgroup_size": state.spec.compute.geometry.num_threads,
         ".wavefront_size": state.spec.compute.geometry.wavefront_size,
-        ".vgpr_count": physical.resources.total_vgprs,
-        ".sgpr_count": physical.resources.total_sgprs,
+        ".vgpr_count": physical.primary.resources.total_vgprs,
+        ".sgpr_count": physical.primary.resources.total_sgprs,
         ".vgpr_spill_count": 0,
         ".sgpr_spill_count": 0,
     }
@@ -465,15 +489,16 @@ def _validate_fixed_forward_metadata(
     errors: list[str],
 ) -> None:
     state = DerivedFixedForwardState.from_solution_key(solution_key)
+    resources = state.physical.resources
     expected = {
         ".kernarg_segment_size": FIXED_GROUPED_FORWARD_ABI.segment_size,
         ".kernarg_segment_align": FIXED_GROUPED_FORWARD_ABI.segment_alignment,
-        ".group_segment_fixed_size": state.resources.lds_bytes,
+        ".group_segment_fixed_size": resources.lds_bytes,
         ".private_segment_fixed_size": 0,
-        ".max_flat_workgroup_size": state.num_threads,
+        ".max_flat_workgroup_size": state.ordinary.num_threads,
         ".wavefront_size": solution_key.solution.wavefront_size,
-        ".vgpr_count": state.resources.vgprs,
-        ".sgpr_count": state.resources.sgprs,
+        ".vgpr_count": resources.vgprs,
+        ".sgpr_count": resources.sgprs,
         ".vgpr_spill_count": 0,
         ".sgpr_spill_count": 0,
     }

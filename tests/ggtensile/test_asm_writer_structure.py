@@ -31,6 +31,7 @@ _FORWARD_AUTHORITY_CONSUMERS = (
 )
 _GROUPED_ROUTE = _TOOLS / "grouped_mmq_fwd_route.py"
 _GROUPED_WRITER = _TOOLS / "kernel_writer_assembly_grouped_mmq_fwd.py"
+_GROUPED_PAIR_WRITER = _TOOLS / "kernel_writer_assembly_grouped_mmq_fwd_pair.py"
 _GROUPED_IQ2S_LOWERING = _TOOLS / "grouped_mmq_fwd_lowering_iq2_s.py"
 _GROUPED_Q2_LOWERING = _TOOLS / "grouped_mmq_fwd_lowering_q2_k.py"
 _BACKWARD_WRITER = _TOOLS / "kernel_writer_assembly_mmq_bwd.py"
@@ -360,3 +361,14 @@ def test_iq2_s_lowering_owns_codebook_rodata_emission() -> None:
     assert "iq2_s_grid" not in facade
     assert "GroupedForwardLoweringResult" in lowering
     assert "iq2_s_grid_rodata" in lowering
+
+
+def test_grouped_forward_facades_do_not_dispatch_on_quant_names() -> None:
+    quant_names = {"Q2_K", "Q3_K", "Q4_K", "Q5_K", "IQ2_S", "IQ2_XXS"}
+    for path in (_GROUPED_WRITER, _GROUPED_PAIR_WRITER):
+        literal_strings = {
+            node.value
+            for node in ast.walk(ast.parse(_source(path), filename=str(path)))
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        }
+        assert not quant_names & literal_strings, path

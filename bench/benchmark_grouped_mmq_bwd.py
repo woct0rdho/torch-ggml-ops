@@ -23,19 +23,13 @@ from aiter.ops.triton.gmm import gmm
 from aiter_gmm_heuristics import gmm_config as aiter_gmm_config
 from grouped_mmq_benchmark_common import (
     GroupedMMQCase,
-    GroupSummary,
-    RouteDistribution,
     RoutedWeights,
     bf16_fixed_grad_input_reference,
-    fixed_group_distribution,
     grouped_result_metadata,
     load_fixed_weight,
     load_routed_weights,
-    make_route_tensors,
     parse_grouped_benchmark_args,
-    route_distributions,
     select_cases,
-    truncate_distribution,
 )
 from mmq_benchmark_common import (
     BenchmarkTiming,
@@ -53,6 +47,14 @@ from mmq_benchmark_common import (
 from typing_extensions import NotRequired
 
 import torch_ggml_ops  # noqa: F401 Register native operators before torch.ops use.
+from tools.ggtensile.benchmark_routes import (
+    GroupSummary,
+    RouteDistribution,
+    fixed_group_distribution,
+    make_route_tensors,
+    route_distributions,
+    truncate_distribution,
+)
 
 DEFAULT_OUTPUT = Path("/tmp/torch_ggml_ops_grouped_mmq_bwd_benchmark.json")
 DENSE_PACKED_REFERENCE_QUANT_TYPES = frozenset({"Q3_K", "Q4_K", "Q5_K", "Q6_K"})

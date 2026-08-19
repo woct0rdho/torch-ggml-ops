@@ -1,5 +1,4 @@
 {
-  "ArtifactKind": "DeploymentCatalog",
   "KernelFamily": "OrdinaryForward",
   "ProblemContract": {
     "quant_type": "Q5_K",
@@ -71,12 +70,6 @@
       },
       "instruction_policy": {
         "accumulator_initialization": "ScalarCopy"
-      },
-      "resource_limits": {
-        "max_vgprs": 256,
-        "max_sgprs": 106,
-        "max_lds_bytes": 65536,
-        "require_zero_spills": true
       }
     },
     {
@@ -125,12 +118,6 @@
       },
       "instruction_policy": {
         "accumulator_initialization": "ScalarCopy"
-      },
-      "resource_limits": {
-        "max_vgprs": 256,
-        "max_sgprs": 106,
-        "max_lds_bytes": 65536,
-        "require_zero_spills": true
       }
     },
     {
@@ -179,12 +166,6 @@
       },
       "instruction_policy": {
         "accumulator_initialization": "VopdPair"
-      },
-      "resource_limits": {
-        "max_vgprs": 256,
-        "max_sgprs": 106,
-        "max_lds_bytes": 65536,
-        "require_zero_spills": true
       }
     },
     {
@@ -233,12 +214,6 @@
       },
       "instruction_policy": {
         "accumulator_initialization": "ScalarCopy"
-      },
-      "resource_limits": {
-        "max_vgprs": 256,
-        "max_sgprs": 106,
-        "max_lds_bytes": 65536,
-        "require_zero_spills": true
       }
     },
     {
@@ -287,12 +262,6 @@
       },
       "instruction_policy": {
         "accumulator_initialization": "VopdPair"
-      },
-      "resource_limits": {
-        "max_vgprs": 256,
-        "max_sgprs": 106,
-        "max_lds_bytes": 65536,
-        "require_zero_spills": true
       }
     }
   ],

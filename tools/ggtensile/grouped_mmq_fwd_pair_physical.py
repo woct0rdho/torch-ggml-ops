@@ -566,7 +566,7 @@ def grouped_iq2_s_pair_physical_plan(
     vector = GroupedIQ2SPairVectorRegisterPlan.allocate()
     scalar = (
         GroupedIQ2SPairScalarRegisterPlan.allocate_row_tasks()
-        if route_ownership is GroupedPairRouteOwnership.DeviceRowTasks64
+        if route_ownership is GroupedPairRouteOwnership.DeviceRowTasks
         else GroupedIQ2SPairScalarRegisterPlan.allocate()
     )
     return GroupedIQ2SPairPhysicalPlan(
@@ -593,7 +593,7 @@ def grouped_iq2_xxs_pair_physical_plan(
     )
     scalar = (
         GroupedIQ2SPairScalarRegisterPlan.allocate_row_tasks()
-        if route_ownership is GroupedPairRouteOwnership.DeviceRowTasks64
+        if route_ownership is GroupedPairRouteOwnership.DeviceRowTasks
         else GroupedIQ2SPairScalarRegisterPlan.allocate()
     )
     return GroupedIQ2XXSPairPhysicalPlan(
@@ -615,7 +615,7 @@ def grouped_q3_k_pair_physical_plan(
     vector = GroupedQ3KPairVectorRegisterPlan.allocate()
     scalar = (
         GroupedIQ2SPairScalarRegisterPlan.allocate_row_tasks()
-        if route_ownership is GroupedPairRouteOwnership.DeviceRowTasks64
+        if route_ownership is GroupedPairRouteOwnership.DeviceRowTasks
         else GroupedIQ2SPairScalarRegisterPlan.allocate()
     )
     return GroupedQ3KPairPhysicalPlan(

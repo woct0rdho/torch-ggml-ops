@@ -1,17 +1,60 @@
 """Backward-specific assembly emission state."""
 
+from dataclasses import dataclass
 from enum import Enum
+from typing import Protocol
 
 from .kernel_writer_assembly import Assembly
+from .mmq_bwd_physical import BackwardRegisterPlan
 
 
 class BackwardKernelWriterError(RuntimeError):
     pass
 
 
+@dataclass(frozen=True)
+class BackwardLoweringResult:
+    """Body plus ordered sections owned by the selected typed lowering."""
+
+    body: str
+    trailing_sections: tuple[str, ...] = ()
+
+
 class BackwardDiagnosticMode(str, Enum):
     WMMA_FLOOR = "wmma_floor"
     DECODE_FLOOR = "decode_floor"
+
+
+class BackwardTileAccess(Protocol):
+    """Direction-owned A-load and output-row bounds behavior."""
+
+    def emit_a_global_loads(
+        self,
+        asm: "_Assembly",
+        registers: BackwardRegisterPlan,
+        valu_a: int,
+        address: int,
+        byte_offset: int,
+        *,
+        address_pair: bool,
+        offset_is_bytes: bool,
+    ) -> None: ...
+
+    def emit_store_row_begin(
+        self, asm: "_Assembly", registers: BackwardRegisterPlan, row: int
+    ) -> None: ...
+
+    def emit_store_row_mask_begin(
+        self, asm: "_Assembly", registers: BackwardRegisterPlan
+    ) -> None: ...
+
+    def emit_store_row_mask_end(
+        self, asm: "_Assembly", registers: BackwardRegisterPlan
+    ) -> None: ...
+
+    def emit_store_row_advance(
+        self, asm: "_Assembly", registers: BackwardRegisterPlan
+    ) -> None: ...
 
 
 class PendingZeroPairableOp(str, Enum):

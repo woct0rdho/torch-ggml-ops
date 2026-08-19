@@ -46,7 +46,7 @@ class FullWeightQ3TiledLdsLowering:
         registers = physical.registers
         state = self.context.state
         asm = Assembly()
-        name = self.context.solution_key.kernel_name
+        name = self.context.kernel_name
         row_stride = state.packed_weight_row_bytes
         activation_plane_stride = state.activation_plane_stride_bytes
         blocks = state.blocks_per_weight_row

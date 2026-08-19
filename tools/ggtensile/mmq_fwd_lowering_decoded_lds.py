@@ -68,7 +68,7 @@ class DecodedWeightLdsLowering:
                 allocated_row_tiles=self._row_tile_count(),
             )
         )
-        name = self.context.solution_key.kernel_name
+        name = self.context.kernel_name
         quant_type = self.context.state.contract.quant_type
         decoded_lds = physical.layout
         activation_metadata = decoded_lds.activation_metadata

@@ -62,7 +62,7 @@ class SignedInt8ForwardLowering:
         asm = Assembly()
         physical = cast(SignedInt8DirectPhysicalPlan, self.context.state.physical_plan)
         registers = physical.registers
-        name = self.context.solution_key.kernel_name
+        name = self.context.kernel_name
         row_stride = self.context.state.packed_weight_row_bytes
         activation_plane_stride = self.context.state.activation_plane_stride_bytes
         sums = registers.sums.first_register
@@ -269,7 +269,7 @@ class SignedInt8ForwardLowering:
             SignedInt8RegisterTiledPhysicalPlan, self.context.state.physical_plan
         )
         registers = physical.registers
-        name = self.context.solution_key.kernel_name
+        name = self.context.kernel_name
         row_stride = self.context.state.packed_weight_row_bytes
         activation_plane_stride = self.context.state.activation_plane_stride_bytes
         sums = registers.sums.first_register
@@ -293,7 +293,7 @@ class SignedInt8ForwardLowering:
             asm.inst(f"v_and_b32 v{output_column}, 15, v{lane}")
             asm.inst(
                 f"v_lshlrev_b32 v{temporary}, "
-                f"{self.context.solution_key.solution.macro_tile1.bit_length() - 1}, s2"
+                f"{self.context.state.kernel_spec.macro_tile[1].bit_length() - 1}, s2"
             )
             asm.inst(f"v_add_nc_u32 v{output_column}, v{temporary}, v{output_column}")
             if n_index:
@@ -309,7 +309,7 @@ class SignedInt8ForwardLowering:
             asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
             asm.inst(
                 f"v_lshlrev_b32 v{output_column}, "
-                f"{self.context.solution_key.solution.macro_tile1.bit_length() - 1}, s2"
+                f"{self.context.state.kernel_spec.macro_tile[1].bit_length() - 1}, s2"
             )
             asm.inst(f"v_add_nc_u32 v{temporary}, v{output_column}, v{temporary}")
             if n_index:
@@ -327,7 +327,7 @@ class SignedInt8ForwardLowering:
             asm.inst(f"v_and_b32 v{activation_row}, 15, v{lane}")
             asm.inst(
                 f"v_lshlrev_b32 v{temporary}, "
-                f"{self.context.solution_key.solution.macro_tile0.bit_length() - 1}, s3"
+                f"{self.context.state.kernel_spec.macro_tile[0].bit_length() - 1}, s3"
             )
             asm.inst(f"v_add_nc_u32 v{activation_row}, v{temporary}, v{activation_row}")
             asm.inst(
@@ -515,7 +515,7 @@ class SignedInt8ForwardLowering:
         asm.inst(f"v_and_b32 v{store_row}, 15, v{lane}")
         asm.inst(
             f"v_lshlrev_b32 v{temporary}, "
-            f"{self.context.solution_key.solution.macro_tile0.bit_length() - 1}, s3"
+            f"{self.context.state.kernel_spec.macro_tile[0].bit_length() - 1}, s3"
         )
         asm.inst(f"v_add_nc_u32 v{store_row}, v{temporary}, v{store_row}")
         asm.inst(
@@ -529,7 +529,7 @@ class SignedInt8ForwardLowering:
         asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
         asm.inst(
             f"v_lshlrev_b32 v{store_column}, "
-            f"{self.context.solution_key.solution.macro_tile1.bit_length() - 1}, s2"
+            f"{self.context.state.kernel_spec.macro_tile[1].bit_length() - 1}, s2"
         )
         asm.inst(f"v_add_nc_u32 v{store_column}, v{store_column}, v{temporary}")
         asm.inst(f"v_lshlrev_b32 v{store_column}, 1, v{store_column}")
@@ -583,7 +583,7 @@ class SignedInt8ForwardLowering:
             SignedInt8SmallMTiledLdsPhysicalPlan, self.context.state.physical_plan
         )
         registers = physical.registers
-        name = self.context.solution_key.kernel_name
+        name = self.context.kernel_name
         size = self.context.state.problem_size
         row_stride = self.context.state.packed_weight_row_bytes
         activation_plane_stride = self.context.state.activation_plane_stride_bytes
@@ -799,7 +799,7 @@ class SignedInt8ForwardLowering:
         policy = physical.policy
         tiled_registers: SignedInt8TiledLdsRegisters = registers
         tiled_scale_layout: SignedInt8TiledLdsScaleLayout = layout
-        name = self.context.solution_key.kernel_name
+        name = self.context.kernel_name
         size = self.context.state.problem_size
         row_stride = self.context.state.packed_weight_row_bytes
         activation_plane_stride = self.context.state.activation_plane_stride_bytes

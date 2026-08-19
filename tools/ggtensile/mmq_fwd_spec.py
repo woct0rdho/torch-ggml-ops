@@ -7,21 +7,37 @@ from typing import TYPE_CHECKING, ClassVar, Literal, cast
 from .model import (
     ForwardSolution,
     ProblemSize,
-    SchemaError,
     SolutionKey,
-    _boolean,
-    _canonical_value,
-    _integer,
-    _integer_tuple,
-    _strict_mapping,
-    _strict_mapping_optional,
-    _string,
 )
 from .quant_formats import (
     Q8_1_D4_BLOCK_VALUES,
     Q8_1_F16_D4S4_BLOCK_BYTES,
     Q8_1_F32_D4_BLOCK_BYTES,
     QUANT_FORMATS,
+)
+from .schema import (
+    SchemaError,
+)
+from .schema import (
+    boolean as _boolean,
+)
+from .schema import (
+    canonical_value as _canonical_value,
+)
+from .schema import (
+    integer as _integer,
+)
+from .schema import (
+    integer_tuple as _integer_tuple,
+)
+from .schema import (
+    strict_mapping as _strict_mapping,
+)
+from .schema import (
+    strict_mapping_optional as _strict_mapping_optional,
+)
+from .schema import (
+    string as _string,
 )
 
 if TYPE_CHECKING:
@@ -414,9 +430,8 @@ class ForwardProblemContract:
         quant_type: str,
         solution: ForwardSolution,
     ) -> str | None:
-        try:
-            traits = QUANT_FORMATS[quant_type]
-        except KeyError:
+        traits = QUANT_FORMATS.get(quant_type)
+        if traits is None:
             raise ValueError(f"unsupported MMQ forward quant type {quant_type!r}")
         checks = (
             (
@@ -462,9 +477,8 @@ class ForwardProblemContract:
         quant_type: str,
         solution: ForwardSolution,
     ) -> "ForwardProblemContract":
-        try:
-            traits = QUANT_FORMATS[quant_type]
-        except KeyError:
+        traits = QUANT_FORMATS.get(quant_type)
+        if traits is None:
             raise ValueError(f"unsupported MMQ forward quant type {quant_type!r}")
         rejection = cls.rejection_reason(quant_type, solution)
         if rejection is not None:
@@ -535,9 +549,8 @@ class ForwardProblemContract:
             bf16_rounding=_string(item["bf16_rounding"], "bf16_rounding"),
             abi=_string(item["abi"], "abi"),
         )
-        try:
-            traits = QUANT_FORMATS[contract.quant_type]
-        except KeyError:
+        traits = QUANT_FORMATS.get(contract.quant_type)
+        if traits is None:
             raise SchemaError(
                 f"unsupported MMQ forward quant type {contract.quant_type!r}"
             ) from None
@@ -1019,6 +1032,9 @@ class ResourceLimits:
     require_zero_spills: bool = True
 
 
+FORWARD_RESOURCE_LIMITS = ResourceLimits()
+
+
 @dataclass(frozen=True)
 class ForwardResourceUsage:
     """Formula-derived static resources; never a candidate tuning dimension."""
@@ -1259,19 +1275,18 @@ _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
 
 def forward_mechanism_contract(operand_source: str) -> ForwardMechanismContract:
     """Return the explicit data-contract domain implemented by a mechanism."""
-    try:
-        return _FORWARD_MECHANISM_CONTRACTS[operand_source]
-    except KeyError:
+    mechanism = _FORWARD_MECHANISM_CONTRACTS.get(operand_source)
+    if mechanism is None:
         raise ValueError(
             f"unsupported forward operand source {operand_source!r}"
         ) from None
+    return mechanism
 
 
 def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | None:
-    try:
-        mechanism = forward_mechanism_contract(solution.operand_source)
-    except ValueError as error:
-        return str(error)
+    mechanism = _FORWARD_MECHANISM_CONTRACTS.get(solution.operand_source)
+    if mechanism is None:
+        return f"unsupported forward operand source {solution.operand_source!r}"
     structured_q6 = mechanism.lowering == "StructuredQ6"
     decoded_staged = mechanism.lowering == "DecodedWeightLds"
     full_weight_q3 = mechanism.lowering == "Packed3BitFullWeightTiledLds"
@@ -1471,7 +1486,6 @@ class ForwardKernelSpec:
     epilogue: EpilogueSpec
     instruction_policy: InstructionPolicy
     semantic_schedule: SemanticSchedulePolicy
-    resource_limits: ResourceLimits
 
     @classmethod
     def from_solution(cls, solution: ForwardSolution) -> "ForwardKernelSpec":
@@ -1564,7 +1578,6 @@ class ForwardKernelSpec:
                 if structured_q6
                 else SemanticSchedulePolicy.inactive()
             ),
-            resource_limits=ResourceLimits(),
         )
 
     @classmethod
@@ -1580,7 +1593,6 @@ class ForwardKernelSpec:
                     "lds",
                     "decode",
                     "epilogue",
-                    "resource_limits",
                 }
             ),
             optional=frozenset({"instruction_policy", "semantic_schedule"}),
@@ -1676,13 +1688,6 @@ class ForwardKernelSpec:
             if "semantic_schedule" in item
             else None
         )
-        limits = _strict_mapping(
-            item["resource_limits"],
-            name="ForwardKernelSpec.resource_limits",
-            keys=frozenset(
-                {"max_vgprs", "max_sgprs", "max_lds_bytes", "require_zero_spills"}
-            ),
-        )
         return cls(
             geometry=GeometrySpec(
                 work_group=_integer_tuple(geometry["work_group"], "work_group", 3),
@@ -1770,14 +1775,6 @@ class ForwardKernelSpec:
                 if semantic is not None
                 else SemanticSchedulePolicy.inactive()
             ),
-            resource_limits=ResourceLimits(
-                max_vgprs=_integer(limits["max_vgprs"], "max_vgprs"),
-                max_sgprs=_integer(limits["max_sgprs"], "max_sgprs"),
-                max_lds_bytes=_integer(limits["max_lds_bytes"], "max_lds_bytes"),
-                require_zero_spills=_boolean(
-                    limits["require_zero_spills"], "require_zero_spills"
-                ),
-            ),
         )
 
     @property
@@ -1790,8 +1787,6 @@ class ForwardKernelSpec:
 
     def to_solution(self, contract: ForwardProblemContract) -> ForwardSolution:
         """Reconstruct the normal serialized build input from a canonical spec."""
-        if self.resource_limits != ResourceLimits():
-            raise ValueError("forward resource limits are a fixed gfx1151 contract")
         source = self.global_memory.operand_source
         mechanism = forward_mechanism_contract(source)
         decoded_staged = mechanism.lowering == "DecodedWeightLds"
@@ -1924,6 +1919,70 @@ class ForwardKernelSpec:
 
     def to_mapping(self) -> dict[str, object]:
         return cast(dict[str, object], _canonical_value(self))
+
+    def to_legacy_hash_mapping(self) -> dict[str, object]:
+        """Project the normalized spec onto the frozen pre-normalization identity."""
+        mapping = self.to_mapping()
+        mapping["resource_limits"] = cast(
+            dict[str, object], _canonical_value(FORWARD_RESOURCE_LIMITS)
+        )
+        return mapping
+
+
+def signed_int8_small_m_tiled_kernel_spec(
+    *,
+    work_group: tuple[int, int, int],
+    matrix_instruction: tuple[int, ...],
+    macro_tile: tuple[int, int],
+    depth_u: int,
+    operand_source: str,
+    activation_addressing: str,
+    lds_address_hoist: str,
+    output_store: str,
+) -> ForwardKernelSpec:
+    """Build the typed signed-int8 small-M mechanism without a solution adapter."""
+    mechanism = forward_mechanism_contract(operand_source)
+    if mechanism.physical_plan != "SignedInt8SmallMTiledLds":
+        raise ValueError("fixed Q8 requires the signed-int8 small-M physical plan")
+    tile_m, tile_n, tile_k, blocks = matrix_instruction[:4]
+    threads = work_group[0] * work_group[1] * work_group[2]
+    if threads <= 0 or threads % 32:
+        raise ValueError("signed-int8 small-M workgroup must contain whole waves")
+    waves = threads // 32
+    mi_wave_group = (1, waves) if mechanism.ownership == "WaveN" else (waves, 1)
+    ownership_divisors = (
+        tile_m * mi_wave_group[0],
+        tile_n * mi_wave_group[1],
+    )
+    if macro_tile[0] % ownership_divisors[0] or macro_tile[1] % ownership_divisors[1]:
+        raise ValueError("signed-int8 small-M ownership does not divide the macro tile")
+    return ForwardKernelSpec(
+        geometry=GeometrySpec(
+            work_group=work_group,
+            matrix_instruction=(tile_m, tile_n, tile_k, blocks),
+            depth_u=depth_u,
+        ),
+        ownership=OwnershipSpec(
+            mi_wave_group=mi_wave_group,
+            mi_wave_tile=(
+                macro_tile[0] // ownership_divisors[0],
+                macro_tile[1] // ownership_divisors[1],
+            ),
+        ),
+        global_memory=GlobalMemorySpec(
+            operand_source=operand_source,
+            activation_addressing=activation_addressing,
+            global_read_cache_policy=None,
+        ),
+        lds=LdsSpec(address_hoist=lds_address_hoist),
+        decode=DecodeSpec(
+            metadata_conversion="Float16DToFloat32",
+            metadata_schedule=None,
+        ),
+        epilogue=EpilogueSpec(output_store=output_store, pipeline=None),
+        instruction_policy=InstructionPolicy(None, None, None),
+        semantic_schedule=SemanticSchedulePolicy.inactive(),
+    )
 
 
 @dataclass(frozen=True)
@@ -2235,14 +2294,8 @@ class ForwardKernelCandidate:
         item = _strict_mapping(
             value,
             name="ForwardKernelCandidate",
-            keys=frozenset(
-                {"ArtifactKind", "KernelFamily", "ProblemContract", "KernelSpec"}
-            ),
+            keys=frozenset({"ProblemContract", "KernelSpec"}),
         )
-        if item["ArtifactKind"] != "KernelCandidate":
-            raise ValueError("forward candidate ArtifactKind must be KernelCandidate")
-        if item["KernelFamily"] != "OrdinaryForward":
-            raise ValueError("forward candidate KernelFamily must be OrdinaryForward")
         candidate = cls(
             problem_contract=ForwardProblemContract.from_mapping(
                 item["ProblemContract"]
@@ -2256,8 +2309,6 @@ class ForwardKernelCandidate:
 
     def to_mapping(self) -> dict[str, object]:
         return {
-            "ArtifactKind": "KernelCandidate",
-            "KernelFamily": "OrdinaryForward",
             "ProblemContract": self.problem_contract.to_mapping(),
             "KernelSpec": self.kernel_spec.to_mapping(),
         }
@@ -2291,18 +2342,31 @@ class DerivedForwardState:
         if not isinstance(key.solution, ForwardSolution):
             raise TypeError("MMQ forward derived state requires ForwardSolution")
         solution = key.solution
-        size = key.problem_size
         contract = ForwardProblemContract.from_solution(
             key.problem_type.quant_data_type,
             solution,
         )
+        return cls.from_contract_spec(
+            key.problem_size,
+            contract,
+            ForwardKernelSpec.from_solution(solution),
+        )
+
+    @classmethod
+    def from_contract_spec(
+        cls,
+        size: ProblemSize,
+        contract: ForwardProblemContract,
+        kernel_spec: ForwardKernelSpec,
+        *,
+        activation_rows: int | None = None,
+    ) -> "DerivedForwardState":
         semantics = QuantForwardSemantics.for_quant_type(contract.quant_type)
         payload_bytes = max(
             plane.byte_offset + plane.byte_count for plane in semantics.payload_planes
         )
         if payload_bytes != contract.packed_weight_block_bytes:
             raise ValueError("forward payload planes do not cover the packed block")
-        kernel_spec = ForwardKernelSpec.from_solution(solution)
         mechanism = forward_mechanism_contract(kernel_spec.global_memory.operand_source)
         contract_rejection = mechanism.rejection_reason(contract)
         if contract_rejection is not None:
@@ -2311,10 +2375,12 @@ class DerivedForwardState:
 
         physical_plan = derive_forward_physical_plan(kernel_spec)
         resources = physical_plan.resources
-        resources.admit(kernel_spec.resource_limits)
+        resources.admit(FORWARD_RESOURCE_LIMITS)
         geometry = kernel_spec.geometry
         macro_tile_m, macro_tile_n = kernel_spec.macro_tile
-        num_threads = solution.num_threads
+        num_threads = (
+            geometry.work_group[0] * geometry.work_group[1] * geometry.work_group[2]
+        )
         waves_per_workgroup = num_threads // contract.wavefront_size
         _, _, tile_k, _ = geometry.matrix_instruction
         mi_wave_group = kernel_spec.ownership.mi_wave_group
@@ -2330,7 +2396,9 @@ class DerivedForwardState:
                 )
         blocks_per_weight_row = size.k // contract.block_values
         activation_blocks_per_row = size.k // Q8_1_D4_BLOCK_VALUES
-        activation_plane_stride = size.m * contract.activation_block_bytes
+        activation_plane_stride = (
+            size.m if activation_rows is None else activation_rows
+        ) * contract.activation_block_bytes
         return cls(
             problem_size=size,
             contract=contract,

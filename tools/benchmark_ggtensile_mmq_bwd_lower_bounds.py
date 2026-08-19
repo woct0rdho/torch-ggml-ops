@@ -5,6 +5,7 @@ import contextlib
 import json
 import statistics
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 import gguf
@@ -36,7 +37,7 @@ def _parser() -> argparse.ArgumentParser:
         description="Build and time exact GGTensile MMQ backward lower-bound diagnostics"
     )
     parser.add_argument("--solution-key", type=Path, required=True)
-    parser.add_argument("--complete-code-object", type=Path, required=True)
+    parser.add_argument("--code-object", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
     parser.add_argument("--tensor", default=DEFAULT_TENSOR)
@@ -58,11 +59,11 @@ def _event_time(function) -> float:
 
 def _timing_summary(samples_ms: list[float]) -> dict[str, object]:
     return {
-        "SamplesMs": samples_ms,
-        "MedianMs": statistics.median(samples_ms),
-        "MeanMs": statistics.fmean(samples_ms),
-        "MinMs": min(samples_ms),
-        "MaxMs": max(samples_ms),
+        "samples_ms": samples_ms,
+        "median_ms": statistics.median(samples_ms),
+        "mean_ms": statistics.fmean(samples_ms),
+        "min_ms": min(samples_ms),
+        "max_ms": max(samples_ms),
     }
 
 
@@ -97,7 +98,7 @@ def _build_diagnostic(
         expected_wmma_count=expected_wmmas,
         expected_barrier_count=1,
     )
-    return code_object, source_hash, inspection.to_mapping()
+    return code_object, source_hash, asdict(inspection)
 
 
 def main() -> None:
@@ -110,7 +111,7 @@ def main() -> None:
 
     key = SolutionKey.from_json_file(args.solution_key)
     toolchain = Toolchain.discover()
-    complete_inspection = inspect_artifact(key, args.complete_code_object, toolchain)
+    complete_inspection = inspect_artifact(key, args.code_object, toolchain)
     code_objects: dict[BackwardDiagnosticMode, Path] = {}
     source_hashes: dict[BackwardDiagnosticMode, str] = {}
     inspections: dict[BackwardDiagnosticMode, dict[str, object]] = {}
@@ -159,9 +160,7 @@ def main() -> None:
 
     with contextlib.ExitStack() as stack:
         modules = {
-            "complete": stack.enter_context(
-                BackwardModule(key, args.complete_code_object)
-            ),
+            "complete": stack.enter_context(BackwardModule(key, args.code_object)),
             "wmma_floor": stack.enter_context(
                 BackwardModule(key, code_objects[BackwardDiagnosticMode.WMMA_FLOOR])
             ),
@@ -193,36 +192,43 @@ def main() -> None:
     timings = {name: _timing_summary(values) for name, values in samples.items()}
     logical_flops = 2 * size.m * size.n * size.k
     for name in ("complete", "wmma_floor"):
-        median_ms = timings[name]["MedianMs"]
+        median_ms = timings[name]["median_ms"]
         assert isinstance(median_ms, float)
         tflops = logical_flops / (median_ms * 1.0e9)
-        timings[name]["EquivalentTflops"] = tflops
-        timings[name]["WmmaRooflineFraction"] = tflops / BF16_WMMA_ROOFLINE_TFLOPS
+        timings[name]["equivalent_tflops"] = tflops
+        timings[name]["wmma_roofline_fraction"] = tflops / BF16_WMMA_ROOFLINE_TFLOPS
 
-    complete_ms = timings["complete"]["MedianMs"]
-    wmma_ms = timings["wmma_floor"]["MedianMs"]
-    decode_ms = timings["decode_floor"]["MedianMs"]
+    complete_ms = timings["complete"]["median_ms"]
+    wmma_ms = timings["wmma_floor"]["median_ms"]
+    decode_ms = timings["decode_floor"]["median_ms"]
     assert isinstance(complete_ms, float)
     assert isinstance(wmma_ms, float)
     assert isinstance(decode_ms, float)
     report = {
-        "SolutionKey": key.to_mapping(),
-        "CompleteCodeObject": str(args.complete_code_object),
-        "CompleteInspection": complete_inspection.to_mapping(),
-        "Diagnostics": {
+        "solution_key": key.to_mapping(),
+        "solution_hash": key.hash,
+        "kernel_name": key.kernel_name,
+        "complete_code_object": str(args.code_object),
+        "complete_inspection": asdict(complete_inspection),
+        "diagnostics": {
             mode.value: {
-                "CodeObject": str(code_objects[mode]),
-                "AssemblySHA256": source_hashes[mode],
-                "Inspection": inspections[mode],
+                "code_object": str(code_objects[mode]),
+                "assembly_sha256": source_hashes[mode],
+                "inspection": inspections[mode],
             }
             for mode in BackwardDiagnosticMode
         },
-        "Model": str(args.model),
-        "Tensor": args.tensor,
-        "Timings": timings,
-        "WmmaFloorToCompleteLatency": wmma_ms / complete_ms,
-        "DecodeFloorToCompleteLatency": decode_ms / complete_ms,
-        "FloorSumToCompleteLatency": (wmma_ms + decode_ms) / complete_ms,
+        "model": str(args.model),
+        "tensor": args.tensor,
+        "protocol": {
+            "warmup": args.warmup,
+            "repeats": args.repeats,
+            "rotating_order": True,
+        },
+        "timing": timings,
+        "wmma_floor_to_complete_latency": wmma_ms / complete_ms,
+        "decode_floor_to_complete_latency": decode_ms / complete_ms,
+        "floor_sum_to_complete_latency": (wmma_ms + decode_ms) / complete_ms,
     }
     report_path = args.output_dir / "lower_bounds.json"
     report_path.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")

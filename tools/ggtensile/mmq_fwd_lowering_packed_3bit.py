@@ -36,7 +36,7 @@ class Packed3BitTiledLdsLowering:
         )
         registers = physical.registers
         layout = physical.layout
-        name = self.context.solution_key.kernel_name
+        name = self.context.kernel_name
         row_stride = self.context.state.packed_weight_row_bytes
         activation_plane_stride = self.context.state.activation_plane_stride_bytes
         sums = registers.sums.first_register

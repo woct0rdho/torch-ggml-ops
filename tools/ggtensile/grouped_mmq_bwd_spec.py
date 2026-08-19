@@ -1,7 +1,6 @@
 """Strict problem and solution state for routed MMQ backward kernels."""
 
-from dataclasses import dataclass
-from enum import Enum
+from dataclasses import dataclass, replace
 
 from .mmq_bwd_spec import (
     BackwardKernelSpec,
@@ -13,44 +12,161 @@ from .model import (
     GroupedBackwardSolution,
     ProblemSize,
     ProblemType,
-    SchemaError,
     SolutionKey,
-    _integer,
-    _strict_mapping,
-    _strict_mapping_optional,
-    _string,
 )
 from .quant_formats import BACKWARD_QUANT_FORMATS, QuantFormat
+from .schema import (
+    SchemaError,
+)
+from .schema import (
+    integer as _integer,
+)
+from .schema import (
+    strict_mapping as _strict_mapping,
+)
+from .schema import (
+    strict_mapping_optional as _strict_mapping_optional,
+)
+from .schema import (
+    string as _string,
+)
 
-GROUPED_BACKWARD_QWEN_ROWS = frozenset({16_384, 65_536, 262_144})
-GROUPED_BACKWARD_DEEPSEEK_ROWS = frozenset({12_288, 49_152, 196_608})
+_U32_MAX = 0xFFFFFFFF
 
 
-class GroupedBackwardOwnership(str, Enum):
-    SerialRoutes = "SerialRoutes"
-    SplitRoutes2 = "SplitRoutes2"
-    SplitRoutes4 = "SplitRoutes4"
-    SplitRoutes8 = "SplitRoutes8"
-    SplitRoutes16 = "SplitRoutes16"
-    SplitRoutes32 = "SplitRoutes32"
-    SplitRoutes64 = "SplitRoutes64"
+@dataclass(frozen=True)
+class GroupedBackwardOwnership:
+    kind: str
+    split_factor: int
+
+    @classmethod
+    def from_solution_value(cls, value: str) -> "GroupedBackwardOwnership":
+        if type(value) is not str:
+            raise SchemaError("grouped backward route ownership must be a string")
+        if value == "SerialRoutes":
+            return cls("Serial", 1)
+        if value.startswith("SplitRoutes"):
+            factor = int(value.removeprefix("SplitRoutes"))
+            if factor > 1 and factor & (factor - 1) == 0:
+                return cls("RouteSplit", factor)
+        raise SchemaError("invalid grouped backward route ownership")
+
+    @classmethod
+    def from_mapping(cls, value: object) -> "GroupedBackwardOwnership":
+        item = _strict_mapping_optional(
+            value,
+            name="GroupedBackwardKernelSpec.ownership",
+            required=frozenset({"kind"}),
+            optional=frozenset({"split_factor"}),
+        )
+        kind = _string(item["kind"], "ownership.kind")
+        if kind == "Serial":
+            if "split_factor" in item:
+                raise SchemaError("serial ownership has no split_factor")
+            return cls(kind, 1)
+        if kind != "RouteSplit" or "split_factor" not in item:
+            raise SchemaError("route split ownership requires split_factor")
+        factor = _integer(item["split_factor"], "ownership.split_factor")
+        if factor <= 1 or factor & (factor - 1):
+            raise SchemaError("ownership.split_factor must be a power of two above one")
+        return cls(kind, factor)
+
+    def to_mapping(self) -> dict[str, object]:
+        if self.kind == "Serial":
+            return {"kind": self.kind}
+        return {"kind": self.kind, "split_factor": self.split_factor}
 
     @property
-    def split_factor(self) -> int:
+    def solution_value(self) -> str:
+        return (
+            "SerialRoutes"
+            if self.kind == "Serial"
+            else f"SplitRoutes{self.split_factor}"
+        )
+
+
+@dataclass(frozen=True)
+class GroupedBackwardRowTail:
+    kind: str
+    threshold_rows: int | None = None
+    tile_rows: int | None = None
+
+    @classmethod
+    def from_solution(
+        cls, solution: GroupedBackwardSolution
+    ) -> "GroupedBackwardRowTail":
+        value = solution.row_tail
+        threshold = solution.row_tail_threshold_rows
+        tile_rows = solution.row_tail_tile_rows
+        if value == "Masked":
+            if threshold is not None or tile_rows is not None:
+                raise SchemaError("masked row tail has no numeric parameters")
+            return cls("Masked")
+        if value == "Mixed128_64":
+            if (threshold, tile_rows) not in ((None, None), (64, 64)):
+                raise SchemaError("Mixed128_64 has fixed numeric parameters")
+            return cls("SecondaryTile", 64, 64)
+        if value != "SecondaryTile" or threshold is None or tile_rows is None:
+            raise SchemaError("parameterized row tail requires numeric parameters")
+        threshold = _integer(threshold, "row_tail.threshold_rows")
+        tile_rows = _integer(tile_rows, "row_tail.tile_rows")
+        if threshold <= 0 or tile_rows <= 0:
+            raise SchemaError("row-tail dimensions must be positive")
+        if threshold > _U32_MAX or tile_rows > _U32_MAX:
+            raise SchemaError("row-tail dimensions must fit in a u32")
+        return cls("SecondaryTile", threshold, tile_rows)
+
+    @classmethod
+    def from_mapping(cls, value: object) -> "GroupedBackwardRowTail":
+        item = _strict_mapping_optional(
+            value,
+            name="GroupedBackwardKernelSpec.row_tail",
+            required=frozenset({"kind"}),
+            optional=frozenset({"threshold_rows", "tile_rows"}),
+        )
+        kind = _string(item["kind"], "row_tail.kind")
+        if kind == "Masked":
+            if any(name in item for name in ("threshold_rows", "tile_rows")):
+                raise SchemaError("masked row tail has no secondary tile parameters")
+            return cls(kind)
+        if kind != "SecondaryTile":
+            raise SchemaError(f"unsupported row_tail.kind {kind!r}")
+        threshold = _integer(item.get("threshold_rows"), "row_tail.threshold_rows")
+        tile_rows = _integer(item.get("tile_rows"), "row_tail.tile_rows")
+        if threshold <= 0 or tile_rows <= 0:
+            raise SchemaError("row-tail dimensions must be positive")
+        if threshold > _U32_MAX or tile_rows > _U32_MAX:
+            raise SchemaError("row-tail dimensions must fit in a u32")
+        return cls(kind, threshold, tile_rows)
+
+    @property
+    def is_secondary(self) -> bool:
+        return self.kind == "SecondaryTile"
+
+    def to_mapping(self) -> dict[str, object]:
+        if not self.is_secondary:
+            return {"kind": self.kind}
         return {
-            GroupedBackwardOwnership.SerialRoutes: 1,
-            GroupedBackwardOwnership.SplitRoutes2: 2,
-            GroupedBackwardOwnership.SplitRoutes4: 4,
-            GroupedBackwardOwnership.SplitRoutes8: 8,
-            GroupedBackwardOwnership.SplitRoutes16: 16,
-            GroupedBackwardOwnership.SplitRoutes32: 32,
-            GroupedBackwardOwnership.SplitRoutes64: 64,
-        }[self]
+            "kind": self.kind,
+            "threshold_rows": self.threshold_rows,
+            "tile_rows": self.tile_rows,
+        }
 
+    @property
+    def legacy_hash_value(self) -> object:
+        if not self.is_secondary:
+            return "Masked"
+        if (self.threshold_rows, self.tile_rows) == (64, 64):
+            return "Mixed128_64"
+        return self.to_mapping()
 
-class GroupedBackwardRowTail(str, Enum):
-    Masked = "Masked"
-    Mixed128_64 = "Mixed128_64"
+    @property
+    def solution_value(self) -> str:
+        if not self.is_secondary:
+            return "Masked"
+        if (self.threshold_rows, self.tile_rows) == (64, 64):
+            return "Mixed128_64"
+        return "SecondaryTile"
 
 
 @dataclass(frozen=True)
@@ -100,16 +216,11 @@ class GroupedBackwardProblemContract:
         quant_type = _string(item["quant_type"], "quant_type")
         if quant_type not in {"Q2_K", "Q4_K", "Q5_K", "IQ2_S"}:
             raise SchemaError(f"unsupported grouped backward quant type {quant_type!r}")
-        try:
-            expected = cls(
-                problem_size,
-                quant_type,
-                BACKWARD_QUANT_FORMATS[quant_type],
-            ).to_mapping()
-        except (KeyError, ValueError):
-            raise SchemaError(
-                f"unsupported grouped backward quant type {quant_type!r}"
-            ) from None
+        expected = cls(
+            problem_size,
+            quant_type,
+            BACKWARD_QUANT_FORMATS[quant_type],
+        ).to_mapping()
         cls._validate_problem(problem_size, quant_type)
         actual = {
             "quant_type": quant_type,
@@ -138,29 +249,39 @@ class GroupedBackwardProblemContract:
 
     @staticmethod
     def _validate_problem(problem_size: ProblemSize, quant_type: str) -> None:
-        if quant_type == "Q2_K":
-            valid = (
-                problem_size.m in GROUPED_BACKWARD_DEEPSEEK_ROWS
-                and problem_size.n == 2048
-                and problem_size.k == 4096
+        if quant_type not in {"Q2_K", "Q4_K", "Q5_K", "IQ2_S"}:
+            raise SchemaError(f"unsupported grouped backward quant type {quant_type!r}")
+        for name, value in (
+            ("M", problem_size.m),
+            ("N", problem_size.n),
+            ("K", problem_size.k),
+        ):
+            if not 0 < value <= _U32_MAX:
+                raise SchemaError(f"grouped backward {name} must fit in a positive u32")
+
+        quant_format = BACKWARD_QUANT_FORMATS[quant_type]
+        if problem_size.n % quant_format.block_values:
+            raise SchemaError(
+                "grouped backward N must contain complete packed-weight quant blocks"
             )
-            message = (
-                "grouped Q2_K backward requires exact (R,2048,4096) with "
-                "R in {12288,49152,196608}"
+        if problem_size.k % 32:
+            raise SchemaError("grouped backward K must contain complete DepthU32 tiles")
+
+        packed_row_bytes = (
+            problem_size.n // quant_format.block_values * quant_format.block_bytes
+        )
+        if problem_size.k * packed_row_bytes > _U32_MAX:
+            raise SchemaError(
+                "grouped backward packed bytes per expert must fit in a u32 offset"
             )
-        else:
-            valid = (
-                problem_size.m in GROUPED_BACKWARD_QWEN_ROWS
-                and problem_size.n == 512
-                and problem_size.k == 2048
+        if problem_size.m * problem_size.k * 2 > _U32_MAX:
+            raise SchemaError(
+                "grouped backward grad-output workspace must fit in a u32 offset"
             )
-            message = (
-                "grouped Q4_K/Q5_K/IQ2_S backward requires exact "
-                "(R,512,2048) with "
-                "R in {16384,65536,262144}"
+        if problem_size.m * problem_size.n * 2 > _U32_MAX:
+            raise SchemaError(
+                "grouped backward grad-input workspace must fit in a u32 offset"
             )
-        if not valid:
-            raise SchemaError(message)
 
     def to_mapping(self) -> dict[str, object]:
         return {
@@ -196,11 +317,10 @@ class GroupedBackwardKernelSpec:
 
     @classmethod
     def from_solution(cls, solution: GroupedBackwardSolution):
-        try:
-            ownership = GroupedBackwardOwnership(solution.route_ownership)
-            row_tail = GroupedBackwardRowTail(solution.row_tail)
-        except ValueError as error:
-            raise SchemaError("invalid grouped backward ownership policy") from error
+        ownership = GroupedBackwardOwnership.from_solution_value(
+            solution.route_ownership
+        )
+        row_tail = GroupedBackwardRowTail.from_solution(solution)
         return cls(
             BackwardKernelSpec.from_solution(solution.compute), ownership, row_tail
         )
@@ -211,60 +331,93 @@ class GroupedBackwardKernelSpec:
             value,
             name="GroupedBackwardKernelSpec",
             required=frozenset(
-                {"geometry", "memory", "pipeline", "store", "ownership"}
+                {"geometry", "memory", "pipeline", "store", "ownership", "row_tail"}
             ),
             optional=frozenset({"decode"}),
         )
-        ownership_item = _strict_mapping(
+        ownership_item = _strict_mapping_optional(
             item["ownership"],
             name="GroupedBackwardKernelSpec.ownership",
-            keys=frozenset({"kind", "row_tail"}),
+            required=frozenset({"kind"}),
+            optional=frozenset({"split_factor"}),
         )
         compute_mapping = {
             key: item[key] for key in ("geometry", "memory", "pipeline", "store")
         }
         if "decode" in item:
             compute_mapping["decode"] = item["decode"]
-        try:
-            ownership = GroupedBackwardOwnership(
-                _string(ownership_item["kind"], "ownership.kind")
-            )
-            row_tail = GroupedBackwardRowTail(
-                _string(ownership_item["row_tail"], "ownership.row_tail")
-            )
-        except ValueError as error:
-            raise SchemaError("invalid grouped backward ownership policy") from error
         return cls(
             BackwardKernelSpec.from_mapping(compute_mapping, quant_type),
-            ownership,
-            row_tail,
+            GroupedBackwardOwnership.from_mapping(ownership_item),
+            GroupedBackwardRowTail.from_mapping(item["row_tail"]),
         )
 
     def to_mapping(self, quant_type: str) -> dict[str, object]:
         mapping = self.compute.to_mapping(quant_type)
+        mapping["ownership"] = self.ownership.to_mapping()
+        mapping["row_tail"] = self.row_tail.to_mapping()
+        return mapping
+
+    def to_legacy_hash_mapping(self, quant_type: str) -> dict[str, object]:
+        mapping = self.compute.to_legacy_hash_mapping(quant_type)
         mapping["ownership"] = {
-            "kind": self.ownership.value,
-            "row_tail": self.row_tail.value,
+            "kind": self.ownership.solution_value,
+            "row_tail": self.row_tail.legacy_hash_value,
         }
         return mapping
+
+    def secondary_compute_spec(self) -> BackwardKernelSpec | None:
+        if not self.row_tail.is_secondary:
+            return None
+        if (
+            self.row_tail.threshold_rows is None
+            or self.row_tail.tile_rows is None
+            or self.row_tail.threshold_rows <= 0
+            or self.row_tail.tile_rows <= 0
+            or self.row_tail.threshold_rows > _U32_MAX
+            or self.row_tail.tile_rows > _U32_MAX
+            or self.row_tail.threshold_rows > self.row_tail.tile_rows
+            or self.row_tail.tile_rows % 64
+        ):
+            raise ValueError("secondary row tail has incompatible numeric geometry")
+        geometry = self.compute.geometry
+        matrix_instruction = (
+            geometry.matrix_instruction[:5]
+            + (self.row_tail.tile_rows // 64,)
+            + geometry.matrix_instruction[6:]
+        )
+        return replace(
+            self.compute,
+            geometry=replace(
+                geometry,
+                matrix_instruction=matrix_instruction,
+                macro_tile0=self.row_tail.tile_rows,
+            ),
+        )
 
     def to_solution(
         self, contract: GroupedBackwardProblemContract
     ) -> GroupedBackwardSolution:
+        threshold_rows = None
+        tile_rows = None
+        if self.row_tail.solution_value == "SecondaryTile":
+            threshold_rows = self.row_tail.threshold_rows
+            tile_rows = self.row_tail.tile_rows
         return GroupedBackwardSolution(
             compute=self.compute.to_solution(contract.ordinary()),
-            route_ownership=self.ownership.value,
-            row_tail=self.row_tail.value,
+            route_ownership=self.ownership.solution_value,
+            row_tail=self.row_tail.solution_value,
+            row_tail_threshold_rows=threshold_rows,
+            row_tail_tile_rows=tile_rows,
         )
 
 
 @dataclass(frozen=True)
 class DerivedGroupedBackwardState:
-    solution_key: SolutionKey
-    solution: GroupedBackwardSolution
     contract: GroupedBackwardProblemContract
     spec: GroupedBackwardKernelSpec
-    ordinary: DerivedBackwardState
+    primary: DerivedBackwardState
+    secondary: DerivedBackwardState | None
 
     @classmethod
     def from_solution_key(cls, solution_key: SolutionKey):
@@ -273,15 +426,27 @@ class DerivedGroupedBackwardState:
             raise TypeError("grouped backward state requires GroupedBackwardSolution")
         contract = GroupedBackwardProblemContract.from_solution_key(solution_key)
         spec = GroupedBackwardKernelSpec.from_solution(solution)
-        ordinary_key = SolutionKey(
-            ProblemType.mmq_backward(contract.quant_type),
-            contract.problem_size,
-            solution.compute,
-        )
+        return cls.from_contract_spec(contract, spec)
+
+    @classmethod
+    def from_contract_spec(
+        cls,
+        contract: GroupedBackwardProblemContract,
+        spec: GroupedBackwardKernelSpec,
+    ) -> "DerivedGroupedBackwardState":
+        ordinary_contract = contract.ordinary()
+        secondary_spec = spec.secondary_compute_spec()
         return cls(
-            solution_key=solution_key,
-            solution=solution,
             contract=contract,
             spec=spec,
-            ordinary=DerivedBackwardState.from_solution_key(ordinary_key),
+            primary=DerivedBackwardState.from_contract_spec(
+                ordinary_contract, spec.compute
+            ),
+            secondary=(
+                DerivedBackwardState.from_contract_spec(
+                    ordinary_contract, secondary_spec
+                )
+                if secondary_spec is not None
+                else None
+            ),
         )

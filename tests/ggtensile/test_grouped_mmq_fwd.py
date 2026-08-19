@@ -109,7 +109,9 @@ def _iq2_s_payload_prefetch_key(
     )
 
 
-@pytest.mark.parametrize("field", ("unknown", "SchemaVersion"))
+@pytest.mark.parametrize(
+    "field", ("unknown", "SchemaVersion", "ArtifactKind", "KernelFamily")
+)
 def test_grouped_key_rejects_unknown_root_fields(field: str) -> None:
     mapping = _key().to_mapping()
     mapping[field] = 1
@@ -150,7 +152,7 @@ def test_grouped_key_rejects_noncanonical_contract_fields(
     contract = mapping["ProblemContract"]
     assert isinstance(contract, dict)
     contract[field] = value
-    with pytest.raises(SchemaError, match="canonical|unsupported"):
+    with pytest.raises(SchemaError):
         GroupedForwardSolutionKey.from_mapping(mapping)
 
 
@@ -169,6 +171,30 @@ def test_grouped_key_rejects_invalid_exact_problem_and_inactive_policy() -> None
     assert isinstance(decode, dict)
     decode["unrolled_groups"] = False
     with pytest.raises(SchemaError, match="unknown"):
+        GroupedForwardSolutionKey.from_mapping(mapping)
+
+
+def test_grouped_forward_accepts_formula_compatible_noncatalog_shape() -> None:
+    mapping = _key(127).to_mapping()
+    contract = mapping["ProblemContract"]
+    assert isinstance(contract, dict)
+    contract["output_features"] = 1024
+    contract["input_features"] = 1024
+
+    key = GroupedForwardSolutionKey.from_mapping(mapping)
+    assert not validate_grouped_forward_solution(key)
+    state = DerivedGroupedForwardState.from_solution_key(key)
+    assert state.expected_packed_weight_shape == (256, 1024, 576)
+    assert state.expected_activation_shape == (8, 127, 144)
+    assert state.expected_output_shape == (127, 1024)
+
+
+def test_grouped_forward_rejects_shape_incompatible_with_selected_tile() -> None:
+    mapping = _decoded_key(aggregate_rows=127).to_mapping()
+    contract = mapping["ProblemContract"]
+    assert isinstance(contract, dict)
+    contract["output_features"] = 96
+    with pytest.raises(SchemaError, match="output tile"):
         GroupedForwardSolutionKey.from_mapping(mapping)
 
 
@@ -192,7 +218,7 @@ def test_grouped_q2_key_rejects_broken_policy_dependencies(
     decode = kernel_spec["decode"]
     assert isinstance(decode, dict)
     decode[disabled_requirement] = False
-    with pytest.raises(SchemaError, match="require"):
+    with pytest.raises(ValueError, match="require"):
         GroupedForwardSolutionKey.from_mapping(mapping)
 
 

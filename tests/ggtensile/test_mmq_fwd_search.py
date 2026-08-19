@@ -55,7 +55,7 @@ def test_q6_candidate_hash_covers_complete_schedule() -> None:
     assert mapping["ProblemContract"]["quant_type"] == "Q6_K"
     assert mapping["KernelSpec"]["ownership"]["mi_wave_tile"] == [1, 4]
     assert mapping["KernelSpec"]["epilogue"]["pipeline"]["scope"] == "StoreBatch"
-    assert mapping["KernelSpec"]["resource_limits"]["max_lds_bytes"] == 65536
+    assert "resource_limits" not in mapping["KernelSpec"]
 
 
 def test_generic_manual_profile_keeps_shape_and_linked_domains_explicit() -> None:

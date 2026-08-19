@@ -67,7 +67,7 @@ class GroupedIQ2SPairedK128Lowering:
 
         if (
             state.kernel_spec.route_ownership
-            is GroupedPairRouteOwnership.DeviceRowTasks64
+            is GroupedPairRouteOwnership.DeviceRowTasks
         ):
             GroupedPairRowTaskEmitter(scalar, state.route).emit(asm)
         else:

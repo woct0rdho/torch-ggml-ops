@@ -41,10 +41,16 @@ def _key(aggregate_rows: int = 16_384) -> GroupedForwardPairSolutionKey:
     )
 
 
-def _row_task_key(aggregate_rows: int = 16_384) -> GroupedForwardPairSolutionKey:
+def _row_task_key(
+    aggregate_rows: int = 16_384,
+    row_task_rows: int = 64,
+) -> GroupedForwardPairSolutionKey:
     return GroupedForwardPairSolutionKey(
         GroupedForwardPairProblem.iq2_s(aggregate_rows),
-        GroupedForwardPairSolution.iq2_s_k128_interleaved_row_tasks(),
+        replace(
+            GroupedForwardPairSolution.iq2_s_k128_interleaved_row_tasks(),
+            row_task_rows=row_task_rows,
+        ),
     )
 
 
@@ -98,7 +104,9 @@ def _iq2_xxs_fused_selector_j80_key(
     )
 
 
-@pytest.mark.parametrize("field", ("unknown", "SchemaVersion"))
+@pytest.mark.parametrize(
+    "field", ("unknown", "SchemaVersion", "ArtifactKind", "KernelFamily")
+)
 def test_grouped_pair_key_rejects_unknown_root_fields(field: str) -> None:
     mapping = _key().to_mapping()
     mapping[field] = 1
@@ -141,7 +149,7 @@ def test_grouped_pair_key_rejects_noncanonical_contract_fields(
     contract = mapping["ProblemContract"]
     assert isinstance(contract, dict)
     contract[field] = value
-    with pytest.raises(SchemaError, match="canonical|unsupported"):
+    with pytest.raises(SchemaError):
         GroupedForwardPairSolutionKey.from_mapping(mapping)
 
 
@@ -163,6 +171,21 @@ def test_grouped_pair_key_rejects_invalid_problem_and_route_enum() -> None:
         GroupedForwardPairSolutionKey.from_mapping(mapping)
 
 
+def test_grouped_pair_accepts_formula_compatible_noncatalog_shape() -> None:
+    mapping = _key(127).to_mapping()
+    contract = mapping["ProblemContract"]
+    assert isinstance(contract, dict)
+    contract["output_features"] = 1024
+    contract["input_features"] = 1024
+
+    key = GroupedForwardPairSolutionKey.from_mapping(mapping)
+    assert not validate_grouped_forward_pair_solution(key)
+    state = DerivedGroupedForwardPairState.from_solution_key(key)
+    assert state.expected_packed_weight_shape == (256, 1024, 328)
+    assert state.expected_activation_shape == (8, 127, 144)
+    assert state.expected_output_shape == (127, 1024)
+
+
 def test_grouped_pair_route_ownership_belongs_only_to_the_kernel_spec() -> None:
     mapping = _row_task_key().to_mapping()
     contract = mapping["ProblemContract"]
@@ -172,7 +195,8 @@ def test_grouped_pair_route_ownership_belongs_only_to_the_kernel_spec() -> None:
     lowering = kernel_spec["lowering"]
     assert isinstance(lowering, dict)
     assert "route_ownership" not in contract
-    assert lowering["route_ownership"] == "DeviceRowTasks64"
+    assert lowering["route_ownership"] == "DeviceRowTasks"
+    assert lowering["row_task_rows"] == 64
 
 
 def test_iq2_xxs_pair_key_rejects_unimplemented_row_task_ownership() -> None:
@@ -181,7 +205,8 @@ def test_iq2_xxs_pair_key_rejects_unimplemented_row_task_ownership() -> None:
     assert isinstance(kernel_spec, dict)
     lowering = kernel_spec["lowering"]
     assert isinstance(lowering, dict)
-    lowering["route_ownership"] = "DeviceRowTasks64"
+    lowering["route_ownership"] = "DeviceRowTasks"
+    lowering["row_task_rows"] = 64
     with pytest.raises(SchemaError, match="unavailable"):
         GroupedForwardPairSolutionKey.from_mapping(mapping)
 
@@ -205,13 +230,15 @@ def test_grouped_iq2_s_pair_production_keys_derive(aggregate_rows: int) -> None:
     assert state.physical_plan.layout.weight_row_stride % 16 == 0
 
 
-def test_grouped_iq2_s_pair_serialization_rejects_unknown_enum() -> None:
+@pytest.mark.parametrize("invalid", ("K128Interleaved", "projection_schedule"))
+def test_grouped_iq2_s_pair_serialization_rejects_unknown_enum(invalid: str) -> None:
     mapping = _key().to_mapping()
     kernel_spec = mapping["KernelSpec"]
     assert isinstance(kernel_spec, dict)
     projection = kernel_spec["projection"]
     assert isinstance(projection, dict)
-    projection["schedule"] = "projection_schedule"
+    assert projection["schedule"] == "Interleaved"
+    projection["schedule"] = invalid
     with pytest.raises(ValueError, match="ProjectionSchedule"):
         GroupedForwardPairSolutionKey.from_mapping(mapping)
 
@@ -237,7 +264,7 @@ def test_grouped_iq2_s_pair_row_task_keys_derive(
     key = _row_task_key(aggregate_rows)
     assert GroupedForwardPairSolutionKey.from_mapping(key.to_mapping()) == key
     assert key.hash != _key(aggregate_rows).hash
-    assert key.solution.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks64
+    assert key.solution.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks
     assert validate_grouped_forward_pair_solution(key) == ()
     state = DerivedGroupedForwardPairState.from_solution_key(key)
     assert state.row_task_capacity(256) == capacity
@@ -250,6 +277,53 @@ def test_grouped_iq2_s_pair_row_task_keys_derive(
     assert state.physical_plan.resources.vgprs == 148
     assert state.physical_plan.resources.sgprs == 44
     assert state.physical_plan.resources.lds_bytes == 19_456
+
+
+def test_grouped_pair_row_task_rows_are_numeric_and_behavioral() -> None:
+    j64 = _row_task_key(16_384, 64)
+    j32 = _row_task_key(16_384, 32)
+    mapping = j32.to_mapping()
+    kernel_spec = mapping["KernelSpec"]
+    assert isinstance(kernel_spec, dict)
+    lowering = kernel_spec["lowering"]
+    assert isinstance(lowering, dict)
+    assert lowering["route_ownership"] == "DeviceRowTasks"
+    assert lowering["row_task_rows"] == 32
+    assert GroupedForwardPairSolutionKey.from_mapping(mapping) == j32
+    assert validate_grouped_forward_pair_solution(j32) == ()
+    assert j32.hash != j64.hash
+
+    state = DerivedGroupedForwardPairState.from_solution_key(j32)
+    assert state.row_task_capacity(256) == 768
+    assert state.row_task_grid(256) == (8, 768, 1)
+    source = GroupedForwardPairKernelWriterAssembly(j32, Toolchain.discover()).source()
+    assert "device 32-row task ownership" in source
+    assert "device-built 32-row task" in source
+
+
+@pytest.mark.parametrize("row_task_rows", (0, 65))
+def test_grouped_pair_row_task_rows_reject_outside_compute_tile(
+    row_task_rows: int,
+) -> None:
+    mapping = _row_task_key().to_mapping()
+    kernel_spec = mapping["KernelSpec"]
+    assert isinstance(kernel_spec, dict)
+    lowering = kernel_spec["lowering"]
+    assert isinstance(lowering, dict)
+    lowering["row_task_rows"] = row_task_rows
+    with pytest.raises(SchemaError, match="row-task rows must fit"):
+        GroupedForwardPairSolutionKey.from_mapping(mapping)
+
+
+def test_grouped_pair_legacy_numeric_route_name_rejects() -> None:
+    mapping = _row_task_key().to_mapping()
+    kernel_spec = mapping["KernelSpec"]
+    assert isinstance(kernel_spec, dict)
+    lowering = kernel_spec["lowering"]
+    assert isinstance(lowering, dict)
+    lowering["route_ownership"] = "DeviceRowTasks64"
+    with pytest.raises(ValueError, match="route_ownership"):
+        GroupedForwardPairSolutionKey.from_mapping(mapping)
 
 
 @pytest.mark.parametrize("aggregate_rows", (16_384, 65_536, 262_144))
@@ -270,7 +344,7 @@ def test_grouped_q3_k_pair_production_keys_derive(aggregate_rows: int) -> None:
         assert state.expected_output_shape == (aggregate_rows, 512)
         assert state.blocks_per_weight_row == 8
         assert state.bytes_per_expert == 450_560
-        if key.solution.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks64:
+        if key.solution.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks:
             capacity = aggregate_rows // 64 + 256
             assert state.row_task_capacity(256) == capacity
             assert state.row_task_grid(256) == (8, capacity, 1)
@@ -386,7 +460,8 @@ def test_grouped_iq2_xxs_fused_selector_j80_rejects_other_mechanisms() -> None:
     assert isinstance(kernel_spec, dict)
     lowering = kernel_spec["lowering"]
     assert isinstance(lowering, dict)
-    lowering["route_ownership"] = "DeviceRowTasks64"
+    lowering["route_ownership"] = "DeviceRowTasks"
+    lowering["row_task_rows"] = 64
     with pytest.raises(SchemaError, match="unavailable|J80|serial-route"):
         GroupedForwardPairSolutionKey.from_mapping(mapping)
 
@@ -409,7 +484,8 @@ def test_grouped_iq2_xxs_fused_selector_rejects_other_quant_and_ownership() -> N
     assert isinstance(kernel_spec, dict)
     lowering = kernel_spec["lowering"]
     assert isinstance(lowering, dict)
-    lowering["route_ownership"] = "DeviceRowTasks64"
+    lowering["route_ownership"] = "DeviceRowTasks"
+    lowering["row_task_rows"] = 64
     with pytest.raises(SchemaError, match="unavailable|serial-route ownership"):
         GroupedForwardPairSolutionKey.from_mapping(mapping)
 
@@ -444,7 +520,7 @@ def test_grouped_iq2_xxs_grid_is_extracted_from_the_vendor_authority() -> None:
 
 def test_grouped_iq2_s_pair_validation_rejects_other_geometry_and_solution() -> None:
     key = _key()
-    invalid_problem = replace(key.problem, output_features=1024)
+    invalid_problem = replace(key.problem, output_features=1000)
     invalid_solution = replace(key.solution, depth_u=256)
     assert {
         reason.rule_id
@@ -709,7 +785,7 @@ def test_grouped_q3_k_pair_artifact_is_deterministic_and_resource_clean(
     assert inspection.target == "gfx1151"
     assert inspection.kernarg_segment_size == (
         96
-        if key.solution.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks64
+        if key.solution.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks
         else 80
     )
     assert inspection.wavefront_size == 32

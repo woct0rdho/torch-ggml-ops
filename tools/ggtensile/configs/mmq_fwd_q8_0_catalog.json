@@ -1,5 +1,4 @@
 {
-  "ArtifactKind": "DeploymentCatalog",
   "KernelFamily": "OrdinaryForward",
   "ProblemContract": {
     "quant_type": "Q8_0",
@@ -62,12 +61,6 @@
       },
       "epilogue": {
         "output_store": "BFloat16RNEClause64"
-      },
-      "resource_limits": {
-        "max_vgprs": 256,
-        "max_sgprs": 106,
-        "max_lds_bytes": 65536,
-        "require_zero_spills": true
       }
     },
     {
@@ -107,12 +100,6 @@
       },
       "epilogue": {
         "output_store": "BFloat16RNEClauseTile"
-      },
-      "resource_limits": {
-        "max_vgprs": 256,
-        "max_sgprs": 106,
-        "max_lds_bytes": 65536,
-        "require_zero_spills": true
       }
     },
     {
@@ -152,12 +139,6 @@
       },
       "epilogue": {
         "output_store": "BFloat16RNEClauseTile"
-      },
-      "resource_limits": {
-        "max_vgprs": 256,
-        "max_sgprs": 106,
-        "max_lds_bytes": 65536,
-        "require_zero_spills": true
       }
     },
     {
@@ -197,12 +178,6 @@
       },
       "epilogue": {
         "output_store": "BFloat16RNEClause64"
-      },
-      "resource_limits": {
-        "max_vgprs": 256,
-        "max_sgprs": 106,
-        "max_lds_bytes": 65536,
-        "require_zero_spills": true
       }
     }
   ],

@@ -152,13 +152,11 @@ def test_forward_campaign_inventory_is_exact_and_versionless(
     raw = json.loads(case.catalog_path.read_text(encoding="utf-8"))
     assert catalog.to_mapping() == raw
     assert set(raw) == {
-        "ArtifactKind",
         "KernelFamily",
         "ProblemContract",
         "KernelSpecs",
         "ExactLogic",
     }
-    assert raw["ArtifactKind"] == "DeploymentCatalog"
     assert raw["KernelFamily"] == "OrdinaryForward"
     forbidden = {
         "Family",
@@ -230,7 +228,7 @@ def test_forward_solution_key_is_strict_and_round_trips(quant_type: str) -> None
         SolutionKey.from_mapping(mapping)
 
 
-@pytest.mark.parametrize("field", ("unknown", "SchemaVersion"))
+@pytest.mark.parametrize("field", ("unknown", "SchemaVersion", "ArtifactKind"))
 def test_forward_exact_key_rejects_unknown_root_fields(field: str) -> None:
     mapping = _key().to_mapping()
     mapping[field] = 1
@@ -308,6 +306,7 @@ def test_forward_candidate_serializes_only_active_typed_policies() -> None:
         "Q8_0", ForwardSolution.q8_0_direct_global()
     )
     direct_mapping = direct.to_mapping()
+    assert set(direct_mapping) == {"ProblemContract", "KernelSpec"}
     direct_spec = direct_mapping["KernelSpec"]
     assert isinstance(direct_spec, dict)
     assert "instruction_policy" not in direct_spec

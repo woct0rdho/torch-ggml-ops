@@ -5,13 +5,6 @@ from dataclasses import dataclass
 from .grouped_mmq_fwd_model import (
     GroupedActivationAddressing,
     GroupedOutputStore,
-    _boolean,
-    _enum,
-    _integer,
-    _integer_triple,
-    _integer_tuple,
-    _mapping,
-    _string,
 )
 from .grouped_mmq_fwd_pair_model import (
     GroupedForwardPairProblem,
@@ -31,8 +24,81 @@ from .grouped_mmq_fwd_pair_physical import (
     grouped_q3_k_pair_physical_plan,
 )
 from .mmq_fwd_spec import QuantForwardSemantics
-from .model import ProblemSize, SchemaError
+from .model import ProblemSize
 from .quant_formats import GROUPED_QUANT_FORMATS, Q8_1_D4_BLOCK_VALUES
+from .schema import (
+    SchemaError,
+)
+from .schema import (
+    boolean as _boolean,
+)
+from .schema import (
+    enum_value as _enum,
+)
+from .schema import (
+    integer as _integer,
+)
+from .schema import (
+    integer_triple as _integer_triple,
+)
+from .schema import (
+    integer_tuple as _integer_tuple,
+)
+from .schema import (
+    strict_mapping as _mapping,
+)
+from .schema import (
+    strict_mapping_optional as _mapping_optional,
+)
+from .schema import (
+    string as _string,
+)
+
+_U32_MAX = 0xFFFFFFFF
+
+
+def grouped_forward_pair_problem_rejection_reason(
+    problem: GroupedForwardPairProblem,
+) -> str | None:
+    """Return a formula-backed rejection for a paired routed problem."""
+    quant_format = GROUPED_QUANT_FORMATS.get(problem.quant_data_type)
+    if quant_format is None or _paired_mechanism(problem.quant_data_type) is None:
+        return "unsupported paired quant type"
+    for name, value in (
+        ("aggregate rows", problem.aggregate_rows),
+        ("output features", problem.output_features),
+        ("input features", problem.input_features),
+    ):
+        if not 0 < value <= _U32_MAX:
+            return f"paired {name} must fit in a positive u32"
+    if problem.physical_experts != 256:
+        return "paired forward requires 256 physical experts"
+    if problem.max_route_entries != 256:
+        return "paired forward requires at most 256 route entries"
+    if problem.projection_count != 2:
+        return "paired forward requires two projections"
+    if problem.output_features % 64:
+        return "paired output features must be divisible by the 64-column tile"
+    if problem.input_features % quant_format.block_values:
+        return "paired input features must contain complete quant blocks"
+    if problem.input_features % Q8_1_D4_BLOCK_VALUES:
+        return "paired input features must contain complete activation blocks"
+
+    blocks_per_weight_row = problem.input_features // quant_format.block_values
+    packed_weight_row_bytes = blocks_per_weight_row * quant_format.block_bytes
+    bytes_per_expert = problem.output_features * packed_weight_row_bytes
+    activation_blocks = problem.input_features // Q8_1_D4_BLOCK_VALUES
+    activation_bytes = (
+        activation_blocks * problem.aggregate_rows * quant_format.activation_block_bytes
+    )
+    output_bytes = problem.aggregate_rows * problem.output_features * 2
+    if bytes_per_expert > _U32_MAX:
+        return "paired packed bytes per expert must fit in a u32 offset"
+    if activation_bytes > _U32_MAX:
+        return "paired activation workspace must fit in a u32 offset"
+    if output_bytes > _U32_MAX:
+        return "paired output workspace must fit in a u32 offset"
+    return None
 
 
 def _paired_mechanism(
@@ -95,34 +161,23 @@ class GroupedForwardPairContract:
     abi_family: str = "GroupedPairV1"
 
     @classmethod
-    def from_solution(
+    def rejection_reason(
         cls,
         problem: GroupedForwardPairProblem,
         solution: GroupedForwardPairSolution,
-    ) -> "GroupedForwardPairContract":
+    ) -> str | None:
         quant_format = GROUPED_QUANT_FORMATS.get(problem.quant_data_type)
-        if quant_format is None:
-            raise ValueError(
-                f"unsupported paired quant type {problem.quant_data_type!r}"
-            )
-        expected_mechanism = _paired_mechanism(problem.quant_data_type)
-        if expected_mechanism is None:
-            raise ValueError(
-                f"unsupported paired quant type {problem.quant_data_type!r}"
-            )
-        (
-            expected_operand_source,
-            expected_decode_schedule,
-            expected_weight_decode,
-            expected_metadata_conversion,
-        ) = expected_mechanism
-        expected_decode_schedules = {expected_decode_schedule}
+        mechanism = _paired_mechanism(problem.quant_data_type)
+        if quant_format is None or mechanism is None:
+            return f"unsupported paired quant type {problem.quant_data_type!r}"
+        operand_source, decode_schedule, weight_decode, metadata_conversion = mechanism
+        decode_schedules = {decode_schedule}
         if problem.quant_data_type == "Q3_K":
-            expected_decode_schedules.add(
+            decode_schedules.add(
                 GroupedPairDecodeSchedule.TwoLaneSelectedHalfQ3VariableBFE
             )
         elif problem.quant_data_type == "IQ2_XXS":
-            expected_decode_schedules.add(
+            decode_schedules.add(
                 GroupedPairDecodeSchedule.TwoLaneSelectedHalfIQ2XXSFusedSelector
             )
         checks = (
@@ -161,24 +216,21 @@ class GroupedForwardPairContract:
                 "paired weight bytes mismatch",
             ),
             (
-                solution.operand_source is expected_operand_source,
+                solution.operand_source is operand_source,
                 "paired operand source mismatch",
             ),
             (
                 solution.projection_schedule
-                is GroupedPairProjectionSchedule.K128Interleaved,
+                is GroupedPairProjectionSchedule.Interleaved,
                 "paired projection schedule mismatch",
             ),
             (
-                solution.metadata_schedule in expected_decode_schedules,
+                solution.metadata_schedule in decode_schedules,
                 "paired decode schedule mismatch",
             ),
+            (solution.weight_decode == weight_decode, "paired weight decode mismatch"),
             (
-                solution.weight_decode == expected_weight_decode,
-                "paired weight decode mismatch",
-            ),
-            (
-                solution.metadata_conversion == expected_metadata_conversion,
+                solution.metadata_conversion == metadata_conversion,
                 "paired metadata conversion mismatch",
             ),
             (
@@ -203,6 +255,20 @@ class GroupedForwardPairContract:
         rejection = next(
             (message for accepted, message in checks if not accepted), None
         )
+        return rejection or grouped_forward_pair_problem_rejection_reason(problem)
+
+    @classmethod
+    def from_solution(
+        cls,
+        problem: GroupedForwardPairProblem,
+        solution: GroupedForwardPairSolution,
+    ) -> "GroupedForwardPairContract":
+        quant_format = GROUPED_QUANT_FORMATS.get(problem.quant_data_type)
+        if quant_format is None:
+            raise ValueError(
+                f"unsupported paired quant type {problem.quant_data_type!r}"
+            )
+        rejection = cls.rejection_reason(problem, solution)
         if rejection is not None:
             raise ValueError(rejection)
         return cls(
@@ -268,11 +334,6 @@ class GroupedForwardPairContract:
         mechanism = _paired_mechanism(quant_type)
         if mechanism is None:
             raise SchemaError(f"unsupported paired quant type {quant_type!r}")
-        expected_shape = {
-            "IQ2_S": (512, 2048),
-            "IQ2_XXS": (2048, 4096),
-            "Q3_K": (512, 2048),
-        }[quant_type]
         contract = cls(
             quant_type=quant_type,
             output_features=_integer(item["output_features"], "output_features"),
@@ -306,9 +367,13 @@ class GroupedForwardPairContract:
             bf16_rounding=_string(item["bf16_rounding"], "bf16_rounding"),
             abi_family=_string(item["abi_family"], "abi_family"),
         )
+        problem_rejection = grouped_forward_pair_problem_rejection_reason(
+            contract.problem(1)
+        )
+        if problem_rejection is not None:
+            raise SchemaError(problem_rejection)
         fixed = (
-            (contract.output_features, contract.input_features) == expected_shape
-            and contract.physical_experts == 256
+            contract.physical_experts == 256
             and contract.max_route_entries == 256
             and contract.projection_count == 2
             and contract.block_values == quant_format.block_values
@@ -386,6 +451,7 @@ class GroupedForwardPairKernelSpec:
     operand_source: GroupedPairOperandSource
     projection_schedule: GroupedPairProjectionSchedule
     route_ownership: GroupedPairRouteOwnership
+    row_task_rows: int | None
     activation_addressing: GroupedActivationAddressing
     metadata_schedule: GroupedPairDecodeSchedule
     output_store: GroupedOutputStore
@@ -404,6 +470,7 @@ class GroupedForwardPairKernelSpec:
             operand_source=solution.operand_source,
             projection_schedule=solution.projection_schedule,
             route_ownership=solution.route_ownership,
+            row_task_rows=solution.row_task_rows,
             activation_addressing=solution.activation_addressing,
             metadata_schedule=solution.metadata_schedule,
             output_store=solution.output_store,
@@ -434,10 +501,13 @@ class GroupedForwardPairKernelSpec:
             (macro_tile[0], macro_tile[1]),
             _integer(geometry_item["depth_u"], "depth_u"),
         )
-        lowering = _mapping(
+        lowering = _mapping_optional(
             item["lowering"],
-            "GroupedForwardPairKernelSpec.lowering",
-            frozenset({"operand_source", "route_ownership", "activation_addressing"}),
+            name="GroupedForwardPairKernelSpec.lowering",
+            required=frozenset(
+                {"operand_source", "route_ownership", "activation_addressing"}
+            ),
+            optional=frozenset({"row_task_rows"}),
         )
         projection = _mapping(
             item["projection"],
@@ -454,6 +524,21 @@ class GroupedForwardPairKernelSpec:
             "GroupedForwardPairKernelSpec.epilogue",
             frozenset({"output_store"}),
         )
+        route_ownership = _enum(
+            lowering["route_ownership"],
+            "route_ownership",
+            GroupedPairRouteOwnership,
+        )
+        row_task_rows = (
+            _integer(lowering["row_task_rows"], "row_task_rows")
+            if "row_task_rows" in lowering
+            else None
+        )
+        if route_ownership is GroupedPairRouteOwnership.SerialRoutes:
+            if row_task_rows is not None:
+                raise SchemaError("serial paired routes cannot specify row_task_rows")
+        elif row_task_rows is None:
+            raise SchemaError("paired device row tasks require row_task_rows")
         return cls(
             geometry=geometry,
             operand_source=_enum(
@@ -464,11 +549,8 @@ class GroupedForwardPairKernelSpec:
                 "ProjectionSchedule",
                 GroupedPairProjectionSchedule,
             ),
-            route_ownership=_enum(
-                lowering["route_ownership"],
-                "route_ownership",
-                GroupedPairRouteOwnership,
-            ),
+            route_ownership=route_ownership,
+            row_task_rows=row_task_rows,
             activation_addressing=_enum(
                 lowering["activation_addressing"],
                 "activation_addressing",
@@ -494,11 +576,32 @@ class GroupedForwardPairKernelSpec:
                 "operand_source": self.operand_source.value,
                 "route_ownership": self.route_ownership.value,
                 "activation_addressing": self.activation_addressing.value,
+                **(
+                    {"row_task_rows": self.row_task_rows}
+                    if self.row_task_rows is not None
+                    else {}
+                ),
             },
             "projection": {"schedule": self.projection_schedule.value},
             "decode": {"schedule": self.metadata_schedule.value},
             "epilogue": {"output_store": self.output_store.value},
         }
+
+    def to_legacy_hash_mapping(self) -> dict[str, object]:
+        """Project numeric row-task sizing onto the frozen route identity."""
+        mapping = self.to_mapping()
+        projection = mapping["projection"]
+        assert isinstance(projection, dict)
+        projection["schedule"] = "K128Interleaved"
+        if (
+            self.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks
+            and self.row_task_rows == 64
+        ):
+            lowering = mapping["lowering"]
+            assert isinstance(lowering, dict)
+            lowering["route_ownership"] = "DeviceRowTasks64"
+            del lowering["row_task_rows"]
+        return mapping
 
     def to_solution(
         self,
@@ -509,9 +612,9 @@ class GroupedForwardPairKernelSpec:
                 "SerialGemmPair",
                 "CumulativeOffsetsExpertIndices",
             ),
-            GroupedPairRouteOwnership.DeviceRowTasks64: (
+            GroupedPairRouteOwnership.DeviceRowTasks: (
                 "RowTaskGemmPair",
-                "DeviceRowTasks64",
+                "DeviceRowTasks",
             ),
         }[self.route_ownership]
         return GroupedForwardPairSolution(
@@ -531,6 +634,7 @@ class GroupedForwardPairKernelSpec:
             weight_decode=contract.weight_decode,
             group_mapping=route[0],
             route_layout=route[1],
+            row_task_rows=self.row_task_rows,
             activation_addressing=self.activation_addressing,
             metadata_conversion=contract.metadata_conversion,
             metadata_schedule=self.metadata_schedule,
@@ -547,20 +651,19 @@ def grouped_forward_pair_capability_rejection_reason(
     problem: GroupedForwardPairProblem,
     solution: GroupedForwardPairSolution,
 ) -> str | None:
-    try:
-        GroupedForwardPairContract.from_solution(problem, solution)
-        kernel_spec = GroupedForwardPairKernelSpec.from_solution(solution)
-    except (KeyError, TypeError, ValueError) as error:
-        return str(error)
+    contract_rejection = GroupedForwardPairContract.rejection_reason(problem, solution)
+    if contract_rejection is not None:
+        return contract_rejection
+    kernel_spec = GroupedForwardPairKernelSpec.from_solution(solution)
     supported_ownership = {
         "IQ2_S": {
             GroupedPairRouteOwnership.SerialRoutes,
-            GroupedPairRouteOwnership.DeviceRowTasks64,
+            GroupedPairRouteOwnership.DeviceRowTasks,
         },
         "IQ2_XXS": {GroupedPairRouteOwnership.SerialRoutes},
         "Q3_K": {
             GroupedPairRouteOwnership.SerialRoutes,
-            GroupedPairRouteOwnership.DeviceRowTasks64,
+            GroupedPairRouteOwnership.DeviceRowTasks,
         },
     }.get(problem.quant_data_type, set())
     if kernel_spec.route_ownership not in supported_ownership:
@@ -575,8 +678,7 @@ def grouped_forward_pair_capability_rejection_reason(
     if (
         kernel_spec.metadata_schedule
         is GroupedPairDecodeSchedule.TwoLaneSelectedHalfQ3VariableBFE
-        and kernel_spec.route_ownership
-        is not GroupedPairRouteOwnership.DeviceRowTasks64
+        and kernel_spec.route_ownership is not GroupedPairRouteOwnership.DeviceRowTasks
     ):
         return "paired Q3_K variable-BFE decode requires device row-task ownership"
     if (
@@ -585,6 +687,15 @@ def grouped_forward_pair_capability_rejection_reason(
         and kernel_spec.route_ownership is not GroupedPairRouteOwnership.SerialRoutes
     ):
         return "paired IQ2_XXS fused selector requires serial-route ownership"
+    if kernel_spec.route_ownership is GroupedPairRouteOwnership.SerialRoutes:
+        if kernel_spec.row_task_rows is not None:
+            return "paired serial-route ownership cannot specify row-task rows"
+    elif (
+        kernel_spec.row_task_rows is None
+        or kernel_spec.row_task_rows <= 0
+        or kernel_spec.row_task_rows > kernel_spec.geometry.macro_tile[0]
+    ):
+        return "paired row-task rows must fit in the compute row tile"
     return None
 
 
@@ -596,6 +707,7 @@ class GroupedForwardPairRouteState:
     blocks_per_weight_row: int
     bytes_per_expert: int
     projection_count: int
+    row_task_rows: int | None
 
 
 @dataclass(frozen=True)
@@ -628,11 +740,6 @@ class DerivedGroupedForwardPairState:
         kernel_spec = GroupedForwardPairKernelSpec.from_solution(solution)
         if problem.quant_data_type not in {"IQ2_S", "IQ2_XXS", "Q3_K"}:
             raise ValueError("paired research supports IQ2_S, IQ2_XXS, and Q3_K")
-        if problem.quant_data_type == "IQ2_XXS":
-            if problem.output_features != 2048 or problem.input_features != 4096:
-                raise ValueError("paired IQ2_XXS grouped forward requires N2048 K4096")
-        elif problem.output_features != 512 or problem.input_features != 2048:
-            raise ValueError("paired IQ2_S and Q3_K grouped forward require N512 K2048")
         physical = (
             grouped_iq2_s_pair_physical_plan(solution.route_ownership)
             if problem.quant_data_type == "IQ2_S"
@@ -664,6 +771,7 @@ class DerivedGroupedForwardPairState:
                 blocks_per_weight_row=blocks_per_weight_row,
                 bytes_per_expert=bytes_per_expert,
                 projection_count=problem.projection_count,
+                row_task_rows=kernel_spec.row_task_rows,
             ),
             problem_size=ProblemSize(
                 problem.aggregate_rows, problem.output_features, problem.input_features
@@ -710,7 +818,9 @@ class DerivedGroupedForwardPairState:
     def row_task_capacity(self, route_entries: int) -> int:
         if route_entries <= 0 or route_entries > self.key.problem.max_route_entries:
             raise ValueError("paired route entry count is outside the contract")
-        row_tile = self.key.solution.macro_tile0
+        row_tile = self.kernel_spec.row_task_rows
+        if row_tile is None:
+            raise ValueError("row-task capacity requested for a serial solution")
         return (
             self.key.problem.aggregate_rows + row_tile - 1
         ) // row_tile + route_entries
@@ -718,7 +828,7 @@ class DerivedGroupedForwardPairState:
     def row_task_grid(self, route_entries: int) -> tuple[int, int, int]:
         if (
             self.kernel_spec.route_ownership
-            is not GroupedPairRouteOwnership.DeviceRowTasks64
+            is not GroupedPairRouteOwnership.DeviceRowTasks
         ):
             raise ValueError("row-task grid requested for a serial route solution")
         return (self.output_column_tiles, self.row_task_capacity(route_entries), 1)

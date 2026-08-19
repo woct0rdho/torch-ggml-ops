@@ -168,6 +168,7 @@ class GroupedForwardPairRowTaskWorkspace:
     task_row_ends: torch.Tensor
     capacity: int
     route_entries: int
+    row_task_rows: int
 
     @classmethod
     def allocate(
@@ -180,9 +181,9 @@ class GroupedForwardPairRowTaskWorkspace:
     ) -> "GroupedForwardPairRowTaskWorkspace":
         if route_entries <= 0 or route_entries > 256:
             raise HIPRuntimeError("row-task route entry count is outside the contract")
-        if aggregate_rows <= 0 or row_tile != 64:
+        if aggregate_rows <= 0 or not 0 < row_tile <= 64:
             raise HIPRuntimeError(
-                "paired row-task workspace requires positive rows and J64"
+                "paired row-task workspace requires positive rows and at most J64"
             )
         capacity = (aggregate_rows + row_tile - 1) // row_tile + route_entries
         storage = torch.empty(
@@ -202,6 +203,7 @@ class GroupedForwardPairRowTaskWorkspace:
             task_row_ends,
             capacity,
             route_entries,
+            row_tile,
         )
 
 
@@ -250,7 +252,9 @@ class InstalledGroupedForwardRowTaskSetup(_HIPModule):
             raise HIPRuntimeError("row-task workspace route count does not match")
         if expert_offsets.numel() != route_entries:
             raise HIPRuntimeError("row-task route metadata lengths must match")
-        expected_capacity = (aggregate_rows + 63) // 64 + route_entries
+        expected_capacity = (
+            aggregate_rows + workspace.row_task_rows - 1
+        ) // workspace.row_task_rows + route_entries
         if workspace.capacity != expected_capacity:
             raise HIPRuntimeError("row-task workspace capacity does not match")
         if len({tensor.device for tensor in tensors}) != 1:
@@ -266,7 +270,7 @@ class InstalledGroupedForwardRowTaskSetup(_HIPModule):
                 "num_experts": 256,
                 "num_groups": route_entries,
                 "nrows_activation": aggregate_rows,
-                "row_tile": 64,
+                "row_tile": workspace.row_task_rows,
             }
         )
         self._check(
@@ -304,7 +308,7 @@ class GroupedForwardPairRowTaskModule(_HIPModule):
         self.state = DerivedGroupedForwardPairState.from_solution_key(solution_key)
         if (
             self.state.kernel_spec.route_ownership
-            is not GroupedPairRouteOwnership.DeviceRowTasks64
+            is not GroupedPairRouteOwnership.DeviceRowTasks
         ):
             raise HIPRuntimeError("row-task launcher requires row-task ownership")
         super().__init__(code_object, hip_library, solution_key.kernel_name)
@@ -368,6 +372,10 @@ class GroupedForwardPairRowTaskModule(_HIPModule):
         if tasks.capacity != state.row_task_capacity(tasks.route_entries):
             raise HIPRuntimeError(
                 "paired row-task capacity does not match the exact key"
+            )
+        if tasks.row_task_rows != state.kernel_spec.row_task_rows:
+            raise HIPRuntimeError(
+                "paired row-task rows do not match the kernel specification"
             )
         if len({tensor.device for tensor in tensors}) != 1:
             raise HIPRuntimeError("paired row-task tensors must share one device")
@@ -573,12 +581,12 @@ class InstalledGroupedForwardPairIQ2XXSSerialControl(_HIPModule):
         code_object: Path | None = None,
         hip_library: Path | None = None,
     ) -> None:
-        try:
-            symbol, dynamic_lds_bytes = self._CONFIGS[row_tile]
-        except KeyError:
+        config = self._CONFIGS.get(row_tile)
+        if config is None:
             raise HIPRuntimeError(
                 "installed IQ2_XXS control requires J64 or J80"
             ) from None
+        symbol, dynamic_lds_bytes = config
         self.row_tile = row_tile
         self.dynamic_lds_bytes = dynamic_lds_bytes
         super().__init__(
