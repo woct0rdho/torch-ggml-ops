@@ -7,4 +7,4 @@ dist/
 *_hip.cuh
 *.hsaco
 *.mmq-build-input
-*.so*
+*.so

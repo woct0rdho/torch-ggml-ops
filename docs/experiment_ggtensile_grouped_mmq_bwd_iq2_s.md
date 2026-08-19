@@ -170,11 +170,10 @@ B4 and B16 beat HIP on every confirmation medoid. B1's `0.97265625`-weight medoi
 
 ## Reopened post-refactor optimization program
 
-IQ2_S already retains signed-dword preapplication, workgroup-local codebook staging, split64 ownership, and the selected layout/schedule interactions. The only immediate reopening is the fitted-objective interpretation of inactive-M suppression.
-
-1. Add the same wave-uniform wholly inactive 16-row consumer guard used by the Q4_K/Q5_K/Q2_K controls, leaving codebook staging, per-K decode, LDS traffic required by active siblings, and barriers uniform. The historical HIP candidate improved only `1.06%` geometrically and was rejected because B4 uniform and B16 boundary regressed. Those synthetic timings are diagnostic under the current objective, so run one narrow fitted B1 check and retain only a clear weighted gain.
-2. Device tasks remain secondary to the Q4_K/Q5_K implementation. HIP already retains IQ2_S row tasks at B1, but this GGTensile body is substantially faster and uses split64; no margin transfers automatically. Reuse a proven non-paired task ABI only if the first two quant types establish a resource-clean mechanism.
-3. Do not reopen global codebook lookup, width8 decode, M256/N64, shared pair/down swizzles, or broad decoder-wave designs. Direct controls already close those mechanisms. Any later decode work must reduce state below the current `194-210` VGPR envelope while preserving exact signed grid/scale reconstruction.
+IQ2_S already retains signed-dword preapplication, workgroup-local codebook staging, split64 ownership, and the selected layout/schedule interactions. The only immediate reopening is the fitted-objective interpretation of inactive-M suppression:
+- Add the same wave-uniform wholly inactive 16-row consumer guard used by the Q4_K/Q5_K/Q2_K controls, leaving codebook staging, per-K decode, LDS traffic required by active siblings, and barriers uniform. The historical HIP candidate improved only `1.06%` geometrically and was rejected because B4 uniform and B16 boundary regressed. Those synthetic timings are diagnostic under the current objective, so run one narrow fitted B1 check and retain only a clear weighted gain.
+- Device tasks remain secondary to the Q4_K/Q5_K implementation. HIP already retains IQ2_S row tasks at B1, but this GGTensile body is substantially faster and uses split64; no margin transfers automatically. Reuse a proven non-paired task ABI only if the first two quant types establish a resource-clean mechanism.
+- Do not reopen global codebook lookup, width8 decode, M256/N64, shared pair/down swizzles, or broad decoder-wave designs. Direct controls already close those mechanisms. Any later decode work must reduce state below the current `194-210` VGPR envelope while preserving exact signed grid/scale reconstruction.
 
 Fitted medoids alone rank timing. All route controls still gate exactness, deterministic coverage, malformed-route behavior, private storage, and spills. Each coherent result is appended here when completed.
 

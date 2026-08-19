@@ -116,11 +116,10 @@ Final inspected resources are B1 `87 VGPR / 35 SGPR / 5 KiB LDS`, B4 `135 / 35 /
 
 ## Reopened post-refactor optimization program
 
-Q2_K keeps serial or static split ownership because N64 already exposes 32 column workgroups per expert and device tasks do not remove rounded M-tail arithmetic. The actionable changed premise is therefore inactive-M consumer suppression, not another ownership sweep.
-
-1. Add wave-uniform suppression of wholly inactive 16-row WMMA consumers while keeping width-16 scale/minimum decode and barriers uniform. The HIP analog improved B1 by `8.69-15.15%` and the complete route matrix by `4.73%` geometrically. Measure B1 first, then B4/B16 only if the source form remains resource-neutral and fitted medoids improve.
-2. Preserve the selected Q2 `DependencyBatch4` choices at B1/B4 and serial decode at B16. Reconfirm them only after suppression changes the schedule premise; the existing B16 batch4 loss of `1.46%` is a valid fitted closure for the old parent.
-3. Do not reopen N128, row tasks, U4, or broad split factors without a mechanism that removes repeated scale/minimum reconstruction. Existing controls already reject those choices by resource or fitted timing.
+Q2_K keeps serial or static split ownership because N64 already exposes 32 column workgroups per expert and device tasks do not remove rounded M-tail arithmetic. The actionable changed premise is therefore inactive-M consumer suppression, not another ownership sweep:
+- Add wave-uniform suppression of wholly inactive 16-row WMMA consumers while keeping width-16 scale/minimum decode and barriers uniform. The HIP analog improved B1 by `8.69-15.15%` and the complete route matrix by `4.73%` geometrically. Measure B1 first, then B4/B16 only if the source form remains resource-neutral and fitted medoids improve.
+- Preserve the selected Q2 `DependencyBatch4` choices at B1/B4 and serial decode at B16. Reconfirm them only after suppression changes the schedule premise; the existing B16 batch4 loss of `1.46%` is a valid fitted closure for the old parent.
+- Do not reopen N128, row tasks, U4, or broad split factors without a mechanism that removes repeated scale/minimum reconstruction. Existing controls already reject those choices by resource or fitted timing.
 
 All controls remain exact against packed HIP, deterministic, and spill-free. Uniform, skewed, sparse-ID, and boundary timing is diagnostic rather than a fitted-ranking veto.
 
