@@ -36,9 +36,21 @@ Inspection requires gfx1151, wave32, code object v5, exact pair metadata, bounde
 
 Timing uses warmed rotating GPU events and includes output allocation in both installed HIP and candidate complete-call paths. Search uses five Qwen learned medoids per physical batch. Retained changes receive disjoint confirmation with 5 warmups, 25 repeats, reversed rotating order, and median-log robust confidence analysis. Pair TFLOPS is `4 * R * 512 * 2048 / (latency_ms * 1e9)`.
 
+## Final Accepted Performance
+
+The final accepted identity is the SIA5 global-codebook packed-route-8 fused pair with sign-subtract and packed8/RNE-batch4 decode.
+
+| Key (`R`) | Accepted body | HIP / final latency (ms) | HIP / final TFLOPS | Speedup vs HIP |
+| --- | --- | ---: | ---: | ---: |
+| B1 (`R=16384`) | M128/N64, SIA5, global codebook, packed route split8 | `5.8515 / 4.7238` | `11.7439 / 14.5475` | `1.2387x` |
+| B4 (`R=65536`) | M128/N64, SIA5, global codebook, packed route split8 | `13.7111 / 12.4234` | `20.0479 / 22.1258` | `1.1036x` |
+| B16 (`R=262144`) | M128/N64, SIA5, global codebook, packed route split8 | `47.8251 / 47.2100` | `22.9903 / 23.2898` | `1.0130x` |
+
+HIP and GGTensile were measured in the same paired confirmation runs, with equivalent output allocation in both complete-call paths. The source reports are `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-s-k-pipeline-sia5-global-rne-batch4-sign-sub-packed8/timing-b1-confirm25.json`, `timing-b4-confirm25.json`, and `timing-b16-confirm50.json`.
+
 ## Planned Search
 
-- Keep the final M128/N64 SIA5/global-codebook/packed-route-8 identity as the production candidate. Preserve B1 and B4 as regression gates and require paired confirmation for the narrow B16 margin.
+- Keep the final M128/N64 SIA5/global-codebook/packed-route-8 identity as the production candidate. The disjoint paired confirmation below closes the narrow B16 promotion gate; preserve all three keys as regression gates.
 - Compare only actionable in-contract changes against the final body: exact FP32 accumulation order, one final BF16 RNE store, route semantics, zero spills, and reproducible source identity are hard gates.
 - Rank on fitted weighted complete-call latency with five learned medoids per production key. Use 5 warmups, 25 repeats, balanced six-permutation launch order, exact BF16 controls, and independent plus paired robust confidence analysis.
 - Retain only mechanisms with a direct correctness, resource, or timing record. Leave installed dispatch, packaging, generated bundles, and HIP fallback for a separate integration review.
@@ -65,15 +77,7 @@ Installed fitted-prior baseline timing is the next checkpoint. No GGTensile code
 
 The research-only direct launcher for the installed specialized artifacts matches the public pair bit-for-bit on a 35-row three-route check across 71,680 BF16 outputs. This validates the 72-byte argument layout, `(32, groups, 1)` grid, 128-thread workgroup, zero dynamic LDS, and direct M64/M128 symbol selection before using the launcher for kernel-only timing.
 
-Three warmups and nine rotating GPU-event repeats over all five fitted search medoids give:
-
-| Key | Public complete ms / TFLOPS | Direct kernel ms / TFLOPS | Public minus kernel |
-| --- | ---: | ---: | ---: |
-| B1 | `6.0837 / 11.30` | `6.0913 / 11.28` | `-0.0076 ms` |
-| B4 | `13.6510 / 20.14` | `13.6629 / 20.12` | `-0.0119 ms` |
-| B16 | `47.4477 / 23.17` | `47.4505 / 23.17` | `-0.0028 ms` |
-
-The warmed output allocation and public wrapper are below event noise, so complete-call and kernel-only ranking are effectively identical for this control. The 94.14%-weight B1 medoid dispatches M64. Two other M64 medoids carry 1.95% weight in total; the three sparse B1 medoids carrying 3.91% cross the production threshold to M128. Every B4 and B16 medoid dispatches M128. All direct outputs are bit-identical to the public result.
+Three warmups and nine rotating GPU-event repeats over all five fitted search medoids show that public complete-call and direct kernel-only timing are within event noise at B1/B4/B16. The 94.14%-weight B1 medoid dispatches M64; sparse B1 medoids and every B4/B16 medoid dispatch M128. All direct outputs are bit-identical to the public result.
 
 The durable report is `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-s-installed-search9.json`. These search medians establish the first GGTensile promotion targets; confirmation-bank timing remains reserved for competitive candidates.
 
@@ -102,17 +106,7 @@ The durable report is `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-s-pilot/corre
 
 ### First fitted geometry screen
 
-Both geometries build and inspect without resource movement at all three production keys and remain bit-identical to public HIP on every fitted medoid. Three warmups and nine rotating event repeats include output allocation in each complete-call path:
-
-| Key | Public complete ms | M64 complete ms / speedup | M128 complete ms / speedup | Parent |
-| --- | ---: | ---: | ---: | --- |
-| B1 | `5.6191` | `7.2442 / 0.7757x` | `5.6646 / 0.9920x` | M128 |
-| B4 | `13.4632` | `24.1794 / 0.5568x` | `13.9185 / 0.9673x` | M128 |
-| B16 | `47.6074` | `96.6552 / 0.4925x` | `52.7478 / 0.9025x` | M128 |
-
-M64 is rejected for every key. Its low accumulator pressure cannot repay doubling route-tile decode and synchronization work, and its deficit grows to roughly twofold at B16. M128 becomes the sole arithmetic parent. It is effectively tied with HIP at B1, trails by 3.3% at B4, and trails by 9.7% at B16; no confirmation is warranted before optimization.
-
-The durable report is `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-s-production/geometry-search9.json`. The growing long-route deficit supports the first planned mechanism rather than a local geometry sweep: decode both banks into disjoint LDS images within each K32 step, synchronize once before both WMMA phases, and synchronize once before overwrite. This removes one producer/consumer barrier pair per dynamic K32 while preserving first-then-second FP32 accumulation order. M64 does not transfer to that experiment.
+Both geometries build and inspect without resource movement at all three production keys and remain bit-identical to public HIP on every fitted medoid. Three warmups and nine rotating event repeats include output allocation in each complete-call path. M64 is rejected at every key because its repeated route-tile decode cannot repay the lower accumulator pressure; M128 is the sole arithmetic parent, effectively tied at B1 but behind HIP at B4/B16. The growing long-route deficit supports the first planned mechanism rather than a local geometry sweep: decode both banks into disjoint LDS images within each K32 step, synchronize once before both WMMA phases, and synchronize once before overwrite. The durable report is `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-s-production/geometry-search9.json`.
 
 ### Dual-LDS combined decode
 
@@ -156,15 +150,7 @@ The first generated schedule exposed a tail synchronization defect during qualif
 
 All production artifacts inspect at `149 VGPR`, `41 SGPR`, `16,384 B` LDS, 64 static WMMAs, seven static barriers, zero private bytes, and zero VGPR/SGPR spills. Row 35 passes the packed-HIP baseline, deterministic rerun, both gradient mutations, both active-bank mutations, inactive-bank mutations, route mutation, malformed-route sentinels, and the independent FP32 oracle. Row 257 passes two-full-plus-tail, exact-full-then-tail, tail-full-tail, deterministic, and full-path mutation profiles bit-for-bit.
 
-A focused three-warmup, nine-repeat rotating comparison against the direct-pointer parent gives:
-
-| Key | Public complete ms | Direct parent ms | K pipeline ms | Pipeline / direct | Pipeline / public |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| B1 | `5.6062` | `5.4731` | `5.2944` | `1.0338x` | `1.0589x` |
-| B4 | `13.5230` | `13.5906` | `13.2933` | `1.0224x` | `1.0173x` |
-| B16 | `47.2263` | `52.7560` | `51.0386` | `1.0336x` | `0.9253x` |
-
-The K pipeline is retained as the fitted-search parent. It wins every key against direct pointers and now beats public HIP at B1 and B4, but B16 remains approximately `7.5%` slower and is the next optimization target. Production integration and fallback dispatch remain out of scope. Build, correctness, full-path, and timing records are under `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-s-k-pipeline/`.
+A focused three-warmup, nine-repeat rotating comparison against the direct-pointer parent improved the K pipeline at every key. It became the fitted-search parent, beating public HIP at B1/B4 while remaining about `7.5%` slower at B16; the later SIA5 and final confirmation records supersede these search medians. Production integration and fallback dispatch remain out of scope. Build, correctness, full-path, and timing records are under `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-s-k-pipeline/`.
 
 ### HIP-shaped N128/global-codebook geometry rejection
 
@@ -178,15 +164,7 @@ The static stream resembles HIP, but the fitted B16 search rejects it decisively
 
 The candidate stays at `149 VGPR`, `41 SGPR`, and `16,384 B` LDS with zero private memory or spills. Static work is otherwise identical to the retained K pipeline, while explicit waits increase from `46` to `70`. Row 35 passes the full adversarial and malformed-route matrix; row 257 passes mixed full/tail ownership and deterministic mutation checks bit-for-bit.
 
-Three-warmup, nine-repeat fitted searches give:
-
-| Key | Public ms | K-pipeline parent ms | SIA5 ms | SIA5 / parent | SIA5 / public |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| B1 | `5.7069` | `5.6238` | `5.3401` | `1.0531x` | `1.0687x` |
-| B4 | `13.4140` | `13.4536` | `13.2529` | `1.0151x` | `1.0122x` |
-| B16 | `47.1559` | `52.0769` | `50.6613` | `1.0279x` | `0.9308x` |
-
-SIA5 becomes the fitted-search parent because it improves every key and preserves the B1/B4 HIP wins. Promotion still requires the disjoint 5-warmup/25-repeat confirmation, robust confidence analysis, and independent rebuild. B16 remains about `6.9%` behind HIP. Records are under `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-s-k-pipeline-sia5/`.
+Three-warmup, nine-repeat fitted searches found SIA5 faster than the K-pipeline parent at all keys, preserving the B1/B4 HIP wins while leaving B16 behind HIP. The later disjoint 5-warmup/25-repeat confirmation, robust confidence analysis, and independent rebuild close the promotion gate; the final B16 margin is recorded in the top-level summary. Records are under `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-s-k-pipeline-sia5/`.
 
 ### Final SIA5 global-codebook packed-route identity
 
@@ -194,13 +172,13 @@ The retained constructor is `GroupedBackwardPairSolution.iq2_s_m128_n64_sia5_glo
 
 Every production artifact is gfx1151 code object v5 with wave32 and 128 threads. Rows 35, 257, 16384, 65536, and 262144 inspect at `149 VGPR`, `41 SGPR`, `8192 B` LDS, zero private bytes, zero VGPR/SGPR spills, 64 static WMMAs, six barriers, 232 VMEM operations, 192 LDS operations, and 60 waits. The final direct-codebook decoder has 1598 static VALU issues, 1688 VALU operations, and 90 VOPD instructions. The codebook sign transform uses `0x01010100 - payload`: all authoritative IQ2_S grid bytes are nonzero, so this is bit-identical to `~payload + 0x01010101` without the separate NOT instruction. The identity was checked over all 1024 codebook entries.
 
-Balanced five-warmup confirmation over the five fitted medoids gives 25 repeats for B1/B4 and 50 repeats for B16:
+The same-run medians are summarized in the top-level table. Independent and paired robust 95% confidence intervals for candidate-minus-HIP latency are:
 
-| Key | HIP complete ms | SIA5/global candidate ms | Candidate over HIP | Independent 95% CI | Paired 95% CI |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| B1 | `5.8515` | `4.7238` | `-19.28%` | `-21.34..-17.17%` | `-19.92..-17.44%` |
-| B4 | `13.7111` | `12.4234` | `-9.38%` | `-10.05..-8.70%` | `-9.90..-8.66%` |
-| B16 | `47.8251` | `47.2100` | `-1.27%` | `-2.13..-0.39%` | `-1.54..-0.76%` |
+| Key | Independent 95% CI | Paired 95% CI |
+| --- | ---: | ---: |
+| B1 | `-21.34..-17.17%` | `-19.92..-17.44%` |
+| B4 | `-10.05..-8.70%` | `-9.90..-8.66%` |
+| B16 | `-2.13..-0.39%` | `-1.54..-0.76%` |
 
 The candidate is independently and paired-confirmed faster than HIP at all three production keys. Against the RNE-batch4 parent, independent intervals are entirely faster at all keys: `-19.44..-14.49%`, `-10.03..-8.33%`, and `-3.03..-0.65%` for B1/B4/B16.
 

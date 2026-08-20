@@ -188,7 +188,10 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
             after_k_half=(
                 prefetch_next_a if self.physical.lds.codebook_in_lds else None
             ),
-            pending_vmem_by_k_tile={0: 14, 16: 14},
+            pending_vmem_by_k_tile={
+                0: pending_second_a_half,
+                16: pending_second_a_half,
+            },
         )
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")

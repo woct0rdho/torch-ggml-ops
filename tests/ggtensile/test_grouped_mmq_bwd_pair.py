@@ -547,7 +547,8 @@ def test_backward_pair_k_pipeline_identity_and_synchronized_tail() -> None:
     assert source.count("v_wmma_f32_16x16x16_bf16") == 64
     assert source.count("s_barrier") == 7
     assert source.count("s_add_u32 s5, s5, 32") == 2
-    assert "s_waitcnt vmcnt(14) lgkmcnt(0)" in source
+    assert source.count("s_waitcnt vmcnt(4) lgkmcnt(0)") == 8
+    assert "s_waitcnt vmcnt(14) lgkmcnt(0)" not in source
     assert "s_waitcnt vmcnt(5)" in source
 
     tail = source[source.index(".LPairKPipelineComputeTail:") :]

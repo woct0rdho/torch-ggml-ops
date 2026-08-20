@@ -34,6 +34,18 @@ Inspection requires gfx1151, wave32, code object v5, exact 56-byte metadata, bou
 
 Timing uses warmed rotating GPU events and includes output allocation in both HIP and candidate complete-call paths. Search uses five fitted medoids from each DeepSeek learned/hash component. Retained changes receive disjoint confirmation with 5 warmups, 25 repeats, and reversed rotating order. TFLOPS is `2 * R * 2048 * 4096 / (latency_ms * 1e9)`.
 
+## Final Accepted Performance
+
+The accepted identities add wave-uniform inactive-M consumer suppression to the selected Q2_K bodies at all three keys.
+
+| Key (`R`) | Accepted body | HIP / final latency (ms) | HIP / final TFLOPS | Speedup vs HIP |
+| --- | --- | ---: | ---: | ---: |
+| B1 (`R=12288`) | SIA4 M64/N64, padded, serial routes, Q2 batch4, inactive-M | `22.1611 / 13.0902` | `9.3027 / 15.7490` | `1.6930x` |
+| B4 (`R=49152`) | SIA5 M128/N64, padded, <=64 M64 mixed tail, serial routes, Q2 batch4, inactive-M | `51.1721 / 34.9357` | `16.1149 / 23.6043` | `1.4647x` |
+| B16 (`R=196608`) | SIA5 M128/N128, padded, masked tail, SplitRoutes32, serial Q2 decode, inactive-M | `191.5512 / 120.8742` | `17.2201 / 27.2890` | `1.5847x` |
+
+The inactive-M reports measure retained parent versus final candidate, not a fresh three-way HIP bracket. To avoid mixing timing sessions, the HIP and retained-parent values use the earlier disjoint HIP confirmation, and the final latency/TFLOPS and speedup are normalized with the independently confirmed candidate/parent ratios. The latest raw brackets are `14.8789 -> 13.0617 ms` at B1, `35.5258 -> 34.9647 ms` at B4, and `127.2202 -> 122.2185 ms` at B16; reports are `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q2-b1-confirm25.json`, `...-b4-confirm25.json`, and `...-b16-confirm25.json`.
+
 ## Planned Search
 
 - Add strict Q2_K backward identity and exact DeepSeek shapes without changing retained Q4_K/Q5_K source hashes or the grouped ABI.
@@ -62,21 +74,7 @@ Regenerated retained Q4 and Q5 B1 sources remain byte-identical.
 
 ### First fitted-prior geometry screen
 
-Nine-repeat search-bank results combine the learned/hash components with their declared reporting weights:
-
-| Candidate | Key | Weighted HIP / candidate ms | Speedup vs HIP | Decision |
-| --- | --- | ---: | ---: | --- |
-| Pilot M128/N128 SIA2 | B1 | `21.5154 / 27.3304` | `0.7872x` | Correctness anchor; rejected by timing |
-| SIA5 M64/N64 | B1 | `22.4126 / 15.3135` | `1.4636x` | B1 parent |
-| SIA5 M128/N64 | B1 | `22.0206 / 18.5717` | `1.1857x` | Loses M64 |
-| SIA5 M128/N128 | B1 | `22.0305 / 20.4270` | `1.0785x` | Loses M64 |
-| Double-LDS M128/N64 | B1 | `21.8743 / 19.4817` | `1.1228x` | Rejected by timing |
-| SIA5 M128/N64 | B4 | `50.5124 / 37.4635` | `1.3483x` | Provisional B4 parent |
-| SIA5 M128/N128 | B4 | `49.6191 / 37.7143` | `1.3157x` | Direct bracket required |
-| Double-LDS M128/N64 | B4 | `50.3349 / 39.9505` | `1.2599x` | Rejected by timing |
-| SIA5 M128/N64 | B16 | `190.4396 / 161.5854` | `1.1786x` | Rejected by N128 |
-| SIA5 M128/N128 | B16 | `191.3111 / 132.1376` | `1.4478x` | B16 parent |
-| Double-LDS M128/N64 | B16 | `190.9867 / 162.6025` | `1.1746x` | Rejected by timing |
+The initial screen rejected the M128/N128 SIA2 pilot, selected M64/N64 for B1, selected M128/N64 for B4, and selected M128/N128 for B16. Double LDS and the losing geometries were closed by timing; later tail, split, and decode brackets established the parents used for final qualification.
 
 The result differs from the installed HIP geometry because the assembly N128 body is 206 VGPR rather than the historical 255-VGPR cliff. B1 route tails still favor the 87-VGPR M64 body; B4 is within one percent between N64 and N128 and requires same-process resolution; B16 gains materially from N128 packed reuse. Double-LDS is closed unless a later changed mechanism removes work rather than only rescheduling it.
 
@@ -104,11 +102,13 @@ A typed Q2 `DependencyBatch4` schedule reuses four dead `valu_b` register pairs 
 
 The final artifacts use five warmups, 25 repeats, reversed rotating order, and disjoint confirmation-bank learned/hash medoids. Timings are weighted by the declared `40/43` learned and `3/43` hash reporting weights; both HIP and candidate complete-call paths include output allocation.
 
-| Key | Final identity | Weighted HIP / GGTensile ms | HIP / GGTensile TFLOPS | Speedup vs HIP |
-| --- | --- | ---: | ---: | ---: |
-| B1 (`R=12288`) | SIA4 M64/N64, padded, serial routes, Q2 batch4 | `22.1611 / 14.9114` | `9.3027 / 13.8256` | `1.4862x` |
-| B4 (`R=49152`) | SIA5 M128/N64, padded, <=64 M64 mixed tail, serial routes, Q2 batch4 | `51.1721 / 35.4964` | `16.1149 / 23.2315` | `1.4416x` |
-| B16 (`R=196608`) | SIA5 M128/N128, padded, masked tail, SplitRoutes32, serial Q2 decode | `191.5512 / 125.8210` | `17.2201 / 26.2161` | `1.5224x` |
+The earlier parent/HIP confirmation is represented in the normalized table above. The latest disjoint parent-to-candidate confirmations are:
+
+| Key | Retained parent -> final candidate (ms) | Candidate / parent |
+| --- | ---: | ---: |
+| B1 | `14.8789 -> 13.0617` | `1.1391x` |
+| B4 | `35.5258 -> 34.9647` | `1.0160x` |
+| B16 | `127.2202 -> 122.2185` | `1.0409x` |
 
 Full-row correctness (`--correctness-rows 0`) is packed-HIP bit-exact at every final key: 12,288, 49,152, and 196,608 rows. Deterministic reruns, gradient mutation, route mutation, and active-weight mutation are exact with zero tail writes. Independent BF16-oracle NRMSE is `8.55e-6`, `5.60e-5`, and `9.81e-5` respectively; all remain below `0.01`.
 

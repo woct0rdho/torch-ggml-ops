@@ -34,6 +34,18 @@ Inspection requires gfx1151, wave32, code object v5, exact 56-byte metadata, bou
 
 Timing uses warmed rotating GPU events and includes output allocation in both HIP and candidate complete-call paths. Search uses five fitted medoids; retained changes receive a disjoint confirmation-bank run with 5 warmups, 25 repeats, and reversed rotating order. TFLOPS is `2 * R * 512 * 2048 / (latency_ms * 1e9)`.
 
+## Final Accepted Performance
+
+The accepted identities retain inactive-M suppression at B1/B4 and the original parent path at B16, where the longer confirmation rejected suppression.
+
+| Key (`R`) | Accepted body | HIP / final latency (ms) | HIP / final TFLOPS | Speedup vs HIP |
+| --- | --- | ---: | ---: | ---: |
+| B1 (`R=16384`) | SIA5 padded M128/N64 plus M64/N64 tail, `Mixed128_64`, serial routes, inactive-M | `3.9549 / 2.8195` | `8.6879 / 12.1864` | `1.4027x` |
+| B4 (`R=65536`) | SIA5 padded M128/N128, `SplitRoutes16`, inactive-M | `9.2931 / 7.6126` | `14.7894 / 18.0540` | `1.2207x` |
+| B16 (`R=262144`) | SIA5 padded M128/N128, `SplitRoutes16`, parent consumer path | `31.7727 / 24.7802` | `17.3028 / 22.1853` | `1.2822x` |
+
+The B1/B4 inactive-M reports are parent-versus-candidate brackets, so their final columns use the earlier HIP/retained-parent confirmation baseline composed with the latest candidate/parent ratios. B16 is reported directly from the retained parent baseline because suppression was rejected by the 200-repeat confirmation. Latest raw refinement brackets are `2.8741 -> 2.8215 ms` (B1), `7.9329 -> 7.7282 ms` (B4), and `25.0288 -> 25.0906 ms` (B16, rejected); reports are `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q5-b1-confirm75.json`, `...-b4-confirm75.json`, and `...-b16-confirm200.json`.
+
 ## Planned Search
 
 - Generalize the strict grouped identity and benchmark from Q4_K-only to `{Q4_K,Q5_K}` without changing Q4 source hashes.
@@ -58,17 +70,7 @@ The Q5 pilot and initial SIA5 M128/N128, SIA5 M128/N64, SIA5 M64/N64, SIA4 doubl
 
 ### First fitted-prior geometry screen
 
-Nine-repeat search-bank weighted results are:
-
-| Candidate | Key | Weighted HIP / candidate ms | Speedup vs HIP | Decision |
-| --- | --- | ---: | ---: | --- |
-| Pilot M128/N128 SIA2 | B1 | `3.7423 / 4.1997` | `0.8911x` | Rejected by timing |
-| SIA5 M128/N128 | B1 | `3.7552 / 3.1414` | `1.1954x` | Loses to N64 |
-| SIA5 M128/N64 | B1 | `3.8012 / 2.9121` | `1.3053x` | Provisional B1 parent |
-| SIA5 M64/N64 | B1 | `3.8023 / 3.1782` | `1.1964x` | Rejected by timing |
-| Split4 SIA5 M128/N128 | B4 | `9.3391 / 8.1098` | `1.1516x` | Provisional ownership control |
-| Split4 double-LDS SIA4 M128/N128 | B4 | `9.4809 / 8.0422` | `1.1789x` | Provisional B4 parent; direct bracket required |
-| Split8 SIA5 M128/N128 | B16 | `32.0196 / 25.4768` | `1.2568x` | Provisional B16 parent |
+The initial screen rejected the M128/N128 SIA2 pilot and M64 primary, retained M128/N64 as the B1 premise, and opened split ownership for B4/B16. The later split16 confirmation-bank bracket established the final large-key parents; the full accepted identities are summarized above.
 
 The pilot and M64 primary are closed. Q5 high-bit decode changes the B4 pipeline ranking relative to Q4, so double-LDS remains open at B4/B16. M128/N64 remains the B1 geometry premise; mixed tails and Q5 decode knobs will be evaluated against that parent rather than the slower M64 body.
 
@@ -114,15 +116,13 @@ Full-row qualification passes every packed HIP, independent oracle, determinism,
 | B4 | `65536` | `0` | `8.78e-5` | `0 / 0` |
 | B16 | `262144` | `0` | `8.06e-5` | `0 / 0` |
 
-ginal disjoint confirmation uses 5 warmups, 25 repeats, reversed rotating order, complete-call allocation in both paths, and fitted medoid weights:
+The earlier parent/HIP confirmation is represented in the normalized table above. The latest refinement brackets are:
 
-| Key | HIP / GGTensile ms | HIP / GGTensile TFLOPS | Speedup vs HIP |
-| --- | ---: | ---: | ---: |
-| B1 | `3.9549 / 2.8721` | `8.6879 / 11.9633` | `1.3770x` |
-| B4 | `9.2931 / 7.8143` | `14.7893 / 17.5881` | `1.1892x` |
-| B16 | `31.7727 / 24.7802` | `17.3028 / 22.1853` | `1.2822x` |
-
-The B1 weighted win is concentrated in the dominant confirmation medoid; its minimum individual-medoid throughput is `0.7859x`. B4 and B16 remain above HIP on every confirmation medoid, at minimum `1.1749x` and `1.2733x`. This follows the declared fitted weighted objective rather than introducing a post hoc per-medoid veto.
+| Key | Retained parent -> candidate (ms) | Candidate / parent | Decision |
+| --- | ---: | ---: | --- |
+| B1 | `2.8741 -> 2.8215` | `1.0186x` | Retained |
+| B4 | `7.9329 -> 7.7282` | `1.0265x` | Retained |
+| B16 | `25.0288 -> 25.0906` | `0.9975x` | Suppression rejected; parent retained |
 
 The isolated result does not modify public dispatch, generated bundle tables, registration, packaging, or HIP fallback. Integration remains a separate review.
 

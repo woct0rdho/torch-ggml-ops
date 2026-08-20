@@ -62,17 +62,17 @@ Open a new decoder, overlap, mapping, store, persistent, or split-reduction mech
 
 Promotion ranking is the fitted Qwen routing-prior weighted sum of per-medoid median complete-call latency across its five search or confirmation medoids. Complete-call timing includes output allocation and launch. The uniform, skewed, sparse-ID, and boundary distributions are correctness and diagnostic controls; low-weight medoid regressions do not block a candidate when the fitted weighted objective improves. Results below use warmed GPU events and disjoint reversed-order confirmation.
 
-## Retained Candidates
+## Retained Parent History
 
-| Key | Retained body | Confirmation latency HIP / GGTensile | HIP / GGTensile TFLOPS | Speedup vs HIP | Resource envelope |
-| --- | --- | ---: | ---: | ---: | --- |
-| B1, `R=16384` | `M128/N64`, SIA5, DependencyBatch4, `SerialRoutes`, `Mixed128_64` | `4.6301 / 2.5762 ms` | `7.4210 / 13.3375` | `1.7973x` | 136 VGPR, 35 SGPR, 5 KiB LDS |
-| B4, `R=65536` | `M128/N128`, SIA5, DependencyBatch4, `SplitRoutes4`, `Masked` | `9.6852 / 7.5674 ms` | `14.1907 / 18.1619` | `1.2798x` | 208 VGPR, 35 SGPR, 10 KiB LDS |
-| B16, `R=262144` | `M128/N128`, SIA5, DependencyBatch4, `SplitRoutes8`, `Masked` | `32.2976 / 24.0474 ms` | `17.0216 / 22.8614` | `1.3431x` | 208 VGPR, 35 SGPR, 10 KiB LDS |
+The pre-refactor campaign retained these direct bodies before the inactive-M refinement:
 
-TFLOPS uses `2 * R * 512 * 2048 / (latency_ms * 1e9)` and is reported from the same weighted confirmation summaries. All retained bodies have zero private bytes, zero VGPR/SGPR spills, and no scratch. The B4/B16 bodies have 32 static WMMA instructions and two barriers; B1 mixed has 24 static WMMAs and four barriers because the mutually exclusive M64/N64 tail is emitted alongside the M128 primary body. The B1 mixed search comparison was `2.5869 -> 2.3491 ms` versus its masked parent. On the disjoint confirmation bank it improved `2.8250 -> 2.5762 ms`; the 97.27%-weight confirmation medoid improved `2.8202 -> 2.5665 ms`.
+| Key | Retained parent body | Resource envelope |
+| --- | --- | --- |
+| B1, `R=16384` | `M128/N64`, SIA5, DependencyBatch4, `SerialRoutes`, `Mixed128_64` | 136 VGPR, 35 SGPR, 5 KiB LDS |
+| B4, `R=65536` | `M128/N128`, SIA5, DependencyBatch4, `SplitRoutes4`, `Masked` | 208 VGPR, 35 SGPR, 10 KiB LDS |
+| B16, `R=262144` | `M128/N128`, SIA5, DependencyBatch4, `SplitRoutes8`, `Masked` | 208 VGPR, 35 SGPR, 10 KiB LDS |
 
-Every retained key passed full-row qualification at its exact `R`: candidate output versus packed HIP was BF16 bit-exact, deterministic reruns were bit-exact, and the independent BF16 dequantized oracle NRMSEs were B1 `6.78e-5`, B4 `8.86e-5`, and B16 `8.05e-5`. Route, gradient, active/inactive weight, invalid expert, malformed offset, sentinel, and complete output-coverage controls passed. Independent source and HSACO rebuilds were byte-identical.
+The parent-only B1 mixed refinement measured `2.8250 -> 2.5762 ms` on its disjoint confirmation bank. The later inactive-M confirmations supersede that parent timing for the accepted performance summary below. Every retained key passed the full-row packed-HIP, deterministic, mutation, sentinel, and independent-oracle gates; independent source and HSACO rebuilds were byte-identical.
 
 ## Mixed-Tail Decision
 
@@ -85,6 +85,18 @@ The mechanism is retained only for B1. A direct same-process B4 parent bracket (
 Correctness covers full tiles, non-aligned tails, first and non-first routes, sparse and repeated physical IDs, invalid experts and offsets, deterministic reruns, aggregate boundaries, input/gradient mutation, active packed-weight mutation, and inactive-expert mutation. Changed accumulation order uses an explicit BF16 numerical envelope rather than a bitwise claim.
 
 Inspection checks symbol identity, ABI metadata, gfx1151, wave32, workgroup, VGPR, SGPR, LDS, private bytes, spills, scratch, calls, stack, barriers, waits, and static WMMA count. Timing uses shared inputs and route metadata, warmed alternating order, a disjoint confirmation corpus, and reversed-order longer runs for retained changes. Small stable gains may accumulate; there is no hard two-percent promotion gate. No selected key may regress a required control beyond the noise-supported retention bound.
+
+## Final Accepted Performance
+
+The accepted identities add wave-uniform inactive-M consumer suppression to the selected Q4_K bodies at all three keys.
+
+| Key (`R`) | Accepted body | HIP / final latency (ms) | HIP / final TFLOPS | Speedup vs HIP |
+| --- | --- | ---: | ---: | ---: |
+| B1 (`R=16384`) | M128/N64, SIA5, DependencyBatch4, `SerialRoutes`, `Mixed128_64`, inactive-M | `4.6301 / 2.5084` | `7.4209 / 13.6978` | `1.8458x` |
+| B4 (`R=65536`) | M128/N128, SIA5, DependencyBatch4, `SplitRoutes4`, `Masked`, inactive-M | `9.6852 / 7.3674` | `14.1906 / 18.6550` | `1.3146x` |
+| B16 (`R=262144`) | M128/N128, SIA5, DependencyBatch4, `SplitRoutes8`, `Masked`, inactive-M | `32.2976 / 23.8101` | `17.0216 / 23.0892` | `1.3565x` |
+
+The inactive-M reports measure retained parent versus final candidate, not a fresh three-way HIP bracket. To avoid mixing timing sessions, the HIP and retained-parent values use the earlier disjoint HIP confirmation, and the final latency/TFLOPS and speedup are normalized with the independently confirmed candidate/parent ratios. The latest raw brackets are `2.5845 -> 2.5165 ms` at B1, `7.5515 -> 7.3519 ms` at B4, and `24.0434 -> 23.8061 ms` at B16; reports are `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q4-b1-confirm25.json`, `...-b4-confirm25.json`, and `...-b16-confirm25.json`.
 
 ## Experiment Log
 

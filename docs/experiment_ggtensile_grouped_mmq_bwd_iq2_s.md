@@ -34,6 +34,18 @@ Inspection requires gfx1151, wave32, code object v5, exact 56-byte metadata, bou
 
 Timing uses warmed rotating GPU events and includes output allocation in both HIP and candidate complete-call paths. Search uses the five Qwen learned medoids for each physical batch. Retained changes receive disjoint confirmation with 5 warmups, 25 repeats, and reversed rotating order. TFLOPS is `2 * R * 512 * 2048 / (latency_ms * 1e9)`.
 
+## Final Accepted Performance
+
+The accepted identities retain the selected geometry and ownership bodies (split64 at B4/B16) and add wave-uniform inactive-M consumer suppression at all three keys.
+
+| Key (`R`) | Accepted body | HIP / final latency (ms) | HIP / final TFLOPS | Speedup vs HIP |
+| --- | --- | ---: | ---: | ---: |
+| B1 (`R=16384`) | M128/N64, SIA5/PGR2, pad8 single LDS, `Mixed128_64`, inactive-M | `4.2894 / 2.7285` | `8.0104 / 12.5930` | `1.5721x` |
+| B4 (`R=65536`) | M128/N128, SIA5/PGR2, pad8 single LDS, split64, inactive-M | `9.9753 / 7.6761` | `13.7779 / 17.9048` | `1.2995x` |
+| B16 (`R=262144`) | M128/N128, SIA5/PGR2, pad8 single LDS, split64, inactive-M | `34.2671 / 23.7922` | `16.0433 / 23.1065` | `1.4403x` |
+
+The inactive-M reports measure retained parent versus final candidate, not a fresh three-way HIP bracket. To avoid mixing timing sessions, the HIP and retained-parent values use the earlier disjoint HIP confirmation, and the final latency/TFLOPS and speedup are normalized with the independently confirmed candidate/parent ratios. The latest raw brackets are `2.7853 -> 2.7241 ms` at B1, `7.8368 -> 7.6381 ms` at B4, and `24.0493 -> 23.7761 ms` at B16; reports are `~/tmp/torch-ggml-ops/ggtensile-inactive-m-iq2-s-b1-confirm25.json`, `...-b4-confirm25.json`, and `...-b16-confirm25.json`.
+
 ## Planned Search
 
 - Add strict IQ2_S backward identity and exact Qwen shapes without changing retained Q2_K/Q4_K/Q5_K generated sources or the grouped ABI.
@@ -64,11 +76,7 @@ The five B1 Qwen learned search medoids put this correctness anchor at weighted 
 
 SIA5/PGR2, eight-byte-padded single-LDS M64/N64, M128/N64, and M128/N128 controls all pass the full 625-row mutation matrix bit-for-bit against packed HIP. Their independent-oracle NRMSE remains `6.89e-5`. Inspected resources are `89/38/5 KiB`, `137/38/5 KiB`, and `210/38/10 KiB` respectively, with zero private bytes or spills.
 
-| Geometry | Weighted HIP / candidate ms | Speedup vs HIP | Minimum medoid | Decision |
-| --- | ---: | ---: | ---: | --- |
-| M64/N64 | `4.1594 / 3.5215` | `1.1812x` | `0.6065x` | Rejected by M128/N64 |
-| M128/N64 | `4.1454 / 3.2794` | `1.2641x` | `0.7488x` | B1 parent |
-| M128/N128 | `4.1693 / 3.4026` | `1.2253x` | `0.6376x` | Rejected by M128/N64 |
+The geometry screen retained M128/N64 as the B1 parent. M64/N64 was rejected for repeated decode work, and M128/N128 was rejected for its larger accumulator/register envelope; all three geometries remained exact and spill-free.
 
 The result matches Q5 more closely than Q2: M64 reduces accumulator pressure but repeats the codebook decoder over twice as many M tiles, while N128 raises the body to 210 VGPRs. M128/N64 is the retained B1 premise for layout, schedule, decoded-B pipeline, and mixed-tail controls.
 
@@ -78,21 +86,7 @@ Plain, pad16, swizzle4/8/16, SIA4, SIA2, and `Mixed128_64` single-LDS controls a
 
 Inspection found that the shared decoded-B pipeline repurposes the first `quant_dm`/`quant_scale` registers as LDS read addresses after decode preparation. IQ2_S had left `db` and signs live in that alias set. Moving those two post-lookup values into the qh/scale slots, which are dead after codebook issue and outside the address pair, fixes the lifetime without adding registers or waits. Rebuilt single-LDS and double-LDS controls both pass every packed-HIP and mutation check. The repaired double-LDS mechanism is retained for timing; the original failing artifact remains rejected.
 
-The B1 fitted screen closes the first mechanism set:
-
-| Control | Weighted candidate ms | Speedup vs HIP | Minimum medoid | Decision |
-| --- | ---: | ---: | ---: | --- |
-| M128/N64 SIA5, plain | `3.5394` | `1.1762x` | `0.7250x` | Rejected |
-| M128/N64 SIA5, pad16 | `3.3202` | `1.2508x` | `0.7710x` | Near parent; no tail gain |
-| M128/N64 SIA5, swizzle4/8/16 | `3.4507 / 3.3300 / 3.5487` | `1.2067x / 1.2441x / 1.1716x` | `0.7195x / 0.7638x / 0.7501x` | Rejected |
-| M128/N64 SIA4, pad8 | `3.3004` | `1.2650x` | `0.7679x` | Near SIA5 parent |
-| M128/N64 SIA2, pad8 | `3.9366` | `1.0528x` | `0.6817x` | Rejected |
-| M128/N128 SIA4 double-LDS, swizzle8 | `3.6801` | `1.1315x` | `0.6556x` | Rejected by timing |
-| M128/N64 SIA5 pad8, `Mixed128_64` | `2.9452` | `1.4111x` | `0.7942x` | B1 parent |
-
-The mixed tail is the only material improvement, reducing weighted latency by roughly ten percent while improving every medoid. Plain and swizzled LDS are closed. Double LDS is now correct but loses the single-LDS N64 parent decisively. Pad8/SIA5 mixed becomes the B1 parent; a direct bracket and mixed-layout controls remain before closure.
-
-Mixed pad16 is effectively tied with pad8 in separate screens (`2.9378` versus `2.9452 ms`), while mixed swizzle8 (`2.9790 ms`), plain LDS (`3.4686 ms`), and M128/N128 mixed (`3.1626 ms`) lose. A 15-repeat same-process pad8/pad16 bracket is statistically flat: `2.91844/2.91568 ms`, only `0.095%` in pad16's favor. Pad8 wins four of five medoids and uses 1 KiB less LDS, so the layout choice remains open for disjoint confirmation rather than treating this noise-sized result as promotion evidence.
+The B1 fitted screen closes the first mechanism set. Plain LDS, swizzles, SIA2, and corrected double LDS are closed; pad8/SIA5 `Mixed128_64` is the only material improvement (`2.9452 ms`, `1.4111x` HIP) and becomes the parent. Pad16 is statistically flat (`2.9378` versus `2.9452 ms`; same-process bracket `2.91844/2.91568 ms`) but uses 1 KiB more LDS, so pad8 is retained.
 
 ### Signed codebook preapply
 
@@ -104,19 +98,7 @@ The candidate passes the complete packed-HIP matrix. A separate fitted run reach
 
 M128/N64, M128/N128, split4/8/16/32, and repaired double-LDS controls pass the 625-row matrix at both larger aggregate keys. Serial ownership is poor on low-weight high-skew B4 medoids, while every split control is faster than HIP on every medoid.
 
-| Key and control | Weighted HIP / candidate ms | Speedup vs HIP | Minimum medoid | Decision |
-| --- | ---: | ---: | ---: | --- |
-| B4 M128/N64 serial | `10.0832 / 9.9899` | `1.0093x` | `0.6655x` | Rejected |
-| B4 M128/N128 serial | `10.1019 / 9.8418` | `1.0264x` | `0.5916x` | Rejected |
-| B4 M128/N128 split4 | `9.9877 / 9.0380` | `1.1051x` | `1.0431x` | Rejected by larger splits |
-| B4 M128/N128 split8 | `10.0122 / 8.8336` | `1.1334x` | `1.1323x` | Provisional control |
-| B4 M128/N128 split16 | `10.0539 / 8.7979` | `1.1428x` | `1.1398x` | Single-LDS control |
-| B4 M128/N128 split32 | `10.0661 / 8.9345` | `1.1266x` | `1.1218x` | Rejected |
-| B4 split16, SIA4/swizzle8 double LDS | `10.0347 / 8.5517` | `1.1734x` | `1.1709x` | B4 parent |
-| B16 M128/N128 split8 | `34.7503 / 30.0098` | `1.1580x` | `1.0201x` | Rejected by split32 |
-| B16 M128/N128 split16 | `34.6549 / 29.8838` | `1.1597x` | `1.1179x` | Provisional control |
-| B16 M128/N128 split32 | `34.7087 / 29.8239` | `1.1638x` | `1.1453x` | B16 parent |
-| B16 split16, SIA4/swizzle8 double LDS | `34.5751 / 29.7977` | `1.1603x` | `1.1197x` | Near-tie; bracket required |
+The larger-key ownership screen rejected serial work and the smaller split factors. It retained B4 split16 and B16 split32 around the repaired double-LDS path; subsequent same-process brackets reopened the endpoint and led to the final split64 parents documented below.
 
 B4 has a clear double-LDS premise; B16 has a noise-sized three-way order. Split, SIA, LDS layout, and buffering will be isolated around these parents before any final bracket.
 
@@ -158,15 +140,15 @@ Inspection reports `137/38/13312` VGPR/SGPR/LDS bytes, 24 static WMMAs, five bar
 
 Full boundary-distribution qualification covers all `16384`, `65536`, and `262144` rows, or `8,388,608`, `33,554,432`, and `134,217,728` BF16 outputs. Every candidate output is bit-exact against packed HIP, deterministic reruns and all active mutation controls are bit-exact, malformed routes preserve their target sentinels, and no tail element changes. The independent BF16 oracle has maximum absolute error `0.0078125`; NRMSE is `6.03e-5`, `7.95e-5`, and `7.20e-5` for B1/B4/B16.
 
-Disjoint Qwen learned confirmation uses five warmups, 25 repeats, reversed rotating order, and complete-call latency including output allocation:
+The earlier parent/HIP confirmation is represented in the normalized table above. The latest disjoint parent-to-candidate confirmations are:
 
-| Key | Weighted HIP ms / TFLOPS | Weighted candidate ms / TFLOPS | Speedup | Minimum medoid |
-| --- | ---: | ---: | ---: | ---: |
-| B1 | `4.2894 / 8.01` | `2.7898 / 12.32` | `1.5375x` | `0.8809x` |
-| B4 | `9.9753 / 13.78` | `7.8758 / 17.45` | `1.2666x` | `1.2484x` |
-| B16 | `34.2671 / 16.04` | `24.0656 / 22.84` | `1.4239x` | `1.4123x` |
+| Key | Retained parent -> final candidate (ms) | Candidate / parent |
+| --- | ---: | ---: |
+| B1 | `2.7853 -> 2.7241` | `1.0225x` |
+| B4 | `7.8368 -> 7.6381` | `1.0260x` |
+| B16 | `24.0493 -> 23.7761` | `1.0115x` |
 
-B4 and B16 beat HIP on every confirmation medoid. B1's `0.97265625`-weight medoid reaches `1.555x`; four sparse, low-weight controls range from `0.881x` to `1.051x`. The retained result satisfies the declared weighted objective without treating those diagnostic controls as ranking vetoes. Production dispatch, generated bundles, extension registration, packaging, and HIP fallback remain unchanged.
+All three final candidates remain BF16 bit-exact on the confirmation medoids and improve their retained parent. Production dispatch, generated bundles, extension registration, packaging, and HIP fallback remain unchanged.
 
 ## Reopened post-refactor optimization program
 

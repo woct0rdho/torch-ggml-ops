@@ -36,6 +36,18 @@ Inspection requires gfx1151, wave32, code object v5, exact pair metadata, bounde
 
 Timing uses warmed rotating GPU events and includes equivalent output allocation in candidate and installed complete-call paths. Retained finalists receive disjoint confirmation with at least 5 warmups and 25 repeats, reversed rotating order, independent and paired robust confidence intervals, and production-row validation. Pair TFLOPS is `4 * R * 2048 * 4096 / (latency_ms * 1e9)`.
 
+## Final Accepted Performance
+
+The final accepted dispatch is mixed by key: the confirmed M64 SIA5 K pipeline at B1 and the confirmed M128 direct-pointer/swizzle8 body at B4/B16.
+
+| Key (`R`) | Accepted body | HIP / final latency (ms) | HIP / final TFLOPS | Speedup vs HIP |
+| --- | --- | ---: | ---: | ---: |
+| B1 (`R=12288`) | M64/N64, SIA5 K pipeline, dual LDS, swizzle8, codebook overlap | `38.0585 / 31.7568` | `10.8338 / 12.9836` | `1.1984x` |
+| B4 (`R=49152`) | M128/N64, direct second-projection pointers, activation prefetch, swizzle8 | `97.7674 / 69.9801` | `16.8693 / 23.5677` | `1.3971x` |
+| B16 (`R=196608`) | M128/N64, direct second-projection pointers, activation prefetch, swizzle8 | `378.3588 / 285.1829` | `17.4360 / 23.1328` | `1.3267x` |
+
+HIP and GGTensile were measured in the same paired confirmation runs, with equivalent output allocation and pre-timing exactness checks. B1 uses `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m64-k-pipeline-sia5-codebook-overlap/timing-b1-confirmation25.json`; B4/B16 use `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m128-direct-swizzle8/timing-confirm25.json`.
+
 ## Planned Search
 
 - Reuse the ordinary backward tile, WMMA, route, ABI, store, runtime, and inspection machinery.
@@ -109,15 +121,7 @@ The durable report is `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-anchor-cu
 
 ### Fitted-prior geometry baseline
 
-The first ranking pass uses all five learned and five hash medoids in the DeepSeek search bank at each production key. Combined medoid weights use the fitted reporting mixture (`40/43` learned and `3/43` hash). Every profile passed an exact candidate/control comparison before timing. The protocol uses three warmups, nine rotating repeats, equivalent output allocation in each complete-call path, and a preallocated kernel-only diagnostic. The table reports the weighted sum of per-medoid complete-call medians; speedup is `installed / candidate`, so values above one favor GGTensile.
-
-| Key | Installed HIP | M64 GGTensile | M64 speedup | M128 GGTensile | M128 speedup |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| B1 / R12,288 | `36.5729 ms` | `38.6450 ms` | `0.9464x` | `44.3654 ms` | `0.8244x` |
-| B4 / R49,152 | `96.6729 ms` | `111.6812 ms` | `0.8656x` | `92.7468 ms` | `1.0423x` |
-| B16 / R196,608 | `377.0298 ms` | `426.8388 ms` | `0.8833x` | `387.0164 ms` | `0.9742x` |
-
-M128 at B4 is the only positive geometry result. It is a search-bank result, not a confirmation, and does not qualify promotion by itself. M64 misses every production key; M128 misses B1 and B16. Public dispatch remains unchanged. The durable report, including all samples and per-medoid route metadata, is `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-anchor-current/geometry-search9.json`.
+The first ranking pass uses all five learned and five hash medoids in the DeepSeek search bank at each production key. Combined medoid weights use the fitted reporting mixture (`40/43` learned and `3/43` hash). Every profile passed an exact candidate/control comparison before timing. The protocol uses three warmups, nine rotating repeats, equivalent output allocation in each complete-call path, and a preallocated kernel-only diagnostic. The search rejected M64 at all keys and M128 at B1/B16; only M128 at B4 advanced as a finalist. It was a search-bank result, not a promotion claim, and was later superseded by the disjoint confirmations in the accepted summary. Public dispatch remains unchanged. The durable report, including all samples and per-medoid route metadata, is `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-anchor-current/geometry-search9.json`.
 
 ### M64 activation-prefetch LDS layout selection
 
@@ -125,13 +129,7 @@ The staged M64 sequence retained separate 4 KiB weight tiles, split the two proj
 
 The installed body uses paired stride-64 LDS reads, while the swizzle4 GGTensile body issued eight 64-bit LDS reads for each pair of N16 fragments. Changing only the decoded-weight XOR chunk tested the same LDS issue-width premise through the writer's existing vector path. Swizzle8 and swizzle16 both replaced those reads with four 128-bit reads and reduced the physical plan from `105` to `101` VGPR. Static LDS instructions fell from `201` to `137`. Swizzle8 reduced static VALU issues from `1,020` to `944`; swizzle16 reached `940` but regressed sharply and was rejected by timing.
 
-The nine-repeat B1 search-bank screen measured:
-
-| Layout | Weighted complete latency | Versus swizzle4 | Versus installed |
-| --- | ---: | ---: | ---: |
-| Swizzle4 activation-prefetch anchor | `37.9616 ms` | `1.0000x` | `0.9630x` |
-| Swizzle8 | `36.1623 ms` | `1.0498x` | `1.0109x` |
-| Swizzle16 | `44.7949 ms` | `0.8475x` | `0.8161x` |
+The nine-repeat B1 search-bank screen favored swizzle8 over the swizzle4 activation-prefetch anchor; swizzle16 regressed and was rejected. A disjoint confirmation then selected the swizzle8 path.
 
 A disjoint confirmation used the five learned and five hash medoids from the confirmation bank, five warmups, 25 repeats, and every rotation of reversed function order. Swizzle8 measured `37.2481 ms`, versus `38.8967 ms` for swizzle4 and `37.5809 ms` for installed HIP: a `1.0443x` anchor speedup and `1.0089x` installed speedup. Every pre-timing result was BF16 bit-exact.
 
@@ -155,20 +153,15 @@ The following complete mechanisms were measured and rejected: store interleaving
 
 ### Recursive final review
 
-The final review reread the exact paired contract, retained lowering and source, installed HIP control, static inspection, bounded and production correctness, deterministic artifact records, timing confidence report, and rejected mechanisms. Independent durable rebuilds under `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m64-k-pipeline-sia5-independent-a/` and `...-independent-b/` match for R35, R257, and R12,288 source, object, and HSACO hashes and inspections. Remaining items are classified as retained and measured (the final M64 SIA5 K pipeline), rejected by timing or resource/identity gates (the listed alternatives), or deferred pending public integration review. No actionable in-contract mechanism remains in the current typed lowering surface. The complete `tests/ggtensile` suite passes (`698 passed`); Ruff, compileall, `git diff --check`, and the complete diff review are also complete.
+The final review reread the exact paired contract, retained lowering and source, installed HIP control, static inspection, bounded and production correctness, deterministic artifact records, timing confidence report, and rejected mechanisms. Independent durable rebuilds under `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m64-k-pipeline-sia5-independent-a/` and `...-independent-b/` match for R35, R257, and R12,288 source, object, and HSACO hashes and inspections. Remaining items are classified as retained and measured (the final M64 SIA5 K pipeline at B1 and M128 direct-pointer/swizzle8 at B4/B16), rejected by timing or resource/identity gates (the listed alternatives), or deferred pending public integration review. No actionable in-contract mechanism remains in the current typed lowering surface. The complete `tests/ggtensile` suite passes (`698 passed`); Ruff, compileall, `git diff --check`, and the complete diff review are also complete.
 
 ### Continued campaign: current M128 activation-prefetch qualification
 
 The historical staged M128 search was rebuilt from the current writer into `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m128-current/` for the production B4 and B16 rows. The current source is intentionally different from the historical source because the retained shared IQ2_XXS decode now batches four codebook-derived values and overlaps the paired codebook preparation. Current R49,152 and R196,608 `prefetch-a` artifacts are nevertheless identical in resource envelope: `153` VGPR, `41` SGPR, `10,240 B` LDS, `64` WMMAs, `5` barriers, zero private bytes, and zero VGPR/SGPR spills. The current inspection also reports `169` VMEM operations, `201` LDS operations, and `92` VOPD issues.
 
-Every current candidate/control comparison passed before timing for all ten learned/hash search medoids at both production geometries. The protocol was three warmups, nine rotating repeats, equivalent output allocation in complete-call timing, and a preallocated kernel-only diagnostic. Weighted complete-call medians are:
+Every current candidate/control comparison passed before timing for all ten learned/hash search medoids at both production geometries. The protocol was three warmups, nine rotating repeats, equivalent output allocation in complete-call timing, and a preallocated kernel-only diagnostic. The current M128 prefetch-a search was faster than HIP at both large keys, but remained a finalist until the later disjoint swizzle8 confirmation.
 
-| Key | Installed HIP | Current M128 prefetch-a | Speedup |
-| --- | ---: | ---: | ---: |
-| B4 / R49,152 | `97.9535 ms` | `72.2978 ms` | `1.3549x` |
-| B16 / R196,608 | `378.9370 ms` | `294.4711 ms` | `1.2868x` |
-
-This current binary is a strong M128 finalist but is not yet promoted: the disjoint 25-repeat confirmation and independent confidence report remain required. B1 remains assigned to the retained M64 SIA5 pipeline, whose prior independent and paired confirmations are both faster than installed HIP. The durable current search report is `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m128-current/timing-search9-current.json`.
+This search result was a strong M128 finalist and is superseded by the disjoint confirmation recorded in the `Final Accepted Performance` summary above. B1 remains assigned to the retained M64 SIA5 pipeline, whose independent and paired confirmations are both faster than installed HIP. The durable search report is `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m128-current/timing-search9-current.json`.
 
 ### Continued campaign: M128 direct second-projection pointers
 
@@ -181,3 +174,28 @@ In a common three-warmup, nine-repeat rotating screen, direct pointers measured 
 Changing only M128's decoded-weight XOR chunk from swizzle4 to swizzle8 widened paired LDS reads while retaining activation prefetch and direct second pointers. Strict inspection improved from `153` to `149` VGPR, from `201` to `137` LDS operations, and from `1,240` to `1,164` VALU issues. The artifact remains `41` SGPR, `10,240 B` LDS, `64` WMMAs, `5` barriers, zero private bytes, and zero spills. All search-medoid results are BF16 bit-exact to installed HIP.
 
 The common nine-repeat screen measured `69.8231 ms` at B4 and `285.7568 ms` at B16, versus `71.7719 ms` and `290.5035 ms` for swizzle4 direct pointers. Swizzle8 therefore improves its parent by `1.0279x` and `1.0166x`; relative to installed HIP (`98.9624 ms` and `376.2326 ms`) it reaches `1.4173x` and `1.3166x`. The exact typed identity is `iq2_xxs_m128_n64_dual_lds_full_tile_split_direct_pointers_prefetch_a()`. Artifacts and timing are under `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m128-direct-swizzle8/`.
+
+### Continued campaign: M128 SIA5 K-pipeline rejection
+
+The M64 SIA5/K-pipeline identity was ported exactly to M128 on top of swizzle8 and direct pointers: M128/N64/K32, `ScheduleIterAlg=5`, current and next packed-weight prefetch, paired codebook overlap, and geometry-derived activation waits. The generated artifacts were exact to HIP on every timed medoid and remained resource-clean at `149` VGPR, `41` SGPR, `10,240 B` LDS, `64` WMMAs, `7` barriers, zero private bytes, and zero spills. Static counts were `193` VMEM, `209` LDS, `1,728` VALU issues, and `108` VOPD issues.
+
+The nine-repeat fitted-prior screen rejected the port. Relative to the swizzle8/direct-pointer parent, weighted complete-call latency changed from `68.9036 ms` to `75.0698 ms` at B4 (`0.9178x`) and from `276.0649 ms` to `367.5013 ms` at B16 (`0.7512x`). It still measured `1.3131x` and `1.0198x` against installed HIP, but that is materially worse than the retained parent and does not justify the added control-flow and VMEM work. The M128 SIA5 identity is therefore failed by timing and was removed from the typed model and capability admission. Artifacts and timing are under `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m128-sia5-pipeline/`.
+
+### Continued campaign: M128 SIA4 next-weight rejection
+
+The narrower K-pipeline screen retained SIA4 and changed only `prefetch_packed_weight_next=True`. Its first build exposed a shared lowering defect: the second-projection WMMA schedule encoded `vmcnt(14)` from the historical M64 issue frontier even though M128 has only eight activation loads in flight. It therefore consumed incomplete activation fragments and produced `194,101,544` mismatches at B4. Replacing that literal with the existing geometry-derived `2 * m_tiles` frontier emits `vmcnt(4)` for M128 and preserves the geometry-correct M64 frontier. The rebuilt candidate is BF16 bit-exact on every timed medoid and remains resource-clean at `149` VGPR, `41` SGPR, `10,240 B` LDS, `64` WMMAs, `7` barriers, zero private bytes, and zero spills.
+
+Correctness did not rescue performance. In the corrected nine-repeat fitted-prior screen, weighted complete-call latency changed from `68.9298 ms` for the swizzle8/direct-pointer parent to `71.1020 ms` at B4, a `3.15%` regression, and from `285.3708 ms` to `322.8013 ms` at B16, a `13.12%` regression. The candidate still beats installed HIP by `1.3858x` and `1.1662x`, but it is materially worse than its parent. The SIA4 next-weight identity was rejected by timing and removed from the typed model and capability admission. The geometry-derived wait fix and permanent M128 assertion are retained as a shared correctness repair. Artifacts and timing are under `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m128-sia4-next-weight/`.
+
+### Continued campaign: M128 LDS swizzle variants
+
+Two remaining typed LDS-layout values were screened on the retained M128 direct-pointer/swizzle8 identity. Swizzle16 passed structural validation and predicted the same `149` VGPR, `41` SGPR, and `10,240 B` LDS envelope, but the gfx1151 assembler rejected the generated paired `v_dual_mul_f32` instructions with repeated `src0 operands must use different VGPR banks` errors at the first production build. No code object, correctness result, or timing claim exists for swizzle16, and it was not added to source admission.
+
+Swizzle0 assembled for both production rows and was exact against installed HIP, including deterministic reruns, over `201,326,592` B4 and `805,306,368` B16 BF16 elements. Inspection reports `145` VGPR, `41` SGPR, `10,240 B` LDS, `64` WMMAs, `5` barriers, `1,120` static VALU issues, zero private bytes, and zero spills. The 25-repeat reverse-rotating confirmation used the confirmation profile bank, five warmups, equivalent output allocation, and pre-timing exactness checks. Weighted complete-call medians were:
+
+| Key | Installed HIP | Swizzle8 parent | Swizzle0 | Swizzle0 vs swizzle8 |
+| --- | ---: | ---: | ---: | ---: |
+| B4 / R49,152 | `97.9710 ms` | `70.3040 ms` | `83.0214 ms` | `18.11%` slower |
+| B16 / R196,608 | `374.7943 ms` | `282.4092 ms` | `313.5470 ms` | `11.06%` slower |
+
+Per-key independent and paired robust 95% confidence intervals both exclude zero for the swizzle0 regression: B4 independent `+17.82%..+18.39%`, paired `+17.84%..+18.40%`; B16 independent `+10.22%..+11.91%`, paired `+10.25%..+11.93%`. Swizzle0 remains faster than installed HIP, but it is decisively slower than the retained swizzle8 parent and was rejected. The swizzle16 assembler failure and swizzle0 records are under `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m128-swizzle-variants/`, with corrected per-key confidence in `timing-confirm25-confidence-by-batch.json`. The accepted M128 swizzle8 confirmation values are the B4/B16 rows in the top-level table; no actionable in-contract M128 identity remains after this screen.
