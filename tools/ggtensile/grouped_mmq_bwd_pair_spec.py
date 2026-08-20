@@ -45,6 +45,26 @@ class GroupedBackwardPairContract:
     abi_family: str
 
     @classmethod
+    def q3_k(cls) -> "GroupedBackwardPairContract":
+        return cls(
+            quant_type="Q3_K",
+            out_features=512,
+            in_features=2048,
+            physical_experts=256,
+            max_route_entries=256,
+            block_values=256,
+            packed_weight_block_bytes=110,
+            kernel_language="Assembly",
+            isa=(11, 5, 1),
+            wavefront_size=32,
+            projection_count=2,
+            arithmetic_contract="InterleavedPairFP32Accumulator",
+            destination_type="BFloat16",
+            bf16_rounding="RNEPreserveNaN",
+            abi_family="GroupedBackwardPairV1",
+        )
+
+    @classmethod
     def iq2_s(cls) -> "GroupedBackwardPairContract":
         return cls(
             quant_type="IQ2_S",
@@ -86,6 +106,8 @@ class GroupedBackwardPairContract:
 
     @classmethod
     def for_quant_type(cls, quant_type: str) -> "GroupedBackwardPairContract":
+        if quant_type == "Q3_K":
+            return cls.q3_k()
         if quant_type == "IQ2_S":
             return cls.iq2_s()
         if quant_type == "IQ2_XXS":
@@ -261,11 +283,12 @@ def grouped_backward_pair_problem_rejection_reason(
     problem: GroupedBackwardPairProblem,
 ) -> str | None:
     expected = {
+        "Q3_K": GroupedBackwardPairProblem.q3_k,
         "IQ2_S": GroupedBackwardPairProblem.iq2_s,
         "IQ2_XXS": GroupedBackwardPairProblem.iq2_xxs,
     }.get(problem.quant_data_type)
     if expected is None or problem != expected(problem.aggregate_rows):
-        return "paired backward implements only the Qwen IQ2_S and DeepSeek IQ2_XXS gate/up geometries"
+        return "paired backward implements only the Qwen Q3_K/IQ2_S and DeepSeek IQ2_XXS gate/up geometries"
     if not 0 < problem.aggregate_rows <= _U32_MAX:
         return "paired backward aggregate rows must fit in a positive u32"
     quant_format = BACKWARD_QUANT_FORMATS[problem.quant_data_type]
@@ -302,6 +325,7 @@ def grouped_backward_pair_capability_rejection_reason(
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU,
     )
     interleaves_wmma_waits = compute.schedule_iter_alg == 5
+    q3_k = problem.quant_data_type == "Q3_K"
     iq2_xxs = problem.quant_data_type == "IQ2_XXS"
     iq2_xxs_pipeline = (
         iq2_xxs
@@ -355,6 +379,15 @@ def grouped_backward_pair_capability_rejection_reason(
             or solution.route_ownership
             is GroupedBackwardPairRouteOwnership.SerialRoutes,
             "paired IQ2_XXS currently requires serial-route ownership",
+        ),
+        (
+            not q3_k
+            or solution
+            in (
+                GroupedBackwardPairSolution.q3_k_m64_n64(),
+                GroupedBackwardPairSolution.q3_k_m128_n64(),
+            ),
+            "paired Q3_K currently requires its padded serial single-LDS anchor",
         ),
         (
             not iq2_xxs or iq2_xxs_staged,

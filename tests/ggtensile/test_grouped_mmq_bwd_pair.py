@@ -18,6 +18,7 @@ from tools.ggtensile.grouped_mmq_bwd_pair_physical import (
 from tools.ggtensile.grouped_mmq_bwd_pair_runtime import (
     InstalledGroupedBackwardPairIQ2SControl,
     InstalledGroupedBackwardPairIQ2XXSControl,
+    InstalledGroupedBackwardPairQ3KControl,
 )
 from tools.ggtensile.grouped_mmq_bwd_pair_spec import (
     DerivedGroupedBackwardPairState,
@@ -56,6 +57,17 @@ def _iq2_xxs_key(rows: int = 12_288, tile: int = 64) -> GroupedBackwardPairSolut
     )
 
 
+def _q3_k_key(rows: int = 16_384, tile: int = 64) -> GroupedBackwardPairSolutionKey:
+    solution = (
+        GroupedBackwardPairSolution.q3_k_m64_n64()
+        if tile == 64
+        else GroupedBackwardPairSolution.q3_k_m128_n64()
+    )
+    return GroupedBackwardPairSolutionKey(
+        GroupedBackwardPairProblem.q3_k(rows), solution
+    )
+
+
 @pytest.mark.parametrize("rows", (35, 16_384, 65_536, 262_144))
 @pytest.mark.parametrize("tile", (64, 128))
 def test_backward_pair_identity_roundtrip(rows: int, tile: int) -> None:
@@ -72,6 +84,15 @@ def test_iq2_xxs_backward_pair_identity_roundtrip(rows: int, tile: int) -> None:
     assert GroupedBackwardPairSolutionKey.from_mapping(key.to_mapping()) == key
     assert not validate_grouped_backward_pair_solution(key)
     assert "grouped_mmq_bwd_pair_iq2_xxs" in key.kernel_name
+
+
+@pytest.mark.parametrize("rows", (35, 16_384, 65_536, 262_144))
+@pytest.mark.parametrize("tile", (64, 128))
+def test_q3_k_backward_pair_identity_roundtrip(rows: int, tile: int) -> None:
+    key = _q3_k_key(rows, tile)
+    assert GroupedBackwardPairSolutionKey.from_mapping(key.to_mapping()) == key
+    assert not validate_grouped_backward_pair_solution(key)
+    assert "grouped_mmq_bwd_pair_q3_k" in key.kernel_name
 
 
 @pytest.mark.parametrize(
@@ -524,6 +545,26 @@ def test_iq2_xxs_backward_pair_physical_and_source(
     assert source.count("s_barrier") == 5
 
 
+@pytest.mark.parametrize(("tile", "vgprs", "wmmas"), ((64, 87, 16), (128, 127, 32)))
+def test_q3_k_backward_pair_physical_and_source(
+    tile: int, vgprs: int, wmmas: int
+) -> None:
+    key = _q3_k_key(rows=35, tile=tile)
+    state = DerivedGroupedBackwardPairState.from_solution_key(key)
+    physical = derive_grouped_backward_pair_physical_plan(state)
+    assert physical.ordinary.resources.total_vgprs == vgprs
+    assert physical.ordinary.resources.total_sgprs == 41
+    assert physical.ordinary.resources.lds_num_bytes == 5_120
+    assert state.expected_packed_weight_shape == (256, 512, 880)
+    assert state.bytes_per_expert == 450_560
+
+    source = GroupedBackwardPairKernelWriterAssembly(key, Toolchain.discover()).source()
+    assert "Build Q3_K block addresses for decoder-owned output rows" in source
+    assert "Decode Q3_K 2-bit payload and high mask into LDS" in source
+    assert source.count("v_wmma_f32_16x16x16_bf16") == wmmas
+    assert source.count("s_barrier") == 4
+
+
 def test_backward_pair_k_pipeline_identity_and_synchronized_tail() -> None:
     key = GroupedBackwardPairSolutionKey(
         GroupedBackwardPairProblem.iq2_s(35),
@@ -604,6 +645,14 @@ def test_installed_backward_pair_dispatch_threshold() -> None:
         InstalledGroupedBackwardPairIQ2SControl.dispatched_macro_tile(16_384, 125)
         == 128
     )
+
+
+def test_installed_q3_k_backward_pair_dispatch_threshold() -> None:
+    control = InstalledGroupedBackwardPairQ3KControl
+    assert control.dispatched_macro_tile(35, 4) == 64
+    assert control.dispatched_macro_tile(16_384, 249) == 64
+    assert control.dispatched_macro_tile(16_384, 125) == 128
+    assert control.BYTES_PER_EXPERT == 450_560
 
 
 def test_installed_iq2_xxs_backward_pair_dispatch_rows() -> None:
@@ -706,3 +755,25 @@ def test_iq2_xxs_backward_pair_build_and_inspection(tmp_path) -> None:
     assert result.sgpr_spill_count == 0
     assert result.wmma_count == 16
     assert result.barrier_count == 5
+
+
+def test_q3_k_backward_pair_build_and_inspection(tmp_path) -> None:
+    key = _q3_k_key(rows=35)
+    toolchain = Toolchain.discover()
+    writer = GroupedBackwardPairKernelWriterAssembly(key, toolchain)
+    assembly = tmp_path / "q3_k_pair.s"
+    object_path = tmp_path / "q3_k_pair.o"
+    code_object = tmp_path / "q3_k_pair.hsaco"
+    writer.write(assembly)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+    result = inspect_grouped_backward_pair_artifact(key, code_object, toolchain)
+    assert result.kernarg_segment_size == 72
+    assert result.vgpr_count == 87
+    assert result.sgpr_count == 41
+    assert result.lds_num_bytes == 5_120
+    assert result.private_segment_bytes == 0
+    assert result.vgpr_spill_count == 0
+    assert result.sgpr_spill_count == 0
+    assert result.wmma_count == 16
+    assert result.barrier_count == 4

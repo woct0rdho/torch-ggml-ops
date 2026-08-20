@@ -116,16 +116,21 @@ def inspect_grouped_backward_pair_artifact(
         errors,
     )
     expected_barriers = {
-        GroupedBackwardPairProjectionSchedule.InterleavedDepthU: 5,
-        GroupedBackwardPairProjectionSchedule.DualLdsInterleavedDepthU: 3,
+        GroupedBackwardPairProjectionSchedule.InterleavedDepthU: 4,
+        GroupedBackwardPairProjectionSchedule.DualLdsInterleavedDepthU: 2,
         GroupedBackwardPairProjectionSchedule.DualLdsGlobalCodebookInterleavedDepthU: 2,
-        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitInterleavedDepthU: 5,
-        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU: 5,
-        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU: 5,
-        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU: 5,
-        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU: 7,
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitInterleavedDepthU: 4,
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU: 4,
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU: 4,
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU: 4,
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU: 6,
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU: 6,
     }[key.solution.projection_schedule]
+    if (
+        state.contract.quant_type in ("IQ2_S", "IQ2_XXS")
+        and physical.ordinary.lds.codebook_in_lds
+    ):
+        expected_barriers += 1
     _require(
         barrier_count == expected_barriers,
         f"expected {expected_barriers} static barriers, found {barrier_count}",

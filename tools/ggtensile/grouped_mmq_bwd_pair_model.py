@@ -65,6 +65,10 @@ class GroupedBackwardPairProblem:
         return cls("IQ2_S", aggregate_rows, 512, 2048, 256, 256, 2)
 
     @classmethod
+    def q3_k(cls, aggregate_rows: int) -> Self:
+        return cls("Q3_K", aggregate_rows, 512, 2048, 256, 256, 2)
+
+    @classmethod
     def iq2_xxs(cls, aggregate_rows: int) -> Self:
         return cls("IQ2_XXS", aggregate_rows, 2048, 4096, 256, 256, 2)
 
@@ -77,6 +81,35 @@ class GroupedBackwardPairSolution:
     projection_schedule: GroupedBackwardPairProjectionSchedule
     route_ownership: GroupedBackwardPairRouteOwnership
     projection_count: int
+
+    @classmethod
+    def q3_k_m64_n64(cls) -> Self:
+        compute = replace(
+            BackwardSolution.pilot(),
+            matrix_instruction=(16, 16, 16, 1, 1, 1, 4, 4, 1),
+            macro_tile0=64,
+            macro_tile1=64,
+            lds_pad_b=8,
+            q3_k_pairing="Full",
+        )
+        return cls(
+            compute,
+            GroupedBackwardPairProjectionSchedule.InterleavedDepthU,
+            GroupedBackwardPairRouteOwnership.SerialRoutes,
+            2,
+        )
+
+    @classmethod
+    def q3_k_m128_n64(cls) -> Self:
+        parent = cls.q3_k_m64_n64()
+        return replace(
+            parent,
+            compute=replace(
+                parent.compute,
+                matrix_instruction=(16, 16, 16, 1, 1, 2, 4, 4, 1),
+                macro_tile0=128,
+            ),
+        )
 
     @classmethod
     def iq2_s_m64_n64(cls) -> Self:
