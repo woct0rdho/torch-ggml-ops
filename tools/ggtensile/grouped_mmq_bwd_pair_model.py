@@ -121,6 +121,15 @@ class GroupedBackwardPairSolution:
         )
 
     @classmethod
+    def q3_k_m128_n64_dual_lds_full_tile_split(cls) -> Self:
+        return replace(
+            cls.q3_k_m128_n64(),
+            projection_schedule=(
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitInterleavedDepthU
+            ),
+        )
+
+    @classmethod
     def iq2_s_m64_n64(cls) -> Self:
         compute = replace(
             BackwardSolution.pilot(),

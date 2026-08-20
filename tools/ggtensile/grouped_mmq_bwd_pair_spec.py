@@ -387,6 +387,7 @@ def grouped_backward_pair_capability_rejection_reason(
                 GroupedBackwardPairSolution.q3_k_m64_n64(),
                 GroupedBackwardPairSolution.q3_k_m128_n64(),
                 GroupedBackwardPairSolution.q3_k_m128_n64_dual_lds(),
+                GroupedBackwardPairSolution.q3_k_m128_n64_dual_lds_full_tile_split(),
             ),
             "paired Q3_K currently requires its padded serial anchor schedule",
         ),

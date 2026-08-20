@@ -587,6 +587,26 @@ def test_q3_k_backward_pair_dual_lds_physical_and_source() -> None:
     assert source.count("s_barrier") == 2
 
 
+def test_q3_k_backward_pair_dual_lds_full_tile_split() -> None:
+    solution = GroupedBackwardPairSolution.q3_k_m128_n64_dual_lds_full_tile_split()
+    key = GroupedBackwardPairSolutionKey(GroupedBackwardPairProblem.q3_k(257), solution)
+    assert GroupedBackwardPairSolutionKey.from_mapping(key.to_mapping()) == key
+    assert not validate_grouped_backward_pair_solution(key)
+
+    physical = derive_grouped_backward_pair_physical_plan(
+        DerivedGroupedBackwardPairState.from_solution_key(key)
+    )
+    assert physical.ordinary.resources.total_vgprs == 127
+    assert physical.ordinary.resources.lds_num_bytes == 10_240
+    assert physical.second_projection is not None
+    assert physical.second_projection.lds.base_offset == 5_120
+
+    source = GroupedBackwardPairKernelWriterAssembly(key, Toolchain.discover()).source()
+    assert "Decode the first pair projection into disjoint LDS" in source
+    assert source.count("v_wmma_f32_16x16x16_bf16") == 64
+    assert source.count("s_barrier") == 4
+
+
 def test_backward_pair_k_pipeline_identity_and_synchronized_tail() -> None:
     key = GroupedBackwardPairSolutionKey(
         GroupedBackwardPairProblem.iq2_s(35),
