@@ -30,6 +30,7 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
         concurrent_reads: bool = False,
         prefetch_pair_a: bool = False,
         direct_second_pointers: bool = False,
+        overlap_second_read_prefetch_a: bool = False,
         k_pipeline: bool = False,
     ) -> None:
         super().__init__(
@@ -51,6 +52,7 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
         self.concurrent_reads = concurrent_reads
         self.prefetch_pair_a = prefetch_pair_a
         self.direct_second_pointers = direct_second_pointers
+        self.overlap_second_read_prefetch_a = overlap_second_read_prefetch_a
         self.k_pipeline = k_pipeline
         self._pipeline_wait_index = 0
         self.second_projection: GroupedBackwardPairTileComputeEmitter | None = None
@@ -96,9 +98,22 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
             self._emit_concurrent_projection_decodes(asm, second)
         elif self.direct_second_pointers:
             self._emit_projection_decode(asm, "First")
-            second._emit_projection_decode(asm, "Second")
-            if self.prefetch_pair_a:
+            if self.overlap_second_read_prefetch_a:
+                asm.comment(
+                    "Issue the second packed projection reads alongside first A prefetch."
+                )
+                second._emit_quant_global_reads(asm, wait_for_reads=False)
                 self._emit_first_a_global_reads(asm)
+                asm.inst("s_waitcnt vmcnt(0)")
+                second._emit_packed_weight_lane_share(asm)
+                second._emit_quant_decode(
+                    asm,
+                    label_suffix=second._decode_label_suffix("PairSecond"),
+                )
+            else:
+                second._emit_projection_decode(asm, "Second")
+                if self.prefetch_pair_a:
+                    self._emit_first_a_global_reads(asm)
         else:
             self._emit_projection_decode(asm, "First")
             self._swap_projection_pointers(asm)
@@ -484,6 +499,7 @@ class GroupedBackwardPairKernelLowering:
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU,
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersOverlapSecondReadPrefetchAInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
@@ -505,6 +521,7 @@ class GroupedBackwardPairKernelLowering:
             state.kernel_spec.projection_schedule
             in (
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU,
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersOverlapSecondReadPrefetchAInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
@@ -516,10 +533,15 @@ class GroupedBackwardPairKernelLowering:
             in (
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU,
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersOverlapSecondReadPrefetchAInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
             )
             or global_codebook_pipeline
+        )
+        overlap_second_read_prefetch_a = (
+            state.kernel_spec.projection_schedule
+            is GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersOverlapSecondReadPrefetchAInterleavedDepthU
         )
         k_pipeline = (
             state.kernel_spec.projection_schedule
@@ -534,6 +556,7 @@ class GroupedBackwardPairKernelLowering:
             concurrent_reads=concurrent_reads,
             prefetch_pair_a=prefetch_pair_a,
             direct_second_pointers=direct_second_pointers,
+            overlap_second_read_prefetch_a=overlap_second_read_prefetch_a,
             k_pipeline=k_pipeline,
         )
         self.second_compute = (
@@ -545,6 +568,7 @@ class GroupedBackwardPairKernelLowering:
                 concurrent_reads=concurrent_reads,
                 prefetch_pair_a=prefetch_pair_a,
                 direct_second_pointers=direct_second_pointers,
+                overlap_second_read_prefetch_a=overlap_second_read_prefetch_a,
                 k_pipeline=k_pipeline,
             )
             if physical.second_projection is not None
@@ -561,6 +585,7 @@ class GroupedBackwardPairKernelLowering:
                 concurrent_reads=concurrent_reads,
                 prefetch_pair_a=prefetch_pair_a,
                 direct_second_pointers=direct_second_pointers,
+                overlap_second_read_prefetch_a=overlap_second_read_prefetch_a,
                 k_pipeline=k_pipeline,
             )
             if split_full_tiles
@@ -576,6 +601,7 @@ class GroupedBackwardPairKernelLowering:
                 concurrent_reads=concurrent_reads,
                 prefetch_pair_a=prefetch_pair_a,
                 direct_second_pointers=direct_second_pointers,
+                overlap_second_read_prefetch_a=overlap_second_read_prefetch_a,
                 k_pipeline=k_pipeline,
             )
             if split_full_tiles and physical.second_projection is not None

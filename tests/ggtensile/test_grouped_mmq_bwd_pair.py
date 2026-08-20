@@ -653,6 +653,34 @@ def test_q3_k_backward_pair_serial_reads_prefetch_a() -> None:
     assert source.count("s_barrier") == 4
 
 
+def test_q3_k_backward_pair_overlap_second_read_prefetch_a() -> None:
+    solution = GroupedBackwardPairSolution.q3_k_m128_n64_dual_lds_full_tile_split_direct_pointers_overlap_second_read_prefetch_a()
+    key = GroupedBackwardPairSolutionKey(GroupedBackwardPairProblem.q3_k(257), solution)
+    assert GroupedBackwardPairSolutionKey.from_mapping(key.to_mapping()) == key
+    assert not validate_grouped_backward_pair_solution(key)
+
+    physical = derive_grouped_backward_pair_physical_plan(
+        DerivedGroupedBackwardPairState.from_solution_key(key)
+    )
+    assert physical.ordinary.resources.total_vgprs == 143
+    assert physical.second_projection is not None
+    assert (
+        physical.second_projection.registers.kernarg
+        == physical.scalar.second_grad_output
+    )
+
+    source = GroupedBackwardPairKernelWriterAssembly(key, Toolchain.discover()).source()
+    overlap = source.index("Issue the second packed projection reads")
+    first_a = source.index("Prefetch A fragments", overlap)
+    wait = source.index("s_waitcnt vmcnt(0)", first_a)
+    second_decode = source.index("Decode Q3_K", wait)
+    assert overlap < first_a < wait < second_decode
+    assert "Issue both packed projection reads" not in source
+    assert "Swap the active gradient and packed-bank pointer pairs" not in source
+    assert source.count("v_wmma_f32_16x16x16_bf16") == 64
+    assert source.count("s_barrier") == 4
+
+
 def test_backward_pair_k_pipeline_identity_and_synchronized_tail() -> None:
     key = GroupedBackwardPairSolutionKey(
         GroupedBackwardPairProblem.iq2_s(35),

@@ -25,6 +25,9 @@ class GroupedBackwardPairProjectionSchedule(str, Enum):
     DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU = (
         "DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU"
     )
+    DualLdsFullTileSplitDirectPointersOverlapSecondReadPrefetchAInterleavedDepthU = (
+        "DualLdsFullTileSplitDirectPointersOverlapSecondReadPrefetchAInterleavedDepthU"
+    )
     DualLdsFullTileSplitConcurrentReadsInterleavedDepthU = (
         "DualLdsFullTileSplitConcurrentReadsInterleavedDepthU"
     )
@@ -158,6 +161,23 @@ class GroupedBackwardPairSolution:
             ),
             projection_schedule=(
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU
+            ),
+        )
+
+    @classmethod
+    def q3_k_m128_n64_dual_lds_full_tile_split_direct_pointers_overlap_second_read_prefetch_a(
+        cls,
+    ) -> Self:
+        parent = cls.q3_k_m128_n64()
+        return replace(
+            parent,
+            compute=replace(
+                parent.compute,
+                prefetch_global_read=2,
+                schedule_iter_alg=4,
+            ),
+            projection_schedule=(
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersOverlapSecondReadPrefetchAInterleavedDepthU
             ),
         )
 
