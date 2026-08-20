@@ -6,6 +6,8 @@ from typing import Any
 
 import yaml
 
+from .fixed_grouped_mmq_bwd_model import FixedBackwardSolutionKey
+from .fixed_grouped_mmq_bwd_spec import DerivedFixedBackwardState
 from .fixed_grouped_mmq_fwd_model import FixedForwardSolutionKey
 from .fixed_grouped_mmq_fwd_spec import DerivedFixedForwardState
 from .grouped_mmq_bwd_physical import derive_grouped_backward_physical_plan
@@ -13,6 +15,7 @@ from .grouped_mmq_bwd_spec import (
     DerivedGroupedBackwardState,
 )
 from .kernel_abi import (
+    FIXED_GROUPED_BACKWARD_ABI,
     FIXED_GROUPED_FORWARD_ABI,
     GROUPED_BACKWARD_ABI,
     ORDINARY_BACKWARD_ABI,
@@ -124,7 +127,7 @@ def _backward_static_barrier_count(state: DerivedBackwardState) -> int:
 
 
 def inspect_artifact(
-    solution_key: SolutionKey | FixedForwardSolutionKey,
+    solution_key: SolutionKey | FixedForwardSolutionKey | FixedBackwardSolutionKey,
     code_object: Path,
     toolchain: Toolchain,
     *,
@@ -165,12 +168,18 @@ def inspect_artifact(
         and isinstance(solution, BackwardSolution)
         else None
     )
+    fixed_backward_state = (
+        DerivedFixedBackwardState.from_solution_key(solution_key)
+        if isinstance(solution_key, FixedBackwardSolutionKey)
+        else None
+    )
     _validate_metadata(
         kernel,
         solution_key,
         errors,
         backward_state=backward_state,
         grouped_backward_state=grouped_state,
+        fixed_backward_state=fixed_backward_state,
     )
 
     mnemonics = tuple(instruction.split(None, 1)[0] for instruction in instructions)
@@ -197,7 +206,9 @@ def inspect_artifact(
     buffer_gl0_inv_count = mnemonics.count("buffer_gl0_inv")
     expected_wmmas = expected_wmma_count
     if expected_wmmas is None:
-        if isinstance(solution_key, FixedForwardSolutionKey):
+        if fixed_backward_state is not None:
+            expected_wmmas = _backward_static_wmma_count(fixed_backward_state.ordinary)
+        elif isinstance(solution_key, FixedForwardSolutionKey):
             expected_wmmas = solution_key.solution.macro_tile_tokens // 2
         elif isinstance(solution, ForwardSolution):
             physical = derive_forward_physical_plan(
@@ -239,7 +250,11 @@ def inspect_artifact(
     )
     expected_barriers = expected_barrier_count
     if expected_barriers is None:
-        if isinstance(solution_key, FixedForwardSolutionKey):
+        if fixed_backward_state is not None:
+            expected_barriers = _backward_static_barrier_count(
+                fixed_backward_state.ordinary
+            )
+        elif isinstance(solution_key, FixedForwardSolutionKey):
             expected_barriers = 2
         elif isinstance(solution, ForwardSolution):
             physical = derive_forward_physical_plan(
@@ -273,7 +288,10 @@ def inspect_artifact(
                 expected_barriers += _backward_static_barrier_count(
                     grouped_state.secondary
                 )
-            if solution_key.problem_type.quant_data_type == "IQ2_S":
+            if (
+                isinstance(solution_key, SolutionKey)
+                and solution_key.problem_type.quant_data_type == "IQ2_S"
+            ):
                 expected_barriers += 1
     _require(
         barrier_count == expected_barriers,
@@ -364,12 +382,18 @@ def _kernel_metadata(
 
 def _validate_metadata(
     kernel: Mapping[str, Any],
-    solution_key: SolutionKey | FixedForwardSolutionKey,
+    solution_key: SolutionKey | FixedForwardSolutionKey | FixedBackwardSolutionKey,
     errors: list[str],
     *,
     backward_state: DerivedBackwardState | None,
     grouped_backward_state: DerivedGroupedBackwardState | None,
+    fixed_backward_state: DerivedFixedBackwardState | None,
 ) -> None:
+    if isinstance(solution_key, FixedBackwardSolutionKey):
+        if fixed_backward_state is None:
+            raise TypeError("fixed backward metadata requires derived state")
+        _validate_fixed_backward_metadata(kernel, fixed_backward_state, errors)
+        return
     if isinstance(solution_key, FixedForwardSolutionKey):
         _validate_fixed_forward_metadata(kernel, solution_key, errors)
         return
@@ -408,6 +432,40 @@ def _validate_metadata(
     _require(
         _metadata_arguments(kernel) == ORDINARY_BACKWARD_ABI.metadata_arguments,
         "kernarg ABI does not match",
+        errors,
+    )
+
+
+def _validate_fixed_backward_metadata(
+    kernel: Mapping[str, Any],
+    state: DerivedFixedBackwardState,
+    errors: list[str],
+) -> None:
+    resources = state.physical.resources
+    geometry = state.spec.compute.geometry
+    expected = {
+        ".kernarg_segment_size": FIXED_GROUPED_BACKWARD_ABI.segment_size,
+        ".kernarg_segment_align": FIXED_GROUPED_BACKWARD_ABI.segment_alignment,
+        ".group_segment_fixed_size": resources.lds_num_bytes,
+        ".private_segment_fixed_size": resources.private_segment_bytes,
+        ".max_flat_workgroup_size": geometry.num_threads,
+        ".wavefront_size": geometry.wavefront_size,
+        ".vgpr_count": resources.total_vgprs,
+        ".sgpr_count": resources.total_sgprs,
+        ".vgpr_spill_count": 0,
+        ".sgpr_spill_count": 0,
+    }
+    for field, value in expected.items():
+        actual = kernel.get(field)
+        _require(actual == value, f"{field} is {actual!r}, expected {value}", errors)
+    _require(
+        kernel.get(".uses_dynamic_stack", False) is False,
+        "dynamic stack is enabled",
+        errors,
+    )
+    _require(
+        _metadata_arguments(kernel) == FIXED_GROUPED_BACKWARD_ABI.metadata_arguments,
+        "fixed backward kernarg ABI does not match",
         errors,
     )
 

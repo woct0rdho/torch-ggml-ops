@@ -625,7 +625,9 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
                 16 * m_tile,
                 a + 4,
             )
-        row_stride_a = 2 * self.state.contract.problem_size.k
+        row_stride_a = self.access.activation_row_stride_bytes(
+            2 * self.state.contract.problem_size.k
+        )
         for m_tile in range(m_tiles):
             pointer = a + 4 + m_tile
             if row_stride_a > 0 and row_stride_a & (row_stride_a - 1) == 0:
@@ -713,7 +715,12 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
                     (0, a + 4, a),
                     (1, a + 5, a + 2),
                 ):
-                    emit_scale_u32(asm, t, 2 * size.k, row)
+                    emit_scale_u32(
+                        asm,
+                        t,
+                        self.access.activation_row_stride_bytes(2 * size.k),
+                        row,
+                    )
                     asm.inst(f"v_add_nc_u32 v{t}, s{r.scalar_temporary + 1}, v{t}")
                     if k_tile:
                         asm.inst(f"v_add_nc_u32 v{t}, {2 * k_tile}, v{t}")
@@ -739,7 +746,12 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
                         row = t
                     else:
                         row = a + 4
-                    emit_scale_u32(asm, t, 2 * size.k, row)
+                    emit_scale_u32(
+                        asm,
+                        t,
+                        self.access.activation_row_stride_bytes(2 * size.k),
+                        row,
+                    )
                     asm.inst(f"v_add_nc_u32 v{t}, s{r.scalar_temporary + 1}, v{t}")
                     if k_tile:
                         asm.inst(f"v_add_nc_u32 v{t}, {2 * k_tile}, v{t}")
@@ -1133,6 +1145,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         size = self.state.contract.problem_size
         a = r.address
         t = r.temporary
+        row_stride_c = self.access.output_row_stride_bytes(2 * size.n)
         asm.comment("Map gfx11 physical C fragments to row-major grad_input.")
         asm.inst(f"v_lshrrev_b32 v{t}, 5, v{r.serial}")
         asm.inst(f"v_lshlrev_b32 v{t}, {m_per_wave.bit_length() - 1}, v{t}")
@@ -1142,7 +1155,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         asm.inst(f"v_lshlrev_b32 v{t + 1}, {geometry.macro_tile0.bit_length() - 1}, s2")
         asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
         self._emit_store_row_begin(asm, t)
-        emit_scale_u32(asm, t, 2 * size.n, t)
+        emit_scale_u32(asm, t, row_stride_c, t)
         asm.inst(
             f"v_lshlrev_b32 v{t + 1}, {(2 * geometry.macro_tile1).bit_length() - 1}, s3"
         )
@@ -1157,7 +1170,9 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
             if self.clause_batch_store:
                 second_address = t + 3
                 for element in range(0, 8, 2):
-                    asm.inst(f"v_add_nc_u32 v{second_address}, {4 * size.n}, v{a}")
+                    asm.inst(
+                        f"v_add_nc_u32 v{second_address}, {2 * row_stride_c}, v{a}"
+                    )
                     rows = tuple(
                         tuple(
                             r.accum + (n_tiles * m_tile + n_tile) * 8 + row_element
@@ -1177,7 +1192,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
                                 f"offset:{32 * n_tile}"
                             )
                     if not (m_tile == m_tiles - 1 and element == 6):
-                        asm.inst(f"v_add_nc_u32 v{a}, {8 * size.n}, v{a}")
+                        asm.inst(f"v_add_nc_u32 v{a}, {4 * row_stride_c}, v{a}")
                 continue
             for element in range(8):
                 self._emit_store_row_mask_begin(asm)
@@ -1191,7 +1206,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
                     )
                 self._emit_store_row_mask_end(asm)
                 if not (m_tile == m_tiles - 1 and element == 7):
-                    asm.inst(f"v_add_nc_u32 v{a}, {4 * size.n}, v{a}")
+                    asm.inst(f"v_add_nc_u32 v{a}, {2 * row_stride_c}, v{a}")
                     self._emit_store_row_advance(asm)
         if self.state.spec.store.raises_priority:
             asm.inst("s_setprio 0")

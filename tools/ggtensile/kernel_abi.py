@@ -322,3 +322,14 @@ FIXED_GROUPED_FORWARD_ABI = KernelAbi(
         _value("bytes_per_group", KernelValueType.UInt64),
     )
 )
+
+FIXED_GROUPED_BACKWARD_ABI = KernelAbi(
+    (
+        _pointer("grad_output", KernelValueType.BFloat16),
+        _pointer("packed_weight", KernelValueType.Struct),
+        _pointer("grad_input", KernelValueType.BFloat16),
+        _value("tokens", KernelValueType.UInt32),
+        _value("out_features", KernelValueType.UInt32),
+        _value("bytes_per_group", KernelValueType.UInt64),
+    )
+)

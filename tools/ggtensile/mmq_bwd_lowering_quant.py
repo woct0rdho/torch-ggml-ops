@@ -31,6 +31,12 @@ def emit_unbounded_a_global_loads(
 class UnboundedBackwardTileAccess:
     """Ordinary MMQ owns complete rows and needs no per-row masks."""
 
+    def activation_row_stride_bytes(self, contiguous_stride: int) -> int:
+        return contiguous_stride
+
+    def output_row_stride_bytes(self, contiguous_stride: int) -> int:
+        return contiguous_stride
+
     def emit_a_global_loads(
         self,
         asm: _Assembly,

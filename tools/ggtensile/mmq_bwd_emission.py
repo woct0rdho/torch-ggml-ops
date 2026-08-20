@@ -28,6 +28,10 @@ class BackwardDiagnosticMode(str, Enum):
 class BackwardTileAccess(Protocol):
     """Direction-owned A-load and output-row bounds behavior."""
 
+    def activation_row_stride_bytes(self, contiguous_stride: int) -> int: ...
+
+    def output_row_stride_bytes(self, contiguous_stride: int) -> int: ...
+
     def emit_a_global_loads(
         self,
         asm: "_Assembly",

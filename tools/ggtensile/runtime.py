@@ -8,6 +8,9 @@ from types import TracebackType
 import torch
 from typing_extensions import Self
 
+from .fixed_grouped_mmq_bwd_model import FixedBackwardSolutionKey
+from .fixed_grouped_mmq_bwd_spec import DerivedFixedBackwardState
+from .fixed_grouped_mmq_bwd_validation import validate_fixed_backward_solution_key
 from .fixed_grouped_mmq_fwd_model import FixedForwardSolutionKey
 from .fixed_grouped_mmq_fwd_spec import DerivedFixedForwardState
 from .fixed_grouped_mmq_fwd_validation import validate_fixed_forward_solution_key
@@ -16,6 +19,7 @@ from .grouped_mmq_fwd_model import GroupedForwardSolutionKey
 from .grouped_mmq_fwd_spec import DerivedGroupedForwardState
 from .grouped_mmq_fwd_validation import validate_grouped_forward_solution
 from .kernel_abi import (
+    FIXED_GROUPED_BACKWARD_ABI,
     FIXED_GROUPED_FORWARD_ABI,
     GROUPED_BACKWARD_ABI,
     GROUPED_FORWARD_ABI,
@@ -911,6 +915,129 @@ class FixedHipForwardModule(ForwardModule):
             (size.n // 64, (size.m + j - 1) // j, 1),
             (32, 4, 1),
             lds_bytes,
+        )
+
+
+class FixedGroupedQ8BackwardModule(_HIPModule):
+    """Research-only launcher for the fixed-group six-argument backward ABI."""
+
+    def __init__(
+        self,
+        solution_key: FixedBackwardSolutionKey,
+        code_object: Path,
+        hip_library: Path | None = None,
+        *,
+        kernel_name: str | None = None,
+    ) -> None:
+        validate_fixed_backward_solution_key(solution_key)
+        self.state = DerivedFixedBackwardState.from_solution_key(solution_key)
+        self.solution_key = solution_key
+        super().__init__(
+            code_object, hip_library, kernel_name or solution_key.kernel_name
+        )
+
+    def launch(
+        self,
+        grad_output: torch.Tensor,
+        packed_weight: torch.Tensor,
+        grad_input: torch.Tensor,
+        *,
+        stream: int,
+    ) -> None:
+        if not self._module or not self._function:
+            raise HIPRuntimeError("HIP module is closed")
+        state = self.state
+        tensors = (grad_output, packed_weight, grad_input)
+        if any(not tensor.is_cuda for tensor in tensors):
+            raise HIPRuntimeError("all fixed backward tensors must be on HIP")
+        if any(not tensor.is_contiguous() for tensor in tensors):
+            raise HIPRuntimeError("all fixed backward tensors must be contiguous")
+        if any(tensor.storage_offset() != 0 for tensor in tensors):
+            raise HIPRuntimeError("fixed backward tensors need zero storage offsets")
+        if grad_output.data_ptr() % 16 or packed_weight.data_ptr() % 16:
+            raise HIPRuntimeError(
+                "fixed backward input pointers must be 16-byte aligned"
+            )
+        if grad_output.dtype != torch.bfloat16:
+            raise HIPRuntimeError("grad_output must be BF16")
+        if packed_weight.dtype != torch.uint8:
+            raise HIPRuntimeError("packed_weight must be uint8")
+        if grad_input.dtype != torch.bfloat16:
+            raise HIPRuntimeError("grad_input must be BF16")
+        if tuple(grad_output.shape) != state.expected_grad_output_shape:
+            raise HIPRuntimeError("grad_output shape does not match fixed key")
+        if tuple(packed_weight.shape) != state.expected_packed_weight_shape:
+            raise HIPRuntimeError("packed_weight shape does not match fixed key")
+        if tuple(grad_input.shape) != state.expected_grad_input_shape:
+            raise HIPRuntimeError("grad_input shape does not match fixed key")
+        if len({tensor.device for tensor in tensors}) != 1:
+            raise HIPRuntimeError("fixed backward tensors must share one device")
+
+        problem = state.problem
+        packed_arguments = FIXED_GROUPED_BACKWARD_ABI.pack(
+            {
+                "grad_output": grad_output.data_ptr(),
+                "packed_weight": packed_weight.data_ptr(),
+                "grad_input": grad_input.data_ptr(),
+                "tokens": problem.tokens,
+                "out_features": problem.output_features,
+                "bytes_per_group": problem.bytes_per_group,
+            }
+        )
+        self._check(
+            self._lib.hipModuleLaunchKernel(
+                self._function,
+                *self._launch_configuration(),
+                ctypes.c_void_p(stream),
+                packed_arguments.parameters,
+                None,
+            ),
+            "hipModuleLaunchKernel",
+        )
+
+    def _launch_configuration(self) -> tuple[int, int, int, int, int, int, int]:
+        geometry = self.state.spec.compute.geometry
+        return (*self.state.grid, *geometry.work_group, 0)
+
+
+class InstalledFixedGroupedQ8BackwardModule(FixedGroupedQ8BackwardModule):
+    """Direct launcher for the installed fixed Q8_0 production control."""
+
+    M256_SYMBOL = (
+        "torch_ggml_ops_mmq_gfx1151_v1_grouped_bwd_fixed_q8_0_g8_k4096_mt256_nt64"
+    )
+    M192_SYMBOL = (
+        "torch_ggml_ops_mmq_gfx1151_v1_grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64"
+    )
+
+    def __init__(
+        self,
+        solution_key: FixedBackwardSolutionKey,
+        code_object: Path | None = None,
+        hip_library: Path | None = None,
+    ) -> None:
+        symbol = (
+            self.M192_SYMBOL
+            if solution_key.problem.tokens == 32768
+            else self.M256_SYMBOL
+        )
+        super().__init__(
+            solution_key,
+            code_object or _find_installed_kernel(symbol),
+            hip_library,
+            kernel_name=symbol,
+        )
+
+    def _launch_configuration(self) -> tuple[int, int, int, int, int, int, int]:
+        m_tile = 192 if self.state.problem.tokens == 32768 else 256
+        return (
+            self.state.problem.input_features // 64,
+            (self.state.problem.tokens + m_tile - 1) // m_tile,
+            self.state.problem.groups,
+            128,
+            1,
+            1,
+            0,
         )
 
 

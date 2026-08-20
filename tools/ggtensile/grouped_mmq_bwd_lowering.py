@@ -21,6 +21,12 @@ from .mmq_bwd_physical import BackwardRegisterPlan
 class GroupedBackwardTileAccess:
     route: GroupedBackwardScalarPlan
 
+    def activation_row_stride_bytes(self, contiguous_stride: int) -> int:
+        return contiguous_stride
+
+    def output_row_stride_bytes(self, contiguous_stride: int) -> int:
+        return contiguous_stride
+
     def emit_a_global_loads(
         self,
         asm: _Assembly,

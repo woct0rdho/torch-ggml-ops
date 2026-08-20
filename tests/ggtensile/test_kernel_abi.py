@@ -3,6 +3,7 @@ import ctypes
 import pytest
 
 from tools.ggtensile.kernel_abi import (
+    FIXED_GROUPED_BACKWARD_ABI,
     FIXED_GROUPED_FORWARD_ABI,
     GROUPED_FORWARD_ABI,
     GROUPED_FORWARD_PAIR_ABI,
@@ -151,6 +152,19 @@ from tools.ggtensile.kernel_abi import (
                 "packed_weight",
                 "activations",
                 "output",
+                "tokens",
+                "out_features",
+                "bytes_per_group",
+            ),
+            (0, 8, 16, 24, 28, 32),
+            40,
+        ),
+        (
+            FIXED_GROUPED_BACKWARD_ABI,
+            (
+                "grad_output",
+                "packed_weight",
+                "grad_input",
                 "tokens",
                 "out_features",
                 "bytes_per_group",
