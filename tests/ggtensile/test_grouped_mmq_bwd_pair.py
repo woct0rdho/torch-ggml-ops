@@ -20,6 +20,9 @@ from tools.ggtensile.grouped_mmq_bwd_pair_runtime import (
     InstalledGroupedBackwardPairIQ2XXSControl,
     InstalledGroupedBackwardPairQ3KControl,
 )
+from tools.ggtensile.grouped_mmq_bwd_pair_selection import (
+    ResearchGroupedBackwardPairQ3KSelector,
+)
 from tools.ggtensile.grouped_mmq_bwd_pair_spec import (
     DerivedGroupedBackwardPairState,
 )
@@ -406,7 +409,7 @@ def test_iq2_s_m64_still_rejects_dual_lds() -> None:
     key = GroupedBackwardPairSolutionKey(GroupedBackwardPairProblem.iq2_s(35), solution)
     reasons = validate_grouped_backward_pair_solution(key)
     assert [reason.message for reason in reasons] == [
-        "paired backward dual LDS is implemented only for M128 or staged IQ2_XXS M64"
+        "paired backward dual LDS requires M128 or a qualified staged M64 identity"
     ]
 
 
@@ -653,6 +656,31 @@ def test_q3_k_backward_pair_serial_reads_prefetch_a() -> None:
     assert source.count("s_barrier") == 4
 
 
+def test_q3_k_backward_pair_m64_serial_reads_prefetch_a() -> None:
+    solution = GroupedBackwardPairSolution.q3_k_m64_n64_dual_lds_full_tile_split_direct_pointers_prefetch_a()
+    key = GroupedBackwardPairSolutionKey(GroupedBackwardPairProblem.q3_k(257), solution)
+    assert GroupedBackwardPairSolutionKey.from_mapping(key.to_mapping()) == key
+    assert not validate_grouped_backward_pair_solution(key)
+
+    physical = derive_grouped_backward_pair_physical_plan(
+        DerivedGroupedBackwardPairState.from_solution_key(key)
+    )
+    assert physical.ordinary.resources.total_vgprs == 95
+    assert physical.ordinary.resources.lds_num_bytes == 10_240
+    assert physical.second_projection is not None
+    assert (
+        physical.second_projection.registers.kernarg
+        == physical.scalar.second_grad_output
+    )
+
+    source = GroupedBackwardPairKernelWriterAssembly(key, Toolchain.discover()).source()
+    assert "Prefetch A fragments" in source
+    assert "Issue both packed projection reads" not in source
+    assert "Swap the active gradient and packed-bank pointer pairs" not in source
+    assert source.count("v_wmma_f32_16x16x16_bf16") == 32
+    assert source.count("s_barrier") == 4
+
+
 def test_q3_k_backward_pair_overlap_second_read_prefetch_a() -> None:
     solution = GroupedBackwardPairSolution.q3_k_m128_n64_dual_lds_full_tile_split_direct_pointers_overlap_second_read_prefetch_a()
     key = GroupedBackwardPairSolutionKey(GroupedBackwardPairProblem.q3_k(257), solution)
@@ -769,6 +797,79 @@ def test_installed_q3_k_backward_pair_dispatch_threshold() -> None:
     assert control.dispatched_macro_tile(16_384, 249) == 64
     assert control.dispatched_macro_tile(16_384, 125) == 128
     assert control.BYTES_PER_EXPERT == 450_560
+
+
+@pytest.mark.parametrize(
+    ("rows", "route_entries", "constructor"),
+    (
+        (
+            16_384,
+            249,
+            "q3_k_m64_n64_dual_lds_full_tile_split_direct_pointers_prefetch_a",
+        ),
+        (
+            16_384,
+            128,
+            "q3_k_m128_n64_dual_lds_full_tile_split_direct_pointers_prefetch_a",
+        ),
+        (
+            65_536,
+            125,
+            "q3_k_m128_n64_dual_lds_full_tile_split_direct_pointers_prefetch_a",
+        ),
+        (
+            262_144,
+            125,
+            "q3_k_m128_n64_dual_lds_full_tile_split_direct_pointers_overlap_second_read_prefetch_a",
+        ),
+    ),
+)
+def test_research_q3_k_selector_uses_confirmed_mixed_dispatch(
+    rows: int, route_entries: int, constructor: str
+) -> None:
+    key = ResearchGroupedBackwardPairQ3KSelector.select_solution_key(
+        rows, route_entries
+    )
+    expected = getattr(GroupedBackwardPairSolution, constructor)()
+    assert key.problem == GroupedBackwardPairProblem.q3_k(rows)
+    assert key.solution == expected
+    assert key.solution.macro_tile0 == (64 if "m64" in constructor else 128)
+    assert not validate_grouped_backward_pair_solution(key)
+
+
+@pytest.mark.parametrize(
+    ("rows", "route_entries"),
+    ((16_384, 129), (16_384, 128), (65_536, 256)),
+)
+def test_research_q3_k_selector_matches_threshold_at_boundary(
+    rows: int, route_entries: int
+) -> None:
+    expected = InstalledGroupedBackwardPairQ3KControl.dispatched_macro_tile(
+        rows, route_entries
+    )
+    assert (
+        ResearchGroupedBackwardPairQ3KSelector.selected_macro_tile(rows, route_entries)
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    ("rows", "route_entries"),
+    (
+        (35, 4),
+        (0, 4),
+        (16_384, 0),
+        (16_384, 257),
+        (True, 4),
+        (16_384.0, 4),
+        (16_384, 4.0),
+    ),
+)
+def test_research_q3_k_selector_rejects_unqualified_dimensions(
+    rows: int, route_entries: int
+) -> None:
+    with pytest.raises(ValueError):
+        ResearchGroupedBackwardPairQ3KSelector.select_solution_key(rows, route_entries)
 
 
 def test_installed_iq2_xxs_backward_pair_dispatch_rows() -> None:

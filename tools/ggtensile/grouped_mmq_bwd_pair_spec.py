@@ -331,6 +331,11 @@ def grouped_backward_pair_capability_rejection_reason(
     )
     interleaves_wmma_waits = compute.schedule_iter_alg == 5
     q3_k = problem.quant_data_type == "Q3_K"
+    q3_k_m64_prefetch = (
+        q3_k
+        and solution
+        == GroupedBackwardPairSolution.q3_k_m64_n64_dual_lds_full_tile_split_direct_pointers_prefetch_a()
+    )
     iq2_xxs = problem.quant_data_type == "IQ2_XXS"
     iq2_xxs_pipeline = (
         iq2_xxs
@@ -399,6 +404,7 @@ def grouped_backward_pair_capability_rejection_reason(
                 GroupedBackwardPairSolution.q3_k_m128_n64_dual_lds_full_tile_split_direct_pointers(),
                 GroupedBackwardPairSolution.q3_k_m128_n64_dual_lds_full_tile_split_direct_pointers_prefetch_a(),
                 GroupedBackwardPairSolution.q3_k_m128_n64_dual_lds_full_tile_split_direct_pointers_overlap_second_read_prefetch_a(),
+                GroupedBackwardPairSolution.q3_k_m64_n64_dual_lds_full_tile_split_direct_pointers_prefetch_a(),
             ),
             "paired Q3_K currently requires its padded serial anchor schedule",
         ),
@@ -462,8 +468,9 @@ def grouped_backward_pair_capability_rejection_reason(
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU,
             )
             or compute.macro_tile0 == 128
+            or q3_k_m64_prefetch
             or (iq2_xxs and compute.macro_tile0 == 64 and iq2_xxs_staged),
-            "paired backward dual LDS is implemented only for M128 or staged IQ2_XXS M64",
+            "paired backward dual LDS requires M128 or a qualified staged M64 identity",
         ),
     )
     for valid, message in checks:
