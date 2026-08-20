@@ -154,7 +154,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
                 f"s_mul_i32 s{r.block_offset}, s{r.block_offset}, "
                 f"{quant_format.block_bytes}"
             )
-            if self.state.contract.quant_type == "IQ2_S":
+            if self.state.contract.quant_type in ("IQ2_S", "IQ2_XXS"):
                 asm.inst(f"s_mov_b32 s{r.input_half}, 0x03020100")
             else:
                 asm.inst(f"s_lshr_b32 s{r.input_half}, s3, {tile_shift - 1}")
@@ -164,7 +164,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
             )
             quant_tile_shift = (
                 n_shift
-                if self.state.contract.quant_type == "IQ2_S"
+                if self.state.contract.quant_type in ("IQ2_S", "IQ2_XXS")
                 else n_shift - 1
                 if n_per_block == 128
                 else n_shift

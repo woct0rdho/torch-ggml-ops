@@ -15,6 +15,7 @@ from tools.ggtensile.grouped_mmq_bwd_pair_physical import (
 )
 from tools.ggtensile.grouped_mmq_bwd_pair_runtime import (
     InstalledGroupedBackwardPairIQ2SControl,
+    InstalledGroupedBackwardPairIQ2XXSControl,
 )
 from tools.ggtensile.grouped_mmq_bwd_pair_spec import (
     DerivedGroupedBackwardPairState,
@@ -42,6 +43,19 @@ def _key(rows: int = 16_384, tile: int = 64) -> GroupedBackwardPairSolutionKey:
     )
 
 
+def _iq2_xxs_key(
+    rows: int = 12_288, tile: int = 64
+) -> GroupedBackwardPairSolutionKey:
+    solution = (
+        GroupedBackwardPairSolution.iq2_xxs_m64_n64()
+        if tile == 64
+        else GroupedBackwardPairSolution.iq2_xxs_m128_n64()
+    )
+    return GroupedBackwardPairSolutionKey(
+        GroupedBackwardPairProblem.iq2_xxs(rows), solution
+    )
+
+
 @pytest.mark.parametrize("rows", (35, 16_384, 65_536, 262_144))
 @pytest.mark.parametrize("tile", (64, 128))
 def test_backward_pair_identity_roundtrip(rows: int, tile: int) -> None:
@@ -49,6 +63,15 @@ def test_backward_pair_identity_roundtrip(rows: int, tile: int) -> None:
     assert GroupedBackwardPairSolutionKey.from_mapping(key.to_mapping()) == key
     assert not validate_grouped_backward_pair_solution(key)
     assert "grouped_mmq_bwd_pair_iq2_s" in key.kernel_name
+
+
+@pytest.mark.parametrize("rows", (35, 12_288, 49_152, 196_608))
+@pytest.mark.parametrize("tile", (64, 128))
+def test_iq2_xxs_backward_pair_identity_roundtrip(rows: int, tile: int) -> None:
+    key = _iq2_xxs_key(rows, tile)
+    assert GroupedBackwardPairSolutionKey.from_mapping(key.to_mapping()) == key
+    assert not validate_grouped_backward_pair_solution(key)
+    assert "grouped_mmq_bwd_pair_iq2_xxs" in key.kernel_name
 
 
 def test_iq2_s_packed_negative_payload_identity() -> None:
@@ -113,6 +136,31 @@ def test_backward_pair_physical_and_source(tile: int, vgprs: int, wmmas: int) ->
     assert source.count("v_wmma_f32_16x16x16_bf16") == wmmas
     assert source.count("s_barrier") == 5
     assert source.count("global_store_d16_hi_b16") == wmmas * 2
+
+
+@pytest.mark.parametrize(("tile", "vgprs", "wmmas"), ((64, 87, 16), (128, 127, 32)))
+def test_iq2_xxs_backward_pair_physical_and_source(
+    tile: int, vgprs: int, wmmas: int
+) -> None:
+    key = _iq2_xxs_key(rows=35, tile=tile)
+    state = DerivedGroupedBackwardPairState.from_solution_key(key)
+    physical = derive_grouped_backward_pair_physical_plan(state)
+    assert physical.ordinary.resources.total_vgprs == vgprs
+    assert physical.ordinary.resources.total_sgprs == 41
+    assert physical.ordinary.resources.lds_num_bytes == 6_144
+    assert state.expected_packed_weight_shape == (256, 2048, 1056)
+    assert state.bytes_per_expert == 2_162_688
+
+    source = GroupedBackwardPairKernelWriterAssembly(key, Toolchain.discover()).source()
+    assert "Stage the IQ2_XXS codebook once in disjoint LDS" in source
+    assert "Map each lane to one IQ2_XXS aligned 16-value group" in source
+    assert "Load and sign the two IQ2_XXS grids owned by each lane" in source
+    registers = physical.ordinary.registers
+    assert (
+        f"v_and_b32 v{registers.temporary}, 1, v{registers.serial}" in source
+    )
+    assert source.count("v_wmma_f32_16x16x16_bf16") == wmmas
+    assert source.count("s_barrier") == 5
 
 
 def test_backward_pair_k_pipeline_identity_and_synchronized_tail() -> None:
@@ -196,6 +244,15 @@ def test_installed_backward_pair_dispatch_threshold() -> None:
     )
 
 
+def test_installed_iq2_xxs_backward_pair_dispatch_rows() -> None:
+    control = InstalledGroupedBackwardPairIQ2XXSControl
+    assert control.dispatched_macro_tile(35) == 64
+    assert control.dispatched_macro_tile(12_288) == 64
+    assert control.dispatched_macro_tile(49_152) == 128
+    assert control.dispatched_macro_tile(196_608) == 128
+    assert control.BYTES_PER_EXPERT == 2_162_688
+
+
 def test_backward_pair_build_and_inspection(tmp_path) -> None:
     key = _key(rows=35)
     toolchain = Toolchain.discover()
@@ -215,6 +272,31 @@ def test_backward_pair_build_and_inspection(tmp_path) -> None:
     assert result.vgpr_count == 81
     assert result.sgpr_count == 41
     assert result.lds_num_bytes == 12_288
+    assert result.private_segment_bytes == 0
+    assert result.vgpr_spill_count == 0
+    assert result.sgpr_spill_count == 0
+    assert result.wmma_count == 16
+    assert result.barrier_count == 5
+
+
+def test_iq2_xxs_backward_pair_build_and_inspection(tmp_path) -> None:
+    key = _iq2_xxs_key(rows=35)
+    toolchain = Toolchain.discover()
+    writer = GroupedBackwardPairKernelWriterAssembly(key, toolchain)
+    assert writer.source() == GroupedBackwardPairKernelWriterAssembly(
+        key, toolchain
+    ).source()
+    assembly = tmp_path / "iq2_xxs_pair.s"
+    object_path = tmp_path / "iq2_xxs_pair.o"
+    code_object = tmp_path / "iq2_xxs_pair.hsaco"
+    writer.write(assembly)
+    toolchain.assemble(assembly, object_path)
+    toolchain.link(object_path, code_object)
+    result = inspect_grouped_backward_pair_artifact(key, code_object, toolchain)
+    assert result.kernarg_segment_size == 72
+    assert result.vgpr_count == 87
+    assert result.sgpr_count == 41
+    assert result.lds_num_bytes == 6_144
     assert result.private_segment_bytes == 0
     assert result.vgpr_spill_count == 0
     assert result.sgpr_spill_count == 0

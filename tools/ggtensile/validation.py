@@ -64,7 +64,7 @@ def _validate_backward_problem_type(
         _reject(
             reasons,
             "problem_type.quant_data_type.unsupported",
-            "MMQ backward supports only Q2_K, Q3_K, Q4_K, Q5_K, Q6_K, Q8_0, and IQ2_S",
+            "MMQ backward supports only Q2_K, Q3_K, Q4_K, Q5_K, Q6_K, Q8_0, IQ2_S, and IQ2_XXS",
             "QuantDataType",
             source="ProblemType",
         )

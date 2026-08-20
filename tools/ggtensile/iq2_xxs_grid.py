@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 _GRID_COUNT = 256
+IQ2_XXS_GRID_BYTES = 8 * _GRID_COUNT
 _GRID_DECLARATION = re.compile(
     r"static const __device__ uint64_t iq2xxs_grid\[256\] = \{(?P<body>.*?)\};",
     re.DOTALL,
@@ -46,5 +47,5 @@ def iq2_xxs_grid_rodata(symbol: str) -> str:
     for start in range(0, len(values), 4):
         entries = ", ".join(f"0x{value:016x}" for value in values[start : start + 4])
         lines.append(f".quad {entries}")
-    lines.append(f".size {symbol}, {8 * len(values)}")
+    lines.append(f".size {symbol}, {IQ2_XXS_GRID_BYTES}")
     return "\n".join(lines) + "\n"

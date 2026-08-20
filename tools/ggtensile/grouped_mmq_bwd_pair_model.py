@@ -64,6 +64,10 @@ class GroupedBackwardPairProblem:
     def iq2_s(cls, aggregate_rows: int) -> Self:
         return cls("IQ2_S", aggregate_rows, 512, 2048, 256, 256, 2)
 
+    @classmethod
+    def iq2_xxs(cls, aggregate_rows: int) -> Self:
+        return cls("IQ2_XXS", aggregate_rows, 2048, 4096, 256, 256, 2)
+
 
 @dataclass(frozen=True)
 class GroupedBackwardPairSolution:
@@ -95,6 +99,34 @@ class GroupedBackwardPairSolution:
             cls.iq2_s_m64_n64(),
             compute=replace(
                 cls.iq2_s_m64_n64().compute,
+                matrix_instruction=(16, 16, 16, 1, 1, 2, 4, 4, 1),
+                macro_tile0=128,
+            ),
+        )
+
+    @classmethod
+    def iq2_xxs_m64_n64(cls) -> Self:
+        compute = replace(
+            BackwardSolution.pilot(),
+            matrix_instruction=(16, 16, 16, 1, 1, 1, 4, 4, 1),
+            macro_tile0=64,
+            macro_tile1=64,
+            lds_swizzle_chunk_b=4,
+        )
+        return cls(
+            compute,
+            GroupedBackwardPairProjectionSchedule.InterleavedDepthU,
+            GroupedBackwardPairRouteOwnership.SerialRoutes,
+            2,
+        )
+
+    @classmethod
+    def iq2_xxs_m128_n64(cls) -> Self:
+        parent = cls.iq2_xxs_m64_n64()
+        return replace(
+            parent,
+            compute=replace(
+                parent.compute,
                 matrix_instruction=(16, 16, 16, 1, 1, 2, 4, 4, 1),
                 macro_tile0=128,
             ),

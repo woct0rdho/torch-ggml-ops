@@ -65,12 +65,40 @@ class GroupedBackwardPairContract:
         )
 
     @classmethod
+    def iq2_xxs(cls) -> "GroupedBackwardPairContract":
+        return cls(
+            quant_type="IQ2_XXS",
+            out_features=2048,
+            in_features=4096,
+            physical_experts=256,
+            max_route_entries=256,
+            block_values=256,
+            packed_weight_block_bytes=66,
+            kernel_language="Assembly",
+            isa=(11, 5, 1),
+            wavefront_size=32,
+            projection_count=2,
+            arithmetic_contract="InterleavedPairFP32Accumulator",
+            destination_type="BFloat16",
+            bf16_rounding="RNEPreserveNaN",
+            abi_family="GroupedBackwardPairV1",
+        )
+
+    @classmethod
+    def for_quant_type(cls, quant_type: str) -> "GroupedBackwardPairContract":
+        if quant_type == "IQ2_S":
+            return cls.iq2_s()
+        if quant_type == "IQ2_XXS":
+            return cls.iq2_xxs()
+        raise SchemaError(f"unsupported paired backward quant type {quant_type!r}")
+
+    @classmethod
     def from_solution(
         cls,
         problem: GroupedBackwardPairProblem,
         solution: GroupedBackwardPairSolution,
     ) -> "GroupedBackwardPairContract":
-        expected = cls.iq2_s()
+        expected = cls.for_quant_type(problem.quant_data_type)
         return cls(
             quant_type=problem.quant_data_type,
             out_features=problem.out_features,
@@ -129,7 +157,7 @@ class GroupedBackwardPairContract:
             bf16_rounding=_string(item["bf16_rounding"], "bf16_rounding"),
             abi_family=_string(item["abi_family"], "abi_family"),
         )
-        if actual != cls.iq2_s():
+        if actual != cls.for_quant_type(actual.quant_type):
             raise SchemaError("GroupedBackwardPairContract is not canonical")
         return actual
 
@@ -232,9 +260,12 @@ class GroupedBackwardPairKernelSpec:
 def grouped_backward_pair_problem_rejection_reason(
     problem: GroupedBackwardPairProblem,
 ) -> str | None:
-    expected = GroupedBackwardPairProblem.iq2_s(problem.aggregate_rows)
-    if problem != expected:
-        return "paired backward implements only the Qwen IQ2_S gate/up geometry"
+    expected = {
+        "IQ2_S": GroupedBackwardPairProblem.iq2_s,
+        "IQ2_XXS": GroupedBackwardPairProblem.iq2_xxs,
+    }.get(problem.quant_data_type)
+    if expected is None or problem != expected(problem.aggregate_rows):
+        return "paired backward implements only the Qwen IQ2_S and DeepSeek IQ2_XXS gate/up geometries"
     if not 0 < problem.aggregate_rows <= _U32_MAX:
         return "paired backward aggregate rows must fit in a positive u32"
     quant_format = BACKWARD_QUANT_FORMATS[problem.quant_data_type]
@@ -274,6 +305,7 @@ def grouped_backward_pair_capability_rejection_reason(
         solution.projection_schedule
         is GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU
     )
+    iq2_xxs = problem.quant_data_type == "IQ2_XXS"
     checks = (
         (solution.projection_count == 2, "paired backward requires two projections"),
         (
@@ -298,6 +330,18 @@ def grouped_backward_pair_capability_rejection_reason(
                 GroupedBackwardPairRouteOwnership.PackedSplitRoutes8,
             ),
             "paired backward route ownership is not implemented",
+        ),
+        (
+            not iq2_xxs
+            or solution.route_ownership
+            is GroupedBackwardPairRouteOwnership.SerialRoutes,
+            "paired IQ2_XXS currently requires serial-route ownership",
+        ),
+        (
+            not iq2_xxs
+            or solution.projection_schedule
+            is GroupedBackwardPairProjectionSchedule.InterleavedDepthU,
+            "paired IQ2_XXS currently implements only its single-LDS anchor",
         ),
         (
             solution.route_ownership
@@ -339,7 +383,7 @@ def grouped_backward_pair_capability_rejection_reason(
             "paired backward lane share must be one",
         ),
         (compute.work_group_mapping == 1, "paired backward route mapping must be one"),
-        (compute.decoder_width == 16, "paired backward IQ2_S decoder width must be 16"),
+        (compute.decoder_width == 16, "paired backward decoder width must be 16"),
         (
             solution.projection_schedule
             not in (

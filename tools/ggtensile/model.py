@@ -46,6 +46,7 @@ class ProblemType:
             "Q6_K",
             "Q8_0",
             "IQ2_S",
+            "IQ2_XXS",
         }:
             raise ValueError(f"unsupported MMQ backward quant type {quant_data_type!r}")
         return cls(

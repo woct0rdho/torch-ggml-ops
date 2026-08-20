@@ -63,7 +63,8 @@ class GroupedBackwardPairKernelWriterAssembly:
             total_sgprs=resources.total_sgprs,
             abi=GROUPED_BACKWARD_PAIR_ABI,
             description=(
-                "GGTensile fused grouped IQ2_S MMQ backward pair, "
+                f"GGTensile fused grouped {self.state.contract.quant_type} "
+                "MMQ backward pair, "
                 f"M{compute.macro_tile0}/N{compute.macro_tile1}/K32"
             ),
         )

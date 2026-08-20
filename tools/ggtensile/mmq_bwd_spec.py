@@ -341,7 +341,10 @@ def backward_mechanism_contract(quant_type: str) -> BackwardMechanismContract:
         ),
         decoder=BackwardDecoderCapability(
             payload_register_count=(
-                4 if quant_type in ("Q2_K", "Q4_K", "Q8_0", "IQ2_S") else 8
+                4
+                if quant_type
+                in ("Q2_K", "Q4_K", "Q8_0", "IQ2_S", "IQ2_XXS")
+                else 8
             ),
             packed_loads_per_row=(
                 3
@@ -354,6 +357,8 @@ def backward_mechanism_contract(quant_type: str) -> BackwardMechanismContract:
                 if quant_type == "Q8_0"
                 else 5
                 if quant_type == "IQ2_S"
+                else 2
+                if quant_type == "IQ2_XXS"
                 else 6
             ),
             scalar_packed_loads_per_row=5 if quant_type == "Q8_0" else None,
@@ -390,6 +395,8 @@ def backward_mechanism_contract(quant_type: str) -> BackwardMechanismContract:
             if quant_type == "Q6_K"
             else BackwardQuantRegisterShape(1, 4, None)
             if quant_type == "IQ2_S"
+            else BackwardQuantRegisterShape(1, 2, None)
+            if quant_type == "IQ2_XXS"
             else BackwardQuantRegisterShape(1, 0, 0)
         ),
     )
@@ -792,7 +799,7 @@ class BackwardKernelSpec:
             mapping["decode"] = {"extraction": self.decode.q6.extraction.value}
         elif quant_type == "Q8_0":
             mapping["decode"] = {"extraction": self.decode.q8.extraction.value}
-        elif quant_type == "IQ2_S":
+        elif quant_type in ("IQ2_S", "IQ2_XXS"):
             pass
         else:
             raise ValueError(f"unsupported backward quant type {quant_type!r}")
@@ -814,7 +821,12 @@ class BackwardKernelSpec:
 
     @classmethod
     def from_mapping(cls, value: object, quant_type: str) -> BackwardKernelSpec:
-        decode_required = quant_type not in ("Q2_K", "Q4_K", "IQ2_S")
+        decode_required = quant_type not in (
+            "Q2_K",
+            "Q4_K",
+            "IQ2_S",
+            "IQ2_XXS",
+        )
         decode_optional = quant_type in ("Q2_K", "Q4_K")
         item = _strict_mapping_optional(
             value,

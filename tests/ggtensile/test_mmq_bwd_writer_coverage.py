@@ -22,6 +22,7 @@ from tools.ggtensile.kernel_writer_assembly_mmq_bwd import (
     BackwardKernelWriterError,
 )
 from tools.ggtensile.mmq_bwd_emission import _Assembly
+from tools.ggtensile.mmq_bwd_lowering import BackwardTileComputeEmitter
 from tools.ggtensile.mmq_bwd_physical import (
     _FirstFitRegisters,
     derive_backward_physical_plan,
@@ -725,3 +726,28 @@ def test_writer_methods_have_complete_line_coverage() -> None:
     for source_path in BWD_IMPLEMENTATION_SOURCE_PATHS:
         assert_writer_methods_have_complete_line_coverage(source_path)
     assert_writer_methods_have_complete_line_coverage(BWD_WRITER_SOURCE_PATH)
+
+
+def test_iq2_xxs_writer_dispatch_and_staged_codebook_guard() -> None:
+    key = _key("IQ2_XXS", (128, 2048, 4096), BackwardSolution.pilot())
+    toolchain = Toolchain.discover()
+    writer = BackwardKernelWriterAssembly(key, toolchain)
+    source = writer.source()
+    assert "GGTensile IQ2_XXS MMQ backward" in source
+    assert "Build IQ2_XXS block addresses for decoder-owned output rows." in source
+    assert "Decode IQ2_XXS signed codebook values into LDS." in source
+
+    physical = derive_backward_physical_plan(writer.state)
+    emitter = BackwardTileComputeEmitter(writer.state, physical)
+    dispatch_asm = _Assembly()
+    emitter._emit_quant_decode_prepare(dispatch_asm, label_suffix="")
+    emitter._emit_quant_decode_chunk(dispatch_asm, 0)
+    assert "IQ2_XXS" in dispatch_asm.text()
+
+    unstaged = replace(
+        physical,
+        lds=replace(physical.lds, codebook_in_lds=False),
+    )
+    emitter = BackwardTileComputeEmitter(writer.state, unstaged)
+    with pytest.raises(ValueError, match="staged codebook"):
+        emitter._emit_iq2_xxs_decode_prepare(_Assembly(), label_suffix="")

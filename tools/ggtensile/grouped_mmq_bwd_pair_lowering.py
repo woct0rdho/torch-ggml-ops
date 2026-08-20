@@ -403,7 +403,7 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
 
 
 class GroupedBackwardPairKernelLowering:
-    """Emit one exact serial-route IQ2_S backward pair."""
+    """Emit one exact serial-route packed backward pair."""
 
     EXIT_LABEL = ".LGroupedBackwardPairExit"
 
