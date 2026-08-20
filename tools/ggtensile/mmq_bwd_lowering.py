@@ -38,12 +38,14 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         access: BackwardTileAccess | None = None,
         diagnostic_mode: BackwardDiagnosticMode | None = None,
         label_suffix: str = "",
+        clause_batch_store: bool = False,
     ) -> None:
         self.state = state
         self.physical = physical
         self.access = access or UnboundedBackwardTileAccess()
         self.diagnostic_mode = diagnostic_mode
         self.label_suffix = label_suffix
+        self.clause_batch_store = clause_batch_store
         self.registers = self.physical.registers
 
     def _label(self, name: str) -> str:
@@ -1152,6 +1154,35 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         if self.state.spec.store.raises_priority:
             asm.inst("s_setprio 1")
         for m_tile in range(m_tiles):
+            if self.clause_batch_store:
+                second_address = t + 3
+                for element in range(0, 8, 2):
+                    asm.inst(
+                        f"v_add_nc_u32 v{second_address}, {4 * size.n}, v{a}"
+                    )
+                    rows = tuple(
+                        tuple(
+                            r.accum
+                            + (n_tiles * m_tile + n_tile) * 8
+                            + row_element
+                            for n_tile in range(n_tiles)
+                        )
+                        for row_element in (element, element + 1)
+                    )
+                    for accumulators in rows:
+                        for accum in accumulators:
+                            emit_bf16_rne(asm, accum, t + 2)
+                    asm.inst(f"s_clause {2 * n_tiles - 1}")
+                    for address, accumulators in zip((a, second_address), rows):
+                        for n_tile, accum in enumerate(accumulators):
+                            asm.inst(
+                                f"global_store_d16_hi_b16 v{address}, v{accum}, "
+                                f"s[{r.kernarg + 4}:{r.kernarg + 5}] "
+                                f"offset:{32 * n_tile}"
+                            )
+                    if not (m_tile == m_tiles - 1 and element == 6):
+                        asm.inst(f"v_add_nc_u32 v{a}, {8 * size.n}, v{a}")
+                continue
             for element in range(8):
                 self._emit_store_row_mask_begin(asm)
                 for n_tile in range(n_tiles):
@@ -1159,7 +1190,8 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
                     emit_bf16_rne(asm, accum, t + 2)
                     asm.inst(
                         f"global_store_d16_hi_b16 v{a}, v{accum}, "
-                        f"s[{r.kernarg + 4}:{r.kernarg + 5}] offset:{32 * n_tile}"
+                        f"s[{r.kernarg + 4}:{r.kernarg + 5}] "
+                        f"offset:{32 * n_tile}"
                     )
                 self._emit_store_row_mask_end(asm)
                 if not (m_tile == m_tiles - 1 and element == 7):

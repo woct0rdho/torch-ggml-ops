@@ -31,10 +31,21 @@ class GroupedBackwardPairProjectionSchedule(str, Enum):
     DualLdsFullTileSplitKPipelineInterleavedDepthU = (
         "DualLdsFullTileSplitKPipelineInterleavedDepthU"
     )
+    DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU = (
+        "DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU"
+    )
 
 
 class GroupedBackwardPairRouteOwnership(str, Enum):
     SerialRoutes = "SerialRoutes"
+    PackedSplitRoutes8 = "PackedSplitRoutes8"
+
+    @property
+    def split_factor(self) -> int:
+        return {
+            GroupedBackwardPairRouteOwnership.SerialRoutes: 1,
+            GroupedBackwardPairRouteOwnership.PackedSplitRoutes8: 8,
+        }[self]
 
 
 @dataclass(frozen=True)
@@ -173,6 +184,18 @@ class GroupedBackwardPairSolution:
             projection_schedule=(
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU
             ),
+        )
+
+    @classmethod
+    def iq2_s_m128_n64_sia5_global_codebook_packed_split_routes_8(cls) -> Self:
+        parent = cls.iq2_s_m128_n64_dual_lds_full_tile_split_k_pipeline()
+        return replace(
+            parent,
+            compute=replace(parent.compute, schedule_iter_alg=5),
+            projection_schedule=(
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU
+            ),
+            route_ownership=GroupedBackwardPairRouteOwnership.PackedSplitRoutes8,
         )
 
     @property

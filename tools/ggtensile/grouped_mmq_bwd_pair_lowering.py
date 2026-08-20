@@ -43,12 +43,16 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
             route=route,
             enabled=bounded,
             label_suffix=label_suffix,
+            clause_batch_store=(
+                k_pipeline and not physical.lds.codebook_in_lds and not bounded
+            ),
         )
         self.pair_route = route
         self.concurrent_reads = concurrent_reads
         self.prefetch_pair_a = prefetch_pair_a
         self.direct_second_pointers = direct_second_pointers
         self.k_pipeline = k_pipeline
+        self._pipeline_wait_index = 0
         self.second_projection: GroupedBackwardPairTileComputeEmitter | None = None
 
     def _emit_compute_tile(self, asm: _Assembly) -> None:
@@ -173,12 +177,15 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
             k_half = k_tile // 16
             asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
             asm.inst(f"s_cbranch_scc0 {self._label(f'PairKPipelineNoNextA{k_half}')}")
-            self._emit_a_half_with_safe_pointers(asm, k_half)
+            if self.physical.lds.codebook_in_lds:
+                self._emit_a_half_with_safe_pointers(asm, k_half)
             asm.label(self._label(f"PairKPipelineNoNextA{k_half}"))
 
         second._emit_wmma(
             asm,
-            after_k_half=prefetch_next_a,
+            after_k_half=(
+                prefetch_next_a if self.physical.lds.codebook_in_lds else None
+            ),
             pending_vmem_by_k_tile={0: 14, 16: 14},
         )
         asm.inst("s_waitcnt lgkmcnt(0)")
@@ -187,18 +194,26 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
         asm.inst(f"s_cbranch_scc0 {self._label('PairKPipelineDone')}")
 
         asm.comment("Decode prefetched banks after their LDS consumers retire.")
-        self._emit_k_pipeline_wait(asm, active_vmcnt=13, inactive_vmcnt=5)
-        self._emit_packed_weight_lane_share(asm)
-        self._emit_quant_decode(
-            asm,
-            label_suffix=self._decode_label_suffix("PairPipelineFirst"),
-        )
-        self._emit_k_pipeline_wait(asm, active_vmcnt=8, inactive_vmcnt=0)
-        second._emit_packed_weight_lane_share(asm)
-        second._emit_quant_decode(
-            asm,
-            label_suffix=second._decode_label_suffix("PairPipelineSecond"),
-        )
+        if self.physical.lds.codebook_in_lds:
+            self._emit_k_pipeline_wait(asm, active_vmcnt=13, inactive_vmcnt=5)
+            self._emit_packed_weight_lane_share(asm)
+            self._emit_quant_decode(
+                asm,
+                label_suffix=self._decode_label_suffix("PairPipelineFirst"),
+            )
+            self._emit_k_pipeline_wait(asm, active_vmcnt=8, inactive_vmcnt=0)
+            second._emit_packed_weight_lane_share(asm)
+            second._emit_quant_decode(
+                asm,
+                label_suffix=second._decode_label_suffix("PairPipelineSecond"),
+            )
+        else:
+            asm.inst("s_waitcnt vmcnt(0)")
+            self._emit_batched_global_codebook_issue(asm, second)
+            self._emit_a_half_with_safe_pointers(asm, 0)
+            self._emit_a_half_with_safe_pointers(asm, 1)
+            self._emit_k_pipeline_wait(asm, active_vmcnt=8, inactive_vmcnt=0)
+            self._emit_batched_global_codebook_finish(asm, second)
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
         asm.inst(f"s_branch {self._label('PairKPipelineCompute')}")
@@ -216,8 +231,12 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
         if not self.enabled:
             asm.inst(f"s_waitcnt vmcnt({active_vmcnt})")
             return
-        inactive = self._label(f"PairKPipelineWaitInactive{active_vmcnt}")
-        done = self._label(f"PairKPipelineWaitDone{active_vmcnt}")
+        wait_index = self._pipeline_wait_index
+        self._pipeline_wait_index += 1
+        inactive = self._label(
+            f"PairKPipelineWaitInactive{active_vmcnt}_{wait_index}"
+        )
+        done = self._label(f"PairKPipelineWaitDone{active_vmcnt}_{wait_index}")
         asm.inst(f"s_cmp_eq_u32 s{self._active_m_tiles}, 0")
         asm.inst(f"s_cbranch_scc1 {inactive}")
         asm.inst(f"s_waitcnt vmcnt({active_vmcnt})")
@@ -259,12 +278,25 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
             self._swap_packed_weight_pointer(asm)
         a_load_count = 0
         if self.prefetch_pair_a:
-            self._emit_first_a_global_reads(asm)
             a_load_count = (
                 2
                 * self.state.spec.geometry.matrix_instruction[5]
                 * self.state.spec.pipeline.global_read_prefetch
             )
+        if not self.physical.lds.codebook_in_lds:
+            asm.inst("s_waitcnt vmcnt(0)")
+            self._emit_batched_global_codebook_issue(asm, second)
+            if self.prefetch_pair_a:
+                self._emit_first_a_global_reads(asm)
+            self._emit_k_pipeline_wait(
+                asm,
+                active_vmcnt=a_load_count,
+                inactive_vmcnt=0,
+            )
+            self._emit_batched_global_codebook_finish(asm, second)
+            return
+        if self.prefetch_pair_a:
+            self._emit_first_a_global_reads(asm)
         asm.inst(
             f"s_waitcnt vmcnt("
             f"{second.physical.decoder.packed_load_count + a_load_count})"
@@ -280,6 +312,32 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
             asm,
             label_suffix=second._decode_label_suffix("PairSecond"),
         )
+
+    def _emit_batched_global_codebook_issue(
+        self,
+        asm: _Assembly,
+        second: "GroupedBackwardPairTileComputeEmitter",
+    ) -> None:
+        self._emit_packed_weight_lane_share(asm)
+        second._emit_packed_weight_lane_share(asm)
+        self._emit_iq2_s_decode_prepare_addresses(asm)
+        second._emit_iq2_s_decode_prepare_addresses(asm)
+        load_count = 2 * (
+            self.physical.decoder.rows + second.physical.decoder.rows
+        )
+        asm.inst(f"s_clause {load_count - 1}")
+        self._emit_iq2_s_global_codebook_reads(asm, emit_clause=False)
+        second._emit_iq2_s_global_codebook_reads(asm, emit_clause=False)
+
+    def _emit_batched_global_codebook_finish(
+        self,
+        asm: _Assembly,
+        second: "GroupedBackwardPairTileComputeEmitter",
+    ) -> None:
+        self._emit_iq2_s_decode_prepare_finish(asm)
+        self._emit_iq2_s_decode_chunks(asm)
+        second._emit_iq2_s_decode_prepare_finish(asm)
+        second._emit_iq2_s_decode_chunks(asm)
 
     def _emit_projection_decode(self, asm: _Assembly, name: str) -> None:
         asm.comment(f"Decode the {name.lower()} pair projection into disjoint LDS.")
@@ -358,31 +416,37 @@ class GroupedBackwardPairKernelLowering:
         self.kernel_name = kernel_name
         self.state = state
         self.physical = physical
+        self.route_split_factor = state.kernel_spec.route_ownership.split_factor
+        global_codebook_pipeline = (
+            state.kernel_spec.projection_schedule
+            is GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU
+        )
         split_full_tiles = state.kernel_spec.projection_schedule in (
             GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitInterleavedDepthU,
             GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU,
             GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
             GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
             GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
-        )
+        ) or global_codebook_pipeline
         concurrent_reads = state.kernel_spec.projection_schedule in (
             GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU,
             GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
             GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
             GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
-        )
+        ) or global_codebook_pipeline
         prefetch_pair_a = state.kernel_spec.projection_schedule in (
             GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
             GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
             GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
-        )
+        ) or global_codebook_pipeline
         direct_second_pointers = state.kernel_spec.projection_schedule in (
             GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
             GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
-        )
+        ) or global_codebook_pipeline
         k_pipeline = (
             state.kernel_spec.projection_schedule
             is GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU
+            or global_codebook_pipeline
         )
         self.compute = GroupedBackwardPairTileComputeEmitter(
             state.ordinary,
@@ -455,6 +519,12 @@ class GroupedBackwardPairKernelLowering:
 
         self._emit_kernarg_loads(asm)
         self._emit_exact_shape_guard(asm)
+        packed_split = self.route_split_factor > 1
+        if packed_split:
+            split_shift = self.route_split_factor.bit_length() - 1
+            asm.comment("Split grid Y into a route index and strided M-tile task.")
+            asm.inst(f"s_and_b32 s{r.input_half}, s3, {self.route_split_factor - 1}")
+            asm.inst(f"s_lshr_b32 s3, s3, {split_shift}")
         self._emit_route_load_and_guard(asm)
         self._emit_pointer_rebase(asm)
         self.compute.emit_quant_constants(asm)
@@ -462,13 +532,21 @@ class GroupedBackwardPairKernelLowering:
         asm.comment("Map grid X to N and walk this grid-Y route in M tiles.")
         asm.inst(f"s_mov_b32 s{route.gemm_index}, s3")
         asm.inst("s_mov_b32 s3, s2")
-        asm.inst("s_mov_b32 s2, 0")
+        if packed_split:
+            asm.inst(f"s_mov_b32 s2, s{r.input_half}")
+        else:
+            asm.inst("s_mov_b32 s2, 0")
         n_tiles = (
             self.state.contract.in_features
             // self.compute.state.spec.geometry.macro_tile1
         )
         asm.inst(f"s_cmp_ge_u32 s3, {n_tiles}")
         asm.inst(f"s_cbranch_scc1 {self.EXIT_LABEL}")
+        if self.route_split_factor > 1:
+            tile_shift = self.compute.state.spec.geometry.macro_tile0.bit_length() - 1
+            asm.inst(f"s_lshl_b32 s{route.tile_end}, s2, {tile_shift}")
+            asm.inst(f"s_cmp_ge_u32 s{route.tile_end}, s{route.route_rows}")
+            asm.inst(f"s_cbranch_scc1 {self.EXIT_LABEL}")
 
         self.compute.emit_quant_codebook_stage(asm)
         self.compute.emit_static_coordinates(asm)
@@ -483,7 +561,10 @@ class GroupedBackwardPairKernelLowering:
             asm.inst(f"s_cmp_lt_u32 s{route.tile_end}, s{route.route_rows}")
             asm.inst("s_cbranch_scc1 .LGroupedBackwardPairRowTile")
         else:
-            self._emit_full_and_tail_route_tiles(asm)
+            if self.route_split_factor > 1:
+                self._emit_split_full_and_tail_route_tiles(asm)
+            else:
+                self._emit_full_and_tail_route_tiles(asm)
 
         asm.label(self.EXIT_LABEL)
         emit_kernel_trailer(asm, self.kernel_name)
@@ -516,6 +597,33 @@ class GroupedBackwardPairKernelLowering:
         asm.inst(f"s_cbranch_scc1 {full_label}")
         asm.inst(f"s_cmp_ge_u32 s{route.tile_end}, s{route.route_rows}")
         asm.inst(f"s_cbranch_scc1 {done_label}")
+        asm.label(tail_label)
+        self.compute.emit_tile(asm)
+        asm.label(done_label)
+
+    def _emit_split_full_and_tail_route_tiles(self, asm: _Assembly) -> None:
+        if self.full_compute is None:
+            raise RuntimeError("split full-tile emitter is not configured")
+        route = self.physical.scalar
+        tile_rows = self.compute.state.spec.geometry.macro_tile0
+        tile_shift = tile_rows.bit_length() - 1
+        full_label = ".LGroupedBackwardPairSplitFullRowTile"
+        tail_label = ".LGroupedBackwardPairSplitTailRowTile"
+        done_label = ".LGroupedBackwardPairSplitRowTileDone"
+
+        asm.inst(f"s_lshl_b32 s{route.tile_end}, s2, {tile_shift}")
+        asm.inst(f"s_add_u32 s{route.gemm_index}, s{route.tile_end}, {tile_rows}")
+        asm.inst(f"s_cmp_le_u32 s{route.gemm_index}, s{route.route_rows}")
+        asm.inst(f"s_cbranch_scc0 {tail_label}")
+        asm.label(full_label)
+        self.full_compute.emit_tile(asm)
+        asm.inst(f"s_add_u32 s2, s2, {self.route_split_factor}")
+        asm.inst(f"s_lshl_b32 s{route.tile_end}, s2, {tile_shift}")
+        asm.inst(f"s_cmp_ge_u32 s{route.tile_end}, s{route.route_rows}")
+        asm.inst(f"s_cbranch_scc1 {done_label}")
+        asm.inst(f"s_add_u32 s{route.gemm_index}, s{route.tile_end}, {tile_rows}")
+        asm.inst(f"s_cmp_le_u32 s{route.gemm_index}, s{route.route_rows}")
+        asm.inst(f"s_cbranch_scc1 {full_label}")
         asm.label(tail_label)
         self.compute.emit_tile(asm)
         asm.label(done_label)

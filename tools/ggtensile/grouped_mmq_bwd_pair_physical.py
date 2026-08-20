@@ -126,12 +126,13 @@ def derive_grouped_backward_pair_physical_plan(
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU,
     ):
         decoded_bytes = ordinary.lds.num_bytes
         codebook_offset = 2 * decoded_bytes
-        codebook_in_lds = (
-            state.kernel_spec.projection_schedule
-            is not GroupedBackwardPairProjectionSchedule.DualLdsGlobalCodebookInterleavedDepthU
+        codebook_in_lds = state.kernel_spec.projection_schedule not in (
+            GroupedBackwardPairProjectionSchedule.DualLdsGlobalCodebookInterleavedDepthU,
+            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU,
         )
         resources = replace(
             ordinary.resources,
@@ -157,6 +158,7 @@ def derive_grouped_backward_pair_physical_plan(
             GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
             GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
             GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
+            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU,
         ):
             second_payload = (ordinary.registers.total_vgprs + 3) // 4 * 4
             second_registers = replace(
@@ -167,6 +169,8 @@ def derive_grouped_backward_pair_physical_plan(
                     is GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU
                     or state.kernel_spec.projection_schedule
                     is GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU
+                    or state.kernel_spec.projection_schedule
+                    is GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU
                     else second_projection.registers.kernarg
                 ),
                 global_read_b=second_payload,

@@ -85,12 +85,14 @@ class GroupedBackwardTileComputeEmitter(BackwardTileComputeEmitter):
         route: GroupedBackwardScalarPlan,
         enabled: bool,
         label_suffix: str = "",
+        clause_batch_store: bool = False,
     ) -> None:
         super().__init__(
             state,
             physical,
             access=access,
             label_suffix=label_suffix,
+            clause_batch_store=clause_batch_store,
         )
         self.route = route
         self.enabled = enabled

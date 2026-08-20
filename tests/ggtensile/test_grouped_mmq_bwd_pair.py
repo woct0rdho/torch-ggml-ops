@@ -22,6 +22,7 @@ from tools.ggtensile.grouped_mmq_bwd_pair_spec import (
 from tools.ggtensile.grouped_mmq_bwd_pair_validation import (
     validate_grouped_backward_pair_solution,
 )
+from tools.ggtensile.iq2_s_grid import iq2_s_grid_values
 from tools.ggtensile.kernel_abi import GROUPED_BACKWARD_PAIR_ABI
 from tools.ggtensile.kernel_writer_assembly_grouped_mmq_bwd_pair import (
     GroupedBackwardPairKernelWriterAssembly,
@@ -48,6 +49,15 @@ def test_backward_pair_identity_roundtrip(rows: int, tile: int) -> None:
     assert GroupedBackwardPairSolutionKey.from_mapping(key.to_mapping()) == key
     assert not validate_grouped_backward_pair_solution(key)
     assert "grouped_mmq_bwd_pair_iq2_s" in key.kernel_name
+
+
+def test_iq2_s_packed_negative_payload_identity() -> None:
+    mask = 0xFFFFFFFF
+    for grid_value in iq2_s_grid_values():
+        for payload in (grid_value & mask, grid_value >> 32):
+            software_negation = ((~payload & mask) + 0x01010101) & mask
+            packed_subtract = (0x01010100 - payload) & mask
+            assert software_negation == packed_subtract
 
 
 def test_backward_pair_identity_rejects_noncanonical_contract() -> None:
@@ -137,6 +147,27 @@ def test_backward_pair_k_pipeline_identity_and_synchronized_tail() -> None:
         "s_cbranch_scc1 .LGroupedBackwardInactiveWave0TailSecondLds"
     )
     assert advance < inactive_second
+
+
+def test_backward_pair_sia5_global_codebook_packed_split_routes_8() -> None:
+    key = GroupedBackwardPairSolutionKey(
+        GroupedBackwardPairProblem.iq2_s(257),
+        GroupedBackwardPairSolution.iq2_s_m128_n64_sia5_global_codebook_packed_split_routes_8(),
+    )
+    assert not validate_grouped_backward_pair_solution(key)
+
+    state = DerivedGroupedBackwardPairState.from_solution_key(key)
+    physical = derive_grouped_backward_pair_physical_plan(state)
+    assert physical.ordinary.resources.lds_num_bytes == 8_192
+    assert not physical.ordinary.lds.codebook_in_lds
+
+    source = GroupedBackwardPairKernelWriterAssembly(key, Toolchain.discover()).source()
+    assert "Stage the IQ2_S codebook once in disjoint LDS" not in source
+    assert "global_load_b64" in source
+    assert source.count("s_barrier") == 6
+    assert "s_and_b32 s17, s3, 7" in source
+    assert "s_lshr_b32 s3, s3, 3" in source
+    assert "s_mov_b32 s2, s17" in source
 
 
 def test_backward_pair_global_codebook_source() -> None:

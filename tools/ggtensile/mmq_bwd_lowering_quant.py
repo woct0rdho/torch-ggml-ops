@@ -1302,9 +1302,7 @@ class BackwardQuantLowering:
         label_suffix: str = "",
     ) -> None:
         self._emit_iq2_s_decode_prepare(asm, label_suffix=label_suffix)
-        asm.comment("Decode IQ2_S codebook values and signed scales into LDS.")
-        for chunk in range(4 * self.physical.decoder.rows):
-            self._emit_iq2_s_decode_chunk(asm, chunk)
+        self._emit_iq2_s_decode_chunks(asm)
 
     def _emit_iq2_s_decode_prepare(
         self,
@@ -1313,6 +1311,17 @@ class BackwardQuantLowering:
         label_suffix: str,
     ) -> None:
         del label_suffix
+        self._emit_iq2_s_decode_prepare_issue(asm)
+        wait_domain = "lgkmcnt" if self.physical.lds.codebook_in_lds else "vmcnt"
+        asm.inst(f"s_waitcnt {wait_domain}(0)")
+        self._emit_iq2_s_decode_prepare_finish(asm)
+
+    def _emit_iq2_s_decode_prepare_issue(self, asm: _Assembly) -> None:
+        if not self.physical.lds.codebook_in_lds:
+            self._emit_iq2_s_decode_prepare_addresses(asm)
+            self._emit_iq2_s_global_codebook_reads(asm, emit_clause=True)
+            return
+
         r = self.registers
         rows = self.physical.decoder.rows
         t = r.temporary
@@ -1340,9 +1349,54 @@ class BackwardQuantLowering:
             asm.inst(f"v_mul_f32 v{metadata + 2}, 0.25, v{r.quant_dm + row}")
             asm.inst(f"v_mul_f32 v{metadata + 2}, v{t + 1}, v{metadata + 2}")
             asm.inst(f"v_mov_b32 v{metadata + 3}, v{metadata + 1}")
-        wait_domain = "lgkmcnt" if self.physical.lds.codebook_in_lds else "vmcnt"
-        asm.inst(f"s_waitcnt {wait_domain}(0)")
+
+    def _emit_iq2_s_decode_prepare_addresses(self, asm: _Assembly) -> None:
+        r = self.registers
+        t = r.temporary
+        asm.comment("Materialize direct IQ2_S codebook offsets before issuing reads.")
+        asm.inst(f"v_and_b32 v{t}, 1, v{r.serial}")
+        asm.inst(f"v_lshlrev_b32 v{t}, 2, v{t}")
+        for row in range(self.physical.decoder.rows):
+            metadata = r.quant_scale + 4 * row
+            payload = r.global_read_b + 4 * row
+            asm.inst(f"v_lshrrev_b32 v{t + 1}, v{t}, v{metadata + 2}")
+            asm.inst(f"v_and_b32 v{t + 3}, 3, v{t + 1}")
+            asm.inst(f"v_and_b32 v{t + 2}, 0xff, v{metadata}")
+            asm.inst(f"v_lshl_or_b32 v{t + 2}, v{t + 3}, 8, v{t + 2}")
+            asm.inst(f"v_lshlrev_b32 v{payload}, 3, v{t + 2}")
+            asm.inst(f"v_bfe_u32 v{t + 2}, v{metadata}, 8, 8")
+            asm.inst(f"v_bfe_u32 v{t + 3}, v{t + 1}, 2, 2")
+            asm.inst(f"v_lshl_or_b32 v{t + 2}, v{t + 3}, 8, v{t + 2}")
+            asm.inst(f"v_lshlrev_b32 v{payload + 2}, 3, v{t + 2}")
+            asm.inst(f"v_cvt_f32_f16 v{r.quant_dm + row}, v{r.quant_dm + row}.l")
+            asm.inst(f"v_bfe_u32 v{t + 1}, v{metadata + 3}, v{t}, 4")
+            asm.inst(f"v_cvt_f32_u32 v{t + 1}, v{t + 1}")
+            asm.inst(f"v_add_f32 v{t + 1}, 0.5, v{t + 1}")
+            asm.inst(f"v_mul_f32 v{metadata + 2}, 0.25, v{r.quant_dm + row}")
+            asm.inst(f"v_mul_f32 v{metadata + 2}, v{t + 1}, v{metadata + 2}")
+            asm.inst(f"v_mov_b32 v{metadata + 3}, v{metadata + 1}")
+
+    def _emit_iq2_s_global_codebook_reads(
+        self,
+        asm: _Assembly,
+        *,
+        emit_clause: bool,
+    ) -> None:
+        rows = self.physical.decoder.rows
+        if emit_clause:
+            asm.inst(f"s_clause {2 * rows - 1}")
+        base = self.registers.codebook_base
         for row in range(rows):
+            payload = self.registers.global_read_b + 4 * row
+            for destination in (payload, payload + 2):
+                asm.inst(
+                    f"global_load_b64 v[{destination}:{destination + 1}], "
+                    f"v{destination}, s[{base}:{base + 1}]"
+                )
+
+    def _emit_iq2_s_decode_prepare_finish(self, asm: _Assembly) -> None:
+        r = self.registers
+        for row in range(self.physical.decoder.rows):
             metadata = r.quant_scale + 4 * row
             payload = r.global_read_b + 4 * row
             for dword in range(4):
@@ -1353,22 +1407,28 @@ class BackwardQuantLowering:
                     4 * dword,
                 )
 
+    def _emit_iq2_s_decode_chunks(self, asm: _Assembly) -> None:
+        asm.comment("Decode IQ2_S codebook values and signed scales into LDS.")
+        if not self.physical.lds.codebook_in_lds:
+            scale_copy = self.registers.temporary + 6
+            for row in range(self.physical.decoder.rows):
+                scale = self.registers.quant_scale + 4 * row + 2
+                asm.inst(f"v_mov_b32 v{scale_copy}, v{scale}")
+                for chunk_in_row in range(4):
+                    self._emit_iq2_s_decode_chunk(asm, 4 * row + chunk_in_row)
+            return
+        for chunk in range(4 * self.physical.decoder.rows):
+            self._emit_iq2_s_decode_chunk(asm, chunk)
+
     def _emit_iq2_s_codebook_load(
         self,
         asm: _Assembly,
         destination: int,
         address: int,
     ) -> None:
-        if self.physical.lds.codebook_in_lds:
-            asm.inst(
-                f"ds_load_b64 v[{destination}:{destination + 1}], v{address} "
-                f"offset:{self.physical.lds.effective_codebook_offset}"
-            )
-            return
-        base = self.registers.codebook_base
         asm.inst(
-            f"global_load_b64 v[{destination}:{destination + 1}], v{address}, "
-            f"s[{base}:{base + 1}]"
+            f"ds_load_b64 v[{destination}:{destination + 1}], v{address} "
+            f"offset:{self.physical.lds.effective_codebook_offset}"
         )
 
     def _emit_iq2_s_signed_dword(
@@ -1384,9 +1444,12 @@ class BackwardQuantLowering:
         negative = sign_bits + 2
         asm.inst(f"v_bfe_u32 v{sign_bits}, v{signs}, {sign_shift}, 4")
         asm.inst(f"v_mul_lo_u32 v{selector}, 0x810204, v{sign_bits}")
-        asm.inst(f"v_and_or_b32 v{selector}, v{selector}, 0x04040404, s{r.input_half}")
-        asm.inst(f"v_not_b32 v{negative}, v{payload}")
-        asm.inst(f"v_add_nc_u32 v{negative}, 0x01010101, v{negative}")
+        asm.inst(
+            f"v_and_or_b32 v{selector}, v{selector}, "
+            f"0x04040404, s{r.input_half}"
+        )
+        # Grid bytes are nonzero, making this one packed bytewise negation.
+        asm.inst(f"v_sub_nc_u32 v{negative}, 0x01010100, v{payload}")
         asm.inst(f"v_perm_b32 v{payload}, v{negative}, v{payload}, v{selector}")
 
     def _emit_iq2_s_decode_chunk(self, asm: _Assembly, chunk: int) -> None:
@@ -1398,6 +1461,35 @@ class BackwardQuantLowering:
         value = r.temporary
         rounding = value + 1
         db = r.quant_scale + 4 * row + 2
+        if not self.physical.lds.codebook_in_lds:
+            values = tuple(value + item for item in range(4))
+            for item, output in enumerate(values):
+                asm.inst(f"v_bfe_i32 v{output}, v{packed}, {8 * item}, 8")
+            for output in values:
+                asm.inst(f"v_cvt_f32_i32_e32 v{output}, v{output}")
+            scale_copy = value + 6
+            for first, second in ((values[0], values[1]), (values[2], values[3])):
+                asm.inst(
+                    f"v_dual_mul_f32 v{first}, v{db}, v{first} :: "
+                    f"v_dual_mul_f32 v{second}, v{scale_copy}, v{second}"
+                )
+            roundings = (value + 4, value + 5, value + 7, value + 8)
+            for output, tie in zip(values, roundings):
+                asm.inst(f"v_bfe_u32 v{tie}, v{output}, 16, 1")
+            for output, tie in zip(values, roundings):
+                asm.inst(
+                    f"v_add3_u32 v{output}, v{tie}, v{output}, 0x7fff"
+                )
+            for item, output in enumerate(values):
+                element = element_start + item
+                lds_address, lds_offset = self.physical.lds.decoded_store_location(
+                    r, self.physical.address, element, row, k_span
+                )
+                asm.inst(
+                    f"ds_store_b16_d16_hi v{lds_address}, v{output} "
+                    f"offset:{lds_offset}"
+                )
+            return
         for element in range(element_start, element_start + 4):
             asm.inst(f"v_bfe_i32 v{value}, v{packed}, {8 * (element % 4)}, 8")
             asm.inst(f"v_cvt_f32_i32_e32 v{value}, v{value}")

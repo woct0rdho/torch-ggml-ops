@@ -1,6 +1,6 @@
 """Derived authorities for research-only paired grouped backward kernels."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .grouped_mmq_bwd_pair_model import (
     GroupedBackwardPairProblem,
@@ -95,6 +95,7 @@ class GroupedBackwardPairContract:
                     GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
                     GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
                     GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
+                    GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU,
                 )
                 else solution.projection_schedule.value
             ),
@@ -263,10 +264,15 @@ def grouped_backward_pair_capability_rejection_reason(
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU,
     )
-    pipelines_pair_k = (
+    pipelines_pair_k = solution.projection_schedule in (
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU,
+    )
+    interleaves_wmma_waits = (
         solution.projection_schedule
-        is GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU
+        is GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU
     )
     checks = (
         (solution.projection_count == 2, "paired backward requires two projections"),
@@ -281,12 +287,23 @@ def grouped_backward_pair_capability_rejection_reason(
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU,
             ),
             "paired backward requires interleaved DepthU projection order",
         ),
         (
-            solution.route_ownership is GroupedBackwardPairRouteOwnership.SerialRoutes,
-            "paired backward first implementation requires serial routes",
+            solution.route_ownership
+            in (
+                GroupedBackwardPairRouteOwnership.SerialRoutes,
+                GroupedBackwardPairRouteOwnership.PackedSplitRoutes8,
+            ),
+            "paired backward route ownership is not implemented",
+        ),
+        (
+            solution.route_ownership
+            is GroupedBackwardPairRouteOwnership.SerialRoutes
+            or interleaves_wmma_waits,
+            "paired backward split routes require the SIA5 K pipeline",
         ),
         (compute.kernel_language == "Assembly", "kernel language must be Assembly"),
         (compute.isa == (11, 5, 1), "paired backward ISA must be gfx1151"),
@@ -302,7 +319,13 @@ def grouped_backward_pair_capability_rejection_reason(
         (compute.one_lds_buffer == 1, "paired backward first body uses one LDS tile"),
         (
             (compute.schedule_iter_alg, compute.prefetch_global_read)
-            == ((4, 2) if prefetches_pair_a else (2, 1)),
+            == (
+                (5, 2)
+                if interleaves_wmma_waits
+                else (4, 2)
+                if prefetches_pair_a
+                else (2, 1)
+            ),
             "paired backward A-read schedule is not implemented",
         ),
         (compute.prefetch_local_read == 1, "paired backward needs one LDS read stage"),
@@ -327,6 +350,7 @@ def grouped_backward_pair_capability_rejection_reason(
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU,
             )
             or compute.macro_tile0 == 128,
             "paired backward dual LDS is implemented only for M128",
@@ -344,10 +368,15 @@ def grouped_backward_pair_capability_rejection_reason(
         // compute.macro_tile0
         * compute.macro_tile0
     )
+    ordinary_compute = (
+        replace(compute, prefetch_packed_weight_next=False)
+        if interleaves_wmma_waits
+        else compute
+    )
     ordinary = SolutionKey(
         ProblemType.mmq_backward(problem.quant_data_type),
         ProblemSize(padded_rows, problem.in_features, problem.out_features),
-        compute,
+        ordinary_compute,
     )
     reasons = validate_solution(ordinary)
     if reasons:

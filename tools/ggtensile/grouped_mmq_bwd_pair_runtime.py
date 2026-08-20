@@ -119,7 +119,7 @@ class GroupedBackwardPairModule(_HIPModule):
             self._lib.hipModuleLaunchKernel(
                 self._function,
                 problem.in_features // compute.macro_tile1,
-                route_entries,
+                route_entries * self.solution_key.solution.route_ownership.split_factor,
                 1,
                 *compute.work_group,
                 0,

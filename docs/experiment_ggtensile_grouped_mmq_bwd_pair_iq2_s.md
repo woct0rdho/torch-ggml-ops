@@ -38,13 +38,16 @@ Timing uses warmed rotating GPU events and includes output allocation in both in
 
 ## Planned Search
 
-- Measure installed HIP complete-call and kernel-only timing on fitted search and confirmation medoids.
-- Add a strict paired backward model, solution identity, ABI, validation, physical plan, writer, runtime, inspection, and tests without changing the non-paired identity.
-- Split the reusable backward tile emitter at typed accumulator initialization, projection reduction, and final-store boundaries.
-- Establish true fused M64/N64 and M128/N64 controls using serial route ownership, shared route setup, and one FP32 accumulator set.
-- Qualify packed HIP equality and the independent oracle before timing any candidate.
-- Screen the largest observed deficits first, then isolate decode, LDS, scheduling, tail, and ownership mechanisms around the fastest correct parent.
-- Confirm retained identities on disjoint fitted medoids and full-row correctness; leave public integration for separate review.
+- Keep the final M128/N64 SIA5/global-codebook/packed-route-8 identity as the production candidate. Preserve B1 and B4 as regression gates and require paired confirmation for the narrow B16 margin.
+- Compare only actionable in-contract changes against the final body: exact FP32 accumulation order, one final BF16 RNE store, route semantics, zero spills, and reproducible source identity are hard gates.
+- Rank on fitted weighted complete-call latency with five learned medoids per production key. Use 5 warmups, 25 repeats, balanced six-permutation launch order, exact BF16 controls, and independent plus paired robust confidence analysis.
+- Retain only mechanisms with a direct correctness, resource, or timing record. Leave installed dispatch, packaging, generated bundles, and HIP fallback for a separate integration review.
+
+## Recursive Final Review
+
+After each optimization round, reread the contract, retained source and machine code, installed HIP control, fitted reports, correctness reports, resource inspection, and rejected experiments from first principles. Do not treat an earlier rejection as permanent when a retained mechanism changes its premise.
+
+Classify every remaining idea as retained and measured; rejected by correctness, resources, timing, or reproducibility; contract-incompatible or deferred with an explicit prerequisite; or actionable with an exact target and qualification gate. Implement every actionable finding and repeat the review from the new premise. Completion requires a fresh recursive pass with no actionable in-contract mechanism and every selected production key correct, deterministic, resource-clean, independently reproducible, and faster than its exact HIP control.
 
 ## Completion Record
 
@@ -162,3 +165,51 @@ A focused three-warmup, nine-repeat rotating comparison against the direct-point
 | B16 | `47.2263` | `52.7560` | `51.0386` | `1.0336x` | `0.9253x` |
 
 The K pipeline is retained as the fitted-search parent. It wins every key against direct pointers and now beats public HIP at B1 and B4, but B16 remains approximately `7.5%` slower and is the next optimization target. Production integration and fallback dispatch remain out of scope. Build, correctness, full-path, and timing records are under `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-s-k-pipeline/`.
+
+### HIP-shaped N128/global-codebook geometry rejection
+
+The installed HIP body uses a 128-wide N tile, so a distinct `M128/N128` identity was screened before deeper scheduling work. `DualLdsGlobalCodebookN128InterleavedDepthU` uses the existing direct global codebook mechanism, eight N WMMA tiles per projection, and no codebook LDS staging. Row 35 and row 257 mixed full/tail qualification remain bit-exact, and strict inspection reports zero private bytes/spills with `194 VGPR`, `41 SGPR`, `16,384 B` LDS, `64` static WMMAs, `2` barriers, `172` VMEM operations, and `128` LDS operations.
+
+The static stream resembles HIP, but the fitted B16 search rejects it decisively. With three warmups and nine rotating complete-call repeats over the five learned medoids, weighted latency is `46.4331 ms` for installed HIP, `50.2026 ms` for the retained K pipeline, and `57.1737 ms` for N128/global. The candidate reaches only `0.8121x` HIP and `0.8781x` the retained parent. The larger accumulator/register envelope and N128 occupancy behavior dominate the apparent packed-read savings. The candidate is rejected by timing, not correctness or resources. Build, correctness, and timing records are under `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-s-n128-global/`.
+
+### Interleaved WMMA waits
+
+`DualLdsFullTileSplitKPipelineInterleaveWmmaWaitsDepthU` changes the retained K-pipeline iteration schedule from SIA4 to SIA5. It begins the first WMMA as soon as its A and first LDS fragment are ready, drains the second LDS fragment separately, and then admits the second M tile as its A reads retire. Packed-read, direct-pointer, projection ordering, K advance, and LDS barrier semantics are unchanged.
+
+The candidate stays at `149 VGPR`, `41 SGPR`, and `16,384 B` LDS with zero private memory or spills. Static work is otherwise identical to the retained K pipeline, while explicit waits increase from `46` to `70`. Row 35 passes the full adversarial and malformed-route matrix; row 257 passes mixed full/tail ownership and deterministic mutation checks bit-for-bit.
+
+Three-warmup, nine-repeat fitted searches give:
+
+| Key | Public ms | K-pipeline parent ms | SIA5 ms | SIA5 / parent | SIA5 / public |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| B1 | `5.7069` | `5.6238` | `5.3401` | `1.0531x` | `1.0687x` |
+| B4 | `13.4140` | `13.4536` | `13.2529` | `1.0151x` | `1.0122x` |
+| B16 | `47.1559` | `52.0769` | `50.6613` | `1.0279x` | `0.9308x` |
+
+SIA5 becomes the fitted-search parent because it improves every key and preserves the B1/B4 HIP wins. Promotion still requires the disjoint 5-warmup/25-repeat confirmation, robust confidence analysis, and independent rebuild. B16 remains about `6.9%` behind HIP. Records are under `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-s-k-pipeline-sia5/`.
+
+### Final SIA5 global-codebook packed-route identity
+
+The retained constructor is `GroupedBackwardPairSolution.iq2_s_m128_n64_sia5_global_codebook_packed_split_routes_8()`. It combines the two-LDS full/tail K pipeline, SIA5 interleaved WMMA waits, direct global codebook reads, packed grid-Y route split factor 8, deferred A scheduling, four contiguous global codebook loads per projection pair, batch4 IQ2_S decode, batched software BF16 RNE dependencies, and eight-store full-tile epilogue clauses. Tail paths retain masking and the original individual-store form. Projection order and one shared FP32 accumulator set are unchanged.
+
+Every production artifact is gfx1151 code object v5 with wave32 and 128 threads. Rows 35, 257, 16384, 65536, and 262144 inspect at `149 VGPR`, `41 SGPR`, `8192 B` LDS, zero private bytes, zero VGPR/SGPR spills, 64 static WMMAs, six barriers, 232 VMEM operations, 192 LDS operations, and 60 waits. The final direct-codebook decoder has 1598 static VALU issues, 1688 VALU operations, and 90 VOPD instructions. The codebook sign transform uses `0x01010100 - payload`: all authoritative IQ2_S grid bytes are nonzero, so this is bit-identical to `~payload + 0x01010101` without the separate NOT instruction. The identity was checked over all 1024 codebook entries.
+
+Balanced five-warmup confirmation over the five fitted medoids gives 25 repeats for B1/B4 and 50 repeats for B16:
+
+| Key | HIP complete ms | SIA5/global candidate ms | Candidate over HIP | Independent 95% CI | Paired 95% CI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| B1 | `5.8515` | `4.7238` | `-19.28%` | `-21.34..-17.17%` | `-19.92..-17.44%` |
+| B4 | `13.7111` | `12.4234` | `-9.38%` | `-10.05..-8.70%` | `-9.90..-8.66%` |
+| B16 | `47.8251` | `47.2100` | `-1.27%` | `-2.13..-0.39%` | `-1.54..-0.76%` |
+
+The candidate is independently and paired-confirmed faster than HIP at all three production keys. Against the RNE-batch4 parent, independent intervals are entirely faster at all keys: `-19.44..-14.49%`, `-10.03..-8.33%`, and `-3.03..-0.65%` for B1/B4/B16.
+
+The final production correctness report compares exact candidate output with installed HIP over 33,554,432 B1 elements, 134,217,728 B4 elements, and 536,870,912 B16 elements. Every comparison has zero differing BF16 elements, zero absolute error, finite output, and zero differences on the deterministic rerun. All five fitted medoids per key also have zero candidate/HIP differences. The row-35 adversarial report retains the independent FP32 oracle result of 23 differing BF16 values out of 71,680 with NRMSE `6.60e-5`; malformed-route sentinels, active/inactive bank mutation, route mutation, gradient mutation, mixed full/tail ownership, and deterministic controls pass.
+
+Independent regeneration of rows 35, 257, 16384, 65536, and 262144 produces byte-identical assembly, solution JSON, and HSACO. The retained artifact root is `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-s-k-pipeline-sia5-global-rne-batch4-sign-sub-packed8/`; reproducibility is recorded in `reproducibility.json`, production exactness in `production-correctness.json`, and full-path controls in `full-path-correctness.json`.
+
+### Final rejected late experiments
+
+Native `v_cvt_pk_bf16_f32` staging was rejected because the gfx1151 assembler reports the instruction unsupported. The source-only artifact was not treated as a valid code object. Four-way selector/sign batching reduced static issue count further but was neutral against the RNE-batch4 parent, so it is not retained. The serial one-subtract form was retained because it reduced 32 static issues without moving resources and improved the balanced B16 search result.
+
+The final identity has no actionable in-contract mechanism left in this isolated scope. Installed dispatch and packaging remain intentionally unchanged.
