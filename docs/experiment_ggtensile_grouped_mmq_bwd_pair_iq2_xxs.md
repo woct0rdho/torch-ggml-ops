@@ -44,6 +44,16 @@ Timing uses warmed rotating GPU events and includes equivalent output allocation
 - Compare M64 and M128 early. Then test only mechanisms justified by measured deficits: dual LDS, concurrent bank reads, activation and packed-weight pipelining, route ownership, decode scheduling, swizzle4, and exact geometry.
 - Retain only mechanisms with explicit correctness, resource, timing, and identity records. Remove failed-only source identities before final review.
 
+## Continued Optimization Plan
+
+- Preserve the retained M64 SIA5 pipeline as the B1 control while prioritizing the production M128 path, where historical evidence shows larger B4/B16 gains and therefore the highest remaining payoff.
+- Rebuild and remeasure the exact M128 activation-prefetch schedule from the current writer at R49,152 and R196,608. Require BF16 exactness, bounded resources, and stable search timing before treating the historical gain as current evidence.
+- Compare installed HIP and GGTensile machine code and inspect `~/amd-llvm-project/` where compiler scheduling or instruction selection needs explanation. Translate mechanisms, not compiler accidents: activation/weight latency hiding, codebook/decode issue width, LDS access shape, wait frontiers, WMMA ordering, and loop-control overhead.
+- Port the retained M64 IQ2_XXS decode batching, paired codebook overlap, direct pointers, and SIA5 K pipeline to M128 one mechanism at a time. Reject any step that spills, changes BF16 output, or loses on the fitted-prior timing gate.
+- Once large M128 margins are exhausted, revisit smaller B1 gains and cross-geometry mechanisms. Confirm every finalist with disjoint 25-repeat timing and independent/paired confidence intervals.
+- After every coherent retained or failed experiment, append its exact identity, artifact/resources, correctness, timing, and disposition to this document. Commit each source/test improvement worth retaining; documentation-only records need no separate commit.
+- Keep the recursive final-review rule below unchanged and repeat it after each retained mechanism and at campaign completion.
+
 ## Recursive Final Review
 
 After each optimization round, reread the contract, retained source and machine code, installed HIP control, timing reports, correctness reports, resource inspection, and rejected experiments from first principles. Classify every remaining idea as retained and measured; rejected by correctness, resources, timing, or reproducibility; contract-incompatible or deferred with a prerequisite; or actionable with an exact target and gate. Implement every actionable finding and repeat the review.
@@ -146,3 +156,28 @@ The following complete mechanisms were measured and rejected: store interleaving
 ### Recursive final review
 
 The final review reread the exact paired contract, retained lowering and source, installed HIP control, static inspection, bounded and production correctness, deterministic artifact records, timing confidence report, and rejected mechanisms. Independent durable rebuilds under `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m64-k-pipeline-sia5-independent-a/` and `...-independent-b/` match for R35, R257, and R12,288 source, object, and HSACO hashes and inspections. Remaining items are classified as retained and measured (the final M64 SIA5 K pipeline), rejected by timing or resource/identity gates (the listed alternatives), or deferred pending public integration review. No actionable in-contract mechanism remains in the current typed lowering surface. The complete `tests/ggtensile` suite passes (`698 passed`); Ruff, compileall, `git diff --check`, and the complete diff review are also complete.
+
+### Continued campaign: current M128 activation-prefetch qualification
+
+The historical staged M128 search was rebuilt from the current writer into `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m128-current/` for the production B4 and B16 rows. The current source is intentionally different from the historical source because the retained shared IQ2_XXS decode now batches four codebook-derived values and overlaps the paired codebook preparation. Current R49,152 and R196,608 `prefetch-a` artifacts are nevertheless identical in resource envelope: `153` VGPR, `41` SGPR, `10,240 B` LDS, `64` WMMAs, `5` barriers, zero private bytes, and zero VGPR/SGPR spills. The current inspection also reports `169` VMEM operations, `201` LDS operations, and `92` VOPD issues.
+
+Every current candidate/control comparison passed before timing for all ten learned/hash search medoids at both production geometries. The protocol was three warmups, nine rotating repeats, equivalent output allocation in complete-call timing, and a preallocated kernel-only diagnostic. Weighted complete-call medians are:
+
+| Key | Installed HIP | Current M128 prefetch-a | Speedup |
+| --- | ---: | ---: | ---: |
+| B4 / R49,152 | `97.9535 ms` | `72.2978 ms` | `1.3549x` |
+| B16 / R196,608 | `378.9370 ms` | `294.4711 ms` | `1.2868x` |
+
+This current binary is a strong M128 finalist but is not yet promoted: the disjoint 25-repeat confirmation and independent confidence report remain required. B1 remains assigned to the retained M64 SIA5 pipeline, whose prior independent and paired confirmations are both faster than installed HIP. The durable current search report is `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m128-current/timing-search9-current.json`.
+
+### Continued campaign: M128 direct second-projection pointers
+
+The activation-prefetch body was changed only to use the already-derived second gradient and packed-bank pointers directly, eliminating projection pointer swaps while preserving M128/N64/K32, PGR2/SIA4, swizzle4, concurrent reads, and the paired codebook overlap. Fresh R49,152 and R196,608 artifacts remain `153` VGPR, `41` SGPR, `10,240 B` LDS, zero private bytes, and zero spills. Every search-medoid output was BF16 bit-exact to installed HIP.
+
+In a common three-warmup, nine-repeat rotating screen, direct pointers measured `72.5805 ms` at B4 and `290.9745 ms` at B16, versus `72.8630 ms` and `293.3981 ms` for the current activation-prefetch parent. That is a `1.0039x` parent speedup at B4 and `1.0083x` at B16. Relative to installed HIP (`98.8737 ms` and `379.7460 ms`), direct pointers measured `1.3623x` and `1.3051x`. The mechanism is retained as the next M128 baseline; confirmation is deferred until higher-confidence LDS and K-pipeline variants are screened. Artifacts are under `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m128-direct-current/`; the timing report is `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m128-current/timing-direct-search9.json`.
+
+### Continued campaign: M128 swizzle8 promotion
+
+Changing only M128's decoded-weight XOR chunk from swizzle4 to swizzle8 widened paired LDS reads while retaining activation prefetch and direct second pointers. Strict inspection improved from `153` to `149` VGPR, from `201` to `137` LDS operations, and from `1,240` to `1,164` VALU issues. The artifact remains `41` SGPR, `10,240 B` LDS, `64` WMMAs, `5` barriers, zero private bytes, and zero spills. All search-medoid results are BF16 bit-exact to installed HIP.
+
+The common nine-repeat screen measured `69.8231 ms` at B4 and `285.7568 ms` at B16, versus `71.7719 ms` and `290.5035 ms` for swizzle4 direct pointers. Swizzle8 therefore improves its parent by `1.0279x` and `1.0166x`; relative to installed HIP (`98.9624 ms` and `376.2326 ms`) it reaches `1.4173x` and `1.3166x`. The exact typed identity is `iq2_xxs_m128_n64_dual_lds_full_tile_split_direct_pointers_prefetch_a()`. Artifacts and timing are under `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m128-direct-swizzle8/`.

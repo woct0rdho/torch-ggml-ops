@@ -221,6 +221,39 @@ def test_iq2_xxs_m64_direct_pointers_reuse_addresses_without_swaps() -> None:
     assert source.count(second_packed) == 5
 
 
+def test_iq2_xxs_m128_direct_pointers_swizzle8_identity_and_source() -> None:
+    solution = GroupedBackwardPairSolution.iq2_xxs_m128_n64_dual_lds_full_tile_split_direct_pointers_prefetch_a()
+    compute = solution.compute
+    assert compute.matrix_instruction == (16, 16, 16, 1, 1, 2, 4, 4, 1)
+    assert (compute.macro_tile0, compute.macro_tile1, compute.depth_u) == (128, 64, 32)
+    assert (compute.prefetch_global_read, compute.schedule_iter_alg) == (2, 4)
+    assert compute.lds_swizzle_chunk_b == 8
+
+    key = GroupedBackwardPairSolutionKey(
+        GroupedBackwardPairProblem.iq2_xxs(35), solution
+    )
+    assert GroupedBackwardPairSolutionKey.from_mapping(key.to_mapping()) == key
+    assert not validate_grouped_backward_pair_solution(key)
+
+    physical = derive_grouped_backward_pair_physical_plan(
+        DerivedGroupedBackwardPairState.from_solution_key(key)
+    )
+    resources = physical.ordinary.resources
+    assert (resources.total_vgprs, resources.total_sgprs) == (149, 41)
+    assert resources.lds_num_bytes == 10_240
+    assert physical.second_projection is not None
+    assert (
+        physical.second_projection.registers.kernarg
+        == physical.scalar.second_grad_output
+    )
+
+    source = GroupedBackwardPairKernelWriterAssembly(key, Toolchain.discover()).source()
+    assert "Swap only the active packed-bank pointer pair" not in source
+    assert "Swap only the active gradient pointer pair" not in source
+    assert source.count("ds_load_b128") == 64
+    assert source.count("v_wmma_f32_16x16x16_bf16") == 64
+
+
 def test_iq2_xxs_m64_sia5_k_pipeline_identity_and_source() -> None:
     solution = GroupedBackwardPairSolution.iq2_xxs_m64_n64_sia5_dual_lds_full_tile_split_k_pipeline()
     compute = solution.compute
