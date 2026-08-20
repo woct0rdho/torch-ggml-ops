@@ -94,6 +94,11 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
         asm.label(self._label("PairDepthULoop"))
         if self.concurrent_reads:
             self._emit_concurrent_projection_decodes(asm, second)
+        elif self.direct_second_pointers:
+            self._emit_projection_decode(asm, "First")
+            second._emit_projection_decode(asm, "Second")
+            if self.prefetch_pair_a:
+                self._emit_first_a_global_reads(asm)
         else:
             self._emit_projection_decode(asm, "First")
             self._swap_projection_pointers(asm)
@@ -477,6 +482,8 @@ class GroupedBackwardPairKernelLowering:
             state.kernel_spec.projection_schedule
             in (
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitInterleavedDepthU,
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersInterleavedDepthU,
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
@@ -497,6 +504,7 @@ class GroupedBackwardPairKernelLowering:
         prefetch_pair_a = (
             state.kernel_spec.projection_schedule
             in (
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
@@ -506,6 +514,8 @@ class GroupedBackwardPairKernelLowering:
         direct_second_pointers = (
             state.kernel_spec.projection_schedule
             in (
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersInterleavedDepthU,
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
             )

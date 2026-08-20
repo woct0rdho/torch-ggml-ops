@@ -141,6 +141,8 @@ class GroupedBackwardPairContract:
                     GroupedBackwardPairProjectionSchedule.DualLdsInterleavedDepthU,
                     GroupedBackwardPairProjectionSchedule.DualLdsGlobalCodebookInterleavedDepthU,
                     GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitInterleavedDepthU,
+                    GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersInterleavedDepthU,
+                    GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU,
                     GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU,
                     GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
                     GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
@@ -315,6 +317,7 @@ def grouped_backward_pair_capability_rejection_reason(
     compute = solution.compute
     expected_m_tiles = compute.macro_tile0 // 64
     prefetches_pair_a = solution.projection_schedule in (
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU,
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
@@ -358,6 +361,8 @@ def grouped_backward_pair_capability_rejection_reason(
                 GroupedBackwardPairProjectionSchedule.DualLdsInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsGlobalCodebookInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitInterleavedDepthU,
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersInterleavedDepthU,
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
@@ -388,6 +393,8 @@ def grouped_backward_pair_capability_rejection_reason(
                 GroupedBackwardPairSolution.q3_k_m128_n64(),
                 GroupedBackwardPairSolution.q3_k_m128_n64_dual_lds(),
                 GroupedBackwardPairSolution.q3_k_m128_n64_dual_lds_full_tile_split(),
+                GroupedBackwardPairSolution.q3_k_m128_n64_dual_lds_full_tile_split_direct_pointers(),
+                GroupedBackwardPairSolution.q3_k_m128_n64_dual_lds_full_tile_split_direct_pointers_prefetch_a(),
             ),
             "paired Q3_K currently requires its padded serial anchor schedule",
         ),
@@ -441,6 +448,8 @@ def grouped_backward_pair_capability_rejection_reason(
                 GroupedBackwardPairProjectionSchedule.DualLdsInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsGlobalCodebookInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitInterleavedDepthU,
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersInterleavedDepthU,
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,

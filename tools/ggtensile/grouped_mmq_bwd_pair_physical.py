@@ -123,6 +123,8 @@ def derive_grouped_backward_pair_physical_plan(
         GroupedBackwardPairProjectionSchedule.DualLdsInterleavedDepthU,
         GroupedBackwardPairProjectionSchedule.DualLdsGlobalCodebookInterleavedDepthU,
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitInterleavedDepthU,
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersInterleavedDepthU,
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU,
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU,
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
@@ -157,6 +159,17 @@ def derive_grouped_backward_pair_physical_plan(
             ordinary,
             lds=replace(first_lds, base_offset=decoded_bytes),
         )
+        if state.kernel_spec.projection_schedule in (
+            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersInterleavedDepthU,
+            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU,
+        ):
+            second_projection = replace(
+                second_projection,
+                registers=replace(
+                    second_projection.registers,
+                    kernarg=scalar.second_grad_output,
+                ),
+            )
         if state.kernel_spec.projection_schedule in (
             GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU,
             GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,

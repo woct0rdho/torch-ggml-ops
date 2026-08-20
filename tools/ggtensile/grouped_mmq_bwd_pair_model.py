@@ -19,6 +19,12 @@ class GroupedBackwardPairProjectionSchedule(str, Enum):
     DualLdsInterleavedDepthU = "DualLdsInterleavedDepthU"
     DualLdsGlobalCodebookInterleavedDepthU = "DualLdsGlobalCodebookInterleavedDepthU"
     DualLdsFullTileSplitInterleavedDepthU = "DualLdsFullTileSplitInterleavedDepthU"
+    DualLdsFullTileSplitDirectPointersInterleavedDepthU = (
+        "DualLdsFullTileSplitDirectPointersInterleavedDepthU"
+    )
+    DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU = (
+        "DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU"
+    )
     DualLdsFullTileSplitConcurrentReadsInterleavedDepthU = (
         "DualLdsFullTileSplitConcurrentReadsInterleavedDepthU"
     )
@@ -126,6 +132,32 @@ class GroupedBackwardPairSolution:
             cls.q3_k_m128_n64(),
             projection_schedule=(
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitInterleavedDepthU
+            ),
+        )
+
+    @classmethod
+    def q3_k_m128_n64_dual_lds_full_tile_split_direct_pointers(cls) -> Self:
+        return replace(
+            cls.q3_k_m128_n64(),
+            projection_schedule=(
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersInterleavedDepthU
+            ),
+        )
+
+    @classmethod
+    def q3_k_m128_n64_dual_lds_full_tile_split_direct_pointers_prefetch_a(
+        cls,
+    ) -> Self:
+        parent = cls.q3_k_m128_n64()
+        return replace(
+            parent,
+            compute=replace(
+                parent.compute,
+                prefetch_global_read=2,
+                schedule_iter_alg=4,
+            ),
+            projection_schedule=(
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU
             ),
         )
 

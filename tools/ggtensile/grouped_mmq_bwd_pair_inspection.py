@@ -103,6 +103,8 @@ def inspect_grouped_backward_pair_artifact(
     )
     if key.solution.projection_schedule in (
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitInterleavedDepthU,
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersInterleavedDepthU,
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU,
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU,
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
@@ -120,6 +122,8 @@ def inspect_grouped_backward_pair_artifact(
         GroupedBackwardPairProjectionSchedule.DualLdsInterleavedDepthU: 2,
         GroupedBackwardPairProjectionSchedule.DualLdsGlobalCodebookInterleavedDepthU: 2,
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitInterleavedDepthU: 4,
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersInterleavedDepthU: 4,
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU: 4,
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU: 4,
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU: 4,
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU: 4,
