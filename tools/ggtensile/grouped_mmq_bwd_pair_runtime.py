@@ -304,7 +304,9 @@ class InstalledGroupedBackwardPairIQ2XXSControl(_HIPModule):
         if symbol is None:
             raise HIPRuntimeError("installed IQ2_XXS pair control requires M64 or M128")
         self.macro_tile0 = macro_tile0
-        super().__init__(code_object or _find_installed_kernel(symbol), hip_library, symbol)
+        super().__init__(
+            code_object or _find_installed_kernel(symbol), hip_library, symbol
+        )
 
     @classmethod
     def dispatched_macro_tile(cls, aggregate_rows: int) -> int:
@@ -336,7 +338,9 @@ class InstalledGroupedBackwardPairIQ2XXSControl(_HIPModule):
             expert_offsets,
         )
         if any(not tensor.is_cuda or not tensor.is_contiguous() for tensor in tensors):
-            raise HIPRuntimeError("installed IQ2_XXS pair requires contiguous HIP tensors")
+            raise HIPRuntimeError(
+                "installed IQ2_XXS pair requires contiguous HIP tensors"
+            )
         if any(tensor.storage_offset() != 0 for tensor in tensors):
             raise HIPRuntimeError("installed IQ2_XXS pair needs zero storage offsets")
         if (

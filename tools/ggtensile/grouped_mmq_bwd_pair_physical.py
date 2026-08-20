@@ -6,6 +6,7 @@ from .grouped_mmq_bwd_pair_model import GroupedBackwardPairProjectionSchedule
 from .grouped_mmq_bwd_pair_spec import DerivedGroupedBackwardPairState
 from .grouped_mmq_bwd_physical import GroupedBackwardScalarPlan
 from .iq2_s_grid import IQ2_S_GRID_BYTES
+from .iq2_xxs_grid import IQ2_XXS_GRID_BYTES
 from .kernel_writer_assembly import (
     DeterministicRegisterPlan,
     RegisterLifetime,
@@ -134,12 +135,14 @@ def derive_grouped_backward_pair_physical_plan(
             GroupedBackwardPairProjectionSchedule.DualLdsGlobalCodebookInterleavedDepthU,
             GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU,
         )
+        codebook_bytes = {
+            "IQ2_S": IQ2_S_GRID_BYTES,
+            "IQ2_XXS": IQ2_XXS_GRID_BYTES,
+        }[state.contract.quant_type]
         resources = replace(
             ordinary.resources,
             lds_num_bytes=(
-                codebook_offset + IQ2_S_GRID_BYTES
-                if codebook_in_lds
-                else codebook_offset
+                codebook_offset + codebook_bytes if codebook_in_lds else codebook_offset
             ),
         )
         first_lds = replace(

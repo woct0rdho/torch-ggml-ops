@@ -1157,14 +1157,10 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
             if self.clause_batch_store:
                 second_address = t + 3
                 for element in range(0, 8, 2):
-                    asm.inst(
-                        f"v_add_nc_u32 v{second_address}, {4 * size.n}, v{a}"
-                    )
+                    asm.inst(f"v_add_nc_u32 v{second_address}, {4 * size.n}, v{a}")
                     rows = tuple(
                         tuple(
-                            r.accum
-                            + (n_tiles * m_tile + n_tile) * 8
-                            + row_element
+                            r.accum + (n_tiles * m_tile + n_tile) * 8 + row_element
                             for n_tile in range(n_tiles)
                         )
                         for row_element in (element, element + 1)

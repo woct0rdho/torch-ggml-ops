@@ -111,10 +111,11 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
                     self._emit_next_a_half(asm, k_tile // 16)
                     self._swap_grad_output_pointer(asm)
 
+            pending_second_a_half = 2 * self.state.spec.geometry.matrix_instruction[5]
             self._emit_wmma(
                 asm,
                 after_k_half=prefetch_second_a,
-                pending_vmem_by_k_tile={16: 4},
+                pending_vmem_by_k_tile={16: pending_second_a_half},
             )
         else:
             self._emit_wmma(asm)
@@ -157,10 +158,11 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
         def prefetch_second_a(k_tile: int) -> None:
             second._emit_next_a_half(asm, k_tile // 16)
 
+        pending_second_a_half = 2 * self.state.spec.geometry.matrix_instruction[5]
         self._emit_wmma(
             asm,
             after_k_half=prefetch_second_a,
-            pending_vmem_by_k_tile={16: 4},
+            pending_vmem_by_k_tile={16: pending_second_a_half},
         )
 
         asm.inst(f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, {depth_u}")
@@ -170,7 +172,7 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
         asm.inst(f"s_branch {self._label('PairKPipelinePackedDone')}")
         asm.label(self._label("PairKPipelineNextPacked"))
         self._emit_quant_global_reads(asm, wait_for_reads=False)
-        second._emit_iq2_s_global_reads_from_current_addresses(asm)
+        second._emit_quant_global_reads_from_current_addresses(asm)
         asm.label(self._label("PairKPipelinePackedDone"))
 
         def prefetch_next_a(k_tile: int) -> None:
@@ -195,18 +197,32 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
 
         asm.comment("Decode prefetched banks after their LDS consumers retire.")
         if self.physical.lds.codebook_in_lds:
-            self._emit_k_pipeline_wait(asm, active_vmcnt=13, inactive_vmcnt=5)
-            self._emit_packed_weight_lane_share(asm)
-            self._emit_quant_decode(
-                asm,
-                label_suffix=self._decode_label_suffix("PairPipelineFirst"),
-            )
-            self._emit_k_pipeline_wait(asm, active_vmcnt=8, inactive_vmcnt=0)
-            second._emit_packed_weight_lane_share(asm)
-            second._emit_quant_decode(
-                asm,
-                label_suffix=second._decode_label_suffix("PairPipelineSecond"),
-            )
+            if self.state.contract.quant_type == "IQ2_XXS":
+                next_a_loads = 4 * self.state.spec.geometry.matrix_instruction[5]
+                self._emit_k_pipeline_wait(
+                    asm,
+                    active_vmcnt=next_a_loads,
+                    inactive_vmcnt=0,
+                )
+                self._emit_packed_weight_lane_share(asm)
+                self._emit_concurrent_iq2_xxs_codebook_decodes(
+                    asm,
+                    second,
+                    a_load_count=next_a_loads,
+                )
+            else:
+                self._emit_k_pipeline_wait(asm, active_vmcnt=13, inactive_vmcnt=5)
+                self._emit_packed_weight_lane_share(asm)
+                self._emit_quant_decode(
+                    asm,
+                    label_suffix=self._decode_label_suffix("PairPipelineFirst"),
+                )
+                self._emit_k_pipeline_wait(asm, active_vmcnt=8, inactive_vmcnt=0)
+                second._emit_packed_weight_lane_share(asm)
+                second._emit_quant_decode(
+                    asm,
+                    label_suffix=second._decode_label_suffix("PairPipelineSecond"),
+                )
         else:
             asm.inst("s_waitcnt vmcnt(0)")
             self._emit_batched_global_codebook_issue(asm, second)
@@ -233,9 +249,7 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
             return
         wait_index = self._pipeline_wait_index
         self._pipeline_wait_index += 1
-        inactive = self._label(
-            f"PairKPipelineWaitInactive{active_vmcnt}_{wait_index}"
-        )
+        inactive = self._label(f"PairKPipelineWaitInactive{active_vmcnt}_{wait_index}")
         done = self._label(f"PairKPipelineWaitDone{active_vmcnt}_{wait_index}")
         asm.inst(f"s_cmp_eq_u32 s{self._active_m_tiles}, 0")
         asm.inst(f"s_cbranch_scc1 {inactive}")
@@ -271,7 +285,7 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
         asm.comment("Issue both packed projection reads before either decode.")
         self._emit_quant_global_reads(asm, wait_for_reads=False)
         if self.direct_second_pointers:
-            second._emit_iq2_s_global_reads_from_current_addresses(asm)
+            second._emit_quant_global_reads_from_current_addresses(asm)
         else:
             self._swap_packed_weight_pointer(asm)
             second._emit_quant_global_reads(asm, wait_for_reads=False)
@@ -302,6 +316,13 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
             f"{second.physical.decoder.packed_load_count + a_load_count})"
         )
         self._emit_packed_weight_lane_share(asm)
+        if self.state.contract.quant_type == "IQ2_XXS":
+            self._emit_concurrent_iq2_xxs_codebook_decodes(
+                asm,
+                second,
+                a_load_count=a_load_count,
+            )
+            return
         self._emit_quant_decode(
             asm,
             label_suffix=self._decode_label_suffix("PairFirst"),
@@ -313,6 +334,36 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
             label_suffix=second._decode_label_suffix("PairSecond"),
         )
 
+    def _emit_concurrent_iq2_xxs_codebook_decodes(
+        self,
+        asm: _Assembly,
+        second: "GroupedBackwardPairTileComputeEmitter",
+        *,
+        a_load_count: int,
+    ) -> None:
+        first_lane_group = self.registers.temporary + 6
+        second_lane_group = second.registers.temporary + 5
+        self._emit_iq2_xxs_codebook_reads(asm, first_lane_group)
+        asm.inst(f"s_waitcnt vmcnt({a_load_count})")
+        second._emit_packed_weight_lane_share(asm)
+        second._emit_iq2_xxs_codebook_reads(asm, second_lane_group)
+
+        second_codebook_loads = 2 * second.physical.decoder.rows
+        self._emit_iq2_xxs_decode_prepare_finish(
+            asm,
+            first_lane_group,
+            outstanding_lgkm=second_codebook_loads,
+        )
+        self._emit_iq2_xxs_decode_values(asm)
+
+        first_decoded_stores = 16 * self.physical.decoder.rows
+        second._emit_iq2_xxs_decode_prepare_finish(
+            asm,
+            second_lane_group,
+            outstanding_lgkm=first_decoded_stores,
+        )
+        second._emit_iq2_xxs_decode_values(asm)
+
     def _emit_batched_global_codebook_issue(
         self,
         asm: _Assembly,
@@ -322,9 +373,7 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
         second._emit_packed_weight_lane_share(asm)
         self._emit_iq2_s_decode_prepare_addresses(asm)
         second._emit_iq2_s_decode_prepare_addresses(asm)
-        load_count = 2 * (
-            self.physical.decoder.rows + second.physical.decoder.rows
-        )
+        load_count = 2 * (self.physical.decoder.rows + second.physical.decoder.rows)
         asm.inst(f"s_clause {load_count - 1}")
         self._emit_iq2_s_global_codebook_reads(asm, emit_clause=False)
         second._emit_iq2_s_global_codebook_reads(asm, emit_clause=False)
@@ -421,28 +470,44 @@ class GroupedBackwardPairKernelLowering:
             state.kernel_spec.projection_schedule
             is GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU
         )
-        split_full_tiles = state.kernel_spec.projection_schedule in (
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitInterleavedDepthU,
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU,
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
-        ) or global_codebook_pipeline
-        concurrent_reads = state.kernel_spec.projection_schedule in (
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU,
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
-        ) or global_codebook_pipeline
-        prefetch_pair_a = state.kernel_spec.projection_schedule in (
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
-        ) or global_codebook_pipeline
-        direct_second_pointers = state.kernel_spec.projection_schedule in (
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
-        ) or global_codebook_pipeline
+        split_full_tiles = (
+            state.kernel_spec.projection_schedule
+            in (
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitInterleavedDepthU,
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU,
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
+            )
+            or global_codebook_pipeline
+        )
+        concurrent_reads = (
+            state.kernel_spec.projection_schedule
+            in (
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU,
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
+            )
+            or global_codebook_pipeline
+        )
+        prefetch_pair_a = (
+            state.kernel_spec.projection_schedule
+            in (
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
+            )
+            or global_codebook_pipeline
+        )
+        direct_second_pointers = (
+            state.kernel_spec.projection_schedule
+            in (
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
+            )
+            or global_codebook_pipeline
+        )
         k_pipeline = (
             state.kernel_spec.projection_schedule
             is GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU

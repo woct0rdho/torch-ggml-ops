@@ -751,3 +751,15 @@ def test_iq2_xxs_writer_dispatch_and_staged_codebook_guard() -> None:
     emitter = BackwardTileComputeEmitter(writer.state, unstaged)
     with pytest.raises(ValueError, match="staged codebook"):
         emitter._emit_iq2_xxs_decode_prepare(_Assembly(), label_suffix="")
+
+    with pytest.raises(ValueError, match="IQ2_XXS decode batch crosses a decoder row"):
+        emitter._emit_iq2_xxs_decode_chunk(_Assembly(), 3, dword_count=2)
+
+    unsupported_key = _key("Q4_K", (128, 2048, 4096), BackwardSolution.pilot())
+    unsupported_writer = BackwardKernelWriterAssembly(unsupported_key, toolchain)
+    unsupported_physical = derive_backward_physical_plan(unsupported_writer.state)
+    unsupported_emitter = BackwardTileComputeEmitter(
+        unsupported_writer.state, unsupported_physical
+    )
+    with pytest.raises(ValueError, match="current-address paired reads"):
+        unsupported_emitter._emit_quant_global_reads_from_current_addresses(_Assembly())

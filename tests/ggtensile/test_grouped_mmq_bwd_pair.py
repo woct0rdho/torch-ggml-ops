@@ -1,3 +1,4 @@
+import hashlib
 from dataclasses import replace
 
 import pytest
@@ -7,6 +8,7 @@ from tools.ggtensile.grouped_mmq_bwd_pair_inspection import (
 )
 from tools.ggtensile.grouped_mmq_bwd_pair_model import (
     GroupedBackwardPairProblem,
+    GroupedBackwardPairProjectionSchedule,
     GroupedBackwardPairSolution,
     GroupedBackwardPairSolutionKey,
 )
@@ -43,9 +45,7 @@ def _key(rows: int = 16_384, tile: int = 64) -> GroupedBackwardPairSolutionKey:
     )
 
 
-def _iq2_xxs_key(
-    rows: int = 12_288, tile: int = 64
-) -> GroupedBackwardPairSolutionKey:
+def _iq2_xxs_key(rows: int = 12_288, tile: int = 64) -> GroupedBackwardPairSolutionKey:
     solution = (
         GroupedBackwardPairSolution.iq2_xxs_m64_n64()
         if tile == 64
@@ -72,6 +72,336 @@ def test_iq2_xxs_backward_pair_identity_roundtrip(rows: int, tile: int) -> None:
     assert GroupedBackwardPairSolutionKey.from_mapping(key.to_mapping()) == key
     assert not validate_grouped_backward_pair_solution(key)
     assert "grouped_mmq_bwd_pair_iq2_xxs" in key.kernel_name
+
+
+@pytest.mark.parametrize(
+    ("constructor", "expected_vgprs"),
+    (
+        ("iq2_xxs_m128_n64_dual_lds", 127),
+        ("iq2_xxs_m128_n64_dual_lds_full_tile_split", 127),
+        (
+            "iq2_xxs_m128_n64_dual_lds_full_tile_split_concurrent_reads",
+            137,
+        ),
+        (
+            "iq2_xxs_m128_n64_dual_lds_full_tile_split_concurrent_reads_prefetch_a",
+            153,
+        ),
+    ),
+)
+def test_iq2_xxs_staged_schedule_identity_and_physical_plan(
+    constructor: str, expected_vgprs: int
+) -> None:
+    solution = getattr(GroupedBackwardPairSolution, constructor)()
+    key = GroupedBackwardPairSolutionKey(
+        GroupedBackwardPairProblem.iq2_xxs(35), solution
+    )
+    assert GroupedBackwardPairSolutionKey.from_mapping(key.to_mapping()) == key
+    assert not validate_grouped_backward_pair_solution(key)
+
+    physical = derive_grouped_backward_pair_physical_plan(
+        DerivedGroupedBackwardPairState.from_solution_key(key)
+    )
+    assert physical.ordinary.resources.total_vgprs == expected_vgprs
+    assert physical.ordinary.resources.lds_num_bytes == 10_240
+    assert physical.ordinary.lds.codebook_offset == 8_192
+    assert physical.ordinary.lds.codebook_in_lds
+    assert physical.second_projection is not None
+    assert physical.second_projection.lds.base_offset == 4_096
+
+
+@pytest.mark.parametrize(
+    ("schedule", "prefetch_a", "expected_vgprs"),
+    (
+        (
+            GroupedBackwardPairProjectionSchedule.DualLdsInterleavedDepthU,
+            False,
+            87,
+        ),
+        (
+            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitInterleavedDepthU,
+            False,
+            87,
+        ),
+        (
+            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU,
+            False,
+            97,
+        ),
+        (
+            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
+            True,
+            105,
+        ),
+    ),
+)
+def test_iq2_xxs_m64_staged_schedule_identity_and_physical_plan(
+    schedule: GroupedBackwardPairProjectionSchedule,
+    prefetch_a: bool,
+    expected_vgprs: int,
+) -> None:
+    solution = GroupedBackwardPairSolution.iq2_xxs_m64_n64()
+    solution = replace(
+        solution,
+        compute=replace(
+            solution.compute,
+            prefetch_global_read=2 if prefetch_a else 1,
+            schedule_iter_alg=4 if prefetch_a else 2,
+        ),
+        projection_schedule=schedule,
+    )
+    key = GroupedBackwardPairSolutionKey(
+        GroupedBackwardPairProblem.iq2_xxs(35), solution
+    )
+    assert GroupedBackwardPairSolutionKey.from_mapping(key.to_mapping()) == key
+    assert not validate_grouped_backward_pair_solution(key)
+
+    physical = derive_grouped_backward_pair_physical_plan(
+        DerivedGroupedBackwardPairState.from_solution_key(key)
+    )
+    assert physical.ordinary.resources.total_vgprs == expected_vgprs
+    assert physical.ordinary.resources.lds_num_bytes == 10_240
+    assert physical.second_projection is not None
+
+
+def test_iq2_xxs_m64_prefetch_a_swizzle8_selected_physical_plan() -> None:
+    solution = GroupedBackwardPairSolution.iq2_xxs_m64_n64_dual_lds_full_tile_split_concurrent_reads_prefetch_a()
+    assert solution.compute.prefetch_global_read == 2
+    assert solution.compute.schedule_iter_alg == 4
+    assert solution.compute.lds_swizzle_chunk_b == 8
+
+    key = GroupedBackwardPairSolutionKey(
+        GroupedBackwardPairProblem.iq2_xxs(35), solution
+    )
+    assert GroupedBackwardPairSolutionKey.from_mapping(key.to_mapping()) == key
+    assert not validate_grouped_backward_pair_solution(key)
+
+    physical = derive_grouped_backward_pair_physical_plan(
+        DerivedGroupedBackwardPairState.from_solution_key(key)
+    )
+    assert physical.ordinary.resources.total_vgprs == 101
+    assert physical.ordinary.resources.lds_num_bytes == 10_240
+    assert physical.second_projection is not None
+
+    source = GroupedBackwardPairKernelWriterAssembly(key, Toolchain.discover()).source()
+    assert source.count("ds_load_b128") == 64
+    assert source.count("ds_load_b64") == 8
+
+
+def test_iq2_xxs_m64_direct_pointers_reuse_addresses_without_swaps() -> None:
+    solution = GroupedBackwardPairSolution.iq2_xxs_m64_n64_dual_lds_full_tile_split_direct_pointers_prefetch_a()
+    key = GroupedBackwardPairSolutionKey(
+        GroupedBackwardPairProblem.iq2_xxs(35), solution
+    )
+    assert GroupedBackwardPairSolutionKey.from_mapping(key.to_mapping()) == key
+    assert not validate_grouped_backward_pair_solution(key)
+
+    physical = derive_grouped_backward_pair_physical_plan(
+        DerivedGroupedBackwardPairState.from_solution_key(key)
+    )
+    assert physical.ordinary.resources.total_vgprs == 101
+    assert physical.second_projection is not None
+    assert (
+        physical.second_projection.registers.kernarg
+        == physical.scalar.second_grad_output
+    )
+    assert (
+        physical.scalar.second_packed_weight
+        == physical.second_projection.registers.kernarg + 2
+    )
+
+    source = GroupedBackwardPairKernelWriterAssembly(key, Toolchain.discover()).source()
+    assert "Swap only the active packed-bank pointer pair" not in source
+    assert "Swap only the active gradient pointer pair" not in source
+    second_packed = (
+        f"s[{physical.scalar.second_packed_weight}:"
+        f"{physical.scalar.second_packed_weight + 1}]"
+    )
+    assert source.count(f"{second_packed} offset:2") == 2
+    assert source.count(second_packed) == 5
+
+
+def test_iq2_xxs_m64_sia5_k_pipeline_identity_and_source() -> None:
+    solution = GroupedBackwardPairSolution.iq2_xxs_m64_n64_sia5_dual_lds_full_tile_split_k_pipeline()
+    compute = solution.compute
+    assert compute.matrix_instruction == (16, 16, 16, 1, 1, 1, 4, 4, 1)
+    assert (compute.macro_tile0, compute.macro_tile1, compute.depth_u) == (64, 64, 32)
+    assert (compute.prefetch_global_read, compute.schedule_iter_alg) == (2, 5)
+    assert compute.prefetch_packed_weight
+    assert compute.prefetch_packed_weight_next
+    assert compute.decoder_width == 16
+    assert compute.lds_swizzle_chunk_b == 8
+    assert solution.projection_schedule is (
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU
+    )
+
+    key = GroupedBackwardPairSolutionKey(
+        GroupedBackwardPairProblem.iq2_xxs(35), solution
+    )
+    assert GroupedBackwardPairSolutionKey.from_mapping(key.to_mapping()) == key
+    assert not validate_grouped_backward_pair_solution(key)
+
+    physical = derive_grouped_backward_pair_physical_plan(
+        DerivedGroupedBackwardPairState.from_solution_key(key)
+    )
+    resources = physical.ordinary.resources
+    assert (resources.total_vgprs, resources.total_sgprs) == (101, 41)
+    assert resources.lds_num_bytes == 10_240
+    assert resources.private_segment_bytes == 0
+    assert physical.ordinary.lds.base_offset == 0
+    assert physical.ordinary.lds.num_bytes == 4_096
+    assert physical.ordinary.lds.codebook_offset == 8_192
+    assert physical.ordinary.lds.codebook_in_lds
+    assert physical.second_projection is not None
+    assert physical.second_projection.lds.base_offset == 4_096
+    assert physical.second_projection.lds.codebook_offset == 8_192
+    assert (
+        physical.second_projection.registers.kernarg
+        == physical.scalar.second_grad_output
+    )
+    assert (
+        physical.scalar.second_packed_weight
+        == physical.second_projection.registers.kernarg + 2
+    )
+
+    source = GroupedBackwardPairKernelWriterAssembly(key, Toolchain.discover()).source()
+    assert "Swap only the active packed-bank pointer pair" not in source
+    assert "Swap only the active gradient pointer pair" not in source
+    assert source.count("v_wmma_f32_16x16x16_bf16") == 32
+    assert source.count("s_barrier") == 7
+    assert source.count("s_add_u32 s5, s5, 32") == 2
+    assert source.count("s_waitcnt vmcnt(2) lgkmcnt(2)") == 4
+    assert source.count("s_waitcnt vmcnt(0) lgkmcnt(2)") == 4
+    assert "s_waitcnt vmcnt(4) lgkmcnt(2)" not in source
+
+    first_payload = physical.ordinary.registers.global_read_b
+    second_payload = physical.second_projection.registers.global_read_b
+    for body in ("Full", "Tail"):
+        compute_label = f".LPairKPipelineCompute{body}:"
+        next_packed_label = f".LPairKPipelineNextPacked{body}:"
+        packed_done_label = f".LPairKPipelinePackedDone{body}:"
+        done_label = f".LPairKPipelineDone{body}:"
+        assert compute_label in source
+        assert next_packed_label in source
+        assert packed_done_label in source
+        assert done_label in source
+
+        overlap_start = source.index(
+            "// Decode prefetched banks after their LDS consumers retire.",
+            source.index(compute_label),
+        )
+        overlap_end = source.index(
+            f"s_branch .LPairKPipelineCompute{body}", overlap_start
+        )
+        overlap = source[overlap_start:overlap_end]
+        first_read = overlap.index(
+            f"ds_load_b64 v[{first_payload}:{first_payload + 1}]"
+        )
+        second_read = overlap.index(
+            f"ds_load_b64 v[{second_payload}:{second_payload + 1}]"
+        )
+        first_sign = overlap.index(
+            "// Sign the two IQ2_XXS grids and reconstruct their scale."
+        )
+        first_decode = overlap.index(
+            "// Decode IQ2_XXS signed codebook values into LDS."
+        )
+        second_sign = overlap.index(
+            "// Sign the two IQ2_XXS grids and reconstruct their scale.",
+            first_decode,
+        )
+        second_decode = overlap.index(
+            "// Decode IQ2_XXS signed codebook values into LDS.",
+            second_sign,
+        )
+        assert first_read < second_read < first_sign < first_decode
+        assert first_decode < second_sign < second_decode
+        assert first_sign < overlap.index("s_waitcnt lgkmcnt(2)") < first_decode
+        assert second_sign < overlap.index("s_waitcnt lgkmcnt(16)") < second_decode
+
+    tail = source[source.index(".LPairKPipelineComputeTail:") :]
+    assert tail.index("s_add_u32 s5, s5, 32") < tail.index(
+        "s_cbranch_scc1 .LGroupedBackwardInactiveWave0TailSecondLds"
+    )
+
+
+def test_iq2_xxs_m64_sia5_k_pipeline_requires_exact_identity() -> None:
+    solution = GroupedBackwardPairSolution.iq2_xxs_m64_n64_sia5_dual_lds_full_tile_split_k_pipeline()
+    synthetic = replace(
+        solution,
+        compute=replace(solution.compute, schedule_iter_alg=4),
+    )
+    key = GroupedBackwardPairSolutionKey(
+        GroupedBackwardPairProblem.iq2_xxs(35), synthetic
+    )
+    reasons = validate_grouped_backward_pair_solution(key)
+    assert [reason.message for reason in reasons] == [
+        "paired IQ2_XXS schedule requires its staged-codebook lowering"
+    ]
+    with pytest.raises(SchemaError, match="staged-codebook lowering"):
+        GroupedBackwardPairSolutionKey.from_mapping(key.to_mapping())
+
+
+def test_iq2_s_m64_still_rejects_dual_lds() -> None:
+    solution = replace(
+        GroupedBackwardPairSolution.iq2_s_m64_n64(),
+        projection_schedule=(
+            GroupedBackwardPairProjectionSchedule.DualLdsInterleavedDepthU
+        ),
+    )
+    key = GroupedBackwardPairSolutionKey(GroupedBackwardPairProblem.iq2_s(35), solution)
+    reasons = validate_grouped_backward_pair_solution(key)
+    assert [reason.message for reason in reasons] == [
+        "paired backward dual LDS is implemented only for M128 or staged IQ2_XXS M64"
+    ]
+
+
+def test_iq2_xxs_prefetch_a_wait_frontier_tracks_m_tiles() -> None:
+    toolchain = Toolchain.discover()
+    m64 = GroupedBackwardPairSolution.iq2_xxs_m64_n64_dual_lds_full_tile_split_concurrent_reads_prefetch_a()
+    sources = {
+        64: GroupedBackwardPairKernelWriterAssembly(
+            GroupedBackwardPairSolutionKey(GroupedBackwardPairProblem.iq2_xxs(35), m64),
+            toolchain,
+        ).source(),
+        128: GroupedBackwardPairKernelWriterAssembly(
+            GroupedBackwardPairSolutionKey(
+                GroupedBackwardPairProblem.iq2_xxs(35),
+                GroupedBackwardPairSolution.iq2_xxs_m128_n64_dual_lds_full_tile_split_concurrent_reads_prefetch_a(),
+            ),
+            toolchain,
+        ).source(),
+    }
+    assert sources[64].count("s_waitcnt vmcnt(2) lgkmcnt(0)") == 6
+    assert "s_waitcnt vmcnt(4) lgkmcnt(0)" not in sources[64]
+    assert sources[128].count("s_waitcnt vmcnt(4) lgkmcnt(0)") == 6
+    assert "s_waitcnt vmcnt(2) lgkmcnt(0)" not in sources[128]
+
+
+@pytest.mark.parametrize(
+    "schedule",
+    (
+        GroupedBackwardPairProjectionSchedule.DualLdsGlobalCodebookInterleavedDepthU,
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU,
+    ),
+)
+def test_iq2_xxs_rejects_nonstaged_schedule(
+    schedule: GroupedBackwardPairProjectionSchedule,
+) -> None:
+    solution = replace(
+        GroupedBackwardPairSolution.iq2_xxs_m128_n64(),
+        projection_schedule=schedule,
+    )
+    key = GroupedBackwardPairSolutionKey(
+        GroupedBackwardPairProblem.iq2_xxs(35), solution
+    )
+    reasons = validate_grouped_backward_pair_solution(key)
+    assert [reason.message for reason in reasons] == [
+        "paired IQ2_XXS schedule requires its staged-codebook lowering"
+    ]
+    with pytest.raises(SchemaError, match="staged-codebook lowering"):
+        GroupedBackwardPairSolutionKey.from_mapping(key.to_mapping())
 
 
 def test_iq2_s_packed_negative_payload_identity() -> None:
@@ -156,9 +486,7 @@ def test_iq2_xxs_backward_pair_physical_and_source(
     assert "Map each lane to one IQ2_XXS aligned 16-value group" in source
     assert "Load and sign the two IQ2_XXS grids owned by each lane" in source
     registers = physical.ordinary.registers
-    assert (
-        f"v_and_b32 v{registers.temporary}, 1, v{registers.serial}" in source
-    )
+    assert f"v_and_b32 v{registers.temporary}, 1, v{registers.serial}" in source
     assert source.count("v_wmma_f32_16x16x16_bf16") == wmmas
     assert source.count("s_barrier") == 5
 
@@ -279,13 +607,55 @@ def test_backward_pair_build_and_inspection(tmp_path) -> None:
     assert result.barrier_count == 5
 
 
+def test_iq2_xxs_m64_sia5_pipeline_build_is_deterministic_and_inspectable(
+    tmp_path,
+) -> None:
+    key = GroupedBackwardPairSolutionKey(
+        GroupedBackwardPairProblem.iq2_xxs(35),
+        GroupedBackwardPairSolution.iq2_xxs_m64_n64_sia5_dual_lds_full_tile_split_k_pipeline(),
+    )
+    toolchain = Toolchain.discover()
+    build_hashes = []
+    for directory_name in ("first", "second"):
+        directory = tmp_path / directory_name
+        directory.mkdir()
+        assembly = directory / "kernel.s"
+        object_path = directory / "kernel.o"
+        code_object = directory / "kernel.hsaco"
+        GroupedBackwardPairKernelWriterAssembly(key, toolchain).write(assembly)
+        toolchain.assemble(assembly, object_path)
+        toolchain.link(object_path, code_object)
+        build_hashes.append(
+            tuple(
+                hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in (assembly, object_path, code_object)
+            )
+        )
+
+    assert build_hashes[0] == build_hashes[1]
+    result = inspect_grouped_backward_pair_artifact(
+        key, tmp_path / "second" / "kernel.hsaco", toolchain
+    )
+    assert result.kernarg_segment_size == 72
+    assert result.max_flat_workgroup_size == 128
+    assert result.vgpr_count == 101
+    assert result.sgpr_count == 41
+    assert result.lds_num_bytes == 10_240
+    assert result.private_segment_bytes == 0
+    assert result.vgpr_spill_count == 0
+    assert result.sgpr_spill_count == 0
+    assert result.wmma_count == 32
+    assert result.barrier_count == 7
+
+
 def test_iq2_xxs_backward_pair_build_and_inspection(tmp_path) -> None:
     key = _iq2_xxs_key(rows=35)
     toolchain = Toolchain.discover()
     writer = GroupedBackwardPairKernelWriterAssembly(key, toolchain)
-    assert writer.source() == GroupedBackwardPairKernelWriterAssembly(
-        key, toolchain
-    ).source()
+    assert (
+        writer.source()
+        == GroupedBackwardPairKernelWriterAssembly(key, toolchain).source()
+    )
     assembly = tmp_path / "iq2_xxs_pair.s"
     object_path = tmp_path / "iq2_xxs_pair.o"
     code_object = tmp_path / "iq2_xxs_pair.hsaco"

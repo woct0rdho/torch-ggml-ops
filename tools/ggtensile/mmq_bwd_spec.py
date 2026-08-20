@@ -341,10 +341,7 @@ def backward_mechanism_contract(quant_type: str) -> BackwardMechanismContract:
         ),
         decoder=BackwardDecoderCapability(
             payload_register_count=(
-                4
-                if quant_type
-                in ("Q2_K", "Q4_K", "Q8_0", "IQ2_S", "IQ2_XXS")
-                else 8
+                4 if quant_type in ("Q2_K", "Q4_K", "Q8_0", "IQ2_S", "IQ2_XXS") else 8
             ),
             packed_loads_per_row=(
                 3

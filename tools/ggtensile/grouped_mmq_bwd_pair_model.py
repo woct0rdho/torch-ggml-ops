@@ -121,6 +121,55 @@ class GroupedBackwardPairSolution:
         )
 
     @classmethod
+    def iq2_xxs_m64_n64_dual_lds_full_tile_split_concurrent_reads_prefetch_a(
+        cls,
+    ) -> Self:
+        parent = cls.iq2_xxs_m64_n64()
+        return replace(
+            parent,
+            compute=replace(
+                parent.compute,
+                prefetch_global_read=2,
+                schedule_iter_alg=4,
+                lds_swizzle_chunk_b=8,
+            ),
+            projection_schedule=(
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU
+            ),
+        )
+
+    @classmethod
+    def iq2_xxs_m64_n64_dual_lds_full_tile_split_direct_pointers_prefetch_a(
+        cls,
+    ) -> Self:
+        parent = (
+            cls.iq2_xxs_m64_n64_dual_lds_full_tile_split_concurrent_reads_prefetch_a()
+        )
+        return replace(
+            parent,
+            projection_schedule=(
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU
+            ),
+        )
+
+    @classmethod
+    def iq2_xxs_m64_n64_sia5_dual_lds_full_tile_split_k_pipeline(cls) -> Self:
+        parent = (
+            cls.iq2_xxs_m64_n64_dual_lds_full_tile_split_direct_pointers_prefetch_a()
+        )
+        return replace(
+            parent,
+            compute=replace(
+                parent.compute,
+                schedule_iter_alg=5,
+                prefetch_packed_weight_next=True,
+            ),
+            projection_schedule=(
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU
+            ),
+        )
+
+    @classmethod
     def iq2_xxs_m128_n64(cls) -> Self:
         parent = cls.iq2_xxs_m64_n64()
         return replace(
@@ -129,6 +178,50 @@ class GroupedBackwardPairSolution:
                 parent.compute,
                 matrix_instruction=(16, 16, 16, 1, 1, 2, 4, 4, 1),
                 macro_tile0=128,
+            ),
+        )
+
+    @classmethod
+    def iq2_xxs_m128_n64_dual_lds(cls) -> Self:
+        return replace(
+            cls.iq2_xxs_m128_n64(),
+            projection_schedule=(
+                GroupedBackwardPairProjectionSchedule.DualLdsInterleavedDepthU
+            ),
+        )
+
+    @classmethod
+    def iq2_xxs_m128_n64_dual_lds_full_tile_split(cls) -> Self:
+        return replace(
+            cls.iq2_xxs_m128_n64(),
+            projection_schedule=(
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitInterleavedDepthU
+            ),
+        )
+
+    @classmethod
+    def iq2_xxs_m128_n64_dual_lds_full_tile_split_concurrent_reads(cls) -> Self:
+        return replace(
+            cls.iq2_xxs_m128_n64(),
+            projection_schedule=(
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU
+            ),
+        )
+
+    @classmethod
+    def iq2_xxs_m128_n64_dual_lds_full_tile_split_concurrent_reads_prefetch_a(
+        cls,
+    ) -> Self:
+        parent = cls.iq2_xxs_m128_n64()
+        return replace(
+            parent,
+            compute=replace(
+                parent.compute,
+                prefetch_global_read=2,
+                schedule_iter_alg=4,
+            ),
+            projection_schedule=(
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU
             ),
         )
 

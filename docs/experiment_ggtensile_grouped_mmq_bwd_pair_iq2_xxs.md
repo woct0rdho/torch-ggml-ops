@@ -73,8 +73,76 @@ Canonical M64/N64 and M128/N64 single-LDS keys round-trip at bounded and product
 
 Both artifacts have bounded register indices, exact 72-byte metadata, wave32, code object v5, no scratch, calls, or dynamic stack. The M64 R35 candidate matches the installed specialized M64 control in all 143,360 BF16 outputs on real DeepSeek gate/up banks. An expanded R257 matrix also has zero differing elements for one-route full/tail ownership, a short first route followed by full tiles, three nonaligned routes, repeated experts, and mixed 64/65-row boundaries. Every result is finite and no destination sentinel remains.
 
-The first lane mapping review caught and corrected an implementation error before this qualification: the lower/upper 16-value half of a K32 group is selected by lane bit zero. The retained source and test fix that mapping explicitly. The single-LDS body is now the correctness anchor. Full mutation, malformed-route, independent-oracle, production-row, reproducibility, and timing qualification remain outstanding.
+The first lane mapping review caught and corrected an implementation error before this qualification: the lower/upper 16-value half of a K32 group is selected by lane bit zero. The retained source and test fix that mapping explicitly. The single-LDS body is now the correctness anchor; its reproducibility and timing qualification are recorded below.
 
 ### Coverage closure for the retained decoder
 
-The writer coverage test now dispatches a normal IQ2_XXS emitter through the generic decode-prepare and decode-chunk helpers, and separately verifies that a physical plan without the staged codebook is rejected. The direct targeted test passes. A run containing only the writer-coverage and pair modules reports the expected shared-session coverage failure because other backward-writer paths are not imported/executed in that process; it is not a product failure. The complete `tests/ggtensile` session reached 679 passed before this closure and is being rerun after the two IQ2_XXS dispatch lines were covered.
+The writer coverage test now dispatches a normal IQ2_XXS emitter through the generic decode-prepare and decode-chunk helpers, exercises the unsupported current-address and cross-row decode guards, and separately verifies that a physical plan without the staged codebook is rejected. The direct targeted test passes. A run containing only the writer-coverage and pair modules reports the expected shared-session coverage failure because other backward-writer paths are not imported/executed in that process; it is not a product failure. The complete `tests/ggtensile` session passes with `698 passed`.
+
+### M128 artifact qualification
+
+The production M128/N64 IQ2_XXS pair was independently generated, assembled, linked, and inspected for the B4 row key. It passed the strict gfx1151/code-object-v5 and paired-ABI gates: 72-byte kernarg metadata, wave32, `127` VGPR, `41` SGPR, `6,144 B` LDS, `32` static WMMA instructions, and `5` barriers. The artifact has zero private bytes, zero VGPR/SGPR spills, bounded register indices, no scratch instructions, calls, dynamic stack, or delayed-ALU/clause metadata. Static inspection is complete for both production geometries.
+
+### Bounded fused correctness qualification
+
+Fresh backward-pair artifacts, distinct from the similarly named forward-pair experiment roots, were generated from the committed writer for R35 M64 and M128 and R257 M128. Both R35 geometries are BF16 bit-exact to the installed specialized M64 control for one-route, boundary, sparse-ID, repeated-expert, first/non-first, and unowned-final-row profiles. Deterministic reruns, independent mutations of both gradient outputs, route IDs, and active rows in both packed banks are exact to HIP. Mutations of an inactive expert in either bank are inert after restoration.
+
+Invalid first and middle experts, a negative route start, and a final offset beyond `rows` preserve every sentinel in the malformed route span while valid prior or later routes continue to write. The R257 M128 body is exact for two-full-plus-tail, exact-full-then-tail, tail-full-tail, and repeated-boundary ownership, including deterministic reruns and independent full-route gradient mutations.
+
+The independent oracle dequantizes only the four routed gate/up experts to BF16, performs each routed pair in FP32, sums before BF16 conversion, and differs in 274 of 143,360 values. Maximum absolute error is `0.03125`, error RMS is `2.773e-4`, and NRMSE is `1.656e-4` for both geometries. The durable build and bounded reports are `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-anchor-current/build.json` and `bounded-correctness.json`.
+
+### Exact production-row correctness
+
+The production controls use M64 at B1 and M128 at B4/B16. Boundary-route comparisons cover 50,331,648 B1 values, 201,326,592 B4 values, and 805,306,368 B16 values. Every candidate/control comparison and deterministic rerun has zero differing BF16 elements, zero absolute error, and finite output. Candidate, installed, and rerun destinations start from three different sentinels, so exact equality also proves complete valid-row coverage rather than shared preservation of an unwritten value.
+
+The durable report is `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-anchor-current/production-correctness.json`. Correctness gates are complete for the single-LDS anchors; the later reproducibility and warmed complete-call timing records are documented in the subsequent qualification sections.
+
+### Fitted-prior geometry baseline
+
+The first ranking pass uses all five learned and five hash medoids in the DeepSeek search bank at each production key. Combined medoid weights use the fitted reporting mixture (`40/43` learned and `3/43` hash). Every profile passed an exact candidate/control comparison before timing. The protocol uses three warmups, nine rotating repeats, equivalent output allocation in each complete-call path, and a preallocated kernel-only diagnostic. The table reports the weighted sum of per-medoid complete-call medians; speedup is `installed / candidate`, so values above one favor GGTensile.
+
+| Key | Installed HIP | M64 GGTensile | M64 speedup | M128 GGTensile | M128 speedup |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| B1 / R12,288 | `36.5729 ms` | `38.6450 ms` | `0.9464x` | `44.3654 ms` | `0.8244x` |
+| B4 / R49,152 | `96.6729 ms` | `111.6812 ms` | `0.8656x` | `92.7468 ms` | `1.0423x` |
+| B16 / R196,608 | `377.0298 ms` | `426.8388 ms` | `0.8833x` | `387.0164 ms` | `0.9742x` |
+
+M128 at B4 is the only positive geometry result. It is a search-bank result, not a confirmation, and does not qualify promotion by itself. M64 misses every production key; M128 misses B1 and B16. Public dispatch remains unchanged. The durable report, including all samples and per-medoid route metadata, is `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-anchor-current/geometry-search9.json`.
+
+### M64 activation-prefetch LDS layout selection
+
+The staged M64 sequence retained separate 4 KiB weight tiles, split the two projection bodies at a full-tile boundary, issued their packed reads concurrently, and prefetched the next activation tile with PGR2/SIA4. On the B1 search bank, the swizzle4 activation-prefetch body reached `37.7968 ms` weighted complete-call latency, compared with `38.6737 ms` for the single-LDS anchor, `39.6159 ms` for dual LDS, `39.4362 ms` for the full-tile split, and `39.2062 ms` after concurrent packed reads. This made activation prefetch the schedule anchor but left it `3.18%` behind installed HIP.
+
+The installed body uses paired stride-64 LDS reads, while the swizzle4 GGTensile body issued eight 64-bit LDS reads for each pair of N16 fragments. Changing only the decoded-weight XOR chunk tested the same LDS issue-width premise through the writer's existing vector path. Swizzle8 and swizzle16 both replaced those reads with four 128-bit reads and reduced the physical plan from `105` to `101` VGPR. Static LDS instructions fell from `201` to `137`. Swizzle8 reduced static VALU issues from `1,020` to `944`; swizzle16 reached `940` but regressed sharply and was rejected by timing.
+
+The nine-repeat B1 search-bank screen measured:
+
+| Layout | Weighted complete latency | Versus swizzle4 | Versus installed |
+| --- | ---: | ---: | ---: |
+| Swizzle4 activation-prefetch anchor | `37.9616 ms` | `1.0000x` | `0.9630x` |
+| Swizzle8 | `36.1623 ms` | `1.0498x` | `1.0109x` |
+| Swizzle16 | `44.7949 ms` | `0.8475x` | `0.8161x` |
+
+A disjoint confirmation used the five learned and five hash medoids from the confirmation bank, five warmups, 25 repeats, and every rotation of reversed function order. Swizzle8 measured `37.2481 ms`, versus `38.8967 ms` for swizzle4 and `37.5809 ms` for installed HIP: a `1.0443x` anchor speedup and `1.0089x` installed speedup. Every pre-timing result was BF16 bit-exact.
+
+Fresh swizzle8 R35/R257 artifacts passed the route-tail, sparse/repeated expert, malformed-route, sentinel ownership, deterministic rerun, independent gradient/weight/route mutation, inactive-expert, and independently dequantized FP32-oracle gates. The production B1 boundary route matched all `50,331,648` installed BF16 elements exactly on the initial run and deterministic rerun. Strict inspection reports `101` VGPR, `41` SGPR, `10,240 B` LDS, 32 WMMAs, five barriers, zero private bytes, and zero spills. The retained typed identity is `iq2_xxs_m64_n64_dual_lds_full_tile_split_concurrent_reads_prefetch_a`; it selects swizzle8 without changing the canonical M128 identities or public dispatch.
+
+Durable records are under `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m64-swizzle/`: `build.json`, `timing-b1-search9.json`, `timing-b1-confirmation25.json`, `bounded-correctness-swizzle8.json`, `production-correctness-swizzle8.json`, and `selected-identity.json`.
+
+### Final M64 SIA5 K-pipeline
+
+The retained final constructor is `iq2_xxs_m64_n64_sia5_dual_lds_full_tile_split_k_pipeline()`. Its exact identity is M64/N64/K32 with matrix instruction `(16,16,16,1,1,1,4,4,1)`, decoder width 16, swizzle8, PGR2 activation prefetch, current and next packed-weight prefetch, direct second-projection pointers, serial route ownership, and SIA5 (`ScheduleIterAlg=5`). The physical plan is `101 VGPR / 41 SGPR / 10,240 B LDS`, with two disjoint 4 KiB decoded-weight tiles at offsets `0` and `4,096` and one shared IQ2_XXS codebook at offset `8,192`. It has zero private bytes and zero spills.
+
+The final lowering overlaps the paired codebook reads and decode preparation, retains the geometry-derived second-A wait frontier (`vmcnt(2)` for M64), and uses explicit full/tail K-pipeline labels with seven barriers and 32 WMMA instructions. Focused permanent-identity tests cover round-trip admission, exact schedule fields, resource/LDS placement, direct-pointer ownership, absence of pointer swaps, SIA5 and K-pipeline markers, codebook-overlap ordering, M64/M128 frontier behavior, exact altered-identity rejection, and two-root source/object/HSACO reproducibility. The focused regression run passes `4` tests.
+
+The R257 and R12,288 hashes and inspections are recorded in the same `build.json`. Strict source inspection reports `1,438` VALU issues, `209` LDS operations, `105` VMEM operations, `32` WMMAs, and `7` barriers, with bounded registers and no scratch, calls, stack, private storage, or spills.
+
+The disjoint B1 confirmation used five warmups, 25 repeats, reversed rotating order, and independent and paired robust confidence intervals. Relative to installed HIP, the final pipeline improves complete-call latency by `16.612%` in the independent comparison and `16.562%` in the paired comparison; both 95% confidence intervals exclude zero. The confidence report is `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m64-k-pipeline-sia5-codebook-overlap/timing-b1-confirmation25-confidence.json`.
+
+### Rejected and deferred mechanisms
+
+The following complete mechanisms were measured and rejected: store interleaving, width-16 decode, deferred codebook issue, midpoint codebook wait, SIA4 K pipelining, and VMEM-frontier overrides. The VMEM frontier regressed direct SIA5 by approximately `0.054%` weighted and pipeline SIA5 by approximately `0.026%`; the retained frontier remains the matrix-geometry-derived LDS/VMEM schedule. Public dispatch, generated bundle integration, packaging, and HIP fallback remain deferred.
+
+### Recursive final review
+
+The final review reread the exact paired contract, retained lowering and source, installed HIP control, static inspection, bounded and production correctness, deterministic artifact records, timing confidence report, and rejected mechanisms. Independent durable rebuilds under `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m64-k-pipeline-sia5-independent-a/` and `...-independent-b/` match for R35, R257, and R12,288 source, object, and HSACO hashes and inspections. Remaining items are classified as retained and measured (the final M64 SIA5 K pipeline), rejected by timing or resource/identity gates (the listed alternatives), or deferred pending public integration review. No actionable in-contract mechanism remains in the current typed lowering surface. The complete `tests/ggtensile` suite passes (`698 passed`); Ruff, compileall, `git diff --check`, and the complete diff review are also complete.

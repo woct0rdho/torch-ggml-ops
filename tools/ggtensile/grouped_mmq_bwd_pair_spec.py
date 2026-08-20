@@ -301,11 +301,30 @@ def grouped_backward_pair_capability_rejection_reason(
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
         GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU,
     )
-    interleaves_wmma_waits = (
-        solution.projection_schedule
-        is GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU
-    )
+    interleaves_wmma_waits = compute.schedule_iter_alg == 5
     iq2_xxs = problem.quant_data_type == "IQ2_XXS"
+    iq2_xxs_pipeline = (
+        iq2_xxs
+        and solution.projection_schedule
+        is GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU
+    )
+    iq2_xxs_final_pipeline = (
+        iq2_xxs_pipeline
+        and solution
+        == GroupedBackwardPairSolution.iq2_xxs_m64_n64_sia5_dual_lds_full_tile_split_k_pipeline()
+    )
+    iq2_xxs_staged_schedules = (
+        GroupedBackwardPairProjectionSchedule.InterleavedDepthU,
+        GroupedBackwardPairProjectionSchedule.DualLdsInterleavedDepthU,
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitInterleavedDepthU,
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU,
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
+        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
+    )
+    iq2_xxs_staged = (
+        solution.projection_schedule in iq2_xxs_staged_schedules
+        or iq2_xxs_final_pipeline
+    )
     checks = (
         (solution.projection_count == 2, "paired backward requires two projections"),
         (
@@ -338,14 +357,11 @@ def grouped_backward_pair_capability_rejection_reason(
             "paired IQ2_XXS currently requires serial-route ownership",
         ),
         (
-            not iq2_xxs
-            or solution.projection_schedule
-            is GroupedBackwardPairProjectionSchedule.InterleavedDepthU,
-            "paired IQ2_XXS currently implements only its single-LDS anchor",
+            not iq2_xxs or iq2_xxs_staged,
+            "paired IQ2_XXS schedule requires its staged-codebook lowering",
         ),
         (
-            solution.route_ownership
-            is GroupedBackwardPairRouteOwnership.SerialRoutes
+            solution.route_ownership is GroupedBackwardPairRouteOwnership.SerialRoutes
             or interleaves_wmma_waits,
             "paired backward split routes require the SIA5 K pipeline",
         ),
@@ -396,8 +412,9 @@ def grouped_backward_pair_capability_rejection_reason(
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
                 GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU,
             )
-            or compute.macro_tile0 == 128,
-            "paired backward dual LDS is implemented only for M128",
+            or compute.macro_tile0 == 128
+            or (iq2_xxs and compute.macro_tile0 == 64 and iq2_xxs_staged),
+            "paired backward dual LDS is implemented only for M128 or staged IQ2_XXS M64",
         ),
     )
     for valid, message in checks:
