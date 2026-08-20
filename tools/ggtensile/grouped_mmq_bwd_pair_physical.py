@@ -136,6 +136,7 @@ def derive_grouped_backward_pair_physical_plan(
             GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU,
         )
         codebook_bytes = {
+            "Q3_K": 0,
             "IQ2_S": IQ2_S_GRID_BYTES,
             "IQ2_XXS": IQ2_XXS_GRID_BYTES,
         }[state.contract.quant_type]
