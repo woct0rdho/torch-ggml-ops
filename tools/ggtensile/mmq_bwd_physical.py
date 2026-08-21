@@ -198,20 +198,14 @@ def derive_backward_physical_plan(
     address_register_count = mechanism.address.register_count(
         spec.pipeline.schedule, geometry.matrix_instruction[5]
     )
-    address_state_offset = (
-        4 + geometry.matrix_instruction[5] if extended_a else 6
-    )
+    address_state_offset = 4 + geometry.matrix_instruction[5] if extended_a else 6
     # Decoder row pointers occupy address[0:rows]. Keep LDS/quant state after
     # that range for wide fixed tiles without changing existing assignments.
     address_state_offset = max(address_state_offset, decoder.rows)
     address_register_count = max(
         address_register_count,
         address_state_offset
-        + (
-            3
-            if extended_a and mechanism.extended_quant_address_state
-            else 2
-        ),
+        + (3 if extended_a and mechanism.extended_quant_address_state else 2),
     )
 
     vgprs = _FirstFitRegisters(0, 255)

@@ -214,6 +214,7 @@ def test_complete_candidate_round_trips_to_the_normal_build_solution() -> None:
         ("Q4_K", ForwardSolution.q4_k_pilot()),
         ("Q3_K", ForwardSolution.q3_k_hip_tiled_lds()),
         ("Q3_K", ForwardSolution.q3_k_full_weight_tiled_lds()),
+        ("Q3_K", ForwardSolution.q3_k_full_weight_decode_ready_frontier()),
         ("Q4_K", ForwardSolution.q4_k_decoded_weight_lds_retained()),
         (
             "Q4_K",
@@ -313,6 +314,10 @@ def test_complete_candidate_round_trips_to_the_normal_build_solution() -> None:
         (ForwardSolution.q4_k_pilot(), (88, 16, 0)),
         (ForwardSolution.q3_k_hip_tiled_lds(), (144, 16, 28_672)),
         (ForwardSolution.q3_k_full_weight_tiled_lds(), (200, 16, 39_936)),
+        (
+            ForwardSolution.q3_k_full_weight_decode_ready_frontier(),
+            (200, 16, 39_936),
+        ),
         (
             ForwardSolution.q4_k_decoded_weight_lds_retained(),
             (239, 16, 38_400),
@@ -519,6 +524,7 @@ def test_every_forward_solution_field_is_projected_or_rejected() -> None:
     representatives = (
         ("Q3_K", ForwardSolution.q3_k_hip_tiled_lds()),
         ("Q3_K", ForwardSolution.q3_k_full_weight_tiled_lds()),
+        ("Q3_K", ForwardSolution.q3_k_full_weight_decode_ready_frontier()),
         ("Q4_K", ForwardSolution.q4_k_pilot()),
         ("Q4_K", ForwardSolution.q4_k_decoded_weight_lds_retained()),
         ("Q5_K", ForwardSolution.q5_k_decoded_weight_lds_retained()),

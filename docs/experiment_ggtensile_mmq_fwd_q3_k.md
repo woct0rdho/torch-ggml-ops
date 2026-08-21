@@ -374,3 +374,98 @@ The recursive final-review rule is global rather than a per-format, per-directio
 ## Post-Q8 Global Review
 
 The Q8_0 compact-depth32 row composition was reread as a possible cross-format premise. It does not transfer to Q3_K: Q3 owns a 336-byte full-weight row containing two packed halves, distinct low/high metadata roles, and a four-barrier decode/WMMA schedule. The Q3 full-weight ownership, persistent zero, activation-base and scale lifetimes, and the tested compact-row, paired-scale, wait, tail, and fragment alternatives remain independently qualified or rejected. No new Q3-specific in-contract mechanism is actionable, and the 12 exact research mappings remain unchanged.
+
+## Post-Audit Compiler-Oracle Reopening
+
+Status: completed, retained, and selected for all 12 exact research-catalog keys. Public runtime dispatch and the 179-kernel HIP bundle remain unchanged.
+
+### Opening Premise
+
+The measured startup-clear, tail-barrier, paired-scale, compact-row, and fragment schedules remained closed. The new premise was a complete dependency-DAG-derived physical schedule for the existing 200-VGPR, 39,936-byte full-weight body.
+
+Compile temporary Q3 controls offline under bounded AMDGPU scheduler policies and inspect issue distances, role pressure, `s_delay_alu` dependencies, and legal wave32 VOPD pairs. Use those artifacts only as an oracle. Encode at most one named typed plan that preserves Q3 reconstruction, FP32 correction order, four-barrier ownership, ABI, and exact output; do not copy an instruction stream, add an allocator, invoke LLVM during generation, or use a post-emission rewrite.
+
+The timing-neutral Q6 O1 load-frontier result lowers the cross-record performance prior for fixed-map oracle reconstruction. Q3 remains independently actionable because its 200-VGPR, 39,936-byte full-weight body has different reconstruction and lifetime pressure, but the first complete dependency-ready plan is now a go/no-go discriminator rather than the start of a broad partial-policy sweep. Expect low-single-digit movement unless the oracle demonstrates a Q3-specific cross-stage lifetime change that Q6 O1 did not represent. This is an unmeasured priority assessment.
+
+Screen the large attention-gate key first, then the large SSM-output key, because their sustained timings expose schedule movement without the short-key DPM instability. Narrow keys transfer only after the same semantic plan is re-derived for their lifetimes and resources. A retained candidate needs exact HIP/public output, mutation coverage, deterministic independent builds, zero private storage and spills, and paired timing against the current full-weight parent. This is exact code generation and requires no model integration.
+
+### Offline LLVM Oracle
+
+The oracle used the exact bundled HIP source `DenseFwdQ3KK2048J128Full-b5c4f8fc4fe73ab1.cu`. Its pre-scheduler bitcode was compiled under the default AMDGPU policy and four bounded alternatives. This was offline evidence only: production generation does not invoke LLVM, copy an instruction stream, run an allocator, or rewrite emitted assembly.
+
+All five artifacts were exact and deterministic over all 134,217,728 BF16 outputs of attention gate `(32768,4096,2048)`. The screen used 20 warmup batches, 25 repeats, and four launches per batch.
+
+| Scheduler policy | Median | Ratio to default | VGPR | SGPR | Private/spills |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| default | `23.665981 ms` | `1.00000x` | 196 | 27 | `0/0` |
+| bottom-up `gcn-max-ilp` | `23.490105 ms` | `0.99257x` | 208 | 71 | `0/0` |
+| top-down | `24.942402 ms` | `1.05393x` | 193 | 27 | `0/0` |
+| top-down `gcn-max-ilp` | `24.563478 ms` | `1.03792x` | 220 | 75 | `0/0` |
+| bottom-up `gcn-max-ilp`, clustering disabled | `23.891838 ms` | `1.00954x` | 208 | 71 | `0/0` |
+
+Only bottom-up `gcn-max-ilp` improved the same bitcode. Pre/post-scheduler MIR comparison localized the useful difference to widening independent Q3 payload and scale reconstruction chains before LDS writes; the WMMA and FP32 correction regions were essentially unchanged. Top-down traversal and disabling scheduler clustering both regressed, so neither policy was transferred.
+
+### Typed Decode-Ready Frontier
+
+`Q3FullTileDecodeReadyFrontier` encodes the useful ownership fact in the existing typed lowering. For each payload group it advances four independent low shifts, four independent high-bit shifts, four masks, four merges, and four signed reconstructions by readiness. For scales it advances four independent low/high extractions, signed conversions, block-factor multiplies, and LDS writes by readiness. The schedule uses fixed stage-2 roles `v118:v121` for high payloads, `v133:v136` for scale values, and `v137:v140` for scale auxiliaries. These ranges are disjoint from live roles in that stage.
+
+Arithmetic values and order per output, stores, waits, four barriers, ABI, geometry, and LDS ownership are unchanged. Parent and candidate inspection counts are identical: 200 VGPRs, 16 SGPRs, 39,936 LDS bytes, zero private bytes or spills, 128 WMMAs, 4 barriers, 2,595 VALU issues, 3,623 VALU operations, 1,028 VOPDs, 90 VMEM operations, 274 LDS operations, 134 waits, and 8 clauses.
+
+### Exact Qualification
+
+Strict qualification covered all 12 catalog keys. Every candidate had zero differing BF16 elements versus HIP multiply and public complete output, zero producer-repeat bytes, and zero differences versus HIP after independent input, packed-weight, and workspace mutations. Every mutation changed nonzero output or source data. Independent-reference output was finite with normalized RMSE from `0.0060610` through `0.0060684`. The supported Q3 domain requires complete 64-column and 256-reduction tiles, so these kernels have no runtime tail path.
+
+Two independent all-key build roots reproduced byte-identical solution keys, generated solutions, assembly, objects, and HSACOs. Normalized inspections also matched for parent and candidate on every key.
+
+### Catalog-Wide Timing
+
+The uniform screens used 20 warmup batches and 25 repeats. Short keys used multiple launches per sample; table medians are per launch. `C/P` is candidate time divided by typed-parent time, and paired `C/P` is the median within-repeat ratio. The forward launch order improved every key:
+
+| Family | `(M,N,K)` | Batch | HIP ms | Parent ms | Candidate ms | C/P | paired C/P | C/HIP |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| attention K | `(2048,512,2048)` | 64 | `0.216688` | `0.201751` | `0.192246` | `0.95289x` | `0.95113x` | `0.88720x` |
+| attention K | `(8192,512,2048)` | 16 | `0.792480` | `0.737034` | `0.694331` | `0.94206x` | `0.94209x` | `0.87615x` |
+| attention K | `(32768,512,2048)` | 4 | `3.104226` | `2.872503` | `2.725726` | `0.94890x` | `0.94361x` | `0.87807x` |
+| attention Q | `(2048,8192,2048)` | 8 | `3.107141` | `2.896937` | `2.737541` | `0.94498x` | `0.94607x` | `0.88105x` |
+| attention Q | `(8192,8192,2048)` | 2 | `12.314424` | `11.401036` | `10.791288` | `0.94652x` | `0.94895x` | `0.87631x` |
+| attention Q | `(32768,8192,2048)` | 1 | `49.640285` | `46.044456` | `43.579304` | `0.94646x` | `0.95031x` | `0.87790x` |
+| attention gate | `(2048,4096,2048)` | 16 | `1.584528` | `1.464353` | `1.383430` | `0.94474x` | `0.94580x` | `0.87309x` |
+| attention gate | `(8192,4096,2048)` | 4 | `6.176969` | `5.744709` | `5.430894` | `0.94537x` | `0.94773x` | `0.87922x` |
+| attention gate | `(32768,4096,2048)` | 1 | `24.466183` | `22.794319` | `21.595037` | `0.94739x` | `0.94872x` | `0.88265x` |
+| SSM output | `(2048,2048,4096)` | 16 | `1.583928` | `1.453791` | `1.369934` | `0.94232x` | `0.94233x` | `0.86490x` |
+| SSM output | `(8192,2048,4096)` | 4 | `6.146607` | `5.694573` | `5.376336` | `0.94412x` | `0.94323x` | `0.87468x` |
+| SSM output | `(32768,2048,4096)` | 1 | `24.010984` | `22.235765` | `21.179333` | `0.95249x` | `0.94704x` | `0.88207x` |
+
+The fully reversed launch order also improved every key:
+
+| Family | `(M,N,K)` | Batch | HIP ms | Parent ms | Candidate ms | C/P | paired C/P | C/HIP |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| attention K | `(2048,512,2048)` | 64 | `0.212751` | `0.196370` | `0.186103` | `0.94772x` | `0.94786x` | `0.87475x` |
+| attention K | `(8192,512,2048)` | 16 | `0.778339` | `0.725434` | `0.684565` | `0.94366x` | `0.93804x` | `0.87952x` |
+| attention K | `(32768,512,2048)` | 4 | `3.031267` | `2.857916` | `2.672568` | `0.93515x` | `0.93776x` | `0.88167x` |
+| attention Q | `(2048,8192,2048)` | 8 | `3.105108` | `2.890373` | `2.747500` | `0.95057x` | `0.94391x` | `0.88483x` |
+| attention Q | `(8192,8192,2048)` | 2 | `12.294017` | `11.453724` | `10.838916` | `0.94632x` | `0.94845x` | `0.88164x` |
+| attention Q | `(32768,8192,2048)` | 1 | `48.817047` | `45.263737` | `42.600563` | `0.94116x` | `0.94786x` | `0.87266x` |
+| attention gate | `(2048,4096,2048)` | 16 | `1.585848` | `1.466301` | `1.387351` | `0.94616x` | `0.94504x` | `0.87483x` |
+| attention gate | `(8192,4096,2048)` | 4 | `6.133593` | `5.722134` | `5.397590` | `0.94328x` | `0.94222x` | `0.88000x` |
+| attention gate | `(32768,4096,2048)` | 1 | `23.412828` | `21.804144` | `20.590466` | `0.94434x` | `0.94716x` | `0.87945x` |
+| SSM output | `(2048,2048,4096)` | 16 | `1.549451` | `1.425660` | `1.337086` | `0.93787x` | `0.93907x` | `0.86294x` |
+| SSM output | `(8192,2048,4096)` | 4 | `6.074563` | `5.606962` | `5.308541` | `0.94678x` | `0.94736x` | `0.87390x` |
+| SSM output | `(32768,2048,4096)` | 1 | `24.611544` | `22.752874` | `21.577497` | `0.94834x` | `0.94495x` | `0.87672x` |
+
+The two priority large keys received longer independent confirmations:
+
+| Key | Order/protocol | HIP ms | Parent ms | Candidate ms | C/P | paired C/P |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| attention gate `(32768,4096,2048)` | forward, 20/25 | `24.751171` | `23.026514` | `21.950174` | `0.95326x` | `0.95029x` |
+| attention gate `(32768,4096,2048)` | forward, 100/101 | `24.175289` | `22.503416` | `21.298363` | `0.94645x` | `0.94257x` |
+| attention gate `(32768,4096,2048)` | reverse, 100/101 | `23.905945` | `22.359404` | `21.082399` | `0.94289x` | `0.94296x` |
+| SSM output `(32768,2048,4096)` | forward, 20/25 | `24.132238` | `22.282324` | `21.117481` | `0.94772x` | `0.94701x` |
+| SSM output `(32768,2048,4096)` | forward, 100/101 | `23.780439` | `22.142981` | `20.868114` | `0.94243x` | `0.94136x` |
+| SSM output `(32768,2048,4096)` | reverse, 100/101 | `23.781626` | `22.217045` | `20.877268` | `0.93970x` | `0.94244x` |
+
+The typed policy therefore reduces the selected parent by approximately 4.7% to 6.5% across every exact key and beats HIP by approximately 11.3% to 13.7% in both catalog-wide orders. `mmq_fwd_q3_k_catalog.json` now names this one typed schedule for all 12 mappings. The shared-decode schedule remains implemented only as the explicit measured parent. No arithmetic, memory-traffic, geometry, synchronization, or public-integration premise changed.
+
+### Final Oracle Review
+
+The useful bottom-up frontier is fully represented at the four independent payload lanes and four independent scale groups available before each LDS publication point. Widening across publication points would require additional simultaneously live decoded rows and a different register/resource premise; top-down and declustered oracle policies already regressed. WMMA/correction scheduling, barriers, cache invalidation, LDS representations, fragment mappings, scale-read forms, unroll factors, and tail elision were separately qualified or rejected earlier in this record. No further kernel-local action follows from the compiler oracle under the fixed exact-shape ABI and zero-spill envelope.

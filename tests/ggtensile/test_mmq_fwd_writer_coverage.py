@@ -1118,6 +1118,53 @@ def test_writer_emits_typed_q3_full_weight_control() -> None:
         )
 
 
+def test_writer_emits_q3_full_weight_decode_ready_frontier() -> None:
+    solution = ForwardSolution.q3_k_full_weight_decode_ready_frontier()
+    key = SolutionKey(
+        ProblemType.mmq_forward("Q3_K"),
+        ProblemSize(32768, 4096, 2048),
+        solution,
+    )
+    assert validate_solution(key) == ()
+    source = ForwardKernelWriterAssembly(key, Toolchain.discover()).source()
+    payload_frontier = (
+        "  v_lshrrev_b32 v126, 0, v105\n"
+        "  v_lshrrev_b32 v127, 0, v106\n"
+        "  v_lshrrev_b32 v128, 0, v107\n"
+        "  v_lshrrev_b32 v129, 0, v108\n"
+        "  v_lshlrev_b32 v118, 2, v110\n"
+        "  v_lshlrev_b32 v119, 2, v111\n"
+        "  v_lshlrev_b32 v120, 2, v112\n"
+        "  v_lshlrev_b32 v121, 2, v113\n"
+        "  v_and_b32 v126, 0x03030303, v126"
+    )
+    scale_frontier = (
+        "  v_add_nc_u32 v137, 16, v104\n"
+        "  v_add_nc_u32 v138, 0, v104\n"
+        "  v_add_nc_u32 v139, 16, v104\n"
+        "  v_add_nc_u32 v140, 0, v104\n"
+        "  v_lshrrev_b32 v133, v137, v100\n"
+        "  v_lshrrev_b32 v134, v138, v101\n"
+        "  v_lshrrev_b32 v135, v139, v101\n"
+        "  v_lshrrev_b32 v136, v140, v102"
+    )
+    scale_conversion_frontier = (
+        "  v_sub_nc_u32 v133, v133, 32\n"
+        "  v_sub_nc_u32 v134, v134, 32\n"
+        "  v_sub_nc_u32 v135, v135, 32\n"
+        "  v_sub_nc_u32 v136, v136, 32\n"
+        "  v_cvt_f32_i32 v133, v133\n"
+        "  v_cvt_f32_i32 v134, v134\n"
+        "  v_cvt_f32_i32 v135, v135\n"
+        "  v_cvt_f32_i32 v136, v136"
+    )
+    assert payload_frontier in source
+    assert scale_frontier in source
+    assert scale_conversion_frontier in source
+    assert source.count("v_wmma_i32_16x16x16_iu8") == 128
+    assert source.count("s_barrier") == 4
+
+
 def test_forward_physical_plans_reject_invalid_domains() -> None:
     physical_source = FWD_PHYSICAL_SOURCE_PATH.read_text(encoding="utf-8")
     physical_tree = ast.parse(physical_source)
@@ -1156,6 +1203,12 @@ def test_forward_physical_plans_reject_invalid_domains() -> None:
     assert (decoded_64.declared_vgprs, decoded_64.sums.role.width) == (159, 32)
 
     q3_registers = Q3FullWeightTiledLdsRegisterPlan.allocate()
+    assert q3_registers.decode_payload_high.first_register == 118
+    assert q3_registers.decode_payload_high.role.width == 4
+    assert q3_registers.decode_scale_frontier.first_register == 133
+    assert q3_registers.decode_scale_frontier.role.width == 4
+    assert q3_registers.decode_scale_auxiliary_frontier.first_register == 137
+    assert q3_registers.decode_scale_auxiliary_frontier.role.width == 4
     with pytest.raises(ValueError, match="count is inconsistent"):
         replace(q3_registers, register_count=199)
     with pytest.raises(ValueError, match="exceeds the plan"):

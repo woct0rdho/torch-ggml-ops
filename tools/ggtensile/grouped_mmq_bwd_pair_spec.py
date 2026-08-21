@@ -502,9 +502,7 @@ def grouped_backward_pair_capability_rejection_reason(
         ordinary_compute = compute
     ordinary_tile = ordinary_compute.macro_tile0
     padded_rows = (
-        (problem.aggregate_rows + ordinary_tile - 1)
-        // ordinary_tile
-        * ordinary_tile
+        (problem.aggregate_rows + ordinary_tile - 1) // ordinary_tile * ordinary_tile
     )
     ordinary = SolutionKey(
         ProblemType.mmq_backward(problem.quant_data_type),

@@ -174,7 +174,9 @@ def test_q3_forward_inventory_selects_all_qualified_exact_keys() -> None:
     catalog = load_inventory_case(_Q3_INVENTORY_CASE)
     assert len(catalog.entries) == 12
     assert len(catalog.solutions) == 1
-    assert catalog.solutions[0] == ForwardSolution.q3_k_full_weight_tiled_lds()
+    assert catalog.solutions[0] == (
+        ForwardSolution.q3_k_full_weight_decode_ready_frontier()
+    )
 
 
 def test_q3_forward_public_bundle_remains_unwired() -> None:
@@ -505,8 +507,17 @@ def test_q3_forward_validation_rejects_unimplemented_control_variants() -> None:
     }
 
 
-def test_q3_full_weight_control_accepts_formula_compatible_shapes() -> None:
-    solution = ForwardSolution.q3_k_full_weight_tiled_lds()
+@pytest.mark.parametrize(
+    "solution",
+    (
+        ForwardSolution.q3_k_full_weight_tiled_lds(),
+        ForwardSolution.q3_k_full_weight_decode_ready_frontier(),
+    ),
+    ids=("shared-decode-control", "decode-ready-frontier"),
+)
+def test_q3_full_weight_control_accepts_formula_compatible_shapes(
+    solution: ForwardSolution,
+) -> None:
     supported = (
         ProblemSize(m, n, k)
         for m in (2048, 8192, 32768)
@@ -1207,7 +1218,20 @@ def test_q8_forward_runtime_uses_exact_hip_launch_geometry(
             4,
             39_936,
             8,
-            id="q3-full-weight-typed-qualified",
+            id="q3-full-weight-shared-decode-control",
+        ),
+        pytest.param(
+            _key(
+                "Q3_K",
+                ProblemSize(32768, 4096, 2048),
+                ForwardSolution.q3_k_full_weight_decode_ready_frontier(),
+            ),
+            128,
+            200,
+            4,
+            39_936,
+            8,
+            id="q3-full-weight-decode-ready-frontier",
         ),
         pytest.param(
             _key(solution=ForwardSolution.q4_k_pilot()),

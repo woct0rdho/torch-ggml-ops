@@ -16,7 +16,7 @@ from .mmq_fwd_physical import (
     Q3FullWeightTiledLdsPhysicalPlan,
     Q3FullWeightTiledLdsRegisterPlan,
 )
-from .mmq_fwd_spec import Q3FullWeightTiledLdsLayout
+from .mmq_fwd_spec import Q3FullWeightTiledLdsLayout, Q3PackedFieldPart
 
 
 @dataclass(frozen=True)
@@ -311,6 +311,10 @@ class FullWeightQ3TiledLdsLowering:
             else registers.weight_low1_raw.first_register
         )
         high_base = registers.weight_high_raw.first_register
+        decode_ready_frontier = (
+            self.context.state.kernel_spec.decode.metadata_schedule
+            == "Q3FullTileDecodeReadyFrontier"
+        )
         for local_group in range(4):
             # Q3 payload groups are interleaved by two logical groups per lane.
             # The top bit wraps after groups 0 and 2, so derive its position from
@@ -318,28 +322,37 @@ class FullWeightQ3TiledLdsLowering:
             logical_group = 4 * half + local_group
             low_shift = 2 * local_group
             high_shift = (logical_group + 6) % 8
-            for item in range(4):
-                destination = registers.decoded_payload.first_register + item
-                asm.inst(
-                    f"v_lshrrev_b32 v{destination}, {low_shift}, v{low_base + item}"
+            if decode_ready_frontier:
+                self._emit_payload_decode_ready_frontier(
+                    asm,
+                    low_base=low_base,
+                    high_base=high_base,
+                    low_shift=low_shift,
+                    high_shift=high_shift,
                 )
-                asm.inst(f"v_and_b32 v{destination}, 0x03030303, v{destination}")
-                if high_shift >= 6:
+            else:
+                for item in range(4):
+                    destination = registers.decoded_payload.first_register + item
                     asm.inst(
-                        f"v_lshlrev_b32 v{registers.decode_auxiliary.first_register}, "
-                        f"{8 - high_shift}, v{high_base + item}"
+                        f"v_lshrrev_b32 v{destination}, {low_shift}, v{low_base + item}"
                     )
-                else:
+                    asm.inst(f"v_and_b32 v{destination}, 0x03030303, v{destination}")
+                    if high_shift >= 6:
+                        asm.inst(
+                            f"v_lshlrev_b32 v{registers.decode_auxiliary.first_register}, "
+                            f"{8 - high_shift}, v{high_base + item}"
+                        )
+                    else:
+                        asm.inst(
+                            f"v_lshrrev_b32 v{registers.decode_auxiliary.first_register}, {high_shift}, "
+                            f"v{high_base + item}"
+                        )
                     asm.inst(
-                        f"v_lshrrev_b32 v{registers.decode_auxiliary.first_register}, {high_shift}, "
-                        f"v{high_base + item}"
+                        f"v_and_or_b32 v{destination}, v{registers.decode_auxiliary.first_register}, "
+                        f"0x04040404, v{destination}"
                     )
-                asm.inst(
-                    f"v_and_or_b32 v{destination}, v{registers.decode_auxiliary.first_register}, "
-                    f"0x04040404, v{destination}"
-                )
-                asm.inst(f"v_add_nc_u32 v{destination}, 0x7c7c7c7c, v{destination}")
-                asm.inst(f"v_xor_b32 v{destination}, 0x80808080, v{destination}")
+                    asm.inst(f"v_add_nc_u32 v{destination}, 0x7c7c7c7c, v{destination}")
+                    asm.inst(f"v_xor_b32 v{destination}, 0x80808080, v{destination}")
             asm.inst(
                 f"ds_write_b128 v{registers.weight_stage_address.first_register}, "
                 f"v[{registers.decoded_payload.first_register}:{registers.decoded_payload.first_register + 3}] "
@@ -364,6 +377,154 @@ class FullWeightQ3TiledLdsLowering:
         semantics = self.context.state.semantics
         metadata_load_offset = semantics.payload_plane("scales").byte_offset - 2
         scale_plane_offset = semantics.payload_plane("scales").byte_offset
+        if decode_ready_frontier:
+            self._emit_scale_decode_ready_frontier(
+                asm,
+                layout,
+                half=half,
+                metadata_load_offset=metadata_load_offset,
+                scale_plane_offset=scale_plane_offset,
+            )
+        else:
+            self._emit_serial_scale_decode(
+                asm,
+                layout,
+                half=half,
+                metadata_load_offset=metadata_load_offset,
+                scale_plane_offset=scale_plane_offset,
+            )
+
+    def _emit_payload_decode_ready_frontier(
+        self,
+        asm: Assembly,
+        *,
+        low_base: int,
+        high_base: int,
+        low_shift: int,
+        high_shift: int,
+    ) -> None:
+        registers = self._registers
+        payload = registers.decoded_payload.first_register
+        high = registers.decode_payload_high.first_register
+        for item in range(4):
+            asm.inst(
+                f"v_lshrrev_b32 v{payload + item}, {low_shift}, v{low_base + item}"
+            )
+        for item in range(4):
+            operation = "v_lshlrev_b32" if high_shift >= 6 else "v_lshrrev_b32"
+            shift = 8 - high_shift if high_shift >= 6 else high_shift
+            asm.inst(f"{operation} v{high + item}, {shift}, v{high_base + item}")
+        for item in range(4):
+            asm.inst(f"v_and_b32 v{payload + item}, 0x03030303, v{payload + item}")
+        for item in range(4):
+            asm.inst(
+                f"v_and_or_b32 v{payload + item}, v{high + item}, "
+                f"0x04040404, v{payload + item}"
+            )
+        for item in range(4):
+            asm.inst(f"v_add_nc_u32 v{payload + item}, 0x7c7c7c7c, v{payload + item}")
+        for item in range(4):
+            asm.inst(f"v_xor_b32 v{payload + item}, 0x80808080, v{payload + item}")
+
+    def _emit_scale_decode_ready_frontier(
+        self,
+        asm: Assembly,
+        layout: Q3FullWeightTiledLdsLayout,
+        *,
+        half: int,
+        metadata_load_offset: int,
+        scale_plane_offset: int,
+    ) -> None:
+        registers = self._registers
+        semantics = self.context.state.semantics
+        scales = registers.decode_scale_frontier.first_register
+        auxiliary = registers.decode_scale_auxiliary_frontier.first_register
+        fields: list[
+            tuple[Q3PackedFieldPart, Q3PackedFieldPart, int, int, int, int]
+        ] = []
+        for local_group in range(4):
+            low_field, high_field = semantics.q3_scale_fields(
+                8 * half + 2 * local_group
+            )
+            low_byte = scale_plane_offset - metadata_load_offset + low_field.source_byte
+            high_byte = (
+                scale_plane_offset - metadata_load_offset + high_field.source_byte
+            )
+            fields.append(
+                (
+                    low_field,
+                    high_field,
+                    low_byte // 4,
+                    high_byte // 4,
+                    8 * (low_byte % 4) + low_field.bit_offset,
+                    8 * (high_byte % 4) + high_field.bit_offset,
+                )
+            )
+        for item, (*_, low_bit, _high_bit) in enumerate(fields):
+            asm.inst(
+                f"v_add_nc_u32 v{auxiliary + item}, {low_bit}, "
+                f"v{registers.half_shift.first_register}"
+            )
+        for item, (_low, _high, low_word, _high_word, _low_bit, _high_bit) in enumerate(
+            fields
+        ):
+            asm.inst(
+                f"v_lshrrev_b32 v{scales + item}, v{auxiliary + item}, "
+                f"v{registers.weight_metadata.first_register + low_word}"
+            )
+        for item, (*_, high_bit) in enumerate(fields):
+            asm.inst(
+                f"v_add_nc_u32 v{auxiliary + item}, {high_bit}, "
+                f"v{registers.half_shift.first_register}"
+            )
+        for item, (low_field, *_rest) in enumerate(fields):
+            asm.inst(
+                f"v_and_b32 v{scales + item}, {(1 << low_field.bit_count) - 1}, "
+                f"v{scales + item}"
+            )
+        for item, (_low, _high, _low_word, high_word, _low_bit, _high_bit) in enumerate(
+            fields
+        ):
+            asm.inst(
+                f"v_lshrrev_b32 v{auxiliary + item}, v{auxiliary + item}, "
+                f"v{registers.weight_metadata.first_register + high_word}"
+            )
+        for item, (_low, high_field, *_rest) in enumerate(fields):
+            asm.inst(
+                f"v_and_b32 v{auxiliary + item}, "
+                f"{(1 << high_field.bit_count) - 1}, v{auxiliary + item}"
+            )
+        for item, (_low, high_field, *_rest) in enumerate(fields):
+            asm.inst(
+                f"v_lshl_or_b32 v{scales + item}, v{auxiliary + item}, "
+                f"{high_field.destination_shift}, v{scales + item}"
+            )
+        for item in range(4):
+            asm.inst(f"v_sub_nc_u32 v{scales + item}, v{scales + item}, 32")
+        for item in range(4):
+            asm.inst(f"v_cvt_f32_i32 v{scales + item}, v{scales + item}")
+        for item in range(4):
+            asm.inst(
+                f"v_mul_f32 v{scales + item}, v{registers.decode_d.first_register}, "
+                f"v{scales + item}"
+            )
+        for item in range(4):
+            asm.inst(
+                f"ds_write_b32 v{registers.weight_stage_address.first_register}, "
+                f"v{scales + item} offset:{layout.weight_scale_offset + 8 * item}"
+            )
+
+    def _emit_serial_scale_decode(
+        self,
+        asm: Assembly,
+        layout: Q3FullWeightTiledLdsLayout,
+        *,
+        half: int,
+        metadata_load_offset: int,
+        scale_plane_offset: int,
+    ) -> None:
+        registers = self._registers
+        semantics = self.context.state.semantics
         for local_group in range(4):
             group = 8 * half + 2 * local_group
             low_field, high_field = semantics.q3_scale_fields(group)

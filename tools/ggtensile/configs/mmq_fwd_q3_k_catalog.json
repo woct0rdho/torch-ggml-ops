@@ -58,7 +58,7 @@
       },
       "decode": {
         "metadata_conversion": "Float16DToFloat32Signed6ScaleShared",
-        "metadata_schedule": "Q3FullTileSharedDecode"
+        "metadata_schedule": "Q3FullTileDecodeReadyFrontier"
       },
       "epilogue": {
         "output_store": "BFloat16RNEClause8"

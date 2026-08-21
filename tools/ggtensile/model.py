@@ -365,6 +365,14 @@ class ForwardSolution:
         )
 
     @classmethod
+    def q3_k_full_weight_decode_ready_frontier(cls) -> Self:
+        """Return the bounded dependency-ready Q3 reconstruction frontier."""
+        return replace(
+            cls.q3_k_full_weight_tiled_lds(),
+            metadata_schedule="Q3FullTileDecodeReadyFrontier",
+        )
+
+    @classmethod
     def q4_k_decoded_weight_lds_retained(cls) -> Self:
         return cls(
             kernel_language="Assembly",

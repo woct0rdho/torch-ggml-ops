@@ -226,11 +226,14 @@ def _validate_q3_full_weight_forward_solution(
     solution: ForwardSolution,
     reasons: list[RejectReason],
 ) -> None:
-    if solution != ForwardSolution.q3_k_full_weight_tiled_lds():
+    if solution not in {
+        ForwardSolution.q3_k_full_weight_tiled_lds(),
+        ForwardSolution.q3_k_full_weight_decode_ready_frontier(),
+    }:
         _reject(
             reasons,
             "solution.forward.q3.full_weight.control.unimplemented",
-            "Q3_K full-weight forward implements one typed ownership schedule",
+            "Q3_K full-weight forward requires a typed ownership schedule",
             "Solution",
         )
         return

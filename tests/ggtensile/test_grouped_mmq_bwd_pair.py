@@ -305,7 +305,9 @@ def test_iq2_xxs_m192_lower_state_identity_physical_plan_and_source() -> None:
     )
 
     source = GroupedBackwardPairKernelWriterAssembly(key, Toolchain.discover()).source()
-    assert "Issue the second packed projection reads alongside first A prefetch" in source
+    assert (
+        "Issue the second packed projection reads alongside first A prefetch" in source
+    )
     assert "s_mul_i32" in source
     assert "v_mul_lo_u32" in source
     assert source.count("v_wmma_f32_16x16x16_bf16") == 96

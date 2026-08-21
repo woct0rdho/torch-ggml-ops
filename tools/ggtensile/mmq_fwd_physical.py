@@ -857,8 +857,11 @@ class Q3FullWeightTiledLdsRegisterPlan:
     weight_metadata: RegisterAssignment
     decoded_payload: RegisterAssignment
     decode_auxiliary: RegisterAssignment
+    decode_payload_high: RegisterAssignment
     decode_d: RegisterAssignment
     decode_scale: RegisterAssignment
+    decode_scale_frontier: RegisterAssignment
+    decode_scale_auxiliary_frontier: RegisterAssignment
     weight_stage_address: RegisterAssignment
     half_shift: RegisterAssignment
     c: RegisterAssignment
@@ -890,8 +893,11 @@ class Q3FullWeightTiledLdsRegisterPlan:
             self.weight_metadata,
             self.decoded_payload,
             self.decode_auxiliary,
+            self.decode_payload_high,
             self.decode_d,
             self.decode_scale,
+            self.decode_scale_frontier,
+            self.decode_scale_auxiliary_frontier,
             self.weight_stage_address,
             self.half_shift,
             self.c,
@@ -945,8 +951,13 @@ class Q3FullWeightTiledLdsRegisterPlan:
             weight_metadata=fixed("weight_metadata", 4, 100, 1, 2),
             decoded_payload=fixed("decoded_payload", 4, 126, 2, 2),
             decode_auxiliary=fixed("decode_auxiliary", 2, 131, 2, 2),
+            decode_payload_high=fixed("decode_payload_high", 4, 118, 2, 2),
             decode_d=fixed("decode_d", 1, 130, 2, 2),
             decode_scale=fixed("decode_scale", 1, 132, 2, 2),
+            decode_scale_frontier=fixed("decode_scale_frontier", 4, 133, 2, 2),
+            decode_scale_auxiliary_frontier=fixed(
+                "decode_scale_auxiliary_frontier", 4, 137, 2, 2
+            ),
             weight_stage_address=fixed("weight_stage_address", 1, 109, 1, 2),
             half_shift=fixed("half_shift", 1, 104, 1, 2),
             c=fixed("c", 8, 96, 3, 3),

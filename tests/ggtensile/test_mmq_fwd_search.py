@@ -77,7 +77,7 @@ def test_generic_manual_profile_keeps_shape_and_linked_domains_explicit() -> Non
 def test_q3_q8_domains_expose_only_complete_implemented_policies() -> None:
     q3_shape = ProblemSize(128, 64, 256)
     q3_domains = candidate_domains("Q3_K", q3_shape)
-    assert len(q3_domains) == 2
+    assert len(q3_domains) == 3
     assert all(domain.knob_groups == () for domain in q3_domains)
     assert all(
         candidate_neighbors(domain.seed, ()) == (domain.seed,) for domain in q3_domains

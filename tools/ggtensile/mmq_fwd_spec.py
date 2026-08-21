@@ -1379,7 +1379,11 @@ def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | Non
         inactive_checks.extend(
             (
                 (
-                    solution.metadata_schedule == "Q3FullTileSharedDecode",
+                    solution.metadata_schedule
+                    in {
+                        "Q3FullTileSharedDecode",
+                        "Q3FullTileDecodeReadyFrontier",
+                    },
                     "metadata schedule is not the typed Q3 full-tile schedule",
                 ),
                 (
@@ -1846,7 +1850,10 @@ class ForwardKernelSpec:
                 self.instruction_policy.accumulator_initialization
             )
         elif full_weight_q3:
-            if self.decode.metadata_schedule != "Q3FullTileSharedDecode":
+            if self.decode.metadata_schedule not in {
+                "Q3FullTileSharedDecode",
+                "Q3FullTileDecodeReadyFrontier",
+            }:
                 raise ValueError("full-weight Q3 requires its typed decode schedule")
             metadata_schedule = self.decode.metadata_schedule
         elif structured_q6:

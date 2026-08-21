@@ -403,6 +403,7 @@ def candidate_domains(
         seeds = (
             ForwardSolution.q3_k_hip_tiled_lds(),
             ForwardSolution.q3_k_full_weight_tiled_lds(),
+            ForwardSolution.q3_k_full_weight_decode_ready_frontier(),
         )
         knob_groups = ()
     elif quant_type == "Q8_0":
