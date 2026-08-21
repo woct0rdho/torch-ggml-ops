@@ -191,3 +191,31 @@ Independent regeneration of rows 35, 257, 16384, 65536, and 262144 produces byte
 Native `v_cvt_pk_bf16_f32` staging was rejected because the gfx1151 assembler reports the instruction unsupported. The source-only artifact was not treated as a valid code object. Four-way selector/sign batching reduced static issue count further but was neutral against the RNE-batch4 parent, so it is not retained. The serial one-subtract form was retained because it reduced 32 static issues without moving resources and improved the balanced B16 search result.
 
 The final identity has no actionable in-contract mechanism left in this isolated scope. Installed dispatch and packaging remain intentionally unchanged.
+
+## Post-Audit B16 Reopening
+
+Status: planned and unmeasured. B16 is the first target because the accepted kernel is `47.2100 ms` versus `47.8251 ms` for HIP, leaving the smallest exact margin and the largest absolute paired cost. The exact SIA5/global-codebook identity remains the control.
+
+### P1: Site-separated BF16 policy
+
+Parameterize IQ2_S decoded-LDS staging and the one final paired output conversion independently. Compare the existing `RNEPreserveNaN` sequence with one-instruction `BiasRound` and zero-instruction `Truncate`; do not test a native packed conversion because gfx1151 assembly support was already rejected. Run staging-only, output-only, and only then a composed winner. B1 and B4 are transfer keys only after B16 shows a material body gain.
+
+The final B16 body is a 47.2100-ms, 1,598-static-VALU control whose two projection decoders repeatedly execute batched software RNE, while final output conversion occurs only once. Decoded staging therefore has a low- to mid-single-digit body-gain prior and is the P1 discriminator; output-only conversion is expected to be smaller. This is unmeasured issue-count guidance, not a timing result or numerical acceptance argument.
+
+Approximate candidates are not bit-exact identities. Numerical tests use finite gradients and packed weights, reject any non-finite output, and report differing BF16 count, normalized RMSE, maximum and high-percentile error against the exact parent and independent paired reference. The kernel emits no NaN/Inf checks or repair branches. Both projection mutations, route and sentinel semantics, deterministic rebuilds, and resource cleanliness remain hard gates. Model-training integration is required before a relaxed paired-backward policy can be retained.
+
+### P2: Dependency-derived pair synchronization
+
+Build an exact event model for both packed-bank VMEM streams, global-codebook reads, decoded LDS stores, projection-local reads, WMMA consumers, and the six selected barriers. Identity lowering must reproduce the accepted source before any threshold changes. Then test counter-specific waits first and barrier elision second; every removed barrier needs a proof that all waves have completed reads from the protected projection image before overwrite or exit.
+
+P2 must remain bit-exact to the accepted parent and HIP and is timed first at B16. The measured SIA5 wait placement remains the schedule control, and blanket `lgkmcnt(0)` or barrier deletion is not an experiment identity. P1 and P2 remain separate until both qualify. P2 requires no model integration because it does not change arithmetic.
+
+### P3: Occupancy-preserving M192 ownership
+
+The retained IQ2_XXS paired-backward M192 result supplies a changed exact-geometry premise, not a transferable selection. Its exact B16 identity improved complete-call latency by `1.0893x` over M128 at 188 VGPRs allocated as 192, while its 237-VGPR M256 successor regressed. Re-derive that intermediate ownership point for IQ2_S rather than extending the admitted IQ2_XXS identity.
+
+A source-only derivation through the current paired physical planner gives three useful resource points. The selected IQ2_S M128 parent uses `149 VGPR / 41 SGPR / 8,192 B LDS`, allocates 168 VGPRs, and permits nine waves per SIMD. Replacing only its geometry with M192 under the final K-pipeline schedule predicts `197 / 41 / 8,192`, allocated as 216 for seven waves. Giving M192 a lower-state serial or second-read/A-overlap projection lifetime predicts `186 / 41 / 16,384`, allocated as 192 for eight waves. These rejected-by-capability model projections are not assembled artifacts and do not establish that the lower-state lifetime can preserve the final decoder and route schedule.
+
+Add one dedicated M192/N64/K32 IQ2_S identity only after deriving a complete schedule that retains direct global codebook reads, SIA5 WMMA ordering, packed route split 8, exact projection order, and one shared FP32 accumulator set while avoiding the concurrent second-projection payload bank. The target discriminator is at most 192 allocated VGPRs with zero spills. The direct 197-VGPR final-schedule projection may be emitted only as an occupancy control; it is not the preferred candidate. Cover first, middle, final, full, and one-row-tail M192 tiles before B16 timing, and do not transfer a B16 result to B4 or B1.
+
+P1 decoded staging and P3 are the two entries with a planning prior for a material kernel gain; P2 is primarily exact infrastructure with a low-single-digit prior after the timing-neutral Q6 fixed-map oracle result. This is an unmeasured prioritization, not an advancement threshold. Do not compose P3 with P1 or P2 until each has isolated evidence.

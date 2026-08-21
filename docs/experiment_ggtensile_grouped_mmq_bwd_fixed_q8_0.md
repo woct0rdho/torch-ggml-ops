@@ -201,7 +201,7 @@ The selected solution is exposed as `FixedBackwardSolution.selected_q8_0()`: N-m
 
 Each independently inspected as 216 VGPRs, 17 SGPRs, 18432-byte LDS, 40-byte kernarg segment, 128 threads, 64 static WMMAs, two static barriers, no private segment, no spills, no scratch, and no undeclared register use.
 
-The clean final run used seed 20260822, five warmups, and 25 rotating samples per candidate/control path:
+The clean final run used five warmups, and 25 rotating samples per candidate/control path:
 
 | Tokens | Selected (ms) | HIP (ms) | Selected / HIP | Latency gain | TFLOP/s |
 |---:|---:|---:|---:|---:|---:|
@@ -229,7 +229,7 @@ Status: rejected; no timing was taken.
 
 The first assembled E9 artifact exposed an address-planner collision before it could be considered a correctness result. With eight decoder rows, the decoder owns `v200:v207`, but the inherited extended-A layout placed LDS and quant state at `v206:v207`. Decoder row-pointer construction therefore overwrote both state registers. The physical planner was corrected to place state after the complete decoder-row range. The repaired E9 plan uses LDS at `v208`, quant state at `v209`, and declares 230 VGPRs instead of 228 while preserving the existing assignments for narrower geometries.
 
-The repaired artifacts are under `/home/wd/tmp/torch-ggml-ops/ggtensile-fixed-bwd-q8-e9-m64-n256-address-fixed/` for B1, B4, and B16. All three inspect cleanly with 230 VGPRs, 17 SGPRs, 36,864 bytes of LDS, 64 static WMMAs, two barriers, 40-byte kernargs, 128 threads, zero private bytes, and zero VGPR/SGPR spills. A poisoned-output B1 probe after the fix wrote every `2048 x 8 x 4096` element with finite values; all rows and groups had complete coverage.
+The repaired artifacts are under `~/tmp/torch-ggml-ops/ggtensile-fixed-bwd-q8-e9-m64-n256-address-fixed/` for B1, B4, and B16. All three inspect cleanly with 230 VGPRs, 17 SGPRs, 36,864 bytes of LDS, 64 static WMMAs, two barriers, 40-byte kernargs, 128 threads, zero private bytes, and zero VGPR/SGPR spills. A poisoned-output B1 probe after the fix wrote every `2048 x 8 x 4096` element with finite values; all rows and groups had complete coverage.
 
 That repair did not establish the required arithmetic identity. Comparing the repaired B1 kernel with the installed fixed HIP control produced a nearly total output mismatch, with normalized RMSE approximately `1.4149`; the output was finite and fully covered, but the values were wrong. The failure is consistent with the inherited fragment ownership or N-tile addressing assumptions for 16 N repeats, which have not been proven by the ordinary writer. Because exactness failed before qualification, no benchmark or dispatch claim is made.
 

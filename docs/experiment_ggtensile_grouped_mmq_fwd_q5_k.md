@@ -131,3 +131,17 @@ A fresh pass reread the grouped Q4 record, dense Q5 forward and backward records
 The remaining B1 profile sensitivity is decode-reuse versus J32 ownership, not missing occupancy: true 32-row ownership reduced resources but lost materially. B16 movement remains at parity scale across independent banks. B4 is the only broad material result, and its gain survives both sequential launch orders and complete-call timing. No remaining in-contract mechanism has an unmeasured first-order path with material expected margin.
 
 The final selected keys are bitwise exact over the five-route production matrix, mutation-correct, independently referenced, resource-clean, and deterministic. All 30 frozen grouped Q4 sources remain byte-identical to the frozen baseline. The recursive review therefore closes with no public integration authorized.
+
+## Post-Audit B16 Ownership Reopening
+
+Status: planned and unmeasured. Existing high-bit merge, compact consumer-decode, true-32-row, route-prologue, and epilogue conclusions remain closed.
+
+Add a Q5-specific route-persistent full-K identity. Decode both K512 packed blocks once per route/output-column workgroup into two immutable LDS weight images, keep activation storage disjoint, and reuse the images across the existing serial row loop and three-way 128/64/32 row dispatch. This targets repeated Q5 high-bit reconstruction rather than moving it to consumers. The complete LDS/resource formula and high-bit ownership must be derived independently; a Q4 implementation or timing result cannot select or reject Q5 automatically.
+
+The shared decoded layout now fixes the first resource discriminator. A 128-row activation stage occupies `512 + 128 * 144 = 18,944` bytes including the prefix, and each decoded image occupies `64 * 304 = 19,456` bytes, so the two-image total is 57,856 bytes. That is exactly the LDS size of the measured Q4 G4 body, whose strongest uniform B16 case still regressed about 12%. Q5's additional high-bit reconstruction leaves a format-specific decode-saving premise, but it must quantitatively explain how that work can repay the analogous large-LDS deficit before emission. This lowers the experiment's priority without treating Q4 timing as a Q5 result.
+
+Screen B16 first against the selected three-way `a1d4-p2` parent, including fitted route tile counts, body and complete-call timing, and exact decode work removed. Advance only after a stable greater-than-two-percent complete-call gain, then consider B4. Direct packed inputs, route and tail behavior, exact arithmetic, mutations, reproducible artifacts, zero private storage, and spill freedom remain hard gates. This exact workgroup-local representation requires no model integration.
+
+If Q4 qualifies generated wait/liveness analysis, re-derive it for the Q5 high-bit images and require identity mode to reproduce the Q5 parent before changing a wait or barrier. Separately, an approximate output-only experiment may compare `RNEPreserveNaN`, `BiasRound`, and `Truncate`; finite-output checks live in numerical tests, not in kernel branches, and model integration is required before retaining that numerical policy. Do not compose synchronization, persistent images, and output relaxation before isolated results exist.
+
+Screen the resource-neutral output policy before implementing route persistence. Generated synchronization remains exact shared infrastructure with a low-single-digit performance prior; neither priority statement is a timing result.

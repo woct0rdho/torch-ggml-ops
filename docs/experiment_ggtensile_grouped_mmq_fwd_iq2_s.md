@@ -192,3 +192,23 @@ The historical final classification remains scoped to the old R1-R4 premise. Imp
 ### N1 final disposition
 
 The N1 qualification result recorded above resolves this pending item. Its 25-repeat complete and body evidence is mixed and every uncertainty interval crosses parity, so partial zero-bank hoisting is closed as timing-neutral rather than by a fixed advancement threshold. A separate read-only pass over the restored canonical IQ2_S physical plan, lowering, generated body, and the grouped cross-family results found no new initialization, epilogue, route, address, wait, barrier, VOPD, or geometry mechanism with an exact target and a plausible unmeasured gain. The earlier R1-R4 and J128 dispositions remain scoped and unchanged. No actionable in-contract IQ2_S mechanism remains under the current direct-packed serial ownership premise.
+
+## Post-Audit B16 Ownership Reopening
+
+Status: planned and unmeasured. N1, J128, global-codebook, route-prologue, and payload-prefetch conclusions remain closed. The changed premise is reuse of decoded weights across row tiles, not another instruction-local cleanup.
+
+### I1: Route-persistent two-block IQ2_S image
+
+The current K512 row loop decodes both IQ2_S blocks again for every 64-row routed tile. Add one identity that expands both blocks once per route/output-column workgroup into two immutable full-weight LDS images, with the activation image kept disjoint, then reuses them for all serial row tiles. Codebook selection, signs, odd scales, quarter-scale arithmetic, and packed input ownership remain exact. The image exists only for the lifetime of the workgroup and does not create a prepared-weight API, external workspace, or cache invalidation contract.
+
+Derive LDS size, alignment, and occupancy before emission. Screen B16 first against `iq2_s_serial_full_weight_lds_64_linear_payload_prefetch()` because its complete-call result is only `1.0015x` HIP and long routes maximize decode amortization. Report route tile counts and dynamic codebook/decode work removed. Require a stable greater-than-two-percent parent gain before B4/B1 work. All route, malformed-route, mutation, sentinel, independent-reference, deterministic-build, and zero-spill gates remain. I1 is exact and needs no model integration.
+
+The pre-emission size is now bounded by the existing typed layout: the activation image is `64 * 144 = 9,216` bytes and each complete IQ2_S weight image is `64 * 336 = 21,504` bytes, so two persistent block images require `9,216 + 2 * 21,504 = 52,224` bytes. This is the same one-workgroup LDS class as the rejected J128 artifact, versus 30,720 bytes for the selected one-image J64 parent. J128 changed output-column ownership and therefore does not reject I1, but the occupancy loss is real. The later Q4 route-persistent body also regressed about 12% on its strongest uniform B16 case after growing to 57,856 bytes. I1 consequently remains a high-ceiling but low-confidence exact discriminator and ranks behind resource-neutral arithmetic and paired-M192 work.
+
+### I2: Dependency liveness and I3 output conversion
+
+I2 derives waits and barriers from typed codebook-load, decoded-image, activation-image, local-read, and overwrite events. Identity mode must reproduce the current source. Any barrier change requires an exact cross-wave liveness proof and is tested independently on the current B16 parent before composition with I1. I2 remains exact.
+
+I3 compares only final-output `RNEPreserveNaN`, one-instruction `BiasRound`, and zero-instruction `Truncate`. Numerical tests use finite inputs, fail on non-finite output, and report error distributions; no NaN/Inf handling is emitted in the kernel. I3 is an approximate research identity and requires model integration before retention. I1, I2, and I3 must not be combined until each isolated experiment has qualified.
+
+For execution order, screen I3 before implementing the 52,224-byte I1 body because it changes no LDS or occupancy. I2 remains reusable exact infrastructure but has a low-single-digit performance prior. These priorities are unmeasured and do not weaken any correctness or model-integration gate.

@@ -328,3 +328,31 @@ The recursive final-review rule remains global. It covers forward and backward r
 ## Candidate-Domain Evidence Boundary
 
 The automated forward candidate domain is a bounded deterministic enumerator of complete implemented policies, not evidence that the kernel is exhausted. Its linked metadata, epilogue, and instruction-policy neighborhoods do not replace the historical geometry, layout, pipeline, and exact-key campaigns. Q4 closure remains grounded in the exact artifacts, rejection records, measurements, and recursive manual review above. A domain omission is actionable only when it exposes an implemented or implementable in-contract mechanism with an exact target and qualification gate.
+
+## Post-Audit Scheduler and Output-Conversion Reopening
+
+Status: planned and unmeasured. This is the current terminal status. The local epilogue, loop-form, payload-prefetch, and standalone final-barrier searches remain closed; the changed premise is generated dependency/liveness information and, separately, an explicitly approximate output contract.
+
+### F1: Dependency-derived waits and barriers
+
+Annotate packed VMEM loads, decoded-weight and activation LDS writes, local reads, metadata reads, WMMAs, and each LDS overwrite with typed event identities. An identity mode must emit every selected Q4 source byte-for-byte. The first optimized mode derives only `vmcnt` and `lgkmcnt` thresholds from outstanding producers. A later mode may remove a barrier only when cross-wave LDS liveness proves that every reader has completed before overwrite or exit.
+
+Screen shared-down K512 first because store and synchronization work is the largest measured latency fraction, then narrow K2048 and attention-output K4096. The current selected exact epilogues and `MetadataAfterLowWmma` order remain fixed. Candidate output must be bit-exact to the parent and HIP, and no result transfers between keys without an independently generated hazard trace and paired timing. This exact experiment requires no model integration.
+
+### F2: Compiler-oracle semantic schedule
+
+Use offline AMDGPU compilation only to rank complete issue schedules and inspect producer-to-consumer distances, register pressure, legal VOPD formation, and `s_delay_alu` dependency placement. Translate at most one promising result into named stage-traversal, metadata-placement, register-lifetime, delay, and VOPD policies in the typed writer. Generation must remain deterministic and must not invoke LLVM, copy a physical instruction stream, use an absolute issue table, or run a post-emission rewrite.
+
+Begin with the highest-absolute-cost attention-output and query keys. A candidate advances only if it is exact, resource-clean, reproducible, and improves the selected parent in paired timing. Q6 oracle evidence may guide policy design but is not a Q4 result.
+
+### F3: Approximate output BF16 conversion
+
+Forward Q4 performs integer decode/WMMA and has only the final FP32-to-BF16 output conversion as a policy site. Compare the existing two-instruction `RNEPreserveNaN` sequence with one-instruction `BiasRound` and zero-instruction `Truncate`, beginning with shared-down K512 where the store-only floor is largest. Keep the Q8_1 producer and all accumulation and correction arithmetic unchanged.
+
+Numerical tests use finite inputs, reject non-finite output, and record normalized RMSE, maximum and high-percentile error against the exact parent and independent reference. The kernel adds no NaN/Inf branch or repair path. Approximate output policies stay outside exact catalogs and require model integration before retention or public use.
+
+### Cross-record execution priority
+
+Run F3 on shared-down K512 before F1 or F2. Its measured store-only floor is 24-27% of retained latency and every output currently pays the two-instruction conversion, giving `Truncate` a mid-single-digit kernel-latency planning prior and `BiasRound` a smaller one. The same argument is much weaker for K2048/K4096, whose store-only floors are 2-7%.
+
+F1 remains useful exact infrastructure, but prior standalone wait/barrier work and the timing-neutral Q6 fixed-map oracle make a low-single-digit result more likely than a large speedup. F2 now advances only a complete semantic policy with a concrete Q4 dependency difference from rejected Q6 O1; a generic load-frontier transfer is not actionable. These are unmeasured priorities and do not replace paired timing.

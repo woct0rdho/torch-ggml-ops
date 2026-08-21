@@ -364,3 +364,13 @@ The recursive final-review rule is global rather than limited to Q5, forward dir
 ## Post-Q8 Global Review
 
 The Q8_0 compact-depth32 row composition was reread as a possible Q5_K transfer. It does not change Q5's residual premise: Q5 consumer-side high-bit insertion remains the quantified critical-path floor, and the prior compact-LDS discriminator already showed that removing LDS traffic cannot repay the added decode work. Q5's typed activation-base lifetime is already represented and qualified; the Q8 weight-first and paired-scale layout is not compatible with Q5's packed high-bit ownership without a new decoder/dataflow premise. No actionable Q5-specific in-contract mechanism remains, and all six exact research selections remain unchanged.
+
+## Post-Audit Changed-Premise Reopening
+
+Status: planned and unmeasured. The exhaustive scalar epilogue grid and measured Q5 high-bit merge alternatives remain closed.
+
+The exact experiment is a transfer gate for a complete compiler-oracle semantic policy first qualified in Q6 or Q4. Re-derive Q5 producer/consumer distances, register roles, legal VOPD pairs, and any `s_delay_alu` tokens, then encode one named plan without a compiler in generation, copied instruction order, or post-emission scheduling. Screen narrow M32768 and shared-down M8192. A result must beat the current exact parent and cannot claim the approximately 1.8% high-bit lower bound unless it actually reduces or hides that dependency chain.
+
+The separate numerical experiment changes only final output conversion: compare `RNEPreserveNaN`, `BiasRound`, and `Truncate` while preserving Q5 decode, FP32 correction order, and the fixed Q8_1 producer. Numerical tests, not kernel branches, reject non-finite output and report error distributions. Any approximate result requires model integration and remains outside the exact catalog. Do not compose the exact schedule and approximate conversion experiments until each has independent evidence.
+
+The exact oracle transfer is now a low-priority discriminator. Q6 O1 was timing-neutral under its fixed typed map, and Q5's only quantified local body floor is approximately 1.8%; no Q5 candidate may claim a larger premise without showing how it hides that high-bit chain. For the numerical branch, screen shared-down K512 before the longer-K narrow shape because final conversion is a larger fraction of low-K work. Its planning prior is low to mid single digits, not a measured forecast.

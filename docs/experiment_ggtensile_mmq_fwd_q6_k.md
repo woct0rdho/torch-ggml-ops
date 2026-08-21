@@ -478,3 +478,35 @@ The strict catalogs therefore remain at 56 forward and 50 backward exact keys, t
 ## Candidate-Domain Evidence Boundary
 
 The automated Q6 domain is a bounded deterministic enumerator of complete implemented policies, not evidence that the kernel is exhausted. The M64 neighborhood now includes the linked `WideScalarCarryFrontier` identity alongside the canonical instruction and epilogue policies. Shared MT256 is formula-capable and constructible through the same typed schedule path, but remains an exact-key experiment rather than a generic domain seed. That improved coverage records implemented mechanisms but does not retroactively establish closure or replace the measurements above. Exact artifacts, rejection evidence, and the recursive manual review remain authoritative. A missing domain value is tooling-only unless it exposes an implemented or implementable in-contract mechanism with an exact target and qualification gate.
+
+## Post-Audit Oracle and Arithmetic Reopening
+
+Status: O1 measured and rejected; O2 remains planned and unmeasured. This section deliberately broadens the research policy surface beyond `WideScalarCarryFrontier`; it does not authorize an allocator, generic rescheduler, copied machine stream, or compiler invocation in production generation.
+
+### O1: Dependency-DAG compiler oracle
+
+Recreate paired offline LLVM controls for the selected M64 and M128 bodies, then compare their machine streams with the typed parents through a semantic dependency DAG. Record stage-to-stage issue distances, live role counts, VMEM/LDS readiness, legal VOPD pairs, and `s_delay_alu` dependency tokens, including only target-valid `VALU_DEP_1` through `VALU_DEP_4` relationships. Compiler timing is oracle evidence, not a selectable artifact.
+
+Encode at most one complete named physical plan per shape. The plan may change role lifetimes, stage traversal, metadata interleaving, delay tokens, and constrained VOPD formation, but it must lower directly from serialized semantic state with fixed resources and reject partial combinations. It may not contain absolute issue slots or an imported instruction list. Start at M64, where the prior oracle gap was approximately 4-5%, then M128. M256 is tested only if the same semantic mechanism is formula-derived and independently exact.
+
+All O1 candidates retain arithmetic order and must be bit-exact, deterministic, zero-spill, and faster than the selected parent in two paired confirmations. O1 requires no model integration. A reusable dependency/liveness representation should be shared with the Q4 wait experiment, while physical plans and timing remain format-specific.
+
+### O1 result: cooperative address/read frontiers
+
+The saved M64 LLVM max-ILP body confirms that ready address halves and VMEM producers are issued across narrower, nonuniform frontiers than the selected typed body's three eight-address/eight-read groups. A bounded typed screen therefore split each matching eight-address/read group into either two- or four-read readiness groups while preserving the selected wavefront decode, fixed VGPR map, arithmetic, LDS ownership, waits, barriers, WMMA order, and epilogue. The scalar-carry forms additionally reused the admitted `WideScalarCarryFrontier` roles so each readiness group issued its low address halves before its high halves. These were direct emitter experiments; no LLVM stream, instruction slot table, allocator, source rewrite, or production identity was added.
+
+All four artifacts assembled and linked as code-object v5, retained `158 VGPR`, `28,928 B` LDS, eight WMMAs, four barriers, zero private bytes, zero spills, and no scratch or calls. Plain forms retained `27 SGPR`; scalar-carry forms retained the already admitted `33 SGPR` envelope. Every candidate produced zero differing BF16 elements from the selected wavefront parent over all `15,892,480` outputs in its serial timing run.
+
+The nine-repeat screens measured candidate/parent latency ratios of `1.005664x` and `0.997671x` for plain two- and four-read groups, and `1.005404x` and `0.999652x` for scalar-carry two- and four-read groups. The only apparent signal was therefore 0.23%, far below the prior oracle gap. A single-process 20-warmup/25-repeat confirmation compared both four-read forms against the same parent and HIP. Parent was `3.975948 ms`, plain interleave was `3.977750 ms` (`1.000453x` parent latency), scalar-carry interleave was `3.983655 ms` (`1.001938x`), and HIP was `4.059363 ms`. Both candidates reversed to slower than parent.
+
+No M128/M256 transfer, deterministic rebuild, or production policy was justified. O1 is rejected as timing-neutral under the fixed typed register map. Its residual LLVM behavior still requires cross-stage physical allocation and whole-DAG issue selection rather than a load/address readiness policy. Artifacts, inspection reports, screen JSON, confirmation samples, and the temporary builder are under `~/tmp/torch-ggml-ops/q6-load-frontier/` and `~/tmp/torch-ggml-ops/build_q6_load_frontier.py`.
+
+### O2: Changed Q6 arithmetic policies
+
+Run two independent numerical campaigns. The first compares final-output `RNEPreserveNaN`, one-instruction `BiasRound`, and zero-instruction `Truncate`. The second compares the installed scale order with a named effective-scale reassociation that computes a reusable Q6 block/scale factor before applying it to converted accumulators. Do not compose conversion and reassociation until each has an isolated timing and numerical result.
+
+Cross-record prioritization makes the reassociation the highest-upside still-unmeasured arithmetic experiment. The selected typed dot phase currently carries `8 * tile_count` scaled products: 32 at M64 and 64 at M128, in each of two dot phases. A reusable block/scale factor can therefore alter a repeated hot-loop frontier, whereas output conversion runs once per final accumulator. Those counts bound the affected work; they are not a claim that every product multiply can be removed. The planning prior is a high-single-digit body gain, with low-double-digit upside only if reuse actually reduces per-product scale issue without raising allocation or lengthening another dependency chain.
+
+Keep output conversion as the lower-cost independent screen because replacing the Q6 epilogue's exact NaN-preserving sequence with `BiasRound` or `Truncate` removes more instructions than replacing the common two-instruction rounding pair. Report body and complete-call movement separately. Neither planning prior is a timing result, and numerical/model qualification remains authoritative.
+
+Finite-input numerical tests reject any non-finite output and report differing BF16 elements, normalized RMSE, maximum and high-percentile error against the exact parent and dequantized reference. No kernel-side NaN/Inf test, clamp, or repair sequence is added. O2 identities remain outside exact catalogs and require model integration for inference quality, loss, and gradient stability before retention.

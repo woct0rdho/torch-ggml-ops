@@ -212,3 +212,37 @@ Before declaring the Q4_K grouped campaign complete, reread this record, `docs/g
 Classify every remaining idea as retained and measured; rejected by correctness, resources, timing, or reproducibility; contract-incompatible or deferred with an explicit prerequisite; or actionable with an exact target and qualification gate. Re-evaluate external generator guards as implementation facts rather than architectural conclusions. Implement and qualify every actionable finding, then repeat the complete review from the new premise. Completion is valid only when a fresh recursive pass finds no actionable in-contract mechanism and every selected exact key is correct, deterministic, resource-clean, and faster than its exact HIP control.
 
 This rule is global across related GGTensile directions, formats, and shapes. Evidence may transfer, but ownership, lifetimes, synchronization, arithmetic order, resources, correctness, and exact-key timing must be re-derived here. Public API integration is explicitly outside this experiment and is not a completion criterion.
+
+## Post-Audit B16 Ownership Reopening
+
+Status: G4 measured and rejected by exact kernel-body timing; G5 and G6 remain planned and unmeasured. The route-prologue, direct-to-LDS, local epilogue, and ordinary one-block ping-pong results remain closed. The G4 premise amortized decode across serial row tiles of one routed workgroup.
+
+### G4: Route-persistent full-K decoded weights
+
+The current row loop decodes both packed K512 blocks again for every 64- or 128-row tile. Add a B16-first identity that decodes the two blocks once, before the row loop, into two immutable LDS weight images. Keep activation LDS disjoint, then consume block zero and block one for every serial row tile without repeating packed-weight VMEM, nibble expansion, or metadata preparation. This remains direct packed consumption inside one kernel launch; it adds no prepared representation, external workspace, invalidation rule, or ABI field.
+
+Derive the complete LDS size and occupancy before emission and reject if either image aliases activation storage or exceeds the target limit. Preserve the selected 128-row `a1d2-p2` arithmetic, output ownership, route guards, and exact BF16 conversion. The historical approximately 56-KiB dense ping-pong loss is context, not a rejection: that body sought same-row overlap, while G4 must account for decode work removed across every later routed row tile.
+
+Screen the five fitted B16 medoids against the selected 128-row parent and adjacent HIP, reporting route tile counts, decode amortization, resources, body latency, and complete-call latency. Require a stable greater-than-two-percent complete-call gain before B4 or B1 transfer. Exact route, tail, malformed-route, active/inactive mutation, sentinel, deterministic-build, and independent-reference gates remain mandatory. G4 is exact and requires no model integration.
+
+The implemented G4 body held two complete decoded Q4_K images in LDS. One image occupied `64 * 304 = 19,456` bytes; two images plus the existing 512-byte prefix and 128-row activation stage produced 57,856 bytes of LDS. The inspected gfx1151 artifact used 239 VGPRs, 40 SGPRs, 64 static WMMAs, eight barriers, zero private bytes, and zero spills. Existing one-image generated sources remained byte-identical.
+
+A first multi-tile qualification exposed an operand-order error in the image-pointer restore: `v_sub_nc_u32 dst, 19456, dst` computed `19456 - dst`. Reversing the two source operands restored both weight and metadata pointers correctly. The repaired body was deterministic and bitwise equal to the selected 128-row parent for single-route lengths `1, 15, 16, 17, 63, 64, 65, 127, 128, 129, 256` and for uniform, skewed, sparse, and boundary distributions at B1, B4, and B16. At `R=16,384` it also matched the installed packed control bitwise; its independently dequantized BF16 reference normalized RMSE was `0.0127600`.
+
+The repaired candidate failed the performance discriminator before complete-call or fitted-prior confirmation was warranted:
+
+| aggregate rows | distribution | full-weight body | 128-row parent | parent / full-weight |
+| ---: | --- | ---: | ---: | ---: |
+| 16,384 (B1) | uniform / skewed / sparse / boundary | 3.732 / 4.070 / 3.410 / 3.602 ms | 3.004 / 3.455 / 2.759 / 2.914 ms | 0.805x / 0.849x / 0.809x / 0.809x |
+| 65,536 (B4) | uniform / skewed / sparse / boundary | 6.079 / 7.533 / 7.144 / 7.695 ms | 5.229 / 6.533 / 6.300 / 6.665 ms | 0.860x / 0.867x / 0.882x / 0.866x |
+| 262,144 (B16) | uniform / skewed / sparse / boundary | 22.344 / 23.082 / 22.689 / 23.650 ms | 19.946 / 21.004 / 20.898 / 21.068 ms | 0.893x / 0.910x / 0.921x / 0.891x |
+
+Even the B16 uniform route, with eight 128-row tiles per route and therefore the strongest decode-amortization premise, regressed by about 12%. The larger immutable LDS footprint and doubled static activation/MMA body outweighed the removed re-decodes. G4 is rejected by timing, its speculative solution identity and lowering were removed, and dispatch remains unchanged. Qualification and timing artifacts are retained under `~/tmp/torch-ggml-ops/`.
+
+### G5: Generated synchronization and G6 output conversion
+
+G5 adds typed VMEM/LDS events and row-loop LDS liveness to the current B16 parent, first reproducing its source byte-for-byte and then deriving counter-specific waits. Barrier removal is allowed only with a cross-wave proof for the exact current or G4 image lifetime. Standalone barrier deletion remains closed. G5 stays bit-exact and requires no model integration.
+
+G6 separately compares final-output `RNEPreserveNaN`, `BiasRound`, and `Truncate`. Numerical tests use finite inputs, reject non-finite outputs, and report error distributions; the kernel emits no NaN/Inf branch or repair path. G6 remains outside exact selections and requires model integration. Do not compose G4, G5, and G6 before each independent discriminator is complete.
+
+After G4's measured rejection, run the resource-neutral G6 screen before further G5 optimization. K512 makes output conversion a repeated low-arithmetic-intensity cost, so G6 has the larger remaining body-delta prior. G5 is still valuable for generator correctness and cross-format reuse, but recent fixed-map scheduling results place its expected performance movement in the low single digits. Neither assessment is a timing result.

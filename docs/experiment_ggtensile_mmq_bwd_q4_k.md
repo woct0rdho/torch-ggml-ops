@@ -406,3 +406,26 @@ The current typed DependencyBatch4 identity was benchmarked against the installe
 | `M32768,N2048,K8192` | 36.9512 / 37.0071 | 48.0323 / 48.0400 | 29.756 / 29.711 | 22.891 / 22.887 | 1.2999x / 1.2981x | 29.733 | 22.889 | 1.2990x |
 
 All candidate and HIP outputs matched exactly before and after gradient and packed-weight mutation. The fresh reports are `ggtensile-final-vs-hip-q4-k512-{a,b}.json` and `ggtensile-final-vs-hip-q4-k8192-{a,b}.json`. The older typed-parent ratios remain acceptance evidence for the decode change; the final ratios above are the retained-kernel-versus-HIP results.
+
+## Post-Audit Changed-Numerics and Dependency Reopening
+
+Status: planned and unmeasured. This is the current terminal status for new Q4_K backward work. The exact `DependencyBatch4` results above remain authoritative, but their stopping condition was scoped to exact BF16 RNE and manually enumerated waits and barriers.
+
+### A1: Site-separated BF16 conversion policy
+
+The decoded-weight path rounds FP32 values before `ds_store_b16_d16_hi`, and the epilogue rounds FP32 accumulators before the high-half BF16 output stores. Add independent strict research fields for those two sites so a result cannot silently apply one numerical policy everywhere. Screen three policies:
+- `RNEPreserveNaN`: the existing `v_bfe_u32` plus `v_add3_u32` control.
+- `BiasRound`: one integer add of `0x7fff` before the high-half store, omitting tie-bit extraction.
+- `Truncate`: store the uncorrected FP32 high half and emit no conversion instruction.
+
+Test decoded-weight staging first on the current K512 and K8192 `DependencyBatch4` parents. Test output conversion separately, and compose staging plus output only after each isolated policy has a measured timing and error result. Report static and exact-trip dynamic instructions removed, VGPR/SGPR/LDS resources, body and complete latency, differing BF16 count, normalized RMSE, maximum absolute error, and high-percentile error against both the exact parent and independent reference.
+
+The measured exact batching result supplies unusually strong performance evidence for this numerical screen: changing only dependency presentation around the same RNE operations improved K512 by `6.10-6.25%` and K8192 by `2.55-2.65%`. Removing one or both conversion instructions is not guaranteed to reproduce those gains, but it makes decoded staging the first Q4 experiment and gives it a planning prior of roughly 4-8% at K512 and 2-5% at K8192. Output-only conversion and A2 synchronization rank below it. These ranges are unmeasured hypotheses, not acceptance gates.
+
+There is no kernel-side NaN/Inf branch or preservation requirement for the approximate policies. Numerical tests use finite inputs and reject any non-finite output; a model run that produces non-finite loss or gradients is also an immediate rejection. ABI and launch semantics, mutation sensitivity, deterministic generation, zero private storage, and exact shape rejection remain hard gates. Approximate identities cannot enter an exact catalog or public dispatch, and model-training integration is required before any relaxed policy can be retained beyond isolated research.
+
+### A2: Dependency-derived waits and LDS liveness
+
+Add a typed producer/consumer model for packed VMEM reads, decoded LDS writes, local reads, WMMAs, and LDS overwrite points. Its identity mode must reproduce the selected source byte-for-byte. The first candidate may then replace only waits whose `vmcnt` or `lgkmcnt` threshold is proven by the event model; a second candidate may remove a barrier only when all cross-wave readers of the protected LDS image are complete before overwrite or exit.
+
+Run K512 first because wait and store work is a larger latency fraction, then K8192. Standalone SIA5 and historical final-barrier probes remain closed; this reopening requires generated dependency thresholds and an artifact-specific liveness proof. Output must remain bit-exact to the current parent and HIP. Do not compose A2 with A1 until both have qualified independently. A2 is exact code generation and does not require model integration.
