@@ -347,6 +347,11 @@ def grouped_backward_pair_capability_rejection_reason(
         and solution
         == GroupedBackwardPairSolution.iq2_xxs_m64_n64_sia5_dual_lds_full_tile_split_k_pipeline()
     )
+    iq2_xxs_m192 = (
+        iq2_xxs
+        and solution
+        == GroupedBackwardPairSolution.iq2_xxs_m192_n64_dual_lds_full_tile_split_direct_pointers_overlap_second_read_prefetch_a()
+    )
     iq2_xxs_staged_schedules = (
         GroupedBackwardPairProjectionSchedule.InterleavedDepthU,
         GroupedBackwardPairProjectionSchedule.DualLdsInterleavedDepthU,
@@ -358,6 +363,7 @@ def grouped_backward_pair_capability_rejection_reason(
     iq2_xxs_staged = (
         solution.projection_schedule in iq2_xxs_staged_schedules
         or iq2_xxs_final_pipeline
+        or iq2_xxs_m192
     )
     checks = (
         (solution.projection_count == 2, "paired backward requires two projections"),
@@ -421,7 +427,10 @@ def grouped_backward_pair_capability_rejection_reason(
         (compute.isa == (11, 5, 1), "paired backward ISA must be gfx1151"),
         (compute.wavefront_size == 32, "paired backward requires wave32"),
         (compute.work_group == (32, 4, 1), "paired backward needs four waves"),
-        (compute.macro_tile0 in (64, 128), "paired backward M tile must be 64 or 128"),
+        (
+            compute.macro_tile0 in (64, 128) or iq2_xxs_m192,
+            "paired backward M tile must be 64, 128, or the exact IQ2_XXS M192 identity",
+        ),
         (compute.macro_tile1 == 64, "paired backward N tile must be 64"),
         (compute.depth_u == 32, "paired backward reduction tile must be K32"),
         (
@@ -469,7 +478,8 @@ def grouped_backward_pair_capability_rejection_reason(
             )
             or compute.macro_tile0 == 128
             or q3_k_m64_prefetch
-            or (iq2_xxs and compute.macro_tile0 == 64 and iq2_xxs_staged),
+            or (iq2_xxs and compute.macro_tile0 == 64 and iq2_xxs_staged)
+            or iq2_xxs_m192,
             "paired backward dual LDS requires M128 or a qualified staged M64 identity",
         ),
     )
@@ -480,15 +490,21 @@ def grouped_backward_pair_capability_rejection_reason(
     from .model import ProblemType, SolutionKey
     from .validation import validate_solution
 
+    if iq2_xxs_m192:
+        ordinary_compute = replace(
+            compute,
+            matrix_instruction=(16, 16, 16, 1, 1, 2, 4, 4, 1),
+            macro_tile0=128,
+        )
+    elif interleaves_wmma_waits:
+        ordinary_compute = replace(compute, prefetch_packed_weight_next=False)
+    else:
+        ordinary_compute = compute
+    ordinary_tile = ordinary_compute.macro_tile0
     padded_rows = (
-        (problem.aggregate_rows + compute.macro_tile0 - 1)
-        // compute.macro_tile0
-        * compute.macro_tile0
-    )
-    ordinary_compute = (
-        replace(compute, prefetch_packed_weight_next=False)
-        if interleaves_wmma_waits
-        else compute
+        (problem.aggregate_rows + ordinary_tile - 1)
+        // ordinary_tile
+        * ordinary_tile
     )
     ordinary = SolutionKey(
         ProblemType.mmq_backward(problem.quant_data_type),

@@ -10,7 +10,11 @@ from .grouped_mmq_bwd_spec import (
     DerivedGroupedBackwardState,
 )
 from .kernel_abi import GROUPED_BACKWARD_ABI
-from .kernel_writer_assembly import emit_kernel_trailer, emit_pointer_kernarg_loads
+from .kernel_writer_assembly import (
+    emit_kernel_trailer,
+    emit_pointer_kernarg_loads,
+    emit_scale_sgpr_u32,
+)
 from .mmq_bwd_emission import BackwardLoweringResult, BackwardTileAccess, _Assembly
 from .mmq_bwd_lowering import BackwardTileComputeEmitter
 from .mmq_bwd_lowering_quant import emit_unbounded_a_global_loads
@@ -128,8 +132,8 @@ class GroupedBackwardTileComputeEmitter(BackwardTileComputeEmitter):
         asm.comment("Count active 16-row M consumers for this wave and route tile.")
         asm.inst(f"v_lshrrev_b32 v{r.temporary}, 5, v{r.serial}")
         asm.inst(f"v_readfirstlane_b32 s{active}, v{r.temporary}")
-        asm.inst(f"s_lshl_b32 s{active}, s{active}, {m_per_wave.bit_length() - 1}")
-        asm.inst(f"s_lshl_b32 s{scratch}, s2, {geometry.macro_tile0.bit_length() - 1}")
+        emit_scale_sgpr_u32(asm, active, m_per_wave, active)
+        emit_scale_sgpr_u32(asm, scratch, geometry.macro_tile0, 2)
         asm.inst(f"s_add_u32 s{active}, s{active}, s{scratch}")
         asm.inst(f"s_sub_u32 s{scratch}, s{self.route.route_rows}, s{active}")
         asm.inst(f"s_cmp_ge_u32 s{active}, s{self.route.route_rows}")

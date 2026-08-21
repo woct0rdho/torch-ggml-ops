@@ -11,7 +11,7 @@ from .grouped_mmq_bwd_pair_physical import (
 )
 from .grouped_mmq_bwd_pair_spec import DerivedGroupedBackwardPairState
 from .kernel_abi import GROUPED_BACKWARD_PAIR_ABI
-from .kernel_writer_assembly import emit_kernel_trailer
+from .kernel_writer_assembly import emit_kernel_trailer, emit_scale_sgpr_u32
 from .mmq_bwd_emission import BackwardLoweringResult, _Assembly
 from .mmq_bwd_lowering_quant import UnboundedBackwardTileAccess
 
@@ -647,8 +647,12 @@ class GroupedBackwardPairKernelLowering:
         asm.inst(f"s_cmp_ge_u32 s3, {n_tiles}")
         asm.inst(f"s_cbranch_scc1 {self.EXIT_LABEL}")
         if self.route_split_factor > 1:
-            tile_shift = self.compute.state.spec.geometry.macro_tile0.bit_length() - 1
-            asm.inst(f"s_lshl_b32 s{route.tile_end}, s2, {tile_shift}")
+            emit_scale_sgpr_u32(
+                asm,
+                route.tile_end,
+                self.compute.state.spec.geometry.macro_tile0,
+                2,
+            )
             asm.inst(f"s_cmp_ge_u32 s{route.tile_end}, s{route.route_rows}")
             asm.inst(f"s_cbranch_scc1 {self.EXIT_LABEL}")
 
@@ -658,9 +662,11 @@ class GroupedBackwardPairKernelLowering:
             asm.label(".LGroupedBackwardPairRowTile")
             self.compute.emit_tile(asm)
             asm.inst("s_add_u32 s2, s2, 1")
-            asm.inst(
-                f"s_lshl_b32 s{route.tile_end}, s2, "
-                f"{self.compute.state.spec.geometry.macro_tile0.bit_length() - 1}"
+            emit_scale_sgpr_u32(
+                asm,
+                route.tile_end,
+                self.compute.state.spec.geometry.macro_tile0,
+                2,
             )
             asm.inst(f"s_cmp_lt_u32 s{route.tile_end}, s{route.route_rows}")
             asm.inst("s_cbranch_scc1 .LGroupedBackwardPairRowTile")
@@ -685,7 +691,6 @@ class GroupedBackwardPairKernelLowering:
             raise RuntimeError("full-tile split emitter is not configured")
         route = self.physical.scalar
         tile_rows = self.compute.state.spec.geometry.macro_tile0
-        tile_shift = tile_rows.bit_length() - 1
         full_label = ".LGroupedBackwardPairFullRowTile"
         tail_label = ".LGroupedBackwardPairTailRowTile"
         done_label = ".LGroupedBackwardPairRowTileDone"
@@ -695,7 +700,7 @@ class GroupedBackwardPairKernelLowering:
         asm.label(full_label)
         self.full_compute.emit_tile(asm)
         asm.inst("s_add_u32 s2, s2, 1")
-        asm.inst(f"s_lshl_b32 s{route.tile_end}, s2, {tile_shift}")
+        emit_scale_sgpr_u32(asm, route.tile_end, tile_rows, 2)
         asm.inst(f"s_add_u32 s{route.gemm_index}, s{route.tile_end}, {tile_rows}")
         asm.inst(f"s_cmp_le_u32 s{route.gemm_index}, s{route.route_rows}")
         asm.inst(f"s_cbranch_scc1 {full_label}")
@@ -710,19 +715,18 @@ class GroupedBackwardPairKernelLowering:
             raise RuntimeError("split full-tile emitter is not configured")
         route = self.physical.scalar
         tile_rows = self.compute.state.spec.geometry.macro_tile0
-        tile_shift = tile_rows.bit_length() - 1
         full_label = ".LGroupedBackwardPairSplitFullRowTile"
         tail_label = ".LGroupedBackwardPairSplitTailRowTile"
         done_label = ".LGroupedBackwardPairSplitRowTileDone"
 
-        asm.inst(f"s_lshl_b32 s{route.tile_end}, s2, {tile_shift}")
+        emit_scale_sgpr_u32(asm, route.tile_end, tile_rows, 2)
         asm.inst(f"s_add_u32 s{route.gemm_index}, s{route.tile_end}, {tile_rows}")
         asm.inst(f"s_cmp_le_u32 s{route.gemm_index}, s{route.route_rows}")
         asm.inst(f"s_cbranch_scc0 {tail_label}")
         asm.label(full_label)
         self.full_compute.emit_tile(asm)
         asm.inst(f"s_add_u32 s2, s2, {self.route_split_factor}")
-        asm.inst(f"s_lshl_b32 s{route.tile_end}, s2, {tile_shift}")
+        emit_scale_sgpr_u32(asm, route.tile_end, tile_rows, 2)
         asm.inst(f"s_cmp_ge_u32 s{route.tile_end}, s{route.route_rows}")
         asm.inst(f"s_cbranch_scc1 {done_label}")
         asm.inst(f"s_add_u32 s{route.gemm_index}, s{route.tile_end}, {tile_rows}")

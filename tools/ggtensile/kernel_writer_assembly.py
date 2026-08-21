@@ -354,6 +354,32 @@ def emit_scale_u32(
         assembly.inst(f"v_mul_lo_u32 v{destination}, {scale}, v{source}")
 
 
+def emit_scale_sgpr_u32(
+    assembly: Assembly,
+    destination: int,
+    scale: int,
+    source: int,
+) -> None:
+    if scale > 0 and scale & (scale - 1) == 0:
+        shift = scale.bit_length() - 1
+        assembly.inst(f"s_lshl_b32 s{destination}, s{source}, {shift}")
+    else:
+        assembly.inst(f"s_mul_i32 s{destination}, s{source}, {scale}")
+
+
+def emit_scale_sgpr_to_vgpr_u32(
+    assembly: Assembly,
+    destination: int,
+    scale: int,
+    source: int,
+) -> None:
+    if scale > 0 and scale & (scale - 1) == 0:
+        shift = scale.bit_length() - 1
+        assembly.inst(f"v_lshlrev_b32 v{destination}, {shift}, s{source}")
+    else:
+        assembly.inst(f"v_mul_lo_u32 v{destination}, {scale}, s{source}")
+
+
 def emit_add_pointer(
     assembly: Assembly,
     destination: int,

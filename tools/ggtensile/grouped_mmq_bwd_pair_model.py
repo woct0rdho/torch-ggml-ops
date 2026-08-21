@@ -364,6 +364,25 @@ class GroupedBackwardPairSolution:
         )
 
     @classmethod
+    def iq2_xxs_m192_n64_dual_lds_full_tile_split_direct_pointers_overlap_second_read_prefetch_a(
+        cls,
+    ) -> Self:
+        parent = (
+            cls.iq2_xxs_m128_n64_dual_lds_full_tile_split_direct_pointers_prefetch_a()
+        )
+        return replace(
+            parent,
+            compute=replace(
+                parent.compute,
+                matrix_instruction=(16, 16, 16, 1, 1, 3, 4, 4, 1),
+                macro_tile0=192,
+            ),
+            projection_schedule=(
+                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersOverlapSecondReadPrefetchAInterleavedDepthU
+            ),
+        )
+
+    @classmethod
     def iq2_s_m128_n64_dual_lds(cls) -> Self:
         return replace(
             cls.iq2_s_m128_n64(),

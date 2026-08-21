@@ -19,7 +19,7 @@ Latest outcome:
 - Independent production qualification reached maximum sampled normalized RMSE `0.00027772` and minimum cosine `0.99999994`; all gradient, packed-weight, inactive-expert, projection, and fixed-group mutation gates passed.
 - Both new kernels are wave32, call-free, scratch-free, zero-private, zero-spill, and stack-free. The complete gfx1151 bundle contains 181 kernels, including 34 grouped-backward entries.
 - Direct BF16-C, BF16 slab, and normalized FP16-C controls are complete and rejected. Production continues to dispatch exact FP32 accumulation.
-- Prepared-weight work remains a separate model-owned project with explicit lifetime, invalidation, memory, cold-start, and sharing requirements.
+- Prepared-weight and changed-API work remain deferred model-owned projects with explicit lifetime, invalidation, memory, cold-start, and sharing requirements.
 
 The exact comparator table was subsequently retuned against learned-route priors, captured route medoids, and the mandatory synthetic controls. The retuned Qwen backward replay is:
 
@@ -512,7 +512,7 @@ Family-level attribution is:
 | Qwen IQ2_S pair | The fused bodies also win every final point. Width-16 decode shares grid/sign/scale work; width-8 duplicated scale work and loader groups and regressed. The M128 body already uses `219` VGPRs, so wider ownership requires a new lower-state decoder rather than another tile sweep. |
 | Qwen Q4_K/Q5_K down | The large-route deficits remain after M-major row tasks, width-16 decode, format-specific swizzles, bounded prefetch, and inactive-M controls. For Q4_K, the measured high L2 hit and low LDS stalls rule out cache misses and LDS banking as primary causes; negligible task setup and zero spills apply to both formats. Repeated packed scale/min decode is the residual Q4_K cost. Q5_K adds high-bit reconstruction, reaches `234` VGPRs in the row-task body, and is attributed from source and campaign controls rather than the Q4_K counter values. |
 | Qwen IQ2_S down | Grid lookup, sign reconstruction, shared scale extraction, and `d` application are repeated for every staged weight tile. Pair and down require different swizzles; width-8, M256/N64, and inactive-M suppression all regressed. The remaining loss is format decode and representation cost, not an untested generic scheduling rule. |
-| DeepSeek IQ2_XXS pair | M128/N64 materially improves B4/B16, but B16 remains below AITER. Each K32 step decodes two independent packed weights into separate LDS tiles before one FP32 pair accumulation. The retained body uses `239` VGPRs; M192 previously failed private/spill gates. The remaining limit is two-weight IQ2_XXS decode plus pair accumulator pressure. |
+| DeepSeek IQ2_XXS pair | M128/N64 materially improves B4/B16, but B16 remains below AITER. Each K32 step decodes two independent packed weights into separate LDS tiles before one FP32 pair accumulation. The production HIP body uses `239` VGPRs; its historical M192 candidate failed private/spill gates. A later isolated GGTensile M128 body uses `149` VGPRs, so that old resource closure does not apply to the new lower-state schedule and wider-M experiments. The remaining limit is two-weight IQ2_XXS decode plus pair accumulator pressure. |
 | DeepSeek Q2_K down | Width-16 decode already shares each scale/min group and packed shift, inactive-M suppression is enabled, and M64/M128 plus U1/U2 ownership are selected by route size. N128 and row-task variants lost. Since serial dispatch already exposes 32 N workgroups per expert, more task descriptors do not remove the repeated Q2_K decode. The remaining B4/B16 gap is packed scale/min reconstruction and limited N64 reuse. |
 | DeepSeek fixed Q8_0 | The retained M256/M192 bodies beat BF16 BMM at all final points. Wider decode, swizzle4, and M512 lost. No current bottleneck justifies reopening this family. |
 
@@ -524,7 +524,9 @@ FP32 accumulation is part of the remaining resource floor, not an optional optim
 
 ### Local kernel work
 
-No evidence-backed local grouped-backward experiment remains pending. The approximate-accumulator sequence is also complete: direct paired BF16-C, K32/K64 FP32 slabs into BF16 state, and normalized paired FP16-C all failed accuracy, resource, or public-latency requirements.
+One evidence-backed isolated GGTensile queue remains pending for the DeepSeek IQ2_XXS pair. It first compares two M128 lower-state projection-read schedules predicted to reduce the retained research artifact from 149 to 139 VGPRs and cross the gfx1151 168-to-144 allocation boundary. It then tests M192/N64, after geometry-derived indexing and wait frontiers are proven, and conditionally M256/N64. Exact identities, resource estimates, occupancy gates, profiling rules, and timing order are recorded in `docs/experiment_ggtensile_grouped_mmq_bwd_pair_iq2_xxs.md`.
+
+The approximate-accumulator sequence remains complete: direct paired BF16-C, K32/K64 FP32 slabs into BF16 state, and normalized FP16-C all failed accuracy, resource, or public-latency requirements. These failures do not relax the exact FP32-accumulation contract for the pending queue.
 
 Wider-N approximate bodies and exact-grid static persistent scheduling remain conditional, not active work. Reopen them only after a new arithmetic mechanism first demonstrates lower register use, acceptable real-weight and dynamic-range error, zero private storage and spills, and better complete-operator latency in an existing N64 body. If that prerequisite is met, evaluate N128/N256 exact shapes before static grids from `{20,40,80,160,256}`. Keep batch-1 sparse dispatch unchanged until measured evidence supports a boundary.
 
@@ -534,15 +536,15 @@ The following neighborhoods are closed by direct controls:
 - K64, two-LDS buffering, GSU, split-K, grouped Stream-K, and direct-to-VGPR variants.
 - Broad swizzle, decoder-width, prefetch, and extraction sweeps.
 - DeepSeek Q2_K N128 and row-task variants.
-- DeepSeek IQ2_XXS width32, M192, and larger swizzles. M128 is retained only at the two qualified aggregate row counts.
+- DeepSeek IQ2_XXS width32 and larger swizzles. The historical production/HIP M192 artifact remains rejected under its spilling parent; only the lower-state isolated GGTensile M192/N64 identity is reopened, first at B16. M128 remains retained only at the two qualified aggregate row counts.
 - Fixed Q8_0 wider decode, swizzle4, and M512.
 - Qwen IQ2_S inactive-M row-task suppression.
 
-A local kernel experiment should be reopened only if new profiler evidence contradicts the current diagnosis. Raw instruction ordering, code-object offsets, and timing movement from byte-identical binaries are not sufficient evidence.
+Outside the explicit IQ2_XXS queue, a local kernel experiment should be reopened only if new profiler evidence contradicts the current diagnosis. Raw instruction ordering, code-object offsets, and timing movement from byte-identical binaries are not sufficient evidence.
 
-### Representation-level Qwen work
+### Deferred model-owned representation and API work
 
-The only substantive remaining optimization is a separate model-owned compact representation for Qwen Q4_K and IQ2_S single-down weights. This is not an operator-internal cache.
+Model-owned compact representations and API changes remain deferred and are not part of the active kernel-local queue. If a separate project takes ownership, the strongest representation target is Qwen Q4_K and IQ2_S single-down weights. This must not become an operator-internal cache.
 
 A viable project must define:
 - A prepare API and the exact lossless integer-plus-scale bytes stored per projection.

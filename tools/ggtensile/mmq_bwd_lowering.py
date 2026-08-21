@@ -8,6 +8,7 @@ from .kernel_writer_assembly import (
     emit_bf16_rne,
     emit_kernel_trailer,
     emit_pointer_kernarg_loads,
+    emit_scale_sgpr_to_vgpr_u32,
     emit_scale_u32,
 )
 from .mmq_bwd_emission import (
@@ -602,19 +603,22 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         m_per_wave = 16 * m_tiles
         asm.comment("Precompute A row coordinates shared by every DepthU iteration.")
         asm.inst(f"v_lshrrev_b32 v{t}, 5, v{r.serial}")
-        asm.emit_pairable_with_pending_zero(
-            PendingZeroPairableOp.LSHLREV_B32,
-            t,
-            m_per_wave.bit_length() - 1,
-            t,
-        )
+        if m_per_wave > 0 and m_per_wave & (m_per_wave - 1) == 0:
+            asm.emit_pairable_with_pending_zero(
+                PendingZeroPairableOp.LSHLREV_B32,
+                t,
+                m_per_wave.bit_length() - 1,
+                t,
+            )
+        else:
+            emit_scale_u32(asm, t, m_per_wave, t)
         asm.emit_pairable_with_pending_zero(
             PendingZeroPairableOp.AND_B32, t + 1, 15, r.serial
         )
         asm.emit_pairable_with_pending_zero(
             PendingZeroPairableOp.ADD_NC_U32, a + 4, f"v{t}", t + 1
         )
-        asm.inst(f"v_lshlrev_b32 v{t + 2}, {geometry.macro_tile0.bit_length() - 1}, s2")
+        emit_scale_sgpr_to_vgpr_u32(asm, t + 2, geometry.macro_tile0, 2)
         asm.emit_pairable_with_pending_zero(
             PendingZeroPairableOp.ADD_NC_U32, a + 4, f"v{a + 4}", t + 2
         )
@@ -661,12 +665,10 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         asm.comment("Load A and issue two DepthU=16 WMMA halves.")
         if not self.state.spec.pipeline.schedule.prefetches_a:
             asm.inst(f"v_lshrrev_b32 v{t}, 5, v{r.serial}")
-            asm.inst(f"v_lshlrev_b32 v{t}, {m_per_wave.bit_length() - 1}, v{t}")
+            emit_scale_u32(asm, t, m_per_wave, t)
             asm.inst(f"v_and_b32 v{t + 1}, 15, v{r.serial}")
             asm.inst(f"v_add_nc_u32 v{a + 4}, v{t}, v{t + 1}")
-            asm.inst(
-                f"v_lshlrev_b32 v{t + 2}, {geometry.macro_tile0.bit_length() - 1}, s2"
-            )
+            emit_scale_sgpr_to_vgpr_u32(asm, t + 2, geometry.macro_tile0, 2)
             asm.inst(f"v_add_nc_u32 v{a + 4}, v{a + 4}, v{t + 2}")
             if m_tiles == 2:
                 asm.inst(f"v_add_nc_u32 v{a + 5}, 16, v{a + 4}")
@@ -1148,11 +1150,11 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         row_stride_c = self.access.output_row_stride_bytes(2 * size.n)
         asm.comment("Map gfx11 physical C fragments to row-major grad_input.")
         asm.inst(f"v_lshrrev_b32 v{t}, 5, v{r.serial}")
-        asm.inst(f"v_lshlrev_b32 v{t}, {m_per_wave.bit_length() - 1}, v{t}")
+        emit_scale_u32(asm, t, m_per_wave, t)
         asm.inst(f"v_lshrrev_b32 v{t + 1}, 4, v{r.serial}")
         asm.inst(f"v_and_b32 v{t + 1}, 1, v{t + 1}")
         asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
-        asm.inst(f"v_lshlrev_b32 v{t + 1}, {geometry.macro_tile0.bit_length() - 1}, s2")
+        emit_scale_sgpr_to_vgpr_u32(asm, t + 1, geometry.macro_tile0, 2)
         asm.inst(f"v_add_nc_u32 v{t}, v{t}, v{t + 1}")
         self._emit_store_row_begin(asm, t)
         emit_scale_u32(asm, t, row_stride_c, t)

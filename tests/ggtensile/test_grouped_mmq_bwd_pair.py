@@ -278,6 +278,60 @@ def test_iq2_xxs_m128_direct_pointers_swizzle8_identity_and_source() -> None:
     assert source.count("v_wmma_f32_16x16x16_bf16") == 64
 
 
+def test_iq2_xxs_m192_lower_state_identity_physical_plan_and_source() -> None:
+    solution = GroupedBackwardPairSolution.iq2_xxs_m192_n64_dual_lds_full_tile_split_direct_pointers_overlap_second_read_prefetch_a()
+    compute = solution.compute
+    assert compute.matrix_instruction == (16, 16, 16, 1, 1, 3, 4, 4, 1)
+    assert (compute.macro_tile0, compute.macro_tile1, compute.depth_u) == (192, 64, 32)
+    assert (compute.prefetch_global_read, compute.schedule_iter_alg) == (2, 4)
+    assert compute.lds_swizzle_chunk_b == 8
+
+    key = GroupedBackwardPairSolutionKey(
+        GroupedBackwardPairProblem.iq2_xxs(257), solution
+    )
+    assert GroupedBackwardPairSolutionKey.from_mapping(key.to_mapping()) == key
+    assert not validate_grouped_backward_pair_solution(key)
+
+    physical = derive_grouped_backward_pair_physical_plan(
+        DerivedGroupedBackwardPairState.from_solution_key(key)
+    )
+    resources = physical.ordinary.resources
+    assert (resources.total_vgprs, resources.total_sgprs) == (188, 41)
+    assert resources.lds_num_bytes == 10_240
+    assert physical.second_projection is not None
+    assert (
+        physical.second_projection.registers.kernarg
+        == physical.scalar.second_grad_output
+    )
+
+    source = GroupedBackwardPairKernelWriterAssembly(key, Toolchain.discover()).source()
+    assert "Issue the second packed projection reads alongside first A prefetch" in source
+    assert "s_mul_i32" in source
+    assert "v_mul_lo_u32" in source
+    assert source.count("v_wmma_f32_16x16x16_bf16") == 96
+    assert source.count("s_waitcnt vmcnt(6) lgkmcnt(0)") == 6
+    assert "s_waitcnt vmcnt(14) lgkmcnt(0)" not in source
+
+
+def test_iq2_xxs_m192_requires_exact_identity() -> None:
+    solution = GroupedBackwardPairSolution.iq2_xxs_m192_n64_dual_lds_full_tile_split_direct_pointers_overlap_second_read_prefetch_a()
+    synthetic = replace(
+        solution,
+        projection_schedule=(
+            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU
+        ),
+    )
+    key = GroupedBackwardPairSolutionKey(
+        GroupedBackwardPairProblem.iq2_xxs(257), synthetic
+    )
+    reasons = validate_grouped_backward_pair_solution(key)
+    assert [reason.message for reason in reasons] == [
+        "paired backward M tile must be 64, 128, or the exact IQ2_XXS M192 identity"
+    ]
+    with pytest.raises(SchemaError, match="exact IQ2_XXS M192 identity"):
+        GroupedBackwardPairSolutionKey.from_mapping(key.to_mapping())
+
+
 def test_iq2_xxs_m64_sia5_k_pipeline_identity_and_source() -> None:
     solution = GroupedBackwardPairSolution.iq2_xxs_m64_n64_sia5_dual_lds_full_tile_split_k_pipeline()
     compute = solution.compute
