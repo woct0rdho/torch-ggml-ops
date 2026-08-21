@@ -133,6 +133,19 @@ class FixedBackwardSolution:
         )
 
     @classmethod
+    def q8_0_m64_n256_k64(cls) -> Self:
+        selected = cls.q8_0_m128_n128_k64()
+        return replace(
+            selected,
+            compute=replace(
+                selected.compute,
+                matrix_instruction=(16, 16, 16, 1, 1, 1, 16, 4, 1),
+                macro_tile0=64,
+                macro_tile1=256,
+            ),
+        )
+
+    @classmethod
     def selected_q8_0(cls) -> Self:
         return cls.q8_0_m128_n128_k64()
 

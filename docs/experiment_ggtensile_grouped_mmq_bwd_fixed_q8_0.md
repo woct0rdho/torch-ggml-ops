@@ -212,3 +212,25 @@ The clean final run used seed 20260822, five warmups, and 25 rotating samples pe
 For every shape, the complete output was bitwise identical to the exact installed HIP control and the 16-token dequantized BF16 reference sample. All values were finite, poison was fully replaced, repeat differences were zero, and each of eight gradient plus eight packed-weight mutations changed only its selected group.
 
 The recursive final review rebuilt and reinspected all selected artifacts and retested the largest B16 cost. Packed-VOPD, lower-VGPR M64 ownership, clause stores, and next packed prefetch were respectively measured losses or rejected by the shared decoder contract. M64/N256 would require broadening the ordinary writer's supported geometry. No further mechanism is justified within this campaign's arithmetic-reuse boundary, so the review is closed.
+
+## Post-Audit E9: M64/N256 DepthU64 Geometry
+
+Status: planned and unmeasured. This explicitly changes the representability premise that rejected E2a; it does not reinterpret E2a as a timing result.
+
+Add one dedicated fixed-group solution with M64/N256, DepthU64, PGR2, PLR1, SIA4, the selected pad8 single-buffer layout, ordinary packed Q8 extraction, and N-major ownership. It preserves 128 accumulator elements per wave while replacing eight N repeats with sixteen. Extend repeat-count formulas, fragment ownership, output indexing, resource accounting, and validation only for this complete fixed identity. Ordinary backward solutions and unsupported partial combinations must continue to reject.
+
+Before production timing, emit reduced fixtures that cover the first, middle, and final N fragments; every M fragment; DepthU64 prime and steady iterations; output-address progression; and exact launch rejection. Inspect the resulting code object for the derived VGPR/SGPR/LDS point, 128-thread wave32 metadata, no undeclared registers, and zero private storage or spills. Full correctness must remain bit-exact to HIP and the selected E6 parent under gradient and packed-weight mutations and independent rebuilds.
+
+Screen B16 first against selected M128/N128/DepthU64 E6 because halving N workgroups has its best amortization opportunity there. Advance only for a stable gain greater than two percent, then qualify B1 and B4 independently with paired 25-repeat timing. Failure closes only this sixteen-repeat fixed identity, not arbitrary M64/N256 kernels. This exact geometry experiment requires no model integration and does not authorize public dispatch or packaging changes.
+
+### E9 result: reject after repaired build
+
+Status: rejected; no timing was taken.
+
+The first assembled E9 artifact exposed an address-planner collision before it could be considered a correctness result. With eight decoder rows, the decoder owns `v200:v207`, but the inherited extended-A layout placed LDS and quant state at `v206:v207`. Decoder row-pointer construction therefore overwrote both state registers. The physical planner was corrected to place state after the complete decoder-row range. The repaired E9 plan uses LDS at `v208`, quant state at `v209`, and declares 230 VGPRs instead of 228 while preserving the existing assignments for narrower geometries.
+
+The repaired artifacts are under `/home/wd/tmp/torch-ggml-ops/ggtensile-fixed-bwd-q8-e9-m64-n256-address-fixed/` for B1, B4, and B16. All three inspect cleanly with 230 VGPRs, 17 SGPRs, 36,864 bytes of LDS, 64 static WMMAs, two barriers, 40-byte kernargs, 128 threads, zero private bytes, and zero VGPR/SGPR spills. A poisoned-output B1 probe after the fix wrote every `2048 x 8 x 4096` element with finite values; all rows and groups had complete coverage.
+
+That repair did not establish the required arithmetic identity. Comparing the repaired B1 kernel with the installed fixed HIP control produced a nearly total output mismatch, with normalized RMSE approximately `1.4149`; the output was finite and fully covered, but the values were wrong. The failure is consistent with the inherited fragment ownership or N-tile addressing assumptions for 16 N repeats, which have not been proven by the ordinary writer. Because exactness failed before qualification, no benchmark or dispatch claim is made.
+
+Decision: close and reject E9, including the repaired address-only artifact. Keep the narrow fixed-only admission and planner collision fix because they are tested infrastructure, but do not widen ordinary geometry support or integrate M64/N256 without a separately proven fragment mapping and exact end-to-end result.

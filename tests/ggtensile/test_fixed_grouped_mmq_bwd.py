@@ -16,12 +16,14 @@ from tools.ggtensile.inspection import inspect_artifact
 from tools.ggtensile.kernel_writer_assembly_fixed_grouped_mmq_bwd import (
     FixedGroupedBackwardKernelWriterAssembly,
 )
+from tools.ggtensile.model import ProblemSize, ProblemType, SolutionKey
 from tools.ggtensile.runtime import (
     FixedGroupedQ8BackwardModule,
     InstalledFixedGroupedQ8BackwardModule,
 )
 from tools.ggtensile.schema import SchemaError
 from tools.ggtensile.toolchain import Toolchain
+from tools.ggtensile.validation import validate_solution
 
 
 def _key(tokens: int = 2048) -> FixedBackwardSolutionKey:
@@ -35,6 +37,13 @@ def _selected_key(tokens: int = 2048) -> FixedBackwardSolutionKey:
     return FixedBackwardSolutionKey(
         FixedBackwardProblem.deepseek_q8_0(tokens),
         FixedBackwardSolution.selected_q8_0(),
+    )
+
+
+def _e9_key(tokens: int = 32768) -> FixedBackwardSolutionKey:
+    return FixedBackwardSolutionKey(
+        FixedBackwardProblem.deepseek_q8_0(tokens),
+        FixedBackwardSolution.q8_0_m64_n256_k64(),
     )
 
 
@@ -130,6 +139,31 @@ def test_fixed_backward_depth64_next_prefetch_is_rejected() -> None:
     )
     with pytest.raises(ValueError, match="DepthU64 next-packed-tile prefetch"):
         DerivedFixedBackwardState.from_solution_key(key)
+
+
+def test_fixed_backward_e9_m64_n256_depth64_is_fixed_only() -> None:
+    key = _e9_key()
+    assert FixedBackwardSolutionKey.from_mapping(key.to_mapping()) == key
+    validate_fixed_backward_solution_key(key)
+    state = DerivedFixedBackwardState.from_solution_key(key)
+    assert state.grid == (16, 512, 8)
+    assert state.spec.compute.geometry.matrix_instruction[6] == 16
+    assert state.physical.ordinary.decoder.rows == 8
+    assert state.physical.ordinary.address.lds == 208
+    assert state.physical.ordinary.address.quant_shift == 209
+    assert state.physical.resources.total_vgprs == 230
+    assert state.physical.resources.total_sgprs == 17
+    assert state.physical.resources.lds_num_bytes == 36864
+
+    ordinary = SolutionKey(
+        ProblemType.mmq_backward("Q8_0"),
+        ProblemSize(32768, 4096, 1024),
+        key.solution.compute,
+    )
+    assert any(
+        reason.rule_id == "solution.geometry.unimplemented"
+        for reason in validate_solution(ordinary)
+    )
 
 
 @pytest.mark.parametrize(
@@ -238,3 +272,5 @@ def test_fixed_backward_runtime_configurations_match_candidate_and_controls() ->
     assert control._launch_configuration() == (64, 8, 8, 128, 1, 1, 0)
     control.state = DerivedFixedBackwardState.from_solution_key(_selected_key(32768))
     assert control._launch_configuration() == (64, 171, 8, 128, 1, 1, 0)
+    candidate.state = DerivedFixedBackwardState.from_solution_key(_e9_key(32768))
+    assert candidate._launch_configuration() == (16, 512, 8, 32, 4, 1, 0)

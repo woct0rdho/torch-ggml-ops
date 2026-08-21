@@ -1,6 +1,9 @@
 """Validation gates for fixed-group Q8_0 backward."""
 
-from .fixed_grouped_mmq_bwd_model import FixedBackwardSolutionKey
+from .fixed_grouped_mmq_bwd_model import (
+    FixedBackwardSolution,
+    FixedBackwardSolutionKey,
+)
 from .fixed_grouped_mmq_bwd_spec import fixed_backward_problem_rejection_reason
 from .model import ProblemSize, ProblemType, SolutionKey
 from .validation import validate_solution
@@ -63,6 +66,14 @@ def fixed_backward_rejection_reason(
         compute,
     )
     reasons = validate_solution(ordinary_key)
+    if key.solution.compute == FixedBackwardSolution.q8_0_m64_n256_k64().compute:
+        # This complete fixed identity is the sole exception to the ordinary
+        # writer's intentionally narrower N-repeat capability.
+        reasons = tuple(
+            reason
+            for reason in reasons
+            if reason.rule_id != "solution.geometry.unimplemented"
+        )
     if reasons:
         return "; ".join(f"{reason.rule_id}: {reason.message}" for reason in reasons)
     return None
