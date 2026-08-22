@@ -1859,6 +1859,198 @@
       }
     },
     {
+      "Operation": "GroupedForwardPair",
+      "Kernel": {
+        "Identity": "ggpair_f12ae9a800bd5ecb",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "IQ2_XXS",
+            "output_features": 2048,
+            "input_features": 4096,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "projection_count": 2,
+            "block_values": 256,
+            "activation_layout": "F32_D4",
+            "activation_block_bytes": 144,
+            "packed_weight_block_bytes": 66,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "arithmetic_contract": "SignedIQ2XXSInt8ScaleIntegerWmmaF32Correction",
+            "weight_decode": "TwoLaneSelectedHalfIQ2XXSGridParitySigned",
+            "metadata_conversion": "Float16DParitySignsOddScaleToFloat32",
+            "scale_arithmetic": "Int32ScaleF32",
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": false,
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi_family": "GroupedPairV1"
+          },
+          "Problem": {
+            "aggregate_rows": 12288
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                128,
+                1,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile": [
+                64,
+                64
+              ],
+              "depth_u": 128
+            },
+            "lowering": {
+              "operand_source": "IQ2XXSHalfWeightLds",
+              "route_ownership": "SerialRoutes",
+              "activation_addressing": "AggregateRowsTiledLinear"
+            },
+            "projection": {
+              "schedule": "Interleaved"
+            },
+            "decode": {
+              "schedule": "TwoLaneSelectedHalfIQ2XXSFusedSelector"
+            },
+            "epilogue": {
+              "output_store": "BFloat16RNEClause4Masked"
+            }
+          }
+        },
+        "Artifact": "ggpair_f12ae9a800bd5ecb.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_pair_iq2_xxs_r12288_n2048_k4096_f12ae9a800bd5ecb",
+        "ABI": "GroupedPairV1",
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "Grid": [
+          32,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 19456,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedForwardPair",
+      "Kernel": {
+        "Identity": "ggpair_6a7d51c21e083af7",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "IQ2_XXS",
+            "output_features": 2048,
+            "input_features": 4096,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "projection_count": 2,
+            "block_values": 256,
+            "activation_layout": "F32_D4",
+            "activation_block_bytes": 144,
+            "packed_weight_block_bytes": 66,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "arithmetic_contract": "SignedIQ2XXSInt8ScaleIntegerWmmaF32Correction",
+            "weight_decode": "TwoLaneSelectedHalfIQ2XXSGridParitySigned",
+            "metadata_conversion": "Float16DParitySignsOddScaleToFloat32",
+            "scale_arithmetic": "Int32ScaleF32",
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": false,
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi_family": "GroupedPairV1"
+          },
+          "Problem": {
+            "aggregate_rows": 49152
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                128,
+                1,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile": [
+                64,
+                64
+              ],
+              "depth_u": 128
+            },
+            "lowering": {
+              "operand_source": "IQ2XXSHalfWeightLds",
+              "route_ownership": "SerialRoutes",
+              "activation_addressing": "AggregateRowsTiledLinear"
+            },
+            "projection": {
+              "schedule": "Interleaved"
+            },
+            "decode": {
+              "schedule": "TwoLaneSelectedHalfIQ2XXSFusedSelector"
+            },
+            "epilogue": {
+              "output_store": "BFloat16RNEClause4Masked"
+            }
+          }
+        },
+        "Artifact": "ggpair_6a7d51c21e083af7.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_pair_iq2_xxs_r49152_n2048_k4096_6a7d51c21e083af7",
+        "ABI": "GroupedPairV1",
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "Grid": [
+          32,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 19456,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
       "Operation": "GroupedBackward",
       "Kernel": {
         "Identity": "ggsol_f90ec6b01eaaa1c0",

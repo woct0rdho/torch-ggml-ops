@@ -18,6 +18,7 @@ from mmq_benchmark_common import (
     cuda_event_times_ms,
     incremental_peak_bytes,
     load_gguf_tensors,
+    load_packed_tensor,
     make_benchmark_parser,
     make_bf16_input,
     parse_int_list,
@@ -29,8 +30,6 @@ from mmq_benchmark_common import (
     validate_weight_case,
     write_json_report,
 )
-
-from tests.mmq_test_support import load_packed_tensor
 
 
 class ChunkCorrectness(TypedDict):

@@ -105,6 +105,28 @@ def _hip_kernels() -> list[BundleKernel]:
     ]
 
 
+_NON_PUBLIC_FORWARD_LAYOUTS = frozenset(
+    {
+        ("Q3_K", 4096, 2048),
+        ("Q3_K", 2048, 4096),
+    }
+)
+
+
+def _is_public_kernel(operation: str, key: DeploymentKey) -> bool:
+    if operation == "OrdinaryForward":
+        contract = key.to_mapping()["ProblemContract"]
+        problem = key.to_mapping()["Problem"]
+        if (
+            isinstance(contract, Mapping)
+            and isinstance(problem, Mapping)
+            and (contract.get("quant_type"), problem.get("n"), problem.get("k"))
+            in _NON_PUBLIC_FORWARD_LAYOUTS
+        ):
+            return False
+    return True
+
+
 def kernels() -> tuple[BundleKernel, ...]:
     result = _hip_kernels()
     for path in sorted(CONFIG.glob("mmq_*_catalog.json")):
@@ -112,6 +134,8 @@ def kernels() -> tuple[BundleKernel, ...]:
         operation = "OrdinaryForward" if "_fwd_" in path.name else "OrdinaryBackward"
         for entry in catalog.entries:
             key = entry.solution_key
+            if not _is_public_kernel(operation, key):
+                continue
             result.append(
                 BundleKernel(
                     f"Kernel{len(result):03d}",
@@ -123,6 +147,8 @@ def kernels() -> tuple[BundleKernel, ...]:
     inventory = load_deployment_inventory(CONFIG / "mmq_deployment.json")
     for route in inventory.routes:
         candidate = route.kernel
+        if not _is_public_kernel(route.operation, candidate.exact_key):
+            continue
         result.append(
             BundleKernel(
                 f"Kernel{len(result):03d}",

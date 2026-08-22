@@ -1,156 +1,97 @@
 #!/usr/bin/env python3
+"""Benchmark one exact ordinary-forward deployment key."""
 
 import argparse
 import contextlib
 import json
-import statistics
 import sys
 from pathlib import Path
-from typing import TypedDict, cast
+from typing import cast
 
 import gguf
 import numpy as np
 import torch
 from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
+ROOT = Path(__file__).resolve().parents[2]
+for path in (ROOT, ROOT / "bench"):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
+
+from benchmark_report import ErrorMetrics, error_metrics, rotating_timings
+from benchmark_support import require_case
+
 import torch_ggml_ops
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
 from tools.ggtensile.model import SolutionKey
 from tools.ggtensile.runtime import (
     FixedHipForwardModule,
+    FixedQ81F16D2S6QuantizerModule,
     FixedQ81F16D4S4QuantizerModule,
     FixedQ81F32D4QuantizerModule,
     ForwardModule,
+    HIPRuntimeError,
 )
 
-DEFAULT_MODEL = Path.home() / "models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf"
-MAX_CANDIDATE_TO_HIP_NORMALIZED_RMSE = 5e-4
-MAX_CANDIDATE_TO_HIP_ABSOLUTE_ERROR = 0.015625
-MAX_INDEPENDENT_NORMALIZED_RMSE = 0.04
+
+def parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--solution-key", type=Path, required=True)
+    p.add_argument("--code-object", type=Path, required=True)
+    p.add_argument("--hip-code-object", type=Path)
+    p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--model", type=Path, required=True)
+    p.add_argument("--tensor", required=True)
+    p.add_argument("--warmup", type=int, default=3)
+    p.add_argument("--repeats", type=int, default=9)
+    p.add_argument("--seed", type=int, default=20260802)
+    p.add_argument("--skip-reference", action="store_true")
+    p.add_argument("--skip-timing", action="store_true")
+    return p
 
 
-class Metrics(TypedDict):
-    different_bf16_elements: int
-    elements: int
-    finite: bool
-    max_absolute_error: float | None
-    error_rms: float | None
-    reference_rms: float
-    normalized_rmse: float | None
-
-
-class Timing(TypedDict):
-    samples_ms: list[float]
-    median_ms: float
-    mean_ms: float
-    min_ms: float
-    max_ms: float
-    median_tflops: float
-
-
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Validate and benchmark one exact K-quant GGTensile forward artifact"
-    )
-    parser.add_argument("--solution-key", type=Path, required=True)
-    parser.add_argument("--code-object", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
-    parser.add_argument("--tensor", required=True)
-    parser.add_argument("--warmup", type=int, default=3)
-    parser.add_argument("--repeats", type=int, default=9)
-    parser.add_argument("--seed", type=int, default=20260802)
-    parser.add_argument("--skip-reference", action="store_true")
-    return parser
-
-
-def _event_time(function) -> float:
-    start = torch.cuda.Event(enable_timing=True)
-    end = torch.cuda.Event(enable_timing=True)
-    start.record()
-    function()
-    end.record()
-    end.synchronize()
-    return float(start.elapsed_time(end))
-
-
-def _metrics(actual: torch.Tensor, expected: torch.Tensor) -> Metrics:
-    difference = actual.float() - expected.float()
-    finite = bool(torch.isfinite(difference).all())
-    reference_rms = float(expected.float().square().mean().sqrt())
-    error_rms = float(difference.square().mean().sqrt()) if finite else None
-    return {
-        "different_bf16_elements": int(torch.count_nonzero(actual != expected)),
-        "elements": actual.numel(),
-        "finite": finite,
-        "max_absolute_error": float(difference.abs().max()) if finite else None,
-        "error_rms": error_rms,
-        "reference_rms": reference_rms,
-        "normalized_rmse": (
-            error_rms / reference_rms
-            if error_rms is not None and reference_rms
-            else None
-        ),
-    }
-
-
-def _timing(samples: list[float], logical_flops: int) -> Timing:
-    median_ms = statistics.median(samples)
-    return {
-        "samples_ms": samples,
-        "median_ms": median_ms,
-        "mean_ms": statistics.fmean(samples),
-        "min_ms": min(samples),
-        "max_ms": max(samples),
-        "median_tflops": logical_flops / (median_ms * 1.0e9),
-    }
-
-
-def _load_weight(
-    model: Path,
-    tensor_name: str,
-    key: SolutionKey,
-) -> tuple[gguf.ReaderTensor, torch.Tensor]:
+def load_weight(model: Path, name: str, key: SolutionKey):
     reader = gguf.GGUFReader(model)
-    tensor = next((item for item in reader.tensors if item.name == tensor_name), None)
+    tensor = next((item for item in reader.tensors if item.name == name), None)
     if tensor is None:
-        raise KeyError(f"GGUF tensor not found: {tensor_name}")
-    expected_quant_type = key.problem_type.quant_data_type
-    if tensor.tensor_type.name != expected_quant_type:
-        raise ValueError(
-            f"expected {expected_quant_type} tensor, found {tensor.tensor_type.name}"
-        )
+        raise KeyError(f"GGUF tensor not found: {name}")
     size = key.problem_size
-    logical_shape = tuple(int(value) for value in reversed(tensor.shape))
-    if logical_shape != (size.n, size.k):
-        raise ValueError(
-            f"tensor shape {logical_shape} does not match N,K={(size.n, size.k)}"
-        )
-    packed_host = np.array(tensor.data, dtype=np.uint8, copy=True, order="C")
-    packed_weight = torch.from_numpy(packed_host).cuda()
-    return tensor, packed_weight
+    if tensor.tensor_type.name != key.problem_type.quant_data_type:
+        raise ValueError("tensor quant type does not match the exact key")
+    logical = tuple(int(value) for value in reversed(tensor.shape))
+    if logical != (size.n, size.k):
+        raise ValueError(f"tensor shape {logical} does not match {(size.n, size.k)}")
+    host = np.array(tensor.data, dtype=np.uint8, copy=True, order="C")
+    return tensor, torch.from_numpy(host).cuda()
+
+
+def quantizer_type(quant_type: str):
+    if quant_type == "Q2_K":
+        return FixedQ81F16D2S6QuantizerModule
+    if quant_type in {"Q4_K", "Q5_K"}:
+        return FixedQ81F16D4S4QuantizerModule
+    return FixedQ81F32D4QuantizerModule
+
+
+def require_metrics(metrics: object, name: str, limit: float) -> None:
+    typed = cast(ErrorMetrics, metrics)
+    nrmse = typed["normalized_rmse"]
+    if typed["finite"] is not True or not isinstance(nrmse, float) or nrmse > limit:
+        raise RuntimeError(f"{name} correctness failed: {metrics}")
 
 
 def main() -> None:
-    arguments = _parser().parse_args()
-    if arguments.warmup < 0 or arguments.repeats <= 0:
+    args = parser().parse_args()
+    if args.warmup < 0 or args.repeats <= 0:
         raise ValueError("warmup must be nonnegative and repeats must be positive")
-    key = SolutionKey.from_json_file(arguments.solution_key)
+    key = SolutionKey.from_json_file(args.solution_key)
     if key.problem_type.operation_type != "MMQForward":
-        raise ValueError("solution key is not MMQ forward")
+        raise ValueError("solution key is not ordinary forward")
+    case = require_case("OrdinaryForward", key, args.code_object, (args.tensor,))
+    tensor, packed = load_weight(args.model, args.tensor, key)
     size = key.problem_size
-    tensor, packed_weight = _load_weight(arguments.model, arguments.tensor, key)
-    generator = torch.Generator(device="cuda").manual_seed(arguments.seed)
+    rng = torch.Generator(device="cuda").manual_seed(args.seed)
     input_tensor = torch.randn(
-        size.m,
-        size.k,
-        dtype=torch.bfloat16,
-        device="cuda",
-        generator=generator,
+        size.m, size.k, dtype=torch.bfloat16, device="cuda", generator=rng
     )
     candidate_output = torch.empty(
         (size.m, size.n), dtype=torch.bfloat16, device="cuda"
@@ -158,256 +99,149 @@ def main() -> None:
     hip_output = torch.empty_like(candidate_output)
     stream = torch.cuda.current_stream().cuda_stream
     quant_type = int(tensor.tensor_type)
+    logical = None
+    hip = None
+    hip_reason = None
 
     with contextlib.ExitStack() as stack:
-        quantizer_type = (
-            FixedQ81F32D4QuantizerModule
-            if key.problem_type.quant_data_type in ("Q3_K", "Q6_K", "Q8_0")
-            else FixedQ81F16D4S4QuantizerModule
+        quantizer = stack.enter_context(
+            quantizer_type(key.problem_type.quant_data_type)()
         )
-        quantizer = stack.enter_context(quantizer_type())
         workspace = quantizer.allocate(input_tensor)
-        candidate = stack.enter_context(ForwardModule(key, arguments.code_object))
-        hip_multiply = stack.enter_context(FixedHipForwardModule(key))
+        candidate = stack.enter_context(ForwardModule(key, args.code_object))
+        try:
+            hip = stack.enter_context(FixedHipForwardModule(key, args.hip_code_object))
+        except HIPRuntimeError as error:
+            hip_reason = str(error)
 
         def quantize() -> None:
             quantizer.launch(input_tensor, workspace, stream=stream)
 
-        def launch_candidate() -> None:
-            candidate.launch(
-                packed_weight,
-                workspace,
-                candidate_output,
-                stream=stream,
-            )
+        def ggtensile_kernel() -> None:
+            candidate.launch(packed, workspace, candidate_output, stream=stream)
 
-        def launch_hip() -> None:
-            hip_multiply.launch(
-                packed_weight,
-                workspace,
-                hip_output,
-                stream=stream,
-            )
-
-        def candidate_complete() -> None:
+        def ggtensile_complete() -> None:
             quantize()
-            launch_candidate()
+            ggtensile_kernel()
+
+        def hip_kernel() -> None:
+            if hip is not None:
+                hip.launch(packed, workspace, hip_output, stream=stream)
 
         def hip_complete() -> None:
             quantize()
-            launch_hip()
+            hip_kernel()
+
+        def public_api() -> torch.Tensor:
+            return torch_ggml_ops.mmq(input_tensor, packed, quant_type, size.n)
 
         quantize()
-        workspace_control = workspace.clone()
+        producer_control = workspace.clone()
         quantize()
         torch.cuda.synchronize()
         correctness: dict[str, object] = {
             "producer_repeat": {
                 "different_bytes": int(
-                    torch.count_nonzero(workspace != workspace_control)
-                ),
-                "bytes": workspace.numel(),
+                    torch.count_nonzero(workspace != producer_control)
+                )
             }
         }
-        launch_hip()
-        launch_candidate()
-        public_output = torch_ggml_ops.mmq(
-            input_tensor,
-            packed_weight,
-            quant_type,
-            size.n,
-        )
+        ggtensile_kernel()
+        public_output = public_api()
+        if hip is not None:
+            hip_kernel()
+        if not args.skip_reference:
+            logical = (
+                dequantize_gguf_tensor(
+                    packed, tensor.tensor_type, dtype=torch.bfloat16, device="cuda"
+                )
+                .reshape(size.n, size.k)
+                .contiguous()
+            )
+            baseline_output = torch.mm(input_tensor, logical.transpose(0, 1))
+        else:
+            baseline_output = None
         torch.cuda.synchronize()
-        baseline_candidate = candidate_output.clone()
-        correctness["candidate_vs_hip_kernel"] = _metrics(candidate_output, hip_output)
-        correctness["candidate_vs_public_complete"] = _metrics(
+        correctness["ggtensile_vs_public_api"] = error_metrics(
             candidate_output, public_output
         )
-
-        input_tensor.neg_()
-        quantize()
-        launch_hip()
-        launch_candidate()
-        updated_public = torch_ggml_ops.mmq(
-            input_tensor,
-            packed_weight,
-            quant_type,
-            size.n,
-        )
-        torch.cuda.synchronize()
-        correctness["input_mutation_vs_hip_kernel"] = _metrics(
-            candidate_output, hip_output
-        )
-        correctness["input_mutation_vs_public_complete"] = _metrics(
-            candidate_output, updated_public
-        )
-        correctness["input_mutation_changed_elements"] = int(
-            torch.count_nonzero(candidate_output != baseline_candidate)
-        )
-        input_tensor.neg_()
-
-        packed_bytes = packed_weight.view(-1)
-        packed_original = packed_bytes[16].clone()
-        packed_bytes[16].bitwise_xor_(1)
-        quantize()
-        launch_hip()
-        launch_candidate()
-        torch.cuda.synchronize()
-        correctness["packed_weight_mutation_vs_hip_kernel"] = _metrics(
-            candidate_output, hip_output
-        )
-        correctness["packed_weight_mutation_changed_elements"] = int(
-            torch.count_nonzero(candidate_output != baseline_candidate)
-        )
-        packed_bytes[16].copy_(packed_original)
-
-        quantize()
-        workspace_bytes = workspace.view(-1)
-        workspace_index = 16
-        workspace_original = workspace_bytes[workspace_index].clone()
-        workspace_bytes[workspace_index].bitwise_xor_(1)
-        launch_hip()
-        launch_candidate()
-        torch.cuda.synchronize()
-        correctness["workspace_mutation_vs_hip_kernel"] = _metrics(
-            candidate_output, hip_output
-        )
-        correctness["workspace_mutation_changed_elements"] = int(
-            torch.count_nonzero(candidate_output != baseline_candidate)
-        )
-        workspace_bytes[workspace_index].copy_(workspace_original)
-
-        quantize()
-        launch_candidate()
-        torch.cuda.synchronize()
-        if not arguments.skip_reference:
-            logical_weight = dequantize_gguf_tensor(
-                packed_weight,
-                tensor.tensor_type,
-                dtype=torch.bfloat16,
-                device="cuda",
-            ).reshape(size.n, size.k)
-            reference = torch.mm(input_tensor, logical_weight.transpose(0, 1))
-            correctness["candidate_vs_independent_reference"] = _metrics(
-                candidate_output,
-                reference,
+        if baseline_output is not None:
+            correctness["public_api_vs_bf16_baseline"] = error_metrics(
+                public_output, baseline_output
             )
-            correctness["public_vs_independent_reference"] = _metrics(
-                public_output,
-                reference,
+            correctness["ggtensile_vs_bf16_baseline"] = error_metrics(
+                candidate_output, baseline_output
             )
-            del logical_weight, reference
+        if hip is not None:
+            correctness["ggtensile_vs_hip"] = error_metrics(
+                candidate_output, hip_output
+            )
+            correctness["public_api_vs_hip"] = error_metrics(public_output, hip_output)
+        require_metrics(
+            correctness["ggtensile_vs_public_api"], "GGTensile/public API", 5e-4
+        )
+        if baseline_output is not None:
+            require_metrics(
+                correctness["ggtensile_vs_bf16_baseline"], "GGTensile/BF16", 0.04
+            )
+        if hip is not None:
+            require_metrics(correctness["ggtensile_vs_hip"], "GGTensile/HIP", 5e-4)
 
-        timing_functions = {
-            "hip_complete": hip_complete,
-            "candidate_complete": candidate_complete,
-            "hip_kernel": launch_hip,
-            "candidate_kernel": launch_candidate,
-        }
-        for _ in range(arguments.warmup):
-            for function in timing_functions.values():
-                function()
-        torch.cuda.synchronize()
-        samples = {name: [] for name in timing_functions}
-        names = list(timing_functions)
-        for repeat in range(arguments.repeats):
-            offset = repeat % len(names)
-            for name in names[offset:] + names[:offset]:
-                samples[name].append(_event_time(timing_functions[name]))
+        timing = {}
+        if not args.skip_timing:
+            quantize()
+            functions = {
+                "public_api": public_api,
+                "ggtensile_complete": ggtensile_complete,
+                "ggtensile_kernel": ggtensile_kernel,
+            }
+            if baseline_output is not None:
+                assert logical is not None
+                baseline_logical = logical
+                functions["bf16_baseline"] = lambda: torch.mm(
+                    input_tensor, baseline_logical.transpose(0, 1)
+                )
+            if hip is not None:
+                functions["hip_complete"] = hip_complete
+                functions["hip_kernel"] = hip_kernel
+            timing = rotating_timings(
+                functions,
+                warmup=args.warmup,
+                repeats=args.repeats,
+                logical_flops=2 * size.m * size.n * size.k,
+            )
 
-    logical_flops = 2 * size.m * size.n * size.k
-    timing = {name: _timing(values, logical_flops) for name, values in samples.items()}
     report = {
+        **case.to_mapping(),
         "solution_key": key.to_mapping(),
         "solution_hash": key.hash,
         "kernel_name": key.kernel_name,
-        "code_object": str(arguments.code_object),
-        "model": str(arguments.model),
-        "tensor": arguments.tensor,
-        "logical_weight_shape": [size.n, size.k],
-        "physical_weight_shape": list(tensor.data.shape),
+        "model": str(args.model),
+        "tensor": args.tensor,
         "input_shape": [size.m, size.k],
         "output_shape": [size.m, size.n],
-        "workspace_shape": [size.k // 128, size.m, 144],
-        "logical_flops": logical_flops,
         "protocol": {
-            "warmup": arguments.warmup,
-            "repeats": arguments.repeats,
-            "rotating_order": True,
+            "warmup": args.warmup,
+            "repeats": args.repeats,
+            "correctness_before_timing": True,
         },
-        "correctness_thresholds": {
-            "max_candidate_to_hip_normalized_rmse": (
-                MAX_CANDIDATE_TO_HIP_NORMALIZED_RMSE
-            ),
-            "max_candidate_to_hip_absolute_error": (
-                MAX_CANDIDATE_TO_HIP_ABSOLUTE_ERROR
-            ),
-            "max_independent_normalized_rmse": MAX_INDEPENDENT_NORMALIZED_RMSE,
+        "implementations": {
+            "public_api": {"available": True, "label": "torch_ggml_ops.mmq"},
+            "ggtensile": {"available": True, "artifact": str(args.code_object)},
+            "hip": {"available": hip is not None, "reason": hip_reason},
+            "bf16_baseline": {
+                "available": baseline_output is not None,
+                "label": "torch.mm on dequantized BF16 weight",
+            },
         },
         "correctness": correctness,
         "timing": timing,
-        "candidate_complete_to_hip_latency": (
-            timing["candidate_complete"]["median_ms"]
-            / timing["hip_complete"]["median_ms"]
-        ),
-        "candidate_complete_to_hip_throughput": (
-            timing["candidate_complete"]["median_tflops"]
-            / timing["hip_complete"]["median_tflops"]
-        ),
-        "candidate_kernel_to_hip_latency": (
-            timing["candidate_kernel"]["median_ms"] / timing["hip_kernel"]["median_ms"]
-        ),
-        "candidate_kernel_to_hip_throughput": (
-            timing["candidate_kernel"]["median_tflops"]
-            / timing["hip_kernel"]["median_tflops"]
-        ),
     }
-    arguments.output.parent.mkdir(parents=True, exist_ok=True)
-    arguments.output.write_text(
-        json.dumps(report, indent=2, allow_nan=False) + "\n",
-        encoding="utf-8",
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(
+        json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8"
     )
     print(json.dumps(report, indent=2, allow_nan=False))
-
-    hip_agreement_names = (
-        "candidate_vs_hip_kernel",
-        "candidate_vs_public_complete",
-        "input_mutation_vs_hip_kernel",
-        "input_mutation_vs_public_complete",
-        "packed_weight_mutation_vs_hip_kernel",
-        "workspace_mutation_vs_hip_kernel",
-    )
-    hip_agreement = tuple(
-        cast(Metrics, correctness[name]) for name in hip_agreement_names
-    )
-    if any(
-        not metrics["finite"]
-        or metrics["normalized_rmse"] is None
-        or metrics["normalized_rmse"] > MAX_CANDIDATE_TO_HIP_NORMALIZED_RMSE
-        or metrics["max_absolute_error"] is None
-        or metrics["max_absolute_error"] > MAX_CANDIDATE_TO_HIP_ABSOLUTE_ERROR
-        for metrics in hip_agreement
-    ):
-        raise SystemExit("candidate failed forward correctness tolerance")
-    if not arguments.skip_reference:
-        independent_metrics = cast(
-            Metrics, correctness["candidate_vs_independent_reference"]
-        )
-        independent_nrmse = independent_metrics["normalized_rmse"]
-        if (
-            independent_nrmse is None
-            or independent_nrmse > MAX_INDEPENDENT_NORMALIZED_RMSE
-        ):
-            raise SystemExit("candidate failed independent-reference tolerance")
-    producer_repeat = correctness["producer_repeat"]
-    if producer_repeat["different_bytes"] != 0:
-        raise SystemExit("fixed Q8_1 F16_D4S4 producer is not deterministic")
-    if correctness["input_mutation_changed_elements"] == 0:
-        raise SystemExit("input mutation did not affect output")
-    if correctness["packed_weight_mutation_changed_elements"] == 0:
-        raise SystemExit("packed-weight mutation did not affect output")
-    if correctness["workspace_mutation_changed_elements"] == 0:
-        raise SystemExit("workspace mutation did not affect output")
 
 
 if __name__ == "__main__":

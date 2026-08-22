@@ -11,13 +11,12 @@ from pathlib import Path
 from typing import Protocol, TypedDict, TypeVar, cast
 
 import gguf
+import numpy as np
 import torch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
-
-from tests.deepseek_dense_cases import DEEPSEEK_DENSE_TENSORS_BY_NAME
 
 DEFAULT_MODEL = Path(
     os.environ.get(
@@ -180,51 +179,71 @@ QWEN_DENSE_CASES = (
 )
 
 
-def _deepseek_weight_case(
-    tensor_case_name: str,
-    benchmark_name: str,
-    description: str,
-    *,
-    projections: int = 1,
-) -> DenseMMQCase:
-    tensor_case = DEEPSEEK_DENSE_TENSORS_BY_NAME[tensor_case_name]
-    return DenseMMQCase(
-        benchmark_name,
-        tensor_case.tensor_name,
-        tensor_case.out_features,
-        tensor_case.in_features,
-        tensor_case.tensor_count * projections,
-        description,
-        tensor_case.quant_type,
-        lm_head=tensor_case.lm_head,
-    )
-
-
 DEEPSEEK_DENSE_CASES = (
-    _deepseek_weight_case(
-        "attention_q_a", "ds4_attn_q_a_q8_0", "attention query A projection"
+    DenseMMQCase(
+        "ds4_attn_q_a_q8_0",
+        "blk.0.attn_q_a.weight",
+        1024,
+        4096,
+        43,
+        "attention query A projection",
+        "Q8_0",
     ),
-    _deepseek_weight_case(
-        "attention_q_b", "ds4_attn_q_b_q8_0", "attention query B projection"
+    DenseMMQCase(
+        "ds4_attn_q_b_q8_0",
+        "blk.0.attn_q_b.weight",
+        32768,
+        1024,
+        43,
+        "attention query B projection",
+        "Q8_0",
     ),
-    _deepseek_weight_case(
-        "attention_kv", "ds4_attn_kv_q8_0", "attention key/value projection"
+    DenseMMQCase(
+        "ds4_attn_kv_q8_0",
+        "blk.0.attn_kv.weight",
+        512,
+        4096,
+        43,
+        "attention key/value projection",
+        "Q8_0",
     ),
-    _deepseek_weight_case(
-        "attention_output_b",
+    DenseMMQCase(
         "ds4_attn_output_b_q8_0",
+        "blk.0.attn_output_b.weight",
+        4096,
+        8192,
+        43,
         "attention output B projection",
+        "Q8_0",
     ),
-    _deepseek_weight_case(
-        "shared_gate",
+    DenseMMQCase(
         "ds4_shared_gate_up_q8_0",
+        "blk.0.ffn_gate_shexp.weight",
+        2048,
+        4096,
+        86,
         "shared-expert gate/up geometry",
-        projections=2,
+        "Q8_0",
     ),
-    _deepseek_weight_case(
-        "shared_down", "ds4_shared_down_q8_0", "shared-expert down projection"
+    DenseMMQCase(
+        "ds4_shared_down_q8_0",
+        "blk.0.ffn_down_shexp.weight",
+        4096,
+        2048,
+        43,
+        "shared-expert down projection",
+        "Q8_0",
     ),
-    _deepseek_weight_case("lm_head", "ds4_lm_head_q8_0", "chunked language-model head"),
+    DenseMMQCase(
+        "ds4_lm_head_q8_0",
+        "output.weight",
+        129280,
+        4096,
+        1,
+        "chunked language-model head",
+        "Q8_0",
+        lm_head=True,
+    ),
 )
 
 DENSE_CASES_BY_MODEL_FAMILY = {
@@ -518,6 +537,17 @@ def load_gguf_tensors(
     if missing:
         raise RuntimeError(f"checkpoint is missing benchmark tensors: {missing}")
     return reader, tensors
+
+
+def load_packed_tensor(
+    tensor: gguf.ReaderTensor,
+    out_features: int | None = None,
+) -> torch.Tensor:
+    data = tensor.data if out_features is None else tensor.data[:out_features]
+    host = np.array(data, dtype=np.uint8, copy=True, order="C")
+    packed = torch.from_numpy(host).to("cuda")
+    del host
+    return packed
 
 
 def write_json_report(path: Path, report: Mapping[str, object]) -> None:

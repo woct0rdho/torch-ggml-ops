@@ -16,6 +16,7 @@ from pathlib import Path
 
 import gguf
 import torch
+from benchmark_support import public_dense_backward
 from mmq_benchmark_common import (
     BenchmarkTiming,
     DenseMMQCase,
@@ -25,6 +26,7 @@ from mmq_benchmark_common import (
     dense_result_metadata,
     error_metrics,
     load_gguf_tensors,
+    load_packed_tensor,
     make_bf16_input,
     make_row_specs,
     parse_dense_benchmark_args,
@@ -39,7 +41,6 @@ from mmq_benchmark_common import (
 from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
 import torch_ggml_ops  # noqa: F401 Register native operators before torch.ops use.
-from tests.mmq_test_support import load_packed_tensor
 
 DEFAULT_OUTPUT = Path("/tmp/torch_ggml_ops_mmq_bwd_benchmark.json")
 
@@ -51,14 +52,8 @@ def correctness_metrics(
     quant_type: int,
     in_features: int,
 ) -> dict[str, object]:
-    with torch.inference_mode():
-        actual = torch.ops.torch_ggml_ops.mmq_grad_input.default(
-            grad_output,
-            packed_weight,
-            quant_type,
-            in_features,
-        )
-        expected = torch.mm(grad_output, logical_weight)
+    actual = public_dense_backward(grad_output, packed_weight, quant_type, in_features)
+    expected = torch.mm(grad_output, logical_weight)
     return {"rows": grad_output.shape[0], **error_metrics(actual, expected)}
 
 
@@ -79,11 +74,8 @@ def benchmark_packed_rows(
         )
         measurements[rows] = benchmark_callable(
             lambda grad_output=grad_output, packed_weight=packed_weight, quant_type=quant_type, in_features=case.in_features: (
-                torch.ops.torch_ggml_ops.mmq_grad_input.default(
-                    grad_output,
-                    packed_weight,
-                    quant_type,
-                    in_features,
+                public_dense_backward(
+                    grad_output, packed_weight, quant_type, in_features
                 )
             ),
             rows,
@@ -104,9 +96,8 @@ def benchmark_reference_rows(
     packed_weight: torch.Tensor,
     logical_weight: torch.Tensor,
     quant_type: int,
-) -> tuple[dict[int, BenchmarkTiming], dict[int, dict[str, object]]]:
+) -> dict[int, BenchmarkTiming]:
     reference_measurements: dict[int, BenchmarkTiming] = {}
-    correctness: dict[int, dict[str, object]] = {}
     for row_index, rows in enumerate(rows_to_measure):
         grad_output = make_bf16_input(
             rows,
@@ -123,18 +114,8 @@ def benchmark_reference_rows(
             args.warmup,
             args.repeats,
         )
-        correctness_grad_output = grad_output[
-            : min(args.correctness_rows, rows)
-        ].clone()
-        correctness[rows] = correctness_metrics(
-            correctness_grad_output,
-            packed_weight,
-            logical_weight,
-            quant_type,
-            case.in_features,
-        )
-        del grad_output, correctness_grad_output
-    return reference_measurements, correctness
+        del grad_output
+    return reference_measurements
 
 
 def benchmark_case(
@@ -155,16 +136,6 @@ def benchmark_case(
         args.sequence_length,
         lm_head_chunks,
     )
-    packed_by_rows = benchmark_packed_rows(
-        args,
-        case,
-        case_index,
-        unique_rows,
-        packed_weight,
-        quant_type,
-    )
-
-    torch.cuda.synchronize()
     logical_weight = dequantize_gguf_tensor(
         packed_weight,
         tensor.tensor_type,
@@ -172,7 +143,25 @@ def benchmark_case(
         device="cuda",
     ).reshape(case.out_features, case.in_features)
     logical_weight = logical_weight.contiguous()
-    reference_by_rows, correctness_by_rows = benchmark_reference_rows(
+    correctness_by_rows = {}
+    for row_index, rows in enumerate(unique_rows):
+        correctness_input = make_bf16_input(
+            min(args.correctness_rows, rows),
+            case.out_features,
+            args.seed + case_index * 1000 + row_index,
+        )
+        correctness_by_rows[rows] = correctness_metrics(
+            correctness_input,
+            packed_weight,
+            logical_weight,
+            quant_type,
+            case.in_features,
+        )
+        del correctness_input
+    packed_by_rows = benchmark_packed_rows(
+        args, case, case_index, unique_rows, packed_weight, quant_type
+    )
+    reference_by_rows = benchmark_reference_rows(
         args,
         case,
         case_index,

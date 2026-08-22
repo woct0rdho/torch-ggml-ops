@@ -68,22 +68,22 @@ Every failure occurs before quantization, task setup, or multiply launch. Native
 
 Selected ordinary winners are loaded from the ten strict catalogs in `tools/ggtensile/configs/mmq_<direction>_<quant>_catalog.json`. Selected grouped, paired, and fixed winners are loaded from `tools/ggtensile/configs/mmq_deployment.json`.
 
-The current bundle contains 156 independently loadable artifacts:
+The current public bundle contains 152 independently loadable artifacts:
 
 | Artifact class | Count |
 | --- | ---: |
 | Q8_1 activation producers | 3 |
 | Grouped row-task setup | 1 |
-| Ordinary forward GGTensile | 56 |
+| Ordinary forward GGTensile | 50 |
 | Ordinary backward GGTensile | 50 |
 | Grouped forward GGTensile | 12 |
-| Grouped paired forward GGTensile | 7 |
+| Grouped paired forward GGTensile | 9 |
 | Grouped backward GGTensile | 12 |
 | Grouped paired backward GGTensile | 9 |
 | Fixed grouped forward GGTensile | 3 |
 | Fixed grouped backward GGTensile | 3 |
 
-The four setup artifacts are the only HIP-compiled entries. All 152 multiply artifacts come from typed GGTensile assembly writers. HIP source may remain as an offline reference, but no HIP compute artifact is packaged or reachable as a fallback.
+The four setup artifacts are the only HIP-compiled entries in the public bundle. All 148 public multiply artifacts come from typed GGTensile assembly writers. Historical HIP controls are built separately for research comparisons; they are never part of public dispatch or used as a fallback.
 
 Each selected route stores one winner only. Inventory parsing reconstructs the typed exact key and verifies its hash, symbol, ABI, workgroup, grid, fixed LDS size, ownership, and row-task bounds against facts derived from that key. Benchmark medians, model names, rejected alternatives, and tuning heuristics are not deployment fields.
 
@@ -117,7 +117,16 @@ python tools/build_mmq_bundle.py --verify-reproducible --jobs 16
 
 The reproducibility gate builds the complete bundle twice and requires byte-identical artifacts in inventory order. `--check` verifies the exact artifact set, generated header, and input stamp.
 
-`setup.py build_ext`, wheel builds, and editable installs run the bundle builder before compiling `_C.abi3.so`, then copy the exact generated HSACO set into the wheel build tree. Source distributions are not supported. HSACOs and the local build stamp remain ignored by Git.
+`setup.py build_ext`, wheel builds, and editable installs run the public bundle builder before compiling `_C.abi3.so`, then copy the exact public HSACO set into the wheel build tree. Historical controls remain outside the public package. Source distributions are not supported. HSACOs and local build stamps remain ignored by Git.
+
+The historical control build is an explicit research-only step:
+
+```bash
+python tools/build_mmq_hip_controls.py --check
+python tools/build_mmq_hip_controls.py --verify-reproducible --jobs 16
+```
+
+Benchmark runners accept `--hip-code-object` as either one control HSACO or a directory containing the historical-control set. Runtime discovery checks `build/mmq_hip_controls/gfx1151` and explicitly supplied control directories. These controls are comparison artifacts only; their presence does not change the 148-route public inventory.
 
 ## Runtime loading and launch
 
@@ -129,6 +138,11 @@ torch_ggml_ops/
   kernels/gfx1151/
     <exact-versioned-symbol>.hsaco
     ...
+
+# Optional research-only controls (outside the public package):
+build/mmq_hip_controls/gfx1151/
+  <historical-control-symbol>.hsaco
+  ...
 ```
 
 `csrc/mmq_bundle_loader.cpp` locates `_C.abi3.so` with `dladdr` and resolves the kernel directory relative to the extension, independent of the process working directory. On first use of `(device, kernel index)`, it reads and retains the artifact bytes, loads the module, resolves the exact symbol, and caches the module/function. A mutex serializes first resolution.

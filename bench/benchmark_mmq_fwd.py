@@ -27,6 +27,7 @@ from mmq_benchmark_common import (
     dense_result_metadata,
     error_metrics,
     load_gguf_tensors,
+    load_packed_tensor,
     make_bf16_input,
     make_row_specs,
     parse_dense_benchmark_args,
@@ -41,7 +42,6 @@ from mmq_benchmark_common import (
 from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
 import torch_ggml_ops
-from tests.mmq_test_support import load_packed_tensor
 
 DEFAULT_OUTPUT = Path("/tmp/torch_ggml_ops_mmq_fwd_benchmark.json")
 
@@ -129,11 +129,9 @@ def benchmark_reference_rows(
 ) -> tuple[
     dict[int, BenchmarkTiming],
     dict[int, TransientTiming],
-    dict[int, dict[str, object]],
 ]:
     reference_measurements: dict[int, BenchmarkTiming] = {}
     transient_measurements: dict[int, TransientTiming] = {}
-    correctness: dict[int, dict[str, object]] = {}
     transposed_weight = logical_weight.transpose(0, 1)
     for row_index, rows in enumerate(rows_to_measure):
         input = make_bf16_input(
@@ -158,16 +156,8 @@ def benchmark_reference_rows(
                 args.warmup,
                 args.repeats,
             )
-        correctness_input = input[: min(args.correctness_rows, rows)].clone()
-        correctness[rows] = correctness_metrics(
-            correctness_input,
-            packed_weight,
-            logical_weight,
-            quant_type,
-            case.out_features,
-        )
-        del input, correctness_input
-    return reference_measurements, transient_measurements, correctness
+        del input
+    return reference_measurements, transient_measurements
 
 
 def benchmark_case(
@@ -188,16 +178,6 @@ def benchmark_case(
         args.sequence_length,
         lm_head_chunks,
     )
-    packed_by_rows = benchmark_packed_rows(
-        args,
-        case,
-        case_index,
-        unique_rows,
-        packed_weight,
-        quant_type,
-    )
-
-    torch.cuda.synchronize()
     logical_weight = dequantize_gguf_tensor(
         packed_weight,
         tensor.tensor_type,
@@ -205,16 +185,32 @@ def benchmark_case(
         device="cuda",
     ).reshape(case.out_features, case.in_features)
     logical_weight = logical_weight.contiguous()
-    reference_by_rows, transient_by_rows, correctness_by_rows = (
-        benchmark_reference_rows(
-            args,
-            case,
-            case_index,
-            unique_rows,
+    correctness_by_rows = {}
+    for row_index, rows in enumerate(unique_rows):
+        correctness_input = make_bf16_input(
+            min(args.correctness_rows, rows),
+            case.in_features,
+            args.seed + case_index * 1000 + row_index,
+        )
+        correctness_by_rows[rows] = correctness_metrics(
+            correctness_input,
             packed_weight,
             logical_weight,
             quant_type,
+            case.out_features,
         )
+        del correctness_input
+    packed_by_rows = benchmark_packed_rows(
+        args, case, case_index, unique_rows, packed_weight, quant_type
+    )
+    reference_by_rows, transient_by_rows = benchmark_reference_rows(
+        args,
+        case,
+        case_index,
+        unique_rows,
+        packed_weight,
+        logical_weight,
+        quant_type,
     )
 
     results = []

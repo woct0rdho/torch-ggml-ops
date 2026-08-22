@@ -63,6 +63,7 @@ class BuildExtension(cpp_extension.BuildExtension):
                 artifact.unlink()
         for artifact in PACKAGE_KERNEL_DIR.glob("*.hsaco"):
             shutil.copy2(artifact, built_kernel_dir / artifact.name)
+        shutil.rmtree(built_kernel_dir / "hip_controls", ignore_errors=True)
 
 
 stable_defines = [
@@ -87,5 +88,6 @@ setup(
         )
     ],
     cmdclass={"build_ext": BuildExtension},
+    package_data={"torch_ggml_ops": ["kernels/gfx1151/*.hsaco"]},
     options={"bdist_wheel": {"py_limited_api": "cp310"}},
 )

@@ -1,4 +1,4 @@
-"""Shared machine-readable timing and correctness records for GGTensile tools."""
+"""Shared machine-readable timing and correctness records for benchmarks."""
 
 import statistics
 from collections.abc import Callable, Mapping
@@ -46,7 +46,7 @@ def error_metrics(actual: torch.Tensor, expected: torch.Tensor) -> ErrorMetrics:
     }
 
 
-def event_time(function: Callable[[], None]) -> float:
+def event_time(function: Callable[[], object]) -> float:
     start = torch.cuda.Event(enable_timing=True)
     end = torch.cuda.Event(enable_timing=True)
     start.record()
@@ -69,7 +69,7 @@ def timing_summary(samples_ms: list[float], logical_flops: int) -> TimingSummary
 
 
 def rotating_timings(
-    functions: Mapping[str, Callable[[], None]],
+    functions: Mapping[str, Callable[[], object]],
     *,
     warmup: int,
     repeats: int,

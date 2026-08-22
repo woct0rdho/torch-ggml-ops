@@ -4,19 +4,18 @@ from pathlib import Path
 
 import gguf
 import torch
+from benchmark_routes import (
+    RouteDistribution,
+    distribution_summary,
+)
 from mmq_benchmark_common import (
+    load_packed_tensor,
     make_benchmark_parser,
     select_family_cases,
     validate_benchmark_args,
 )
 from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
-
-from tests.mmq_test_support import load_packed_tensor
-from tools.ggtensile.benchmark_routes import (
-    RouteDistribution,
-    distribution_summary,
-)
-from tools.ggtensile.workload_prior import EXPERT_PRIOR_NAMES
+from workload_prior import EXPERT_PRIOR_NAMES
 
 QUANT_BLOCK_GEOMETRY = {
     "Q8_0": (32, 34),

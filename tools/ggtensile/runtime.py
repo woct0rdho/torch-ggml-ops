@@ -47,6 +47,26 @@ class HIPRuntimeError(RuntimeError):
     pass
 
 
+def _resolve_code_object(code_object: Path, kernel_name: str) -> Path:
+    if code_object.is_file():
+        return code_object
+    if code_object.is_dir():
+        directories = (
+            code_object,
+            code_object / "hip_controls",
+            code_object / "gfx1151",
+            code_object / "gfx1151" / "hip_controls",
+        )
+        for directory in directories:
+            candidate = directory / f"{kernel_name}.hsaco"
+            if candidate.is_file():
+                return candidate
+        raise HIPRuntimeError(
+            f"code object directory does not contain {kernel_name}.hsaco: {code_object}"
+        )
+    raise HIPRuntimeError(f"code object does not exist: {code_object}")
+
+
 class _HIPModule:
     """Shared HIP module lifetime and runtime API configuration."""
 
@@ -56,8 +76,7 @@ class _HIPModule:
         hip_library: Path | None,
         kernel_name: str,
     ) -> None:
-        if not code_object.is_file():
-            raise HIPRuntimeError(f"code object does not exist: {code_object}")
+        code_object = _resolve_code_object(code_object, kernel_name)
         self.code_object = code_object
         self._lib = ctypes.CDLL(str(hip_library or _find_hip_library()))
         self._configure_api()
@@ -212,24 +231,36 @@ class BackwardModule(_SolutionHIPModule):
                 "blocks_per_weight_row": size.n // 256,
             }
         )
-        solution = self.solution_key.solution
-        if not isinstance(solution, BackwardSolution):
-            raise HIPRuntimeError("MMQ backward requires BackwardSolution")
-        group_m = solution.work_group_mapping
-        m_blocks = size.m // solution.macro_tile0
+        grid, block, shared_memory = self._launch_configuration()
         self._check(
             self._lib.hipModuleLaunchKernel(
                 self._function,
-                group_m,
-                size.n // solution.macro_tile1,
-                m_blocks // group_m,
-                *solution.work_group,
-                0,
+                *grid,
+                *block,
+                shared_memory,
                 ctypes.c_void_p(stream),
                 packed_arguments.parameters,
                 None,
             ),
             "hipModuleLaunchKernel",
+        )
+
+    def _launch_configuration(
+        self,
+    ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
+        solution = self.solution_key.solution
+        if not isinstance(solution, BackwardSolution):
+            raise HIPRuntimeError("MMQ backward requires BackwardSolution")
+        group_m = solution.work_group_mapping
+        m_blocks = self.solution_key.problem_size.m // solution.macro_tile0
+        return (
+            (
+                group_m,
+                self.solution_key.problem_size.n // solution.macro_tile1,
+                m_blocks // group_m,
+            ),
+            solution.work_group,
+            0,
         )
 
 
@@ -1343,16 +1374,21 @@ def _find_installed_kernel(symbol: str) -> Path:
     )
     override = os.environ.get(override_name)
     if override:
-        candidate = Path(override)
-        if candidate.is_file():
-            return candidate
-        raise HIPRuntimeError(f"{override_name} does not exist: {candidate}")
-    package_roots = (
-        Path(__file__).resolve().parents[2] / "torch_ggml_ops",
-        Path(sysconfig.get_paths()["purelib"]) / "torch_ggml_ops",
+        return _resolve_code_object(Path(override), symbol)
+    control_root = os.environ.get("GGTENSILE_HIP_CONTROL_ROOT")
+    if control_root:
+        return _resolve_code_object(Path(control_root), symbol)
+    repo_root = Path(__file__).resolve().parents[2]
+    purelib = Path(sysconfig.get_paths()["purelib"])
+    roots = (
+        repo_root / "build/mmq_hip_controls/gfx1151",
+        repo_root / "torch_ggml_ops/kernels/gfx1151",
+        repo_root / "torch_ggml_ops/kernels/gfx1151/hip_controls",
+        purelib / "torch_ggml_ops/kernels/gfx1151",
+        purelib / "torch_ggml_ops/kernels/gfx1151/hip_controls",
     )
-    for package_root in package_roots:
-        candidate = package_root / "kernels" / "gfx1151" / f"{symbol}.hsaco"
+    for root in roots:
+        candidate = root / f"{symbol}.hsaco"
         if candidate.is_file():
             return candidate
     raise HIPRuntimeError(f"cannot find installed kernel {symbol}; set {override_name}")

@@ -1,4 +1,5 @@
 from .campaign import CatalogEntry, CatalogError, DeploymentCatalog, load_catalog
+from .dense_mmq_bwd_runtime import InstalledDenseBackwardModule
 from .inspection import ArtifactInspection, InspectionError, inspect_artifact
 from .mmq_fwd_reference import (
     decode_q8_0_block,
@@ -75,6 +76,7 @@ __all__ = [
     "HIPRuntimeError",
     "HighBitReconstructionSpec",
     "InspectionError",
+    "InstalledDenseBackwardModule",
     "InstructionPolicy",
     "KernelArtifact",
     "LdsSpec",

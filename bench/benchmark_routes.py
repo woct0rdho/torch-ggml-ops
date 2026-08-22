@@ -6,12 +6,20 @@ from typing import TypedDict
 
 import torch
 
-from .workload_prior import (
-    ExpertPrior,
-    ExpertProfile,
-    profile_for_routed_rows,
-    sample_expert_profile,
-)
+try:
+    from .workload_prior import (
+        ExpertPrior,
+        ExpertProfile,
+        profile_for_routed_rows,
+        sample_expert_profile,
+    )
+except ImportError:
+    from workload_prior import (
+        ExpertPrior,
+        ExpertProfile,
+        profile_for_routed_rows,
+        sample_expert_profile,
+    )
 
 
 @dataclass(frozen=True)

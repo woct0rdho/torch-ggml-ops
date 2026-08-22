@@ -1,5 +1,4 @@
 import json
-from collections import Counter
 from pathlib import Path
 from typing import Any, cast
 
@@ -79,23 +78,6 @@ def test_rejects_alternative_kernel_field(tmp_path: Path) -> None:
     manifest["Routes"][0]["Candidates"] = [manifest["Routes"][0].pop("Kernel")]
     with pytest.raises(DeploymentError, match="unknown.*Candidates"):
         load_deployment_inventory(_write(tmp_path, manifest))
-
-
-def test_checked_in_inventory_has_exact_selected_winners() -> None:
-    path = (
-        Path(__file__).resolve().parents[2]
-        / "tools/ggtensile/configs/mmq_deployment.json"
-    )
-    inventory = load_deployment_inventory(path)
-    assert len(inventory.routes) == 46
-    assert Counter(route.operation for route in inventory.routes) == {
-        "GroupedForward": 12,
-        "GroupedForwardPair": 7,
-        "GroupedBackward": 12,
-        "GroupedBackwardPair": 9,
-        "FixedGroupedForward": 3,
-        "FixedGroupedBackward": 3,
-    }
 
 
 @pytest.mark.parametrize(

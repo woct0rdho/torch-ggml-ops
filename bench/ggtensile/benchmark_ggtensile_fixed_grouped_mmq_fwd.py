@@ -14,19 +14,21 @@ from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
 import torch_ggml_ops
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+BENCH_ROOT = REPO_ROOT / "bench"
+if str(BENCH_ROOT) not in sys.path:
+    sys.path.insert(0, str(BENCH_ROOT))
 
-from tools.ggtensile.benchmark_report import (
-    ErrorMetrics,
-    error_metrics,
-    rotating_timings,
-)
+from benchmark_report import ErrorMetrics, error_metrics, rotating_timings
+from benchmark_support import require_case
+
 from tools.ggtensile.fixed_grouped_mmq_fwd_model import FixedForwardSolutionKey
 from tools.ggtensile.runtime import (
     FixedGroupedQ8ForwardModule,
     FixedQ81F32D4QuantizerModule,
+    HIPRuntimeError,
     InstalledFixedGroupedQ8ForwardModule,
 )
 
@@ -41,6 +43,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--solution-key", type=Path, required=True)
     parser.add_argument("--code-object", type=Path, required=True)
+    parser.add_argument("--hip-code-object", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--model", type=Path, required=True)
     parser.add_argument("--tensor", required=True)
@@ -48,6 +51,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--repeats", type=int, default=9)
     parser.add_argument("--seed", type=int, default=20260819)
     parser.add_argument("--skip-reference", action="store_true")
+    parser.add_argument("--skip-timing", action="store_true")
     return parser
 
 
@@ -86,8 +90,12 @@ def _load_weight(
     return tensor, packed
 
 
-def _require_correctness(correctness: dict[str, object], reference: bool) -> None:
-    names = ("candidate_vs_hip_kernel", "candidate_vs_public_complete")
+def _require_correctness(
+    correctness: dict[str, object], reference: bool, hip: bool
+) -> None:
+    names = ["candidate_vs_public_api"]
+    if hip:
+        names.append("candidate_vs_hip")
     for name in names:
         metrics = cast(ErrorMetrics, correctness[name])
         if (
@@ -99,7 +107,7 @@ def _require_correctness(correctness: dict[str, object], reference: bool) -> Non
         ):
             raise RuntimeError(f"fixed correctness failed: {name}")
     if reference:
-        metrics = cast(ErrorMetrics, correctness["candidate_vs_bf16_reference"])
+        metrics = cast(ErrorMetrics, correctness["candidate_vs_bf16_baseline"])
         if (
             metrics["normalized_rmse"] is None
             or metrics["normalized_rmse"] > MAX_REFERENCE_NORMALIZED_RMSE
@@ -116,6 +124,7 @@ def main() -> None:
         raise ValueError("warmup must be nonnegative and repeats must be positive")
     key = _load_key(args.solution_key)
     problem = key.problem
+    case = require_case("FixedGroupedForward", key, args.code_object, (args.tensor,))
     tensor, packed_weight = _load_weight(args.model, args.tensor, key)
     generator = torch.Generator(device="cuda").manual_seed(args.seed)
     input_tensor = torch.randn(
@@ -135,13 +144,22 @@ def main() -> None:
     hip_output = torch.empty_like(candidate_output)
     stream = torch.cuda.current_stream().cuda_stream
 
+    hip = None
+    hip_reason = "no legacy HIP control artifact was supplied"
     with contextlib.ExitStack() as stack:
         quantizer = stack.enter_context(FixedQ81F32D4QuantizerModule())
         workspace = quantizer.allocate(flat_input)
         candidate = stack.enter_context(
             FixedGroupedQ8ForwardModule(key, args.code_object)
         )
-        hip = stack.enter_context(InstalledFixedGroupedQ8ForwardModule(key))
+        if args.hip_code_object is not None:
+            try:
+                hip = stack.enter_context(
+                    InstalledFixedGroupedQ8ForwardModule(key, args.hip_code_object)
+                )
+                hip_reason = None
+            except HIPRuntimeError as error:
+                hip_reason = str(error)
 
         def quantize() -> None:
             quantizer.launch(flat_input, workspace, stream=stream)
@@ -150,7 +168,8 @@ def main() -> None:
             candidate.launch(packed_weight, workspace, candidate_output, stream=stream)
 
         def hip_kernel() -> None:
-            hip.launch(packed_weight, workspace, hip_output, stream=stream)
+            if hip is not None:
+                hip.launch(packed_weight, workspace, hip_output, stream=stream)
 
         def candidate_complete() -> None:
             quantize()
@@ -174,10 +193,7 @@ def main() -> None:
                 ),
                 "bytes": workspace.numel(),
             },
-            "candidate_vs_hip_kernel": error_metrics(candidate_output, hip_output),
-            "candidate_vs_public_complete": error_metrics(
-                candidate_output, public_output
-            ),
+            "candidate_vs_public_api": error_metrics(candidate_output, public_output),
         }
         if not args.skip_reference:
             logical_weight = dequantize_gguf_tensor(
@@ -191,10 +207,11 @@ def main() -> None:
                 .permute(1, 0, 2)
                 .contiguous()
             )
-            correctness["candidate_vs_bf16_reference"] = error_metrics(
+            correctness["candidate_vs_bf16_baseline"] = error_metrics(
                 candidate_output, reference
             )
 
+        _require_correctness(correctness, not args.skip_reference, hip is not None)
         logical_flops = (
             2
             * problem.tokens
@@ -202,19 +219,29 @@ def main() -> None:
             * problem.output_features
             * problem.input_features
         )
-        timing = rotating_timings(
-            {
-                "hip_complete": hip_complete,
-                "candidate_complete": candidate_complete,
-                "hip_kernel": hip_kernel,
-                "candidate_kernel": candidate_kernel,
-            },
-            warmup=args.warmup,
-            repeats=args.repeats,
-            logical_flops=logical_flops,
-        )
+        timing = {}
+        if not args.skip_timing:
+            functions = {
+                "public_api": lambda: torch_ggml_ops.fixed_grouped_mmq(
+                    input_tensor, packed_weight
+                ),
+                "ggtensile_complete": candidate_complete,
+                "ggtensile_kernel": candidate_kernel,
+            }
+            if not args.skip_reference:
+                functions["bf16_baseline"] = lambda: reference
+            if hip is not None:
+                functions["hip_complete"] = hip_complete
+                functions["hip_kernel"] = hip_kernel
+            timing = rotating_timings(
+                functions,
+                warmup=args.warmup,
+                repeats=args.repeats,
+                logical_flops=logical_flops,
+            )
 
     report = {
+        **case.to_mapping(),
         "solution_key": key.to_mapping(),
         "solution_hash": key.hash,
         "kernel_name": key.kernel_name,
@@ -228,10 +255,19 @@ def main() -> None:
         "protocol": {
             "warmup": args.warmup,
             "repeats": args.repeats,
-            "rotating_order": True,
-            "complete_includes_quantization": True,
-            "complete_includes_output_allocation": False,
-            "kernel_uses_preallocated_output": True,
+            "correctness_before_timing": True,
+        },
+        "implementations": {
+            "public_api": {
+                "available": True,
+                "label": "torch_ggml_ops.fixed_grouped_mmq",
+            },
+            "ggtensile": {"available": True, "artifact": str(args.code_object)},
+            "hip": {"available": hip is not None, "reason": hip_reason},
+            "bf16_baseline": {
+                "available": not args.skip_reference,
+                "label": "torch.bmm on dequantized BF16 banks",
+            },
         },
         "correctness_thresholds": {
             "max_control_normalized_rmse": MAX_CONTROL_NORMALIZED_RMSE,
@@ -240,23 +276,7 @@ def main() -> None:
         },
         "correctness": correctness,
         "timing": timing,
-        "candidate_complete_to_hip_latency": (
-            timing["candidate_complete"]["median_ms"]
-            / timing["hip_complete"]["median_ms"]
-        ),
-        "candidate_complete_to_hip_throughput": (
-            timing["candidate_complete"]["median_tflops"]
-            / timing["hip_complete"]["median_tflops"]
-        ),
-        "candidate_kernel_to_hip_latency": (
-            timing["candidate_kernel"]["median_ms"] / timing["hip_kernel"]["median_ms"]
-        ),
-        "candidate_kernel_to_hip_throughput": (
-            timing["candidate_kernel"]["median_tflops"]
-            / timing["hip_kernel"]["median_tflops"]
-        ),
     }
-    _require_correctness(correctness, not args.skip_reference)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8"

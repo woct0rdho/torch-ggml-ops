@@ -1,653 +1,369 @@
 #!/usr/bin/env python3
+"""Benchmark one exact standalone grouped-backward deployment route."""
 
 import argparse
 import contextlib
 import json
-import statistics
 import sys
 from pathlib import Path
-from typing import TypedDict, cast
+from typing import cast
 
 import gguf
 import numpy as np
 import torch
 from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
-from torch_ggml_ops._mmq_cuda import grouped_mmq_grad_input
+ROOT = Path(__file__).resolve().parents[2]
+for path in (ROOT, ROOT / "bench"):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+from benchmark_report import ErrorMetrics, error_metrics, rotating_timings
+from benchmark_routes import fitted_prior_distribution_for_rows, make_route_tensors
+from benchmark_support import public_grouped_backward, require_case
+from workload_prior import EXPERT_PRIOR_NAMES, expert_prior_metadata
 
-from tools.ggtensile.benchmark_routes import (
-    RouteDistribution,
-    distribution_summary,
-    fitted_prior_distribution_for_rows,
-    make_route_tensors,
-    truncate_distribution,
+from tools.ggtensile.grouped_mmq_bwd_runtime import (
+    InstalledGroupedBackwardControl,
 )
 from tools.ggtensile.model import SolutionKey
 from tools.ggtensile.quant_formats import BACKWARD_QUANT_FORMATS
-from tools.ggtensile.runtime import GroupedBackwardModule
-from tools.ggtensile.workload_prior import (
-    EXPERT_PRIOR_NAMES,
-    REFERENCE_TOKENS,
-    expert_prior_metadata,
-)
+from tools.ggtensile.runtime import GroupedBackwardModule, HIPRuntimeError
 
-DEFAULT_MODEL = Path.home() / "models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf"
 DEFAULT_TENSORS = {
     "Q4_K": "blk.2.ffn_down_exps.weight",
     "Q5_K": "blk.0.ffn_down_exps.weight",
     "IQ2_S": "blk.10.ffn_down_exps.weight",
+    "Q2_K": "blk.0.ffn_down_exps.weight",
 }
-BF16_WMMA_ROOFLINE_TFLOPS = 59.4
 
 
-class Metrics(TypedDict):
-    different_bf16_elements: int
-    elements: int
-    finite: bool
-    max_absolute_error: float | None
-    error_rms: float | None
-    reference_rms: float
-    normalized_rmse: float | None
+def parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--solution-key", type=Path, required=True)
+    p.add_argument("--code-object", type=Path, required=True)
+    p.add_argument("--hip-code-object", type=Path)
+    p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--model", type=Path, required=True)
+    p.add_argument("--tensor")
+    p.add_argument("--expert-prior", choices=EXPERT_PRIOR_NAMES, required=True)
+    p.add_argument("--warmup", type=int, default=3)
+    p.add_argument("--repeats", type=int, default=9)
+    p.add_argument("--seed", type=int, default=20260818)
+    p.add_argument("--skip-reference", action="store_true")
+    p.add_argument("--skip-mutations", action="store_true")
+    p.add_argument("--skip-timing", action="store_true")
+    return p
 
 
-class TimingSummary(TypedDict):
-    samples_ms: list[float]
-    median_ms: float
-    mean_ms: float
-    min_ms: float
-    max_ms: float
-    median_tflops: float
-    wmma_roofline_fraction: float
-
-
-class TimingReport(TypedDict, total=False):
-    distribution: str
-    group_summary: dict[str, object]
-    logical_flops: int
-    hip_complete: TimingSummary
-    candidate_complete: TimingSummary
-    candidate_kernel: TimingSummary
-    candidate_to_hip_latency: float
-    candidate_to_hip_throughput: float
-
-
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Benchmark exact grouped GGTensile packed backward against HIP"
+def load_weight(model: Path, name: str, key: SolutionKey):
+    tensor = next(
+        (item for item in gguf.GGUFReader(model).tensors if item.name == name), None
     )
-    parser.add_argument("--solution-key", type=Path, required=True)
-    parser.add_argument("--code-object", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
-    parser.add_argument(
-        "--tensor",
-        help="GGUF tensor override; defaults to the quant-specific Qwen down tensor",
-    )
-    parser.add_argument(
-        "--expert-prior",
-        choices=EXPERT_PRIOR_NAMES,
-        required=True,
-        help="the sole fitted law used to materialize the routed rows",
-    )
-    parser.add_argument("--correctness-rows", type=int, default=625)
-    parser.add_argument("--warmup", type=int, default=3)
-    parser.add_argument("--repeats", type=int, default=9)
-    parser.add_argument("--reverse-order", action="store_true")
-    parser.add_argument("--seed", type=int, default=20260818)
-    parser.add_argument("--skip-correctness", action="store_true")
-    parser.add_argument("--skip-timing", action="store_true")
-    return parser
-
-
-def _metrics(actual: torch.Tensor, expected: torch.Tensor) -> Metrics:
-    difference = actual.float() - expected.float()
-    finite = bool(torch.isfinite(difference).all())
-    reference_rms = float(expected.float().square().mean().sqrt())
-    error_rms = float(difference.square().mean().sqrt()) if finite else None
-    return {
-        "different_bf16_elements": int(torch.count_nonzero(actual != expected)),
-        "elements": actual.numel(),
-        "finite": finite,
-        "max_absolute_error": float(difference.abs().max()) if finite else None,
-        "error_rms": error_rms,
-        "reference_rms": reference_rms,
-        "normalized_rmse": (
-            error_rms / reference_rms
-            if error_rms is not None and reference_rms
-            else None
-        ),
-    }
-
-
-def _event_time(function) -> tuple[float, torch.Tensor]:
-    start = torch.cuda.Event(enable_timing=True)
-    end = torch.cuda.Event(enable_timing=True)
-    start.record()
-    output = function()
-    end.record()
-    end.synchronize()
-    return float(start.elapsed_time(end)), output
-
-
-def _timing_summary(samples_ms: list[float], logical_flops: int) -> TimingSummary:
-    median_ms = statistics.median(samples_ms)
-    median_tflops = logical_flops / (median_ms * 1.0e9)
-    return {
-        "samples_ms": samples_ms,
-        "median_ms": median_ms,
-        "mean_ms": statistics.fmean(samples_ms),
-        "min_ms": min(samples_ms),
-        "max_ms": max(samples_ms),
-        "median_tflops": median_tflops,
-        "wmma_roofline_fraction": median_tflops / BF16_WMMA_ROOFLINE_TFLOPS,
-    }
-
-
-def _load_packed(
-    model: Path,
-    tensor_name: str,
-    key: SolutionKey,
-) -> tuple[torch.Tensor, int, list[int]]:
-    reader = gguf.GGUFReader(model)
-    tensor = next((item for item in reader.tensors if item.name == tensor_name), None)
     if tensor is None:
-        raise KeyError(f"GGUF tensor not found: {tensor_name}")
-    quant_type = key.problem_type.quant_data_type
-    if tensor.tensor_type.name != quant_type:
-        raise ValueError(
-            f"expected {quant_type} tensor, found {tensor.tensor_type.name}"
-        )
-    quant_format = BACKWARD_QUANT_FORMATS[quant_type]
-    packed_row_bytes = (
-        key.problem_size.n // quant_format.block_values * quant_format.block_bytes
-    )
-    physical_shape = [int(value) for value in tensor.data.shape]
-    expected_shape = [256, key.problem_size.k, packed_row_bytes]
-    if physical_shape != expected_shape:
-        raise ValueError(
-            f"unexpected packed expert shape {physical_shape}, expected {expected_shape}"
-        )
+        raise KeyError(f"GGUF tensor not found: {name}")
+    quant = key.problem_type.quant_data_type
+    if tensor.tensor_type.name != quant:
+        raise ValueError("tensor quant type does not match the exact key")
+    fmt = BACKWARD_QUANT_FORMATS[quant]
+    size = key.problem_size
+    expected = (256, size.k, size.n // fmt.block_values * fmt.block_bytes)
+    if tuple(int(value) for value in tensor.data.shape) != expected:
+        raise ValueError(f"packed tensor shape does not match {expected}")
     host = np.array(tensor.data, dtype=np.uint8, copy=True, order="C")
-    packed = torch.from_numpy(host).cuda()
-    del host
-    return packed, int(tensor.tensor_type), physical_shape
+    return tensor, torch.from_numpy(host).cuda()
 
 
-def _launch_candidate(
-    module: GroupedBackwardModule,
-    grad_output: torch.Tensor,
-    packed_weight: torch.Tensor,
-    output: torch.Tensor,
-    expert_indices: torch.Tensor,
-    expert_offsets: torch.Tensor,
-) -> torch.Tensor:
-    module.launch(
-        grad_output,
-        packed_weight,
-        output,
-        expert_indices,
-        expert_offsets,
-        stream=torch.cuda.current_stream().cuda_stream,
-    )
-    return output
-
-
-def _bf16_route_reference(
-    grad_output: torch.Tensor,
-    packed_weight: torch.Tensor,
-    quant_type: int,
-    distribution: RouteDistribution,
-    expert_indices: torch.Tensor,
-    output_features: int,
-) -> torch.Tensor:
-    selected_packed = packed_weight.index_select(0, expert_indices).contiguous()
+def reference(
+    grad_output, packed, quant_type, expert_indices, group_sizes, output_features
+):
+    selected = packed.index_select(0, expert_indices).contiguous()
     logical = dequantize_gguf_tensor(
-        selected_packed,
+        selected,
         gguf.GGMLQuantizationType(quant_type),
         dtype=torch.bfloat16,
         device="cuda",
-    ).reshape(len(distribution.group_sizes_cpu), grad_output.shape[1], output_features)
+    ).reshape(len(group_sizes), grad_output.shape[1], output_features)
     outputs = []
-    row_begin = 0
-    for group, size in enumerate(distribution.group_sizes_cpu):
-        row_end = row_begin + size
-        outputs.append(grad_output[row_begin:row_end] @ logical[group])
-        row_begin = row_end
-    result = torch.cat(outputs)
-    del selected_packed, logical, outputs
-    return result
+    begin = 0
+    for group, rows in enumerate(group_sizes):
+        end = begin + rows
+        outputs.append(grad_output[begin:end] @ logical[group])
+        begin = end
+    return torch.cat(outputs)
 
 
-def _correctness(
-    module: GroupedBackwardModule,
-    grad_output: torch.Tensor,
-    packed_weight: torch.Tensor,
-    quant_type: int,
-    distribution: RouteDistribution,
-    max_rows: int,
-    output_features: int,
-) -> dict[str, object]:
-    checked = truncate_distribution(distribution, max_rows)
-    expert_indices, expert_offsets, _ = make_route_tensors(checked)
-    active_rows = checked.rows
-    sentinel = 19.0
-    actual = torch.full(
-        (grad_output.shape[0], output_features),
-        sentinel,
-        device="cuda",
-        dtype=torch.bfloat16,
-    )
-
-    def control() -> torch.Tensor:
-        return grouped_mmq_grad_input(
-            grad_output,
-            packed_weight,
-            expert_indices,
-            expert_offsets,
-            quant_type,
-            output_features,
-        )
-
-    def candidate() -> torch.Tensor:
-        actual.fill_(sentinel)
-        return _launch_candidate(
-            module,
-            grad_output,
-            packed_weight,
-            actual,
-            expert_indices,
-            expert_offsets,
-        )
-
-    reference = control()
-    candidate()
-    torch.cuda.synchronize()
-    baseline = actual[:active_rows].clone()
-    report: dict[str, object] = {
-        "distribution": checked.name,
-        "rows": active_rows,
-        "group_summary": distribution_summary(checked),
-        "candidate_vs_hip": _metrics(baseline, reference[:active_rows]),
-        "tail_changed_elements": int(
-            torch.count_nonzero(actual[active_rows:] != sentinel)
-        ),
-    }
-    bf16_reference = _bf16_route_reference(
-        grad_output,
-        packed_weight,
-        quant_type,
-        checked,
-        expert_indices,
-        output_features,
-    )
-    report["candidate_vs_independent_bf16"] = _metrics(baseline, bf16_reference)
-    del bf16_reference
-
-    candidate()
-    torch.cuda.synchronize()
-    report["deterministic_rerun"] = _metrics(actual[:active_rows], baseline)
-
-    grad_output[:active_rows].neg_()
-    updated_reference = control()
-    candidate()
-    torch.cuda.synchronize()
-    report["grad_output_mutation_vs_hip"] = _metrics(
-        actual[:active_rows], updated_reference[:active_rows]
-    )
-    report["grad_output_mutation_changed_elements"] = int(
-        torch.count_nonzero(updated_reference[:active_rows] != reference[:active_rows])
-    )
-    grad_output[:active_rows].neg_()
-
-    original_expert = expert_indices[0].clone()
-    expert_indices[0] = (int(original_expert) + 1) % 256
-    updated_reference = control()
-    candidate()
-    torch.cuda.synchronize()
-    report["route_mutation_vs_hip"] = _metrics(
-        actual[:active_rows], updated_reference[:active_rows]
-    )
-    report["route_mutation_changed_elements"] = int(
-        torch.count_nonzero(updated_reference[:active_rows] != reference[:active_rows])
-    )
-    expert_indices[0].copy_(original_expert)
-
-    active_expert = int(expert_indices[0])
-    replacement_expert = (active_expert + 1) % 256
-    original_row = packed_weight[active_expert, 0].clone()
-    packed_weight[active_expert, 0].copy_(packed_weight[replacement_expert, 0])
-    updated_reference = control()
-    candidate()
-    torch.cuda.synchronize()
-    report["active_weight_mutation_vs_hip"] = _metrics(
-        actual[:active_rows], updated_reference[:active_rows]
-    )
-    report["active_weight_mutation_changed_elements"] = int(
-        torch.count_nonzero(updated_reference[:active_rows] != reference[:active_rows])
-    )
-    packed_weight[active_expert, 0].copy_(original_row)
-
-    active_ids = set(checked.expert_indices_cpu)
-    inactive_expert = next(
-        (expert for expert in range(256) if expert not in active_ids), None
-    )
-    if inactive_expert is not None:
-        inactive_row = packed_weight[inactive_expert, 0].clone()
-        packed_weight[inactive_expert, 0].bitwise_xor_(0x55)
-        candidate()
-        torch.cuda.synchronize()
-        report["inactive_weight_mutation_vs_baseline"] = _metrics(
-            actual[:active_rows], baseline
-        )
-        packed_weight[inactive_expert, 0].copy_(inactive_row)
-    else:
-        report["inactive_weight_mutation_vs_baseline"] = {"applicable": False}
-
-    invalid_indices = expert_indices.clone()
-    invalid_indices[0] = -1
-    actual.fill_(sentinel)
-    _launch_candidate(
-        module,
-        grad_output,
-        packed_weight,
-        actual,
-        invalid_indices,
-        expert_offsets,
-    )
-    torch.cuda.synchronize()
-    first_end = checked.group_sizes_cpu[0]
-    report["invalid_expert_first_route_changed_elements"] = int(
-        torch.count_nonzero(actual[:first_end] != sentinel)
-    )
-    report["invalid_expert_later_route_written_elements"] = int(
-        torch.count_nonzero(actual[first_end:active_rows] != sentinel)
-    )
-
-    invalid_offsets = expert_offsets.clone()
-    invalid_offsets[0] = -1
-    actual.fill_(sentinel)
-    _launch_candidate(
-        module,
-        grad_output,
-        packed_weight,
-        actual,
-        expert_indices,
-        invalid_offsets,
-    )
-    torch.cuda.synchronize()
-    report["invalid_offset_first_route_changed_elements"] = int(
-        torch.count_nonzero(actual[:first_end] != sentinel)
-    )
-    report["invalid_offset_later_route_written_elements"] = int(
-        torch.count_nonzero(actual[first_end:active_rows] != sentinel)
-    )
-
-    invalid_final_offsets = expert_offsets.clone()
-    invalid_final_offsets[-1] = grad_output.shape[0] + 1
-    actual.fill_(sentinel)
-    _launch_candidate(
-        module,
-        grad_output,
-        packed_weight,
-        actual,
-        expert_indices,
-        invalid_final_offsets,
-    )
-    torch.cuda.synchronize()
-    last_begin = active_rows - checked.group_sizes_cpu[-1]
-    report["invalid_final_offset_last_route_changed_elements"] = int(
-        torch.count_nonzero(actual[last_begin:active_rows] != sentinel)
-    )
-    report["invalid_final_offset_prior_routes_written_elements"] = int(
-        torch.count_nonzero(actual[:last_begin] != sentinel)
-    )
-    return report
-
-
-def _timings(
-    module: GroupedBackwardModule,
-    grad_output: torch.Tensor,
-    packed_weight: torch.Tensor,
-    quant_type: int,
-    distribution: RouteDistribution,
-    output_features: int,
-    warmup: int,
-    repeats: int,
-    reverse_order: bool = False,
-) -> TimingReport:
-    expert_indices, expert_offsets, _ = make_route_tensors(distribution)
-    kernel_output = torch.empty(
-        (grad_output.shape[0], output_features), device="cuda", dtype=torch.bfloat16
-    )
-
-    def hip() -> torch.Tensor:
-        return grouped_mmq_grad_input(
-            grad_output,
-            packed_weight,
-            expert_indices,
-            expert_offsets,
-            quant_type,
-            output_features,
-        )
-
-    def candidate_kernel() -> torch.Tensor:
-        return _launch_candidate(
-            module,
-            grad_output,
-            packed_weight,
-            kernel_output,
-            expert_indices,
-            expert_offsets,
-        )
-
-    def candidate_complete() -> torch.Tensor:
-        output = torch.empty_like(kernel_output)
-        return _launch_candidate(
-            module,
-            grad_output,
-            packed_weight,
-            output,
-            expert_indices,
-            expert_offsets,
-        )
-
-    functions = {
-        "hip_complete": hip,
-        "candidate_complete": candidate_complete,
-        "candidate_kernel": candidate_kernel,
-    }
-    names = list(functions)
-    if reverse_order:
-        names.reverse()
-    for _ in range(warmup):
-        for name in names:
-            functions[name]()
-    torch.cuda.synchronize()
-
-    samples = {name: [] for name in functions}
-    for repeat in range(repeats):
-        offset = repeat % len(names)
-        for name in names[offset:] + names[:offset]:
-            elapsed, output = _event_time(functions[name])
-            samples[name].append(elapsed)
-            del output
-
-    logical_flops = 2 * distribution.rows * output_features * grad_output.shape[1]
-    summaries = {
-        name: _timing_summary(values, logical_flops) for name, values in samples.items()
-    }
-    hip_ms = summaries["hip_complete"]["median_ms"]
-    complete_ms = summaries["candidate_complete"]["median_ms"]
-    return cast(
-        TimingReport,
-        {
-            "distribution": distribution.name,
-            "group_summary": distribution_summary(distribution),
-            "logical_flops": logical_flops,
-            **summaries,
-            "candidate_to_hip_latency": complete_ms / hip_ms,
-            "candidate_to_hip_throughput": hip_ms / complete_ms,
-        },
-    )
-
-
-def _require_correctness(report: dict[str, object]) -> None:
-    metric_names = (
-        "candidate_vs_hip",
-        "deterministic_rerun",
-        "grad_output_mutation_vs_hip",
-        "route_mutation_vs_hip",
-        "active_weight_mutation_vs_hip",
-    )
-    inactive_metrics = report.get("inactive_weight_mutation_vs_baseline")
-    if (
-        isinstance(inactive_metrics, dict)
-        and inactive_metrics.get("applicable") is not False
-    ):
-        metric_names += ("inactive_weight_mutation_vs_baseline",)
-    failures = []
-    for name in metric_names:
-        metrics = report[name]
-        if not isinstance(metrics, dict):
-            failures.append(name)
-            continue
-        if metrics.get("different_bf16_elements") != 0 or not metrics.get("finite"):
-            failures.append(name)
-    zero_controls = (
-        "tail_changed_elements",
-        "invalid_expert_first_route_changed_elements",
-        "invalid_offset_first_route_changed_elements",
-        "invalid_final_offset_last_route_changed_elements",
-    )
-    failures.extend(name for name in zero_controls if report.get(name) != 0)
-    changed_controls = (
-        "grad_output_mutation_changed_elements",
-        "route_mutation_changed_elements",
-        "active_weight_mutation_changed_elements",
-        "invalid_expert_later_route_written_elements",
-        "invalid_offset_later_route_written_elements",
-        "invalid_final_offset_prior_routes_written_elements",
-    )
-    for name in changed_controls:
-        value = report.get(name, 0)
-        if not isinstance(value, int | float) or value <= 0:
-            failures.append(name)
-    independent = report.get("candidate_vs_independent_bf16")
-    if not isinstance(independent, dict):
-        failures.append("candidate_vs_independent_bf16")
-    else:
-        normalized_rmse = independent.get("normalized_rmse")
-        if (
-            independent.get("finite") is not True
-            or not isinstance(normalized_rmse, int | float)
-            or normalized_rmse > 0.01
-        ):
-            failures.append("candidate_vs_independent_bf16")
-    if failures:
-        raise RuntimeError(f"grouped backward correctness controls failed: {failures}")
+def require(metrics: object, label: str, limit: float) -> None:
+    typed = cast(ErrorMetrics, metrics)
+    nrmse = typed["normalized_rmse"]
+    if typed["finite"] is not True or not isinstance(nrmse, float) or nrmse > limit:
+        raise RuntimeError(f"{label} correctness failed: {metrics}")
 
 
 def main() -> None:
-    args = _parser().parse_args()
+    args = parser().parse_args()
     if args.warmup < 0 or args.repeats <= 0:
         raise ValueError("warmup must be nonnegative and repeats must be positive")
     key = SolutionKey.from_json_file(args.solution_key)
     if key.problem_type.operation_type != "GroupedMMQBackward":
-        raise ValueError("solution key is not grouped MMQ backward")
+        raise ValueError("solution key is not grouped backward")
     tensor_name = args.tensor or DEFAULT_TENSORS.get(key.problem_type.quant_data_type)
     if tensor_name is None:
         raise ValueError("--tensor is required for this quant type")
+    case = require_case("GroupedBackward", key, args.code_object, (tensor_name,))
+    tensor, packed = load_weight(args.model, tensor_name, key)
     size = key.problem_size
     distribution = fitted_prior_distribution_for_rows(args.expert_prior, size.m)
-    assert distribution.profile is not None
-    tokens = distribution.profile.tokens
-    batch, token_remainder = divmod(tokens, REFERENCE_TOKENS)
-    if token_remainder:
-        raise ValueError("grouped benchmark requires a whole physical batch")
-    if batch not in (1, 4, 16):
-        raise ValueError("grouped benchmark supports physical batch 1, 4, or 16")
-    packed_weight, quant_type, physical_shape = _load_packed(
-        args.model, tensor_name, key
-    )
-    generator = torch.Generator(device="cuda").manual_seed(args.seed)
+    expert_indices, expert_offsets, _ = make_route_tensors(distribution)
+    rng = torch.Generator(device="cuda").manual_seed(args.seed)
     grad_output = torch.randn(
-        (size.m, size.k),
-        device="cuda",
-        dtype=torch.bfloat16,
-        generator=generator,
+        size.m, size.k, dtype=torch.bfloat16, device="cuda", generator=rng
     )
+    candidate_output = torch.empty(size.m, size.n, dtype=torch.bfloat16, device="cuda")
+    hip_output = torch.empty_like(candidate_output)
+    stream = torch.cuda.current_stream().cuda_stream
+    hip = None
+    hip_reason = "no HIP control artifact was found"
 
-    correctness = None
-    timing_reports: list[TimingReport] = []
     with contextlib.ExitStack() as stack:
-        module = stack.enter_context(GroupedBackwardModule(key, args.code_object))
-        if not args.skip_correctness:
-            correctness_rows = (
-                size.m if args.correctness_rows <= 0 else args.correctness_rows
+        candidate = stack.enter_context(GroupedBackwardModule(key, args.code_object))
+        if args.hip_code_object is not None:
+            hip = stack.enter_context(
+                InstalledGroupedBackwardControl(
+                    key.problem_type.quant_data_type,
+                    size.m,
+                    expert_indices.numel(),
+                    args.hip_code_object,
+                )
             )
-            correctness = _correctness(
-                module,
+            hip_reason = None
+        else:
+            try:
+                hip = stack.enter_context(
+                    InstalledGroupedBackwardControl(
+                        key.problem_type.quant_data_type,
+                        size.m,
+                        expert_indices.numel(),
+                    )
+                )
+                hip_reason = None
+            except HIPRuntimeError as error:
+                hip_reason = str(error)
+
+        def ggtensile() -> torch.Tensor:
+            candidate.launch(
                 grad_output,
-                packed_weight,
-                quant_type,
-                distribution,
-                correctness_rows,
+                packed,
+                candidate_output,
+                expert_indices,
+                expert_offsets,
+                stream=stream,
+            )
+            return candidate_output
+
+        def hip_launch() -> torch.Tensor:
+            if hip is not None:
+                hip.launch(
+                    grad_output,
+                    packed,
+                    hip_output,
+                    expert_indices,
+                    expert_offsets,
+                    stream=stream,
+                )
+            return hip_output
+
+        def public_api() -> torch.Tensor:
+            return public_grouped_backward(
+                grad_output,
+                packed,
+                expert_indices,
+                expert_offsets,
+                int(tensor.tensor_type),
                 size.n,
             )
-            _require_correctness(correctness)
+
+        def run_mutation() -> torch.Tensor:
+            mutated_public = public_api()
+            ggtensile()
+            if hip is not None:
+                hip_launch()
+            torch.cuda.synchronize()
+            return mutated_public
+
+        ggtensile()
+        public_output = public_api()
+        if hip is not None:
+            hip_launch()
+        torch.cuda.synchronize()
+        baseline_candidate = candidate_output.clone()
+        baseline_public = public_output.clone()
+        baseline_hip = hip_output.clone() if hip is not None else None
+        correctness: dict[str, object] = {
+            "ggtensile_vs_public_api": error_metrics(candidate_output, public_output)
+        }
+        if hip is not None:
+            correctness["ggtensile_vs_hip"] = error_metrics(
+                candidate_output, hip_output
+            )
+        repeat = candidate_output.clone()
+        ggtensile()
+        torch.cuda.synchronize()
+        correctness["repeat"] = {
+            "different_elements": int(torch.count_nonzero(candidate_output != repeat))
+        }
+        if correctness["repeat"]["different_elements"]:
+            raise RuntimeError("grouped backward output is not deterministic")
+        if not args.skip_reference:
+            baseline = reference(
+                grad_output,
+                packed,
+                int(tensor.tensor_type),
+                expert_indices,
+                distribution.group_sizes_cpu,
+                size.n,
+            )
+            correctness["ggtensile_vs_bf16_baseline"] = error_metrics(
+                candidate_output, baseline
+            )
+        else:
+            baseline = None
+        require(correctness["ggtensile_vs_public_api"], "GGTensile/public API", 5e-4)
+        if hip is not None:
+            require(correctness["ggtensile_vs_hip"], "GGTensile/HIP", 5e-4)
+        if baseline is not None:
+            require(correctness["ggtensile_vs_bf16_baseline"], "GGTensile/BF16", 0.04)
+        mutations = None
+        if not args.skip_mutations:
+            mutations = {}
+
+            def record_mutation(name: str, mutated_public: torch.Tensor) -> None:
+                item: dict[str, object] = {
+                    "public_changed": int(
+                        torch.count_nonzero(mutated_public != baseline_public)
+                    ),
+                    "ggtensile_changed": int(
+                        torch.count_nonzero(candidate_output != baseline_candidate)
+                    ),
+                    "ggtensile_vs_public": error_metrics(
+                        candidate_output, mutated_public
+                    ),
+                }
+                if hip is not None and baseline_hip is not None:
+                    item["hip_changed"] = int(
+                        torch.count_nonzero(hip_output != baseline_hip)
+                    )
+                    item["ggtensile_vs_hip"] = error_metrics(
+                        candidate_output, hip_output
+                    )
+                    require(item["ggtensile_vs_hip"], "GGTensile/HIP mutation", 5e-4)
+                require(
+                    item["ggtensile_vs_public"],
+                    "GGTensile/public mutation",
+                    5e-4,
+                )
+                mutations[name] = item
+
+            saved = grad_output[0].clone()
+            grad_output[0].neg_()
+            record_mutation("grad_output", run_mutation())
+            grad_output[0].copy_(saved)
+            if not mutations["grad_output"]["public_changed"]:
+                raise RuntimeError("grouped backward gradient mutation was ineffective")
+
+            saved_expert = expert_indices[0].clone()
+            expert_indices[0] = (int(saved_expert) + 1) % 256
+            record_mutation("expert_indices", run_mutation())
+            expert_indices[0].copy_(saved_expert)
+            if not mutations["expert_indices"]["public_changed"]:
+                raise RuntimeError("grouped backward route mutation was ineffective")
+
+            active_expert = int(expert_indices[0])
+            replacement_expert = (active_expert + 1) % 256
+            saved_weight = packed[active_expert].clone()
+            packed[active_expert].copy_(packed[replacement_expert])
+            record_mutation("active_weight", run_mutation())
+            packed[active_expert].copy_(saved_weight)
+            if not mutations["active_weight"]["public_changed"]:
+                raise RuntimeError("grouped backward weight mutation was ineffective")
+
+            active_ids = set(distribution.expert_indices_cpu)
+            inactive_expert = next(
+                expert for expert in range(256) if expert not in active_ids
+            )
+            saved_weight = packed[inactive_expert].clone()
+            packed[inactive_expert].bitwise_xor_(0x55)
+            record_mutation("inactive_weight", run_mutation())
+            packed[inactive_expert].copy_(saved_weight)
+            if mutations["inactive_weight"]["public_changed"]:
+                raise RuntimeError("inactive grouped weight affected the output")
+
+        timing = {}
         if not args.skip_timing:
-            timing = _timings(
-                module,
-                grad_output,
-                packed_weight,
-                quant_type,
-                distribution,
-                size.n,
-                args.warmup,
-                args.repeats,
-                reverse_order=args.reverse_order,
-            )
-            timing_reports.append(timing)
-            print(
-                f"{distribution.name} "
-                f"HIP={timing['hip_complete']['median_ms']:.3f} ms "
-                f"GGT={timing['candidate_complete']['median_ms']:.3f} ms "
-                f"ratio={timing['candidate_to_hip_throughput']:.3f}x",
-                flush=True,
+            functions = {"public_api": public_api, "ggtensile": ggtensile}
+            if baseline is not None:
+                functions["bf16_baseline"] = lambda: reference(
+                    grad_output,
+                    packed,
+                    int(tensor.tensor_type),
+                    expert_indices,
+                    distribution.group_sizes_cpu,
+                    size.n,
+                )
+            if hip is not None:
+                functions["hip"] = hip_launch
+            timing = rotating_timings(
+                functions,
+                warmup=args.warmup,
+                repeats=args.repeats,
+                logical_flops=2 * size.m * size.n * size.k,
             )
 
     report = {
+        **case.to_mapping(),
         "solution_key": key.to_mapping(),
         "solution_hash": key.hash,
         "kernel_name": key.kernel_name,
-        "code_object": str(args.code_object),
         "model": str(args.model),
         "tensor": tensor_name,
-        "physical_batch": batch,
         "expert_prior": expert_prior_metadata(args.expert_prior),
-        "expert_prior_profile": distribution.profile.to_mapping(),
-        "physical_weight_shape": physical_shape,
-        "grad_output_shape": [size.m, size.k],
-        "grad_input_shape": [size.m, size.n],
+        "expert_prior_profile": distribution.profile.to_mapping()
+        if distribution.profile
+        else None,
+        "route": {
+            "expert_indices": list(distribution.expert_indices_cpu),
+            "group_sizes": list(distribution.group_sizes_cpu),
+        },
         "protocol": {
             "warmup": args.warmup,
             "repeats": args.repeats,
-            "rotating_order": True,
-            "base_order": "reverse" if args.reverse_order else "forward",
-            "hip_includes_output_and_row_task_allocation": True,
-            "candidate_complete_includes_output_allocation": True,
-            "candidate_kernel_uses_preallocated_output": True,
+            "correctness_before_timing": True,
         },
-        "correctness": correctness,
-        "timings": timing_reports,
+        "implementations": {
+            "public_api": {
+                "available": True,
+                "label": "autograd(torch_ggml_ops.grouped_mmq)",
+            },
+            "ggtensile": {"available": True, "artifact": str(args.code_object)},
+            "hip": {
+                "available": hip is not None,
+                "artifact": str(hip.code_object) if hip is not None else None,
+                "kernel_name": hip.spec.symbol if hip is not None else None,
+                "reason": hip_reason,
+            },
+            "bf16_baseline": {
+                "available": baseline is not None,
+                "label": "routed torch.mm on dequantized BF16 banks",
+            },
+        },
+        "correctness": {**correctness, "mutations": mutations},
+        "timing": timing,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
-    print(f"wrote {args.output}", flush=True)
+    args.output.write_text(
+        json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8"
+    )
+    print(json.dumps(report, indent=2, allow_nan=False))
 
 
 if __name__ == "__main__":

@@ -17,16 +17,18 @@ import torch_ggml_ops
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+BENCH_ROOT = REPO_ROOT / "bench"
+if str(BENCH_ROOT) not in sys.path:
+    sys.path.insert(0, str(BENCH_ROOT))
 
-from tools.ggtensile.benchmark_report import (
-    ErrorMetrics,
-    error_metrics,
-    rotating_timings,
-)
-from tools.ggtensile.benchmark_routes import (
+from benchmark_report import ErrorMetrics, error_metrics, rotating_timings
+from benchmark_routes import (
     fitted_prior_distribution_for_rows,
     make_route_tensors,
 )
+from benchmark_support import require_case
+from workload_prior import EXPERT_PRIOR_NAMES, expert_prior_metadata
+
 from tools.ggtensile.grouped_mmq_fwd_pair_model import (
     GroupedForwardPairSolutionKey,
     GroupedPairRouteOwnership,
@@ -43,8 +45,7 @@ from tools.ggtensile.grouped_mmq_fwd_pair_runtime import (
     InstalledGroupedForwardRowTaskSetup,
 )
 from tools.ggtensile.grouped_mmq_fwd_pair_spec import DerivedGroupedForwardPairState
-from tools.ggtensile.runtime import FixedQ81F32D4QuantizerModule
-from tools.ggtensile.workload_prior import EXPERT_PRIOR_NAMES, expert_prior_metadata
+from tools.ggtensile.runtime import FixedQ81F32D4QuantizerModule, HIPRuntimeError
 
 MAX_CONTROL_NORMALIZED_RMSE = 5e-4
 MAX_CONTROL_ABSOLUTE_ERROR = 0.015625
@@ -57,6 +58,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--solution-key", type=Path, required=True)
     parser.add_argument("--code-object", type=Path, required=True)
+    parser.add_argument("--hip-code-object", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--model", type=Path, required=True)
     parser.add_argument("--first-tensor", required=True)
@@ -71,6 +73,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--repeats", type=int, default=9)
     parser.add_argument("--seed", type=int, default=20260819)
     parser.add_argument("--skip-reference", action="store_true")
+    parser.add_argument("--skip-timing", action="store_true")
     return parser
 
 
@@ -148,8 +151,13 @@ def _reference(
     return torch.cat(outputs)
 
 
-def _require_correctness(correctness: dict[str, object], reference: bool) -> None:
-    for name in ("candidate_vs_hip_kernel", "candidate_vs_public_complete"):
+def _require_correctness(
+    correctness: dict[str, object], reference: bool, hip: bool
+) -> None:
+    names = ["candidate_vs_public_api"]
+    if hip:
+        names.append("candidate_vs_hip")
+    for name in names:
         for metrics in cast(list[ErrorMetrics], correctness[name]):
             if (
                 not metrics["finite"]
@@ -161,7 +169,7 @@ def _require_correctness(correctness: dict[str, object], reference: bool) -> Non
                 raise RuntimeError(f"paired correctness failed: {name}")
     if reference:
         for metrics in cast(
-            list[ErrorMetrics], correctness["candidate_vs_bf16_reference"]
+            list[ErrorMetrics], correctness["candidate_vs_bf16_baseline"]
         ):
             if (
                 metrics["normalized_rmse"] is None
@@ -179,6 +187,12 @@ def main() -> None:
         raise ValueError("warmup must be nonnegative and repeats must be positive")
     key = _load_key(args.solution_key)
     state = DerivedGroupedForwardPairState.from_solution_key(key)
+    case = require_case(
+        "GroupedForwardPair",
+        key,
+        args.code_object,
+        (args.first_tensor, args.second_tensor),
+    )
     reader = gguf.GGUFReader(args.model)
     first_tensor, first_weight = _load_weight(reader, args.first_tensor, key, state)
     second_tensor, second_weight = _load_weight(reader, args.second_tensor, key, state)
@@ -202,17 +216,32 @@ def main() -> None:
     stream = torch.cuda.current_stream().cuda_stream
     candidate_type, control_type = _control_types(key)
     row_tasks = key.solution.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks
+    hip_reason = "no legacy HIP control artifact was supplied"
 
     with contextlib.ExitStack() as stack:
         quantizer = stack.enter_context(FixedQ81F32D4QuantizerModule())
         workspace = quantizer.allocate(input_tensor)
         candidate = stack.enter_context(candidate_type(key, args.code_object))
-        if key.problem.quant_data_type == "IQ2_XXS":
-            first_control = stack.enter_context(control_type(key.solution.macro_tile0))
-            second_control = stack.enter_context(control_type(key.solution.macro_tile0))
-        else:
-            first_control = stack.enter_context(control_type())
-            second_control = stack.enter_context(control_type())
+        controls = None
+        if args.hip_code_object is not None:
+            try:
+                if key.problem.quant_data_type == "IQ2_XXS":
+                    controls = (
+                        stack.enter_context(
+                            control_type(key.solution.macro_tile0, args.hip_code_object)
+                        ),
+                        stack.enter_context(
+                            control_type(key.solution.macro_tile0, args.hip_code_object)
+                        ),
+                    )
+                else:
+                    controls = (
+                        stack.enter_context(control_type(args.hip_code_object)),
+                        stack.enter_context(control_type(args.hip_code_object)),
+                    )
+                hip_reason = None
+            except HIPRuntimeError as error:
+                hip_reason = str(error)
         tasks = None
         setup = None
         if row_tasks:
@@ -253,9 +282,11 @@ def main() -> None:
                 )
 
             def hip_kernel() -> None:
+                if controls is None:
+                    return
                 for control, weight, output in (
-                    (first_control, first_weight, first_hip),
-                    (second_control, second_weight, second_hip),
+                    (controls[0], first_weight, first_hip),
+                    (controls[1], second_weight, second_hip),
                 ):
                     control.launch(
                         weight,
@@ -281,9 +312,11 @@ def main() -> None:
                 )
 
             def hip_kernel() -> None:
+                if controls is None:
+                    return
                 for control, weight, output in (
-                    (first_control, first_weight, first_hip),
-                    (second_control, second_weight, second_hip),
+                    (controls[0], first_weight, first_hip),
+                    (controls[1], second_weight, second_hip),
                 ):
                     control.launch(
                         weight,
@@ -305,6 +338,17 @@ def main() -> None:
             setup_tasks()
             hip_kernel()
 
+        def public_api() -> tuple[torch.Tensor, torch.Tensor]:
+            return torch_ggml_ops.grouped_mmq_pair(
+                input_tensor,
+                first_weight,
+                second_weight,
+                expert_indices,
+                expert_offsets,
+                int(first_tensor.tensor_type),
+                key.problem.output_features,
+            )
+
         quantize()
         workspace_control = workspace.clone()
         quantize()
@@ -313,15 +357,7 @@ def main() -> None:
         setup_tasks()
         hip_kernel()
         candidate_kernel()
-        public_outputs = torch_ggml_ops.grouped_mmq_pair(
-            input_tensor,
-            first_weight,
-            second_weight,
-            expert_indices,
-            expert_offsets,
-            int(first_tensor.tensor_type),
-            key.problem.output_features,
-        )
+        public_outputs = public_api()
         torch.cuda.synchronize()
         correctness: dict[str, object] = {
             "producer_repeat": {
@@ -340,15 +376,16 @@ def main() -> None:
                     "elements": tasks.storage.numel(),
                 }
             ),
-            "candidate_vs_hip_kernel": [
-                error_metrics(first_candidate, first_hip),
-                error_metrics(second_candidate, second_hip),
-            ],
-            "candidate_vs_public_complete": [
+            "candidate_vs_public_api": [
                 error_metrics(first_candidate, public_outputs[0]),
                 error_metrics(second_candidate, public_outputs[1]),
             ],
         }
+        if controls is not None:
+            correctness["candidate_vs_hip"] = [
+                error_metrics(first_candidate, first_hip),
+                error_metrics(second_candidate, second_hip),
+            ]
         if not args.skip_reference:
             references = []
             for tensor, weight in (
@@ -373,27 +410,34 @@ def main() -> None:
                         distribution.group_sizes_cpu,
                     )
                 )
-            correctness["candidate_vs_bf16_reference"] = [
+            correctness["candidate_vs_bf16_baseline"] = [
                 error_metrics(first_candidate, references[0]),
                 error_metrics(second_candidate, references[1]),
             ]
 
+        _require_correctness(correctness, not args.skip_reference, controls is not None)
         logical_flops = (
             4 * rows * key.problem.output_features * key.problem.input_features
         )
-        timing = rotating_timings(
-            {
-                "hip_complete": hip_complete,
-                "candidate_complete": candidate_complete,
-                "hip_kernel": hip_kernel,
-                "candidate_kernel": candidate_kernel,
-            },
-            warmup=args.warmup,
-            repeats=args.repeats,
-            logical_flops=logical_flops,
-        )
+        timing = {}
+        if not args.skip_timing:
+            functions = {
+                "public_api": public_api,
+                "ggtensile_complete": candidate_complete,
+                "ggtensile_kernel": candidate_kernel,
+            }
+            if controls is not None:
+                functions["hip_complete"] = hip_complete
+                functions["hip_kernel"] = hip_kernel
+            timing = rotating_timings(
+                functions,
+                warmup=args.warmup,
+                repeats=args.repeats,
+                logical_flops=logical_flops,
+            )
 
     report = {
+        **case.to_mapping(),
         "solution_key": key.to_mapping(),
         "solution_hash": key.hash,
         "kernel_name": key.kernel_name,
@@ -413,11 +457,20 @@ def main() -> None:
         "protocol": {
             "warmup": args.warmup,
             "repeats": args.repeats,
-            "rotating_order": True,
             "row_task_setup_in_complete_timing": row_tasks,
-            "complete_includes_quantization": True,
-            "complete_includes_output_allocation": False,
-            "kernel_uses_preallocated_output": True,
+            "correctness_before_timing": True,
+        },
+        "implementations": {
+            "public_api": {
+                "available": True,
+                "label": "torch_ggml_ops.grouped_mmq_pair",
+            },
+            "ggtensile": {"available": True, "artifact": str(args.code_object)},
+            "hip": {"available": controls is not None, "reason": hip_reason},
+            "bf16_baseline": {
+                "available": not args.skip_reference,
+                "label": "routed torch.mm on dequantized BF16 banks",
+            },
         },
         "correctness_thresholds": {
             "max_control_normalized_rmse": MAX_CONTROL_NORMALIZED_RMSE,
@@ -426,23 +479,7 @@ def main() -> None:
         },
         "correctness": correctness,
         "timing": timing,
-        "candidate_complete_to_hip_latency": (
-            timing["candidate_complete"]["median_ms"]
-            / timing["hip_complete"]["median_ms"]
-        ),
-        "candidate_complete_to_hip_throughput": (
-            timing["candidate_complete"]["median_tflops"]
-            / timing["hip_complete"]["median_tflops"]
-        ),
-        "candidate_kernel_to_hip_latency": (
-            timing["candidate_kernel"]["median_ms"] / timing["hip_kernel"]["median_ms"]
-        ),
-        "candidate_kernel_to_hip_throughput": (
-            timing["candidate_kernel"]["median_tflops"]
-            / timing["hip_kernel"]["median_tflops"]
-        ),
     }
-    _require_correctness(correctness, not args.skip_reference)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8"

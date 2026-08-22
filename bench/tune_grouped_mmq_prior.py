@@ -7,11 +7,11 @@ import statistics
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+BENCH_ROOT = Path(__file__).resolve().parent
+if str(BENCH_ROOT) not in sys.path:
+    sys.path.insert(0, str(BENCH_ROOT))
 
-from tools.ggtensile.workload_prior import (
+from workload_prior import (
     EXPERT_PRIOR_NAMES,
     ExpertProfile,
     expert_prior_metadata,
