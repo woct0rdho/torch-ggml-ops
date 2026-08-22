@@ -14,7 +14,7 @@ from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
 import torch_ggml_ops
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -23,7 +23,10 @@ from tools.ggtensile.benchmark_report import (
     error_metrics,
     rotating_timings,
 )
-from tools.ggtensile.benchmark_routes import make_route_tensors, route_distributions
+from tools.ggtensile.benchmark_routes import (
+    fitted_prior_distribution_for_rows,
+    make_route_tensors,
+)
 from tools.ggtensile.grouped_mmq_fwd_pair_model import (
     GroupedForwardPairSolutionKey,
     GroupedPairRouteOwnership,
@@ -41,6 +44,7 @@ from tools.ggtensile.grouped_mmq_fwd_pair_runtime import (
 )
 from tools.ggtensile.grouped_mmq_fwd_pair_spec import DerivedGroupedForwardPairState
 from tools.ggtensile.runtime import FixedQ81F32D4QuantizerModule
+from tools.ggtensile.workload_prior import EXPERT_PRIOR_NAMES, expert_prior_metadata
 
 MAX_CONTROL_NORMALIZED_RMSE = 5e-4
 MAX_CONTROL_ABSOLUTE_ERROR = 0.015625
@@ -58,9 +62,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--first-tensor", required=True)
     parser.add_argument("--second-tensor", required=True)
     parser.add_argument(
-        "--distribution",
-        choices=("uniform", "skewed", "sparse", "boundary"),
-        default="boundary",
+        "--expert-prior",
+        choices=EXPERT_PRIOR_NAMES,
+        required=True,
+        help="the sole fitted law used to materialize the routed rows",
     )
     parser.add_argument("--warmup", type=int, default=3)
     parser.add_argument("--repeats", type=int, default=9)
@@ -178,9 +183,8 @@ def main() -> None:
     first_tensor, first_weight = _load_weight(reader, args.first_tensor, key, state)
     second_tensor, second_weight = _load_weight(reader, args.second_tensor, key, state)
     rows = key.problem.aggregate_rows
-    base_rows = 12_288 if key.problem.quant_data_type == "IQ2_XXS" else 16_384
-    batch = max(1, rows // base_rows)
-    distribution = route_distributions(rows, batch)[args.distribution]
+    distribution = fitted_prior_distribution_for_rows(args.expert_prior, rows)
+    assert distribution.profile is not None
     expert_indices, expert_offsets, _ = make_route_tensors(distribution)
     generator = torch.Generator(device="cuda").manual_seed(args.seed)
     input_tensor = torch.randn(
@@ -396,7 +400,8 @@ def main() -> None:
         "code_object": str(args.code_object),
         "model": str(args.model),
         "tensors": [args.first_tensor, args.second_tensor],
-        "distribution": distribution.name,
+        "expert_prior": expert_prior_metadata(args.expert_prior),
+        "expert_prior_profile": distribution.profile.to_mapping(),
         "route": {
             "expert_indices": list(distribution.expert_indices_cpu),
             "group_sizes": list(distribution.group_sizes_cpu),

@@ -1,13 +1,17 @@
-"""Deterministic route controls shared by grouped benchmark entry points."""
+"""Route tensors backed by the canonical fitted benchmark workload laws."""
 
 import statistics
 from dataclasses import dataclass
 from typing import TypedDict
 
-import numpy as np
 import torch
 
-DISTRIBUTION_NAMES = ("uniform", "skewed", "sparse", "boundary")
+from .workload_prior import (
+    ExpertPrior,
+    ExpertProfile,
+    profile_for_routed_rows,
+    sample_expert_profile,
+)
 
 
 @dataclass(frozen=True)
@@ -15,74 +19,49 @@ class RouteDistribution:
     name: str
     expert_indices_cpu: tuple[int, ...]
     group_sizes_cpu: tuple[int, ...]
+    profile: ExpertProfile | None = None
 
     @property
     def rows(self) -> int:
         return sum(self.group_sizes_cpu)
 
+    @property
+    def rows_per_expert(self) -> tuple[int, ...]:
+        rows = [0] * 256
+        for expert, size in zip(
+            self.expert_indices_cpu, self.group_sizes_cpu, strict=True
+        ):
+            rows[expert] = size
+        return tuple(rows)
+
+
+def fitted_prior_distribution(
+    prior: str | ExpertPrior, tokens: int
+) -> RouteDistribution:
+    return _distribution_from_profile(sample_expert_profile(prior, tokens))
+
+
+def fitted_prior_distribution_for_rows(
+    prior: str | ExpertPrior, aggregate_rows: int
+) -> RouteDistribution:
+    return _distribution_from_profile(profile_for_routed_rows(prior, aggregate_rows))
+
+
+def _distribution_from_profile(profile: ExpertProfile) -> RouteDistribution:
+    expert_indices = tuple(
+        expert for expert, rows in enumerate(profile.rows_per_expert) if rows
+    )
+    group_sizes = tuple(profile.rows_per_expert[expert] for expert in expert_indices)
+    return RouteDistribution(
+        profile.profile_id,
+        expert_indices,
+        group_sizes,
+        profile,
+    )
+
 
 def fixed_group_distribution(rows: int, groups: int) -> RouteDistribution:
     return RouteDistribution("fixed", tuple(range(groups)), (rows,) * groups)
-
-
-def adjust_positive_sizes(values: list[int], total: int) -> tuple[int, ...]:
-    if not values or total < len(values):
-        raise ValueError("cannot construct positive grouped sizes")
-    values = [max(1, int(value)) for value in values]
-    difference = total - sum(values)
-    index = 0
-    while difference != 0:
-        slot = index % len(values)
-        if difference > 0:
-            values[slot] += 1
-            difference -= 1
-        elif values[slot] > 1:
-            values[slot] -= 1
-            difference += 1
-        index += 1
-    return tuple(values)
-
-
-def centered_sizes(total: int, groups: int, amplitude: int) -> tuple[int, ...]:
-    center = total / groups
-    values = [
-        round(center + (((index * 37) % 129) - 64) * amplitude / 64)
-        for index in range(groups)
-    ]
-    return adjust_positive_sizes(values, total)
-
-
-def route_distributions(rows: int, batch: int) -> dict[str, RouteDistribution]:
-    all_experts = tuple(range(256))
-    uniform = adjust_positive_sizes([rows // 256] * 256, rows)
-    amplitude = {1: 22, 4: 64, 16: 256}.get(batch, max(1, rows // 1024))
-    skewed = centered_sizes(rows, 256, amplitude)
-
-    sparse_groups = {1: 192, 4: 224, 16: 240}.get(batch, 224)
-    sparse_experts = tuple(
-        int(value) for value in np.linspace(0, 255, sparse_groups, dtype=np.int64)
-    )
-    sparse_amplitude = max(1, round((rows / sparse_groups) * 0.25))
-    sparse_sizes = centered_sizes(rows, sparse_groups, sparse_amplitude)
-
-    boundary_prefix = (1, 15, 16, 17, 63, 64, 65, 127, 128, 129)
-    tail_groups = 256 - len(boundary_prefix)
-    tail_total = rows - sum(boundary_prefix)
-    if tail_total < tail_groups:
-        raise ValueError(f"rows={rows} is too small for boundary distribution")
-    boundary_tail = centered_sizes(
-        tail_total,
-        tail_groups,
-        max(1, round((tail_total / tail_groups) * 0.10)),
-    )
-    boundary_sizes = boundary_prefix + boundary_tail
-
-    return {
-        "uniform": RouteDistribution("uniform", all_experts, uniform),
-        "skewed": RouteDistribution("skewed", all_experts, skewed),
-        "sparse": RouteDistribution("sparse", sparse_experts, sparse_sizes),
-        "boundary": RouteDistribution("boundary", all_experts, boundary_sizes),
-    }
 
 
 class GroupSummary(TypedDict):
@@ -143,5 +122,8 @@ def truncate_distribution(
         sizes.append(take)
         remaining -= take
     return RouteDistribution(
-        f"{distribution.name}_correctness", tuple(experts), tuple(sizes)
+        f"{distribution.name}_correctness",
+        tuple(experts),
+        tuple(sizes),
+        distribution.profile,
     )

@@ -1,0 +1,4286 @@
+{
+  "InventoryVersion": 1,
+  "Target": {
+    "ISA": [
+      11,
+      5,
+      1
+    ],
+    "WavefrontSize": 32,
+    "CodeObjectVersion": 5
+  },
+  "Routes": [
+    {
+      "Operation": "GroupedForward",
+      "Kernel": {
+        "Identity": "ggsol_9c98efab3bdeda2b",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "Q4_K",
+            "output_features": 2048,
+            "input_features": 512,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "block_values": 256,
+            "activation_layout": "F16_D4S4",
+            "activation_block_bytes": 144,
+            "packed_weight_block_bytes": 144,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": true,
+            "weight_decode": "DirectNibble",
+            "scale_arithmetic": "FP16",
+            "arithmetic_contract": "SignedKQuantIntegerWmmaFP16ScaleMinimumCorrection",
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi": "GroupedSerialRoutesV1"
+          },
+          "Problem": {
+            "aggregate_rows": 16384
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                128,
+                1,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile": [
+                64,
+                64
+              ],
+              "tail_macro_tile0": 32,
+              "depth_u": 32
+            },
+            "lowering": {
+              "operand_source": "GroupedDecodedWeightLds",
+              "activation_addressing": "AggregateRowsTiled"
+            },
+            "decode": {
+              "kind": "ScaleMinimum",
+              "metadata_conversion": "DirectFloat16Unsigned16",
+              "schedule": "IndependentExtractionMetadataAfterLowWmma"
+            },
+            "epilogue": {
+              "tiles_ahead": 1,
+              "dependency_width": 4,
+              "priority": 2,
+              "output_store": "BFloat16RNEClause4Clause2MixedMasked"
+            }
+          }
+        },
+        "Artifact": "ggsol_9c98efab3bdeda2b.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_q4_k_r16384_n2048_k512_9c98efab3bdeda2b",
+        "ABI": "GroupedSerialRoutesV1",
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "Grid": [
+          32,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 29184,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedForward",
+      "Kernel": {
+        "Identity": "ggsol_a35d42962fcb240d",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "Q5_K",
+            "output_features": 2048,
+            "input_features": 512,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "block_values": 256,
+            "activation_layout": "F16_D4S4",
+            "activation_block_bytes": 144,
+            "packed_weight_block_bytes": 176,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": true,
+            "weight_decode": "DirectNibbleHighBit",
+            "scale_arithmetic": "FP16",
+            "arithmetic_contract": "SignedKQuantIntegerWmmaFP16ScaleMinimumCorrection",
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi": "GroupedSerialRoutesV1"
+          },
+          "Problem": {
+            "aggregate_rows": 16384
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                128,
+                1,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile": [
+                64,
+                64
+              ],
+              "tail_macro_tile0": 32,
+              "depth_u": 32
+            },
+            "lowering": {
+              "operand_source": "GroupedDecodedWeightLds",
+              "activation_addressing": "AggregateRowsTiled"
+            },
+            "decode": {
+              "kind": "ScaleMinimum",
+              "metadata_conversion": "DirectFloat16Unsigned16",
+              "schedule": "IndependentExtractionMetadataAfterLowWmma"
+            },
+            "epilogue": {
+              "tiles_ahead": 1,
+              "dependency_width": 4,
+              "priority": 2,
+              "output_store": "BFloat16RNEClause4Clause2MixedMasked"
+            }
+          }
+        },
+        "Artifact": "ggsol_a35d42962fcb240d.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_q5_k_r16384_n2048_k512_a35d42962fcb240d",
+        "ABI": "GroupedSerialRoutesV1",
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "Grid": [
+          32,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 29184,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedForward",
+      "Kernel": {
+        "Identity": "ggsol_66d82050f3292c36",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "IQ2_S",
+            "output_features": 2048,
+            "input_features": 512,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "block_values": 256,
+            "activation_layout": "F32_D4",
+            "activation_block_bytes": 144,
+            "packed_weight_block_bytes": 82,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": false,
+            "weight_decode": "DirectIQ2SGridSigned",
+            "scale_arithmetic": "Int32ScaleF32",
+            "arithmetic_contract": "SignedIQ2SInt8ScaleIntegerWmmaF32Correction",
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi": "GroupedSerialRoutesV1"
+          },
+          "Problem": {
+            "aggregate_rows": 16384
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                128,
+                1,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile": [
+                64,
+                64
+              ],
+              "tail_macro_tile0": 64,
+              "depth_u": 32
+            },
+            "lowering": {
+              "operand_source": "GroupedIQ2SFullWeightLds",
+              "activation_addressing": "AggregateRowsTiledLinear"
+            },
+            "decode": {
+              "kind": "IQ2SGrid",
+              "metadata_conversion": "Float16DUnsignedNibbleScaleToFloat32",
+              "payload_prefetch": true
+            },
+            "epilogue": {
+              "tiles_ahead": 4,
+              "dependency_width": 1,
+              "priority": 0,
+              "output_store": "BFloat16RNEClause4Masked"
+            }
+          }
+        },
+        "Artifact": "ggsol_66d82050f3292c36.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_iq2_s_r16384_n2048_k512_66d82050f3292c36",
+        "ABI": "GroupedSerialRoutesV1",
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "Grid": [
+          32,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 30720,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedForward",
+      "Kernel": {
+        "Identity": "ggsol_110dda8ec3bcfc8d",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "Q4_K",
+            "output_features": 2048,
+            "input_features": 512,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "block_values": 256,
+            "activation_layout": "F16_D4S4",
+            "activation_block_bytes": 144,
+            "packed_weight_block_bytes": 144,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": true,
+            "weight_decode": "DirectNibble",
+            "scale_arithmetic": "FP16",
+            "arithmetic_contract": "SignedKQuantIntegerWmmaFP16ScaleMinimumCorrection",
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi": "GroupedSerialRoutesV1"
+          },
+          "Problem": {
+            "aggregate_rows": 65536
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                128,
+                1,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile": [
+                64,
+                64
+              ],
+              "tail_macro_tile0": 32,
+              "depth_u": 32
+            },
+            "lowering": {
+              "operand_source": "GroupedDecodedWeightLds",
+              "activation_addressing": "AggregateRowsTiled"
+            },
+            "decode": {
+              "kind": "ScaleMinimum",
+              "metadata_conversion": "DirectFloat16Unsigned16",
+              "schedule": "IndependentExtractionMetadataAfterLowWmma"
+            },
+            "epilogue": {
+              "tiles_ahead": 1,
+              "dependency_width": 4,
+              "priority": 2,
+              "output_store": "BFloat16RNEClause4Clause2MixedMasked"
+            }
+          }
+        },
+        "Artifact": "ggsol_110dda8ec3bcfc8d.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_q4_k_r65536_n2048_k512_110dda8ec3bcfc8d",
+        "ABI": "GroupedSerialRoutesV1",
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "Grid": [
+          32,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 29184,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedForward",
+      "Kernel": {
+        "Identity": "ggsol_38e2fe81d0ce5aea",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "Q5_K",
+            "output_features": 2048,
+            "input_features": 512,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "block_values": 256,
+            "activation_layout": "F16_D4S4",
+            "activation_block_bytes": 144,
+            "packed_weight_block_bytes": 176,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": true,
+            "weight_decode": "DirectNibbleHighBit",
+            "scale_arithmetic": "FP16",
+            "arithmetic_contract": "SignedKQuantIntegerWmmaFP16ScaleMinimumCorrection",
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi": "GroupedSerialRoutesV1"
+          },
+          "Problem": {
+            "aggregate_rows": 65536
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                128,
+                1,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile": [
+                128,
+                64
+              ],
+              "tail_macro_tile0": 32,
+              "depth_u": 32
+            },
+            "lowering": {
+              "operand_source": "GroupedDecodedWeightLds",
+              "activation_addressing": "AggregateRowsTiled"
+            },
+            "decode": {
+              "kind": "ScaleMinimum",
+              "metadata_conversion": "DirectFloat16Unsigned16",
+              "schedule": "IndependentExtractionMetadataAfterLowWmma"
+            },
+            "epilogue": {
+              "tiles_ahead": 1,
+              "dependency_width": 4,
+              "priority": 2,
+              "output_store": "BFloat16RNEClause8Clause4Clause2MixedMasked"
+            }
+          }
+        },
+        "Artifact": "ggsol_38e2fe81d0ce5aea.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_q5_k_r65536_n2048_k512_38e2fe81d0ce5aea",
+        "ABI": "GroupedSerialRoutesV1",
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "Grid": [
+          32,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 38400,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedForward",
+      "Kernel": {
+        "Identity": "ggsol_544c7685f9e404a1",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "IQ2_S",
+            "output_features": 2048,
+            "input_features": 512,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "block_values": 256,
+            "activation_layout": "F32_D4",
+            "activation_block_bytes": 144,
+            "packed_weight_block_bytes": 82,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": false,
+            "weight_decode": "DirectIQ2SGridSigned",
+            "scale_arithmetic": "Int32ScaleF32",
+            "arithmetic_contract": "SignedIQ2SInt8ScaleIntegerWmmaF32Correction",
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi": "GroupedSerialRoutesV1"
+          },
+          "Problem": {
+            "aggregate_rows": 65536
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                128,
+                1,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile": [
+                64,
+                64
+              ],
+              "tail_macro_tile0": 64,
+              "depth_u": 32
+            },
+            "lowering": {
+              "operand_source": "GroupedIQ2SFullWeightLds",
+              "activation_addressing": "AggregateRowsTiledLinear"
+            },
+            "decode": {
+              "kind": "IQ2SGrid",
+              "metadata_conversion": "Float16DUnsignedNibbleScaleToFloat32",
+              "payload_prefetch": true
+            },
+            "epilogue": {
+              "tiles_ahead": 4,
+              "dependency_width": 1,
+              "priority": 0,
+              "output_store": "BFloat16RNEClause4Masked"
+            }
+          }
+        },
+        "Artifact": "ggsol_544c7685f9e404a1.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_iq2_s_r65536_n2048_k512_544c7685f9e404a1",
+        "ABI": "GroupedSerialRoutesV1",
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "Grid": [
+          32,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 30720,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedForward",
+      "Kernel": {
+        "Identity": "ggsol_2aee91a9195cc10a",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "Q4_K",
+            "output_features": 2048,
+            "input_features": 512,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "block_values": 256,
+            "activation_layout": "F16_D4S4",
+            "activation_block_bytes": 144,
+            "packed_weight_block_bytes": 144,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": true,
+            "weight_decode": "DirectNibble",
+            "scale_arithmetic": "FP16",
+            "arithmetic_contract": "SignedKQuantIntegerWmmaFP16ScaleMinimumCorrection",
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi": "GroupedSerialRoutesV1"
+          },
+          "Problem": {
+            "aggregate_rows": 262144
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                128,
+                1,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile": [
+                128,
+                64
+              ],
+              "tail_macro_tile0": 128,
+              "depth_u": 32
+            },
+            "lowering": {
+              "operand_source": "GroupedDecodedWeightLds",
+              "activation_addressing": "AggregateRowsTiled"
+            },
+            "decode": {
+              "kind": "ScaleMinimum",
+              "metadata_conversion": "DirectFloat16Unsigned16",
+              "schedule": "IndependentExtractionMetadataAfterLowWmma"
+            },
+            "epilogue": {
+              "tiles_ahead": 1,
+              "dependency_width": 2,
+              "priority": 2,
+              "output_store": "BFloat16RNEClause8Masked"
+            }
+          }
+        },
+        "Artifact": "ggsol_2aee91a9195cc10a.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_q4_k_r262144_n2048_k512_2aee91a9195cc10a",
+        "ABI": "GroupedSerialRoutesV1",
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "Grid": [
+          32,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 38400,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedForward",
+      "Kernel": {
+        "Identity": "ggsol_a9d33673184bf5ae",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "Q5_K",
+            "output_features": 2048,
+            "input_features": 512,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "block_values": 256,
+            "activation_layout": "F16_D4S4",
+            "activation_block_bytes": 144,
+            "packed_weight_block_bytes": 176,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": true,
+            "weight_decode": "DirectNibbleHighBit",
+            "scale_arithmetic": "FP16",
+            "arithmetic_contract": "SignedKQuantIntegerWmmaFP16ScaleMinimumCorrection",
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi": "GroupedSerialRoutesV1"
+          },
+          "Problem": {
+            "aggregate_rows": 262144
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                128,
+                1,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile": [
+                128,
+                64
+              ],
+              "tail_macro_tile0": 32,
+              "depth_u": 32
+            },
+            "lowering": {
+              "operand_source": "GroupedDecodedWeightLds",
+              "activation_addressing": "AggregateRowsTiled"
+            },
+            "decode": {
+              "kind": "ScaleMinimum",
+              "metadata_conversion": "DirectFloat16Unsigned16",
+              "schedule": "IndependentExtractionMetadataAfterLowWmma"
+            },
+            "epilogue": {
+              "tiles_ahead": 1,
+              "dependency_width": 4,
+              "priority": 2,
+              "output_store": "BFloat16RNEClause8Clause4Clause2MixedMasked"
+            }
+          }
+        },
+        "Artifact": "ggsol_a9d33673184bf5ae.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_q5_k_r262144_n2048_k512_a9d33673184bf5ae",
+        "ABI": "GroupedSerialRoutesV1",
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "Grid": [
+          32,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 38400,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedForward",
+      "Kernel": {
+        "Identity": "ggsol_22cf9191b894b45e",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "IQ2_S",
+            "output_features": 2048,
+            "input_features": 512,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "block_values": 256,
+            "activation_layout": "F32_D4",
+            "activation_block_bytes": 144,
+            "packed_weight_block_bytes": 82,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": false,
+            "weight_decode": "DirectIQ2SGridSigned",
+            "scale_arithmetic": "Int32ScaleF32",
+            "arithmetic_contract": "SignedIQ2SInt8ScaleIntegerWmmaF32Correction",
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi": "GroupedSerialRoutesV1"
+          },
+          "Problem": {
+            "aggregate_rows": 262144
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                128,
+                1,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile": [
+                64,
+                64
+              ],
+              "tail_macro_tile0": 64,
+              "depth_u": 32
+            },
+            "lowering": {
+              "operand_source": "GroupedIQ2SFullWeightLds",
+              "activation_addressing": "AggregateRowsTiledLinear"
+            },
+            "decode": {
+              "kind": "IQ2SGrid",
+              "metadata_conversion": "Float16DUnsignedNibbleScaleToFloat32",
+              "payload_prefetch": true
+            },
+            "epilogue": {
+              "tiles_ahead": 4,
+              "dependency_width": 1,
+              "priority": 0,
+              "output_store": "BFloat16RNEClause4Masked"
+            }
+          }
+        },
+        "Artifact": "ggsol_22cf9191b894b45e.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_iq2_s_r262144_n2048_k512_22cf9191b894b45e",
+        "ABI": "GroupedSerialRoutesV1",
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "Grid": [
+          32,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 30720,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedForward",
+      "Kernel": {
+        "Identity": "ggsol_62ec879a99f034cd",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "Q2_K",
+            "output_features": 4096,
+            "input_features": 2048,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "block_values": 256,
+            "activation_layout": "F16_D2S6",
+            "activation_block_bytes": 144,
+            "packed_weight_block_bytes": 84,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": true,
+            "weight_decode": "DirectTwoBitNibbleScaleMinimum",
+            "scale_arithmetic": "FP16",
+            "arithmetic_contract": "UnsignedQ2IntegerWmmaFP16ScaleMinimumCorrection",
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi": "GroupedSerialRoutesV1"
+          },
+          "Problem": {
+            "aggregate_rows": 12288
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                128,
+                1,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile": [
+                32,
+                64
+              ],
+              "tail_macro_tile0": 16,
+              "depth_u": 32
+            },
+            "lowering": {
+              "operand_source": "GroupedDecodedWeightLds",
+              "activation_addressing": "AggregateRowsTiled"
+            },
+            "decode": {
+              "kind": "Q2ScaleMinimum",
+              "metadata_conversion": "DirectQ2Float16NibblePairs",
+              "unrolled_groups": true,
+              "hip_association": true,
+              "partial_lds": true,
+              "pre_negated_dm": true,
+              "paired_payload_writes": true,
+              "paired_metadata_writes": true,
+              "distributed_producer": true
+            },
+            "epilogue": {
+              "tiles_ahead": 1,
+              "dependency_width": 2,
+              "priority": 2,
+              "output_store": "BFloat16RNEClause2Clause1MixedMasked"
+            }
+          }
+        },
+        "Artifact": "ggsol_62ec879a99f034cd.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_q2_k_r12288_n4096_k2048_62ec879a99f034cd",
+        "ABI": "GroupedSerialRoutesV1",
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "Grid": [
+          64,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 25600,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedForward",
+      "Kernel": {
+        "Identity": "ggsol_adafacf7e19b4e5b",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "Q2_K",
+            "output_features": 4096,
+            "input_features": 2048,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "block_values": 256,
+            "activation_layout": "F16_D2S6",
+            "activation_block_bytes": 144,
+            "packed_weight_block_bytes": 84,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": true,
+            "weight_decode": "DirectTwoBitNibbleScaleMinimum",
+            "scale_arithmetic": "FP16",
+            "arithmetic_contract": "UnsignedQ2IntegerWmmaFP16ScaleMinimumCorrection",
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi": "GroupedSerialRoutesV1"
+          },
+          "Problem": {
+            "aggregate_rows": 49152
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                128,
+                1,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile": [
+                32,
+                64
+              ],
+              "tail_macro_tile0": 16,
+              "depth_u": 32
+            },
+            "lowering": {
+              "operand_source": "GroupedDecodedWeightLds",
+              "activation_addressing": "AggregateRowsTiled"
+            },
+            "decode": {
+              "kind": "Q2ScaleMinimum",
+              "metadata_conversion": "DirectQ2Float16NibblePairs",
+              "unrolled_groups": true,
+              "hip_association": true,
+              "partial_lds": true,
+              "pre_negated_dm": true,
+              "paired_payload_writes": true,
+              "paired_metadata_writes": true,
+              "distributed_producer": true
+            },
+            "epilogue": {
+              "tiles_ahead": 1,
+              "dependency_width": 2,
+              "priority": 2,
+              "output_store": "BFloat16RNEClause2Clause1MixedMasked"
+            }
+          }
+        },
+        "Artifact": "ggsol_adafacf7e19b4e5b.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_q2_k_r49152_n4096_k2048_adafacf7e19b4e5b",
+        "ABI": "GroupedSerialRoutesV1",
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "Grid": [
+          64,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 25600,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedForward",
+      "Kernel": {
+        "Identity": "ggsol_e54fb3708d4cacc4",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "Q2_K",
+            "output_features": 4096,
+            "input_features": 2048,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "block_values": 256,
+            "activation_layout": "F16_D2S6",
+            "activation_block_bytes": 144,
+            "packed_weight_block_bytes": 84,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": true,
+            "weight_decode": "DirectTwoBitNibbleScaleMinimum",
+            "scale_arithmetic": "FP16",
+            "arithmetic_contract": "UnsignedQ2IntegerWmmaFP16ScaleMinimumCorrection",
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi": "GroupedSerialRoutesV1"
+          },
+          "Problem": {
+            "aggregate_rows": 196608
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                128,
+                1,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile": [
+                64,
+                64
+              ],
+              "tail_macro_tile0": 64,
+              "depth_u": 32
+            },
+            "lowering": {
+              "operand_source": "GroupedDecodedWeightLds",
+              "activation_addressing": "AggregateRowsTiled"
+            },
+            "decode": {
+              "kind": "Q2ScaleMinimum",
+              "metadata_conversion": "DirectQ2Float16NibblePairs",
+              "unrolled_groups": true,
+              "hip_association": true,
+              "partial_lds": true,
+              "pre_negated_dm": true,
+              "paired_payload_writes": true,
+              "paired_metadata_writes": true,
+              "distributed_producer": true
+            },
+            "epilogue": {
+              "tiles_ahead": 4,
+              "dependency_width": 2,
+              "priority": 2,
+              "output_store": "BFloat16RNEClause4Masked"
+            }
+          }
+        },
+        "Artifact": "ggsol_e54fb3708d4cacc4.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_q2_k_r196608_n4096_k2048_e54fb3708d4cacc4",
+        "ABI": "GroupedSerialRoutesV1",
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "Grid": [
+          64,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 30208,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedForwardPair",
+      "Kernel": {
+        "Identity": "ggpair_88145483ff873e47",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "IQ2_S",
+            "output_features": 512,
+            "input_features": 2048,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "projection_count": 2,
+            "block_values": 256,
+            "activation_layout": "F32_D4",
+            "activation_block_bytes": 144,
+            "packed_weight_block_bytes": 82,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "arithmetic_contract": "SignedIQ2SInt8ScaleIntegerWmmaF32Correction",
+            "weight_decode": "TwoLaneSelectedHalfIQ2SGridSigned",
+            "metadata_conversion": "Float16DUnsignedNibbleScaleToFloat32",
+            "scale_arithmetic": "Int32ScaleF32",
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": false,
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi_family": "GroupedPairV1"
+          },
+          "Problem": {
+            "aggregate_rows": 16384
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                128,
+                1,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile": [
+                64,
+                64
+              ],
+              "depth_u": 128
+            },
+            "lowering": {
+              "operand_source": "IQ2SHalfWeightLds",
+              "route_ownership": "DeviceRowTasks",
+              "activation_addressing": "AggregateRowsTiledLinear",
+              "row_task_rows": 32
+            },
+            "projection": {
+              "schedule": "Interleaved"
+            },
+            "decode": {
+              "schedule": "TwoLaneSelectedHalfPayloadPrefetch"
+            },
+            "epilogue": {
+              "output_store": "BFloat16RNEClause4Masked"
+            }
+          }
+        },
+        "Artifact": "ggpair_88145483ff873e47.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_pair_iq2_s_r16384_n512_k2048_88145483ff873e47",
+        "ABI": "GroupedPairV1",
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "Grid": [
+          8,
+          768,
+          1
+        ],
+        "SharedMemoryBytes": 19456,
+        "Ownership": "DeviceRowTasks32",
+        "RowTaskRows": 32,
+        "RowTaskCapacity": 768
+      }
+    },
+    {
+      "Operation": "GroupedForwardPair",
+      "Kernel": {
+        "Identity": "ggpair_82cb896278e83ff0",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "IQ2_S",
+            "output_features": 512,
+            "input_features": 2048,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "projection_count": 2,
+            "block_values": 256,
+            "activation_layout": "F32_D4",
+            "activation_block_bytes": 144,
+            "packed_weight_block_bytes": 82,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "arithmetic_contract": "SignedIQ2SInt8ScaleIntegerWmmaF32Correction",
+            "weight_decode": "TwoLaneSelectedHalfIQ2SGridSigned",
+            "metadata_conversion": "Float16DUnsignedNibbleScaleToFloat32",
+            "scale_arithmetic": "Int32ScaleF32",
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": false,
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi_family": "GroupedPairV1"
+          },
+          "Problem": {
+            "aggregate_rows": 65536
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                128,
+                1,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile": [
+                64,
+                64
+              ],
+              "depth_u": 128
+            },
+            "lowering": {
+              "operand_source": "IQ2SHalfWeightLds",
+              "route_ownership": "DeviceRowTasks",
+              "activation_addressing": "AggregateRowsTiledLinear",
+              "row_task_rows": 32
+            },
+            "projection": {
+              "schedule": "Interleaved"
+            },
+            "decode": {
+              "schedule": "TwoLaneSelectedHalfPayloadPrefetch"
+            },
+            "epilogue": {
+              "output_store": "BFloat16RNEClause4Masked"
+            }
+          }
+        },
+        "Artifact": "ggpair_82cb896278e83ff0.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_pair_iq2_s_r65536_n512_k2048_82cb896278e83ff0",
+        "ABI": "GroupedPairV1",
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "Grid": [
+          8,
+          2304,
+          1
+        ],
+        "SharedMemoryBytes": 19456,
+        "Ownership": "DeviceRowTasks32",
+        "RowTaskRows": 32,
+        "RowTaskCapacity": 2304
+      }
+    },
+    {
+      "Operation": "GroupedForwardPair",
+      "Kernel": {
+        "Identity": "ggpair_5179383caaed1299",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "IQ2_S",
+            "output_features": 512,
+            "input_features": 2048,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "projection_count": 2,
+            "block_values": 256,
+            "activation_layout": "F32_D4",
+            "activation_block_bytes": 144,
+            "packed_weight_block_bytes": 82,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "arithmetic_contract": "SignedIQ2SInt8ScaleIntegerWmmaF32Correction",
+            "weight_decode": "TwoLaneSelectedHalfIQ2SGridSigned",
+            "metadata_conversion": "Float16DUnsignedNibbleScaleToFloat32",
+            "scale_arithmetic": "Int32ScaleF32",
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": false,
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi_family": "GroupedPairV1"
+          },
+          "Problem": {
+            "aggregate_rows": 262144
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                128,
+                1,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile": [
+                64,
+                64
+              ],
+              "depth_u": 128
+            },
+            "lowering": {
+              "operand_source": "IQ2SHalfWeightLds",
+              "route_ownership": "DeviceRowTasks",
+              "activation_addressing": "AggregateRowsTiledLinear",
+              "row_task_rows": 32
+            },
+            "projection": {
+              "schedule": "Interleaved"
+            },
+            "decode": {
+              "schedule": "TwoLaneSelectedHalfPayloadPrefetch"
+            },
+            "epilogue": {
+              "output_store": "BFloat16RNEClause4Masked"
+            }
+          }
+        },
+        "Artifact": "ggpair_5179383caaed1299.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_pair_iq2_s_r262144_n512_k2048_5179383caaed1299",
+        "ABI": "GroupedPairV1",
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "Grid": [
+          8,
+          8448,
+          1
+        ],
+        "SharedMemoryBytes": 19456,
+        "Ownership": "DeviceRowTasks32",
+        "RowTaskRows": 32,
+        "RowTaskCapacity": 8448
+      }
+    },
+    {
+      "Operation": "GroupedForwardPair",
+      "Kernel": {
+        "Identity": "ggpair_0aed3be2b92c0f07",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "Q3_K",
+            "output_features": 512,
+            "input_features": 2048,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "projection_count": 2,
+            "block_values": 256,
+            "activation_layout": "F32_D4",
+            "activation_block_bytes": 144,
+            "packed_weight_block_bytes": 110,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "arithmetic_contract": "SignedQ3Int8ScaleIntegerWmmaF32Correction",
+            "weight_decode": "TwoLaneSelectedHalfQ3Signed",
+            "metadata_conversion": "Float16DSignedSixBitScaleToFloat32",
+            "scale_arithmetic": "Int32ScaleF32",
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": false,
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi_family": "GroupedPairV1"
+          },
+          "Problem": {
+            "aggregate_rows": 16384
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                128,
+                1,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile": [
+                64,
+                64
+              ],
+              "depth_u": 128
+            },
+            "lowering": {
+              "operand_source": "Q3KHalfWeightLds",
+              "route_ownership": "DeviceRowTasks",
+              "activation_addressing": "AggregateRowsTiledLinear",
+              "row_task_rows": 64
+            },
+            "projection": {
+              "schedule": "Interleaved"
+            },
+            "decode": {
+              "schedule": "TwoLaneSelectedHalfQ3VariableBFE"
+            },
+            "epilogue": {
+              "output_store": "BFloat16RNEClause4Masked"
+            }
+          }
+        },
+        "Artifact": "ggpair_0aed3be2b92c0f07.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_pair_q3_k_r16384_n512_k2048_0aed3be2b92c0f07",
+        "ABI": "GroupedPairV1",
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "Grid": [
+          8,
+          512,
+          1
+        ],
+        "SharedMemoryBytes": 19456,
+        "Ownership": "DeviceRowTasks64",
+        "RowTaskRows": 64,
+        "RowTaskCapacity": 512
+      }
+    },
+    {
+      "Operation": "GroupedForwardPair",
+      "Kernel": {
+        "Identity": "ggpair_5a0b32e2a6c0ec93",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "Q3_K",
+            "output_features": 512,
+            "input_features": 2048,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "projection_count": 2,
+            "block_values": 256,
+            "activation_layout": "F32_D4",
+            "activation_block_bytes": 144,
+            "packed_weight_block_bytes": 110,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "arithmetic_contract": "SignedQ3Int8ScaleIntegerWmmaF32Correction",
+            "weight_decode": "TwoLaneSelectedHalfQ3Signed",
+            "metadata_conversion": "Float16DSignedSixBitScaleToFloat32",
+            "scale_arithmetic": "Int32ScaleF32",
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": false,
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi_family": "GroupedPairV1"
+          },
+          "Problem": {
+            "aggregate_rows": 65536
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                128,
+                1,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile": [
+                64,
+                64
+              ],
+              "depth_u": 128
+            },
+            "lowering": {
+              "operand_source": "Q3KHalfWeightLds",
+              "route_ownership": "DeviceRowTasks",
+              "activation_addressing": "AggregateRowsTiledLinear",
+              "row_task_rows": 64
+            },
+            "projection": {
+              "schedule": "Interleaved"
+            },
+            "decode": {
+              "schedule": "TwoLaneSelectedHalfQ3VariableBFE"
+            },
+            "epilogue": {
+              "output_store": "BFloat16RNEClause4Masked"
+            }
+          }
+        },
+        "Artifact": "ggpair_5a0b32e2a6c0ec93.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_pair_q3_k_r65536_n512_k2048_5a0b32e2a6c0ec93",
+        "ABI": "GroupedPairV1",
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "Grid": [
+          8,
+          1280,
+          1
+        ],
+        "SharedMemoryBytes": 19456,
+        "Ownership": "DeviceRowTasks64",
+        "RowTaskRows": 64,
+        "RowTaskCapacity": 1280
+      }
+    },
+    {
+      "Operation": "GroupedForwardPair",
+      "Kernel": {
+        "Identity": "ggpair_6d9aa5f305a16663",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "Q3_K",
+            "output_features": 512,
+            "input_features": 2048,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "projection_count": 2,
+            "block_values": 256,
+            "activation_layout": "F32_D4",
+            "activation_block_bytes": 144,
+            "packed_weight_block_bytes": 110,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "arithmetic_contract": "SignedQ3Int8ScaleIntegerWmmaF32Correction",
+            "weight_decode": "TwoLaneSelectedHalfQ3Signed",
+            "metadata_conversion": "Float16DSignedSixBitScaleToFloat32",
+            "scale_arithmetic": "Int32ScaleF32",
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": false,
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi_family": "GroupedPairV1"
+          },
+          "Problem": {
+            "aggregate_rows": 262144
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                128,
+                1,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile": [
+                64,
+                64
+              ],
+              "depth_u": 128
+            },
+            "lowering": {
+              "operand_source": "Q3KHalfWeightLds",
+              "route_ownership": "DeviceRowTasks",
+              "activation_addressing": "AggregateRowsTiledLinear",
+              "row_task_rows": 64
+            },
+            "projection": {
+              "schedule": "Interleaved"
+            },
+            "decode": {
+              "schedule": "TwoLaneSelectedHalfQ3VariableBFE"
+            },
+            "epilogue": {
+              "output_store": "BFloat16RNEClause4Masked"
+            }
+          }
+        },
+        "Artifact": "ggpair_6d9aa5f305a16663.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_pair_q3_k_r262144_n512_k2048_6d9aa5f305a16663",
+        "ABI": "GroupedPairV1",
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "Grid": [
+          8,
+          4352,
+          1
+        ],
+        "SharedMemoryBytes": 19456,
+        "Ownership": "DeviceRowTasks64",
+        "RowTaskRows": 64,
+        "RowTaskCapacity": 4352
+      }
+    },
+    {
+      "Operation": "GroupedForwardPair",
+      "Kernel": {
+        "Identity": "ggpair_c87599a2a8d4b1f3",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "IQ2_XXS",
+            "output_features": 2048,
+            "input_features": 4096,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "projection_count": 2,
+            "block_values": 256,
+            "activation_layout": "F32_D4",
+            "activation_block_bytes": 144,
+            "packed_weight_block_bytes": 66,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "arithmetic_contract": "SignedIQ2XXSInt8ScaleIntegerWmmaF32Correction",
+            "weight_decode": "TwoLaneSelectedHalfIQ2XXSGridParitySigned",
+            "metadata_conversion": "Float16DParitySignsOddScaleToFloat32",
+            "scale_arithmetic": "Int32ScaleF32",
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": false,
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi_family": "GroupedPairV1"
+          },
+          "Problem": {
+            "aggregate_rows": 196608
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                128,
+                1,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile": [
+                80,
+                64
+              ],
+              "depth_u": 128
+            },
+            "lowering": {
+              "operand_source": "IQ2XXSHalfWeightLds",
+              "route_ownership": "SerialRoutes",
+              "activation_addressing": "AggregateRowsTiledLinear"
+            },
+            "projection": {
+              "schedule": "Interleaved"
+            },
+            "decode": {
+              "schedule": "TwoLaneSelectedHalfIQ2XXSFusedSelector"
+            },
+            "epilogue": {
+              "output_store": "BFloat16RNEClause4Masked"
+            }
+          }
+        },
+        "Artifact": "ggpair_c87599a2a8d4b1f3.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_pair_iq2_xxs_r196608_n2048_k4096_c87599a2a8d4b1f3",
+        "ABI": "GroupedPairV1",
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "Grid": [
+          32,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 21760,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedBackward",
+      "Kernel": {
+        "Identity": "ggsol_f90ec6b01eaaa1c0",
+        "ExactKey": {
+          "KernelFamily": "GroupedBackward",
+          "ProblemContract": {
+            "quant_type": "Q2_K",
+            "block_values": 256,
+            "packed_weight_block_bytes": 84,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "activation_type": "BFloat16",
+            "destination_type": "BFloat16",
+            "compute_type": "Float32",
+            "abi": "GroupedBackwardSerialRoutesV1",
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "code_object_version": 5
+          },
+          "Problem": {
+            "m": 12288,
+            "n": 2048,
+            "k": 4096
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                32,
+                4,
+                1
+              ],
+              "mi_wave_tile": [
+                1,
+                4
+              ],
+              "depth_u": 32,
+              "work_group_mapping": 1
+            },
+            "memory": {
+              "lds_layout": {
+                "kind": "Padded",
+                "pad_b": 8
+              }
+            },
+            "pipeline": {
+              "global_read_prefetch": 2,
+              "local_read_prefetch": 1,
+              "lds_buffer_count": 1,
+              "schedule": "PrefetchActivation",
+              "packed_weight_prefetch": "CurrentTile",
+              "packed_weight_lane_share": 1
+            },
+            "store": {
+              "priority": "Raised"
+            },
+            "decode": {
+              "dependency_batch_size": 4
+            },
+            "ownership": {
+              "kind": "Serial"
+            },
+            "row_tail": {
+              "kind": "Masked"
+            }
+          }
+        },
+        "Artifact": "ggsol_f90ec6b01eaaa1c0.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_bwd_q2_k_m12288_n2048_k4096_f90ec6b01eaaa1c0",
+        "ABI": "GroupedBackwardSerialRoutesV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          32,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 5120,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedBackward",
+      "Kernel": {
+        "Identity": "ggsol_356ef05b9c33365d",
+        "ExactKey": {
+          "KernelFamily": "GroupedBackward",
+          "ProblemContract": {
+            "quant_type": "Q4_K",
+            "block_values": 256,
+            "packed_weight_block_bytes": 144,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "activation_type": "BFloat16",
+            "destination_type": "BFloat16",
+            "compute_type": "Float32",
+            "abi": "GroupedBackwardSerialRoutesV1",
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "code_object_version": 5
+          },
+          "Problem": {
+            "m": 16384,
+            "n": 512,
+            "k": 2048
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                32,
+                4,
+                1
+              ],
+              "mi_wave_tile": [
+                2,
+                4
+              ],
+              "depth_u": 32,
+              "work_group_mapping": 1
+            },
+            "memory": {
+              "lds_layout": {
+                "kind": "Padded",
+                "pad_b": 8
+              }
+            },
+            "pipeline": {
+              "global_read_prefetch": 2,
+              "local_read_prefetch": 1,
+              "lds_buffer_count": 1,
+              "schedule": "PrefetchActivationInterleaveWmmaWaits",
+              "packed_weight_prefetch": "CurrentTile",
+              "packed_weight_lane_share": 1
+            },
+            "store": {
+              "priority": "Raised"
+            },
+            "decode": {
+              "dependency_batch_size": 4
+            },
+            "ownership": {
+              "kind": "Serial"
+            },
+            "row_tail": {
+              "kind": "SecondaryTile",
+              "threshold_rows": 64,
+              "tile_rows": 64
+            }
+          }
+        },
+        "Artifact": "ggsol_356ef05b9c33365d.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_bwd_q4_k_m16384_n512_k2048_356ef05b9c33365d",
+        "ABI": "GroupedBackwardSerialRoutesV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          8,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 5120,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedBackward",
+      "Kernel": {
+        "Identity": "ggsol_98b9ce678d4cb09f",
+        "ExactKey": {
+          "KernelFamily": "GroupedBackward",
+          "ProblemContract": {
+            "quant_type": "Q5_K",
+            "block_values": 256,
+            "packed_weight_block_bytes": 176,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "activation_type": "BFloat16",
+            "destination_type": "BFloat16",
+            "compute_type": "Float32",
+            "abi": "GroupedBackwardSerialRoutesV1",
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "code_object_version": 5
+          },
+          "Problem": {
+            "m": 16384,
+            "n": 512,
+            "k": 2048
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                32,
+                4,
+                1
+              ],
+              "mi_wave_tile": [
+                2,
+                4
+              ],
+              "depth_u": 32,
+              "work_group_mapping": 1
+            },
+            "memory": {
+              "lds_layout": {
+                "kind": "Padded",
+                "pad_b": 8
+              }
+            },
+            "pipeline": {
+              "global_read_prefetch": 2,
+              "local_read_prefetch": 1,
+              "lds_buffer_count": 1,
+              "schedule": "PrefetchActivationInterleaveWmmaWaits",
+              "packed_weight_prefetch": "CurrentTile",
+              "packed_weight_lane_share": 1
+            },
+            "store": {
+              "priority": "Raised"
+            },
+            "decode": {
+              "extraction": "packed",
+              "nibble_shift": "Hoisted",
+              "metadata_load": "Scalar"
+            },
+            "ownership": {
+              "kind": "Serial"
+            },
+            "row_tail": {
+              "kind": "SecondaryTile",
+              "threshold_rows": 64,
+              "tile_rows": 64
+            }
+          }
+        },
+        "Artifact": "ggsol_98b9ce678d4cb09f.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_bwd_q5_k_m16384_n512_k2048_98b9ce678d4cb09f",
+        "ABI": "GroupedBackwardSerialRoutesV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          8,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 5120,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedBackward",
+      "Kernel": {
+        "Identity": "ggsol_67d58c3f849e005f",
+        "ExactKey": {
+          "KernelFamily": "GroupedBackward",
+          "ProblemContract": {
+            "quant_type": "IQ2_S",
+            "block_values": 256,
+            "packed_weight_block_bytes": 82,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "activation_type": "BFloat16",
+            "destination_type": "BFloat16",
+            "compute_type": "Float32",
+            "abi": "GroupedBackwardSerialRoutesV1",
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "code_object_version": 5
+          },
+          "Problem": {
+            "m": 16384,
+            "n": 512,
+            "k": 2048
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                32,
+                4,
+                1
+              ],
+              "mi_wave_tile": [
+                2,
+                4
+              ],
+              "depth_u": 32,
+              "work_group_mapping": 1
+            },
+            "memory": {
+              "lds_layout": {
+                "kind": "Padded",
+                "pad_b": 8
+              }
+            },
+            "pipeline": {
+              "global_read_prefetch": 2,
+              "local_read_prefetch": 1,
+              "lds_buffer_count": 1,
+              "schedule": "PrefetchActivationInterleaveWmmaWaits",
+              "packed_weight_prefetch": "CurrentTile",
+              "packed_weight_lane_share": 1
+            },
+            "store": {
+              "priority": "Raised"
+            },
+            "ownership": {
+              "kind": "Serial"
+            },
+            "row_tail": {
+              "kind": "SecondaryTile",
+              "threshold_rows": 64,
+              "tile_rows": 64
+            }
+          }
+        },
+        "Artifact": "ggsol_67d58c3f849e005f.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_bwd_iq2_s_m16384_n512_k2048_67d58c3f849e005f",
+        "ABI": "GroupedBackwardSerialRoutesV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          8,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 13312,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedBackward",
+      "Kernel": {
+        "Identity": "ggsol_49e0749ea2ff3aa7",
+        "ExactKey": {
+          "KernelFamily": "GroupedBackward",
+          "ProblemContract": {
+            "quant_type": "Q2_K",
+            "block_values": 256,
+            "packed_weight_block_bytes": 84,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "activation_type": "BFloat16",
+            "destination_type": "BFloat16",
+            "compute_type": "Float32",
+            "abi": "GroupedBackwardSerialRoutesV1",
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "code_object_version": 5
+          },
+          "Problem": {
+            "m": 49152,
+            "n": 2048,
+            "k": 4096
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                32,
+                4,
+                1
+              ],
+              "mi_wave_tile": [
+                2,
+                4
+              ],
+              "depth_u": 32,
+              "work_group_mapping": 1
+            },
+            "memory": {
+              "lds_layout": {
+                "kind": "Padded",
+                "pad_b": 8
+              }
+            },
+            "pipeline": {
+              "global_read_prefetch": 2,
+              "local_read_prefetch": 1,
+              "lds_buffer_count": 1,
+              "schedule": "PrefetchActivationInterleaveWmmaWaits",
+              "packed_weight_prefetch": "CurrentTile",
+              "packed_weight_lane_share": 1
+            },
+            "store": {
+              "priority": "Raised"
+            },
+            "decode": {
+              "dependency_batch_size": 4
+            },
+            "ownership": {
+              "kind": "Serial"
+            },
+            "row_tail": {
+              "kind": "SecondaryTile",
+              "threshold_rows": 64,
+              "tile_rows": 64
+            }
+          }
+        },
+        "Artifact": "ggsol_49e0749ea2ff3aa7.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_bwd_q2_k_m49152_n2048_k4096_49e0749ea2ff3aa7",
+        "ABI": "GroupedBackwardSerialRoutesV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          32,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 5120,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedBackward",
+      "Kernel": {
+        "Identity": "ggsol_8356a591b014fc2c",
+        "ExactKey": {
+          "KernelFamily": "GroupedBackward",
+          "ProblemContract": {
+            "quant_type": "Q2_K",
+            "block_values": 256,
+            "packed_weight_block_bytes": 84,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "activation_type": "BFloat16",
+            "destination_type": "BFloat16",
+            "compute_type": "Float32",
+            "abi": "GroupedBackwardSerialRoutesV1",
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "code_object_version": 5
+          },
+          "Problem": {
+            "m": 196608,
+            "n": 2048,
+            "k": 4096
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                32,
+                4,
+                1
+              ],
+              "mi_wave_tile": [
+                2,
+                8
+              ],
+              "depth_u": 32,
+              "work_group_mapping": 1
+            },
+            "memory": {
+              "lds_layout": {
+                "kind": "Padded",
+                "pad_b": 8
+              }
+            },
+            "pipeline": {
+              "global_read_prefetch": 2,
+              "local_read_prefetch": 1,
+              "lds_buffer_count": 1,
+              "schedule": "PrefetchActivationInterleaveWmmaWaits",
+              "packed_weight_prefetch": "CurrentTile",
+              "packed_weight_lane_share": 1
+            },
+            "store": {
+              "priority": "Raised"
+            },
+            "decode": {
+              "dependency_batch_size": 4
+            },
+            "ownership": {
+              "kind": "RouteSplit",
+              "split_factor": 32
+            },
+            "row_tail": {
+              "kind": "Masked"
+            }
+          }
+        },
+        "Artifact": "ggsol_8356a591b014fc2c.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_bwd_q2_k_m196608_n2048_k4096_8356a591b014fc2c",
+        "ABI": "GroupedBackwardSerialRoutesV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          16,
+          256,
+          32
+        ],
+        "SharedMemoryBytes": 10240,
+        "Ownership": "SplitRoutes32",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedBackward",
+      "Kernel": {
+        "Identity": "ggsol_9950e632db681be3",
+        "ExactKey": {
+          "KernelFamily": "GroupedBackward",
+          "ProblemContract": {
+            "quant_type": "Q4_K",
+            "block_values": 256,
+            "packed_weight_block_bytes": 144,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "activation_type": "BFloat16",
+            "destination_type": "BFloat16",
+            "compute_type": "Float32",
+            "abi": "GroupedBackwardSerialRoutesV1",
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "code_object_version": 5
+          },
+          "Problem": {
+            "m": 65536,
+            "n": 512,
+            "k": 2048
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                32,
+                4,
+                1
+              ],
+              "mi_wave_tile": [
+                2,
+                8
+              ],
+              "depth_u": 32,
+              "work_group_mapping": 1
+            },
+            "memory": {
+              "lds_layout": {
+                "kind": "Padded",
+                "pad_b": 8
+              }
+            },
+            "pipeline": {
+              "global_read_prefetch": 2,
+              "local_read_prefetch": 1,
+              "lds_buffer_count": 1,
+              "schedule": "PrefetchActivationInterleaveWmmaWaits",
+              "packed_weight_prefetch": "CurrentTile",
+              "packed_weight_lane_share": 1
+            },
+            "store": {
+              "priority": "Raised"
+            },
+            "decode": {
+              "dependency_batch_size": 4
+            },
+            "ownership": {
+              "kind": "RouteSplit",
+              "split_factor": 4
+            },
+            "row_tail": {
+              "kind": "Masked"
+            }
+          }
+        },
+        "Artifact": "ggsol_9950e632db681be3.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_bwd_q4_k_m65536_n512_k2048_9950e632db681be3",
+        "ABI": "GroupedBackwardSerialRoutesV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          4,
+          256,
+          4
+        ],
+        "SharedMemoryBytes": 10240,
+        "Ownership": "SplitRoutes4",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedBackward",
+      "Kernel": {
+        "Identity": "ggsol_14b7c7089cdc2480",
+        "ExactKey": {
+          "KernelFamily": "GroupedBackward",
+          "ProblemContract": {
+            "quant_type": "Q4_K",
+            "block_values": 256,
+            "packed_weight_block_bytes": 144,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "activation_type": "BFloat16",
+            "destination_type": "BFloat16",
+            "compute_type": "Float32",
+            "abi": "GroupedBackwardSerialRoutesV1",
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "code_object_version": 5
+          },
+          "Problem": {
+            "m": 262144,
+            "n": 512,
+            "k": 2048
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                32,
+                4,
+                1
+              ],
+              "mi_wave_tile": [
+                2,
+                8
+              ],
+              "depth_u": 32,
+              "work_group_mapping": 1
+            },
+            "memory": {
+              "lds_layout": {
+                "kind": "Padded",
+                "pad_b": 8
+              }
+            },
+            "pipeline": {
+              "global_read_prefetch": 2,
+              "local_read_prefetch": 1,
+              "lds_buffer_count": 1,
+              "schedule": "PrefetchActivationInterleaveWmmaWaits",
+              "packed_weight_prefetch": "CurrentTile",
+              "packed_weight_lane_share": 1
+            },
+            "store": {
+              "priority": "Raised"
+            },
+            "decode": {
+              "dependency_batch_size": 4
+            },
+            "ownership": {
+              "kind": "RouteSplit",
+              "split_factor": 8
+            },
+            "row_tail": {
+              "kind": "Masked"
+            }
+          }
+        },
+        "Artifact": "ggsol_14b7c7089cdc2480.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_bwd_q4_k_m262144_n512_k2048_14b7c7089cdc2480",
+        "ABI": "GroupedBackwardSerialRoutesV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          4,
+          256,
+          8
+        ],
+        "SharedMemoryBytes": 10240,
+        "Ownership": "SplitRoutes8",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedBackward",
+      "Kernel": {
+        "Identity": "ggsol_a45127a1814ae728",
+        "ExactKey": {
+          "KernelFamily": "GroupedBackward",
+          "ProblemContract": {
+            "quant_type": "Q5_K",
+            "block_values": 256,
+            "packed_weight_block_bytes": 176,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "activation_type": "BFloat16",
+            "destination_type": "BFloat16",
+            "compute_type": "Float32",
+            "abi": "GroupedBackwardSerialRoutesV1",
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "code_object_version": 5
+          },
+          "Problem": {
+            "m": 65536,
+            "n": 512,
+            "k": 2048
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                32,
+                4,
+                1
+              ],
+              "mi_wave_tile": [
+                2,
+                8
+              ],
+              "depth_u": 32,
+              "work_group_mapping": 1
+            },
+            "memory": {
+              "lds_layout": {
+                "kind": "Padded",
+                "pad_b": 8
+              }
+            },
+            "pipeline": {
+              "global_read_prefetch": 2,
+              "local_read_prefetch": 1,
+              "lds_buffer_count": 1,
+              "schedule": "PrefetchActivationInterleaveWmmaWaits",
+              "packed_weight_prefetch": "CurrentTile",
+              "packed_weight_lane_share": 1
+            },
+            "store": {
+              "priority": "Raised"
+            },
+            "decode": {
+              "extraction": "packed",
+              "nibble_shift": "Hoisted",
+              "metadata_load": "Scalar"
+            },
+            "ownership": {
+              "kind": "RouteSplit",
+              "split_factor": 16
+            },
+            "row_tail": {
+              "kind": "Masked"
+            }
+          }
+        },
+        "Artifact": "ggsol_a45127a1814ae728.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_bwd_q5_k_m65536_n512_k2048_a45127a1814ae728",
+        "ABI": "GroupedBackwardSerialRoutesV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          4,
+          256,
+          16
+        ],
+        "SharedMemoryBytes": 10240,
+        "Ownership": "SplitRoutes16",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedBackward",
+      "Kernel": {
+        "Identity": "ggsol_d82241ad1072e2f0",
+        "ExactKey": {
+          "KernelFamily": "GroupedBackward",
+          "ProblemContract": {
+            "quant_type": "IQ2_S",
+            "block_values": 256,
+            "packed_weight_block_bytes": 82,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "activation_type": "BFloat16",
+            "destination_type": "BFloat16",
+            "compute_type": "Float32",
+            "abi": "GroupedBackwardSerialRoutesV1",
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "code_object_version": 5
+          },
+          "Problem": {
+            "m": 65536,
+            "n": 512,
+            "k": 2048
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                32,
+                4,
+                1
+              ],
+              "mi_wave_tile": [
+                2,
+                8
+              ],
+              "depth_u": 32,
+              "work_group_mapping": 1
+            },
+            "memory": {
+              "lds_layout": {
+                "kind": "Padded",
+                "pad_b": 8
+              }
+            },
+            "pipeline": {
+              "global_read_prefetch": 2,
+              "local_read_prefetch": 1,
+              "lds_buffer_count": 1,
+              "schedule": "PrefetchActivationInterleaveWmmaWaits",
+              "packed_weight_prefetch": "CurrentTile",
+              "packed_weight_lane_share": 1
+            },
+            "store": {
+              "priority": "Raised"
+            },
+            "ownership": {
+              "kind": "RouteSplit",
+              "split_factor": 64
+            },
+            "row_tail": {
+              "kind": "Masked"
+            }
+          }
+        },
+        "Artifact": "ggsol_d82241ad1072e2f0.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_bwd_iq2_s_m65536_n512_k2048_d82241ad1072e2f0",
+        "ABI": "GroupedBackwardSerialRoutesV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          4,
+          256,
+          64
+        ],
+        "SharedMemoryBytes": 18432,
+        "Ownership": "SplitRoutes64",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedBackward",
+      "Kernel": {
+        "Identity": "ggsol_c518830e3a59d061",
+        "ExactKey": {
+          "KernelFamily": "GroupedBackward",
+          "ProblemContract": {
+            "quant_type": "Q5_K",
+            "block_values": 256,
+            "packed_weight_block_bytes": 176,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "activation_type": "BFloat16",
+            "destination_type": "BFloat16",
+            "compute_type": "Float32",
+            "abi": "GroupedBackwardSerialRoutesV1",
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "code_object_version": 5
+          },
+          "Problem": {
+            "m": 262144,
+            "n": 512,
+            "k": 2048
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                32,
+                4,
+                1
+              ],
+              "mi_wave_tile": [
+                2,
+                8
+              ],
+              "depth_u": 32,
+              "work_group_mapping": 1
+            },
+            "memory": {
+              "lds_layout": {
+                "kind": "Padded",
+                "pad_b": 8
+              }
+            },
+            "pipeline": {
+              "global_read_prefetch": 2,
+              "local_read_prefetch": 1,
+              "lds_buffer_count": 1,
+              "schedule": "PrefetchActivationInterleaveWmmaWaits",
+              "packed_weight_prefetch": "CurrentTile",
+              "packed_weight_lane_share": 1
+            },
+            "store": {
+              "priority": "Raised"
+            },
+            "decode": {
+              "extraction": "packed",
+              "nibble_shift": "Hoisted",
+              "metadata_load": "Scalar"
+            },
+            "ownership": {
+              "kind": "RouteSplit",
+              "split_factor": 16
+            },
+            "row_tail": {
+              "kind": "Masked"
+            }
+          }
+        },
+        "Artifact": "ggsol_c518830e3a59d061.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_bwd_q5_k_m262144_n512_k2048_c518830e3a59d061",
+        "ABI": "GroupedBackwardSerialRoutesV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          4,
+          256,
+          16
+        ],
+        "SharedMemoryBytes": 10240,
+        "Ownership": "SplitRoutes16",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedBackward",
+      "Kernel": {
+        "Identity": "ggsol_8684bd239b31ec32",
+        "ExactKey": {
+          "KernelFamily": "GroupedBackward",
+          "ProblemContract": {
+            "quant_type": "IQ2_S",
+            "block_values": 256,
+            "packed_weight_block_bytes": 82,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "activation_type": "BFloat16",
+            "destination_type": "BFloat16",
+            "compute_type": "Float32",
+            "abi": "GroupedBackwardSerialRoutesV1",
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "code_object_version": 5
+          },
+          "Problem": {
+            "m": 262144,
+            "n": 512,
+            "k": 2048
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                32,
+                4,
+                1
+              ],
+              "mi_wave_tile": [
+                2,
+                8
+              ],
+              "depth_u": 32,
+              "work_group_mapping": 1
+            },
+            "memory": {
+              "lds_layout": {
+                "kind": "Padded",
+                "pad_b": 8
+              }
+            },
+            "pipeline": {
+              "global_read_prefetch": 2,
+              "local_read_prefetch": 1,
+              "lds_buffer_count": 1,
+              "schedule": "PrefetchActivationInterleaveWmmaWaits",
+              "packed_weight_prefetch": "CurrentTile",
+              "packed_weight_lane_share": 1
+            },
+            "store": {
+              "priority": "Raised"
+            },
+            "ownership": {
+              "kind": "RouteSplit",
+              "split_factor": 64
+            },
+            "row_tail": {
+              "kind": "Masked"
+            }
+          }
+        },
+        "Artifact": "ggsol_8684bd239b31ec32.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_bwd_iq2_s_m262144_n512_k2048_8684bd239b31ec32",
+        "ABI": "GroupedBackwardSerialRoutesV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          4,
+          256,
+          64
+        ],
+        "SharedMemoryBytes": 18432,
+        "Ownership": "SplitRoutes64",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedBackwardPair",
+      "Kernel": {
+        "Identity": "ggbpair_6fc121781141a30e",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "IQ2_S",
+            "out_features": 512,
+            "in_features": 2048,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "block_values": 256,
+            "packed_weight_block_bytes": 82,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "projection_count": 2,
+            "arithmetic_contract": "InterleavedPairFP32Accumulator",
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi_family": "GroupedBackwardPairV1"
+          },
+          "Problem": {
+            "aggregate_rows": 16384
+          },
+          "KernelSpec": {
+            "compute": {
+              "geometry": {
+                "work_group": [
+                  32,
+                  4,
+                  1
+                ],
+                "mi_wave_tile": [
+                  2,
+                  4
+                ],
+                "depth_u": 32,
+                "work_group_mapping": 1
+              },
+              "memory": {
+                "lds_layout": {
+                  "kind": "Linear"
+                }
+              },
+              "pipeline": {
+                "global_read_prefetch": 2,
+                "local_read_prefetch": 1,
+                "lds_buffer_count": 1,
+                "schedule": "PrefetchActivationInterleaveWmmaWaits",
+                "packed_weight_prefetch": "CurrentAndNextTile",
+                "packed_weight_lane_share": 1
+              },
+              "store": {
+                "priority": "Raised"
+              }
+            },
+            "projection_schedule": "DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU",
+            "route_ownership": "PackedSplitRoutes8"
+          }
+        },
+        "Artifact": "ggbpair_6fc121781141a30e.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_bwd_pair_iq2_s_r16384_n2048_k512_6fc121781141a30e",
+        "ABI": "GroupedBackwardPairV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          32,
+          2048,
+          1
+        ],
+        "SharedMemoryBytes": 8192,
+        "Ownership": "PackedSplitRoutes8",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedBackwardPair",
+      "Kernel": {
+        "Identity": "ggbpair_64ba6a8b68b4c2c6",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "IQ2_S",
+            "out_features": 512,
+            "in_features": 2048,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "block_values": 256,
+            "packed_weight_block_bytes": 82,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "projection_count": 2,
+            "arithmetic_contract": "InterleavedPairFP32Accumulator",
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi_family": "GroupedBackwardPairV1"
+          },
+          "Problem": {
+            "aggregate_rows": 65536
+          },
+          "KernelSpec": {
+            "compute": {
+              "geometry": {
+                "work_group": [
+                  32,
+                  4,
+                  1
+                ],
+                "mi_wave_tile": [
+                  2,
+                  4
+                ],
+                "depth_u": 32,
+                "work_group_mapping": 1
+              },
+              "memory": {
+                "lds_layout": {
+                  "kind": "Linear"
+                }
+              },
+              "pipeline": {
+                "global_read_prefetch": 2,
+                "local_read_prefetch": 1,
+                "lds_buffer_count": 1,
+                "schedule": "PrefetchActivationInterleaveWmmaWaits",
+                "packed_weight_prefetch": "CurrentAndNextTile",
+                "packed_weight_lane_share": 1
+              },
+              "store": {
+                "priority": "Raised"
+              }
+            },
+            "projection_schedule": "DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU",
+            "route_ownership": "PackedSplitRoutes8"
+          }
+        },
+        "Artifact": "ggbpair_64ba6a8b68b4c2c6.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_bwd_pair_iq2_s_r65536_n2048_k512_64ba6a8b68b4c2c6",
+        "ABI": "GroupedBackwardPairV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          32,
+          2048,
+          1
+        ],
+        "SharedMemoryBytes": 8192,
+        "Ownership": "PackedSplitRoutes8",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedBackwardPair",
+      "Kernel": {
+        "Identity": "ggbpair_b63deec8280c235f",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "IQ2_S",
+            "out_features": 512,
+            "in_features": 2048,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "block_values": 256,
+            "packed_weight_block_bytes": 82,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "projection_count": 2,
+            "arithmetic_contract": "InterleavedPairFP32Accumulator",
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi_family": "GroupedBackwardPairV1"
+          },
+          "Problem": {
+            "aggregate_rows": 262144
+          },
+          "KernelSpec": {
+            "compute": {
+              "geometry": {
+                "work_group": [
+                  32,
+                  4,
+                  1
+                ],
+                "mi_wave_tile": [
+                  2,
+                  4
+                ],
+                "depth_u": 32,
+                "work_group_mapping": 1
+              },
+              "memory": {
+                "lds_layout": {
+                  "kind": "Linear"
+                }
+              },
+              "pipeline": {
+                "global_read_prefetch": 2,
+                "local_read_prefetch": 1,
+                "lds_buffer_count": 1,
+                "schedule": "PrefetchActivationInterleaveWmmaWaits",
+                "packed_weight_prefetch": "CurrentAndNextTile",
+                "packed_weight_lane_share": 1
+              },
+              "store": {
+                "priority": "Raised"
+              }
+            },
+            "projection_schedule": "DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU",
+            "route_ownership": "PackedSplitRoutes8"
+          }
+        },
+        "Artifact": "ggbpair_b63deec8280c235f.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_bwd_pair_iq2_s_r262144_n2048_k512_b63deec8280c235f",
+        "ABI": "GroupedBackwardPairV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          32,
+          2048,
+          1
+        ],
+        "SharedMemoryBytes": 8192,
+        "Ownership": "PackedSplitRoutes8",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedBackwardPair",
+      "Kernel": {
+        "Identity": "ggbpair_648838e6b6e5e97b",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "IQ2_XXS",
+            "out_features": 2048,
+            "in_features": 4096,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "block_values": 256,
+            "packed_weight_block_bytes": 66,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "projection_count": 2,
+            "arithmetic_contract": "InterleavedPairFP32Accumulator",
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi_family": "GroupedBackwardPairV1"
+          },
+          "Problem": {
+            "aggregate_rows": 12288
+          },
+          "KernelSpec": {
+            "compute": {
+              "geometry": {
+                "work_group": [
+                  32,
+                  4,
+                  1
+                ],
+                "mi_wave_tile": [
+                  1,
+                  4
+                ],
+                "depth_u": 32,
+                "work_group_mapping": 1
+              },
+              "memory": {
+                "lds_layout": {
+                  "kind": "Swizzled",
+                  "chunk_b": 8
+                }
+              },
+              "pipeline": {
+                "global_read_prefetch": 2,
+                "local_read_prefetch": 1,
+                "lds_buffer_count": 1,
+                "schedule": "PrefetchActivationInterleaveWmmaWaits",
+                "packed_weight_prefetch": "CurrentAndNextTile",
+                "packed_weight_lane_share": 1
+              },
+              "store": {
+                "priority": "Raised"
+              }
+            },
+            "projection_schedule": "DualLdsFullTileSplitKPipelineInterleavedDepthU",
+            "route_ownership": "SerialRoutes"
+          }
+        },
+        "Artifact": "ggbpair_648838e6b6e5e97b.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_bwd_pair_iq2_xxs_r12288_n4096_k2048_648838e6b6e5e97b",
+        "ABI": "GroupedBackwardPairV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          64,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 10240,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedBackwardPair",
+      "Kernel": {
+        "Identity": "ggbpair_dd16a88d7a365ea0",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "IQ2_XXS",
+            "out_features": 2048,
+            "in_features": 4096,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "block_values": 256,
+            "packed_weight_block_bytes": 66,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "projection_count": 2,
+            "arithmetic_contract": "InterleavedPairFP32Accumulator",
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi_family": "GroupedBackwardPairV1"
+          },
+          "Problem": {
+            "aggregate_rows": 49152
+          },
+          "KernelSpec": {
+            "compute": {
+              "geometry": {
+                "work_group": [
+                  32,
+                  4,
+                  1
+                ],
+                "mi_wave_tile": [
+                  2,
+                  4
+                ],
+                "depth_u": 32,
+                "work_group_mapping": 1
+              },
+              "memory": {
+                "lds_layout": {
+                  "kind": "Swizzled",
+                  "chunk_b": 8
+                }
+              },
+              "pipeline": {
+                "global_read_prefetch": 2,
+                "local_read_prefetch": 1,
+                "lds_buffer_count": 1,
+                "schedule": "PrefetchActivation",
+                "packed_weight_prefetch": "CurrentTile",
+                "packed_weight_lane_share": 1
+              },
+              "store": {
+                "priority": "Raised"
+              }
+            },
+            "projection_schedule": "DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU",
+            "route_ownership": "SerialRoutes"
+          }
+        },
+        "Artifact": "ggbpair_dd16a88d7a365ea0.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_bwd_pair_iq2_xxs_r49152_n4096_k2048_dd16a88d7a365ea0",
+        "ABI": "GroupedBackwardPairV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          64,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 10240,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedBackwardPair",
+      "Kernel": {
+        "Identity": "ggbpair_1be1cd79ef70bdc7",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "IQ2_XXS",
+            "out_features": 2048,
+            "in_features": 4096,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "block_values": 256,
+            "packed_weight_block_bytes": 66,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "projection_count": 2,
+            "arithmetic_contract": "InterleavedPairFP32Accumulator",
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi_family": "GroupedBackwardPairV1"
+          },
+          "Problem": {
+            "aggregate_rows": 196608
+          },
+          "KernelSpec": {
+            "compute": {
+              "geometry": {
+                "work_group": [
+                  32,
+                  4,
+                  1
+                ],
+                "mi_wave_tile": [
+                  2,
+                  4
+                ],
+                "depth_u": 32,
+                "work_group_mapping": 1
+              },
+              "memory": {
+                "lds_layout": {
+                  "kind": "Swizzled",
+                  "chunk_b": 8
+                }
+              },
+              "pipeline": {
+                "global_read_prefetch": 2,
+                "local_read_prefetch": 1,
+                "lds_buffer_count": 1,
+                "schedule": "PrefetchActivation",
+                "packed_weight_prefetch": "CurrentTile",
+                "packed_weight_lane_share": 1
+              },
+              "store": {
+                "priority": "Raised"
+              }
+            },
+            "projection_schedule": "DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU",
+            "route_ownership": "SerialRoutes"
+          }
+        },
+        "Artifact": "ggbpair_1be1cd79ef70bdc7.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_bwd_pair_iq2_xxs_r196608_n4096_k2048_1be1cd79ef70bdc7",
+        "ABI": "GroupedBackwardPairV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          64,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 10240,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedBackwardPair",
+      "Kernel": {
+        "Identity": "ggbpair_72eedb6708bbbe0c",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "Q3_K",
+            "out_features": 512,
+            "in_features": 2048,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "block_values": 256,
+            "packed_weight_block_bytes": 110,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "projection_count": 2,
+            "arithmetic_contract": "InterleavedPairFP32Accumulator",
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi_family": "GroupedBackwardPairV1"
+          },
+          "Problem": {
+            "aggregate_rows": 16384
+          },
+          "KernelSpec": {
+            "compute": {
+              "geometry": {
+                "work_group": [
+                  32,
+                  4,
+                  1
+                ],
+                "mi_wave_tile": [
+                  1,
+                  4
+                ],
+                "depth_u": 32,
+                "work_group_mapping": 1
+              },
+              "memory": {
+                "lds_layout": {
+                  "kind": "Padded",
+                  "pad_b": 8
+                }
+              },
+              "pipeline": {
+                "global_read_prefetch": 2,
+                "local_read_prefetch": 1,
+                "lds_buffer_count": 1,
+                "schedule": "PrefetchActivation",
+                "packed_weight_prefetch": "CurrentTile",
+                "packed_weight_lane_share": 1
+              },
+              "store": {
+                "priority": "Raised"
+              },
+              "decode": {
+                "extraction": "packed",
+                "pairing": "Full"
+              }
+            },
+            "projection_schedule": "DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU",
+            "route_ownership": "SerialRoutes"
+          }
+        },
+        "Artifact": "ggbpair_72eedb6708bbbe0c.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_bwd_pair_q3_k_r16384_n2048_k512_72eedb6708bbbe0c",
+        "ABI": "GroupedBackwardPairV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          32,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 10240,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedBackwardPair",
+      "Kernel": {
+        "Identity": "ggbpair_d6b74a04787d53ff",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "Q3_K",
+            "out_features": 512,
+            "in_features": 2048,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "block_values": 256,
+            "packed_weight_block_bytes": 110,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "projection_count": 2,
+            "arithmetic_contract": "InterleavedPairFP32Accumulator",
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi_family": "GroupedBackwardPairV1"
+          },
+          "Problem": {
+            "aggregate_rows": 65536
+          },
+          "KernelSpec": {
+            "compute": {
+              "geometry": {
+                "work_group": [
+                  32,
+                  4,
+                  1
+                ],
+                "mi_wave_tile": [
+                  2,
+                  4
+                ],
+                "depth_u": 32,
+                "work_group_mapping": 1
+              },
+              "memory": {
+                "lds_layout": {
+                  "kind": "Padded",
+                  "pad_b": 8
+                }
+              },
+              "pipeline": {
+                "global_read_prefetch": 2,
+                "local_read_prefetch": 1,
+                "lds_buffer_count": 1,
+                "schedule": "PrefetchActivation",
+                "packed_weight_prefetch": "CurrentTile",
+                "packed_weight_lane_share": 1
+              },
+              "store": {
+                "priority": "Raised"
+              },
+              "decode": {
+                "extraction": "packed",
+                "pairing": "Full"
+              }
+            },
+            "projection_schedule": "DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU",
+            "route_ownership": "SerialRoutes"
+          }
+        },
+        "Artifact": "ggbpair_d6b74a04787d53ff.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_bwd_pair_q3_k_r65536_n2048_k512_d6b74a04787d53ff",
+        "ABI": "GroupedBackwardPairV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          32,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 10240,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "GroupedBackwardPair",
+      "Kernel": {
+        "Identity": "ggbpair_ac794f796fe331a9",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "Q3_K",
+            "out_features": 512,
+            "in_features": 2048,
+            "physical_experts": 256,
+            "max_route_entries": 256,
+            "block_values": 256,
+            "packed_weight_block_bytes": 110,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "projection_count": 2,
+            "arithmetic_contract": "InterleavedPairFP32Accumulator",
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi_family": "GroupedBackwardPairV1"
+          },
+          "Problem": {
+            "aggregate_rows": 262144
+          },
+          "KernelSpec": {
+            "compute": {
+              "geometry": {
+                "work_group": [
+                  32,
+                  4,
+                  1
+                ],
+                "mi_wave_tile": [
+                  2,
+                  4
+                ],
+                "depth_u": 32,
+                "work_group_mapping": 1
+              },
+              "memory": {
+                "lds_layout": {
+                  "kind": "Padded",
+                  "pad_b": 8
+                }
+              },
+              "pipeline": {
+                "global_read_prefetch": 2,
+                "local_read_prefetch": 1,
+                "lds_buffer_count": 1,
+                "schedule": "PrefetchActivation",
+                "packed_weight_prefetch": "CurrentTile",
+                "packed_weight_lane_share": 1
+              },
+              "store": {
+                "priority": "Raised"
+              },
+              "decode": {
+                "extraction": "packed",
+                "pairing": "Full"
+              }
+            },
+            "projection_schedule": "DualLdsFullTileSplitDirectPointersOverlapSecondReadPrefetchAInterleavedDepthU",
+            "route_ownership": "SerialRoutes"
+          }
+        },
+        "Artifact": "ggbpair_ac794f796fe331a9.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_bwd_pair_q3_k_r262144_n2048_k512_ac794f796fe331a9",
+        "ABI": "GroupedBackwardPairV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          32,
+          256,
+          1
+        ],
+        "SharedMemoryBytes": 10240,
+        "Ownership": "SerialRoutes",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "FixedGroupedForward",
+      "Kernel": {
+        "Identity": "ggsol_65ea830f809a878c",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "Q8_0",
+            "output_features": 1024,
+            "input_features": 4096,
+            "groups": 8,
+            "block_values": 32,
+            "packed_weight_block_bytes": 34,
+            "activation_layout": "F32_D4",
+            "activation_block_bytes": 144,
+            "arithmetic_contract": "SignedQ8Int8ScaleIntegerWmmaF32Correction",
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "weight_decode": "DirectSignedInt8",
+            "activation_addressing": "FixedGroupRows",
+            "scale_arithmetic": "Int32ScaleF32",
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": false,
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi": "FixedGroupedQ8OutputV1"
+          },
+          "Problem": {
+            "tokens": 2048
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                32,
+                4,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile_tokens": 64,
+              "macro_tile_features": 64,
+              "depth_u": 32
+            },
+            "lowering": {
+              "operand_source": "Q8SmallMTiledLds",
+              "lds_address_hoist": "CompactDepth32WeightRows",
+              "fixed_address_hoist": "ReductionLoopAndWeightStage"
+            },
+            "epilogue": {
+              "output_store": "BFloat16RNEClauseTile"
+            }
+          }
+        },
+        "Artifact": "ggsol_65ea830f809a878c.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_fixed_grouped_mmq_fwd_q8_0_t2048_n1024_k4096_65ea830f809a878c",
+        "ABI": "FixedGroupedQ8OutputV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          16,
+          32,
+          8
+        ],
+        "SharedMemoryBytes": 18432,
+        "Ownership": "FixedGroupZ",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "FixedGroupedBackward",
+      "Kernel": {
+        "Identity": "ggsol_e3f23cb5c4ad7aae",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "Q8_0",
+            "output_features": 1024,
+            "input_features": 4096,
+            "groups": 8,
+            "block_values": 32,
+            "packed_weight_block_bytes": 34,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "activation_type": "BFloat16",
+            "destination_type": "BFloat16",
+            "compute_type": "Float32",
+            "row_layout": "TokenMajorGroupInterleaved",
+            "packed_weight_layout": "GroupMajorRows",
+            "abi": "FixedGroupedBackwardQ8V1",
+            "code_object_version": 5
+          },
+          "Problem": {
+            "tokens": 2048
+          },
+          "KernelSpec": {
+            "compute": {
+              "geometry": {
+                "work_group": [
+                  32,
+                  4,
+                  1
+                ],
+                "mi_wave_tile": [
+                  2,
+                  8
+                ],
+                "depth_u": 64,
+                "work_group_mapping": 1
+              },
+              "memory": {
+                "lds_layout": {
+                  "kind": "Padded",
+                  "pad_b": 8
+                }
+              },
+              "pipeline": {
+                "global_read_prefetch": 2,
+                "local_read_prefetch": 1,
+                "lds_buffer_count": 1,
+                "schedule": "PrefetchActivation",
+                "packed_weight_prefetch": "CurrentTile",
+                "packed_weight_lane_share": 1
+              },
+              "store": {
+                "priority": "Raised"
+              },
+              "decode": {
+                "extraction": "packed"
+              }
+            },
+            "epilogue": {
+              "store_schedule": "ElementSerial"
+            },
+            "addressing": {
+              "work_group_order": "NMajor",
+              "group_axis": "WorkGroupZ",
+              "row_layout": "TokenMajorGroupInterleaved",
+              "packed_weight_layout": "GroupMajorRows"
+            }
+          }
+        },
+        "Artifact": "ggsol_e3f23cb5c4ad7aae.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_fixed_grouped_mmq_bwd_q8_0_t2048_n4096_k1024_e3f23cb5c4ad7aae",
+        "ABI": "FixedGroupedBackwardQ8V1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          32,
+          16,
+          8
+        ],
+        "SharedMemoryBytes": 18432,
+        "Ownership": "FixedGroupZ",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "FixedGroupedForward",
+      "Kernel": {
+        "Identity": "ggsol_03c6517b032619d5",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "Q8_0",
+            "output_features": 1024,
+            "input_features": 4096,
+            "groups": 8,
+            "block_values": 32,
+            "packed_weight_block_bytes": 34,
+            "activation_layout": "F32_D4",
+            "activation_block_bytes": 144,
+            "arithmetic_contract": "SignedQ8Int8ScaleIntegerWmmaF32Correction",
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "weight_decode": "DirectSignedInt8",
+            "activation_addressing": "FixedGroupRows",
+            "scale_arithmetic": "Int32ScaleF32",
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": false,
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi": "FixedGroupedQ8OutputV1"
+          },
+          "Problem": {
+            "tokens": 8192
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                32,
+                4,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile_tokens": 64,
+              "macro_tile_features": 64,
+              "depth_u": 32
+            },
+            "lowering": {
+              "operand_source": "Q8SmallMTiledLds",
+              "lds_address_hoist": "CompactDepth32WeightRows",
+              "fixed_address_hoist": "ReductionLoopAndWeightStage"
+            },
+            "epilogue": {
+              "output_store": "BFloat16RNEClauseTile"
+            }
+          }
+        },
+        "Artifact": "ggsol_03c6517b032619d5.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_fixed_grouped_mmq_fwd_q8_0_t8192_n1024_k4096_03c6517b032619d5",
+        "ABI": "FixedGroupedQ8OutputV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          16,
+          128,
+          8
+        ],
+        "SharedMemoryBytes": 18432,
+        "Ownership": "FixedGroupZ",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "FixedGroupedBackward",
+      "Kernel": {
+        "Identity": "ggsol_8fb858b844ca8109",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "Q8_0",
+            "output_features": 1024,
+            "input_features": 4096,
+            "groups": 8,
+            "block_values": 32,
+            "packed_weight_block_bytes": 34,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "activation_type": "BFloat16",
+            "destination_type": "BFloat16",
+            "compute_type": "Float32",
+            "row_layout": "TokenMajorGroupInterleaved",
+            "packed_weight_layout": "GroupMajorRows",
+            "abi": "FixedGroupedBackwardQ8V1",
+            "code_object_version": 5
+          },
+          "Problem": {
+            "tokens": 8192
+          },
+          "KernelSpec": {
+            "compute": {
+              "geometry": {
+                "work_group": [
+                  32,
+                  4,
+                  1
+                ],
+                "mi_wave_tile": [
+                  2,
+                  8
+                ],
+                "depth_u": 64,
+                "work_group_mapping": 1
+              },
+              "memory": {
+                "lds_layout": {
+                  "kind": "Padded",
+                  "pad_b": 8
+                }
+              },
+              "pipeline": {
+                "global_read_prefetch": 2,
+                "local_read_prefetch": 1,
+                "lds_buffer_count": 1,
+                "schedule": "PrefetchActivation",
+                "packed_weight_prefetch": "CurrentTile",
+                "packed_weight_lane_share": 1
+              },
+              "store": {
+                "priority": "Raised"
+              },
+              "decode": {
+                "extraction": "packed"
+              }
+            },
+            "epilogue": {
+              "store_schedule": "ElementSerial"
+            },
+            "addressing": {
+              "work_group_order": "NMajor",
+              "group_axis": "WorkGroupZ",
+              "row_layout": "TokenMajorGroupInterleaved",
+              "packed_weight_layout": "GroupMajorRows"
+            }
+          }
+        },
+        "Artifact": "ggsol_8fb858b844ca8109.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_fixed_grouped_mmq_bwd_q8_0_t8192_n4096_k1024_8fb858b844ca8109",
+        "ABI": "FixedGroupedBackwardQ8V1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          32,
+          64,
+          8
+        ],
+        "SharedMemoryBytes": 18432,
+        "Ownership": "FixedGroupZ",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "FixedGroupedForward",
+      "Kernel": {
+        "Identity": "ggsol_e80f2d214da77367",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "Q8_0",
+            "output_features": 1024,
+            "input_features": 4096,
+            "groups": 8,
+            "block_values": 32,
+            "packed_weight_block_bytes": 34,
+            "activation_layout": "F32_D4",
+            "activation_block_bytes": 144,
+            "arithmetic_contract": "SignedQ8Int8ScaleIntegerWmmaF32Correction",
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "weight_decode": "DirectSignedInt8",
+            "activation_addressing": "FixedGroupRows",
+            "scale_arithmetic": "Int32ScaleF32",
+            "signed_weight": true,
+            "signed_activation": true,
+            "wmma_clamp": false,
+            "destination_type": "BFloat16",
+            "bf16_rounding": "RNEPreserveNaN",
+            "abi": "FixedGroupedQ8OutputV1"
+          },
+          "Problem": {
+            "tokens": 32768
+          },
+          "KernelSpec": {
+            "geometry": {
+              "work_group": [
+                32,
+                4,
+                1
+              ],
+              "matrix_instruction": [
+                16,
+                16,
+                16,
+                1,
+                1,
+                1,
+                4,
+                4,
+                1
+              ],
+              "macro_tile_tokens": 64,
+              "macro_tile_features": 64,
+              "depth_u": 32
+            },
+            "lowering": {
+              "operand_source": "Q8SmallMTiledLds",
+              "lds_address_hoist": "CompactDepth32WeightRows",
+              "fixed_address_hoist": "ReductionLoopAndWeightStage"
+            },
+            "epilogue": {
+              "output_store": "BFloat16RNEClauseTile"
+            }
+          }
+        },
+        "Artifact": "ggsol_e80f2d214da77367.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_fixed_grouped_mmq_fwd_q8_0_t32768_n1024_k4096_e80f2d214da77367",
+        "ABI": "FixedGroupedQ8OutputV1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          16,
+          512,
+          8
+        ],
+        "SharedMemoryBytes": 18432,
+        "Ownership": "FixedGroupZ",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    },
+    {
+      "Operation": "FixedGroupedBackward",
+      "Kernel": {
+        "Identity": "ggsol_d0bc5b94d26fe2b3",
+        "ExactKey": {
+          "ProblemContract": {
+            "quant_type": "Q8_0",
+            "output_features": 1024,
+            "input_features": 4096,
+            "groups": 8,
+            "block_values": 32,
+            "packed_weight_block_bytes": 34,
+            "kernel_language": "Assembly",
+            "isa": [
+              11,
+              5,
+              1
+            ],
+            "wavefront_size": 32,
+            "activation_type": "BFloat16",
+            "destination_type": "BFloat16",
+            "compute_type": "Float32",
+            "row_layout": "TokenMajorGroupInterleaved",
+            "packed_weight_layout": "GroupMajorRows",
+            "abi": "FixedGroupedBackwardQ8V1",
+            "code_object_version": 5
+          },
+          "Problem": {
+            "tokens": 32768
+          },
+          "KernelSpec": {
+            "compute": {
+              "geometry": {
+                "work_group": [
+                  32,
+                  4,
+                  1
+                ],
+                "mi_wave_tile": [
+                  2,
+                  8
+                ],
+                "depth_u": 64,
+                "work_group_mapping": 1
+              },
+              "memory": {
+                "lds_layout": {
+                  "kind": "Padded",
+                  "pad_b": 8
+                }
+              },
+              "pipeline": {
+                "global_read_prefetch": 2,
+                "local_read_prefetch": 1,
+                "lds_buffer_count": 1,
+                "schedule": "PrefetchActivation",
+                "packed_weight_prefetch": "CurrentTile",
+                "packed_weight_lane_share": 1
+              },
+              "store": {
+                "priority": "Raised"
+              },
+              "decode": {
+                "extraction": "packed"
+              }
+            },
+            "epilogue": {
+              "store_schedule": "ElementSerial"
+            },
+            "addressing": {
+              "work_group_order": "NMajor",
+              "group_axis": "WorkGroupZ",
+              "row_layout": "TokenMajorGroupInterleaved",
+              "packed_weight_layout": "GroupMajorRows"
+            }
+          }
+        },
+        "Artifact": "ggsol_d0bc5b94d26fe2b3.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_fixed_grouped_mmq_bwd_q8_0_t32768_n4096_k1024_d0bc5b94d26fe2b3",
+        "ABI": "FixedGroupedBackwardQ8V1",
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "Grid": [
+          32,
+          256,
+          8
+        ],
+        "SharedMemoryBytes": 18432,
+        "Ownership": "FixedGroupZ",
+        "RowTaskRows": null,
+        "RowTaskCapacity": null
+      }
+    }
+  ]
+}

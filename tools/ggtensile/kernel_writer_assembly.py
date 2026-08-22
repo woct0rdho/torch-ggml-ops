@@ -288,10 +288,8 @@ def initialize_rocisa(
     original_directory = Path.cwd()
     with tempfile.TemporaryDirectory(prefix=temporary_prefix) as temporary:
         os.chdir(temporary)
-        try:
-            global_isa.init(isa, str(assembler), False)
-        finally:
-            os.chdir(original_directory)
+        global_isa.init(isa, str(assembler), False)
+        os.chdir(original_directory)
     global_isa.setKernel(isa, wavefront_size)
 
 

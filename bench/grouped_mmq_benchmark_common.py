@@ -13,10 +13,10 @@ from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
 from tests.mmq_test_support import load_packed_tensor
 from tools.ggtensile.benchmark_routes import (
-    DISTRIBUTION_NAMES,
     RouteDistribution,
     distribution_summary,
 )
+from tools.ggtensile.workload_prior import EXPERT_PRIOR_NAMES
 
 QUANT_BLOCK_GEOMETRY = {
     "Q8_0": (32, 34),
@@ -169,15 +169,10 @@ def parse_grouped_benchmark_args(
         repeats=9,
     )
     parser.add_argument(
-        "--top-k",
-        type=int,
-        default=None,
-        help="override the selected model family's routed top-k",
-    )
-    parser.add_argument(
-        "--distributions",
-        type=parse_name_list,
-        default=DISTRIBUTION_NAMES,
+        "--expert-prior",
+        choices=EXPERT_PRIOR_NAMES,
+        required=True,
+        help="the sole fitted law used for every routed performance case",
     )
     parser.add_argument("--correctness-rows", type=int, default=256)
     parser.add_argument(
@@ -198,15 +193,10 @@ def parse_grouped_benchmark_args(
         )
     args = parser.parse_args()
     validate_benchmark_args(parser, args)
-    if args.top_k is not None and args.top_k <= 0:
-        parser.error("--top-k must be positive")
     if args.correctness_rows <= 0:
         parser.error("--correctness-rows must be positive")
-    unknown = sorted(set(args.distributions) - set(DISTRIBUTION_NAMES))
-    if unknown:
-        parser.error(
-            f"unknown distributions {unknown}; expected {list(DISTRIBUTION_NAMES)}"
-        )
+    if not args.expert_prior.startswith(f"{args.model_family}-"):
+        parser.error("--expert-prior must match --model-family")
     return args
 
 
@@ -353,13 +343,6 @@ def bf16_fixed_grad_input_reference(
     return group_major.permute(1, 0, 2).contiguous()
 
 
-def parse_name_list(value: str) -> tuple[str, ...]:
-    result = tuple(item.strip() for item in value.split(",") if item.strip())
-    if not result:
-        raise argparse.ArgumentTypeError("expected a comma-separated nonempty list")
-    return result
-
-
 def select_cases(
     case_names: str,
     primary_only: bool,
@@ -406,4 +389,7 @@ def grouped_result_metadata(
     }
     if top_k is not None:
         result["top_k"] = top_k
+    if distribution.profile is not None:
+        result["expert_prior"] = distribution.profile.prior.value
+        result["expert_prior_profile"] = distribution.profile.to_mapping()
     return result

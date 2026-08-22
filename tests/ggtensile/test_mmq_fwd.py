@@ -15,7 +15,6 @@ from tests.ggtensile.support import (
     load_inventory_case,
     selected_solution_keys,
 )
-from tools.build_mmq_bundle import kernel_specs
 from tools.ggtensile.kernel_writer_assembly_mmq_fwd import (
     ForwardKernelWriterAssembly,
     ForwardKernelWriterError,
@@ -35,6 +34,7 @@ from tools.ggtensile.model import (
 from tools.ggtensile.runtime import FixedHipForwardModule, ForwardModule
 from tools.ggtensile.toolchain import Toolchain
 from tools.ggtensile.validation import validate_solution
+from tools.mmq_deployment_bundle import kernels
 
 _FWD_INVENTORY_CASES = {case.quant_type: case for case in MMQ_FWD_INVENTORY_CASES}
 _Q3_INVENTORY_CASE = _FWD_INVENTORY_CASES["Q3_K"]
@@ -179,10 +179,16 @@ def test_q3_forward_inventory_selects_all_qualified_exact_keys() -> None:
     )
 
 
-def test_q3_forward_public_bundle_remains_unwired() -> None:
-    assert all(
-        not spec.cpp_id.startswith("GGTensileDenseFwdQ3K") for spec in kernel_specs()
-    )
+def test_q3_forward_exact_keys_are_in_the_public_bundle() -> None:
+    deployed = {
+        kernel.key.hash
+        for kernel in kernels()
+        if kernel.operation == "OrdinaryForward" and kernel.key is not None
+    }
+    assert {
+        entry.solution_key.hash
+        for entry in load_inventory_case(_Q3_INVENTORY_CASE).entries
+    } <= deployed
 
 
 def test_q6_forward_catalog_selects_wavefront_by_exact_shape() -> None:

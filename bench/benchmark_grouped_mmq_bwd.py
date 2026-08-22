@@ -50,11 +50,12 @@ import torch_ggml_ops  # noqa: F401 Register native operators before torch.ops u
 from tools.ggtensile.benchmark_routes import (
     GroupSummary,
     RouteDistribution,
+    fitted_prior_distribution,
     fixed_group_distribution,
     make_route_tensors,
-    route_distributions,
     truncate_distribution,
 )
+from tools.ggtensile.workload_prior import expert_prior_metadata, expert_prior_top_k
 
 DEFAULT_OUTPUT = Path("/tmp/torch_ggml_ops_grouped_mmq_bwd_benchmark.json")
 DENSE_PACKED_REFERENCE_QUANT_TYPES = frozenset({"Q3_K", "Q4_K", "Q5_K", "Q6_K"})
@@ -496,19 +497,19 @@ def make_routed_result(
     return result
 
 
-def benchmark_routed_distribution(
+def benchmark_routed_profile(
     args: Namespace,
     case: GroupedMMQCase,
     case_index: int,
     batch: int,
     batch_index: int,
-    distribution_name: str,
-    distribution_index: int,
     weights: RoutedWeights,
     top_k: int,
 ) -> dict[str, object]:
     rows = batch * args.sequence_length * top_k
-    distribution = route_distributions(rows, batch)[distribution_name]
+    distribution = fitted_prior_distribution(
+        args.expert_prior, batch * args.sequence_length
+    )
     expert_indices, expert_offsets, group_sizes = make_route_tensors(distribution)
     selected_logical = tuple(
         weight.index_select(0, expert_indices).contiguous()
@@ -524,11 +525,7 @@ def benchmark_routed_distribution(
         make_bf16_input(
             rows,
             case.out_features,
-            args.seed
-            + case_index * 10000
-            + batch_index * 100
-            + distribution_index * 10
-            + projection,
+            args.seed + case_index * 10000 + batch_index * 100 + projection,
         )
         for projection in range(case.projections)
     )
@@ -616,21 +613,23 @@ def benchmark_routed_case(
     tensors: tuple[gguf.ReaderTensor, ...],
 ) -> list[dict[str, object]]:
     weights = load_routed_weights(case, tensors)
-    top_k = args.top_k if args.top_k is not None else case.top_k
+    top_k = expert_prior_top_k(args.expert_prior)
+    if top_k != case.top_k:
+        raise ValueError(
+            f"{args.expert_prior} top-k {top_k} does not match {case.name} "
+            f"top-k {case.top_k}"
+        )
     results = [
-        benchmark_routed_distribution(
+        benchmark_routed_profile(
             args,
             case,
             case_index,
             batch,
             batch_index,
-            distribution_name,
-            distribution_index,
             weights,
             top_k,
         )
         for batch_index, batch in enumerate(args.batches)
-        for distribution_index, distribution_name in enumerate(args.distributions)
     ]
     del weights
     clear_cuda_cache()
@@ -655,11 +654,7 @@ def main() -> None:
         args.model,
         tuple(name for case in cases for name in case.tensor_names),
     )
-    routed_top_ks = {
-        args.top_k if args.top_k is not None else case.top_k
-        for case in cases
-        if case.routed
-    }
+    routed_top_ks = {case.top_k for case in cases if case.routed}
     report = {
         "model": str(args.model),
         "model_family": args.model_family,
@@ -668,10 +663,9 @@ def main() -> None:
         "configuration": {
             "sequence_length": args.sequence_length,
             "top_k": next(iter(routed_top_ks)) if len(routed_top_ks) == 1 else None,
-            "top_k_override": args.top_k,
+            "expert_prior": expert_prior_metadata(args.expert_prior),
             "batches": list(args.batches),
             "cases": [case.name for case in cases],
-            "distributions": list(args.distributions),
             "warmup": args.warmup,
             "repeats": args.repeats,
             "correctness_rows": args.correctness_rows,

@@ -4,12 +4,14 @@ from pathlib import Path
 
 from tools.ggtensile.benchmark_routes import (
     distribution_summary,
-    route_distributions,
+    fitted_prior_distribution_for_rows,
     truncate_distribution,
 )
 
 _ROOT = Path(__file__).resolve().parents[2]
-_BENCHMARKS = tuple(sorted((_ROOT / "tools").glob("benchmark_ggtensile_*.py")))
+_BENCHMARKS = tuple(
+    sorted((_ROOT / "bench" / "ggtensile").glob("benchmark_ggtensile_*.py"))
+)
 _LOWER_SNAKE_CASE = re.compile(r"[a-z][a-z0-9_]*")
 _QUANT_KEYS = frozenset({"Q2_K", "Q3_K", "Q4_K", "Q5_K", "Q6_K", "Q8_0", "IQ2_S"})
 
@@ -64,28 +66,26 @@ def test_ggtensile_benchmarks_publish_common_identity_and_protocol_fields() -> N
             assert f'"{field}"' in source, (path, field)
 
 
-def test_grouped_benchmark_routes_keep_deterministic_control_contract() -> None:
-    first = route_distributions(16_384, 1)
-    second = route_distributions(16_384, 1)
-    assert first == second
-    assert set(first) == {"uniform", "skewed", "sparse", "boundary"}
-    assert all(distribution.rows == 16_384 for distribution in first.values())
-    assert len(first["uniform"].expert_indices_cpu) == 256
-    assert len(first["sparse"].expert_indices_cpu) == 192
-    assert first["boundary"].group_sizes_cpu[:10] == (
-        1,
-        15,
-        16,
-        17,
-        63,
-        64,
-        65,
-        127,
-        128,
-        129,
+def test_grouped_benchmark_routes_use_one_deterministic_fitted_profile() -> None:
+    expected = {
+        "qwen-learned": (16_384, 233, 1_297),
+        "deepseek-learned": (12_288, 244, 982),
+        "deepseek-hash": (12_288, 256, 264),
+    }
+    for prior, (rows, active, maximum) in expected.items():
+        first = fitted_prior_distribution_for_rows(prior, rows)
+        second = fitted_prior_distribution_for_rows(prior, rows)
+        assert first == second
+        assert first.rows == rows
+        assert first.profile is not None
+        assert first.profile.prior.value == prior
+        assert first.rows_per_expert == first.profile.rows_per_expert
+        summary = distribution_summary(first)
+        assert summary["active_experts"] == active
+        assert summary["max_rows"] == maximum
+
+    truncated = truncate_distribution(
+        fitted_prior_distribution_for_rows("qwen-learned", 16_384), 625
     )
-    summary = distribution_summary(first["boundary"])
-    assert summary["active_experts"] == 256
-    truncated = truncate_distribution(first["boundary"], 625)
-    assert truncated.name == "boundary_correctness"
+    assert truncated.name.endswith("_correctness")
     assert truncated.rows == 625

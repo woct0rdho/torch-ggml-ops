@@ -11,19 +11,17 @@ from torch.utils import cpp_extension
 ROOT = Path(__file__).resolve().parent
 CSRC = ROOT / "csrc"
 PACKAGE_KERNEL_DIR = ROOT / "torch_ggml_ops" / "kernels" / "gfx1151"
-SOURCES = ["csrc/mmq_hip.cu", "csrc/mmq_bundle.cpp"]
+SOURCES = [
+    "csrc/mmq_hip.cu",
+    "csrc/mmq_bundle.cpp",
+    "csrc/mmq_bundle_loader.cpp",
+]
 HEADER_DEPENDENCIES = [
     path.relative_to(ROOT).as_posix()
     for pattern in ("*.h", "*.cuh")
     for path in sorted(CSRC.rglob(pattern))
     if not path.name.endswith("_hip.cuh")
 ]
-SDIST_INPUTS = [
-    "csrc/vendor/llama_cpp/PROVENANCE.md",
-    "tools/build_mmq_bundle.py",
-    "tools/mmq_bundle_wrapper_source.py",
-]
-
 CUDAExtension = cpp_extension.CUDAExtension
 
 
@@ -65,11 +63,6 @@ class BuildExtension(cpp_extension.BuildExtension):
                 artifact.unlink()
         for artifact in PACKAGE_KERNEL_DIR.glob("*.hsaco"):
             shutil.copy2(artifact, built_kernel_dir / artifact.name)
-
-    def get_source_files(self) -> list[str]:
-        # CUDAExtension eagerly rewrites ext.sources to hipify-generated files
-        # on ROCm. Source distributions should contain only the canonical input.
-        return [*SOURCES, *HEADER_DEPENDENCIES, *SDIST_INPUTS]
 
 
 stable_defines = [

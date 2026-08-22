@@ -13,22 +13,27 @@ import numpy as np
 import torch
 from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
-import torch_ggml_ops  # noqa: F401 Register the installed packed control.
+from torch_ggml_ops._mmq_cuda import grouped_mmq_grad_input
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.ggtensile.benchmark_routes import (
     RouteDistribution,
     distribution_summary,
+    fitted_prior_distribution_for_rows,
     make_route_tensors,
-    route_distributions,
     truncate_distribution,
 )
 from tools.ggtensile.model import SolutionKey
 from tools.ggtensile.quant_formats import BACKWARD_QUANT_FORMATS
 from tools.ggtensile.runtime import GroupedBackwardModule
+from tools.ggtensile.workload_prior import (
+    EXPERT_PRIOR_NAMES,
+    REFERENCE_TOKENS,
+    expert_prior_metadata,
+)
 
 DEFAULT_MODEL = Path.home() / "models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf"
 DEFAULT_TENSORS = {
@@ -68,7 +73,6 @@ class TimingReport(TypedDict, total=False):
     candidate_kernel: TimingSummary
     candidate_to_hip_latency: float
     candidate_to_hip_throughput: float
-    medoid_weight: float
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -84,18 +88,11 @@ def _parser() -> argparse.ArgumentParser:
         help="GGUF tensor override; defaults to the quant-specific Qwen down tensor",
     )
     parser.add_argument(
-        "--distributions",
-        default="uniform,skewed,sparse,boundary",
-        help="comma-separated production distribution controls",
+        "--expert-prior",
+        choices=EXPERT_PRIOR_NAMES,
+        required=True,
+        help="the sole fitted law used to materialize the routed rows",
     )
-    parser.add_argument("--routing-prior", type=Path)
-    parser.add_argument(
-        "--prior-family", choices=("auto", "qwen", "deepseek"), default="auto"
-    )
-    parser.add_argument(
-        "--prior-bank", choices=("search", "confirmation"), default="search"
-    )
-    parser.add_argument("--prior-only", action="store_true")
     parser.add_argument("--correctness-rows", type=int, default=625)
     parser.add_argument("--warmup", type=int, default=3)
     parser.add_argument("--repeats", type=int, default=9)
@@ -148,55 +145,6 @@ def _timing_summary(samples_ms: list[float], logical_flops: int) -> TimingSummar
         "median_tflops": median_tflops,
         "wmma_roofline_fraction": median_tflops / BF16_WMMA_ROOFLINE_TFLOPS,
     }
-
-
-def _distribution_names(value: str) -> tuple[str, ...]:
-    names = tuple(item.strip() for item in value.split(",") if item.strip())
-    unknown = set(names) - {"uniform", "skewed", "sparse", "boundary"}
-    if not names or unknown:
-        raise ValueError(f"invalid distributions: {sorted(unknown)}")
-    return names
-
-
-def _prior_distributions(
-    path: Path,
-    bank: str,
-    batch: int,
-    family: str,
-) -> tuple[tuple[RouteDistribution, ...], dict[str, float]]:
-    document = json.loads(path.read_text(encoding="utf-8"))
-    if family == "qwen":
-        components = (("qwen_learned", 1.0),)
-        expected_rows = batch * 16_384
-    else:
-        reporting_weights = document["deepseek_reporting_weights"]
-        components = (
-            ("deepseek_learned", float(reporting_weights["learned"])),
-            ("deepseek_hash", float(reporting_weights["hash"])),
-        )
-        expected_rows = batch * 12_288
-
-    distributions = []
-    weights = {}
-    for component, component_weight in components:
-        profiles = document["banks"][bank][f"{component}_b{batch}"]["profiles"]
-        for profile in profiles:
-            distribution = RouteDistribution(
-                profile["profile_id"],
-                tuple(profile["expert_ids"]),
-                tuple(profile["group_sizes"]),
-            )
-            if distribution.rows != expected_rows:
-                raise ValueError(
-                    f"prior profile {distribution.name} has {distribution.rows} rows"
-                )
-            distributions.append(distribution)
-            weights[distribution.name] = component_weight * float(
-                profile["medoid_weight"]
-            )
-    if abs(sum(weights.values()) - 1.0) > 1.0e-12:
-        raise ValueError("prior medoid weights do not sum to one")
-    return tuple(distributions), weights
 
 
 def _load_packed(
@@ -295,7 +243,7 @@ def _correctness(
     )
 
     def control() -> torch.Tensor:
-        return torch.ops.torch_ggml_ops.grouped_mmq_grad_input.default(
+        return grouped_mmq_grad_input(
             grad_output,
             packed_weight,
             expert_indices,
@@ -469,7 +417,6 @@ def _timings(
     output_features: int,
     warmup: int,
     repeats: int,
-    weight: float | None = None,
     reverse_order: bool = False,
 ) -> TimingReport:
     expert_indices, expert_offsets, _ = make_route_tensors(distribution)
@@ -478,7 +425,7 @@ def _timings(
     )
 
     def hip() -> torch.Tensor:
-        return torch.ops.torch_ggml_ops.grouped_mmq_grad_input.default(
+        return grouped_mmq_grad_input(
             grad_output,
             packed_weight,
             expert_indices,
@@ -535,7 +482,7 @@ def _timings(
     }
     hip_ms = summaries["hip_complete"]["median_ms"]
     complete_ms = summaries["candidate_complete"]["median_ms"]
-    report = cast(
+    return cast(
         TimingReport,
         {
             "distribution": distribution.name,
@@ -546,39 +493,6 @@ def _timings(
             "candidate_to_hip_throughput": hip_ms / complete_ms,
         },
     )
-    if weight is not None:
-        report["medoid_weight"] = weight
-    return report
-
-
-def _weighted_prior_summary(
-    reports: list[TimingReport],
-) -> dict[str, float] | None:
-    prior_reports = [report for report in reports if "medoid_weight" in report]
-    if not prior_reports:
-        return None
-    weight_sum = sum(float(report["medoid_weight"]) for report in prior_reports)
-    if abs(weight_sum - 1.0) > 1.0e-12:
-        raise ValueError("timed prior medoid weights do not sum to one")
-
-    def weighted_median_ms(name: str) -> float:
-        return sum(
-            float(report["medoid_weight"])
-            * cast(TimingSummary, report.get(name))["median_ms"]
-            for report in prior_reports
-        )
-
-    hip_ms = weighted_median_ms("hip_complete")
-    candidate_ms = weighted_median_ms("candidate_complete")
-    return {
-        "medoid_weight_sum": weight_sum,
-        "hip_weighted_median_ms": hip_ms,
-        "candidate_weighted_median_ms": candidate_ms,
-        "candidate_to_hip_weighted_throughput": hip_ms / candidate_ms,
-        "minimum_medoid_throughput": min(
-            float(report["candidate_to_hip_throughput"]) for report in prior_reports
-        ),
-    }
 
 
 def _require_correctness(report: dict[str, object]) -> None:
@@ -648,37 +562,14 @@ def main() -> None:
     if tensor_name is None:
         raise ValueError("--tensor is required for this quant type")
     size = key.problem_size
-    prior_family = args.prior_family
-    if prior_family == "auto":
-        prior_family = (
-            "deepseek" if key.problem_type.quant_data_type == "Q2_K" else "qwen"
-        )
-    rows_per_batch = 12_288 if prior_family == "deepseek" else 16_384
-    if size.m % rows_per_batch:
-        raise ValueError(
-            f"aggregate rows do not map to the {prior_family} physical batch"
-        )
-    batch = size.m // rows_per_batch
+    distribution = fitted_prior_distribution_for_rows(args.expert_prior, size.m)
+    assert distribution.profile is not None
+    tokens = distribution.profile.tokens
+    batch, token_remainder = divmod(tokens, REFERENCE_TOKENS)
+    if token_remainder:
+        raise ValueError("grouped benchmark requires a whole physical batch")
     if batch not in (1, 4, 16):
         raise ValueError("grouped benchmark supports physical batch 1, 4, or 16")
-    available = route_distributions(size.m, batch)
-    prior_distributions: tuple[RouteDistribution, ...] = ()
-    prior_weights: dict[str, float] = {}
-    if args.routing_prior is not None:
-        prior_distributions, prior_weights = _prior_distributions(
-            args.routing_prior,
-            args.prior_bank,
-            batch,
-            prior_family,
-        )
-    control_distributions = (
-        ()
-        if args.prior_only
-        else tuple(available[name] for name in _distribution_names(args.distributions))
-    )
-    distributions = control_distributions + prior_distributions
-    if not distributions:
-        raise ValueError("no timing distributions were selected")
     packed_weight, quant_type, physical_shape = _load_packed(
         args.model, tensor_name, key
     )
@@ -703,33 +594,31 @@ def main() -> None:
                 grad_output,
                 packed_weight,
                 quant_type,
-                available["boundary"],
+                distribution,
                 correctness_rows,
                 size.n,
             )
             _require_correctness(correctness)
         if not args.skip_timing:
-            for distribution in distributions:
-                timing = _timings(
-                    module,
-                    grad_output,
-                    packed_weight,
-                    quant_type,
-                    distribution,
-                    size.n,
-                    args.warmup,
-                    args.repeats,
-                    prior_weights.get(distribution.name),
-                    args.reverse_order,
-                )
-                timing_reports.append(timing)
-                print(
-                    f"{distribution.name:<8} "
-                    f"HIP={timing['hip_complete']['median_ms']:.3f} ms "
-                    f"GGT={timing['candidate_complete']['median_ms']:.3f} ms "
-                    f"ratio={timing['candidate_to_hip_throughput']:.3f}x",
-                    flush=True,
-                )
+            timing = _timings(
+                module,
+                grad_output,
+                packed_weight,
+                quant_type,
+                distribution,
+                size.n,
+                args.warmup,
+                args.repeats,
+                reverse_order=args.reverse_order,
+            )
+            timing_reports.append(timing)
+            print(
+                f"{distribution.name} "
+                f"HIP={timing['hip_complete']['median_ms']:.3f} ms "
+                f"GGT={timing['candidate_complete']['median_ms']:.3f} ms "
+                f"ratio={timing['candidate_to_hip_throughput']:.3f}x",
+                flush=True,
+            )
 
     report = {
         "solution_key": key.to_mapping(),
@@ -739,7 +628,8 @@ def main() -> None:
         "model": str(args.model),
         "tensor": tensor_name,
         "physical_batch": batch,
-        "prior_family": prior_family,
+        "expert_prior": expert_prior_metadata(args.expert_prior),
+        "expert_prior_profile": distribution.profile.to_mapping(),
         "physical_weight_shape": physical_shape,
         "grad_output_shape": [size.m, size.k],
         "grad_input_shape": [size.m, size.n],
@@ -754,7 +644,6 @@ def main() -> None:
         },
         "correctness": correctness,
         "timings": timing_reports,
-        "prior_summary": _weighted_prior_summary(timing_reports),
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")

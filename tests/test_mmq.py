@@ -1,4 +1,3 @@
-import gguf
 import pytest
 import torch
 from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
@@ -10,271 +9,163 @@ from tests.mmq_test_support import (
     load_packed_rows,
     random_bf16,
 )
-from tests.model_test_cases import (
-    DENSE_MMQ_TEST_CASE_IDS,
-    DENSE_MMQ_TEST_CASES,
-    QWEN_Q4_DENSE_MMQ_TEST_CASE,
-    DenseMMQTestCase,
-)
+from tests.model_test_cases import QWEN_Q4_DENSE_MMQ_TEST_CASE
 from tests.model_test_support import model_reader
 
+_ROWS = 2048
+_OUT_FEATURES = 512
 
-def _packed_case(
-    case: DenseMMQTestCase,
-) -> tuple[torch.Tensor, gguf.GGMLQuantizationType]:
+
+def _q4_weight() -> tuple[torch.Tensor, torch.Tensor, int]:
+    case = QWEN_Q4_DENSE_MMQ_TEST_CASE
     tensor = find_tensor(model_reader(case.model), case.tensor_name)
-    assert tensor.tensor_type.name == case.quant_type
-    return load_packed_rows(tensor, case.out_features), tensor.tensor_type
-
-
-def _checked_weight(
-    case: DenseMMQTestCase,
-) -> tuple[torch.Tensor, torch.Tensor, gguf.GGMLQuantizationType]:
-    packed, quant_type = _packed_case(case)
+    packed = load_packed_rows(tensor, _OUT_FEATURES)
     logical = dequantize_gguf_tensor(
-        packed,
-        quant_type,
-        dtype=torch.bfloat16,
-        device="cuda",
-    ).reshape(case.out_features, case.in_features)
-    return packed, logical, quant_type
+        packed, tensor.tensor_type, dtype=torch.bfloat16, device="cuda"
+    ).reshape(_OUT_FEATURES, case.in_features)
+    return packed, logical, int(tensor.tensor_type)
 
 
-@pytest.mark.parametrize(
-    "case_index,case",
-    tuple(enumerate(DENSE_MMQ_TEST_CASES)),
-    ids=DENSE_MMQ_TEST_CASE_IDS,
-)
-def test_dense_forward_matches_dequantized_reference(
-    case_index: int,
-    case: DenseMMQTestCase,
-) -> None:
-    packed, logical_weight, quant_type = _checked_weight(case)
-    input = random_bf16(3, 43, case.in_features, seed=10000 + case_index)
+def test_exact_dense_forward_and_autograd() -> None:
+    packed, logical, quant_type = _q4_weight()
+    input = random_bf16(_ROWS, logical.shape[1], seed=10001, requires_grad=True)
+    output = torch_ggml_ops.mmq(input, packed, quant_type, _OUT_FEATURES)
+    expected = (input[:8].float() @ logical.float().T).to(torch.bfloat16)
+    assert output.shape == (_ROWS, _OUT_FEATURES)
+    assert_normalized_rmse(output[:8], expected)
 
-    expected = torch.nn.functional.linear(input, logical_weight)
-    actual = torch_ggml_ops.mmq(
-        input,
-        packed,
-        int(quant_type),
-        case.out_features,
-    )
-
-    assert actual.shape == (3, 43, case.out_features)
-    assert actual.dtype == torch.bfloat16
-    assert actual.is_contiguous()
-    assert_normalized_rmse(actual, expected)
+    grad_output = random_bf16(_ROWS, _OUT_FEATURES, seed=10002)
+    output.backward(grad_output)
+    assert input.grad is not None
+    expected_grad = (grad_output[:8].float() @ logical.float()).to(torch.bfloat16)
+    assert_normalized_rmse(input.grad[:8], expected_grad, maximum=1e-4)
 
 
-@pytest.mark.parametrize("case", DENSE_MMQ_TEST_CASES, ids=DENSE_MMQ_TEST_CASE_IDS)
-def test_dense_backward_decodes_selected_weight_row(case: DenseMMQTestCase) -> None:
-    packed, logical_weight, quant_type = _checked_weight(case)
-    grad_output = torch.zeros(
-        1,
-        case.out_features,
-        device="cuda",
-        dtype=torch.bfloat16,
-    )
-    grad_output[0, 17] = 1
-
-    actual = torch.ops.torch_ggml_ops.mmq_grad_input.default(
-        grad_output,
-        packed,
-        int(quant_type),
-        case.in_features,
-    )
-
-    torch.testing.assert_close(actual[0], logical_weight[17], rtol=0, atol=0)
-
-
-@pytest.mark.parametrize(
-    "case_index,case",
-    tuple(enumerate(DENSE_MMQ_TEST_CASES)),
-    ids=DENSE_MMQ_TEST_CASE_IDS,
-)
-def test_dense_backward_and_autograd_match_dequantized_reference(
-    case_index: int,
-    case: DenseMMQTestCase,
-) -> None:
-    packed, logical_weight, quant_type = _checked_weight(case)
-    input = random_bf16(
-        2,
-        5,
-        case.in_features,
-        seed=11000 + case_index,
-        requires_grad=True,
-    )
-    grad_output = random_bf16(
-        2,
-        5,
-        case.out_features,
-        seed=12000 + case_index,
-    )
-    expected = torch.mm(
-        grad_output.reshape(-1, case.out_features), logical_weight
-    ).reshape_as(input)
-
-    actual = torch.ops.torch_ggml_ops.mmq_grad_input.default(
-        grad_output,
-        packed,
-        int(quant_type),
-        case.in_features,
-    )
-    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
-
-    torch_ggml_ops.mmq(
-        input,
-        packed,
-        int(quant_type),
-        case.out_features,
-    ).backward(grad_output)
-    torch.testing.assert_close(input.grad, expected, rtol=0, atol=0)
-    assert packed.grad is None
-
-
-def test_dense_zero_input_and_current_stream() -> None:
-    case = QWEN_Q4_DENSE_MMQ_TEST_CASE
-    packed, quant_type = _packed_case(case)
-    stream = torch.cuda.Stream()
-    with torch.cuda.stream(stream):
-        input = torch.zeros(129, case.in_features, device="cuda", dtype=torch.bfloat16)
-        output = torch_ggml_ops.mmq(
-            input,
-            packed,
-            int(quant_type),
-            case.out_features,
-        )
-        grad_output = torch.ones(
-            129,
-            case.out_features,
-            device="cuda",
-            dtype=torch.bfloat16,
-        )
-        grad_input = torch.ops.torch_ggml_ops.mmq_grad_input.default(
-            grad_output,
-            packed,
-            int(quant_type),
-            case.in_features,
-        )
-        forward_checksum = output.float().abs().sum()
-        backward_checksum = grad_input.float().abs().sum()
-    stream.synchronize()
-
-    assert forward_checksum.item() == 0.0
-    assert backward_checksum.item() > 0.0
-    assert torch.isfinite(grad_input).all()
-
-
-def test_dense_opcheck_and_compile() -> None:
-    case = QWEN_Q4_DENSE_MMQ_TEST_CASE
-    packed, quant_type = _packed_case(case)
-    input = random_bf16(2, case.in_features, seed=13000, requires_grad=True)
-    result = torch.library.opcheck(
-        torch.ops.torch_ggml_ops.mmq.default,
-        (input, packed, int(quant_type), case.out_features),
-        test_utils=(
-            "test_schema",
-            "test_autograd_registration",
-            "test_faketensor",
-            "test_aot_dispatch_dynamic",
-        ),
-        raise_exception=False,
-    )
-    assert all(value == "SUCCESS" for value in result.values()), result
-
-    grad_output = random_bf16(2, case.out_features, seed=13001)
-    grad_result = torch.library.opcheck(
-        torch.ops.torch_ggml_ops.mmq_grad_input.default,
-        (grad_output, packed, int(quant_type), case.in_features),
-        test_utils=("test_schema", "test_faketensor", "test_aot_dispatch_dynamic"),
-        raise_exception=False,
-    )
-    assert all(value == "SUCCESS" for value in grad_result.values()), grad_result
+def test_exact_dense_compiles_with_visible_allocations() -> None:
+    packed, _logical, quant_type = _q4_weight()
+    input = random_bf16(_ROWS, 2048, seed=10003)
 
     @torch.compile(fullgraph=True)
     def compiled(input: torch.Tensor, packed: torch.Tensor) -> torch.Tensor:
-        return torch_ggml_ops.mmq(
-            input,
-            packed,
-            int(quant_type),
-            case.out_features,
-        )
+        return torch_ggml_ops.mmq(input, packed, quant_type, _OUT_FEATURES)
 
-    expected = torch_ggml_ops.mmq(
-        input.detach(),
-        packed,
-        int(quant_type),
-        case.out_features,
-    )
-    actual = compiled(input.detach(), packed)
+    expected = torch_ggml_ops.mmq(input, packed, quant_type, _OUT_FEATURES)
+    actual = compiled(input, packed)
     torch.testing.assert_close(actual, expected, rtol=0, atol=0)
 
 
-def test_dense_invalid_inputs_fail_without_hidden_copies() -> None:
-    case = QWEN_Q4_DENSE_MMQ_TEST_CASE
-    packed, quant_type = _packed_case(case)
-    input = random_bf16(4, case.in_features, seed=14000)
+def test_unsupported_dense_key_fails_at_native_launch() -> None:
+    packed, _logical, quant_type = _q4_weight()
+    input = random_bf16(129, 2048, seed=10004)
+    with pytest.raises(RuntimeError, match="unsupported exact deployment key"):
+        torch_ggml_ops.mmq(input, packed, quant_type, _OUT_FEATURES)
 
+
+def test_dense_launch_validates_explicit_buffers() -> None:
+    packed, _logical, quant_type = _q4_weight()
+    input = random_bf16(_ROWS, 2048, seed=10005)
+    output = torch.empty(
+        (_ROWS, _OUT_FEATURES - 1), dtype=torch.bfloat16, device="cuda"
+    )
+    workspace = torch.empty(
+        input.numel() // 128 * 144, dtype=torch.uint8, device="cuda"
+    )
+    with pytest.raises(RuntimeError, match="output"):
+        torch.ops.torch_ggml_ops._mmq_launch.default(
+            input, packed, quant_type, _OUT_FEATURES, output, workspace
+        )
+
+
+def test_dense_launch_validates_native_operand_contracts() -> None:
+    packed, _logical, quant_type = _q4_weight()
+    input = random_bf16(_ROWS, 2048, seed=10006)
+    output = torch.empty((_ROWS, _OUT_FEATURES), dtype=torch.bfloat16, device="cuda")
+    workspace = torch.empty(
+        input.numel() // 128 * 144, dtype=torch.uint8, device="cuda"
+    )
+
+    def launch(candidate: torch.Tensor, weight: torch.Tensor = packed) -> None:
+        torch.ops.torch_ggml_ops._mmq_launch.default(
+            candidate,
+            weight,
+            quant_type,
+            _OUT_FEATURES,
+            output,
+            workspace,
+        )
+
+    with pytest.raises(RuntimeError, match="BF16"):
+        launch(input.float())
+    with pytest.raises(RuntimeError, match="CUDA/HIP"):
+        launch(input.cpu())
     with pytest.raises(RuntimeError, match="contiguous"):
-        torch_ggml_ops.mmq(input[:, ::2], packed, int(quant_type), case.out_features)
+        launch(input.T)
+
+    offset_input = torch.empty(input.numel() + 1, dtype=torch.bfloat16, device="cuda")[
+        1:
+    ].view_as(input)
     with pytest.raises(RuntimeError, match="zero storage offset"):
-        torch_ggml_ops.mmq(input[1:], packed, int(quant_type), case.out_features)
-    with pytest.raises(RuntimeError, match="expected"):
-        torch_ggml_ops.mmq(
+        launch(offset_input)
+    with pytest.raises(RuntimeError, match="packed_weight must have shape"):
+        launch(input, packed.view(-1))
+    with pytest.raises(RuntimeError, match="uint8"):
+        launch(input, packed.to(torch.int8))
+
+
+def test_dense_launch_validates_every_explicit_buffer_property() -> None:
+    packed, _logical, quant_type = _q4_weight()
+    input = random_bf16(_ROWS, 2048, seed=10007)
+    output = torch.empty((_ROWS, _OUT_FEATURES), dtype=torch.bfloat16, device="cuda")
+    workspace_elements = input.numel() // 128 * 144
+    workspace = torch.empty(workspace_elements, dtype=torch.uint8, device="cuda")
+
+    def launch(destination: torch.Tensor, scratch: torch.Tensor) -> None:
+        torch.ops.torch_ggml_ops._mmq_launch.default(
             input,
-            packed[:-1].clone(),
-            int(quant_type),
-            case.out_features,
-        )
-    with pytest.raises(RuntimeError, match="unsupported quant_type"):
-        torch_ggml_ops.mmq(input, packed, 999, case.out_features)
-    with pytest.raises(RuntimeError, match="zero-row"):
-        torch_ggml_ops.mmq(input[:0], packed, int(quant_type), case.out_features)
-
-
-def test_dense_grad_input_rejects_higher_order_gradients() -> None:
-    case = QWEN_Q4_DENSE_MMQ_TEST_CASE
-    packed, quant_type = _packed_case(case)
-    grad_output = random_bf16(
-        2,
-        case.out_features,
-        seed=15000,
-        requires_grad=True,
-    )
-    grad_input = torch.ops.torch_ggml_ops.mmq_grad_input.default(
-        grad_output,
-        packed,
-        int(quant_type),
-        case.in_features,
-    )
-
-    with pytest.raises(RuntimeError, match="does not support higher-order"):
-        grad_input.sum().backward()
-
-
-def test_dense_invalid_grad_input_operands_fail_without_hidden_copies() -> None:
-    case = QWEN_Q4_DENSE_MMQ_TEST_CASE
-    packed, quant_type = _packed_case(case)
-    grad_output = random_bf16(4, case.out_features, seed=16000)
-    op = torch.ops.torch_ggml_ops.mmq_grad_input.default
-
-    with pytest.raises(RuntimeError, match="contiguous"):
-        op(
-            grad_output[:, ::2],
             packed,
-            int(quant_type),
-            case.in_features,
+            quant_type,
+            _OUT_FEATURES,
+            destination,
+            scratch,
         )
-    with pytest.raises(RuntimeError, match="zero storage offset"):
-        op(grad_output[1:], packed, int(quant_type), case.in_features)
-    with pytest.raises(RuntimeError, match="expected"):
-        op(
-            grad_output,
-            packed[:-1].clone(),
-            int(quant_type),
-            case.in_features,
+
+    with pytest.raises(RuntimeError, match="output has an invalid dtype"):
+        launch(output.float(), workspace)
+    with pytest.raises(RuntimeError, match="output must be a CUDA/HIP tensor"):
+        launch(output.cpu(), workspace)
+    with pytest.raises(RuntimeError, match="output must be contiguous"):
+        launch(
+            torch.empty(
+                (_OUT_FEATURES, _ROWS),
+                dtype=torch.bfloat16,
+                device="cuda",
+            ).T,
+            workspace,
         )
-    with pytest.raises(RuntimeError, match="unsupported quant_type"):
-        op(grad_output, packed, 999, case.in_features)
-    with pytest.raises(RuntimeError, match="zero-row"):
-        op(grad_output[:0], packed, int(quant_type), case.in_features)
+
+    offset_output = torch.empty(
+        output.numel() + 1, dtype=torch.bfloat16, device="cuda"
+    )[1:].view_as(output)
+    with pytest.raises(RuntimeError, match="output must have zero storage offset"):
+        launch(offset_output, workspace)
+    with pytest.raises(RuntimeError, match="output has an invalid element count"):
+        launch(output[:, :-1].contiguous(), workspace)
+    with pytest.raises(RuntimeError, match="workspace has an invalid dtype"):
+        launch(output, workspace.to(torch.int8))
+    with pytest.raises(RuntimeError, match="workspace must be a CUDA/HIP tensor"):
+        launch(output, workspace.cpu())
+    with pytest.raises(RuntimeError, match="exact one-dimensional shape"):
+        launch(output, workspace.view(2, -1))
+
+    offset_workspace = torch.empty(
+        workspace_elements + 1, dtype=torch.uint8, device="cuda"
+    )[1:]
+    with pytest.raises(RuntimeError, match="workspace must have zero storage offset"):
+        launch(output, offset_workspace)
+    with pytest.raises(RuntimeError, match="workspace has an invalid element count"):
+        launch(output, workspace[:-1].clone())
+
+
+def test_obsolete_public_dispatcher_ops_are_absent() -> None:
+    for name in ("mmq", "mmq_grad_input"):
+        assert not hasattr(torch.ops.torch_ggml_ops, name)

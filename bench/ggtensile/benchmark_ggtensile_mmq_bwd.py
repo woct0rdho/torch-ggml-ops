@@ -14,7 +14,7 @@ import numpy as np
 import torch
 from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
-import torch_ggml_ops  # noqa: F401 Register the installed HIP control.
+from torch_ggml_ops._mmq_cuda import mmq_grad_input
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -164,9 +164,7 @@ def main() -> None:
     quant_type = int(tensor.tensor_type)
 
     def control():
-        return torch.ops.torch_ggml_ops.mmq_grad_input.default(
-            grad_output, packed_weight, quant_type, size.n
-        )
+        return mmq_grad_input(grad_output, packed_weight, quant_type, size.n)
 
     with contextlib.ExitStack() as stack:
         candidate = stack.enter_context(BackwardModule(key, args.code_object))
