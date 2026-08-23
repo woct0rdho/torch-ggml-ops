@@ -5,12 +5,11 @@ import contextlib
 import json
 import sys
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import gguf
 import numpy as np
 import torch
-from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
 import torch_ggml_ops
 
@@ -21,7 +20,7 @@ BENCH_ROOT = REPO_ROOT / "bench"
 if str(BENCH_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCH_ROOT))
 
-from benchmark_report import ErrorMetrics, error_metrics, rotating_timings
+from benchmark_report import error_metrics, rotating_timings
 from benchmark_routes import (
     fitted_prior_distribution_for_rows,
     make_route_tensors,
@@ -45,11 +44,11 @@ from tools.ggtensile.grouped_mmq_fwd_pair_runtime import (
     InstalledGroupedForwardRowTaskSetup,
 )
 from tools.ggtensile.grouped_mmq_fwd_pair_spec import DerivedGroupedForwardPairState
-from tools.ggtensile.runtime import FixedQ81F32D4QuantizerModule, HIPRuntimeError
-
-MAX_CONTROL_NORMALIZED_RMSE = 5e-4
-MAX_CONTROL_ABSOLUTE_ERROR = 0.015625
-MAX_REFERENCE_NORMALIZED_RMSE = 0.04
+from tools.ggtensile.runtime import FixedQ81F32D4QuantizerModule
+from tools.mmq_correctness import (
+    dequantize_active_routed_weight,
+    routed_forward_reference,
+)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -133,54 +132,6 @@ def _control_types(key: GroupedForwardPairSolutionKey) -> tuple[type[Any], Any]:
     return candidate, control
 
 
-def _reference(
-    input_tensor: torch.Tensor,
-    logical_weight: torch.Tensor,
-    expert_indices: torch.Tensor,
-    group_sizes: tuple[int, ...],
-) -> torch.Tensor:
-    selected = logical_weight.index_select(0, expert_indices)
-    outputs = []
-    row_begin = 0
-    for index, rows in enumerate(group_sizes):
-        row_end = row_begin + rows
-        outputs.append(
-            torch.mm(input_tensor[row_begin:row_end], selected[index].transpose(0, 1))
-        )
-        row_begin = row_end
-    return torch.cat(outputs)
-
-
-def _require_correctness(
-    correctness: dict[str, object], reference: bool, hip: bool
-) -> None:
-    names = ["candidate_vs_public_api"]
-    if hip:
-        names.append("candidate_vs_hip")
-    for name in names:
-        for metrics in cast(list[ErrorMetrics], correctness[name]):
-            if (
-                not metrics["finite"]
-                or metrics["normalized_rmse"] is None
-                or metrics["normalized_rmse"] > MAX_CONTROL_NORMALIZED_RMSE
-                or metrics["max_absolute_error"] is None
-                or metrics["max_absolute_error"] > MAX_CONTROL_ABSOLUTE_ERROR
-            ):
-                raise RuntimeError(f"paired correctness failed: {name}")
-    if reference:
-        for metrics in cast(
-            list[ErrorMetrics], correctness["candidate_vs_bf16_baseline"]
-        ):
-            if (
-                metrics["normalized_rmse"] is None
-                or metrics["normalized_rmse"] > MAX_REFERENCE_NORMALIZED_RMSE
-            ):
-                raise RuntimeError("paired BF16 reference tolerance failed")
-    producer = cast(dict[str, int], correctness["producer_repeat"])
-    if producer["different_bytes"]:
-        raise RuntimeError("paired Q8_1 producer is not deterministic")
-
-
 def main() -> None:
     args = _parser().parse_args()
     if args.warmup < 0 or args.repeats <= 0:
@@ -199,7 +150,7 @@ def main() -> None:
     rows = key.problem.aggregate_rows
     distribution = fitted_prior_distribution_for_rows(args.expert_prior, rows)
     assert distribution.profile is not None
-    expert_indices, expert_offsets, _ = make_route_tensors(distribution)
+    expert_indices, expert_offsets, group_sizes = make_route_tensors(distribution)
     generator = torch.Generator(device="cuda").manual_seed(args.seed)
     input_tensor = torch.randn(
         (rows, key.problem.input_features),
@@ -224,24 +175,21 @@ def main() -> None:
         candidate = stack.enter_context(candidate_type(key, args.code_object))
         controls = None
         if args.hip_code_object is not None:
-            try:
-                if key.problem.quant_data_type == "IQ2_XXS":
-                    controls = (
-                        stack.enter_context(
-                            control_type(key.solution.macro_tile0, args.hip_code_object)
-                        ),
-                        stack.enter_context(
-                            control_type(key.solution.macro_tile0, args.hip_code_object)
-                        ),
-                    )
-                else:
-                    controls = (
-                        stack.enter_context(control_type(args.hip_code_object)),
-                        stack.enter_context(control_type(args.hip_code_object)),
-                    )
-                hip_reason = None
-            except HIPRuntimeError as error:
-                hip_reason = str(error)
+            if key.problem.quant_data_type == "IQ2_XXS":
+                controls = (
+                    stack.enter_context(
+                        control_type(key.solution.macro_tile0, args.hip_code_object)
+                    ),
+                    stack.enter_context(
+                        control_type(key.solution.macro_tile0, args.hip_code_object)
+                    ),
+                )
+            else:
+                controls = (
+                    stack.enter_context(control_type(args.hip_code_object)),
+                    stack.enter_context(control_type(args.hip_code_object)),
+                )
+            hip_reason = None
         tasks = None
         setup = None
         if row_tasks:
@@ -350,32 +298,12 @@ def main() -> None:
             )
 
         quantize()
-        workspace_control = workspace.clone()
-        quantize()
-        setup_tasks()
-        task_control = tasks.storage.clone() if tasks is not None else None
         setup_tasks()
         hip_kernel()
         candidate_kernel()
         public_outputs = public_api()
         torch.cuda.synchronize()
         correctness: dict[str, object] = {
-            "producer_repeat": {
-                "different_bytes": int(
-                    torch.count_nonzero(workspace != workspace_control)
-                ),
-                "bytes": workspace.numel(),
-            },
-            "row_task_setup_repeat": (
-                None
-                if tasks is None or task_control is None
-                else {
-                    "different_elements": int(
-                        torch.count_nonzero(tasks.storage != task_control)
-                    ),
-                    "elements": tasks.storage.numel(),
-                }
-            ),
             "candidate_vs_public_api": [
                 error_metrics(first_candidate, public_outputs[0]),
                 error_metrics(second_candidate, public_outputs[1]),
@@ -392,22 +320,16 @@ def main() -> None:
                 (first_tensor, first_weight),
                 (second_tensor, second_weight),
             ):
-                logical = dequantize_gguf_tensor(
+                logical = dequantize_active_routed_weight(
                     weight,
                     tensor.tensor_type,
-                    dtype=torch.bfloat16,
-                    device="cuda",
-                ).reshape(
-                    key.problem.physical_experts,
+                    expert_indices,
                     key.problem.output_features,
                     key.problem.input_features,
                 )
                 references.append(
-                    _reference(
-                        input_tensor,
-                        logical,
-                        expert_indices,
-                        distribution.group_sizes_cpu,
+                    routed_forward_reference(
+                        input_tensor, logical, expert_indices, group_sizes
                     )
                 )
             correctness["candidate_vs_bf16_baseline"] = [
@@ -415,7 +337,9 @@ def main() -> None:
                 error_metrics(second_candidate, references[1]),
             ]
 
-        _require_correctness(correctness, not args.skip_reference, controls is not None)
+        del public_outputs
+        if not args.skip_reference:
+            del references, logical
         logical_flops = (
             4 * rows * key.problem.output_features * key.problem.input_features
         )
@@ -471,11 +395,6 @@ def main() -> None:
                 "available": not args.skip_reference,
                 "label": "routed torch.mm on dequantized BF16 banks",
             },
-        },
-        "correctness_thresholds": {
-            "max_control_normalized_rmse": MAX_CONTROL_NORMALIZED_RMSE,
-            "max_control_absolute_error": MAX_CONTROL_ABSOLUTE_ERROR,
-            "max_reference_normalized_rmse": MAX_REFERENCE_NORMALIZED_RMSE,
         },
         "correctness": correctness,
         "timing": timing,

@@ -20,7 +20,6 @@ from typing import TypedDict, cast
 import gguf
 import torch
 from aiter.ops.triton.gmm import gmm
-from aiter_gmm_heuristics import gmm_config as aiter_gmm_config
 from benchmark_routes import (
     GroupSummary,
     RouteDistribution,
@@ -34,6 +33,7 @@ from grouped_mmq_benchmark_common import (
     RoutedWeights,
     bf16_fixed_grad_input_reference,
     grouped_result_metadata,
+    load_active_routed_logical_weights,
     load_fixed_weight,
     load_routed_weights,
     parse_grouped_benchmark_args,
@@ -56,6 +56,7 @@ from typing_extensions import NotRequired
 from workload_prior import expert_prior_metadata, expert_prior_top_k
 
 import torch_ggml_ops  # noqa: F401 Register native operators before torch.ops use.
+from tools.aiter_gmm_heuristics import gmm_config as aiter_gmm_config
 
 DEFAULT_OUTPUT = Path("/tmp/torch_ggml_ops_grouped_mmq_bwd_benchmark.json")
 DENSE_PACKED_REFERENCE_QUANT_TYPES = frozenset({"Q3_K", "Q4_K", "Q5_K", "Q6_K"})
@@ -205,10 +206,7 @@ def correctness_metrics(
     expert_indices, expert_offsets, group_sizes = make_route_tensors(
         checked_distribution
     )
-    selected_logical = tuple(
-        weight.index_select(0, expert_indices).contiguous()
-        for weight in weights.logical
-    )
+    selected_logical = load_active_routed_logical_weights(case, weights, expert_indices)
     packed_function, reference_function = make_routed_functions(
         case,
         grad_outputs,
@@ -511,10 +509,7 @@ def benchmark_routed_profile(
         args.expert_prior, batch * args.sequence_length
     )
     expert_indices, expert_offsets, group_sizes = make_route_tensors(distribution)
-    selected_logical = tuple(
-        weight.index_select(0, expert_indices).contiguous()
-        for weight in weights.logical
-    )
+    selected_logical = load_active_routed_logical_weights(case, weights, expert_indices)
     aiter_config = aiter_gmm_config(
         rows,
         case.out_features,
@@ -568,6 +563,12 @@ def benchmark_routed_profile(
         aiter_config,
     )
 
+    transient_workspace_bytes = (
+        sum(weight.numel() * weight.element_size() for weight in selected_logical)
+        if transient is not None
+        else 0
+    )
+    del packed_function, reference_function, selected_logical
     checked_distribution = truncate_distribution(distribution, args.correctness_rows)
     correctness_grad_outputs = tuple(
         grad[: checked_distribution.rows].clone() for grad in grad_outputs
@@ -578,11 +579,6 @@ def benchmark_routed_profile(
         weights,
         checked_distribution,
         aiter_config,
-    )
-    transient_workspace_bytes = (
-        sum(weight.numel() * weight.element_size() for weight in selected_logical)
-        if transient is not None
-        else 0
     )
     result = make_routed_result(
         case,
@@ -599,8 +595,7 @@ def benchmark_routed_profile(
         correctness,
     )
     print_result(result)
-    del packed_function, reference_function
-    del grad_outputs, correctness_grad_outputs, selected_logical
+    del grad_outputs, correctness_grad_outputs
     del expert_indices, expert_offsets, group_sizes
     clear_cuda_cache()
     return result

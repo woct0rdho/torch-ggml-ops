@@ -15,13 +15,14 @@ from .mmq_bwd_spec import (
     DerivedBackwardState,
     backward_mechanism_contract,
 )
-from .model import ProblemSize
+from .model import ProblemSize, ProblemType, SolutionKey
 from .quant_formats import BACKWARD_QUANT_FORMATS
 from .schema import SchemaError
 from .schema import integer as _integer
 from .schema import integer_tuple as _integer_tuple
 from .schema import strict_mapping as _mapping
 from .schema import string as _string
+from .validation import validate_solution
 
 _U32_MAX = 0xFFFFFFFF
 
@@ -486,9 +487,6 @@ def grouped_backward_pair_capability_rejection_reason(
     for valid, message in checks:
         if not valid:
             return message
-
-    from .model import ProblemType, SolutionKey
-    from .validation import validate_solution
 
     if iq2_xxs_m192:
         ordinary_compute = replace(

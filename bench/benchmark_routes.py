@@ -6,14 +6,14 @@ from typing import TypedDict
 
 import torch
 
-try:
+if __package__:
     from .workload_prior import (
         ExpertPrior,
         ExpertProfile,
         profile_for_routed_rows,
         sample_expert_profile,
     )
-except ImportError:
+else:
     from workload_prior import (
         ExpertPrior,
         ExpertProfile,

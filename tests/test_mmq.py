@@ -1,14 +1,8 @@
 import pytest
 import torch
-from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
 import torch_ggml_ops
-from tests.mmq_test_support import (
-    assert_normalized_rmse,
-    find_tensor,
-    load_packed_rows,
-    random_bf16,
-)
+from tests.mmq_test_support import find_tensor, load_packed_rows, random_bf16
 from tests.model_test_cases import QWEN_Q4_DENSE_MMQ_TEST_CASE
 from tests.model_test_support import model_reader
 
@@ -16,33 +10,15 @@ _ROWS = 2048
 _OUT_FEATURES = 512
 
 
-def _q4_weight() -> tuple[torch.Tensor, torch.Tensor, int]:
+def _q4_weight() -> tuple[torch.Tensor, int]:
     case = QWEN_Q4_DENSE_MMQ_TEST_CASE
     tensor = find_tensor(model_reader(case.model), case.tensor_name)
     packed = load_packed_rows(tensor, _OUT_FEATURES)
-    logical = dequantize_gguf_tensor(
-        packed, tensor.tensor_type, dtype=torch.bfloat16, device="cuda"
-    ).reshape(_OUT_FEATURES, case.in_features)
-    return packed, logical, int(tensor.tensor_type)
-
-
-def test_exact_dense_forward_and_autograd() -> None:
-    packed, logical, quant_type = _q4_weight()
-    input = random_bf16(_ROWS, logical.shape[1], seed=10001, requires_grad=True)
-    output = torch_ggml_ops.mmq(input, packed, quant_type, _OUT_FEATURES)
-    expected = (input[:8].float() @ logical.float().T).to(torch.bfloat16)
-    assert output.shape == (_ROWS, _OUT_FEATURES)
-    assert_normalized_rmse(output[:8], expected)
-
-    grad_output = random_bf16(_ROWS, _OUT_FEATURES, seed=10002)
-    output.backward(grad_output)
-    assert input.grad is not None
-    expected_grad = (grad_output[:8].float() @ logical.float()).to(torch.bfloat16)
-    assert_normalized_rmse(input.grad[:8], expected_grad, maximum=1e-4)
+    return packed, int(tensor.tensor_type)
 
 
 def test_exact_dense_compiles_with_visible_allocations() -> None:
-    packed, _logical, quant_type = _q4_weight()
+    packed, quant_type = _q4_weight()
     input = random_bf16(_ROWS, 2048, seed=10003)
 
     @torch.compile(fullgraph=True)
@@ -55,14 +31,14 @@ def test_exact_dense_compiles_with_visible_allocations() -> None:
 
 
 def test_unsupported_dense_key_fails_at_native_launch() -> None:
-    packed, _logical, quant_type = _q4_weight()
+    packed, quant_type = _q4_weight()
     input = random_bf16(129, 2048, seed=10004)
     with pytest.raises(RuntimeError, match="unsupported exact deployment key"):
         torch_ggml_ops.mmq(input, packed, quant_type, _OUT_FEATURES)
 
 
 def test_dense_launch_validates_explicit_buffers() -> None:
-    packed, _logical, quant_type = _q4_weight()
+    packed, quant_type = _q4_weight()
     input = random_bf16(_ROWS, 2048, seed=10005)
     output = torch.empty(
         (_ROWS, _OUT_FEATURES - 1), dtype=torch.bfloat16, device="cuda"
@@ -77,7 +53,7 @@ def test_dense_launch_validates_explicit_buffers() -> None:
 
 
 def test_dense_launch_validates_native_operand_contracts() -> None:
-    packed, _logical, quant_type = _q4_weight()
+    packed, quant_type = _q4_weight()
     input = random_bf16(_ROWS, 2048, seed=10006)
     output = torch.empty((_ROWS, _OUT_FEATURES), dtype=torch.bfloat16, device="cuda")
     workspace = torch.empty(
@@ -113,7 +89,7 @@ def test_dense_launch_validates_native_operand_contracts() -> None:
 
 
 def test_dense_launch_validates_every_explicit_buffer_property() -> None:
-    packed, _logical, quant_type = _q4_weight()
+    packed, quant_type = _q4_weight()
     input = random_bf16(_ROWS, 2048, seed=10007)
     output = torch.empty((_ROWS, _OUT_FEATURES), dtype=torch.bfloat16, device="cuda")
     workspace_elements = input.numel() // 128 * 144

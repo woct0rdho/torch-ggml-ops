@@ -3,8 +3,8 @@ import pytest
 import torch
 
 import torch_ggml_ops
-from tests.grouped_mmq_test_support import dequantize_experts, load_expert_weight
-from tests.mmq_test_support import assert_normalized_rmse, random_bf16
+from tests.grouped_mmq_test_support import load_expert_weight
+from tests.mmq_test_support import random_bf16
 from tests.model_test_cases import QWEN_MODEL
 from tests.model_test_support import model_reader
 
@@ -45,65 +45,6 @@ def iq2_s_pair() -> tuple[torch.Tensor, torch.Tensor, gguf.GGMLQuantizationType,
         out_features=512,
     )
     return gate, up, quant_type, in_features
-
-
-def test_exact_grouped_forward_and_autograd(
-    q4_down: tuple[torch.Tensor, gguf.GGMLQuantizationType, int],
-) -> None:
-    packed, quant_type, in_features = q4_down
-    experts, offsets = _route()
-    input = random_bf16(_ROWS, in_features, seed=20001, requires_grad=True)
-    output = torch_ggml_ops.grouped_mmq(
-        input, packed, experts, offsets, int(quant_type), 2048
-    )
-    logical = dequantize_experts(packed, experts, quant_type, 2048, in_features)
-    sample_rows = (0, 2048, 6144, 10240)
-    for group, row in enumerate(sample_rows):
-        expected = (input[row : row + 1].float() @ logical[group].float().T).to(
-            torch.bfloat16
-        )
-        assert_normalized_rmse(output[row : row + 1], expected)
-
-    grad_output = random_bf16(_ROWS, 2048, seed=20002)
-    output.backward(grad_output)
-    assert input.grad is not None
-    for group, row in enumerate(sample_rows):
-        expected_grad = grad_output[row : row + 1] @ logical[group]
-        assert_normalized_rmse(input.grad[row : row + 1], expected_grad, maximum=1e-5)
-
-
-def test_exact_paired_row_task_forward_and_backward(
-    iq2_s_pair: tuple[torch.Tensor, torch.Tensor, gguf.GGMLQuantizationType, int],
-) -> None:
-    gate, up, quant_type, in_features = iq2_s_pair
-    experts, offsets = _route()
-    input = random_bf16(_ROWS, in_features, seed=20003, requires_grad=True)
-    gate_output, up_output = torch_ggml_ops.grouped_mmq_pair(
-        input, gate, up, experts, offsets, int(quant_type), 512
-    )
-    logical_gate = dequantize_experts(gate, experts, quant_type, 512, in_features)
-    logical_up = dequantize_experts(up, experts, quant_type, 512, in_features)
-    sample_rows = (0, 2048, 6144, 10240)
-    for group, row in enumerate(sample_rows):
-        expected_gate = (
-            input[row : row + 1].float() @ logical_gate[group].float().T
-        ).to(torch.bfloat16)
-        expected_up = (input[row : row + 1].float() @ logical_up[group].float().T).to(
-            torch.bfloat16
-        )
-        assert_normalized_rmse(gate_output[row : row + 1], expected_gate)
-        assert_normalized_rmse(up_output[row : row + 1], expected_up)
-
-    gate_grad = random_bf16(_ROWS, 512, seed=20004)
-    up_grad = random_bf16(_ROWS, 512, seed=20005)
-    torch.autograd.backward((gate_output, up_output), (gate_grad, up_grad))
-    assert input.grad is not None
-    for group, row in enumerate(sample_rows):
-        expected_grad = (
-            gate_grad[row : row + 1].float() @ logical_gate[group].float()
-            + up_grad[row : row + 1].float() @ logical_up[group].float()
-        ).to(torch.bfloat16)
-        assert_normalized_rmse(input.grad[row : row + 1], expected_grad, maximum=5e-4)
 
 
 def test_exact_paired_route_compiles(

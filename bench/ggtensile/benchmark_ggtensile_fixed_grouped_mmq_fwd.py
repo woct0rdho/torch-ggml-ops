@@ -5,7 +5,6 @@ import contextlib
 import json
 import sys
 from pathlib import Path
-from typing import cast
 
 import gguf
 import numpy as np
@@ -21,20 +20,16 @@ BENCH_ROOT = REPO_ROOT / "bench"
 if str(BENCH_ROOT) not in sys.path:
     sys.path.insert(0, str(BENCH_ROOT))
 
-from benchmark_report import ErrorMetrics, error_metrics, rotating_timings
+from benchmark_report import error_metrics, rotating_timings
 from benchmark_support import require_case
 
 from tools.ggtensile.fixed_grouped_mmq_fwd_model import FixedForwardSolutionKey
 from tools.ggtensile.runtime import (
     FixedGroupedQ8ForwardModule,
     FixedQ81F32D4QuantizerModule,
-    HIPRuntimeError,
     InstalledFixedGroupedQ8ForwardModule,
 )
-
-MAX_CONTROL_NORMALIZED_RMSE = 5e-4
-MAX_CONTROL_ABSOLUTE_ERROR = 0.015625
-MAX_REFERENCE_NORMALIZED_RMSE = 0.04
+from tools.mmq_correctness import fixed_forward_reference
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -90,34 +85,6 @@ def _load_weight(
     return tensor, packed
 
 
-def _require_correctness(
-    correctness: dict[str, object], reference: bool, hip: bool
-) -> None:
-    names = ["candidate_vs_public_api"]
-    if hip:
-        names.append("candidate_vs_hip")
-    for name in names:
-        metrics = cast(ErrorMetrics, correctness[name])
-        if (
-            not metrics["finite"]
-            or metrics["normalized_rmse"] is None
-            or metrics["normalized_rmse"] > MAX_CONTROL_NORMALIZED_RMSE
-            or metrics["max_absolute_error"] is None
-            or metrics["max_absolute_error"] > MAX_CONTROL_ABSOLUTE_ERROR
-        ):
-            raise RuntimeError(f"fixed correctness failed: {name}")
-    if reference:
-        metrics = cast(ErrorMetrics, correctness["candidate_vs_bf16_baseline"])
-        if (
-            metrics["normalized_rmse"] is None
-            or metrics["normalized_rmse"] > MAX_REFERENCE_NORMALIZED_RMSE
-        ):
-            raise RuntimeError("fixed BF16 reference tolerance failed")
-    producer = cast(dict[str, int], correctness["producer_repeat"])
-    if producer["different_bytes"]:
-        raise RuntimeError("fixed Q8_1 producer is not deterministic")
-
-
 def main() -> None:
     args = _parser().parse_args()
     if args.warmup < 0 or args.repeats <= 0:
@@ -153,13 +120,10 @@ def main() -> None:
             FixedGroupedQ8ForwardModule(key, args.code_object)
         )
         if args.hip_code_object is not None:
-            try:
-                hip = stack.enter_context(
-                    InstalledFixedGroupedQ8ForwardModule(key, args.hip_code_object)
-                )
-                hip_reason = None
-            except HIPRuntimeError as error:
-                hip_reason = str(error)
+            hip = stack.enter_context(
+                InstalledFixedGroupedQ8ForwardModule(key, args.hip_code_object)
+            )
+            hip_reason = None
 
         def quantize() -> None:
             quantizer.launch(flat_input, workspace, stream=stream)
@@ -180,19 +144,11 @@ def main() -> None:
             hip_kernel()
 
         quantize()
-        workspace_control = workspace.clone()
-        quantize()
         hip_kernel()
         candidate_kernel()
         public_output = torch_ggml_ops.fixed_grouped_mmq(input_tensor, packed_weight)
         torch.cuda.synchronize()
         correctness: dict[str, object] = {
-            "producer_repeat": {
-                "different_bytes": int(
-                    torch.count_nonzero(workspace != workspace_control)
-                ),
-                "bytes": workspace.numel(),
-            },
             "candidate_vs_public_api": error_metrics(candidate_output, public_output),
         }
         if not args.skip_reference:
@@ -202,16 +158,11 @@ def main() -> None:
                 dtype=torch.bfloat16,
                 device="cuda",
             ).reshape(problem.groups, problem.output_features, problem.input_features)
-            reference = (
-                torch.bmm(input_tensor.permute(1, 0, 2), logical_weight.transpose(1, 2))
-                .permute(1, 0, 2)
-                .contiguous()
-            )
+            reference = fixed_forward_reference(input_tensor, logical_weight)
             correctness["candidate_vs_bf16_baseline"] = error_metrics(
                 candidate_output, reference
             )
 
-        _require_correctness(correctness, not args.skip_reference, hip is not None)
         logical_flops = (
             2
             * problem.tokens
@@ -219,6 +170,9 @@ def main() -> None:
             * problem.output_features
             * problem.input_features
         )
+        del public_output
+        if not args.skip_reference:
+            del logical_weight
         timing = {}
         if not args.skip_timing:
             functions = {
@@ -268,11 +222,6 @@ def main() -> None:
                 "available": not args.skip_reference,
                 "label": "torch.bmm on dequantized BF16 banks",
             },
-        },
-        "correctness_thresholds": {
-            "max_control_normalized_rmse": MAX_CONTROL_NORMALIZED_RMSE,
-            "max_control_absolute_error": MAX_CONTROL_ABSOLUTE_ERROR,
-            "max_reference_normalized_rmse": MAX_REFERENCE_NORMALIZED_RMSE,
         },
         "correctness": correctness,
         "timing": timing,

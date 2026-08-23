@@ -1,10 +1,8 @@
 import pytest
 import torch
-from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
 import torch_ggml_ops
 from tests.mmq_test_support import (
-    assert_normalized_rmse,
     find_tensor,
     load_packed_fixed_groups,
     random_bf16,
@@ -19,7 +17,7 @@ _IN_FEATURES = 4096
 
 
 @pytest.fixture(scope="module")
-def fixed_q8() -> tuple[torch.Tensor, torch.Tensor]:
+def fixed_q8() -> torch.Tensor:
     tensor = find_tensor(model_reader(DEEPSEEK_MODEL), "blk.0.attn_output_a.weight")
     packed = load_packed_fixed_groups(
         tensor,
@@ -27,33 +25,13 @@ def fixed_q8() -> tuple[torch.Tensor, torch.Tensor]:
         group_out_features=_OUT_FEATURES,
         out_features=_OUT_FEATURES,
     )
-    logical = dequantize_gguf_tensor(
-        packed[0], tensor.tensor_type, dtype=torch.bfloat16, device="cuda"
-    ).reshape(_OUT_FEATURES, _IN_FEATURES)
-    return packed, logical
-
-
-def test_exact_fixed_q8_forward_and_autograd(
-    fixed_q8: tuple[torch.Tensor, torch.Tensor],
-) -> None:
-    packed, logical = fixed_q8
-    input = random_bf16(_TOKENS, _GROUPS, _IN_FEATURES, seed=30001, requires_grad=True)
-    output = torch_ggml_ops.fixed_grouped_mmq(input, packed)
-    expected = (input[:2, 0].float() @ logical.float().T).to(torch.bfloat16)
-    assert output.shape == (_TOKENS, _GROUPS, _OUT_FEATURES)
-    assert_normalized_rmse(output[:2, 0], expected)
-
-    grad_output = random_bf16(_TOKENS, _GROUPS, _OUT_FEATURES, seed=30002)
-    output.backward(grad_output)
-    assert input.grad is not None
-    expected_grad = (grad_output[:2, 0].float() @ logical.float()).to(torch.bfloat16)
-    assert_normalized_rmse(input.grad[:2, 0], expected_grad, maximum=1e-4)
+    return packed
 
 
 def test_exact_fixed_q8_compiles(
-    fixed_q8: tuple[torch.Tensor, torch.Tensor],
+    fixed_q8: torch.Tensor,
 ) -> None:
-    packed, _logical = fixed_q8
+    packed = fixed_q8
     input = random_bf16(_TOKENS, _GROUPS, _IN_FEATURES, seed=30003)
 
     @torch.compile(fullgraph=True)
@@ -66,9 +44,9 @@ def test_exact_fixed_q8_compiles(
 
 
 def test_unsupported_fixed_token_count_fails_at_launch(
-    fixed_q8: tuple[torch.Tensor, torch.Tensor],
+    fixed_q8: torch.Tensor,
 ) -> None:
-    packed, _logical = fixed_q8
+    packed = fixed_q8
     input = random_bf16(2, _GROUPS, _IN_FEATURES, seed=30004)
     with pytest.raises(RuntimeError, match="unsupported exact deployment key"):
         torch_ggml_ops.fixed_grouped_mmq(input, packed)

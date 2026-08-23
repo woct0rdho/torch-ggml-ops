@@ -5,14 +5,11 @@ import argparse
 import contextlib
 import json
 import sys
-from collections.abc import Mapping
 from pathlib import Path
-from typing import cast
 
 import gguf
 import numpy as np
 import torch
-from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BENCH_ROOT = REPO_ROOT / "bench"
@@ -20,7 +17,7 @@ for path in (REPO_ROOT, BENCH_ROOT):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from benchmark_report import ErrorMetrics, error_metrics, rotating_timings
+from benchmark_report import error_metrics, rotating_timings
 from benchmark_routes import fitted_prior_distribution_for_rows, make_route_tensors
 from benchmark_support import public_grouped_pair_backward, require_case
 from workload_prior import EXPERT_PRIOR_NAMES, expert_prior_metadata
@@ -34,6 +31,10 @@ from tools.ggtensile.grouped_mmq_bwd_pair_runtime import (
 )
 from tools.ggtensile.grouped_mmq_bwd_pair_spec import DerivedGroupedBackwardPairState
 from tools.ggtensile.runtime import HIPRuntimeError
+from tools.mmq_correctness import (
+    dequantize_active_routed_weight,
+    routed_backward_pair_reference,
+)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -82,42 +83,6 @@ def _control(key: GroupedBackwardPairSolutionKey, code_object: Path):
     raise HIPRuntimeError(f"no legacy HIP control for {quant}")
 
 
-def _reference(
-    first_grad: torch.Tensor,
-    second_grad: torch.Tensor,
-    first_weight: torch.Tensor,
-    second_weight: torch.Tensor,
-    expert_indices: torch.Tensor,
-    group_sizes: tuple[int, ...],
-) -> torch.Tensor:
-    first_selected = first_weight.index_select(0, expert_indices)
-    second_selected = second_weight.index_select(0, expert_indices)
-    outputs = []
-    begin = 0
-    for index, rows in enumerate(group_sizes):
-        end = begin + rows
-        outputs.append(
-            first_grad[begin:end] @ first_selected[index]
-            + second_grad[begin:end] @ second_selected[index]
-        )
-        begin = end
-    return torch.cat(outputs)
-
-
-def _require_correctness(correctness: Mapping[str, object], hip: bool) -> None:
-    names = ["ggtensile_vs_public_api", "ggtensile_vs_bf16_baseline"]
-    if hip:
-        names.append("ggtensile_vs_hip")
-    for name in names:
-        metrics = cast(ErrorMetrics, correctness[name])
-        if (
-            not metrics["finite"]
-            or metrics["normalized_rmse"] is None
-            or metrics["normalized_rmse"] > 0.04
-        ):
-            raise RuntimeError(f"paired backward correctness failed: {name}: {metrics}")
-
-
 def main() -> None:
     args = _parser().parse_args()
     if args.warmup < 0 or args.repeats <= 0:
@@ -138,7 +103,7 @@ def main() -> None:
     distribution = fitted_prior_distribution_for_rows(
         args.expert_prior, key.problem.aggregate_rows
     )
-    expert_indices, expert_offsets, _ = make_route_tensors(distribution)
+    expert_indices, expert_offsets, group_sizes = make_route_tensors(distribution)
     generator = torch.Generator(device="cuda").manual_seed(args.seed)
     first_grad = torch.randn(
         key.problem.aggregate_rows,
@@ -176,11 +141,8 @@ def main() -> None:
             GroupedBackwardPairModule(key, args.code_object)
         )
         if args.hip_code_object is not None:
-            try:
-                hip = stack.enter_context(_control(key, args.hip_code_object))
-                hip_reason = None
-            except HIPRuntimeError as error:
-                hip_reason = str(error)
+            hip = stack.enter_context(_control(key, args.hip_code_object))
+            hip_reason = None
 
         def ggtensile() -> None:
             candidate.launch(
@@ -207,35 +169,29 @@ def main() -> None:
                     stream=stream,
                 )
 
-        logical_first = (
-            dequantize_gguf_tensor(
-                first_weight,
-                first_tensor.tensor_type,
-                dtype=torch.bfloat16,
-                device="cuda",
-            )
-            .reshape(256, key.problem.out_features, key.problem.in_features)
-            .contiguous()
+        logical_first = dequantize_active_routed_weight(
+            first_weight,
+            first_tensor.tensor_type,
+            expert_indices,
+            key.problem.out_features,
+            key.problem.in_features,
         )
-        logical_second = (
-            dequantize_gguf_tensor(
-                second_weight,
-                second_tensor.tensor_type,
-                dtype=torch.bfloat16,
-                device="cuda",
-            )
-            .reshape(256, key.problem.out_features, key.problem.in_features)
-            .contiguous()
+        logical_second = dequantize_active_routed_weight(
+            second_weight,
+            second_tensor.tensor_type,
+            expert_indices,
+            key.problem.out_features,
+            key.problem.in_features,
         )
         ggtensile()
         public_output = public_api()
-        baseline_output = _reference(
+        baseline_output = routed_backward_pair_reference(
             first_grad,
             second_grad,
             logical_first,
             logical_second,
             expert_indices,
-            distribution.group_sizes_cpu,
+            group_sizes,
         )
         if hip is not None:
             hip_kernel()
@@ -255,19 +211,19 @@ def main() -> None:
             )
             correctness["public_api_vs_hip"] = error_metrics(public_output, hip_output)
 
-        _require_correctness(correctness, hip is not None)
+        del public_output, baseline_output
         timing = {}
         if not args.skip_timing:
             functions = {
                 "public_api": public_api,
                 "ggtensile": ggtensile,
-                "bf16_baseline": lambda: _reference(
+                "bf16_baseline": lambda: routed_backward_pair_reference(
                     first_grad,
                     second_grad,
                     logical_first,
                     logical_second,
                     expert_indices,
-                    distribution.group_sizes_cpu,
+                    group_sizes,
                 ),
             }
             if hip is not None:

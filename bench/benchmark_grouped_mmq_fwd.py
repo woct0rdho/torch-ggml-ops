@@ -15,7 +15,6 @@ from typing import TypedDict, cast
 import gguf
 import torch
 from aiter.ops.triton.gmm import gmm
-from aiter_gmm_heuristics import gmm_config as aiter_gmm_config
 from benchmark_routes import (
     GroupSummary,
     RouteDistribution,
@@ -29,6 +28,7 @@ from grouped_mmq_benchmark_common import (
     RoutedWeights,
     bf16_fixed_mmq_reference,
     grouped_result_metadata,
+    load_active_routed_logical_weights,
     load_fixed_weight,
     load_routed_weights,
     parse_grouped_benchmark_args,
@@ -50,6 +50,7 @@ from mmq_benchmark_common import (
 from workload_prior import expert_prior_metadata, expert_prior_top_k
 
 import torch_ggml_ops
+from tools.aiter_gmm_heuristics import gmm_config as aiter_gmm_config
 
 DEFAULT_OUTPUT = Path("/tmp/torch_ggml_ops_grouped_mmq_fwd_benchmark.json")
 
@@ -140,8 +141,8 @@ def correctness_metrics(
         checked_distribution
     )
     selected_logical = tuple(
-        weight.index_select(0, expert_indices).transpose(1, 2)
-        for weight in weights.logical
+        weight.transpose(1, 2)
+        for weight in load_active_routed_logical_weights(case, weights, expert_indices)
     )
     packed_function, reference_function = make_routed_functions(
         case,
@@ -382,8 +383,8 @@ def benchmark_routed_profile(
     )
     expert_indices, expert_offsets, group_sizes = make_route_tensors(distribution)
     selected_logical = tuple(
-        weight.index_select(0, expert_indices).transpose(1, 2)
-        for weight in weights.logical
+        weight.transpose(1, 2)
+        for weight in load_active_routed_logical_weights(case, weights, expert_indices)
     )
     gmm_config = aiter_gmm_config(
         rows,
@@ -425,6 +426,7 @@ def benchmark_routed_profile(
         args.repeats,
         projections=case.projections,
     )
+    del packed_function, reference_function, selected_logical
     checked_distribution = truncate_distribution(distribution, args.correctness_rows)
     correctness_input = input[: checked_distribution.rows].clone()
     correctness = correctness_metrics(
@@ -460,8 +462,7 @@ def benchmark_routed_profile(
         "correctness": correctness,
     }
     print_result(result)
-    del packed_function, reference_function
-    del input, correctness_input, selected_logical
+    del input, correctness_input
     del expert_indices, expert_offsets, group_sizes
     clear_cuda_cache()
     return result

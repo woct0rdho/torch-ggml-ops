@@ -10,7 +10,6 @@ from pathlib import Path
 import gguf
 import numpy as np
 import torch
-from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
 import torch_ggml_ops
 
@@ -38,6 +37,10 @@ from tools.ggtensile.runtime import (
     InstalledGroupedForwardQ2J32Module,
     InstalledGroupedForwardQ5J32Module,
     InstalledGroupedForwardQ5Module,
+)
+from tools.mmq_correctness import (
+    dequantize_active_routed_weight,
+    routed_forward_reference,
 )
 
 
@@ -105,22 +108,6 @@ def _control(
     raise HIPRuntimeError(f"no legacy HIP control for {quant}")
 
 
-def _reference(
-    input_tensor: torch.Tensor,
-    logical_weight: torch.Tensor,
-    expert_indices: torch.Tensor,
-    group_sizes: tuple[int, ...],
-) -> torch.Tensor:
-    selected = logical_weight.index_select(0, expert_indices)
-    outputs = []
-    begin = 0
-    for index, rows in enumerate(group_sizes):
-        end = begin + rows
-        outputs.append(input_tensor[begin:end] @ selected[index].transpose(0, 1))
-        begin = end
-    return torch.cat(outputs)
-
-
 def main() -> None:
     args = _parser().parse_args()
     if args.warmup < 0 or args.repeats <= 0:
@@ -134,7 +121,7 @@ def main() -> None:
     distribution = fitted_prior_distribution_for_rows(
         args.expert_prior, key.problem.aggregate_rows
     )
-    expert_indices, expert_offsets, _ = make_route_tensors(distribution)
+    expert_indices, expert_offsets, group_sizes = make_route_tensors(distribution)
     generator = torch.Generator(device="cuda").manual_seed(args.seed)
     input_tensor = torch.randn(
         key.problem.aggregate_rows,
@@ -154,13 +141,10 @@ def main() -> None:
         quantizer = stack.enter_context(FixedQ81F32D4QuantizerModule())
         workspace = quantizer.allocate(input_tensor)
         candidate = stack.enter_context(GroupedForwardModule(key, args.code_object))
-        try:
-            hip = stack.enter_context(
-                _control(key, expert_indices.numel(), args.hip_code_object)
-            )
-        except HIPRuntimeError as error:
-            hip = None
-            hip_reason = str(error)
+        hip = stack.enter_context(
+            _control(key, expert_indices.numel(), args.hip_code_object)
+        )
+        hip_reason = None
 
         def quantize() -> None:
             quantizer.launch(input_tensor, workspace, stream=stream)
@@ -199,16 +183,12 @@ def main() -> None:
                 key.problem.output_features,
             )
 
-        logical_weight = (
-            dequantize_gguf_tensor(
-                packed_weight, tensor.tensor_type, dtype=torch.bfloat16, device="cuda"
-            )
-            .reshape(
-                key.problem.physical_experts,
-                key.problem.output_features,
-                key.problem.input_features,
-            )
-            .contiguous()
+        logical_weight = dequantize_active_routed_weight(
+            packed_weight,
+            tensor.tensor_type,
+            expert_indices,
+            key.problem.output_features,
+            key.problem.input_features,
         )
         quantize()
         candidate.launch(
@@ -220,8 +200,8 @@ def main() -> None:
             stream=stream,
         )
         public_output = public_api()
-        baseline_output = _reference(
-            input_tensor, logical_weight, expert_indices, distribution.group_sizes_cpu
+        baseline_output = routed_forward_reference(
+            input_tensor, logical_weight, expert_indices, group_sizes
         )
         if hip is not None:
             hip_kernel()
@@ -241,16 +221,14 @@ def main() -> None:
             )
             correctness["public_api_vs_hip"] = error_metrics(public_output, hip_output)
 
+        del public_output, baseline_output
         timing = {}
         if not args.skip_timing:
             functions = {
                 "public_api": public_api,
                 "ggtensile": ggtensile,
-                "bf16_baseline": lambda: _reference(
-                    input_tensor,
-                    logical_weight,
-                    expert_indices,
-                    distribution.group_sizes_cpu,
+                "bf16_baseline": lambda: routed_forward_reference(
+                    input_tensor, logical_weight, expert_indices, group_sizes
                 ),
             }
             if hip is not None:

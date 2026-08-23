@@ -34,7 +34,7 @@ class MMQFunction(torch.autograd.Function):
         if ctx.needs_input_grad[0]:
             (packed_weight,) = ctx.saved_tensors
             grad_input = mmq_grad_input(
-                grad_output.contiguous(),
+                grad_output,
                 packed_weight,
                 ctx.quant_type,
                 ctx.in_features,
@@ -55,9 +55,7 @@ class FixedGroupedMMQFunction(torch.autograd.Function):
         grad_input = None
         if ctx.needs_input_grad[0]:
             (packed_weight,) = ctx.saved_tensors
-            grad_input = fixed_grouped_mmq_grad_input(
-                grad_output.contiguous(), packed_weight
-            )
+            grad_input = fixed_grouped_mmq_grad_input(grad_output, packed_weight)
         return grad_input, None
 
 
@@ -92,7 +90,7 @@ class GroupedMMQFunction(torch.autograd.Function):
         if ctx.needs_input_grad[0]:
             packed_weight, expert_indices, expert_offsets = ctx.saved_tensors
             grad_input = grouped_mmq_grad_input(
-                grad_output.contiguous(),
+                grad_output,
                 packed_weight,
                 expert_indices,
                 expert_offsets,
@@ -152,8 +150,8 @@ class GroupedMMQPairFunction(torch.autograd.Function):
                 expert_offsets,
             ) = ctx.saved_tensors
             grad_input = grouped_mmq_pair_grad_input(
-                first_grad_output.contiguous(),
-                second_grad_output.contiguous(),
+                first_grad_output,
+                second_grad_output,
                 first_packed_weight,
                 second_packed_weight,
                 expert_indices,

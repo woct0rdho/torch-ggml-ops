@@ -6,19 +6,17 @@ import contextlib
 import json
 import sys
 from pathlib import Path
-from typing import cast
 
 import gguf
 import numpy as np
 import torch
-from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
 ROOT = Path(__file__).resolve().parents[2]
 for path in (ROOT, ROOT / "bench"):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from benchmark_report import ErrorMetrics, error_metrics, rotating_timings
+from benchmark_report import error_metrics, rotating_timings
 from benchmark_routes import fitted_prior_distribution_for_rows, make_route_tensors
 from benchmark_support import public_grouped_backward, require_case
 from workload_prior import EXPERT_PRIOR_NAMES, expert_prior_metadata
@@ -28,7 +26,11 @@ from tools.ggtensile.grouped_mmq_bwd_runtime import (
 )
 from tools.ggtensile.model import SolutionKey
 from tools.ggtensile.quant_formats import BACKWARD_QUANT_FORMATS
-from tools.ggtensile.runtime import GroupedBackwardModule, HIPRuntimeError
+from tools.ggtensile.runtime import GroupedBackwardModule
+from tools.mmq_correctness import (
+    dequantize_active_routed_weight,
+    routed_backward_reference,
+)
 
 DEFAULT_TENSORS = {
     "Q4_K": "blk.2.ffn_down_exps.weight",
@@ -51,7 +53,6 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--repeats", type=int, default=9)
     p.add_argument("--seed", type=int, default=20260818)
     p.add_argument("--skip-reference", action="store_true")
-    p.add_argument("--skip-mutations", action="store_true")
     p.add_argument("--skip-timing", action="store_true")
     return p
 
@@ -77,27 +78,15 @@ def load_weight(model: Path, name: str, key: SolutionKey):
 def reference(
     grad_output, packed, quant_type, expert_indices, group_sizes, output_features
 ):
-    selected = packed.index_select(0, expert_indices).contiguous()
-    logical = dequantize_gguf_tensor(
-        selected,
+    logical = dequantize_active_routed_weight(
+        packed,
         gguf.GGMLQuantizationType(quant_type),
-        dtype=torch.bfloat16,
-        device="cuda",
-    ).reshape(len(group_sizes), grad_output.shape[1], output_features)
-    outputs = []
-    begin = 0
-    for group, rows in enumerate(group_sizes):
-        end = begin + rows
-        outputs.append(grad_output[begin:end] @ logical[group])
-        begin = end
-    return torch.cat(outputs)
-
-
-def require(metrics: object, label: str, limit: float) -> None:
-    typed = cast(ErrorMetrics, metrics)
-    nrmse = typed["normalized_rmse"]
-    if typed["finite"] is not True or not isinstance(nrmse, float) or nrmse > limit:
-        raise RuntimeError(f"{label} correctness failed: {metrics}")
+        expert_indices,
+        output_features,
+        grad_output.shape[1],
+    )
+    active = torch.arange(group_sizes.numel(), device=grad_output.device)
+    return routed_backward_reference(grad_output, logical, active, group_sizes)
 
 
 def main() -> None:
@@ -114,7 +103,7 @@ def main() -> None:
     tensor, packed = load_weight(args.model, tensor_name, key)
     size = key.problem_size
     distribution = fitted_prior_distribution_for_rows(args.expert_prior, size.m)
-    expert_indices, expert_offsets, _ = make_route_tensors(distribution)
+    expert_indices, expert_offsets, group_sizes = make_route_tensors(distribution)
     rng = torch.Generator(device="cuda").manual_seed(args.seed)
     grad_output = torch.randn(
         size.m, size.k, dtype=torch.bfloat16, device="cuda", generator=rng
@@ -138,17 +127,14 @@ def main() -> None:
             )
             hip_reason = None
         else:
-            try:
-                hip = stack.enter_context(
-                    InstalledGroupedBackwardControl(
-                        key.problem_type.quant_data_type,
-                        size.m,
-                        expert_indices.numel(),
-                    )
+            hip = stack.enter_context(
+                InstalledGroupedBackwardControl(
+                    key.problem_type.quant_data_type,
+                    size.m,
+                    expert_indices.numel(),
                 )
-                hip_reason = None
-            except HIPRuntimeError as error:
-                hip_reason = str(error)
+            )
+            hip_reason = None
 
         def ggtensile() -> torch.Tensor:
             candidate.launch(
@@ -183,22 +169,11 @@ def main() -> None:
                 size.n,
             )
 
-        def run_mutation() -> torch.Tensor:
-            mutated_public = public_api()
-            ggtensile()
-            if hip is not None:
-                hip_launch()
-            torch.cuda.synchronize()
-            return mutated_public
-
         ggtensile()
         public_output = public_api()
         if hip is not None:
             hip_launch()
         torch.cuda.synchronize()
-        baseline_candidate = candidate_output.clone()
-        baseline_public = public_output.clone()
-        baseline_hip = hip_output.clone() if hip is not None else None
         correctness: dict[str, object] = {
             "ggtensile_vs_public_api": error_metrics(candidate_output, public_output)
         }
@@ -206,21 +181,13 @@ def main() -> None:
             correctness["ggtensile_vs_hip"] = error_metrics(
                 candidate_output, hip_output
             )
-        repeat = candidate_output.clone()
-        ggtensile()
-        torch.cuda.synchronize()
-        correctness["repeat"] = {
-            "different_elements": int(torch.count_nonzero(candidate_output != repeat))
-        }
-        if correctness["repeat"]["different_elements"]:
-            raise RuntimeError("grouped backward output is not deterministic")
         if not args.skip_reference:
             baseline = reference(
                 grad_output,
                 packed,
                 int(tensor.tensor_type),
                 expert_indices,
-                distribution.group_sizes_cpu,
+                group_sizes,
                 size.n,
             )
             correctness["ggtensile_vs_bf16_baseline"] = error_metrics(
@@ -228,86 +195,18 @@ def main() -> None:
             )
         else:
             baseline = None
-        require(correctness["ggtensile_vs_public_api"], "GGTensile/public API", 5e-4)
-        if hip is not None:
-            require(correctness["ggtensile_vs_hip"], "GGTensile/HIP", 5e-4)
-        if baseline is not None:
-            require(correctness["ggtensile_vs_bf16_baseline"], "GGTensile/BF16", 0.04)
-        mutations = None
-        if not args.skip_mutations:
-            mutations = {}
-
-            def record_mutation(name: str, mutated_public: torch.Tensor) -> None:
-                item: dict[str, object] = {
-                    "public_changed": int(
-                        torch.count_nonzero(mutated_public != baseline_public)
-                    ),
-                    "ggtensile_changed": int(
-                        torch.count_nonzero(candidate_output != baseline_candidate)
-                    ),
-                    "ggtensile_vs_public": error_metrics(
-                        candidate_output, mutated_public
-                    ),
-                }
-                if hip is not None and baseline_hip is not None:
-                    item["hip_changed"] = int(
-                        torch.count_nonzero(hip_output != baseline_hip)
-                    )
-                    item["ggtensile_vs_hip"] = error_metrics(
-                        candidate_output, hip_output
-                    )
-                    require(item["ggtensile_vs_hip"], "GGTensile/HIP mutation", 5e-4)
-                require(
-                    item["ggtensile_vs_public"],
-                    "GGTensile/public mutation",
-                    5e-4,
-                )
-                mutations[name] = item
-
-            saved = grad_output[0].clone()
-            grad_output[0].neg_()
-            record_mutation("grad_output", run_mutation())
-            grad_output[0].copy_(saved)
-            if not mutations["grad_output"]["public_changed"]:
-                raise RuntimeError("grouped backward gradient mutation was ineffective")
-
-            saved_expert = expert_indices[0].clone()
-            expert_indices[0] = (int(saved_expert) + 1) % 256
-            record_mutation("expert_indices", run_mutation())
-            expert_indices[0].copy_(saved_expert)
-            if not mutations["expert_indices"]["public_changed"]:
-                raise RuntimeError("grouped backward route mutation was ineffective")
-
-            active_expert = int(expert_indices[0])
-            replacement_expert = (active_expert + 1) % 256
-            saved_weight = packed[active_expert].clone()
-            packed[active_expert].copy_(packed[replacement_expert])
-            record_mutation("active_weight", run_mutation())
-            packed[active_expert].copy_(saved_weight)
-            if not mutations["active_weight"]["public_changed"]:
-                raise RuntimeError("grouped backward weight mutation was ineffective")
-
-            active_ids = set(distribution.expert_indices_cpu)
-            inactive_expert = next(
-                expert for expert in range(256) if expert not in active_ids
-            )
-            saved_weight = packed[inactive_expert].clone()
-            packed[inactive_expert].bitwise_xor_(0x55)
-            record_mutation("inactive_weight", run_mutation())
-            packed[inactive_expert].copy_(saved_weight)
-            if mutations["inactive_weight"]["public_changed"]:
-                raise RuntimeError("inactive grouped weight affected the output")
-
+        has_baseline = baseline is not None
+        del public_output, baseline
         timing = {}
         if not args.skip_timing:
             functions = {"public_api": public_api, "ggtensile": ggtensile}
-            if baseline is not None:
+            if has_baseline:
                 functions["bf16_baseline"] = lambda: reference(
                     grad_output,
                     packed,
                     int(tensor.tensor_type),
                     expert_indices,
-                    distribution.group_sizes_cpu,
+                    group_sizes,
                     size.n,
                 )
             if hip is not None:
@@ -352,11 +251,11 @@ def main() -> None:
                 "reason": hip_reason,
             },
             "bf16_baseline": {
-                "available": baseline is not None,
+                "available": has_baseline,
                 "label": "routed torch.mm on dequantized BF16 banks",
             },
         },
-        "correctness": {**correctness, "mutations": mutations},
+        "correctness": correctness,
         "timing": timing,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)

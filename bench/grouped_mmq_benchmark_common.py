@@ -17,6 +17,8 @@ from mmq_benchmark_common import (
 from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 from workload_prior import EXPERT_PRIOR_NAMES
 
+from tools.mmq_correctness import dequantize_active_routed_weight
+
 QUANT_BLOCK_GEOMETRY = {
     "Q8_0": (32, 34),
     "Q2_K": (256, 84),
@@ -258,23 +260,33 @@ def load_routed_weights(
             )
         physical_shapes.append(tuple(packed.shape))
 
-    logical_weights = tuple(
-        dequantize_gguf_tensor(
-            packed,
-            tensor.tensor_type,
-            dtype=torch.bfloat16,
-            device="cuda",
-        )
-        .reshape(256, case.out_features, case.in_features)
-        .contiguous()
-        for tensor, packed in zip(tensors, packed_weights, strict=True)
-    )
+    # Routed logical banks are materialized per profile, after the active
+    # expert set is known. Keeping all 256 banks here causes large TTM peaks.
     return RoutedWeights(
         packed_weights,
-        logical_weights,
+        (),
         tuple(physical_shapes),
         quant_type,
         quant_name,
+    )
+
+
+def load_active_routed_logical_weights(
+    case: GroupedMMQCase,
+    weights: RoutedWeights,
+    expert_indices: torch.Tensor,
+) -> tuple[torch.Tensor, ...]:
+    """Materialize only the routed banks consumed by one benchmark profile."""
+    tensor_type = gguf.GGMLQuantizationType(weights.quant_type)
+    return tuple(
+        dequantize_active_routed_weight(
+            packed,
+            tensor_type,
+            expert_indices,
+            case.out_features,
+            case.in_features,
+        )
+        for packed in weights.packed
     )
 
 

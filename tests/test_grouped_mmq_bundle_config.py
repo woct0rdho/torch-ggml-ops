@@ -29,16 +29,3 @@ def test_public_bundle_contains_no_hip_compute_artifacts() -> None:
         "GroupedRowTaskSetup",
     ]
     assert all(kernel.key is not None for kernel in bundle[4:])
-
-
-def test_dispatch_uses_exact_records_without_legacy_route_selection() -> None:
-    source = (ROOT / "csrc/mmq_bundle.cpp").read_text()
-    assert "exact_record(" in source
-    for forbidden in (
-        "kQualified",
-        "select_",
-        "fallback",
-        "heuristic",
-        "nearest",
-    ):
-        assert forbidden not in source

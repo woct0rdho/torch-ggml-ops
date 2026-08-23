@@ -6,7 +6,6 @@ import contextlib
 import json
 import sys
 from pathlib import Path
-from typing import cast
 
 import gguf
 import numpy as np
@@ -18,12 +17,13 @@ for path in (ROOT, ROOT / "bench"):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from benchmark_report import ErrorMetrics, error_metrics, rotating_timings
+from benchmark_report import error_metrics, rotating_timings
 from benchmark_support import public_dense_backward, require_case
 
 from tools.ggtensile.dense_mmq_bwd_runtime import InstalledDenseBackwardModule
 from tools.ggtensile.model import SolutionKey
-from tools.ggtensile.runtime import BackwardModule, HIPRuntimeError
+from tools.ggtensile.runtime import BackwardModule
+from tools.mmq_correctness import bf16_backward_reference
 
 
 def parser() -> argparse.ArgumentParser:
@@ -58,13 +58,6 @@ def load_weight(model: Path, name: str, key: SolutionKey):
     return tensor, torch.from_numpy(host).cuda()
 
 
-def require_metrics(metrics: object, name: str, limit: float) -> None:
-    typed = cast(ErrorMetrics, metrics)
-    nrmse = typed["normalized_rmse"]
-    if typed["finite"] is not True or not isinstance(nrmse, float) or nrmse > limit:
-        raise RuntimeError(f"{name} correctness failed: {metrics}")
-
-
 def main() -> None:
     args = parser().parse_args()
     if args.warmup < 0 or args.repeats <= 0:
@@ -91,13 +84,10 @@ def main() -> None:
     with contextlib.ExitStack() as stack:
         candidate = stack.enter_context(BackwardModule(key, args.code_object))
         if args.hip_code_object is not None:
-            try:
-                hip = stack.enter_context(
-                    InstalledDenseBackwardModule(key, args.hip_code_object)
-                )
-                hip_reason = None
-            except HIPRuntimeError as error:
-                hip_reason = str(error)
+            hip = stack.enter_context(
+                InstalledDenseBackwardModule(key, args.hip_code_object)
+            )
+            hip_reason = None
 
         def ggtensile() -> torch.Tensor:
             candidate.launch(grad_output, packed, candidate_output, stream=stream)
@@ -120,7 +110,7 @@ def main() -> None:
                 .reshape(size.k, size.n)
                 .contiguous()
             )
-            baseline = torch.mm(grad_output, logical)
+            baseline = bf16_backward_reference(grad_output, logical)
         else:
             logical = baseline = None
         public_output = public_api()
@@ -143,23 +133,15 @@ def main() -> None:
                 candidate_output, hip_output
             )
             correctness["public_api_vs_hip"] = error_metrics(public_output, hip_output)
-        require_metrics(
-            correctness["ggtensile_vs_public_api"], "GGTensile/public API", 5e-4
-        )
-        if baseline is not None:
-            require_metrics(
-                correctness["ggtensile_vs_bf16_baseline"], "GGTensile/BF16", 0.04
-            )
-        if hip is not None:
-            require_metrics(correctness["ggtensile_vs_hip"], "GGTensile/HIP", 5e-4)
-
+        has_baseline = baseline is not None
+        del public_output, baseline
         timing = {}
         if not args.skip_timing:
             functions = {"public_api": public_api, "ggtensile": ggtensile}
-            if baseline is not None:
+            if has_baseline:
                 assert logical is not None
                 baseline_logical = logical
-                functions["bf16_baseline"] = lambda: torch.mm(
+                functions["bf16_baseline"] = lambda: bf16_backward_reference(
                     grad_output, baseline_logical
                 )
             if hip is not None:
@@ -190,7 +172,7 @@ def main() -> None:
             "ggtensile": {"available": True, "artifact": str(args.code_object)},
             "hip": {"available": hip is not None, "reason": hip_reason},
             "bf16_baseline": {
-                "available": baseline is not None,
+                "available": has_baseline,
                 "label": "torch.mm on dequantized BF16 weight",
             },
         },

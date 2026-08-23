@@ -4,41 +4,21 @@ from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import TYPE_CHECKING, ClassVar, Literal, cast
 
-from .model import (
-    ForwardSolution,
-    ProblemSize,
-    SolutionKey,
-)
+from .model import ForwardSolution, ProblemSize, SolutionKey
 from .quant_formats import (
     Q8_1_D4_BLOCK_VALUES,
     Q8_1_F16_D4S4_BLOCK_BYTES,
     Q8_1_F32_D4_BLOCK_BYTES,
     QUANT_FORMATS,
 )
-from .schema import (
-    SchemaError,
-)
-from .schema import (
-    boolean as _boolean,
-)
-from .schema import (
-    canonical_value as _canonical_value,
-)
-from .schema import (
-    integer as _integer,
-)
-from .schema import (
-    integer_tuple as _integer_tuple,
-)
-from .schema import (
-    strict_mapping as _strict_mapping,
-)
-from .schema import (
-    strict_mapping_optional as _strict_mapping_optional,
-)
-from .schema import (
-    string as _string,
-)
+from .schema import SchemaError
+from .schema import boolean as _boolean
+from .schema import canonical_value as _canonical_value
+from .schema import integer as _integer
+from .schema import integer_tuple as _integer_tuple
+from .schema import strict_mapping as _strict_mapping
+from .schema import strict_mapping_optional as _strict_mapping_optional
+from .schema import string as _string
 
 if TYPE_CHECKING:
     from .mmq_fwd_physical import ForwardPhysicalPlan

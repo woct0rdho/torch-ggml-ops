@@ -20,10 +20,7 @@ from workload_prior import (
 
 
 def _positive_int_list(value: str) -> tuple[int, ...]:
-    try:
-        result = tuple(int(item.strip()) for item in value.split(",") if item.strip())
-    except ValueError as error:
-        raise argparse.ArgumentTypeError("batches must be positive integers") from error
+    result = tuple(int(item.strip()) for item in value.split(",") if item.strip())
     if not result or any(item <= 0 for item in result):
         raise argparse.ArgumentTypeError("batches must be positive integers")
     return result
