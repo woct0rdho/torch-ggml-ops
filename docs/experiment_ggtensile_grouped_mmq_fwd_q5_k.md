@@ -96,17 +96,17 @@ At B16, the same `a1d4-p2` identity reaches `1.0015x` and `1.0039x` in the two 2
 
 A final reversed-order 25-repeat complete-call audit used the fixed HIP Q8_1 F16_D4S4 producer, one allocated shared workspace per pair, sustained short-key batches, and fresh quantization before each multiply. Weighted installed-over-candidate ratios are `1.0539x` at B1, `1.0813x` at B4, and `1.0070x` at B16. Every output remains bitwise exact. Producer inclusion preserves the B4 gain and creates no complete-call parity failure.
 
-### Final complete-call performance
+### Final prequantized multiply-only performance
 
-Effective throughput uses the dense-equivalent operation count `2*R*2048*512` divided by the qualified weighted complete-call median. It includes the fixed Q8_1 quantizer used by the retention audit and is therefore an end-to-end effective rate, not a WMMA-only rate.
+The final table reports prequantized multiply-only throughput. HIP and GGTensile consume the same activation workspace produced by the shared HIP quantizer, so activation quantization and other complete-call work are excluded. Nominal dense-equivalent throughput is `2 * aggregate rows * N * K / time`, doubled for paired two-projection kernels. GGTensile/HIP speedup is HIP body time divided by GGTensile body time.
 
-| aggregate rows | generated identity | GGTensile effective TFLOPS | AITER effective TFLOPS | speedup vs AITER |
-| ---: | --- | ---: | ---: | ---: |
-| 16,384 (B1) | 64/32 `a1d4-p2` | 16.35 | 15.52 | 1.0539x |
-| 65,536 (B4) | three-way 128/64/32 `a1d4-p2` | 21.96 | 20.30 | 1.0813x |
-| 262,144 (B16) | three-way 128/64/32 `a1d4-p2` | 24.10 | 23.93 | 1.0070x |
+| Aggregate rows | Public catalog hash | HIP TFLOPS | GGTensile TFLOPS | GGTensile/HIP speedup |
+| ---: | :--- | ---: | ---: | ---: |
+| 16,384 | `ggsol_a35d42962fcb240d` | 15.302 | 15.283 | 0.9987x |
+| 65,536 | `ggsol_38e2fe81d0ce5aea` | 21.068 | 22.691 | 1.0770x |
+| 262,144 | `ggsol_a9d33673184bf5ae` | 25.677 | 25.776 | 1.0039x |
 
-The retained research policy is 64/32 `a1d4-p2` at `R=16384` and three-way 128/64/32 `a1d4-p2` at `R=65536` and `R=262144`. Only B4 has broad material evidence across prior, search, captured, synthetic, sequential, and complete-call controls. B1 remains fitted-prior and route-sensitive; B16 remains parity-scale. No public selector, generated bundle, extension registration, or packaging file is changed.
+The selected entries passed the retained route-correctness, resource, and deterministic-build checks.
 
 ### Reopened routed prologue and address micro-experiments
 

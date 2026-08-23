@@ -193,37 +193,37 @@ This section is updated after every coherent implementation milestone. Code mile
 - Recursive optimization-exhaustion review with no actionable mechanism remaining. The final layout neighborhood and the actionable packed-VOPD decode mechanism were tested under the exact-key gates; remaining valid mechanisms are either outside contract or fail timing/resource thresholds.
 - Public runtime dispatch, deferred.
 
-### Historical selected-catalog result
+### Final result
 
-The authoritative serial 25-repeat confirmations below describe the selected catalog before the later M256 packed-VOPD reopening. They remain the HIP control baseline; the current retained M256 speed is reported in the reopening section. Logical throughput is arithmetic throughput. Speedup is `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile.
+The current `mmq_bwd_q8_0_catalog.json` is loaded by `tools/mmq_deployment_spec.py:kernels()` as `OrdinaryBackward`; `public_deployment_cases()` exposes these exact rows within the 50-case ordinary-backward public set wired by commit `1924d4b`. The `ggsol_...` value is the current public catalog hash. Logical throughput is `2*M*N*K/(median_ms*1e9)`, and speedup is `HIP time / GGTensile time`, so values above `1.0x` favor the deployed GGTensile entry.
 
-| Family | `(M,N,K)` | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP |
-| --- | ---: | ---: | ---: | ---: |
-| Attention Q-A | `(2048,4096,1024)` | `18.917` | `36.582` | `1.9338x` |
-| Attention Q-A | `(8192,4096,1024)` | `25.166` | `31.978` | `1.2707x` |
-| Attention Q-A | `(32768,4096,1024)` | `20.279` | `32.317` | `1.5936x` |
-| Attention Q-B | `(2048,1024,32768)` | `19.642` | `22.134` | `1.1268x` |
-| Attention Q-B | `(8192,1024,32768)` | `17.488` | `24.766` | `1.4161x` |
-| Attention Q-B | `(32768,1024,32768)` | `19.456` | `27.091` | `1.3925x` |
-| Attention K/V | `(2048,4096,512)` | `19.164` | `35.789` | `1.8675x` |
-| Attention K/V | `(8192,4096,512)` | `24.715` | `32.644` | `1.3208x` |
-| Attention K/V | `(32768,4096,512)` | `26.207` | `33.034` | `1.2605x` |
-| Attention output-B | `(2048,8192,4096)` | `22.239` | `32.123` | `1.4445x` |
-| Attention output-B | `(8192,8192,4096)` | `20.551` | `33.117` | `1.6115x` |
-| Attention output-B | `(32768,8192,4096)` | `21.431` | `33.218` | `1.5500x` |
-| Shared gate/up | `(2048,4096,2048)` | `21.388` | `35.918` | `1.6794x` |
-| Shared gate/up | `(8192,4096,2048)` | `23.955` | `29.083` | `1.2141x` |
-| Shared gate/up | `(32768,4096,2048)` | `20.284` | `29.767` | `1.4675x` |
-| Shared down | `(2048,2048,4096)` | `20.697` | `32.126` | `1.5522x` |
-| Shared down | `(8192,2048,4096)` | `18.705` | `28.930` | `1.5466x` |
-| Shared down | `(32768,2048,4096)` | `19.972` | `28.433` | `1.4237x` |
-| LM head | `(32,4096,129280)` | `4.113` | `7.998` | `1.9447x` |
-| LM head | `(64,4096,129280)` | `9.531` | `16.367` | `1.7172x` |
-| LM head | `(128,4096,129280)` | `17.698` | `23.676` | `1.3377x` |
-| LM head | `(256,4096,129280)` | `26.413` | `28.485` | `1.0784x` |
-| LM head | `(512,4096,129280)` | `24.624` | `30.257` | `1.2287x` |
+| Family | `(M,N,K)` | Public catalog hash | HIP ms | GGTensile ms | HIP TFLOPS | GGTensile TFLOPS | HIP time / GGTensile time |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| Attention Q-A | `(2048,4096,1024)` | `ggsol_79ab814fefd7e86a` | `0.9077` | `0.4693` | `18.926` | `36.605` | `1.9341x` |
+| Attention Q-A | `(8192,4096,1024)` | `ggsol_1605fb2e42cdae3b` | `2.7321` | `2.1500` | `25.153` | `31.963` | `1.2707x` |
+| Attention Q-A | `(32768,4096,1024)` | `ggsol_89a0cc4919ba7c07` | `13.5272` | `8.4746` | `20.320` | `32.435` | `1.5962x` |
+| Attention Q-B | `(2048,1024,32768)` | `ggsol_e3718bcd339bd337` | `7.0054` | `6.1495` | `19.619` | `22.350` | `1.1392x` |
+| Attention Q-B | `(8192,1024,32768)` | `ggsol_0b6ccdec8d6ac04d` | `31.6286` | `22.9929` | `17.382` | `23.910` | `1.3756x` |
+| Attention Q-B | `(32768,1024,32768)` | `ggsol_b13812666df0bb0b` | `113.0838` | `81.0581` | `19.446` | `27.129` | `1.3951x` |
+| Attention K/V | `(2048,4096,512)` | `ggsol_8f3a1d10bca36750` | `0.4501` | `0.2415` | `19.083` | `35.566` | `1.8638x` |
+| Attention K/V | `(8192,4096,512)` | `ggsol_39af6b70988355da` | `1.3919` | `1.0525` | `24.685` | `32.646` | `1.3225x` |
+| Attention K/V | `(32768,4096,512)` | `ggsol_652fc754d956a001` | `5.2502` | `4.1654` | `26.178` | `32.996` | `1.2604x` |
+| Attention output-B | `(2048,8192,4096)` | `ggsol_fefcdf7f91800920` | `6.1033` | `4.2766` | `22.519` | `32.138` | `1.4271x` |
+| Attention output-B | `(8192,8192,4096)` | `ggsol_6e86102f7f92d667` | `26.6558` | `16.5955` | `20.624` | `33.127` | `1.6062x` |
+| Attention output-B | `(32768,8192,4096)` | `ggsol_fd380e0978854da7` | `103.1480` | `66.3253` | `21.319` | `33.155` | `1.5552x` |
+| Shared gate/up | `(2048,4096,2048)` | `ggsol_32f1aae7d3d5eb0e` | `1.6443` | `0.9512` | `20.896` | `36.122` | `1.7286x` |
+| Shared gate/up | `(8192,4096,2048)` | `ggsol_1d2a8412b22e9423` | `5.7490` | `4.7499` | `23.907` | `28.935` | `1.2103x` |
+| Shared gate/up | `(32768,4096,2048)` | `ggsol_fd08c244467fe1fb` | `27.1389` | `18.5362` | `20.257` | `29.659` | `1.4641x` |
+| Shared down | `(2048,2048,4096)` | `ggsol_919fc04046025eec` | `1.6639` | `1.0669` | `20.651` | `32.204` | `1.5595x` |
+| Shared down | `(8192,2048,4096)` | `ggsol_8fd5945b4e44a8f7` | `7.3495` | `4.7587` | `18.700` | `28.882` | `1.5444x` |
+| Shared down | `(32768,2048,4096)` | `ggsol_b1d9d1c8312555c9` | `27.4390` | `19.1847` | `20.036` | `28.656` | `1.4303x` |
+| LM head | `(32,4096,129280)` | `ggsol_5fc69a7e5053332d` | `8.2403` | `4.2374` | `4.113` | `7.998` | `1.9447x` |
+| LM head | `(64,4096,129280)` | `ggsol_f47e1d4c0b3ea1d1` | `7.1113` | `4.1412` | `9.531` | `16.367` | `1.7172x` |
+| LM head | `(128,4096,129280)` | `ggsol_18248d7c66f61eef` | `7.6594` | `5.7257` | `17.698` | `23.676` | `1.3377x` |
+| LM head | `(256,4096,129280)` | `ggsol_dd5d0a2953b79821` | `10.2869` | `9.5085` | `26.356` | `28.514` | `1.0819x` |
+| LM head | `(512,4096,129280)` | `ggsol_ccc7671dafbce6e8` | `22.3029` | `17.9027` | `24.313` | `30.288` | `1.2458x` |
 
-The call-weighted ordinary-catalog speedup is `1.4535x`; the five-key LM-head aggregate speedup is `1.3310x`.
+Ordinary rows average the elapsed medians from `ggtensile-q8-ordinary-final-a` and `ggtensile-q8-ordinary-final-c`. LM M32/M64/M128 use the current packed-VOPD confirmation; LM M256/M512 average the matching packed entries from `ggtensile-q8-all-vopd-final-a` and `ggtensile-q8-lm-final-a`. The call-weighted ordinary-catalog speedup is `1.4522x` (candidate/HIP latency ratio `0.6886x`), the five-key LM-head speedup is `1.3393x` (ratio `0.7467x`), and the all-23-key speedup is `1.4518x`. The research-only `ggtensile-final-vs-hip-q8-m256-{a,b}.json` identity is not used for these public rows.
 
 ### Ordinary screening record
 

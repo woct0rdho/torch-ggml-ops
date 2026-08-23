@@ -478,37 +478,35 @@ Both confirmations are confidently faster than HIP beyond the `2%` zone in both 
 
 ## Final Multiply Result
 
-The final matrix follows the authoritative catalog's `(M,N,K)` orientation and reports prequantized multiply bodies only. HIP and GGTensile consume the same workspace from the same fixed `torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f32_d4` kernel; activation production is excluded from every throughput and speedup below. Logical throughput is `2*M*N*K/(median_ms*1e9)`, and speedup is `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile. Stable rows combine the two independent warmed rotating 25-repeat confirmations by averaging their median times. Q-A M2048 retains both 80-sample, ten-enqueue hot confirmations because they supersede the unresolved single-enqueue control. Other A/B values are retained only where the speed difference exceeds one percentage point and therefore warrants tighter benchmarking.
+The final matrix follows the authoritative public catalog's `(M,N,K)` orientation and reports prequantized multiply-only bodies. HIP and GGTensile consume the same workspace from the same fixed `torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f32_d4` producer; activation production is excluded from every throughput and speedup below. Logical throughput is `2*M*N*K/(median_ms*1e9)`. `GGTensile/HIP` speedup is `GGTensile TFLOPS / HIP TFLOPS`, equivalently `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile. Each row averages the two final public-catalog audit medians; the largest A/B median spread is below one percent.
 
-| Family | `(M,N,K)` | Final path | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP | Evidence |
-| --- | ---: | --- | ---: | ---: | ---: | --- |
-| Attention Q-A | `(2048,1024,4096)` | `HipTile` | `28.453/28.037` | `31.521/30.889` | `1.1078x/1.1017x` | A/B; 80x10 hot confirmation |
-| Attention Q-A | `(8192,1024,4096)` | `CompactDepth32WeightRows` | `27.619` | `31.239` | `1.1311x` | consolidated A/B |
-| Attention Q-A | `(32768,1024,4096)` | `CompactDepth32WeightRows` | `28.703` | `32.621` | `1.1365x` | consolidated A/B |
-| Attention Q-B | `(2048,32768,1024)` | `CompactDepth32WeightRows` | `25.875` | `30.198` | `1.1671x` | consolidated A/B |
-| Attention Q-B | `(8192,32768,1024)` | `CompactDepth32WeightRows` | `26.702` | `30.853` | `1.1554x` | consolidated A/B |
-| Attention Q-B | `(32768,32768,1024)` | `CompactDepth32WeightRows` | `26.812` | `30.760` | `1.1472x` | consolidated A/B |
-| Attention K/V | `(2048,512,4096)` | `CompactDepth32WeightRows` | `16.601/15.498` | `18.020/17.124` | `1.0855x/1.1049x` | A/B; tighter benchmark |
-| Attention K/V | `(8192,512,4096)` | `CompactDepth32WeightRows` | `27.719/27.307` | `29.147/29.266` | `1.0515x/1.0717x` | A/B; tighter benchmark |
-| Attention K/V | `(32768,512,4096)` | `CompactDepth32WeightRows` | `28.115` | `32.124` | `1.1426x` | consolidated A/B |
-| Attention output-B | `(2048,4096,8192)` | `CompactDepth32WeightRows` | `26.166` | `31.727` | `1.2125x` | consolidated A/B |
-| Attention output-B | `(8192,4096,8192)` | `CompactDepth32WeightRows` | `27.488` | `32.429` | `1.1798x` | consolidated A/B |
-| Attention output-B | `(32768,4096,8192)` | `CompactDepth32WeightRows` | `27.819` | `32.426` | `1.1656x` | consolidated A/B |
-| Shared gate/up | `(2048,2048,4096)` | `CompactDepth32WeightRows` | `27.638/27.815` | `29.480/29.228` | `1.0666x/1.0508x` | A/B; tighter benchmark |
-| Shared gate/up | `(8192,2048,4096)` | `CompactDepth32WeightRows` | `28.599` | `32.411` | `1.1333x` | consolidated A/B |
-| Shared gate/up | `(32768,2048,4096)` | `CompactDepth32WeightRows` | `29.088` | `32.834` | `1.1288x` | consolidated A/B |
-| Shared down | `(2048,4096,2048)` | `CompactDepth32WeightRows` | `27.141` | `29.124` | `1.0731x` | consolidated A/B |
-| Shared down | `(8192,4096,2048)` | `CompactDepth32WeightRows` | `28.512` | `32.084` | `1.1253x` | consolidated A/B |
-| Shared down | `(32768,4096,2048)` | `CompactDepth32WeightRows` | `28.750` | `32.372` | `1.1260x` | consolidated A/B |
-| LM head | `(32,129280,4096)` | `SmallM32` | `11.934` | `13.102` | `1.0978x` | consolidated A/B |
-| LM head | `(64,129280,4096)` | `SmallM64` | `22.813/22.935` | `25.482/25.360` | `1.1170x/1.1057x` | A/B; tighter benchmark |
-| LM head | `(128,129280,4096)` | `CompactDepth32WeightRows` | `26.505` | `31.752` | `1.1979x` | consolidated A/B |
-| LM head | `(256,129280,4096)` | `CompactDepth32WeightRows` | `26.830/27.059` | `31.984/32.643` | `1.1921x/1.2064x` | A/B; tighter benchmark |
-| LM head | `(512,129280,4096)` | `CompactDepth32WeightRows` | `27.270` | `32.461` | `1.1904x` | consolidated A/B |
+| Family | `(M,N,K)` | Public catalog hash | HIP TFLOPS | GGTensile TFLOPS | GGTensile/HIP speedup |
+| --- | ---: | --- | ---: | ---: | ---: |
+| Attention Q-A | `(2048,1024,4096)` | `ggsol_620516f662da29f3` | `31.036` | `34.245` | `1.1034x` |
+| Attention Q-A | `(8192,1024,4096)` | `ggsol_f78e834f7bb82a2e` | `30.822` | `36.074` | `1.1704x` |
+| Attention Q-A | `(32768,1024,4096)` | `ggsol_1389b8104bc29061` | `32.121` | `36.974` | `1.1511x` |
+| Attention Q-B | `(2048,32768,1024)` | `ggsol_505d33dd36cd5790` | `28.606` | `34.092` | `1.1918x` |
+| Attention Q-B | `(8192,32768,1024)` | `ggsol_323c022d43fb2435` | `28.880` | `34.641` | `1.1995x` |
+| Attention Q-B | `(32768,32768,1024)` | `ggsol_f15bc6c956ce7c52` | `29.031` | `35.059` | `1.2077x` |
+| Attention K/V | `(2048,512,4096)` | `ggsol_b40f08e30ff5bc83` | `28.615` | `30.285` | `1.0584x` |
+| Attention K/V | `(8192,512,4096)` | `ggsol_de612ce7a470579d` | `30.623` | `34.944` | `1.1411x` |
+| Attention K/V | `(32768,512,4096)` | `ggsol_0898037fe8783040` | `31.613` | `36.766` | `1.1630x` |
+| Attention output-B | `(2048,4096,8192)` | `ggsol_eac11aed4c3b4229` | `29.298` | `36.512` | `1.2463x` |
+| Attention output-B | `(8192,4096,8192)` | `ggsol_6525bb03932d9c84` | `30.379` | `37.513` | `1.2348x` |
+| Attention output-B | `(32768,4096,8192)` | `ggsol_da2d79e7129cd5d7` | `30.733` | `37.938` | `1.2344x` |
+| Shared gate/up | `(2048,2048,4096)` | `ggsol_abdcb1bf8cb8e28d` | `31.067` | `35.066` | `1.1287x` |
+| Shared gate/up | `(8192,2048,4096)` | `ggsol_b4500bc7bd68b338` | `31.950` | `36.748` | `1.1502x` |
+| Shared gate/up | `(32768,2048,4096)` | `ggsol_64f2005dfe00adb8` | `32.479` | `37.628` | `1.1585x` |
+| Shared down | `(2048,4096,2048)` | `ggsol_e9250a27a783dd49` | `30.508` | `34.968` | `1.1462x` |
+| Shared down | `(8192,4096,2048)` | `ggsol_253f1a95ce85cd9e` | `31.817` | `36.326` | `1.1417x` |
+| Shared down | `(32768,4096,2048)` | `ggsol_f3d23f4df3973903` | `32.232` | `37.049` | `1.1495x` |
+| LM head | `(32,129280,4096)` | `ggsol_b9b1167f6cbe898a` | `12.360` | `12.922` | `1.0455x` |
+| LM head | `(64,129280,4096)` | `ggsol_ba13b32d0f3ff9ec` | `24.066` | `24.540` | `1.0197x` |
+| LM head | `(128,129280,4096)` | `ggsol_796295ce34f4992d` | `29.373` | `36.335` | `1.2370x` |
+| LM head | `(256,129280,4096)` | `ggsol_0da11f24c6cb2f0c` | `29.647` | `36.587` | `1.2341x` |
+| LM head | `(512,129280,4096)` | `ggsol_ee38be695060a665` | `29.956` | `37.203` | `1.2419x` |
 
-The Q-A M2048 compact candidate remains rejected at `1.0375x` of the retained `HipTile` source. The measurement-error reconciliation qualifies that existing source directly against HIP, so no kernel or catalog identity changes. Historical complete-call matrices remain in the chronology above and are not mixed into this multiply-only final table.
-
-The rows retaining A/B values are Q-A M2048, KV M2048, KV M8192, shared gate/up M2048, LM-head M64, and LM-head M256. Q-A retains A/B because of the protocol reconciliation; the other spreads exceed the one-percentage-point reporting threshold and should receive a tighter benchmark before treating the consolidated speed as a precise point estimate.
+The Q-A M2048 compact candidate remains rejected at `1.0375x` of the retained `HipTile` source. The measurement-error reconciliation qualifies that existing source directly against HIP, so no kernel or catalog identity changes. Complete-call matrices remain in the chronology above and are not mixed into this multiply-only final table. The audit medians are in `~/tmp/torch-ggml-ops/fwd-complete-audit-q8-{a,b}.json`.
 
 ### Same-Producer Complete-Call Diagnostic
 

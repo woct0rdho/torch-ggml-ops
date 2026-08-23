@@ -242,12 +242,12 @@ The eight barriers continue to protect projection-overwritten weight LDS and act
 
 ### Final retained throughput versus HIP
 
-These are the current typed retained identities compared with the installed HIP serial kernels in the same seven-warmup, 25-repeat J80 session. Effective TFLOPS uses `4 * rows * N * K / (median_ms * 1e9)`. The speedup is `HIP median / retained median`, so values above `1.0x` favor the retained kernel. Public policy selects HIP J64 at B1/B4 and HIP J80 at B16.
+The final table reports prequantized multiply-only throughput. HIP and GGTensile consume the same activation workspace produced by the shared HIP quantizer, so activation quantization and other complete-call work are excluded. Nominal dense-equivalent throughput is `2 * aggregate rows * N * K / time`, doubled for paired two-projection kernels. GGTensile/HIP speedup is HIP body time divided by GGTensile body time.
 
-| Batch | Retained identity | HIP control | Retained ms | HIP ms | Retained TFLOPS | HIP TFLOPS | Speedup vs HIP |
-| ---: | :--- | :--- | ---: | ---: | ---: | ---: | ---: |
-| 1 | X1 fused selector, J64 | serial J64 | 30.5768 | 34.7361 | 13.485 | 11.870 | 1.1360x |
-| 4 | X1 fused selector, J64 | serial J64 | 83.8315 | 94.2844 | 19.674 | 17.492 | 1.1247x |
-| 16 | J80 fused selector | serial J80 | 294.6356 | 310.4453 | 22.391 | 21.250 | 1.0537x |
+| Aggregate rows | Public catalog hash | HIP TFLOPS | GGTensile TFLOPS | GGTensile/HIP speedup |
+| ---: | :--- | ---: | ---: | ---: |
+| 12,288 | `ggpair_f12ae9a800bd5ecb` | 11.851 | 13.741 | 1.1594x |
+| 49,152 | `ggpair_6a7d51c21e083af7` | 17.985 | 20.329 | 1.1303x |
+| 196,608 | `ggpair_c87599a2a8d4b1f3` | 22.054 | 23.329 | 1.0578x |
 
-The B1/B4 final values are the X1 J64 parent arms in `ggtensile-grouped-iq2-xxs-pair-j80-typed-ab25.json`; B16 uses the typed J80 candidate arm from the same report. All outputs were exact. The typed parent-improvement ratios remain useful acceptance evidence, but the final ratios above are the retained-kernel-versus-HIP results.
+All timed outputs in the retained qualification were exact.

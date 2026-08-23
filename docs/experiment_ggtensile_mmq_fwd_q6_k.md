@@ -406,11 +406,11 @@ The deterministic scheduler-oracle result changed the implementation premise, no
 
 The final selected identity is the typed wavefront lowering. The table reports prequantized multiply bodies only. HIP and GGTensile consume the same workspace from the same fixed `torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f32_d4` kernel; activation production is excluded from every throughput, speedup, and weighted result below. Logical throughput is `2*M*N*K/(median_ms*1e9)`, and speedup is `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile. Each value combines the two independent warmed rotating 25-repeat confirmations by averaging their median times; the largest per-key A/B speed difference was `0.74` percentage points.
 
-| `(M,N,K)` | Final body | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP |
+| `(M,N,K)` | Public catalog hash | HIP TFLOPS | GGTensile TFLOPS | GGTensile/HIP speedup |
 | ---: | --- | ---: | ---: | ---: |
-| `(64,248320,2048)` | J64 wavefront | `16.197` | `16.502` | `1.0188x` |
-| `(128,248320,2048)` | J128 wavefront | `17.550` | `17.702` | `1.0087x` |
-| `(256,248320,2048)` | two J128 wavefront tiles | `17.419` | `17.584` | `1.0095x` |
+| `(64,248320,2048)` | `ggsol_e4a90622ebc83190` | `16.197` | `16.502` | `1.0188x` |
+| `(128,248320,2048)` | `ggsol_67c5d2386851ff85` | `17.550` | `17.702` | `1.0087x` |
+| `(256,248320,2048)` | `ggsol_45df63b663fc39b5` | `17.419` | `17.584` | `1.0095x` |
 
 The effective 32/16/8-call weighted speedup is `1.0125x`. The prior HIP-scheduled rows below are retained as historical selection evidence; they are not the final wavefront result.
 

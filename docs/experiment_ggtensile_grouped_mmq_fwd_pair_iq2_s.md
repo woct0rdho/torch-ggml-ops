@@ -111,15 +111,13 @@ The nine-repeat B16 screen measured `60.0484 ms` for P2 versus `67.8355 ms` for 
 
 ### Final qualification and retention
 
-Reversed-order 25-repeat confirmation passed at every production shape. Timings are weighted medians over the five fitted Qwen confirmation medoids and include fixed HIP Q8_1 F32_D4 quantization, one allocated activation workspace, device task setup, and both projections. The adjacent row-task parent performs one task setup followed by two installed single-projection launches and reproduces public timing.
+Reversed-order 25-repeat confirmation passed at every production shape. The final table reports prequantized multiply-only throughput. HIP and GGTensile consume the same activation workspace produced by the shared HIP quantizer, so activation quantization and other complete-call work are excluded. Nominal dense-equivalent throughput is `2 * aggregate rows * N * K / time`, doubled for paired two-projection kernels. GGTensile/HIP speedup is HIP body time divided by GGTensile body time.
 
-The public pair is the installed HIP control. Effective TFLOPS is nominal dense-equivalent complete-call throughput, calculated as `4 * rows * N * K / seconds`: two FLOPs per FMA across both projections.
-
-| Batch | Rows | P2 body | Row-task parent body | P2 complete | Public HIP complete | HIP/P2 speedup | P2 effective TFLOPS | HIP effective TFLOPS |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 16,384 | 4.9848 ms | 6.0176 ms | 5.3592 ms | 6.3949 ms | 1.1933x | 12.82 | 10.75 |
-| 4 | 65,536 | 14.8498 ms | 17.2497 ms | 16.1971 ms | 18.5947 ms | 1.1480x | 16.97 | 14.78 |
-| 16 | 262,144 | 54.0387 ms | 61.8300 ms | 60.8543 ms | 68.5863 ms | 1.1271x | 18.07 | 16.03 |
+| Aggregate rows | Public catalog hash | HIP TFLOPS | GGTensile TFLOPS | GGTensile/HIP speedup |
+| ---: | :--- | ---: | ---: | ---: |
+| 16,384 | `ggpair_88145483ff873e47` | 11.420 | 13.786 | 1.2072x |
+| 65,536 | `ggpair_82cb896278e83ff0` | 15.935 | 18.511 | 1.1616x |
+| 262,144 | `ggpair_5179383caaed1299` | 17.783 | 20.347 | 1.1442x |
 
 Every one of the fifteen fitted-prior outputs matched both adjacent controls bitwise. Minimum per-medoid public/P2 ratios were `1.1275x`, `1.1198x`, and `1.1242x` at B1, B4, and B16. The B16 candidate is within about one percent of the earlier `60.2659 ms` BF16 AITER comparator, rather than the original packed path's roughly nine-percent deficit.
 

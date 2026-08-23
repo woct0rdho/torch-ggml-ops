@@ -318,7 +318,7 @@ The rebuilt typed artifacts passed the full correctness gates for all 12 keys: z
 
 #### TFLOPS-Equivalent Confirmation
 
-The authoritative comparisons used 100 warmup batches and 101 measured repeats with rotating HIP/GGTensile launch order. Each timing is a per-launch median; batch sizes were increased for short shapes so the GPU remained in a sustained operating regime. Effective dense throughput is reported as:
+The final public-key comparisons use the later catalog-wide forward and reversed 20-warmup, 25-repeat rotations. Each timing is a per-launch median; batch sizes were increased for short shapes so the GPU remained in a sustained operating regime. Effective dense throughput is reported as:
 
 ```text
 TFLOPS-equivalent = (2 * M * N * K) / (median_ms * 1e9)
@@ -327,24 +327,18 @@ speedup = HIP median_ms / GGTensile median_ms
 
 The TFLOPS values are an effective dense-operation rate for comparison. Q3_K uses integer WMMA accumulation and FP32 scale correction, so they are not a claim that the kernel executes native FP32 fused multiply-add instructions.
 
-The table below consolidates the two independent confirmations for all 12 research-catalog keys by averaging their median times before calculating throughput. It reports prequantized multiply bodies only. HIP and GGTensile consume the same workspace produced by the same fixed `torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f32_d4` kernel; activation production is excluded from every throughput, speedup, and weighted result in this table. The largest per-key A/B speed difference was `0.71` percentage points, so no row requires separate precision-warning reporting here.
+The table averages the two median times before calculating throughput and reports the six layout-qualified public keys. It contains prequantized multiply bodies only. HIP and GGTensile consume the same workspace produced by the same fixed `torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f32_d4` kernel; activation production is excluded from every throughput and speedup in this table.
 
-| Family | `(M,N,K)` | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP |
-| --- | ---: | ---: | ---: | ---: |
-| attention K | `(2048,512,2048)` | `20.770` | `22.419` | `1.0794x` |
-| attention K | `(8192,512,2048)` | `22.598` | `24.277` | `1.0743x` |
-| attention K | `(32768,512,2048)` | `22.957` | `24.695` | `1.0757x` |
-| attention Q | `(2048,8192,2048)` | `22.936` | `24.570` | `1.0712x` |
-| attention Q | `(8192,8192,2048)` | `23.346` | `25.000` | `1.0709x` |
-| attention Q | `(32768,8192,2048)` | `23.078` | `24.799` | `1.0746x` |
-| attention gate | `(2048,4096,2048)` | `22.771` | `24.654` | `1.0827x` |
-| attention gate | `(8192,4096,2048)` | `23.007` | `24.661` | `1.0719x` |
-| attention gate | `(32768,4096,2048)` | `23.102` | `24.775` | `1.0724x` |
-| SSM output | `(2048,2048,4096)` | `22.597` | `24.605` | `1.0888x` |
-| SSM output | `(8192,2048,4096)` | `23.070` | `24.909` | `1.0797x` |
-| SSM output | `(32768,2048,4096)` | `23.199` | `24.987` | `1.0771x` |
+| Family | `(M,N,K)` | Public catalog hash | HIP TFLOPS | GGTensile TFLOPS | GGTensile/HIP speedup |
+| --- | ---: | --- | ---: | ---: | ---: |
+| attention K | `(2048,512,2048)` | `ggsol_7d2eaa3a36b44b3a` | `20.003` | `22.704` | `1.1350x` (A/B `1.1271x/1.1432x`) |
+| attention K | `(8192,512,2048)` | `ggsol_b24a95504e619789` | `21.874` | `24.918` | `1.1392x` |
+| attention K | `(32768,512,2048)` | `ggsol_2cf291d183897bc1` | `22.401` | `25.460` | `1.1366x` |
+| attention Q | `(2048,8192,2048)` | `ggsol_a6f505f60a259b51` | `22.124` | `25.057` | `1.1326x` |
+| attention Q | `(8192,8192,2048)` | `ggsol_06b967e9e7315b01` | `22.340` | `25.416` | `1.1377x` |
+| attention Q | `(32768,8192,2048)` | `ggsol_d71bb5adc3c332b2` | `22.335` | `25.517` | `1.1425x` |
 
-The effective call-count-weighted speedup is `1.0750x`. This is research-catalog evidence only. The Q3 inventory records the exact qualified candidates, while `csrc/mmq_bundle.cpp`, `csrc/generated/mmq_bundle_table.cuh`, and public runtime dispatch remain unchanged at the 179-kernel HIP bundle.
+Across these six rows, aggregate HIP time divided by aggregate GGTensile time is `1.1408x`.
 
 #### Same-Producer Complete-Call Diagnostic
 

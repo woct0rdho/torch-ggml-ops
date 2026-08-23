@@ -156,17 +156,17 @@ For B16, the scheduled 128-row `a1d2-p2` body is the better large-group control.
 
 A separate reversed-order 25-repeat complete-call audit used the fixed HIP Q8_1 F16_D4S4 quantizer, allocated one shared workspace per HIP/GGTensile pair, and launched fresh quantization immediately before each timed multiply. Every confirmation medoid remained bitwise exact. Weighted installed-over-candidate complete-call ratios were `1.2167x` at B1, `1.0311x` at B4, and `1.0006x` at B16. Quantizer inclusion therefore preserved the mixed-tail margin and did not create a complete-call parity failure; the shared workspace allocation and producer contract remain fixed infrastructure rather than candidate-specific work.
 
-### Final complete-call performance
+### Final prequantized multiply-only performance
 
-Effective throughput uses the dense-equivalent operation count `2*R*2048*512` divided by the weighted complete-call median. It includes the fixed Q8_1 quantizer used by the retention audit and is therefore an end-to-end effective rate, not a WMMA-only rate.
+The final table reports prequantized multiply-only throughput. HIP and GGTensile consume the same activation workspace produced by the shared HIP quantizer, so activation quantization and other complete-call work are excluded. Nominal dense-equivalent throughput is `2 * aggregate rows * N * K / time`, doubled for paired two-projection kernels. GGTensile/HIP speedup is HIP body time divided by GGTensile body time.
 
-| aggregate rows | generated identity | GGTensile effective TFLOPS | AITER effective TFLOPS | speedup vs AITER |
-| ---: | --- | ---: | ---: | ---: |
-| 16,384 (B1) | mixed 64/32 `a1d4-p2` | 17.09 | 14.03 | 1.2167x |
-| 65,536 (B4) | mixed 64/32 `a1d4-p2` | 22.04 | 21.37 | 1.0311x |
-| 262,144 (B16) | 128-row `a1d2-p2` | 23.91 | 23.90 | 1.0006x |
+| Aggregate rows | Public catalog hash | HIP TFLOPS | GGTensile TFLOPS | GGTensile/HIP speedup |
+| ---: | :--- | ---: | ---: | ---: |
+| 16,384 | `ggsol_9c98efab3bdeda2b` | 13.730 | 16.042 | 1.1684x |
+| 65,536 | `ggsol_110dda8ec3bcfc8d` | 22.160 | 22.633 | 1.0213x |
+| 262,144 | `ggsol_2aee91a9195cc10a` | 25.192 | 25.270 | 1.0031x |
 
-The selected research identities now pass the full route correctness matrix at all three aggregate-row keys: uniform, skewed, sparse expert IDs, boundary-sized groups, and repeated physical expert IDs all matched installed HIP bitwise. The mixed 64/32 identity is retained for the exact `R=16384` and `R=65536` research keys, while the scheduled 128-row identity remains the B16 control. No public selector, generated bundle, or extension registration changes are authorized by this evidence.
+The selected entries passed the retained route-correctness, resource, and deterministic-build checks.
 
 ### Reopened routed prologue and address micro-experiments
 

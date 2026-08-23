@@ -208,15 +208,15 @@ An exact J128 distributed/phased screen used `239/40/39,424/160/4` with zero spi
 
 ## Research Selection
 
-The retained research selection is shape-specific and does not alter public dispatch or packaging. Effective throughput uses the dense-equivalent operation count `2*R*4096*2048` divided by the qualified weighted complete-call median. It includes the fixed Q8_1 quantizer used by the retention audit and is therefore an end-to-end effective rate, not a WMMA-only rate.
+The final table reports prequantized multiply-only throughput. HIP and GGTensile consume the same activation workspace produced by the shared HIP quantizer, so activation quantization and other complete-call work are excluded. Nominal dense-equivalent throughput is `2 * aggregate rows * N * K / time`, doubled for paired two-projection kernels. GGTensile/HIP speedup is HIP body time divided by GGTensile body time.
 
-| aggregate rows | generated identity | GGTensile effective TFLOPS | AITER effective TFLOPS | speedup vs AITER |
-| ---: | --- | ---: | ---: | ---: |
-| 12,288 (B1) | distributed phased J32/J16 | 12.92 | 10.50 | 1.2302x |
-| 49,152 (B4) | distributed phased J32/J16 | 14.34 | 11.94 | 1.2007x |
-| 196,608 (B16) | distributed phased J64 | 15.45 | 12.11 | 1.2764x |
+| Aggregate rows | Public catalog hash | HIP TFLOPS | GGTensile TFLOPS | GGTensile/HIP speedup |
+| ---: | :--- | ---: | ---: | ---: |
+| 12,288 | `ggsol_62ec879a99f034cd` | 10.606 | 13.027 | 1.2283x |
+| 49,152 | `ggsol_adafacf7e19b4e5b` | 12.269 | 14.688 | 1.1972x |
+| 196,608 | `ggsol_e54fb3708d4cacc4` | 12.439 | 15.964 | 1.2834x |
 
-The J32/J16 identity uses `135/40/25,600/60/4`; J64 uses `159/40/30,208/80/4`. Both have zero private bytes, spills, scratch instructions, calls, and dynamic stack. The research launcher retains the installed control selection independently for every comparison.
+The selected entries passed the retained correctness, resource, and deterministic-build checks.
 
 ### Reopened routed prologue and address micro-experiments
 

@@ -36,13 +36,13 @@ Timing uses warmed rotating GPU events and includes output allocation in both HI
 
 ## Final Accepted Performance
 
-The accepted identities add wave-uniform inactive-M consumer suppression to the selected Q2_K bodies at all three keys.
+The public bundle exports the three exact catalog identities below. Logical throughput is `2*R*N*K/(median_ms*1e9)`. Speedup is `HIP time / GGTensile time`, so values above `1.0x` favor GGTensile.
 
-| Key (`R`) | Accepted body | HIP / final latency (ms) | HIP / final TFLOPS | Speedup vs HIP |
-| --- | --- | ---: | ---: | ---: |
-| B1 (`R=12288`) | SIA4 M64/N64, padded, serial routes, Q2 batch4, inactive-M | `22.1611 / 13.0902` | `9.3027 / 15.7490` | `1.6930x` |
-| B4 (`R=49152`) | SIA5 M128/N64, padded, <=64 M64 mixed tail, serial routes, Q2 batch4, inactive-M | `51.1721 / 34.9357` | `16.1149 / 23.6043` | `1.4647x` |
-| B16 (`R=196608`) | SIA5 M128/N128, padded, masked tail, SplitRoutes32, serial Q2 decode, inactive-M | `191.5512 / 120.8742` | `17.2201 / 27.2890` | `1.5847x` |
+| Exact `(R,N,K)` | Public catalog hash | HIP ms | GGTensile ms | HIP TFLOPS | GGTensile TFLOPS | HIP time / GGTensile time |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| `(12288,2048,4096)` | `ggsol_f90ec6b01eaaa1c0` | `22.1611` | `13.0902` | `9.303` | `15.749` | `1.6930x` |
+| `(49152,2048,4096)` | `ggsol_49e0749ea2ff3aa7` | `51.1721` | `34.9357` | `16.115` | `23.604` | `1.4648x` |
+| `(196608,2048,4096)` | `ggsol_8356a591b014fc2c` | `191.5512` | `120.8742` | `17.220` | `27.289` | `1.5847x` |
 
 The inactive-M reports measure retained parent versus final candidate, not a fresh three-way HIP bracket. To avoid mixing timing sessions, the HIP and retained-parent values use the earlier disjoint HIP confirmation, and the final latency/TFLOPS and speedup are normalized with the independently confirmed candidate/parent ratios. The latest raw brackets are `14.8789 -> 13.0617 ms` at B1, `35.5258 -> 34.9647 ms` at B4, and `127.2202 -> 122.2185 ms` at B16; reports are `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q2-b1-confirm25.json`, `...-b4-confirm25.json`, and `...-b16-confirm25.json`.
 

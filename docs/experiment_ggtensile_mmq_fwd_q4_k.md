@@ -253,20 +253,20 @@ The current common research identity combines selective weight and metadata LDS-
 
 The table uses only the prequantized HIP and GGTensile multiply bodies. Both consume the same workspace from the same fixed `torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f16_d4s4` kernel; activation quantization is excluded from every throughput and speedup below. Logical throughput is `2*M*N*K/(median_ms*1e9)`. Speedup is `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile. Each value combines the two independent rotating 25-repeat confirmations by averaging their median times; the largest per-key A/B speed difference was `0.65` percentage points.
 
-| Family | `(M,N,K)` | Selected schedule | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP |
+| Family | `(M,N,K)` | Public catalog hash | HIP TFLOPS | GGTensile TFLOPS | GGTensile/HIP speedup |
 | --- | ---: | --- | ---: | ---: | ---: |
-| Narrow | `(2048,512,2048)` | common `a8d1-p0` | `23.899` | `24.225` | `1.0136x` |
-| Narrow | `(8192,512,2048)` | common `a8d1-p0` | `27.946` | `28.621` | `1.0241x` |
-| Narrow | `(32768,512,2048)` | `a4d4-p2` | `28.184` | `28.974` | `1.0280x` |
-| Shared down | `(2048,2048,512)` | `a1d2-p2` | `24.514` | `25.144` | `1.0257x` |
-| Shared down | `(8192,2048,512)` | `a1d4-p2` | `26.997` | `27.879` | `1.0327x` |
-| Shared down | `(32768,2048,512)` | `a1d2-p2` | `27.120` | `28.104` | `1.0363x` |
-| Attention output | `(2048,2048,4096)` | common `a8d1-p0` | `28.135` | `29.050` | `1.0325x` |
-| Attention output | `(8192,2048,4096)` | common `a8d1-p0` | `28.328` | `29.121` | `1.0280x` |
-| Attention output | `(32768,2048,4096)` | common `a8d1-p0` | `28.507` | `29.224` | `1.0252x` |
-| Query | `(2048,8192,2048)` | `a1d2-p2` | `28.087` | `29.104` | `1.0362x` |
-| Query | `(8192,8192,2048)` | `a4d4-p2` | `28.252` | `29.287` | `1.0366x` |
-| Query | `(32768,8192,2048)` | `a2d2-p2` | `28.263` | `29.185` | `1.0326x` |
+| Narrow | `(2048,512,2048)` | `ggsol_3ff59047beab3eaa` | `23.899` | `24.225` | `1.0136x` |
+| Narrow | `(8192,512,2048)` | `ggsol_197fb1d1dcba435c` | `27.946` | `28.621` | `1.0241x` |
+| Narrow | `(32768,512,2048)` | `ggsol_0631196a836a3532` | `28.184` | `28.974` | `1.0280x` |
+| Shared down | `(2048,2048,512)` | `ggsol_3d508299e01b6d3f` | `24.514` | `25.144` | `1.0257x` |
+| Shared down | `(8192,2048,512)` | `ggsol_ebf8da198b49dad6` | `26.997` | `27.879` | `1.0327x` |
+| Shared down | `(32768,2048,512)` | `ggsol_a32bcac489fa119f` | `27.120` | `28.104` | `1.0363x` |
+| Attention output | `(2048,2048,4096)` | `ggsol_4f3ca224b7440378` | `28.135` | `29.050` | `1.0325x` |
+| Attention output | `(8192,2048,4096)` | `ggsol_01a4e41ee6ae6723` | `28.328` | `29.121` | `1.0280x` |
+| Attention output | `(32768,2048,4096)` | `ggsol_31ea775de2173388` | `28.507` | `29.224` | `1.0252x` |
+| Query | `(2048,8192,2048)` | `ggsol_04db9854941608d0` | `28.087` | `29.104` | `1.0362x` |
+| Query | `(8192,8192,2048)` | `ggsol_cb4214664a51f7e7` | `28.252` | `29.287` | `1.0366x` |
+| Query | `(32768,8192,2048)` | `ggsol_a9b75ae588052cf8` | `28.263` | `29.185` | `1.0326x` |
 
 #### Same-Producer Complete-Call Diagnostic
 

@@ -186,12 +186,12 @@ A separate read-only pass over retained Q3-2, its row-task physical plan, decode
 
 ### Final retained throughput versus HIP
 
-The current typed Q3-2 result was benchmarked against the installed HIP public pair with seven warmups and 25 alternating repeats at every retained production shape. Effective TFLOPS uses `4 * rows * N * K / (median_ms * 1e9)`. The speedup is `HIP public-pair median / Q3-2 median`, so values above `1.0x` favor the retained kernel.
+The final table reports prequantized multiply-only throughput. HIP and GGTensile consume the same activation workspace produced by the shared HIP quantizer, so activation quantization and other complete-call work are excluded. Nominal dense-equivalent throughput is `2 * aggregate rows * N * K / time`, doubled for paired two-projection kernels. GGTensile/HIP speedup is HIP body time divided by GGTensile body time.
 
-| Batch | Rows | Q3-2 complete ms | HIP public complete ms | Q3-2 TFLOPS | HIP TFLOPS | Speedup vs HIP |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 16,384 | 4.8010 | 5.7829 | 14.314 | 11.883 | 1.2045x |
-| 4 | 65,536 | 14.5876 | 16.0684 | 18.843 | 17.107 | 1.1015x |
-| 16 | 262,144 | 54.8249 | 58.7010 | 20.055 | 18.731 | 1.0707x |
+| Aggregate rows | Public catalog hash | HIP TFLOPS | GGTensile TFLOPS | GGTensile/HIP speedup |
+| ---: | :--- | ---: | ---: | ---: |
+| 16,384 | `ggpair_0aed3be2b92c0f07` | 12.810 | 15.525 | 1.2120x |
+| 65,536 | `ggpair_5a0b32e2a6c0ec93` | 18.873 | 20.987 | 1.1120x |
+| 262,144 | `ggpair_6d9aa5f305a16663` | 21.115 | 22.874 | 1.0833x |
 
-All route, malformed-route, mutation, and finite-output checks were exact. The report files are `ggtensile-grouped-q3-k-pair-q3-2-variable-bfe-vs-hip-b{1,4,16}-ab25.json`. The earlier typed-parent ratios remain useful for explaining the small retained improvement; the final ratios above are the retained-kernel-versus-HIP results.
+All route, malformed-route, mutation, and finite-output checks were exact.

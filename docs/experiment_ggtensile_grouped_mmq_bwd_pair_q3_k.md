@@ -115,10 +115,12 @@ The M64 activation-prefetch artifact is under `~/tmp/torch-ggml-ops/ggtensile-bw
 
 At B1, the weighted complete-call geometry screen measures `5.21436 ms` for M64 versus `5.37263 ms` for the serial-prefetch M128 candidate and `5.45459 ms` for public HIP, giving `1.0461x` versus public HIP and `1.0304x` versus M128. Applying the installed threshold (`M64` when `R < 128 * route_entries`, otherwise `M128`) gives a `5.17862 ms` mixed choice, `1.0533x` versus public HIP and `1.1110x` versus the matched installed control. The research-only selector therefore chooses M64 serial prefetch below the threshold, M128 serial prefetch for B1/B4 at or above it, and M128 overlap for B16. Public bundle dispatch and HIP fallback remain unchanged.
 
-The final weighted complete-call rates are:
+## Final Performance
 
-| Key | Final GGTensile dispatch | Evidence | GGTensile | HIP | Speedup vs HIP |
-| --- | --- | --- | ---: | ---: | ---: |
-| B1 | threshold-mixed M64/M128 serial prefetch | search, 3 warmups / 9 repeats | `13.2698 TFLOPS` | `12.5985 TFLOPS` | `1.0533x` |
-| B4 | M128 serial prefetch | confirmation, 5 warmups / 25 repeats | `22.9921 TFLOPS` | `20.1588 TFLOPS` | `1.1405x` |
-| B16 | M128 overlap | confirmation, 5 warmups / 25 repeats | `24.2807 TFLOPS` | `22.7278 TFLOPS` | `1.0683x` |
+The public bundle exports the three exact catalog identities below. Pair throughput is `4*R*N*K/(median_ms*1e9)`, and speedup is `HIP time / GGTensile time`. The B4 row averages the latency medians for the public entry and HIP across the two compatible 25-repeat confirmation brackets before deriving either rate.
+
+| Exact `(R,N,K)` | Public catalog hash | HIP ms | GGTensile ms | HIP TFLOPS | GGTensile TFLOPS | HIP time / GGTensile time |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| `(16384,2048,512)` | `ggbpair_72eedb6708bbbe0c` | `5.4546` | `5.2144` | `12.598` | `13.179` | `1.0461x` |
+| `(65536,2048,512)` | `ggbpair_d6b74a04787d53ff` | `13.7708` | `12.0697` | `19.961` | `22.774` | `1.1409x` |
+| `(262144,2048,512)` | `ggbpair_ac794f796fe331a9` | `48.3774` | `45.2834` | `22.728` | `24.281` | `1.0683x` |

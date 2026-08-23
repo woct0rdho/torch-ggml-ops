@@ -136,15 +136,15 @@ Candidates pass correctness and resource inspection before timing. Nine-repeat s
 
 ### Final result and selected geometry
 
-The retained exact catalog uses different Q6-owned tuning for each production M while sharing the same quant-neutral A/LDS/WMMA/store implementation. The final 25-repeat result reports logical arithmetic throughput; speedup is `HIP median time / GGTensile median time`.
+The current `mmq_bwd_q6_k_catalog.json` is loaded by `tools/mmq_deployment_spec.py:kernels()` as `OrdinaryBackward`. The public bundle wiring in commit `1924d4b` exposes these three exact cases through `public_deployment_cases()`; HIP remains fallback outside these keys. The `ggsol_...` value is the current public catalog hash. The final result reports logical arithmetic throughput; speedup is `HIP time / GGTensile time`.
 
-| `(M,N,K)` | Retained body | Resources | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP |
-| ---: | --- | ---: | ---: | ---: | ---: |
-| `(64,2048,248320)` | `64x32x64`, unswizzled pad8, packed VOPD | 76 VGPR, 4608 B LDS | `12.042` | `12.589` | `1.0454x` |
-| `(128,2048,248320)` | `128x32x64`, unswizzled pad8, packed VOPD | 108 VGPR, 4608 B LDS | `13.902` | `19.475` | `1.4008x` |
-| `(256,2048,248320)` | `256x64x32`, next-packed-tile prefetch, pad8, packed VOPD | 240 VGPR, 5120 B LDS | `21.356` | `25.667` | `1.2019x` |
+| `(M,N,K)` | Public catalog hash | Resources | HIP ms | GGTensile ms | HIP TFLOPS | GGTensile TFLOPS | HIP time / GGTensile time |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `(64,2048,248320)` | `ggsol_47dc5792dc6a3094` | 76 VGPR, 4608 B LDS | `5.4057` | `5.1708` | `12.042` | `12.589` | `1.0454x` |
+| `(128,2048,248320)` | `ggsol_322cef48a5fa0b12` | 108 VGPR, 4608 B LDS | `9.3648` | `6.6851` | `13.902` | `19.475` | `1.4008x` |
+| `(256,2048,248320)` | `ggsol_83942eadf7602aa1` | 240 VGPR, 5120 B LDS | `12.1927` | `10.1445` | `21.356` | `25.667` | `1.2019x` |
 
-The equal-call weighted speedup is `1.2256x`, corresponding to the recorded `0.8159412939177061` candidate/HIP latency ratio. M64 packed VOPD beats the packed pad8 control by 3.2% in a 25-repeat control comparison. M128 compact `128x32x64` beats the prior `128x64x32` next-prefetch/VOPD body by 2.77% while reducing VGPRs from 140 to 108 and LDS from 5120 B to 4608 B. M256 wide ownership beats the narrow next-prefetch/VOPD body by 18.0% in the same protocol.
+The all-key `selected-final-h` confirmation supplies the elapsed medians above. The single-key `selected-final-e` and `selected-final-b` roots are assembly-control checks, not independent all-key confirmations, so they are not blended into this table. The equal-call weighted speedup is `1.2256x`, corresponding to a candidate/HIP latency ratio of `0.8159x`. M64 packed VOPD beats the packed pad8 control by 3.2% in a 25-repeat control comparison. M128 compact `128x32x64` beats the `128x64x32` next-prefetch/VOPD body by 2.77% while reducing VGPRs from 140 to 108 and LDS from 5120 B to 4608 B. M256 wide ownership beats the narrow next-prefetch/VOPD body by 18.0% in the same protocol. Forward `q6-typed-wavefront` artifacts are not part of this backward catalog result.
 
 Closed large-margin neighborhoods include:
 - M64 `64x32x64` XOR8/XOR16, scalar extraction, packed VOPD, and pad8/pad16/pad24. Pad8 and pad24 tie; pad8 wins on smaller LDS.

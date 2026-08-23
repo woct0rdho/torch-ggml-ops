@@ -38,13 +38,13 @@ Timing uses warmed rotating GPU events and includes output allocation in both in
 
 ## Final Accepted Performance
 
-The final accepted identity is the SIA5 global-codebook packed-route-8 fused pair with sign-subtract and packed8/RNE-batch4 decode.
+The public bundle exports the three exact catalog identities below. Pair throughput is `4*R*N*K/(median_ms*1e9)`, and speedup is `HIP time / GGTensile time`, so values above `1.0x` favor GGTensile.
 
-| Key (`R`) | Accepted body | HIP / final latency (ms) | HIP / final TFLOPS | Speedup vs HIP |
-| --- | --- | ---: | ---: | ---: |
-| B1 (`R=16384`) | M128/N64, SIA5, global codebook, packed route split8 | `5.8515 / 4.7238` | `11.7439 / 14.5475` | `1.2387x` |
-| B4 (`R=65536`) | M128/N64, SIA5, global codebook, packed route split8 | `13.7111 / 12.4234` | `20.0479 / 22.1258` | `1.1036x` |
-| B16 (`R=262144`) | M128/N64, SIA5, global codebook, packed route split8 | `47.8251 / 47.2100` | `22.9903 / 23.2898` | `1.0130x` |
+| Exact `(R,N,K)` | Public catalog hash | HIP ms | GGTensile ms | HIP TFLOPS | GGTensile TFLOPS | HIP time / GGTensile time |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| `(16384,2048,512)` | `ggbpair_6fc121781141a30e` | `5.8515` | `4.7238` | `11.744` | `14.548` | `1.2387x` |
+| `(65536,2048,512)` | `ggbpair_64ba6a8b68b4c2c6` | `13.7111` | `12.4234` | `20.048` | `22.126` | `1.1036x` |
+| `(262144,2048,512)` | `ggbpair_b63deec8280c235f` | `47.8251` | `47.2100` | `22.990` | `23.290` | `1.0130x` |
 
 HIP and GGTensile were measured in the same paired confirmation runs, with equivalent output allocation in both complete-call paths. The source reports are `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-s-k-pipeline-sia5-global-rne-batch4-sign-sub-packed8/timing-b1-confirm25.json`, `timing-b4-confirm25.json`, and `timing-b16-confirm50.json`.
 

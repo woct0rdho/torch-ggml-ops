@@ -38,15 +38,15 @@ Timing uses warmed rotating GPU events and includes equivalent output allocation
 
 ## Final Accepted Performance
 
-The final accepted dispatch is mixed by key: the confirmed M64 SIA5 K pipeline at B1 and the confirmed M128 direct-pointer/swizzle8 body at B4/B16.
+The public bundle exports the three exact catalog identities below. Pair throughput is `4*R*N*K/(median_ms*1e9)`, and speedup is `HIP time / GGTensile time`, so values above `1.0x` favor GGTensile.
 
-| Key (`R`) | Accepted body | HIP / final latency (ms) | HIP / final TFLOPS | Speedup vs HIP |
-| --- | --- | ---: | ---: | ---: |
-| B1 (`R=12288`) | M64/N64, SIA5 K pipeline, dual LDS, swizzle8, codebook overlap | `38.0585 / 31.7568` | `10.8338 / 12.9836` | `1.1984x` |
-| B4 (`R=49152`) | M128/N64, direct second-projection pointers, activation prefetch, swizzle8 | `97.7674 / 69.9801` | `16.8693 / 23.5677` | `1.3971x` |
-| B16 (`R=196608`) | M128/N64, direct second-projection pointers, activation prefetch, swizzle8 | `378.3588 / 285.1829` | `17.4360 / 23.1328` | `1.3267x` |
+| Exact `(R,N,K)` | Public catalog hash | HIP ms | GGTensile ms | HIP TFLOPS | GGTensile TFLOPS | HIP time / GGTensile time |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| `(12288,4096,2048)` | `ggbpair_648838e6b6e5e97b` | `38.0585` | `31.7568` | `10.834` | `12.984` | `1.1984x` |
+| `(49152,4096,2048)` | `ggbpair_dd16a88d7a365ea0` | `97.8692` | `70.1420` | `16.852` | `23.513` | `1.3953x` |
+| `(196608,4096,2048)` | `ggbpair_1be1cd79ef70bdc7` | `378.1329` | `286.4055` | `17.446` | `23.034` | `1.3203x` |
 
-HIP and GGTensile were measured in the same paired confirmation runs, with equivalent output allocation and pre-timing exactness checks. B1 uses `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m64-k-pipeline-sia5-codebook-overlap/timing-b1-confirmation25.json`; B4/B16 use `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m128-direct-swizzle8/timing-confirm25.json`.
+The complete-call evidence uses equivalent output allocation and pre-timing exactness checks. B1 uses `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m64-k-pipeline-sia5-codebook-overlap/timing-b1-confirmation25.json`. B4 averages the public-entry and HIP latency medians from `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m128-direct-swizzle8/timing-confirm25.json` and `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m128-swizzle-variants/timing-confirm25.json`; B16 also includes the public-entry control medians from `~/tmp/torch-ggml-ops/ggtensile-bwd-pair-iq2-xxs-m192/timing-confirm25-b16.json`.
 
 ## Planned Search
 

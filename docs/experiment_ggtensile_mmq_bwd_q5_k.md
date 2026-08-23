@@ -149,18 +149,18 @@ A changed-premise review transferred unswizzled `LdsPadB=8`, `256x64`, PGR2, and
 
 #### Final result
 
-The authoritative mixed-catalog 25-repeat confirmation reports logical arithmetic throughput. Speedup is `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile.
+The current `mmq_bwd_q5_k_catalog.json` is loaded by `tools/mmq_deployment_spec.py:kernels()` as `OrdinaryBackward`. The public bundle wiring in commit `1924d4b` exposes these six exact cases through `public_deployment_cases()`; HIP remains fallback outside these keys. The `ggsol_...` value is the current public catalog hash. Logical throughput is `2*M*N*K/(median_ms*1e9)`, and speedup is `HIP time / GGTensile time`, so values above `1.0x` favor the deployed GGTensile entry. The elapsed columns are the medians used for the calculation.
 
-| Family | `(M,N,K)` | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP |
-| --- | ---: | ---: | ---: | ---: |
-| Narrow | `(2048,2048,512)` | `19.981` | `28.037` | `1.4032x` |
-| Narrow | `(8192,2048,512)` | `20.831` | `29.387` | `1.4108x` |
-| Narrow | `(32768,2048,512)` | `22.154` | `31.913` | `1.4406x` |
-| Shared down | `(2048,512,2048)` | `16.959` | `20.679` | `1.2193x` |
-| Shared down | `(8192,512,2048)` | `11.743` | `15.779` | `1.3437x` |
-| Shared down | `(32768,512,2048)` | `12.352` | `19.794` | `1.6026x` |
+| Family | `(M,N,K)` | Public catalog hash | HIP ms | GGTensile ms | HIP TFLOPS | GGTensile TFLOPS | HIP time / GGTensile time |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| Narrow | `(2048,2048,512)` | `ggsol_0581c5eaea62c710` | `0.2150` | `0.1532` | `19.981` | `28.037` | `1.4032x` |
+| Narrow | `(8192,2048,512)` | `ggsol_2df9140465728c7b` | `0.8247` | `0.5846` | `20.831` | `29.387` | `1.4108x` |
+| Narrow | `(32768,2048,512)` | `ggsol_3ac1ebb6845e1cbd` | `3.1020` | `2.1533` | `22.154` | `31.913` | `1.4406x` |
+| Shared down | `(2048,512,2048)` | `ggsol_989c15a1f268e54c` | `0.2533` | `0.2077` | `16.959` | `20.679` | `1.2193x` |
+| Shared down | `(8192,512,2048)` | `ggsol_4d8fcfa4c4f8ec9d` | `1.4630` | `1.0888` | `11.743` | `15.779` | `1.3437x` |
+| Shared down | `(32768,512,2048)` | `ggsol_d953a19ba8487f78` | `5.5636` | `3.4717` | `12.352` | `19.794` | `1.6026x` |
 
-The call-weighted speedup is `1.4740x`, corresponding to the recorded `0.67843x` candidate/HIP latency ratio and improving the prior approximately `0.763x` catalog. Every exact key beats HIP. Narrow candidates use 238 VGPRs, 16 SGPRs, 5 KiB LDS, 32 static WMMAs, 150 VMEM instructions, and 32 LDS instructions. Shared-down retains 220 VGPRs, 16 SGPRs, and 16 KiB LDS. All selected artifacts have zero private bytes and spills, pass both producer mutations and independent references, and are byte-identical across independent final roots.
+The call-weighted speedup is `1.4740x`, corresponding to a candidate/HIP latency ratio of `0.6784x`. Every exact public catalog key beats HIP. Narrow candidates use 238 VGPRs, 16 SGPRs, 5 KiB LDS, 32 static WMMAs, 150 VMEM instructions, and 32 LDS instructions. Shared-down retains 220 VGPRs, 16 SGPRs, and 16 KiB LDS. All selected artifacts have zero private bytes and spills, pass both producer mutations and independent references, and are byte-identical across independent final roots. The padded-catalog confirmation supplies the elapsed medians; its separate preparation root has no compatible root timing report to average.
 
 The final small schedule scan compared SIA4 and SIA5 on the new geometry. Q5 WGM1 SIA4 was below the 2% retention gate. WGM2/SIA4 appeared 6.9% faster at M2048 in a nine-repeat screen but became `1.0178x` versus SIA5 in the 25-repeat rotating bracket, so it is rejected. WGM4/WGM8, store-priority changes, pad 16/24, and packed lane sharing remain measured rejections. The lower bounds continue to explain shared-down as WMMA/A/LDS dominated and narrow as an overlapped WMMA/decode/LDS path; no remaining in-contract Q5 mechanism has a qualifying measured gain path.
 

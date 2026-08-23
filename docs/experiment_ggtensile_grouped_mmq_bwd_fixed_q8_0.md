@@ -201,13 +201,15 @@ The selected solution is exposed as `FixedBackwardSolution.selected_q8_0()`: N-m
 
 Each independently inspected as 216 VGPRs, 17 SGPRs, 18432-byte LDS, 40-byte kernarg segment, 128 threads, 64 static WMMAs, two static barriers, no private segment, no spills, no scratch, and no undeclared register use.
 
-The clean final run used five warmups, and 25 rotating samples per candidate/control path:
+### Current public deployment result
 
-| Tokens | Selected (ms) | HIP (ms) | Selected / HIP | Latency gain | TFLOP/s |
-|---:|---:|---:|---:|---:|---:|
-| 2048 | 4.847 | 6.289 | 0.771x | 22.9% | 28.35 |
-| 8192 | 18.989 | 24.969 | 0.761x | 23.9% | 28.95 |
-| 32768 | 75.021 | 93.240 | 0.805x | 19.5% | 29.31 |
+The clean final run used five warmups and 25 rotating samples per candidate/control path. It is the latest compatible timing evidence for the three exact public identities; the earlier nine-repeat E6 screens are selection evidence and are not averaged into these medians. Logical throughput counts all eight fixed groups and is `2*tokens*8*4096*1024/(median_ms*1e9)`. Speedup is `HIP time / GGTensile time`, so values above `1.0x` favor the public GGTensile route.
+
+| Tokens | Per-group `(M,N,K)` | Public catalog hash | HIP ms | GGTensile ms | HIP TFLOPS | GGTensile TFLOPS | HIP time / GGTensile time |
+|---:|---:|---|---:|---:|---:|---:|---:|
+| 2048 | `(2048,4096,1024)` | `ggsol_e3f23cb5c4ad7aae` | `6.2892` | `4.8472` | `21.853` | `28.354` | `1.2975x` |
+| 8192 | `(8192,4096,1024)` | `ggsol_8fb858b844ca8109` | `24.9688` | `18.9892` | `22.018` | `28.951` | `1.3149x` |
+| 32768 | `(32768,4096,1024)` | `ggsol_d0bc5b94d26fe2b3` | `93.2404` | `75.0209` | `23.584` | `29.312` | `1.2429x` |
 
 For every shape, the complete output was bitwise identical to the exact installed HIP control and the 16-token dequantized BF16 reference sample. All values were finite, poison was fully replaced, repeat differences were zero, and each of eight gradient plus eight packed-weight mutations changed only its selected group.
 

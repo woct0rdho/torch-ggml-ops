@@ -36,13 +36,13 @@ Timing uses warmed rotating GPU events and includes output allocation in both HI
 
 ## Final Accepted Performance
 
-The accepted identities retain the selected geometry and ownership bodies (split64 at B4/B16) and add wave-uniform inactive-M consumer suppression at all three keys.
+The public bundle exports the three exact catalog identities below. Logical throughput is `2*R*N*K/(median_ms*1e9)`. Speedup is `HIP time / GGTensile time`, so values above `1.0x` favor GGTensile.
 
-| Key (`R`) | Accepted body | HIP / final latency (ms) | HIP / final TFLOPS | Speedup vs HIP |
-| --- | --- | ---: | ---: | ---: |
-| B1 (`R=16384`) | M128/N64, SIA5/PGR2, pad8 single LDS, `Mixed128_64`, inactive-M | `4.2894 / 2.7285` | `8.0104 / 12.5930` | `1.5721x` |
-| B4 (`R=65536`) | M128/N128, SIA5/PGR2, pad8 single LDS, split64, inactive-M | `9.9753 / 7.6761` | `13.7779 / 17.9048` | `1.2995x` |
-| B16 (`R=262144`) | M128/N128, SIA5/PGR2, pad8 single LDS, split64, inactive-M | `34.2671 / 23.7922` | `16.0433 / 23.1065` | `1.4403x` |
+| Exact `(R,N,K)` | Public catalog hash | HIP ms | GGTensile ms | HIP TFLOPS | GGTensile TFLOPS | HIP time / GGTensile time |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| `(16384,512,2048)` | `ggsol_67d58c3f849e005f` | `4.2894` | `2.7285` | `8.010` | `12.593` | `1.5721x` |
+| `(65536,512,2048)` | `ggsol_d82241ad1072e2f0` | `9.9753` | `7.6761` | `13.778` | `17.905` | `1.2995x` |
+| `(262144,512,2048)` | `ggsol_8684bd239b31ec32` | `34.2671` | `23.7922` | `16.043` | `23.107` | `1.4403x` |
 
 The inactive-M reports measure retained parent versus final candidate, not a fresh three-way HIP bracket. To avoid mixing timing sessions, the HIP and retained-parent values use the earlier disjoint HIP confirmation, and the final latency/TFLOPS and speedup are normalized with the independently confirmed candidate/parent ratios. The latest raw brackets are `2.7853 -> 2.7241 ms` at B1, `7.8368 -> 7.6381 ms` at B4, and `24.0493 -> 23.7761 ms` at B16; reports are `~/tmp/torch-ggml-ops/ggtensile-inactive-m-iq2-s-b1-confirm25.json`, `...-b4-confirm25.json`, and `...-b16-confirm25.json`.
 

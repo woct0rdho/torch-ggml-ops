@@ -131,15 +131,15 @@ The five-medoid B16 screen measured 26.5156 ms body and 27.9807 ms complete vers
 
 ### Final qualification and retention
 
-The payload-prefetch identity received the required reversed-order 25-repeat confirmation across all three production shapes. Timings are weighted medians over the five fitted Qwen medoids and include fixed Q8_1 quantization and the allocated workspace.
+The retained entries received the required reversed-order 25-repeat confirmation across all three production shapes. The final table reports prequantized multiply-only throughput. HIP and GGTensile consume the same activation workspace produced by the shared HIP quantizer, so activation quantization and other complete-call work are excluded. Nominal dense-equivalent throughput is `2 * aggregate rows * N * K / time`, doubled for paired two-projection kernels. GGTensile/HIP speedup is HIP body time divided by GGTensile body time.
 
-| Batch | Rows | Candidate body | HIP body | Candidate complete | HIP complete | Complete ratio | Candidate effective TFLOPS | HIP effective TFLOPS |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 16,384 | 2.4774 ms | 3.1532 ms | 2.5826 ms | 3.2557 ms | 1.2606x | 13.30 | 10.55 |
-| 4 | 65,536 | 7.4912 ms | 8.4727 ms | 7.7919 ms | 8.8203 ms | 1.1320x | 17.64 | 15.58 |
-| 16 | 262,144 | 27.0733 ms | 26.9418 ms | 28.5176 ms | 28.5591 ms | 1.0015x | 19.28 | 19.25 |
+| Aggregate rows | Public catalog hash | HIP TFLOPS | GGTensile TFLOPS | GGTensile/HIP speedup |
+| ---: | :--- | ---: | ---: | ---: |
+| 16,384 | `ggsol_66d82050f3292c36` | 10.897 | 13.869 | 1.2728x |
+| 65,536 | `ggsol_544c7685f9e404a1` | 16.221 | 18.347 | 1.1310x |
+| 262,144 | `ggsol_22cf9191b894b45e` | 20.405 | 20.306 | 0.9951x |
 
-Every B1 and B16 medoid met or exceeded its adjacent complete-call control; the minimum B16 ratio was `1.0001x`. The weighted B4 result passed comfortably, while the lowest-support B4 medoid remained at `0.9682x`. B16 body time remained `0.9951x` of HIP, but the required complete-call metric passed in both benchmark orders.
+The retained entries passed the fitted-prior qualification at all three production shapes.
 
 Six bounded route profiles, including sequential, repeated, sparse, skewed, and boundary layouts, matched the installed control bitwise. Their independent 64-column references had maximum absolute error at most `0.005859375`. Synthetic controls at all three production row counts were finite and bitwise exact against the installed pure-J64 or mixed-J64/J32 dispatch selected for that shape. Active-weight, workspace, input, and route mutations changed output; an inactive-expert mutation was inert; invalid expert and out-of-range offset routes left sentinel output untouched.
 

@@ -130,18 +130,18 @@ The retained Q3 emitters use one LDS buffer, packed extraction, fused signed-sca
 
 ### Final result
 
-The authoritative 25-repeat confirmation reports logical arithmetic throughput. Speedup is `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile.
+The current `mmq_bwd_q3_k_catalog.json` is loaded by `tools/mmq_deployment_spec.py:kernels()` as `OrdinaryBackward`. The public bundle wiring in commit `1924d4b` exposes these six exact cases through `public_deployment_cases()`; HIP remains fallback outside these keys. The `ggsol_...` value is the current public catalog hash. Logical throughput is `2*M*N*K/(median_ms*1e9)`, and speedup is `HIP time / GGTensile time`, so values above `1.0x` favor the deployed GGTensile entry. The elapsed columns are the medians used for the calculation; compatible Q3 A/B confirmations are averaged in elapsed-time space.
 
-| Family | `(M,N,K)` | Geometry/schedule | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP |
-| --- | ---: | --- | ---: | ---: | ---: |
-| Narrow | `(2048,2048,512)` | `256x64`, WGM2, padded, SIA5 | `23.671` | `26.804` | `1.1323x` |
-| Narrow | `(8192,2048,512)` | `256x64`, WGM1, padded, SIA5 | `22.890` | `29.072` | `1.2700x` |
-| Narrow | `(32768,2048,512)` | `256x64`, WGM1, padded, SIA5 | `24.277` | `30.070` | `1.2386x` |
-| Query | `(2048,2048,8192)` | `128x64`, WGM1, padded, SIA5 | `19.649` | `24.692` | `1.2566x` |
-| Query | `(8192,2048,8192)` | `128x64`, WGM1, padded, SIA5 | `21.406` | `26.715` | `1.2480x` |
-| Query | `(32768,2048,8192)` | `128x128`, WGM1, padded, SIA5 | `22.520` | `27.162` | `1.2062x` |
+| Family | `(M,N,K)` | Public catalog hash | HIP ms | GGTensile ms | HIP TFLOPS | GGTensile TFLOPS | HIP time / GGTensile time |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| Narrow | `(2048,2048,512)` | `ggsol_47d5421dfdac5c2d` | `0.1819` | `0.1598` | `23.611` | `26.877` | `1.1383x` |
+| Narrow | `(8192,2048,512)` | `ggsol_74ab47fc6de41c02` | `0.7499` | `0.5892` | `22.909` | `29.156` | `1.2727x` |
+| Narrow | `(32768,2048,512)` | `ggsol_66ffd967978c0ef1` | `2.8343` | `2.2870` | `24.246` | `30.049` | `1.2393x` |
+| Query | `(2048,2048,8192)` | `ggsol_3f90cc6f487aad42` | `3.5044` | `2.7664` | `19.610` | `24.840` | `1.2667x` |
+| Query | `(8192,2048,8192)` | `ggsol_ccb5384f18e397cd` | `12.8389` | `10.2939` | `21.410` | `26.703` | `1.2472x` |
+| Query | `(32768,2048,8192)` | `ggsol_0e05cc1a23ff2d3e` | `48.8244` | `40.4792` | `22.520` | `27.162` | `1.2062x` |
 
-The call-weighted speedup is `1.2180x`, corresponding to the recorded `0.8210x` candidate/HIP latency ratio. The final selected resource classes are 243 VGPR/5 KiB LDS for narrow `256x64`, 143 VGPR/5 KiB LDS for query `128x64`, and 218 VGPR/10 KiB LDS for query M32768 `128x128`; each has 16 SGPR, zero private bytes, zero spills, and the expected static WMMA/VMEM/LDS structure. The two independent final roots produce byte-identical assembly and matching resource tuples for all six keys.
+The call-weighted speedup after the elapsed-time collapse is `1.2184x`, corresponding to a candidate/HIP latency ratio of `0.8207x`. Query `(32768,2048,8192)` uses the padded B confirmation alone because its A artifact uses the unpadded/swizzled identity rather than the current public catalog entry. The selected resource classes are 243 VGPR/5 KiB LDS for narrow `256x64`, 143 VGPR/5 KiB LDS for query `128x64`, and 218 VGPR/10 KiB LDS for query M32768 `128x128`; each has 16 SGPR, zero private bytes, zero spills, and the expected static WMMA/VMEM/LDS structure. The independent final roots produce byte-identical assembly and matching resource tuples for the compatible catalog entries.
 
 The final correctness phase passed HIP comparison, independent references, complete `grad_output` mutation, and packed-weight mutation on all six exact keys. Reduced-K checks against the final padded `256x64` geometry matched HIP and the independent reference at K32/K64/K96; at K512 candidate and HIP matched each other, while both shared the known 511-element BF16 accumulation-order difference from the independent reference.
 

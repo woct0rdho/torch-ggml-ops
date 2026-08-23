@@ -228,26 +228,26 @@ Any new resource-bearing mechanism must remain bit-exact, reproducible, resource
 
 The Q4_K 12-key optimization campaign and its repeated optimization-exhaustion review are complete. The selected-solution catalog, exact validation, final correctness, and padded exact-key weighted 25-repeat matrix are the current controls. Further Q4_K work requires a newly actionable large-margin direction with a changed premise; ordinary local tuning is closed.
 
-#### Historical selected-catalog result
+#### Final result
 
-The authoritative 25-repeat matrix below is the selected catalog before the later research-only `DependencyBatch4` identity. It remains useful as the HIP control baseline; the current retained decode speeds are reported in the reopened section. Logical throughput is arithmetic throughput, and speedup is `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile.
+The current padded exact-key catalog is loaded by `tools/mmq_deployment_spec.py:kernels()` as `OrdinaryBackward`. The public bundle wiring in commit `1924d4b` exposes these twelve exact cases through `public_deployment_cases()`; HIP remains fallback outside these keys. The `ggsol_...` value is the current public catalog hash. The table uses the current padded-catalog confirmation medians, logical throughput `2*M*N*K/(median_ms*1e9)`, and speedup `HIP time / GGTensile time`.
 
-| Family | `(M,N,K)` | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP |
-| --- | ---: | ---: | ---: | ---: |
-| Narrow | `(2048,2048,512)` | `18.157` | `23.908` | `1.3167x` |
-| Narrow | `(8192,2048,512)` | `21.409` | `28.076` | `1.3114x` |
-| Narrow | `(32768,2048,512)` | `22.356` | `27.184` | `1.2159x` |
-| Shared down | `(2048,512,2048)` | `16.168` | `20.679` | `1.2789x` |
-| Shared down | `(8192,512,2048)` | `11.931` | `14.412` | `1.2079x` |
-| Shared down | `(32768,512,2048)` | `13.231` | `20.273` | `1.5322x` |
-| Attention output | `(2048,4096,2048)` | `24.095` | `28.372` | `1.1775x` |
-| Attention output | `(8192,4096,2048)` | `22.873` | `27.462` | `1.2006x` |
-| Attention output | `(32768,4096,2048)` | `23.699` | `28.249` | `1.1920x` |
-| Query | `(2048,2048,8192)` | `19.508` | `28.174` | `1.4442x` |
-| Query | `(8192,2048,8192)` | `21.653` | `27.318` | `1.2616x` |
-| Query | `(32768,2048,8192)` | `22.941` | `28.597` | `1.2466x` |
+| Family | `(M,N,K)` | Public catalog hash | HIP ms | GGTensile ms | HIP TFLOPS | GGTensile TFLOPS | HIP time / GGTensile time |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| Narrow | `(2048,2048,512)` | `ggsol_c9f8b708aa351a56` | `0.2344` | `0.1445` | `18.325` | `29.719` | `1.6217x` |
+| Narrow | `(8192,2048,512)` | `ggsol_590235b0cce237b7` | `0.8177` | `0.5658` | `21.011` | `30.364` | `1.4452x` |
+| Narrow | `(32768,2048,512)` | `ggsol_62458f19e191e23e` | `3.0894` | `2.0970` | `22.244` | `32.770` | `1.4732x` |
+| Shared down | `(2048,512,2048)` | `ggsol_dfbd9ae4fffcdef4` | `0.2612` | `0.2017` | `16.442` | `21.290` | `1.2948x` |
+| Shared down | `(8192,512,2048)` | `ggsol_b66218ae8eb67f9f` | `1.4686` | `1.1655` | `11.698` | `14.740` | `1.2600x` |
+| Shared down | `(32768,512,2048)` | `ggsol_93f5764f5127859a` | `5.1377` | `3.3787` | `13.375` | `20.339` | `1.5206x` |
+| Attention output | `(2048,4096,2048)` | `ggsol_cdbe1b6ee6b7af9d` | `1.3918` | `0.9935` | `24.688` | `34.586` | `1.4009x` |
+| Attention output | `(8192,4096,2048)` | `ggsol_d7443b02f77518d7` | `5.9698` | `4.7458` | `23.022` | `28.960` | `1.2579x` |
+| Attention output | `(32768,4096,2048)` | `ggsol_18bcb39aadcd373e` | `23.1470` | `18.9178` | `23.751` | `29.060` | `1.2236x` |
+| Query | `(2048,2048,8192)` | `ggsol_4496c0e84c146993` | `3.5615` | `2.4224` | `19.295` | `28.368` | `1.4702x` |
+| Query | `(8192,2048,8192)` | `ggsol_e204276f5b0c2aec` | `12.7556` | `9.8309` | `21.550` | `27.961` | `1.2975x` |
+| Query | `(32768,2048,8192)` | `ggsol_2d4436d7934c58cd` | `47.7094` | `37.7677` | `23.046` | `29.112` | `1.2632x` |
 
-The call-weighted speedup is `1.2656x`, corresponding to the recorded `0.79017x` candidate/HIP latency ratio.
+The call-weighted speedup is `1.3612x`, corresponding to a candidate/HIP latency ratio of `0.7346x`. Every exact public catalog key beats HIP. The `DependencyBatch4` table remains a separate research identity and does not alter these public rows.
 
 Quant-family expansion and public runtime dispatch remain governed by [ggtensile_plan.md](ggtensile_plan.md). Public integration remains deferred until dispatch engineering, complete end-to-end Qwen/DeepSeek validation, and broader MMQ multi-quant coverage are complete; exact-kernel campaign completion does not by itself authorize runtime exposure.
 

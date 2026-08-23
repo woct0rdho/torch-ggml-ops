@@ -88,13 +88,13 @@ Inspection checks symbol identity, ABI metadata, gfx1151, wave32, workgroup, VGP
 
 ## Final Accepted Performance
 
-The accepted identities add wave-uniform inactive-M consumer suppression to the selected Q4_K bodies at all three keys.
+The public bundle exports the three exact catalog identities below. Logical throughput is `2*R*N*K/(median_ms*1e9)`. Speedup is `HIP time / GGTensile time`, so values above `1.0x` favor GGTensile.
 
-| Key (`R`) | Accepted body | HIP / final latency (ms) | HIP / final TFLOPS | Speedup vs HIP |
-| --- | --- | ---: | ---: | ---: |
-| B1 (`R=16384`) | M128/N64, SIA5, DependencyBatch4, `SerialRoutes`, `Mixed128_64`, inactive-M | `4.6301 / 2.5084` | `7.4209 / 13.6978` | `1.8458x` |
-| B4 (`R=65536`) | M128/N128, SIA5, DependencyBatch4, `SplitRoutes4`, `Masked`, inactive-M | `9.6852 / 7.3674` | `14.1906 / 18.6550` | `1.3146x` |
-| B16 (`R=262144`) | M128/N128, SIA5, DependencyBatch4, `SplitRoutes8`, `Masked`, inactive-M | `32.2976 / 23.8101` | `17.0216 / 23.0892` | `1.3565x` |
+| Exact `(R,N,K)` | Public catalog hash | HIP ms | GGTensile ms | HIP TFLOPS | GGTensile TFLOPS | HIP time / GGTensile time |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| `(16384,512,2048)` | `ggsol_356ef05b9c33365d` | `4.6301` | `2.5084` | `7.421` | `13.698` | `1.8458x` |
+| `(65536,512,2048)` | `ggsol_9950e632db681be3` | `9.6852` | `7.3674` | `14.191` | `18.655` | `1.3146x` |
+| `(262144,512,2048)` | `ggsol_14b7c7089cdc2480` | `32.2976` | `23.8101` | `17.022` | `23.089` | `1.3565x` |
 
 The inactive-M reports measure retained parent versus final candidate, not a fresh three-way HIP bracket. To avoid mixing timing sessions, the HIP and retained-parent values use the earlier disjoint HIP confirmation, and the final latency/TFLOPS and speedup are normalized with the independently confirmed candidate/parent ratios. The latest raw brackets are `2.5845 -> 2.5165 ms` at B1, `7.5515 -> 7.3519 ms` at B4, and `24.0434 -> 23.8061 ms` at B16; reports are `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q4-b1-confirm25.json`, `...-b4-confirm25.json`, and `...-b16-confirm25.json`.
 

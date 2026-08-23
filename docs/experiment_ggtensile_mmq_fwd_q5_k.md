@@ -266,14 +266,14 @@ For narrow M2048, the original 64-point power-of-two grid, a focused 60-point no
 
 This is the authoritative prequantized multiply result for all six production keys. Each value combines the two independent warmed 25-repeat rotations, each containing exactly the HIP multiply and selected GGTensile multiply, by averaging their median times. Both multiplies consume one workspace produced by the same fixed `torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f16_d4s4` kernel; quantization is excluded from every throughput and speedup below. Logical throughput is `2*M*N*K/(median_ms*1e9)`, and speedup is `HIP median time / GGTensile median time`. The largest per-key A/B speed difference was `0.53` percentage points.
 
-| Family | `(M,N,K)` | Final identity | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP |
+| Family | `(M,N,K)` | Public catalog hash | HIP TFLOPS | GGTensile TFLOPS | GGTensile/HIP speedup |
 | --- | ---: | --- | ---: | ---: | ---: |
-| Narrow | `(2048,512,2048)` | `a1d8-p0` | `24.322` | `24.273` | `0.9980x` |
-| Narrow | `(8192,512,2048)` | `a8d1-p0` | `27.223` | `28.131` | `1.0334x` |
-| Narrow | `(32768,512,2048)` | `a7d3-p3`, VOPD | `27.992` | `27.979` | `0.9996x` |
-| Shared down | `(2048,2048,512)` | `a1d2-p2` | `24.223` | `24.871` | `1.0268x` |
-| Shared down | `(8192,2048,512)` | `a1d4-p2`, VOPD | `26.924` | `27.315` | `1.0145x` |
-| Shared down | `(32768,2048,512)` | `a1d2-p2` | `27.092` | `27.560` | `1.0173x` |
+| Narrow | `(2048,512,2048)` | `ggsol_2eb856fb8c8259f2` | `24.322` | `24.273` | `0.9980x` |
+| Narrow | `(8192,512,2048)` | `ggsol_18c2734df625101c` | `27.223` | `28.131` | `1.0334x` |
+| Narrow | `(32768,512,2048)` | `ggsol_128ff520303246ca` | `27.992` | `27.979` | `0.9996x` |
+| Shared down | `(2048,2048,512)` | `ggsol_0bd6c5a01aebb61c` | `24.223` | `24.871` | `1.0268x` |
+| Shared down | `(8192,2048,512)` | `ggsol_0fe2ab74242c5143` | `26.924` | `27.315` | `1.0145x` |
+| Shared down | `(32768,2048,512)` | `ggsol_cc423175d914dfe1` | `27.092` | `27.560` | `1.0173x` |
 
 Narrow M2048 and M32768 satisfy the stated measurement-error exception: their small latency deficits are not statistically distinguishable from HIP in the underlying paired confirmations. Narrow M8192 and all shared-down keys are faster than HIP in both medians. Every candidate output was bit-exact to the HIP multiply; strict correctness, finite-output, independent-reference, and mutation checks remain satisfied.
 

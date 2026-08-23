@@ -116,16 +116,13 @@ Any correctness, ABI, compiler, runtime, executable, or documentation finding th
 
 ### Final retained throughput
 
-Effective TFLOPS is nominal dense-equivalent throughput, calculated as `2 * tokens * 8 * N * K / seconds`: two FLOPs per FMA across all eight fixed groups. A/B values are the independent seed `9012/9013` confirmations. The multiply surface compares directly with the installed HIP body; the complete surface compares with the public installed HIP operator and includes activation quantization, workspace allocation, launch setup, and multiplication.
+The final table reports prequantized multiply-only throughput. It excludes the shared Q8_1 activation quantizer, workspace allocation, launch setup, and other complete-call work; those complete-call values remain in the chronology above. Nominal dense-equivalent throughput is calculated as `2 * tokens * 1024 * 4096 / (median_ms * 1e9)`. `GGTensile/HIP` speedup is GGTensile TFLOPS divided by HIP TFLOPS, equivalently HIP median time divided by GGTensile median time, so values above `1.0x` favor GGTensile. Each row averages the independent seed `9012/9013` multiply medians.
 
-| Tokens | Surface | GGTensile ms A/B | HIP ms A/B | GGTensile effective TFLOPS A/B | HIP effective TFLOPS A/B | HIP/GGTensile speedup A/B |
-| ---: | :--- | ---: | ---: | ---: | ---: | ---: |
-| 2,048 | Prequantized multiply | 3.8338 / 3.8507 | 10.1325 / 10.1555 | 35.85 / 35.69 | 13.56 / 13.53 | 2.6430x / 2.6373x |
-| 2,048 | Complete call | 4.7202 / 4.7635 | 11.0643 / 11.1029 | 29.12 / 28.85 | 12.42 / 12.38 | 2.3440x / 2.3308x |
-| 8,192 | Prequantized multiply | 16.7181 / 16.6541 | 40.0725 / 40.0250 | 32.88 / 33.01 | 13.72 / 13.74 | 2.3970x / 2.4033x |
-| 8,192 | Complete call | 20.5932 / 20.5480 | 43.7469 / 43.7042 | 26.70 / 26.75 | 12.57 / 12.58 | 2.1243x / 2.1269x |
-| 32,768 | Prequantized multiply | 68.4072 / 68.0473 | 159.5104 / 159.5055 | 32.15 / 32.32 | 13.79 / 13.79 | 2.3318x / 2.3440x |
-| 32,768 | Complete call | 81.4954 / 81.5626 | 174.6957 / 174.9922 | 26.98 / 26.96 | 12.59 / 12.57 | 2.1436x / 2.1455x |
+| Tokens | Public catalog hash | HIP ms (A/B mean) | GGTensile ms (A/B mean) | HIP multiply-only TFLOPS | GGTensile multiply-only TFLOPS | GGTensile/HIP speedup |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 2,048 | `ggsol_65ea830f809a878c` | `10.1440` | `3.8422` | `1.694` | `4.471` | `2.6401x` |
+| 8,192 | `ggsol_03c6517b032619d5` | `40.0487` | `16.6861` | `1.716` | `4.118` | `2.4001x` |
+| 32,768 | `ggsol_e80f2d214da77367` | `159.5080` | `68.2272` | `1.723` | `4.029` | `2.3379x` |
 
 - P3 is retained as the qualified fixed-group Q8_0 research winner. Final verification passed `552` tests with the existing 14 warnings, all 238 protected writer streams byte-identical, Ruff check and format, `ty check`, compileall, diff checks, and all pre-commit hooks. Public dispatch, generated bundle registration, packaging, fallback selection, and prepared-weight integration remain deferred to a separate change.
 
