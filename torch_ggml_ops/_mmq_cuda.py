@@ -135,7 +135,7 @@ def grouped_mmq_pair_cuda(
     workspace = torch.empty(
         input.numel() // 128 * 144, dtype=torch.uint8, device=input.device
     )
-    row_task_rows = 64 if quant_type == 11 else 32 if quant_type == 22 else 0
+    row_task_rows = 64 if quant_type in (11, 22) else 0
     task_capacity = (
         (input.shape[0] + row_task_rows - 1) // row_task_rows + expert_indices.numel()
         if row_task_rows

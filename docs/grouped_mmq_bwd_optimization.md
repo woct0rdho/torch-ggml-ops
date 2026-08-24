@@ -54,7 +54,7 @@ The GPU qualification used boundary-heavy nonuniform groups. All three promoted 
 
 Holding archived HIP medians fixed and replacing only changed AITER medians moved the model-call-weighted Qwen backward ratios from `1.143/1.302/1.153x` to `1.029/1.302/1.066x` at B1/B4/B16. DeepSeek backward has no promoted key and remains unchanged. The initial pooled winners that lost uniform or boundary controls were rejected; no table entry was changed from the prior screen alone.
 
-The installed AITER `get_config` accepts `(M,K,N,G)` but returns an architecture-level default and currently does not use shape lookup. Because the installed package lacks a `gfx1151-GMM.json` and benchmark calls pass explicit configs, `bench/aiter_gmm_heuristics.py:gmm_config` remains the exact benchmark-owned authority. Unsupported keys fail closed and exact layout separation is tested in `tests/test_aiter_gmm_heuristics.py`.
+The installed AITER `get_config` accepts `(M,K,N,G)` but returns an architecture-level default and currently does not use shape lookup. Because the installed package lacks a `gfx1151-GMM.json` and benchmark calls pass explicit configs, `tools/aiter_gmm_heuristics.py:gmm_config` remains the exact benchmark-owned authority. Unsupported keys fail closed and exact layout separation is tested in `tests/test_aiter_gmm_heuristics.py`.
 
 ## Learned-B1 HIP ownership retune
 
@@ -343,7 +343,7 @@ For Qwen 128-row tasks, expert-local task counts grow from 192-257 at B1 to 512-
 
 ### BF16 references
 
-Routed performance uses AITER Triton `gmm` configured by the benchmark-owned `bench/aiter_gmm_heuristics.py` exact table. Dispatch keys include total routed rows, K, N, and RHS layout. Unsupported shapes fail closed. Backward uses contiguous row-major logical weights. Fixed Q8_0 uses BF16 BMM in the public fixed-group layout.
+Routed performance uses AITER Triton `gmm` configured by the benchmark-owned `tools/aiter_gmm_heuristics.py` exact table. Dispatch keys include total routed rows, K, N, and RHS layout. Unsupported shapes fail closed. Backward uses contiguous row-major logical weights. Fixed Q8_0 uses BF16 BMM in the public fixed-group layout.
 
 The timed references start with independently dequantized BF16 weights. Dequantization and active-expert selection are setup costs and are not included. This makes AITER an ideal predecoded arithmetic reference, not a complete packed-weight alternative.
 
@@ -372,25 +372,28 @@ Correctness references:
 python tools/build_mmq_bundle.py --force --jobs "$(nproc)"
 ```
 
-Latest acceptance commands:
+Current public-API commands:
 
 ```bash
-PYTHONPATH=. python bench/benchmark_grouped_mmq_bwd.py \
+PYTHONPATH=. python bench/benchmark_grouped_mmq_bwd_api.py \
   --model ~/models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf \
-  --model-family qwen \
-  --batches 1,4,16 \
-  --distributions uniform,skewed,sparse,boundary \
-  --warmup 3 --repeats 9 --correctness-rows 256 \
-  --output ~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_prior_retuned_final_9.json
+  --model-family qwen --expert-prior qwen-learned \
+  --warmup 3 --repeats 9 \
+  --output ~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_api.json
 
-PYTHONPATH=. python bench/benchmark_grouped_mmq_bwd.py \
+PYTHONPATH=. python bench/benchmark_grouped_mmq_pair_bwd_api.py \
   --model ~/models/ds4/DeepSeek-V4-Flash-IQ2XXS.gguf \
-  --model-family deepseek \
-  --batches 1,4,16 \
-  --distributions uniform,skewed,sparse,boundary \
-  --warmup 3 --repeats 9 --correctness-rows 256 \
-  --output ~/tmp/torch-ggml-ops/grouped_mmq_bwd_deepseek_prior_retuned_final_9.json
+  --model-family deepseek --expert-prior deepseek-learned \
+  --warmup 3 --repeats 9 \
+  --output ~/tmp/torch-ggml-ops/grouped_mmq_pair_bwd_deepseek_api.json
+
+PYTHONPATH=. python bench/benchmark_fixed_grouped_mmq_bwd_api.py \
+  --model ~/models/ds4/DeepSeek-V4-Flash-IQ2XXS.gguf \
+  --model-family deepseek --warmup 3 --repeats 9 \
+  --output ~/tmp/torch-ggml-ops/fixed_grouped_mmq_bwd_deepseek_api.json
 ```
+
+Use the corresponding `_kernels.py` entry point plus `--hip-root build/mmq_hip_controls/gfx1151` for direct GGTensile/HIP timing.
 
 ## Production implementation
 

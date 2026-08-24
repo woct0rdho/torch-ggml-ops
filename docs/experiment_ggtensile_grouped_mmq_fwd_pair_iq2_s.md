@@ -115,9 +115,9 @@ Reversed-order 25-repeat confirmation passed at every production shape. The fina
 
 | Aggregate rows | Public catalog hash | HIP TFLOPS | GGTensile TFLOPS | GGTensile/HIP speedup |
 | ---: | :--- | ---: | ---: | ---: |
-| 16,384 | `ggpair_88145483ff873e47` | 11.420 | 13.786 | 1.2072x |
-| 65,536 | `ggpair_82cb896278e83ff0` | 15.935 | 18.511 | 1.1616x |
-| 262,144 | `ggpair_5179383caaed1299` | 17.783 | 20.347 | 1.1442x |
+| 16,384 | `ggpair_a04b4d0379080838` | 11.420 | 13.786 | 1.2072x |
+| 65,536 | `ggpair_52d8b2d6a398c27a` | 15.935 | 18.511 | 1.1616x |
+| 262,144 | `ggpair_59e04f7993fc9621` | 17.783 | 20.347 | 1.1442x |
 
 Every one of the fifteen fitted-prior outputs matched both adjacent controls bitwise. Minimum per-medoid public/P2 ratios were `1.1275x`, `1.1198x`, and `1.1242x` at B1, B4, and B16. The B16 candidate is within about one percent of the earlier `60.2659 ms` BF16 AITER comparator, rather than the original packed path's roughly nine-percent deficit.
 

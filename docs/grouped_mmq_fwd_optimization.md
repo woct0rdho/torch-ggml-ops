@@ -53,7 +53,7 @@ For attribution, the retuned replay held the archived HIP medians fixed and subs
 
 The initial 12 pooled candidates did not all survive controls. DeepSeek B1 down regressed the synthetic controls by `2.3%`; DeepSeek B1 pair and Qwen B1 backward-down/forward-pair candidates had individual synthetic route failures; Qwen B4 pair/down candidates also regressed uniform controls. A bounded compromise screen of the remaining finalists found one robust Qwen B16 backward-pair configuration, but no replacement for the other six rejected targets. Thus the table does not encode a route-name or router-kind dispatch dimension, and synthetic controls remain part of every future comparator change.
 
-The installed AITER `amd-aiter 0.1.20.dev46+gc4044aacd` `get_config` path was audited separately. Its `gmm.py` implementation accepts shape arguments but currently returns the architecture JSON `default` entry; the underlying source explicitly leaves shape lookup as a TODO. The installed package has no `gfx1151-GMM.json`, while benchmark calls pass explicit configs. Consequently `bench/aiter_gmm_heuristics.py:gmm_config` remains the benchmark-owned exact-key authority and unsupported shapes continue to fail closed. Exact table behavior is covered by `tests/test_aiter_gmm_heuristics.py`.
+The installed AITER `amd-aiter 0.1.20.dev46+gc4044aacd` `get_config` path was audited separately. Its `gmm.py` implementation accepts shape arguments but currently returns the architecture JSON `default` entry; the underlying source explicitly leaves shape lookup as a TODO. The installed package has no `gfx1151-GMM.json`, while benchmark calls pass explicit configs. Consequently `tools/aiter_gmm_heuristics.py:gmm_config` remains the benchmark-owned exact-key authority and unsupported shapes continue to fail closed. Exact table behavior is covered by `tests/test_aiter_gmm_heuristics.py`.
 
 ## Learned-B1 HIP ownership retune
 
@@ -263,43 +263,34 @@ Output A consumes logical input `[..., 8, 4096]` and preserves eight independent
 
 ## Measurement and acceptance
 
-`bench/benchmark_grouped_mmq_fwd.py` records complete packed latency, logical throughput, incremental allocation, packed shapes, quant type, route statistics, reference latency, dense-MMQ exactness, independent-reference error, and checkpoint-weighted estimates.
+Forward uses separate scripts for routed single, routed pair, and fixed grouped problems. Each problem has a complete public-API comparison and a prequantized direct-kernel comparison. Public calls include output/workspace allocation, activation quantization, dispatch, and device row-task setup. Direct GGTensile/HIP timing uses one shared Q8_1 workspace and prepares both quantization and row tasks before timing.
 
-Routed references are BF16 AITER Triton GMM with the benchmark-owned `bench/aiter_gmm_heuristics.py` exact configuration table. Dispatch keys include total routed rows, K, N, and RHS layout. Unsupported shapes fail closed. Forward uses the transposed logical-weight view. Active weights are independently dequantized during setup, not in the timed reference. The fixed output-A reference is BF16 `torch.bmm` over eight groups and includes public-layout conversion. AITER and BMM are references, not a claim about the maximum possible packed throughput.
+Routed references are BF16 AITER Triton GMM with the exact configuration table in `tools/aiter_gmm_heuristics.py`. Forward uses the transposed logical-weight view. Active weights are independently dequantized during setup, not in the timed reference. Paired forward uses two AITER calls. Fixed output-A uses BF16 `torch.bmm` over eight groups and includes public-layout conversion.
 
-The four deterministic routing distributions are:
-- `uniform`: all 256 experts active with equal group sizes.
-- `skewed`: all 256 experts active with deterministic nonuniform sizes.
-- `sparse`: 192, 224, or 240 active experts at batches 1, 4, and 16.
-- `boundary`: includes group sizes around 1, 16, 64, and 128 to exercise tails.
+Current routed performance follows `ggtensile_workload_prior.md`: one declared fitted law produces one deterministic profile for each exact key. Candidate and control reuse the same profile. Captured routes, medoid banks, alternate corpora, and synthetic distributions are not timing inputs. Broader route shapes remain correctness inputs only. Fixed output-A has no route profile.
 
-DeepSeek uses the same distribution families with top-six mean sizes 48, 192, and 768. The fixed output-A case has no route distribution.
+A retained change must satisfy the established correctness and independent-reference envelopes, resource gates, exact-key timing, device-resident metadata, and current-stream behavior. A fresh median movement above 1% requires a sequential 25-repeat A/B control, and concurrent benchmark or profiler runs are not accepted.
 
-A retained change must satisfy:
-- exact grouped-versus-dense packed BF16 output for every production point.
-- the established independent-reference error envelope.
-- zero private segment, zero VGPR/SGPR spills, and no dynamic stack for every enforced production arithmetic entry.
-- no repeatable Qwen regression in the complete 60-point matrix.
-- no regression in the checkpoint-weighted Qwen estimate.
-- complete-operator timing, including quantization and workspace allocation.
-- device-resident routing metadata and current-stream behavior.
-- dense controls as well as grouped controls when shared quantization or MMQ code changes.
-
-A movement above 1% in a fresh median triggers a sequential 25-repeat A/B control. Concurrent benchmark or profiler runs are not accepted.
-
-The current matrices can be reproduced with:
+Representative public-API commands are:
 
 ```bash
-PYTHONPATH=. python bench/benchmark_grouped_mmq_fwd.py \\
-  --model ~/models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf \\
-  --model-family qwen --warmup 3 --repeats 9 --correctness-rows 256 \\
-  --output ~/tmp/torch-ggml-ops/grouped_mmq_fwd_qwen_prior_retuned_final_9.json
+PYTHONPATH=. python bench/benchmark_grouped_mmq_fwd_api.py \
+  --model ~/models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf \
+  --model-family qwen --expert-prior qwen-learned \
+  --output ~/tmp/torch-ggml-ops/grouped_mmq_fwd_qwen_api.json
 
-PYTHONPATH=. python bench/benchmark_grouped_mmq_fwd.py \\
-  --model ~/models/ds4/DeepSeek-V4-Flash-IQ2XXS.gguf \\
-  --model-family deepseek --warmup 3 --repeats 9 --correctness-rows 256 \\
-  --output ~/tmp/torch-ggml-ops/grouped_mmq_fwd_deepseek_prior_retuned_final_9.json
+PYTHONPATH=. python bench/benchmark_grouped_mmq_pair_fwd_api.py \
+  --model ~/models/ds4/DeepSeek-V4-Flash-IQ2XXS.gguf \
+  --model-family deepseek --expert-prior deepseek-learned \
+  --output ~/tmp/torch-ggml-ops/grouped_mmq_pair_fwd_deepseek_api.json
+
+PYTHONPATH=. python bench/benchmark_fixed_grouped_mmq_fwd_api.py \
+  --model ~/models/ds4/DeepSeek-V4-Flash-IQ2XXS.gguf \
+  --model-family deepseek \
+  --output ~/tmp/torch-ggml-ops/fixed_grouped_mmq_fwd_deepseek_api.json
 ```
+
+Use the corresponding `_kernels.py` entry point plus `--hip-root build/mmq_hip_controls/gfx1151` for direct GGTensile/HIP timing.
 
 ## Final benchmark results
 

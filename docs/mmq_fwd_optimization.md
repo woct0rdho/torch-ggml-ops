@@ -461,31 +461,31 @@ The BF16 reference is `torch.mm(BF16 activation, dequantized BF16 weight.T)`, no
 
 Measurement rules:
 - run GPU benchmarks sequentially with no concurrent profiler or benchmark.
+- run correctness validation before benchmarks.
 - warm module loading before timing.
 - use real nonzero tensors, three warmups, and the complete production matrix.
 - bracket any fresh movement above 1% with sequential 25-repeat controls.
-- report unweighted per-point and checkpoint-weighted movement.
-- include quantization, allocation, and workspace ownership in public-call timing.
+- include quantization, allocation, and workspace ownership in public-API timing.
+- compare direct GGTensile and HIP multiply kernels with one shared workspace quantized before timing.
 - inspect normalized disassembly and VGPR/SGPR/LDS/private/spill/stack metadata.
 - retain resource-gated kernels only with zero private storage, spills, and dynamic stack.
 
-Benchmark examples:
+The public and direct-kernel surfaces are separate scripts:
 
 ```bash
 source ~/venv_torch/bin/activate
 
-PYTHONPATH=. python bench/benchmark_mmq_fwd.py \
+PYTHONPATH=. python bench/benchmark_mmq_fwd_api.py \
   --model ~/models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf \
-  --model-family qwen --batches 1,4,16 \
-  --lm-head-chunks 64,128,256 --warmup 3 --repeats 9
+  --model-family qwen --warmup 3 --repeats 9 \
+  --output ~/tmp/torch-ggml-ops/mmq_fwd_qwen_api.json
 
-PYTHONPATH=. python bench/benchmark_mmq_fwd.py \
-  --model ~/models/ds4/DeepSeek-V4-Flash-IQ2XXS.gguf \
-  --model-family deepseek --batches 1,4,16 \
-  --lm-head-chunks 32,64,128,256,512 --warmup 3 --repeats 9
+PYTHONPATH=. python bench/benchmark_mmq_fwd_kernels.py \
+  --model ~/models/qwen3.6/Qwen3.6-35B-A3B-APEX-I-Mini.gguf \
+  --model-family qwen --warmup 3 --repeats 9 \
+  --hip-root build/mmq_hip_controls/gfx1151 \
+  --output ~/tmp/torch-ggml-ops/mmq_fwd_qwen_kernels.json
 ```
-
-`--transient-bf16-control` enables the optimistic allocate/copy-predecoded-BF16/GEMM representation floor. It deliberately excludes decode compute and must not be interpreted as an implementable transient path by itself.
 
 Final project validation:
 

@@ -15,21 +15,11 @@ from .model import (
     SolutionKey,
 )
 from .quant_formats import BACKWARD_QUANT_FORMATS, QuantFormat
-from .schema import (
-    SchemaError,
-)
-from .schema import (
-    integer as _integer,
-)
-from .schema import (
-    strict_mapping as _strict_mapping,
-)
-from .schema import (
-    strict_mapping_optional as _strict_mapping_optional,
-)
-from .schema import (
-    string as _string,
-)
+from .schema import SchemaError
+from .schema import integer as _integer
+from .schema import strict_mapping as _strict_mapping
+from .schema import strict_mapping_optional as _strict_mapping_optional
+from .schema import string as _string
 
 _U32_MAX = 0xFFFFFFFF
 

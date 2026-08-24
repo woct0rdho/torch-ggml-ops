@@ -10,6 +10,7 @@ from tools.ggtensile.grouped_mmq_fwd_model import (
     GroupedForwardSolution,
     GroupedForwardSolutionKey,
 )
+from tools.ggtensile.grouped_mmq_fwd_pair_model import GroupedForwardPairSolutionKey
 from tools.ggtensile.grouped_mmq_fwd_spec import DerivedGroupedForwardState
 
 
@@ -107,6 +108,28 @@ def test_paired_backward_split_routes_pack_split_ownership_in_grid_y() -> None:
     ]
     assert len(split_routes) == 3
     assert all(kernel.grid == (32, 2048, 1) for kernel in split_routes)
+
+
+def test_public_paired_iq2_s_forward_uses_j64_row_tasks() -> None:
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "tools/ggtensile/configs/mmq_deployment.json"
+    )
+    inventory = load_deployment_inventory(path)
+    routes = [
+        route.kernel
+        for route in inventory.routes
+        if route.operation == "GroupedForwardPair"
+        and isinstance(route.kernel.exact_key, GroupedForwardPairSolutionKey)
+        and route.kernel.exact_key.problem.quant_data_type == "IQ2_S"
+    ]
+    assert [kernel.row_task_rows for kernel in routes] == [64, 64, 64]
+    assert [kernel.row_task_capacity for kernel in routes] == [512, 1280, 4352]
+    assert [kernel.grid for kernel in routes] == [
+        (8, 512, 1),
+        (8, 1280, 1),
+        (8, 4352, 1),
+    ]
 
 
 def test_rejects_row_task_bounds_for_serial_ownership(tmp_path: Path) -> None:

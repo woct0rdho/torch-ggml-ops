@@ -93,7 +93,7 @@ def test_paired_launch_validates_explicit_row_task_shapes(
     workspace = torch.empty(
         input.numel() // 128 * 144, dtype=torch.uint8, device="cuda"
     )
-    task_capacity = (_ROWS + 31) // 32 + experts.numel()
+    task_capacity = (_ROWS + 63) // 64 + experts.numel()
     task_count = torch.empty(1, dtype=torch.int32, device="cuda")
     task_experts = torch.empty(
         (2, task_capacity // 2), dtype=torch.int32, device="cuda"

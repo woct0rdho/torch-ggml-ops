@@ -144,7 +144,8 @@ The current module ownership is:
 | `fixed_grouped_mmq_fwd_*` and `fixed_grouped_mmq_bwd_*` | Fixed eight-group Q8_0 contracts, fixed launch ownership, composed physical plans, lowering, runtime packing, and validation |
 | `inspection.py` and family inspection modules | Artifact checks derived from typed keys and physical plans; no independent resource allocation or winner selection |
 | `mmq_*_search.py` / `campaign.py` / `cli.py` | Complete-candidate construction, bounded neighborhoods, rejection explanations, phase manifests, and offline evidence handling |
-| `archive.py` / `benchmark_report.py` / `benchmark_routes.py` / `deployment.py` | Lossless evidence loading, timing summaries and protocols, non-timed route controls, and strict exact deployment inventory validation |
+| `archive.py` / `deployment.py` | Lossless evidence loading and strict exact deployment inventory validation |
+| `bench/benchmark_common.py` / `bench/benchmark_routes.py` | Shared timing protocol, report summaries, and deterministic benchmark route construction |
 
 Pure specification and physical-planning modules do not import ROCISA, invoke the toolchain, benchmark, or read selected inventories. Lowerers do not import catalogs, deployment state, model names, tensor names, or timing reports.
 

@@ -11,18 +11,10 @@ from .quant_formats import (
     Q8_1_F32_D4_BLOCK_BYTES,
     QUANT_FORMATS,
 )
-from .schema import (
-    SchemaError,
-)
-from .schema import (
-    integer as _integer,
-)
-from .schema import (
-    strict_mapping as _strict_mapping,
-)
-from .schema import (
-    string as _string,
-)
+from .schema import SchemaError
+from .schema import integer as _integer
+from .schema import strict_mapping as _strict_mapping
+from .schema import string as _string
 
 
 @dataclass(frozen=True)

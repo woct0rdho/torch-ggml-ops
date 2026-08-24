@@ -94,11 +94,6 @@ class ExpertProfile:
         rows = np.asarray(self.rows_per_expert, dtype="<i8")
         return hashlib.sha256(rows.tobytes()).hexdigest()
 
-    @property
-    def profile_id(self) -> str:
-        name = self.prior.value.replace("-", "_")
-        return f"{name}_t{self.tokens}_s{self.seed}"
-
     def to_mapping(self) -> dict[str, object]:
         return {
             "law": self.prior.value,

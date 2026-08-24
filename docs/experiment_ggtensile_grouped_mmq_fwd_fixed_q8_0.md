@@ -116,13 +116,13 @@ Any correctness, ABI, compiler, runtime, executable, or documentation finding th
 
 ### Final retained throughput
 
-The final table reports prequantized multiply-only throughput. It excludes the shared Q8_1 activation quantizer, workspace allocation, launch setup, and other complete-call work; those complete-call values remain in the chronology above. Nominal dense-equivalent throughput is calculated as `2 * tokens * 1024 * 4096 / (median_ms * 1e9)`. `GGTensile/HIP` speedup is GGTensile TFLOPS divided by HIP TFLOPS, equivalently HIP median time divided by GGTensile median time, so values above `1.0x` favor GGTensile. Each row averages the independent seed `9012/9013` multiply medians.
+The final table reports prequantized multiply-only throughput. It excludes the shared Q8_1 activation quantizer, workspace allocation, launch setup, and other complete-call work; those complete-call values remain in the chronology above. Nominal dense-equivalent throughput is calculated across all eight fixed groups as `2 * tokens * 8 * 1024 * 4096 / (median_ms * 1e9)`. `GGTensile/HIP` speedup is GGTensile TFLOPS divided by HIP TFLOPS, equivalently HIP median time divided by GGTensile median time, so values above `1.0x` favor GGTensile. Each row averages the independent seed `9012/9013` multiply medians.
 
 | Tokens | Public catalog hash | HIP ms (A/B mean) | GGTensile ms (A/B mean) | HIP multiply-only TFLOPS | GGTensile multiply-only TFLOPS | GGTensile/HIP speedup |
 | ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| 2,048 | `ggsol_65ea830f809a878c` | `10.1440` | `3.8422` | `1.694` | `4.471` | `2.6401x` |
-| 8,192 | `ggsol_03c6517b032619d5` | `40.0487` | `16.6861` | `1.716` | `4.118` | `2.4001x` |
-| 32,768 | `ggsol_e80f2d214da77367` | `159.5080` | `68.2272` | `1.723` | `4.029` | `2.3379x` |
+| 2,048 | `ggsol_65ea830f809a878c` | `10.1440` | `3.8422` | `13.549` | `35.771` | `2.6401x` |
+| 8,192 | `ggsol_03c6517b032619d5` | `40.0487` | `16.6861` | `13.727` | `32.947` | `2.4001x` |
+| 32,768 | `ggsol_e80f2d214da77367` | `159.5080` | `68.2272` | `13.786` | `32.231` | `2.3379x` |
 
 - P3 is retained as the qualified fixed-group Q8_0 research winner. Final verification passed `552` tests with the existing 14 warnings, all 238 protected writer streams byte-identical, Ruff check and format, `ty check`, compileall, diff checks, and all pre-commit hooks. Public dispatch, generated bundle registration, packaging, fallback selection, and prepared-weight integration remain deferred to a separate change.
 

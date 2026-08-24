@@ -26,33 +26,15 @@ from .grouped_mmq_fwd_pair_physical import (
 from .mmq_fwd_spec import QuantForwardSemantics
 from .model import ProblemSize
 from .quant_formats import GROUPED_QUANT_FORMATS, Q8_1_D4_BLOCK_VALUES
-from .schema import (
-    SchemaError,
-)
-from .schema import (
-    boolean as _boolean,
-)
-from .schema import (
-    enum_value as _enum,
-)
-from .schema import (
-    integer as _integer,
-)
-from .schema import (
-    integer_triple as _integer_triple,
-)
-from .schema import (
-    integer_tuple as _integer_tuple,
-)
-from .schema import (
-    strict_mapping as _mapping,
-)
-from .schema import (
-    strict_mapping_optional as _mapping_optional,
-)
-from .schema import (
-    string as _string,
-)
+from .schema import SchemaError
+from .schema import boolean as _boolean
+from .schema import enum_value as _enum
+from .schema import integer as _integer
+from .schema import integer_triple as _integer_triple
+from .schema import integer_tuple as _integer_tuple
+from .schema import strict_mapping as _mapping
+from .schema import strict_mapping_optional as _mapping_optional
+from .schema import string as _string
 
 _U32_MAX = 0xFFFFFFFF
 

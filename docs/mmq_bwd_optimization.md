@@ -508,29 +508,31 @@ Dispatch may use quant type, exact matrix shape, token count, and public rows. I
 
 Measurement rules:
 - Run GPU benchmarks and profilers sequentially.
+- Run correctness validation before benchmarks.
 - Use real nonzero tensors and warm packaged modules before timing.
 - Use three warmups and nine repeats for complete matrices.
+- The public benchmark prepares the forward graph before timing and measures only `torch.autograd.grad` against the direct `torch.mm` gradient baseline.
+- The direct-kernel benchmark uses preallocated outputs and invokes GGTensile and HIP without PyTorch autograd.
 - Bracket any fresh median movement above 1% with sequential 25-repeat control/candidate/control runs.
-- Report per-point and checkpoint-weighted movement.
 - Inspect normalized disassembly and VGPR/SGPR/LDS/private/spill/stack metadata.
 - Require zero private storage, zero VGPR/SGPR spills, and no dynamic stack for retained production bodies.
-- Rerun the complete Qwen matrix whenever shared MMQ backward source changes.
 
-Benchmark examples:
+The public and direct-kernel surfaces are separate scripts:
 
 ```bash
-PYTHONPATH=. python bench/benchmark_mmq_bwd.py \
-  --model /path/to/model.gguf --model-family qwen-or-deepseek \
-  --batches 1,4,16 --warmup 3 --repeats 9 \
-  --output ~/tmp/torch-ggml-ops/mmq_bwd_report.json
+PYTHONPATH=. python bench/benchmark_mmq_bwd_api.py \
+  --model /path/to/model.gguf --model-family qwen \
+  --warmup 3 --repeats 9 \
+  --output ~/tmp/torch-ggml-ops/mmq_bwd_api.json
 
-PYTHONPATH=. python bench/benchmark_mmq_complete_loss.py \
-  --model /path/to/model.gguf --model-family deepseek \
-  --batches 1 --chunks 32,64,128,256,512 \
-  --loss-module-root /path/to/production/loss/module \
-  --warmup 3 --repeats 25 \
-  --output ~/tmp/torch-ggml-ops/mmq_bwd_complete_loss.json
+PYTHONPATH=. python bench/benchmark_mmq_bwd_kernels.py \
+  --model /path/to/model.gguf --model-family qwen \
+  --warmup 3 --repeats 9 \
+  --hip-root build/mmq_hip_controls/gfx1151 \
+  --output ~/tmp/torch-ggml-ops/mmq_bwd_kernels.json
 ```
+
+Complete packed-loss measurements remain downstream application benchmarks rather than a third core MMQ benchmark surface.
 
 Build and validation:
 

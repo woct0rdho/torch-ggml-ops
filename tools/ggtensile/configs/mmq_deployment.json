@@ -1183,7 +1183,7 @@
     {
       "Operation": "GroupedForwardPair",
       "Kernel": {
-        "Identity": "ggpair_88145483ff873e47",
+        "Identity": "ggpair_a04b4d0379080838",
         "ExactKey": {
           "ProblemContract": {
             "quant_type": "IQ2_S",
@@ -1245,7 +1245,7 @@
               "operand_source": "IQ2SHalfWeightLds",
               "route_ownership": "DeviceRowTasks",
               "activation_addressing": "AggregateRowsTiledLinear",
-              "row_task_rows": 32
+              "row_task_rows": 64
             },
             "projection": {
               "schedule": "Interleaved"
@@ -1258,8 +1258,8 @@
             }
           }
         },
-        "Artifact": "ggpair_88145483ff873e47.hsaco",
-        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_pair_iq2_s_r16384_n512_k2048_88145483ff873e47",
+        "Artifact": "ggpair_a04b4d0379080838.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_pair_iq2_s_r16384_n512_k2048_a04b4d0379080838",
         "ABI": "GroupedPairV1",
         "WorkGroup": [
           128,
@@ -1268,19 +1268,19 @@
         ],
         "Grid": [
           8,
-          768,
+          512,
           1
         ],
         "SharedMemoryBytes": 19456,
-        "Ownership": "DeviceRowTasks32",
-        "RowTaskRows": 32,
-        "RowTaskCapacity": 768
+        "Ownership": "DeviceRowTasks64",
+        "RowTaskRows": 64,
+        "RowTaskCapacity": 512
       }
     },
     {
       "Operation": "GroupedForwardPair",
       "Kernel": {
-        "Identity": "ggpair_82cb896278e83ff0",
+        "Identity": "ggpair_52d8b2d6a398c27a",
         "ExactKey": {
           "ProblemContract": {
             "quant_type": "IQ2_S",
@@ -1342,7 +1342,7 @@
               "operand_source": "IQ2SHalfWeightLds",
               "route_ownership": "DeviceRowTasks",
               "activation_addressing": "AggregateRowsTiledLinear",
-              "row_task_rows": 32
+              "row_task_rows": 64
             },
             "projection": {
               "schedule": "Interleaved"
@@ -1355,8 +1355,8 @@
             }
           }
         },
-        "Artifact": "ggpair_82cb896278e83ff0.hsaco",
-        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_pair_iq2_s_r65536_n512_k2048_82cb896278e83ff0",
+        "Artifact": "ggpair_52d8b2d6a398c27a.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_pair_iq2_s_r65536_n512_k2048_52d8b2d6a398c27a",
         "ABI": "GroupedPairV1",
         "WorkGroup": [
           128,
@@ -1365,19 +1365,19 @@
         ],
         "Grid": [
           8,
-          2304,
+          1280,
           1
         ],
         "SharedMemoryBytes": 19456,
-        "Ownership": "DeviceRowTasks32",
-        "RowTaskRows": 32,
-        "RowTaskCapacity": 2304
+        "Ownership": "DeviceRowTasks64",
+        "RowTaskRows": 64,
+        "RowTaskCapacity": 1280
       }
     },
     {
       "Operation": "GroupedForwardPair",
       "Kernel": {
-        "Identity": "ggpair_5179383caaed1299",
+        "Identity": "ggpair_59e04f7993fc9621",
         "ExactKey": {
           "ProblemContract": {
             "quant_type": "IQ2_S",
@@ -1439,7 +1439,7 @@
               "operand_source": "IQ2SHalfWeightLds",
               "route_ownership": "DeviceRowTasks",
               "activation_addressing": "AggregateRowsTiledLinear",
-              "row_task_rows": 32
+              "row_task_rows": 64
             },
             "projection": {
               "schedule": "Interleaved"
@@ -1452,8 +1452,8 @@
             }
           }
         },
-        "Artifact": "ggpair_5179383caaed1299.hsaco",
-        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_pair_iq2_s_r262144_n512_k2048_5179383caaed1299",
+        "Artifact": "ggpair_59e04f7993fc9621.hsaco",
+        "Symbol": "torch_ggml_ops_ggtensile_gfx1151_v1_grouped_mmq_fwd_pair_iq2_s_r262144_n512_k2048_59e04f7993fc9621",
         "ABI": "GroupedPairV1",
         "WorkGroup": [
           128,
@@ -1462,13 +1462,13 @@
         ],
         "Grid": [
           8,
-          8448,
+          4352,
           1
         ],
         "SharedMemoryBytes": 19456,
-        "Ownership": "DeviceRowTasks32",
-        "RowTaskRows": 32,
-        "RowTaskCapacity": 8448
+        "Ownership": "DeviceRowTasks64",
+        "RowTaskRows": 64,
+        "RowTaskCapacity": 4352
       }
     },
     {

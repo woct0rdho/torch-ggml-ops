@@ -14,15 +14,9 @@ from .quant_formats import (
     Q8_1_F16_D4S4_BLOCK_BYTES,
     Q8_1_F32_D4_BLOCK_BYTES,
 )
-from .schema import (
-    SchemaError,
-)
-from .schema import (
-    integer as _integer,
-)
-from .schema import (
-    strict_mapping as _mapping,
-)
+from .schema import SchemaError
+from .schema import integer as _integer
+from .schema import strict_mapping as _mapping
 
 
 class GroupedOperandSource(str, Enum):

@@ -6,30 +6,14 @@ from dataclasses import dataclass
 from enum import Enum, IntEnum
 from typing import TypeVar, cast
 
-from .model import (
-    BackwardSolution,
-    ProblemSize,
-    SolutionKey,
-)
+from .model import BackwardSolution, ProblemSize, SolutionKey
 from .quant_formats import BACKWARD_QUANT_FORMATS, QuantFormat
-from .schema import (
-    SchemaError,
-)
-from .schema import (
-    integer as _integer,
-)
-from .schema import (
-    integer_tuple as _integer_tuple,
-)
-from .schema import (
-    strict_mapping as _strict_mapping,
-)
-from .schema import (
-    strict_mapping_optional as _strict_mapping_optional,
-)
-from .schema import (
-    string as _string,
-)
+from .schema import SchemaError
+from .schema import integer as _integer
+from .schema import integer_tuple as _integer_tuple
+from .schema import strict_mapping as _strict_mapping
+from .schema import strict_mapping_optional as _strict_mapping_optional
+from .schema import string as _string
 
 EnumT = TypeVar("EnumT", bound=Enum)
 

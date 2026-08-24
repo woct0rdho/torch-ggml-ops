@@ -126,7 +126,7 @@ python tools/build_mmq_hip_controls.py --check
 python tools/build_mmq_hip_controls.py --verify-reproducible --jobs 16
 ```
 
-Benchmark runners accept `--hip-code-object` as either one control HSACO or a directory containing the historical-control set. Runtime discovery checks `build/mmq_hip_controls/gfx1151` and explicitly supplied control directories. These controls are comparison artifacts only; their presence does not change the 148-route public inventory.
+Direct-kernel benchmark runners accept `--hip-root` for the directory containing the historical-control set and otherwise use `build/mmq_hip_controls/gfx1151` when it is available. These controls are comparison artifacts only; their presence does not change the 148-route public inventory.
 
 ## Runtime loading and launch
 
