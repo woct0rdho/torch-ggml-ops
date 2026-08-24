@@ -1,6 +1,19 @@
 import torch
 
 
+def mmq_inplace(
+    input: torch.Tensor,
+    packed_weight: torch.Tensor,
+    quant_type: int,
+    out_features: int,
+    output: torch.Tensor,
+    workspace: torch.Tensor,
+) -> None:
+    torch.ops.torch_ggml_ops._mmq_launch.default(
+        input, packed_weight, quant_type, out_features, output, workspace
+    )
+
+
 def mmq_cuda(
     input: torch.Tensor,
     packed_weight: torch.Tensor,
@@ -13,10 +26,20 @@ def mmq_cuda(
     workspace = torch.empty(
         input.numel() // 128 * 144, dtype=torch.uint8, device=input.device
     )
-    torch.ops.torch_ggml_ops._mmq_launch.default(
-        input, packed_weight, quant_type, out_features, output, workspace
-    )
+    mmq_inplace(input, packed_weight, quant_type, out_features, output, workspace)
     return output
+
+
+def mmq_grad_input_inplace(
+    grad_output: torch.Tensor,
+    packed_weight: torch.Tensor,
+    quant_type: int,
+    in_features: int,
+    grad_input: torch.Tensor,
+) -> None:
+    torch.ops.torch_ggml_ops._mmq_grad_input_launch.default(
+        grad_output, packed_weight, quant_type, in_features, grad_input
+    )
 
 
 def mmq_grad_input(
@@ -30,7 +53,7 @@ def mmq_grad_input(
         dtype=grad_output.dtype,
         device=grad_output.device,
     )
-    torch.ops.torch_ggml_ops._mmq_grad_input_launch.default(
+    mmq_grad_input_inplace(
         grad_output, packed_weight, quant_type, in_features, grad_input
     )
     return grad_input

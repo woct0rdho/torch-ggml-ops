@@ -21,8 +21,6 @@ FixedMMQShape validate_fixed_mmq(
     STD_TORCH_CHECK(packed_weight.scalar_type() == ScalarType::Byte, "packed_weight must be uint8");
     STD_TORCH_CHECK(tensor.is_contiguous(), "fixed grouped input must be contiguous");
     STD_TORCH_CHECK(packed_weight.is_contiguous(), "packed_weight must be contiguous");
-    STD_TORCH_CHECK(tensor.storage_offset() == 0, "fixed grouped input must have zero storage offset");
-    STD_TORCH_CHECK(packed_weight.storage_offset() == 0, "packed_weight must have zero storage offset");
     STD_TORCH_CHECK(tensor.dim() >= 2, "fixed grouped input must have at least two dimensions");
     STD_TORCH_CHECK(
         tensor.size(tensor.dim() - 2) == groups,

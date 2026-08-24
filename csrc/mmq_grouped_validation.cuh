@@ -32,10 +32,6 @@ GroupedMMQShape validate_grouped_mmq(
     STD_TORCH_CHECK(packed_weight.is_contiguous(), "packed_weight must be contiguous; torch_ggml_ops will not insert a hidden copy");
     STD_TORCH_CHECK(expert_indices.is_contiguous(), "expert_indices must be contiguous; torch_ggml_ops will not insert a hidden copy");
     STD_TORCH_CHECK(expert_offsets.is_contiguous(), "expert_offsets must be contiguous; torch_ggml_ops will not insert a hidden copy");
-    STD_TORCH_CHECK(input.storage_offset() == 0, "input must have zero storage offset");
-    STD_TORCH_CHECK(packed_weight.storage_offset() == 0, "packed_weight must have zero storage offset");
-    STD_TORCH_CHECK(expert_indices.storage_offset() == 0, "expert_indices must have zero storage offset");
-    STD_TORCH_CHECK(expert_offsets.storage_offset() == 0, "expert_offsets must have zero storage offset");
     STD_TORCH_CHECK(input.dim() == 2, "grouped MMQ input must have shape [rows, in_features]");
     STD_TORCH_CHECK(packed_weight.dim() == 3, "grouped packed_weight must have physical shape [experts, out_features, row_bytes]");
     STD_TORCH_CHECK(expert_indices.dim() == 1, "expert_indices must be one-dimensional");
@@ -146,10 +142,6 @@ GroupedMMQShape validate_grouped_mmq_grad_input(
     STD_TORCH_CHECK(
         expert_offsets.is_contiguous(),
         "expert_offsets must be contiguous; torch_ggml_ops will not insert a hidden copy");
-    STD_TORCH_CHECK(grad_output.storage_offset() == 0, "grad_output must have zero storage offset");
-    STD_TORCH_CHECK(packed_weight.storage_offset() == 0, "packed_weight must have zero storage offset");
-    STD_TORCH_CHECK(expert_indices.storage_offset() == 0, "expert_indices must have zero storage offset");
-    STD_TORCH_CHECK(expert_offsets.storage_offset() == 0, "expert_offsets must have zero storage offset");
     STD_TORCH_CHECK(
         grad_output.dim() == 2,
         "grouped MMQ grad_output must have shape [rows, out_features]");

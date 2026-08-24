@@ -77,11 +77,11 @@ def test_dense_launch_validates_native_operand_contracts() -> None:
     with pytest.raises(RuntimeError, match="contiguous"):
         launch(input.T)
 
-    offset_input = torch.empty(input.numel() + 1, dtype=torch.bfloat16, device="cuda")[
-        1:
-    ].view_as(input)
-    with pytest.raises(RuntimeError, match="zero storage offset"):
-        launch(offset_input)
+    misaligned_input = torch.empty(
+        input.numel() + 1, dtype=torch.bfloat16, device="cuda"
+    )[1:].view_as(input)
+    with pytest.raises(RuntimeError, match="16-byte aligned"):
+        launch(misaligned_input)
     with pytest.raises(RuntimeError, match="packed_weight must have shape"):
         launch(input, packed.view(-1))
     with pytest.raises(RuntimeError, match="uint8"):
@@ -119,11 +119,13 @@ def test_dense_launch_validates_every_explicit_buffer_property() -> None:
             workspace,
         )
 
-    offset_output = torch.empty(
+    misaligned_output = torch.empty(
         output.numel() + 1, dtype=torch.bfloat16, device="cuda"
     )[1:].view_as(output)
-    with pytest.raises(RuntimeError, match="output must have zero storage offset"):
-        launch(offset_output, workspace)
+    with pytest.raises(
+        RuntimeError, match="output data pointer must be 16-byte aligned"
+    ):
+        launch(misaligned_output, workspace)
     with pytest.raises(RuntimeError, match="output has an invalid element count"):
         launch(output[:, :-1].contiguous(), workspace)
     with pytest.raises(RuntimeError, match="workspace has an invalid dtype"):
@@ -133,11 +135,13 @@ def test_dense_launch_validates_every_explicit_buffer_property() -> None:
     with pytest.raises(RuntimeError, match="exact one-dimensional shape"):
         launch(output, workspace.view(2, -1))
 
-    offset_workspace = torch.empty(
+    misaligned_workspace = torch.empty(
         workspace_elements + 1, dtype=torch.uint8, device="cuda"
     )[1:]
-    with pytest.raises(RuntimeError, match="workspace must have zero storage offset"):
-        launch(output, offset_workspace)
+    with pytest.raises(
+        RuntimeError, match="workspace data pointer must be 16-byte aligned"
+    ):
+        launch(output, misaligned_workspace)
     with pytest.raises(RuntimeError, match="workspace has an invalid element count"):
         launch(output, workspace[:-1].clone())
 

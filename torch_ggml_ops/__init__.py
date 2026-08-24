@@ -7,10 +7,18 @@ from ._mmq_autograd import (
     GroupedMMQPairFunction,
     MMQFunction,
 )
+from ._mmq_cuda import mmq_grad_input_inplace, mmq_inplace
 
 fixed_grouped_mmq = FixedGroupedMMQFunction.apply
 grouped_mmq = GroupedMMQFunction.apply
 grouped_mmq_pair = GroupedMMQPairFunction.apply
 mmq = MMQFunction.apply
 
-__all__ = ["fixed_grouped_mmq", "grouped_mmq", "grouped_mmq_pair", "mmq"]
+__all__ = [
+    "fixed_grouped_mmq",
+    "grouped_mmq",
+    "grouped_mmq_pair",
+    "mmq",
+    "mmq_grad_input_inplace",
+    "mmq_inplace",
+]

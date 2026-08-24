@@ -48,7 +48,6 @@ void validate_explicit_buffer(
         " must be on the input device");
     STD_TORCH_CHECK(buffer.scalar_type() == dtype, name, " has an invalid dtype");
     STD_TORCH_CHECK(buffer.is_contiguous(), name, " must be contiguous");
-    STD_TORCH_CHECK(buffer.storage_offset() == 0, name, " must have zero storage offset");
     STD_TORCH_CHECK(buffer.numel() == elements, name, " has an invalid element count");
     STD_TORCH_CHECK(
         reinterpret_cast<uintptr_t>(buffer.const_data_ptr()) % 16 == 0,
@@ -108,8 +107,6 @@ DenseMMQShape validate_dense_mmq(
     STD_TORCH_CHECK(packed_weight.scalar_type() == ScalarType::Byte, "packed_weight must be uint8");
     STD_TORCH_CHECK(input.is_contiguous(), "input must be contiguous");
     STD_TORCH_CHECK(packed_weight.is_contiguous(), "packed_weight must be contiguous");
-    STD_TORCH_CHECK(input.storage_offset() == 0, "input must have zero storage offset");
-    STD_TORCH_CHECK(packed_weight.storage_offset() == 0, "packed_weight must have zero storage offset");
     STD_TORCH_CHECK(input.dim() >= 1, "input must have at least one dimension");
     STD_TORCH_CHECK(
         packed_weight.dim() == 2,
@@ -169,8 +166,6 @@ DenseMMQShape validate_dense_mmq_backward(
     STD_TORCH_CHECK(packed_weight.scalar_type() == ScalarType::Byte, "packed_weight must be uint8");
     STD_TORCH_CHECK(grad_output.is_contiguous(), "grad_output must be contiguous");
     STD_TORCH_CHECK(packed_weight.is_contiguous(), "packed_weight must be contiguous");
-    STD_TORCH_CHECK(grad_output.storage_offset() == 0, "grad_output must have zero storage offset");
-    STD_TORCH_CHECK(packed_weight.storage_offset() == 0, "packed_weight must have zero storage offset");
     STD_TORCH_CHECK(grad_output.dim() >= 1, "grad_output must have at least one dimension");
     STD_TORCH_CHECK(
         packed_weight.dim() == 2,

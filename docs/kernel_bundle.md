@@ -8,7 +8,7 @@ The public compute path is exact-key only. There is no HIP multiply fallback, ne
 
 ## Public API architecture
 
-The exported Python functions are:
+The allocating, autograd-capable Python functions are:
 
 ```python
 torch_ggml_ops.mmq
@@ -18,6 +18,15 @@ torch_ggml_ops.fixed_grouped_mmq
 ```
 
 They retain PyTorch autograd for the input tensor. Packed weights and route metadata are nondifferentiable. Paired autograd always uses the fused paired input-gradient kernel, including when one output has no cotangent; Python supplies an explicit zero cotangent for the unused projection.
+
+Two ordinary-MMQ functions expose allocation-free execution to enclosing custom autograd functions:
+
+```python
+torch_ggml_ops.mmq_inplace
+torch_ggml_ops.mmq_grad_input_inplace
+```
+
+Both mutate caller-owned destination tensors and return `None`; `mmq_inplace` also mutates its caller-owned Q8_1 workspace. They do not install autograd edges. Tensor operands may be contiguous nonzero-storage-offset views when their effective data pointers satisfy the required alignment. Native validation remains authoritative.
 
 There are deliberately no public dispatcher operators with these names. Direct legacy calls such as `torch.ops.torch_ggml_ops.mmq` are unsupported. The extension registers only private, allocation-free launch operators:
 - `_mmq_launch` and `_mmq_grad_input_launch`.
@@ -43,7 +52,7 @@ ceil(aggregate_rows / task_rows) + route_entries
 
 Serial paired routes receive zero-length task tensors. Output, workspace, task-count, task-expert, and task-range tensors are all visible to the private native launch.
 
-`torch_ggml_ops/_mmq_autograd.py` owns the custom autograd functions. Backward makes only autograd-owned cotangents contiguous; public inputs and packed weights are never copied or repaired.
+`torch_ggml_ops/_mmq_autograd.py` owns the custom autograd functions. Backward passes autograd-owned cotangents directly to the native input-gradient kernels; it does not insert a copy or transpose. Cotangents may be aligned contiguous views, and native validation rejects invalid layouts rather than repairing them.
 
 Python allocation is intentionally not a capability check. An unsupported request may allocate derived tensors first. The native launch validates the complete contract and exact deployment key before launching any GPU kernel.
 
@@ -55,8 +64,8 @@ C++ is authoritative for:
 - uint8 packed-weight and workspace dtypes.
 - int64 expert indices and int32 offsets/tasks.
 - exact ranks, physical packed shapes, logical output shapes, and element counts.
-- contiguity and zero storage offsets.
-- required pointer alignment.
+- contiguous layout; storage offset itself is unrestricted.
+- required effective-pointer alignment.
 - positive and bounded dimensions.
 - exactly 256 physical experts and 1-256 route entries for routed kernels.
 - exact operation, quant type, `M`, `N`, and `K` deployment membership.
@@ -184,7 +193,7 @@ Routed inputs have shape `[R,K]`; packed weights have physical shape `[256,N,pac
 | Forward | Q2_K | `R in {12288,49152,196608}`, `(N,K)=(4096,2048)` | Serial routes |
 | Paired forward | IQ2_S | `R in {16384,65536,262144}`, `(N,K)=(512,2048)` | Device tasks, 32 rows/task |
 | Paired forward | Q3_K | `R in {16384,65536,262144}`, `(N,K)=(512,2048)` | Device tasks, 64 rows/task |
-| Paired forward | IQ2_XXS | `R=196608`, `(N,K)=(2048,4096)` | Serial routes |
+| Paired forward | IQ2_XXS | `R in {12288,49152,196608}`, `(N,K)=(2048,4096)` | Serial routes |
 | Backward | Q4_K, Q5_K, IQ2_S | `R in {16384,65536,262144}`, `(N,K)=(512,2048)` | Exact serial/static-split policy per key |
 | Backward | Q2_K | `R in {12288,49152,196608}`, `(N,K)=(2048,4096)` | Exact serial/static-split policy per key |
 | Paired backward | Q3_K, IQ2_S | `R in {16384,65536,262144}`, `(N,K)=(2048,512)` | Exact pair policy per key |
@@ -207,7 +216,7 @@ Every other token count, group count, dimension, or quant type is unsupported.
 
 Expected hard failures include:
 - an unsupported exact deployment key.
-- invalid dtype, rank, shape, element count, layout, storage offset, alignment, or device.
+- invalid dtype, rank, shape, element count, layout, effective-pointer alignment, or device.
 - inconsistent paired problems or route metadata lengths.
 - missing, unreadable, invalid, or wrong-symbol artifacts.
 - HIP module or kernel-launch errors.
@@ -223,7 +232,7 @@ Changes to selected keys, bundle generation, launch packing, or public wrappers 
 - exact artifact-count and unique-symbol checks.
 - two-pass bundle reproducibility and `--check`.
 - editable or wheel build of the extension.
-- native validation tests for dtype, device, contiguity, storage offset, shape, element count, and alignment.
+- native validation tests for dtype, device, contiguity, shape, element count, and effective-pointer alignment.
 - packed-reference and independent numerical checks for affected forward/backward families.
 - autograd and `torch.compile(fullgraph=True)` checks for ordinary, grouped paired, and fixed paths.
 - the complete project test suite, pre-commit, and `git diff --check`.
