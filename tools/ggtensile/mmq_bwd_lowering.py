@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from .kernel_abi import ORDINARY_BACKWARD_ABI
 from .kernel_writer_assembly import (
+    LoweringResult,
     emit_add_pointer,
     emit_bf16_rne,
     emit_kernel_trailer,
@@ -13,7 +14,6 @@ from .kernel_writer_assembly import (
 )
 from .mmq_bwd_emission import (
     BackwardDiagnosticMode,
-    BackwardLoweringResult,
     BackwardTileAccess,
     PendingZeroPairableOp,
     _Assembly,
@@ -81,10 +81,8 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         emit_kernel_trailer(asm, kernel_name)
         return asm.text()
 
-    def ordinary_emission(self, kernel_name: str) -> BackwardLoweringResult:
-        return BackwardLoweringResult(
-            self.ordinary_body(kernel_name), self.trailing_sections()
-        )
+    def ordinary_emission(self, kernel_name: str) -> LoweringResult:
+        return LoweringResult(self.ordinary_body(kernel_name), self.trailing_sections())
 
     def emit_quant_constants(self, asm: _Assembly) -> None:
         self._emit_quant_constants(asm)
@@ -199,9 +197,11 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
                 asm.inst(f"v_readfirstlane_b32 s{r.scalar_temporary + 1}, v{r.serial}")
                 asm.inst(f"s_cmp_lt_u32 s{r.scalar_temporary + 1}, 128")
                 asm.inst(f"s_cbranch_scc0 {self._label('DecodeReady')}")
-            schedule = self.state.spec.pipeline.schedule
-            self._emit_quant_global_reads(asm, wait_for_reads=not schedule.prefetches_a)
-            if schedule.prefetches_a:
+            iteration = self.state.spec.pipeline.iteration
+            self._emit_quant_global_reads(
+                asm, wait_for_reads=not iteration.prefetch_activation
+            )
+            if iteration.prefetch_activation:
                 self._emit_first_a_global_reads(asm)
                 a_load_count = (
                     2
@@ -328,7 +328,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         r = self.registers
         size = self.state.contract.problem_size
         geometry = self.state.spec.geometry
-        prefetch_a = self.state.spec.pipeline.schedule.prefetches_a
+        prefetch_a = self.state.spec.pipeline.iteration.prefetch_activation
         a_load_count = 0
         if prefetch_a:
             a_load_count = (
@@ -372,7 +372,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
                     self._emit_pipeline_lds_read_addresses(asm, 0)
                     if (
                         self.state.contract.quant_type == "Q5_K"
-                        and self.state.spec.decode.q5.hoists_nibble_shift
+                        and self.state.spec.decode.hoists_bitfield_shift
                     ):
                         self._emit_q45_nibble_shift(asm)
                 self._emit_quant_decode_chunk(asm, pair)
@@ -597,7 +597,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
                 asm.inst(f"v_mov_b32 v{lds_address}, 0")
 
         geometry = self.state.spec.geometry
-        if not self.state.spec.pipeline.schedule.prefetches_a:
+        if not self.state.spec.pipeline.iteration.prefetch_activation:
             return
         m_tiles = geometry.matrix_instruction[5]
         m_per_wave = 16 * m_tiles
@@ -663,7 +663,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         a = r.address
         t = r.temporary
         asm.comment("Load A and issue two DepthU=16 WMMA halves.")
-        if not self.state.spec.pipeline.schedule.prefetches_a:
+        if not self.state.spec.pipeline.iteration.prefetch_activation:
             asm.inst(f"v_lshrrev_b32 v{t}, 5, v{r.serial}")
             emit_scale_u32(asm, t, m_per_wave, t)
             asm.inst(f"v_and_b32 v{t + 1}, 15, v{r.serial}")
@@ -675,7 +675,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         else:
             asm.comment("Reuse prefetched A pointers across fused B decode.")
         for k_tile in range(0, geometry.depth_u, 16):
-            if self.state.spec.pipeline.schedule.prefetches_a:
+            if self.state.spec.pipeline.iteration.prefetch_activation:
                 if k_tile and self.state.spec.pipeline.global_read_prefetch == 1:
                     for m_tile in range(m_tiles):
                         pointer = a + m_tile
@@ -801,7 +801,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
                         second,
                         *pair_lds_arguments,
                     )
-                    if self.state.spec.pipeline.schedule.interleaves_wmma_waits:
+                    if self.state.spec.pipeline.iteration.interleave_wmma_waits:
                         trailing_a_loads = (
                             2 * m_tiles
                             if self.state.spec.pipeline.uses_two_global_reads
@@ -819,7 +819,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
                             trailing_a_loads=trailing_a_loads,
                         )
                     else:
-                        if self.state.spec.pipeline.schedule.uses_prefetch_activation_waits:
+                        if self.state.spec.pipeline.iteration.uses_prefetch_activation_waits:
                             needs_depth64_a_wait = (
                                 (
                                     pipeline

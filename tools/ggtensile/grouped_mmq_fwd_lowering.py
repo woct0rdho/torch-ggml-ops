@@ -3,25 +3,25 @@
 from dataclasses import dataclass
 from typing import cast
 
-from .grouped_mmq_fwd_model import GroupedForwardSolutionKey
+from .grouped_mmq_fwd_model import GroupedForwardProblem
 from .grouped_mmq_fwd_physical import GroupedDirectPhysicalPlan
 from .grouped_mmq_fwd_route import GroupedRouteEmitter
 from .grouped_mmq_fwd_spec import DerivedGroupedForwardState
-from .kernel_writer_assembly import Assembly, emit_bf16_rne, emit_kernel_trailer
+from .kernel_writer_assembly import (
+    Assembly,
+    LoweringResult,
+    emit_bf16_rne,
+    emit_kernel_trailer,
+)
 from .mmq_fwd_lowering_metadata import emit_packed_scale_minimum
 from .mmq_fwd_lowering_mma import emit_signed_i8_wmma
 
 
 @dataclass(frozen=True)
 class GroupedForwardLoweringContext:
-    solution_key: GroupedForwardSolutionKey
+    kernel_name: str
+    problem: GroupedForwardProblem
     state: DerivedGroupedForwardState
-
-
-@dataclass(frozen=True)
-class GroupedForwardLoweringResult:
-    body: str
-    trailing_sections: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -33,8 +33,8 @@ class GroupedPackedScaleMinimumDirectLowering:
     def _physical_plan(self) -> GroupedDirectPhysicalPlan:
         return cast(GroupedDirectPhysicalPlan, self.context.state.physical_plan)
 
-    def emission(self) -> GroupedForwardLoweringResult:
-        return GroupedForwardLoweringResult(self.body())
+    def emission(self) -> LoweringResult:
+        return LoweringResult(self.body())
 
     def body(self) -> str:
         state = self.context.state
@@ -42,14 +42,14 @@ class GroupedPackedScaleMinimumDirectLowering:
         vector = physical.vector_registers
         scalar = physical.scalar_registers
         asm = Assembly()
-        name = self.context.solution_key.kernel_name
+        name = self.context.kernel_name
 
         GroupedRouteEmitter(scalar, state.route).emit(asm)
 
         asm.inst(
             f"s_mul_i32 s{scalar.activation_plane_stride.first_register}, "
             f"s{scalar.nrows_activation.first_register}, "
-            f"{self.context.solution_key.solution.activation_block_bytes}"
+            f"{state.contract.activation_block_bytes}"
         )
         asm.inst(
             f"s_lshl_b32 s{scalar.activation_block_stride.first_register}, "
@@ -97,12 +97,12 @@ class GroupedPackedScaleMinimumDirectLowering:
             address = vector.result_weight_addresses.first_register + element
             asm.inst(
                 f"v_add_nc_u32 v{address}, "
-                f"{self.context.solution_key.solution.packed_weight_block_bytes}, "
+                f"{state.contract.packed_weight_block_bytes}, "
                 f"v{address}"
             )
         asm.inst(
             f"v_add_nc_u32 v{vector.weight_address.first_register}, "
-            f"{self.context.solution_key.solution.packed_weight_block_bytes}, "
+            f"{state.contract.packed_weight_block_bytes}, "
             f"v{vector.weight_address.first_register}"
         )
         for address in vector.activation_addresses.registers:
@@ -124,7 +124,7 @@ class GroupedPackedScaleMinimumDirectLowering:
         asm.inst(
             f"s_add_u32 s{scalar.row_start.first_register}, "
             f"s{scalar.row_start.first_register}, "
-            f"{self.context.solution_key.solution.macro_tile0}"
+            f"{state.kernel_spec.geometry.macro_tile[0]}"
         )
         asm.inst(
             f"s_cmp_lt_u32 s{scalar.row_start.first_register}, "
@@ -184,7 +184,7 @@ class GroupedPackedScaleMinimumDirectLowering:
         )
         asm.inst(
             f"v_mul_lo_u32 v{vector.activation_addresses.first_register}, "
-            f"{self.context.solution_key.solution.activation_block_bytes}, "
+            f"{state.contract.activation_block_bytes}, "
             f"v{vector.activation_row.first_register}"
         )
         asm.inst(
@@ -267,7 +267,7 @@ class GroupedPackedScaleMinimumDirectLowering:
             weight=vector.weight_payload.first_register,
             activation=vector.activation_payload.first_register,
             accumulator=vector.c.first_register,
-            clamp=self.context.solution_key.solution.wmma_clamp,
+            clamp=state.contract.wmma_clamp,
         )
         emit_signed_i8_wmma(
             asm,
@@ -275,7 +275,7 @@ class GroupedPackedScaleMinimumDirectLowering:
             weight=vector.weight_payload.first_register + 4,
             activation=vector.activation_payload.first_register + 4,
             accumulator=vector.c.first_register,
-            clamp=self.context.solution_key.solution.wmma_clamp,
+            clamp=state.contract.wmma_clamp,
         )
         self._emit_scaled_accumulate(asm, group)
 
@@ -352,7 +352,7 @@ class GroupedPackedScaleMinimumDirectLowering:
             )
 
     def _emit_store(self, asm: Assembly) -> None:
-        problem = self.context.solution_key.problem
+        problem = self.context.problem
         physical = self._physical_plan()
         vector = physical.vector_registers
         scalar = physical.scalar_registers

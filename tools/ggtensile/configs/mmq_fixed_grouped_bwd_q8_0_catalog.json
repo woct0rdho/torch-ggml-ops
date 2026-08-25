@@ -1,0 +1,101 @@
+{
+  "KernelFamily": "FixedGroupedBackward",
+  "Target": {
+    "ISA": [
+      11,
+      5,
+      1
+    ],
+    "WavefrontSize": 32,
+    "MatrixInstructionSet": "WmmaV1",
+    "CodeObjectVersion": 5
+  },
+  "ProblemType": {
+    "QuantDataType": "Q8_0",
+    "DataTypeA": "BFloat16",
+    "DataTypeB": "Q8_0",
+    "DestinationDataType": "BFloat16",
+    "ComputeDataType": "Float32",
+    "TransposeA": false,
+    "TransposeB": false
+  },
+  "KernelSpecs": [
+    {
+      "Compute": {
+        "Geometry": {
+          "WorkGroup": [
+            32,
+            4,
+            1
+          ],
+          "MIWaveTile": [
+            2,
+            8
+          ],
+          "DepthU": 64,
+          "WorkGroupMapping": 1
+        },
+        "Memory": {
+          "LdsLayout": {
+            "Kind": "Padded",
+            "LdsPadB": 8
+          }
+        },
+        "Pipeline": {
+          "PrefetchGlobalRead": 2,
+          "PrefetchLocalRead": 1,
+          "DoubleBufferLds": false,
+          "PrefetchActivation": true,
+          "InterleaveWmmaWaits": false,
+          "PrefetchPackedWeight": true,
+          "PrefetchNextPackedWeight": false,
+          "PackedWeightLaneShare": 1
+        },
+        "Store": {
+          "Priority": "Raised"
+        },
+        "Decode": {
+          "PayloadExtraction": "Packed"
+        }
+      },
+      "Epilogue": {
+        "StoreSchedule": "ElementSerial"
+      },
+      "Addressing": {
+        "WorkGroupOrder": "NMajor",
+        "GroupAxis": "WorkGroupZ",
+        "RowLayout": "TokenMajorGroupInterleaved",
+        "PackedWeightLayout": "GroupMajorRows"
+      }
+    }
+  ],
+  "ExactLogic": [
+    {
+      "Problem": {
+        "M": 2048,
+        "N": 4096,
+        "K": 1024,
+        "GroupCount": 8
+      },
+      "KernelSpecIndex": 0
+    },
+    {
+      "Problem": {
+        "M": 8192,
+        "N": 4096,
+        "K": 1024,
+        "GroupCount": 8
+      },
+      "KernelSpecIndex": 0
+    },
+    {
+      "Problem": {
+        "M": 32768,
+        "N": 4096,
+        "K": 1024,
+        "GroupCount": 8
+      },
+      "KernelSpecIndex": 0
+    }
+  ]
+}

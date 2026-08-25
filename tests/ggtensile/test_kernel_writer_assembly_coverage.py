@@ -60,7 +60,7 @@ def test_shared_assembly_primitives_and_source_write(tmp_path: Path) -> None:
             ),
         )
     )
-    with pytest.raises(ValueError, match="three leading pointer"):
+    with pytest.raises(AssertionError):
         emit_pointer_kernarg_loads(Assembly(), 4, short_abi)
 
 
@@ -88,22 +88,22 @@ def test_deterministic_register_plan_uses_explicit_order_and_lifetimes() -> None
 
 
 def test_deterministic_register_plan_rejects_incomplete_or_impossible_plans() -> None:
-    with pytest.raises(ValueError, match="invalid register lifetime"):
+    with pytest.raises(AssertionError):
         RegisterLifetime(2, 1)
-    with pytest.raises(ValueError, match="positive width"):
+    with pytest.raises(AssertionError):
         RegisterRole("", 0, RegisterLifetime(0, 0))
-    with pytest.raises(ValueError, match="alignment or minimum"):
+    with pytest.raises(AssertionError):
         RegisterRole("bad", 1, RegisterLifetime(0, 0), alignment=0)
     role = RegisterRole("value", 2, RegisterLifetime(0, 1))
-    with pytest.raises(ValueError, match="max_registers"):
+    with pytest.raises(AssertionError):
         DeterministicRegisterPlan.allocate({}, (), max_registers=0)
-    with pytest.raises(ValueError, match="exactly once"):
+    with pytest.raises(AssertionError):
         DeterministicRegisterPlan.allocate({"value": role}, (), max_registers=2)
-    with pytest.raises(ValueError, match="mapping key"):
+    with pytest.raises(AssertionError):
         DeterministicRegisterPlan.allocate({"other": role}, ("other",), max_registers=2)
     reserved_role = RegisterRole("reserved", 2, RegisterLifetime(0, 1))
     reserved = RegisterAssignment(reserved_role, 0)
-    with pytest.raises(ValueError, match="exceeds the register limit"):
+    with pytest.raises(AssertionError):
         DeterministicRegisterPlan.allocate(
             {"value": role},
             ("value",),
@@ -131,33 +131,33 @@ def test_deterministic_register_pool_uses_explicit_checkout_and_reuse() -> None:
     reused = pool.checkout(RegisterRole("reused", 1, lifetime))
     assert reused.first_register == 1
 
-    with pytest.raises(ValueError, match="already checked out"):
+    with pytest.raises(AssertionError):
         pool.checkout(RegisterRole("reused", 1, lifetime))
-    with pytest.raises(ValueError, match="cannot be checked out at v3"):
+    with pytest.raises(AssertionError):
         pool.checkout(
             RegisterRole("too_wide", 2, lifetime),
             preferred_register=3,
         )
-    with pytest.raises(ValueError, match="cannot be checked out"):
+    with pytest.raises(AssertionError):
         pool.checkout(RegisterRole("too_high", 1, lifetime, minimum_register=4))
-    with pytest.raises(ValueError, match="is not checked out"):
+    with pytest.raises(AssertionError):
         pool.checkin("missing")
     with pytest.raises(KeyError):
         pool.assignment("missing")
 
 
 def test_deterministic_register_pool_rejects_invalid_state() -> None:
-    with pytest.raises(ValueError, match="nonnegative"):
+    with pytest.raises(AssertionError):
         DeterministicRegisterPool(())
-    with pytest.raises(ValueError, match="nonnegative"):
+    with pytest.raises(AssertionError):
         DeterministicRegisterPool((-1,))
-    with pytest.raises(ValueError, match="unique"):
+    with pytest.raises(AssertionError):
         DeterministicRegisterPool((1, 1))
 
     pool = DeterministicRegisterPool((0,))
     assignment = pool.checkout(RegisterRole("owned", 1, RegisterLifetime(0, 0)))
     pool._owners[assignment.first_register] = "other"
-    with pytest.raises(ValueError, match="ownership mismatch"):
+    with pytest.raises(AssertionError):
         pool.checkin("owned")
 
 

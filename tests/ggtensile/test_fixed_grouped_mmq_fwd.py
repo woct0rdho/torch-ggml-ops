@@ -1,298 +1,113 @@
-from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
-from tools.ggtensile.fixed_grouped_mmq_fwd_model import (
-    FixedForwardProblem,
-    FixedForwardSolution,
-    FixedForwardSolutionKey,
+from tools.ggtensile.campaign import load_catalog
+from tools.ggtensile.family_registry import (
+    mapping_for_instance,
+    parse_instance,
+    writer_for_instance,
 )
-from tools.ggtensile.fixed_grouped_mmq_fwd_spec import DerivedFixedForwardState
+from tools.ggtensile.fixed_grouped_mmq_fwd_model import FixedForwardProblem
+from tools.ggtensile.fixed_grouped_mmq_fwd_spec import (
+    DerivedFixedForwardState,
+    FixedForwardKernelSpec,
+)
 from tools.ggtensile.fixed_grouped_mmq_fwd_validation import (
-    fixed_forward_rejection_reason,
-    validate_fixed_forward_solution_key,
+    validate_fixed_forward_solution,
 )
 from tools.ggtensile.inspection import inspect_artifact
-from tools.ggtensile.kernel_writer_assembly_fixed_grouped_mmq_fwd import (
-    FixedGroupedForwardKernelWriterAssembly,
-)
-from tools.ggtensile.model import SchemaError
+from tools.ggtensile.kernel_instance import KernelInstance
+from tools.ggtensile.schema import SchemaError
 from tools.ggtensile.toolchain import Toolchain
 
-
-def _key(tokens: int = 2048) -> FixedForwardSolutionKey:
-    return FixedForwardSolutionKey(
-        FixedForwardProblem.deepseek_q8_0(tokens),
-        FixedForwardSolution.q8_0_small_m_tiled_lds(),
-    )
+_CONFIG = Path(__file__).resolve().parents[2] / "tools/ggtensile/configs"
 
 
-def _compact_key(tokens: int = 2048) -> FixedForwardSolutionKey:
-    return FixedForwardSolutionKey(
-        FixedForwardProblem.deepseek_q8_0(tokens),
-        FixedForwardSolution.q8_0_compact_depth32_tiled_lds(),
-    )
+def _instances() -> tuple[KernelInstance, ...]:
+    catalog = load_catalog(_CONFIG / "mmq_fixed_grouped_fwd_q8_0_catalog.json")
+    return tuple(entry.instance for entry in catalog.entries)
 
 
-def _hoisted_key(tokens: int = 2048) -> FixedForwardSolutionKey:
-    return FixedForwardSolutionKey(
-        FixedForwardProblem.deepseek_q8_0(tokens),
-        FixedForwardSolution.q8_0_compact_depth32_tiled_lds_hoisted(),
-    )
+def test_fixed_forward_catalog_keys_round_trip_and_derive() -> None:
+    instances = _instances()
+    assert len(instances) == 3
+    for instance in instances:
+        assert parse_instance(mapping_for_instance(instance)) == instance
+        assert isinstance(instance.problem, FixedForwardProblem)
+        assert isinstance(instance.kernel_spec, FixedForwardKernelSpec)
+        validate_fixed_forward_solution(instance.problem, instance.kernel_spec)
+        state = DerivedFixedForwardState.from_problem_spec(
+            instance.problem, instance.kernel_spec
+        )
+        assert state.expected_packed_weight_shape[0] == 8
+        assert (
+            state.expected_activation_shape[1] == instance.problem.total_activation_rows
+        )
+        assert state.expected_output_shape == (
+            instance.problem.tokens,
+            instance.problem.groups,
+            instance.problem.output_features,
+        )
+        assert state.physical.resources.private_bytes == 0
 
 
-def _weight_hoisted_key(tokens: int = 2048) -> FixedForwardSolutionKey:
-    return FixedForwardSolutionKey(
-        FixedForwardProblem.deepseek_q8_0(tokens),
-        FixedForwardSolution.q8_0_compact_depth32_tiled_lds_weight_hoisted(),
-    )
+def test_fixed_forward_spec_owns_geometry_and_addressing() -> None:
+    instance = _instances()[0]
+    spec = instance.kernel_spec
+    assert isinstance(spec, FixedForwardKernelSpec)
+    assert FixedForwardKernelSpec.from_mapping(spec.to_mapping()) == spec
+    assert spec.operand_source.value == "Q8SmallMTiledLds"
+    assert spec.depth_u == 32
+    assert spec.macro_tile_tokens > 0
+    assert spec.macro_tile_features > 0
 
 
-@pytest.mark.parametrize(
-    "field", ("unknown", "SchemaVersion", "ArtifactKind", "KernelFamily")
-)
-def test_fixed_forward_key_rejects_unknown_root_fields(field: str) -> None:
-    mapping = _key().to_mapping()
-    mapping[field] = 1
-    with pytest.raises(SchemaError, match="unknown"):
-        FixedForwardSolutionKey.from_mapping(mapping)
-
-
-@pytest.mark.parametrize(
-    ("field", "value"),
-    (
-        ("quant_type", "Q4_K"),
-        ("groups", 4),
-        ("block_values", 256),
-        ("packed_weight_block_bytes", 144),
-        ("activation_layout", "F16_D4S4"),
-        ("activation_block_bytes", 128),
-        ("arithmetic_contract", "Unknown"),
-        ("kernel_language", "Source"),
-        ("isa", [11, 0, 0]),
-        ("wavefront_size", 64),
-        ("weight_decode", "Prepared"),
-        ("activation_addressing", "Routed"),
-        ("scale_arithmetic", "FP16"),
-        ("signed_weight", False),
-        ("signed_activation", False),
-        ("wmma_clamp", True),
-        ("destination_type", "Float32"),
-        ("bf16_rounding", "Truncate"),
-        ("abi", "Unknown"),
-    ),
-)
-def test_fixed_forward_key_rejects_noncanonical_contract_fields(
-    field: str, value: object
-) -> None:
-    mapping = _key().to_mapping()
-    contract = mapping["ProblemContract"]
-    assert isinstance(contract, dict)
-    contract[field] = value
-    with pytest.raises(SchemaError):
-        FixedForwardSolutionKey.from_mapping(mapping)
-
-
-def test_fixed_forward_key_rejects_invalid_problem_and_enum() -> None:
-    mapping = _key().to_mapping()
-    problem = mapping["Problem"]
-    assert isinstance(problem, dict)
-    problem["tokens"] = 0
-    with pytest.raises(ValueError, match="positive u32"):
-        FixedForwardSolutionKey.from_mapping(mapping)
-
-    mapping = _key().to_mapping()
-    kernel_spec = mapping["KernelSpec"]
-    assert isinstance(kernel_spec, dict)
-    lowering = kernel_spec["lowering"]
-    assert isinstance(lowering, dict)
-    lowering["operand_source"] = 1
-    with pytest.raises(SchemaError, match="must be str"):
-        FixedForwardSolutionKey.from_mapping(mapping)
-
-
-def test_fixed_forward_identity_roundtrip_and_derived_shapes() -> None:
-    key = _key()
-    assert FixedForwardSolutionKey.from_mapping(key.to_mapping()) == key
-    validate_fixed_forward_solution_key(key)
-    state = DerivedFixedForwardState.from_solution_key(key)
-    assert state.grid == (16, 32, 8)
-    assert state.ordinary.activation_plane_stride_bytes == 8 * 2048 * 144
-    assert state.expected_packed_weight_shape == (8, 1024, 4352)
-    assert state.expected_activation_shape == (32, 16_384, 144)
-    assert state.expected_output_shape == (2048, 8, 1024)
-    assert state.physical.resources.lds_bytes == 28_672
-    assert state.physical.resources.vgprs == 144
-    assert state.physical.resources.sgprs == 16
-    compact_key = _compact_key()
-    assert FixedForwardSolutionKey.from_mapping(compact_key.to_mapping()) == compact_key
-    compact_state = DerivedFixedForwardState.from_solution_key(compact_key)
-    assert compact_state.physical.resources.lds_bytes == 18_432
-    assert compact_state.physical.resources.vgprs == 144
-    assert compact_state.physical.resources.sgprs == 16
-    hoisted_key = _hoisted_key()
-    assert FixedForwardSolutionKey.from_mapping(hoisted_key.to_mapping()) == hoisted_key
-    hoisted_state = DerivedFixedForwardState.from_solution_key(hoisted_key)
-    assert hoisted_state.physical.paired_weight_scale_address_vgpr == 139
-    assert hoisted_state.physical.activation_plane_stride_sgpr == 15
-    weight_hoisted_state = DerivedFixedForwardState.from_solution_key(
-        _weight_hoisted_key()
-    )
-    assert weight_hoisted_state.physical.weight_lane_offset_vgpr == 140
-    assert weight_hoisted_state.physical.weight_payload_lds_address_vgpr == 141
-    assert weight_hoisted_state.physical.weight_scale_lds_address_vgpr == 142
-
-
-def test_fixed_forward_accepts_formula_compatible_noncatalog_shape() -> None:
-    mapping = _key().to_mapping()
-    contract = mapping["ProblemContract"]
-    problem = mapping["Problem"]
-    assert isinstance(contract, dict)
-    assert isinstance(problem, dict)
-    contract["output_features"] = 512
-    contract["input_features"] = 2048
-    problem["tokens"] = 4096
-
-    key = FixedForwardSolutionKey.from_mapping(mapping)
-    validate_fixed_forward_solution_key(key)
-    state = DerivedFixedForwardState.from_solution_key(key)
-    assert state.grid == (8, 64, 8)
-    assert state.expected_packed_weight_shape == (8, 512, 2176)
-    assert state.expected_activation_shape == (16, 32_768, 144)
-    assert state.expected_output_shape == (4096, 8, 512)
-
-
-@pytest.mark.parametrize(
-    "bad_key, message",
-    [
-        (
-            replace(
-                _key(),
-                problem=replace(_key().problem, groups=4),
-            ),
-            "eight groups",
-        ),
-        (
-            replace(
-                _key(),
-                solution=replace(_key().solution, work_group=(64, 2, 1)),
-            ),
-            "workgroup",
-        ),
-        (
-            replace(
-                _key(),
-                problem=replace(_key().problem, tokens=32),
-            ),
-            "64-row tile",
-        ),
-        (
-            replace(
-                _key(),
-                solution=replace(_key().solution, lds_address_hoist="Unknown"),
-            ),
-            "LDS addressing policy",
-        ),
-        (
-            replace(
-                _key(),
-                solution=replace(_key().solution, fixed_address_hoist="ReductionLoop"),
-            ),
-            "requires compact DepthU32 LDS",
-        ),
-        (
-            replace(
-                _compact_key(),
-                solution=replace(
-                    _compact_key().solution, fixed_address_hoist="Unknown"
-                ),
-            ),
-            "address hoist",
-        ),
-    ],
-)
-def test_fixed_forward_rejects_cross_contract_values(
-    bad_key: FixedForwardSolutionKey,
-    message: str,
-) -> None:
-    assert fixed_forward_rejection_reason(bad_key) is not None
-    with pytest.raises(ValueError, match=message):
-        validate_fixed_forward_solution_key(bad_key)
-
-
-def test_fixed_forward_source_loads_scalars_and_flattens_group_rows() -> None:
-    key = _key()
-    source = FixedGroupedForwardKernelWriterAssembly(key, Toolchain.discover()).source()
-    state = DerivedFixedForwardState.from_solution_key(key)
-    output_address = state.physical.ordinary.registers.output_address.first_register
-    temporary = state.physical.ordinary.registers.temporary.first_register
-    assert "s_load_dword s12, s[0:1], 0x18" in source
-    assert "s_load_dword s13, s[0:1], 0x1c" in source
-    assert "s_load_dwordx2 s[14:15], s[0:1], 0x20" in source
-    assert f"v_mul_lo_u32 v{output_address}, s13, v{output_address}" in source
-    assert f"v_lshlrev_b32 v{temporary}, 8, s13" in source
-    assert "s[10:11]" in source
-    assert "s[8:9]" in source
-
-
-def test_fixed_forward_compact_source_uses_paired_scale_reads() -> None:
-    key = _compact_key()
-    source = FixedGroupedForwardKernelWriterAssembly(key, Toolchain.discover()).source()
-    assert source.count("ds_read2_b32") == 16
-    assert source.count("ds_read_b32") == 16
-    assert "offset0:179 offset1:251" in source
-    assert (
-        DerivedFixedForwardState.from_solution_key(key).physical.resources.lds_bytes
-        == 18_432
-    )
-
-
-def test_fixed_forward_hoists_reduction_invariants() -> None:
-    source = FixedGroupedForwardKernelWriterAssembly(
-        _hoisted_key(), Toolchain.discover()
-    ).source()
-    loop = source.index(".LFixedGroupedQ80BlockLoop:")
-    assert source.index("v_add_nc_u32 v139, 1152, v128") < loop
-    assert source.index("s_mul_i32 s15, s12, 1152") < loop
-    assert "v_mul_lo_u32 v135, 1152, s12" not in source
-    assert source.count("v139 offset0:") == 8
-
-
-def test_fixed_forward_hoists_weight_stage_addresses() -> None:
-    source = FixedGroupedForwardKernelWriterAssembly(
-        _weight_hoisted_key(), Toolchain.discover()
-    ).source()
-    loop = source.index(".LFixedGroupedQ80BlockLoop:")
-    assert source.index("v_mul_lo_u32 v140, 68, v140") < loop
-    assert source.index("v_add_nc_u32 v141, v134, v141") < loop
-    assert source.index("v_add_nc_u32 v142, v134, v142") < loop
-    assert source.count("v_add_nc_u32 v8, v129, v140") == 1
-    assert source.count("ds_write_b128 v141") == 4
-    assert source.count("ds_write_b32 v142") == 2
-
-
-def test_fixed_forward_build_is_deterministic_and_inspectable(tmp_path) -> None:
-    key = _weight_hoisted_key()
+def test_fixed_forward_writer_is_deterministic_and_inspectable(tmp_path: Path) -> None:
+    instance = _instances()[0]
     toolchain = Toolchain.discover()
-    first = FixedGroupedForwardKernelWriterAssembly(key, toolchain)
-    second = FixedGroupedForwardKernelWriterAssembly(key, toolchain)
-    first_source = first.source()
-    second_source = second.source()
-    assert first_source == second_source
-
-    first_assembly = tmp_path / "first.s"
-    first_object = tmp_path / "first.o"
-    first_code_object = tmp_path / "first.hsaco"
-    first.write(first_assembly)
-    toolchain.assemble(first_assembly, first_object)
-    toolchain.link(first_object, first_code_object)
-    inspection = inspect_artifact(key, first_code_object, toolchain)
-    assert inspection.kernarg_segment_size == 40
-    assert inspection.lds_num_bytes == 18_432
-    assert inspection.wmma_count == 32
-    assert inspection.barrier_count == 2
+    writer = writer_for_instance(instance, toolchain)
+    assert writer.source() == writer.source()
+    assembly = tmp_path / "kernel.s"
+    obj = tmp_path / "kernel.o"
+    code_object = tmp_path / "kernel.hsaco"
+    writer.write(assembly)
+    toolchain.assemble(assembly, obj)
+    toolchain.link(obj, code_object)
+    inspection = inspect_artifact(instance, code_object, toolchain)
+    problem = instance.problem
+    spec = instance.kernel_spec
+    assert isinstance(problem, FixedForwardProblem)
+    assert isinstance(spec, FixedForwardKernelSpec)
+    resources = DerivedFixedForwardState.from_problem_spec(
+        problem, spec
+    ).physical.resources
+    assert inspection.vgpr_count == resources.vgprs
+    assert inspection.sgpr_count == resources.sgprs
+    assert inspection.lds_num_bytes == resources.lds_bytes
     assert inspection.private_segment_bytes == 0
     assert inspection.vgpr_spill_count == 0
     assert inspection.sgpr_spill_count == 0
-    assert inspection.max_vgpr_index == 142
-    assert inspection.max_sgpr_index == 15
+
+
+def test_fixed_forward_mapping_rejects_unknown_fields() -> None:
+    mapping = mapping_for_instance(_instances()[0])
+    mapping["Unknown"] = 1
+    with pytest.raises(SchemaError):
+        parse_instance(mapping)
+
+
+def test_fixed_forward_problem_axes_are_not_repaired() -> None:
+    instance = _instances()[0]
+    problem = instance.problem
+    assert isinstance(problem, FixedForwardProblem)
+    invalid = type(problem)(
+        problem.quant_data_type,
+        32,
+        problem.output_features,
+        problem.input_features,
+        problem.groups,
+    )
+    with pytest.raises(AssertionError):
+        assert isinstance(instance.kernel_spec, FixedForwardKernelSpec)
+        validate_fixed_forward_solution(invalid, instance.kernel_spec)

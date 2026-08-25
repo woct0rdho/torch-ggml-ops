@@ -4,16 +4,20 @@ from .grouped_mmq_bwd_lowering import (
     GroupedBackwardTileAccess,
     GroupedBackwardTileComputeEmitter,
 )
-from .grouped_mmq_bwd_pair_model import GroupedBackwardPairProjectionSchedule
 from .grouped_mmq_bwd_pair_physical import (
     GroupedBackwardPairPhysicalPlan,
     GroupedBackwardPairScalarPlan,
 )
 from .grouped_mmq_bwd_pair_spec import DerivedGroupedBackwardPairState
 from .kernel_abi import GROUPED_BACKWARD_PAIR_ABI
-from .kernel_writer_assembly import emit_kernel_trailer, emit_scale_sgpr_u32
-from .mmq_bwd_emission import BackwardLoweringResult, _Assembly
+from .kernel_writer_assembly import (
+    LoweringResult,
+    emit_kernel_trailer,
+    emit_scale_sgpr_u32,
+)
+from .mmq_bwd_emission import _Assembly
 from .mmq_bwd_lowering_quant import UnboundedBackwardTileAccess
+from .work_group_mapping import mapped_route_stride, work_group_mapping_shift
 
 
 class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
@@ -489,65 +493,18 @@ class GroupedBackwardPairKernelLowering:
         self.state = state
         self.physical = physical
         self.route_split_factor = state.kernel_spec.route_ownership.split_factor
-        global_codebook_pipeline = (
-            state.kernel_spec.projection_schedule
-            is GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU
+        self.work_group_mapping = state.kernel_spec.compute.geometry.work_group_mapping
+        self.effective_route_split_factor = mapped_route_stride(
+            self.route_split_factor,
+            self.work_group_mapping,
         )
-        split_full_tiles = (
-            state.kernel_spec.projection_schedule
-            in (
-                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitInterleavedDepthU,
-                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersInterleavedDepthU,
-                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU,
-                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersOverlapSecondReadPrefetchAInterleavedDepthU,
-                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU,
-                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
-                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
-                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
-            )
-            or global_codebook_pipeline
-        )
-        concurrent_reads = (
-            state.kernel_spec.projection_schedule
-            in (
-                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU,
-                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
-                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
-                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
-            )
-            or global_codebook_pipeline
-        )
-        prefetch_pair_a = (
-            state.kernel_spec.projection_schedule
-            in (
-                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU,
-                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersOverlapSecondReadPrefetchAInterleavedDepthU,
-                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
-                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
-                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
-            )
-            or global_codebook_pipeline
-        )
-        direct_second_pointers = (
-            state.kernel_spec.projection_schedule
-            in (
-                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersInterleavedDepthU,
-                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU,
-                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersOverlapSecondReadPrefetchAInterleavedDepthU,
-                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
-                GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
-            )
-            or global_codebook_pipeline
-        )
-        overlap_second_read_prefetch_a = (
-            state.kernel_spec.projection_schedule
-            is GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersOverlapSecondReadPrefetchAInterleavedDepthU
-        )
-        k_pipeline = (
-            state.kernel_spec.projection_schedule
-            is GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU
-            or global_codebook_pipeline
-        )
+        policy = state.kernel_spec.projection_policy
+        split_full_tiles = policy.split_full_tiles
+        concurrent_reads = policy.concurrent_reads
+        prefetch_pair_a = policy.activation_prefetch
+        direct_second_pointers = policy.direct_second_pointers
+        overlap_second_read_prefetch_a = policy.overlaps_second_read
+        k_pipeline = policy.pipeline_k
         self.compute = GroupedBackwardPairTileComputeEmitter(
             state.ordinary,
             physical.ordinary,
@@ -623,12 +580,22 @@ class GroupedBackwardPairKernelLowering:
 
         self._emit_kernarg_loads(asm)
         self._emit_exact_shape_guard(asm)
-        packed_split = self.route_split_factor > 1
-        if packed_split:
+        mapping = self.work_group_mapping
+        packed_split = self.route_split_factor > 1 or mapping > 1
+        if self.route_split_factor > 1:
             split_shift = self.route_split_factor.bit_length() - 1
             asm.comment("Split grid Y into a route index and strided M-tile task.")
             asm.inst(f"s_and_b32 s{r.input_half}, s3, {self.route_split_factor - 1}")
             asm.inst(f"s_lshr_b32 s3, s3, {split_shift}")
+        elif mapping > 1:
+            asm.inst(f"s_mov_b32 s{r.input_half}, 0")
+        if mapping > 1:
+            mapping_shift = work_group_mapping_shift(mapping)
+            asm.comment("Decode WGM-packed grid X into N and an M-task lane.")
+            asm.inst(f"s_and_b32 s{route.tile_end}, s2, {mapping - 1}")
+            asm.inst(f"s_lshr_b32 s2, s2, {mapping_shift}")
+            asm.inst(f"s_mul_i32 s{r.input_half}, s{r.input_half}, {mapping}")
+            asm.inst(f"s_add_u32 s{r.input_half}, s{r.input_half}, s{route.tile_end}")
         self._emit_route_load_and_guard(asm)
         self._emit_pointer_rebase(asm)
         self.compute.emit_quant_constants(asm)
@@ -646,7 +613,7 @@ class GroupedBackwardPairKernelLowering:
         )
         asm.inst(f"s_cmp_ge_u32 s3, {n_tiles}")
         asm.inst(f"s_cbranch_scc1 {self.EXIT_LABEL}")
-        if self.route_split_factor > 1:
+        if self.effective_route_split_factor > 1:
             emit_scale_sgpr_u32(
                 asm,
                 route.tile_end,
@@ -661,7 +628,7 @@ class GroupedBackwardPairKernelLowering:
         if self.full_compute is None:
             asm.label(".LGroupedBackwardPairRowTile")
             self.compute.emit_tile(asm)
-            asm.inst("s_add_u32 s2, s2, 1")
+            asm.inst(f"s_add_u32 s2, s2, {self.effective_route_split_factor}")
             emit_scale_sgpr_u32(
                 asm,
                 route.tile_end,
@@ -671,7 +638,7 @@ class GroupedBackwardPairKernelLowering:
             asm.inst(f"s_cmp_lt_u32 s{route.tile_end}, s{route.route_rows}")
             asm.inst("s_cbranch_scc1 .LGroupedBackwardPairRowTile")
         else:
-            if self.route_split_factor > 1:
+            if self.effective_route_split_factor > 1:
                 self._emit_split_full_and_tail_route_tiles(asm)
             else:
                 self._emit_full_and_tail_route_tiles(asm)
@@ -680,8 +647,8 @@ class GroupedBackwardPairKernelLowering:
         emit_kernel_trailer(asm, self.kernel_name)
         return asm.text()
 
-    def emission(self) -> BackwardLoweringResult:
-        return BackwardLoweringResult(
+    def emission(self) -> LoweringResult:
+        return LoweringResult(
             self.body(),
             self.compute.trailing_sections(),
         )
@@ -725,7 +692,7 @@ class GroupedBackwardPairKernelLowering:
         asm.inst(f"s_cbranch_scc0 {tail_label}")
         asm.label(full_label)
         self.full_compute.emit_tile(asm)
-        asm.inst(f"s_add_u32 s2, s2, {self.route_split_factor}")
+        asm.inst(f"s_add_u32 s2, s2, {self.effective_route_split_factor}")
         emit_scale_sgpr_u32(asm, route.tile_end, tile_rows, 2)
         asm.inst(f"s_cmp_ge_u32 s{route.tile_end}, s{route.route_rows}")
         asm.inst(f"s_cbranch_scc1 {done_label}")

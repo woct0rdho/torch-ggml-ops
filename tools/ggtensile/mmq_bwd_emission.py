@@ -1,6 +1,5 @@
 """Backward-specific assembly emission state."""
 
-from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
 
@@ -10,14 +9,6 @@ from .mmq_bwd_physical import BackwardRegisterPlan
 
 class BackwardKernelWriterError(RuntimeError):
     pass
-
-
-@dataclass(frozen=True)
-class BackwardLoweringResult:
-    """Body plus ordered sections owned by the selected typed lowering."""
-
-    body: str
-    trailing_sections: tuple[str, ...] = ()
 
 
 class BackwardDiagnosticMode(str, Enum):

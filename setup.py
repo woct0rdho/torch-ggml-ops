@@ -48,7 +48,7 @@ _enable_ccache()
 class BuildExtension(cpp_extension.BuildExtension):
     def run(self) -> None:
         subprocess.run(
-            [sys.executable, "tools/build_mmq_bundle.py"],
+            [sys.executable, "tools/mmq_deployment_bundle.py"],
             cwd=ROOT,
             check=True,
         )
@@ -57,11 +57,12 @@ class BuildExtension(cpp_extension.BuildExtension):
             Path(self.build_lib) / "torch_ggml_ops" / "kernels" / "gfx1151"
         )
         built_kernel_dir.mkdir(parents=True, exist_ok=True)
-        expected = {path.name for path in PACKAGE_KERNEL_DIR.glob("*.hsaco")}
-        for artifact in built_kernel_dir.glob("*.hsaco"):
-            if artifact.name not in expected:
+        package_files = list(PACKAGE_KERNEL_DIR.glob("*.hsaco"))
+        expected = {path.name for path in package_files}
+        for artifact in built_kernel_dir.iterdir():
+            if artifact.is_file() and artifact.name not in expected:
                 artifact.unlink()
-        for artifact in PACKAGE_KERNEL_DIR.glob("*.hsaco"):
+        for artifact in package_files:
             shutil.copy2(artifact, built_kernel_dir / artifact.name)
         shutil.rmtree(built_kernel_dir / "hip_controls", ignore_errors=True)
 

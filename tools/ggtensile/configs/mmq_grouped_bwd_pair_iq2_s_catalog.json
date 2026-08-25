@@ -1,0 +1,107 @@
+{
+  "KernelFamily": "GroupedBackwardPair",
+  "Target": {
+    "ISA": [
+      11,
+      5,
+      1
+    ],
+    "WavefrontSize": 32,
+    "MatrixInstructionSet": "WmmaV1",
+    "CodeObjectVersion": 5
+  },
+  "ProblemType": {
+    "QuantDataType": "IQ2_S",
+    "DataTypeA": "BFloat16",
+    "DataTypeB": "IQ2_S",
+    "DestinationDataType": "BFloat16",
+    "ComputeDataType": "Float32",
+    "TransposeA": false,
+    "TransposeB": false
+  },
+  "KernelSpecs": [
+    {
+      "Compute": {
+        "Geometry": {
+          "WorkGroup": [
+            32,
+            4,
+            1
+          ],
+          "MIWaveTile": [
+            2,
+            4
+          ],
+          "DepthU": 32,
+          "WorkGroupMapping": 1
+        },
+        "Memory": {
+          "LdsLayout": {
+            "Kind": "Linear"
+          }
+        },
+        "Pipeline": {
+          "PrefetchGlobalRead": 2,
+          "PrefetchLocalRead": 1,
+          "DoubleBufferLds": false,
+          "PrefetchActivation": true,
+          "InterleaveWmmaWaits": true,
+          "PrefetchPackedWeight": true,
+          "PrefetchNextPackedWeight": true,
+          "PackedWeightLaneShare": 1
+        },
+        "Store": {
+          "Priority": "Raised"
+        }
+      },
+      "Projection": {
+        "DualLds": true,
+        "CodebookStorage": "Global",
+        "SplitFullTiles": true,
+        "PointerMode": "Direct",
+        "ReadConcurrency": "Concurrent",
+        "ActivationPrefetch": true,
+        "PipelineK": true
+      },
+      "Ownership": {
+        "Kind": "PackedSplit",
+        "RouteSplitFactor": 8
+      }
+    }
+  ],
+  "ExactLogic": [
+    {
+      "Problem": {
+        "M": 16384,
+        "N": 2048,
+        "K": 512,
+        "ProjectionCount": 2,
+        "PhysicalExpertCount": 256,
+        "MaxRouteEntries": 256
+      },
+      "KernelSpecIndex": 0
+    },
+    {
+      "Problem": {
+        "M": 65536,
+        "N": 2048,
+        "K": 512,
+        "ProjectionCount": 2,
+        "PhysicalExpertCount": 256,
+        "MaxRouteEntries": 256
+      },
+      "KernelSpecIndex": 0
+    },
+    {
+      "Problem": {
+        "M": 262144,
+        "N": 2048,
+        "K": 512,
+        "ProjectionCount": 2,
+        "PhysicalExpertCount": 256,
+        "MaxRouteEntries": 256
+      },
+      "KernelSpecIndex": 0
+    }
+  ]
+}

@@ -4,24 +4,29 @@ import contextlib
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import torch
 
 from tools.ggtensile.dense_mmq_bwd_runtime import InstalledDenseBackwardModule
-from tools.ggtensile.fixed_grouped_mmq_bwd_model import FixedBackwardSolutionKey
-from tools.ggtensile.fixed_grouped_mmq_fwd_model import FixedForwardSolutionKey
-from tools.ggtensile.grouped_mmq_bwd_pair_model import GroupedBackwardPairSolutionKey
+from tools.ggtensile.family_registry import instance_name
+from tools.ggtensile.fixed_grouped_mmq_bwd_model import FixedBackwardProblem
+from tools.ggtensile.fixed_grouped_mmq_bwd_spec import FixedBackwardKernelSpec
+from tools.ggtensile.fixed_grouped_mmq_fwd_model import FixedForwardProblem
+from tools.ggtensile.fixed_grouped_mmq_fwd_spec import FixedForwardKernelSpec
+from tools.ggtensile.grouped_mmq_bwd_pair_model import GroupedBackwardPairProblem
 from tools.ggtensile.grouped_mmq_bwd_pair_runtime import (
     GroupedBackwardPairModule,
     InstalledGroupedBackwardPairIQ2SControl,
     InstalledGroupedBackwardPairIQ2XXSControl,
     InstalledGroupedBackwardPairQ3KControl,
 )
+from tools.ggtensile.grouped_mmq_bwd_pair_spec import GroupedBackwardPairKernelSpec
 from tools.ggtensile.grouped_mmq_bwd_runtime import InstalledGroupedBackwardControl
-from tools.ggtensile.grouped_mmq_fwd_model import GroupedForwardSolutionKey
+from tools.ggtensile.grouped_mmq_bwd_spec import GroupedBackwardKernelSpec
+from tools.ggtensile.grouped_mmq_fwd_model import GroupedForwardProblem
 from tools.ggtensile.grouped_mmq_fwd_pair_model import (
-    GroupedForwardPairSolutionKey,
+    GroupedForwardPairProblem,
     GroupedPairRouteOwnership,
 )
 from tools.ggtensile.grouped_mmq_fwd_pair_runtime import (
@@ -35,8 +40,14 @@ from tools.ggtensile.grouped_mmq_fwd_pair_runtime import (
     InstalledGroupedForwardPairSerialControl,
     InstalledGroupedForwardRowTaskSetup,
 )
-from tools.ggtensile.grouped_mmq_fwd_pair_spec import DerivedGroupedForwardPairState
-from tools.ggtensile.model import SolutionKey
+from tools.ggtensile.grouped_mmq_fwd_pair_spec import (
+    DerivedGroupedForwardPairState,
+    GroupedForwardPairKernelSpec,
+)
+from tools.ggtensile.grouped_mmq_fwd_spec import GroupedForwardKernelSpec
+from tools.ggtensile.mmq_bwd_spec import BackwardKernelSpec
+from tools.ggtensile.mmq_fwd_spec import ForwardKernelSpec
+from tools.ggtensile.model import ProblemSize
 from tools.ggtensile.runtime import (
     BackwardModule,
     FixedGroupedQ8BackwardModule,
@@ -83,74 +94,79 @@ def _quantizer(case: DeploymentCase):
 
 
 def _grouped_forward_control(case: DeploymentCase, route_entries: int, hip_root: Path):
-    key = cast(GroupedForwardSolutionKey, case.key)
+    problem = case.instance.problem
+    spec = case.instance.kernel_spec
+    assert isinstance(problem, GroupedForwardProblem)
+    assert isinstance(spec, GroupedForwardKernelSpec)
     if case.quant_type == "Q4_K":
-        return InstalledGroupedForwardModule(key, hip_root)
+        return InstalledGroupedForwardModule(problem, spec, hip_root)
     if case.quant_type == "Q5_K":
         cls = (
             InstalledGroupedForwardQ5J32Module
             if case.rows < 128 * route_entries
             else InstalledGroupedForwardQ5Module
         )
-        return cls(key, hip_root)
+        return cls(problem, spec, hip_root)
     if case.quant_type == "Q2_K":
         cls = (
             InstalledGroupedForwardQ2J32J16Module
             if case.rows == 49_152 or case.rows < 64 * route_entries
             else InstalledGroupedForwardQ2J32Module
         )
-        return cls(key, hip_root)
+        return cls(problem, spec, hip_root)
     if case.quant_type == "IQ2_S":
         cls = (
             InstalledGroupedForwardIQ2SJ64J32Module
             if case.rows == 65_536 or case.rows < 128 * route_entries
             else InstalledGroupedForwardIQ2SJ64Module
         )
-        return cls(key, hip_root)
+        return cls(problem, spec, hip_root)
     raise ValueError(f"no grouped-forward HIP control for {case.quant_type}")
 
 
 def _pair_forward_control(
-    key: GroupedForwardPairSolutionKey, row_tasks: bool, hip_root: Path
+    problem: GroupedForwardPairProblem,
+    spec: GroupedForwardPairKernelSpec,
+    row_tasks: bool,
+    hip_root: Path,
 ):
-    if key.problem.quant_data_type == "IQ2_S":
+    if problem.quant_data_type == "IQ2_S":
         cls = (
             InstalledGroupedForwardPairRowTaskControl
             if row_tasks
             else InstalledGroupedForwardPairSerialControl
         )
         return cls(hip_root)
-    if key.problem.quant_data_type == "Q3_K":
+    if problem.quant_data_type == "Q3_K":
         cls = (
             InstalledGroupedForwardPairQ3RowTaskControl
             if row_tasks
             else InstalledGroupedForwardPairQ3SerialControl
         )
         return cls(hip_root)
-    if key.problem.quant_data_type == "IQ2_XXS" and not row_tasks:
+    if problem.quant_data_type == "IQ2_XXS" and not row_tasks:
         return InstalledGroupedForwardPairIQ2XXSSerialControl(
-            key.solution.macro_tile0, hip_root
+            spec.geometry.macro_tile[0], hip_root
         )
-    raise ValueError("no paired-forward HIP control for the selected key")
+    raise ValueError("no paired-forward HIP control for the selected specification")
 
 
 def _pair_backward_control(
-    key: GroupedBackwardPairSolutionKey, route_entries: int, hip_root: Path
+    problem: GroupedBackwardPairProblem,
+    spec: GroupedBackwardPairKernelSpec,
+    hip_root: Path,
 ):
-    rows = key.problem.aggregate_rows
-    quant = key.problem.quant_data_type
-    if quant == "Q3_K":
-        cls = InstalledGroupedBackwardPairQ3KControl
-        macro_tile = cls.dispatched_macro_tile(rows, route_entries)
-    elif quant == "IQ2_S":
-        cls = InstalledGroupedBackwardPairIQ2SControl
-        macro_tile = cls.dispatched_macro_tile(rows, route_entries)
-    elif quant == "IQ2_XXS":
-        cls = InstalledGroupedBackwardPairIQ2XXSControl
-        macro_tile = cls.dispatched_macro_tile(rows)
-    else:
-        raise ValueError(f"no paired-backward HIP control for {quant}")
-    return cls(macro_tile, hip_root)
+    controls = {
+        "Q3_K": InstalledGroupedBackwardPairQ3KControl,
+        "IQ2_S": InstalledGroupedBackwardPairIQ2SControl,
+        "IQ2_XXS": InstalledGroupedBackwardPairIQ2XXSControl,
+    }
+    control = controls.get(problem.quant_data_type)
+    if control is None:
+        raise ValueError(
+            f"no paired-backward HIP control for {problem.quant_data_type}"
+        )
+    return control(spec.compute.geometry.macro_tile0, hip_root)
 
 
 def _metadata(
@@ -174,12 +190,25 @@ def _ordinary_forward(
 ) -> KernelComparison:
     if prepared.input is None:
         raise ValueError("ordinary forward input is missing")
-    key = cast(SolutionKey, case.key)
+    problem = case.instance.problem
+    spec = case.instance.kernel_spec
+    assert isinstance(problem, ProblemSize)
+    assert isinstance(spec, ForwardKernelSpec)
     stream = torch.cuda.current_stream().cuda_stream
     quantizer = stack.enter_context(_quantizer(case)())
     workspace = quantizer.allocate(prepared.input)
-    ggtensile = stack.enter_context(ForwardModule(key, artifact))
-    hip = stack.enter_context(FixedHipForwardModule(key, hip_root))
+    ggtensile = stack.enter_context(
+        ForwardModule(
+            problem,
+            case.quant_type,
+            spec,
+            artifact,
+            instance_name(case.instance),
+        )
+    )
+    hip = stack.enter_context(
+        FixedHipForwardModule(problem, case.quant_type, spec, hip_root)
+    )
     ggtensile_output = torch.empty(
         case.rows, case.out_features, device="cuda", dtype=torch.bfloat16
     )
@@ -212,11 +241,24 @@ def _ordinary_backward(
     artifact: Path,
     hip_root: Path,
 ) -> KernelComparison:
-    key = cast(SolutionKey, case.key)
+    problem = case.instance.problem
+    spec = case.instance.kernel_spec
+    assert isinstance(problem, ProblemSize)
+    assert isinstance(spec, BackwardKernelSpec)
     grad_output = prepared.grad_outputs[0]
     stream = torch.cuda.current_stream().cuda_stream
-    ggtensile = stack.enter_context(BackwardModule(key, artifact))
-    hip = stack.enter_context(InstalledDenseBackwardModule(key, hip_root))
+    ggtensile = stack.enter_context(
+        BackwardModule(
+            problem,
+            case.quant_type,
+            spec,
+            artifact,
+            instance_name(case.instance),
+        )
+    )
+    hip = stack.enter_context(
+        InstalledDenseBackwardModule(problem, case.quant_type, spec, hip_root)
+    )
     ggtensile_output = torch.empty(
         case.rows, case.in_features, device="cuda", dtype=torch.bfloat16
     )
@@ -255,11 +297,16 @@ def _grouped_forward(
     route = prepared.route
     if input_tensor is None or route is None:
         raise ValueError("grouped forward input or routes are missing")
-    key = cast(GroupedForwardSolutionKey, case.key)
+    problem = case.instance.problem
+    spec = case.instance.kernel_spec
+    assert isinstance(problem, GroupedForwardProblem)
+    assert isinstance(spec, GroupedForwardKernelSpec)
     stream = torch.cuda.current_stream().cuda_stream
     quantizer = stack.enter_context(_quantizer(case)())
     workspace = quantizer.allocate(input_tensor)
-    ggtensile = stack.enter_context(GroupedForwardModule(key, artifact))
+    ggtensile = stack.enter_context(
+        GroupedForwardModule(problem, spec, artifact, instance_name(case.instance))
+    )
     hip = stack.enter_context(
         _grouped_forward_control(case, route.expert_indices.numel(), hip_root)
     )
@@ -299,9 +346,20 @@ def _grouped_backward(
     route = prepared.route
     if route is None:
         raise ValueError("grouped backward routes are missing")
-    key = cast(SolutionKey, case.key)
+    problem = case.instance.problem
+    spec = case.instance.kernel_spec
+    assert isinstance(problem, ProblemSize)
+    assert isinstance(spec, GroupedBackwardKernelSpec)
     stream = torch.cuda.current_stream().cuda_stream
-    ggtensile = stack.enter_context(GroupedBackwardModule(key, artifact))
+    ggtensile = stack.enter_context(
+        GroupedBackwardModule(
+            problem,
+            case.quant_type,
+            spec,
+            artifact,
+            instance_name(case.instance),
+        )
+    )
     hip = stack.enter_context(
         InstalledGroupedBackwardControl(
             case.quant_type,
@@ -346,20 +404,25 @@ def _grouped_pair_forward(
     route = prepared.route
     if input_tensor is None or route is None:
         raise ValueError("grouped pair forward input or routes are missing")
-    key = cast(GroupedForwardPairSolutionKey, case.key)
-    row_tasks = key.solution.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks
+    problem = case.instance.problem
+    spec = case.instance.kernel_spec
+    assert isinstance(problem, GroupedForwardPairProblem)
+    assert isinstance(spec, GroupedForwardPairKernelSpec)
+    row_tasks = spec.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks
     stream = torch.cuda.current_stream().cuda_stream
     quantizer = stack.enter_context(_quantizer(case)())
     workspace = quantizer.allocate(input_tensor)
     candidate_type = (
         GroupedForwardPairRowTaskModule if row_tasks else GroupedForwardPairModule
     )
-    ggtensile: Any = stack.enter_context(candidate_type(key, artifact))
+    ggtensile: Any = stack.enter_context(
+        candidate_type(problem, spec, artifact, instance_name(case.instance))
+    )
     first_hip: Any = stack.enter_context(
-        _pair_forward_control(key, row_tasks, hip_root)
+        _pair_forward_control(problem, spec, row_tasks, hip_root)
     )
     second_hip: Any = stack.enter_context(
-        _pair_forward_control(key, row_tasks, hip_root)
+        _pair_forward_control(problem, spec, row_tasks, hip_root)
     )
     first_ggtensile = torch.empty(
         case.rows, case.out_features, device="cuda", dtype=torch.bfloat16
@@ -369,9 +432,9 @@ def _grouped_pair_forward(
     second_hip_output = torch.empty_like(first_ggtensile)
     tasks: Any = None
     if row_tasks:
-        state = DerivedGroupedForwardPairState.from_solution_key(key)
+        state = DerivedGroupedForwardPairState.from_problem_spec(problem, spec)
         if state.kernel_spec.row_task_rows is None:
-            raise ValueError("row-task key is missing its task row count")
+            raise ValueError("row-task specification is missing its task row count")
         tasks = GroupedForwardPairRowTaskWorkspace.allocate(
             input_tensor,
             aggregate_rows=case.rows,
@@ -460,12 +523,15 @@ def _grouped_pair_backward(
     route = prepared.route
     if route is None:
         raise ValueError("grouped pair backward routes are missing")
-    key = cast(GroupedBackwardPairSolutionKey, case.key)
+    problem = case.instance.problem
+    spec = case.instance.kernel_spec
+    assert isinstance(problem, GroupedBackwardPairProblem)
+    assert isinstance(spec, GroupedBackwardPairKernelSpec)
     stream = torch.cuda.current_stream().cuda_stream
-    ggtensile = stack.enter_context(GroupedBackwardPairModule(key, artifact))
-    hip = stack.enter_context(
-        _pair_backward_control(key, route.expert_indices.numel(), hip_root)
+    ggtensile = stack.enter_context(
+        GroupedBackwardPairModule(problem, spec, artifact, instance_name(case.instance))
     )
+    hip = stack.enter_context(_pair_backward_control(problem, spec, hip_root))
     ggtensile_output = torch.empty(
         case.rows, case.in_features, device="cuda", dtype=torch.bfloat16
     )
@@ -502,13 +568,22 @@ def _fixed_forward(
 ) -> KernelComparison:
     if prepared.input is None:
         raise ValueError("fixed forward input is missing")
-    key = cast(FixedForwardSolutionKey, case.key)
+    problem = case.instance.problem
+    spec = case.instance.kernel_spec
+    assert isinstance(problem, FixedForwardProblem)
+    assert isinstance(spec, FixedForwardKernelSpec)
     stream = torch.cuda.current_stream().cuda_stream
     flat_input = prepared.input.view(case.rows * 8, case.in_features)
     quantizer = stack.enter_context(_quantizer(case)())
     workspace = quantizer.allocate(flat_input)
-    ggtensile = stack.enter_context(FixedGroupedQ8ForwardModule(key, artifact))
-    hip = stack.enter_context(InstalledFixedGroupedQ8ForwardModule(key, hip_root))
+    ggtensile = stack.enter_context(
+        FixedGroupedQ8ForwardModule(
+            problem, spec, artifact, instance_name(case.instance)
+        )
+    )
+    hip = stack.enter_context(
+        InstalledFixedGroupedQ8ForwardModule(problem, spec, hip_root)
+    )
     ggtensile_output = torch.empty(
         case.rows, 8, case.out_features, device="cuda", dtype=torch.bfloat16
     )
@@ -535,10 +610,19 @@ def _fixed_backward(
     artifact: Path,
     hip_root: Path,
 ) -> KernelComparison:
-    key = cast(FixedBackwardSolutionKey, case.key)
+    problem = case.instance.problem
+    spec = case.instance.kernel_spec
+    assert isinstance(problem, FixedBackwardProblem)
+    assert isinstance(spec, FixedBackwardKernelSpec)
     stream = torch.cuda.current_stream().cuda_stream
-    ggtensile = stack.enter_context(FixedGroupedQ8BackwardModule(key, artifact))
-    hip = stack.enter_context(InstalledFixedGroupedQ8BackwardModule(key, hip_root))
+    ggtensile = stack.enter_context(
+        FixedGroupedQ8BackwardModule(
+            problem, spec, artifact, instance_name(case.instance)
+        )
+    )
+    hip = stack.enter_context(
+        InstalledFixedGroupedQ8BackwardModule(problem, spec, hip_root)
+    )
     ggtensile_output = torch.empty(
         case.rows, 8, case.in_features, device="cuda", dtype=torch.bfloat16
     )

@@ -5,7 +5,6 @@ from typing import ClassVar, cast
 
 from .grouped_mmq_fwd_lowering import (
     GroupedForwardLoweringContext,
-    GroupedForwardLoweringResult,
 )
 from .grouped_mmq_fwd_lowering_row_dispatch import (
     GroupedRowDispatchLabels,
@@ -14,7 +13,12 @@ from .grouped_mmq_fwd_lowering_row_dispatch import (
 from .grouped_mmq_fwd_model import GroupedOperandSource
 from .grouped_mmq_fwd_physical import GroupedDecodedPhysicalPlan
 from .grouped_mmq_fwd_route import GroupedRouteEmitter
-from .kernel_writer_assembly import Assembly, emit_bf16_rne, emit_kernel_trailer
+from .kernel_writer_assembly import (
+    Assembly,
+    LoweringResult,
+    emit_bf16_rne,
+    emit_kernel_trailer,
+)
 from .mmq_fwd_lowering_decoded_stage import (
     DecodedWeightLdsStageEmitter,
     DecodedWeightLdsStageInputs,
@@ -54,12 +58,11 @@ class GroupedDecodedWeightLdsLowering:
             physical.scalar_registers.row_tile_rows,
         )
 
-    def emission(self) -> GroupedForwardLoweringResult:
-        return GroupedForwardLoweringResult(self.body())
+    def emission(self) -> LoweringResult:
+        return LoweringResult(self.body())
 
     def body(self) -> str:
-        if self.context.solution_key.solution.operand_source is not self.OPERAND_SOURCE:
-            raise TypeError("grouped decoded lowering requires GroupedDecodedWeightLds")
+        assert self.context.state.kernel_spec.operand_source is self.OPERAND_SOURCE
         return self._body_grouped()
 
     def _body_grouped(self) -> str:
@@ -71,7 +74,7 @@ class GroupedDecodedWeightLdsLowering:
         layout = physical.layout
         activation_metadata = layout.activation_metadata
         asm = Assembly()
-        name = context.solution_key.kernel_name
+        name = context.kernel_name
         zero_accumulator = registers.zero_accumulator.first_register
         sum_base = registers.sums.first_register
         temporary = registers.temporary.first_register
@@ -102,7 +105,7 @@ class GroupedDecodedWeightLdsLowering:
         asm.inst(
             f"s_mul_i32 s{scalar.activation_plane_stride.first_register}, "
             f"s{scalar.nrows_activation.first_register}, "
-            f"{context.solution_key.solution.activation_block_bytes}"
+            f"{state.contract.activation_block_bytes}"
         )
         asm.inst(
             f"s_mov_b32 s{scalar.row_start.first_register}, "
@@ -185,7 +188,7 @@ class GroupedDecodedWeightLdsLowering:
         asm.inst("s_barrier")
         asm.inst(
             f"s_add_u32 s{self.SCALAR_TEMPORARY}, s{self.SCALAR_TEMPORARY}, "
-            f"{context.solution_key.solution.packed_weight_block_bytes}"
+            f"{state.contract.packed_weight_block_bytes}"
         )
         asm.inst(f"s_add_u32 s{self.LOOP_COUNTER}, s{self.LOOP_COUNTER}, 1")
         asm.inst(f"s_cmp_lt_u32 s{self.LOOP_COUNTER}, {state.blocks_per_weight_row}")
@@ -195,7 +198,7 @@ class GroupedDecodedWeightLdsLowering:
         asm.inst(
             f"s_add_u32 s{scalar.row_start.first_register}, "
             f"s{scalar.row_start.first_register}, "
-            f"{context.solution_key.solution.macro_tile0}"
+            f"{state.kernel_spec.geometry.macro_tile[0]}"
         )
         asm.inst(
             f"s_cmp_lt_u32 s{scalar.row_start.first_register}, "

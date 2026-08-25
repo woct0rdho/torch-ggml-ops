@@ -188,7 +188,7 @@ The prior generator is repository-owned. Candidate build/inspection and environm
 
 Promotion is per exact key. It requires a greater-than-2% aggregate gain on the disjoint confirmation medoids, minimum individual search/confirmation profile and router-component speedup of at least `0.99x`, at least `0.99x` on every mandatory synthetic control, and reversed-order 25-repeat confirmation. Correctness requires the existing dense-packed or independently dequantized FP32-accumulating grouped reference, old/new comparison where applicable, input and packed-weight mutation sensitivity, inactive-expert coverage, non-tile-aligned tails, and paired-output independence. Complete public-call timing is authoritative; prequantized arithmetic timing is diagnostic.
 
-Promotion must not add host reads of `expert_offsets`, route labels, model/checkpoint dispatch dimensions, hidden synchronization, prepared weights, or a changed Q8_1/GGUF ABI. Shared changes additionally rerun dense MMQ controls. The final report records rejected candidates as well as winners, recomputes model-call-weighted results without using those weights to hide a family regression, verifies `tools/build_mmq_bundle.py --check`, and records stable evidence paths and the final bundle count.
+Promotion must not add host reads of `expert_offsets`, route labels, model/checkpoint dispatch dimensions, hidden synchronization, prepared weights, or a changed Q8_1/GGUF ABI. Shared changes additionally rerun dense MMQ controls. The final report records rejected candidates as well as winners, recomputes model-call-weighted results without using those weights to hide a family regression, runs the full deployment build, and records stable evidence paths and the final bundle count.
 
 ## Retained production dispatch
 
@@ -343,7 +343,7 @@ Representative retained arithmetic allocations from the retuning pass are:
 | Qwen Q4_K J64/J32 | 242 | 46 | 0 | 0 | no |
 | Qwen Q5_K standalone J32 | 189 | 32 | 0 | 0 | no |
 
-The Qwen row-task and Qwen down J64 entries are also enforced and spill-free. Exact per-entry resource metadata is generated with the bundle and is not a dispatch input.
+The Qwen row-task and Qwen down J64 entries are also enforced and spill-free. Resource metadata is used by offline qualification and is not a dispatch input.
 
 ## Bottleneck attribution
 
@@ -523,7 +523,7 @@ The final validation set includes:
 pytest -q tests/
 ruff check .
 python -m compileall -q tools
-python tools/build_mmq_bundle.py --check
+python tools/mmq_deployment_bundle.py
 git diff --check
 ```
 

@@ -8,10 +8,13 @@ from typing import ClassVar
 import torch
 
 from .grouped_mmq_fwd_pair_model import (
-    GroupedForwardPairSolutionKey,
+    GroupedForwardPairProblem,
     GroupedPairRouteOwnership,
 )
-from .grouped_mmq_fwd_pair_spec import DerivedGroupedForwardPairState
+from .grouped_mmq_fwd_pair_spec import (
+    DerivedGroupedForwardPairState,
+    GroupedForwardPairKernelSpec,
+)
 from .grouped_mmq_fwd_pair_validation import validate_grouped_forward_pair_solution
 from .kernel_abi import (
     GROUPED_FORWARD_ABI,
@@ -32,18 +35,18 @@ class GroupedForwardPairModule(_HIPModule):
 
     def __init__(
         self,
-        solution_key: GroupedForwardPairSolutionKey,
+        problem: GroupedForwardPairProblem,
+        kernel_spec: GroupedForwardPairKernelSpec,
         code_object: Path,
+        kernel_name: str,
         hip_library: Path | None = None,
-        *,
-        kernel_name: str | None = None,
     ) -> None:
-        reasons = validate_grouped_forward_pair_solution(solution_key)
-        if reasons:
-            details = "; ".join(reason.rule_id for reason in reasons)
-            raise HIPRuntimeError(f"cannot launch rejected paired solution: {details}")
-        self.solution_key = solution_key
-        self.state = DerivedGroupedForwardPairState.from_solution_key(solution_key)
+        validate_grouped_forward_pair_solution(problem, kernel_spec)
+        self.problem = problem
+        self.kernel_spec = kernel_spec
+        self.state = DerivedGroupedForwardPairState.from_problem_spec(
+            problem, kernel_spec
+        )
         if (
             self.state.kernel_spec.route_ownership
             is not GroupedPairRouteOwnership.SerialRoutes
@@ -51,9 +54,7 @@ class GroupedForwardPairModule(_HIPModule):
             raise HIPRuntimeError(
                 "serial paired launcher requires serial route ownership"
             )
-        super().__init__(
-            code_object, hip_library, kernel_name or solution_key.kernel_name
-        )
+        super().__init__(code_object, hip_library, kernel_name)
 
     def launch(
         self,
@@ -117,10 +118,7 @@ class GroupedForwardPairModule(_HIPModule):
         if expert_indices.ndim != 1 or expert_offsets.ndim != 1:
             raise HIPRuntimeError("paired route metadata must be one-dimensional")
         route_entries = expert_indices.numel()
-        if (
-            route_entries <= 0
-            or route_entries > self.solution_key.problem.max_route_entries
-        ):
+        if route_entries <= 0 or route_entries > self.problem.max_route_entries:
             raise HIPRuntimeError("paired route entry count is outside the contract")
         if expert_offsets.numel() != route_entries:
             raise HIPRuntimeError("paired route metadata lengths must match")
@@ -136,15 +134,15 @@ class GroupedForwardPairModule(_HIPModule):
                 "dst_second": second_output.data_ptr(),
                 "expert_indices": expert_indices.data_ptr(),
                 "expert_offsets": expert_offsets.data_ptr(),
-                "num_experts": self.solution_key.problem.physical_experts,
-                "nrows_weight": self.solution_key.problem.output_features,
-                "nrows_activation": self.solution_key.problem.aggregate_rows,
+                "num_experts": self.problem.physical_experts,
+                "nrows_weight": self.problem.output_features,
+                "nrows_activation": self.problem.aggregate_rows,
                 "blocks_per_weight_row": state.blocks_per_weight_row,
                 "bytes_per_expert": state.bytes_per_expert,
             }
         )
         grid = state.grid(route_entries)
-        block = self.solution_key.solution.work_group
+        block = state.kernel_spec.geometry.work_group
         self._check(
             self._lib.hipModuleLaunchKernel(
                 self._function,
@@ -210,7 +208,7 @@ class GroupedForwardPairRowTaskWorkspace:
 class InstalledGroupedForwardRowTaskSetup(_HIPModule):
     """Launch the installed device-only cumulative-route task builder."""
 
-    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_row_task_setup"
+    SYMBOL = "grouped_row_task_setup"
 
     def __init__(
         self,
@@ -296,22 +294,24 @@ class GroupedForwardPairRowTaskModule(_HIPModule):
 
     def __init__(
         self,
-        solution_key: GroupedForwardPairSolutionKey,
+        problem: GroupedForwardPairProblem,
+        kernel_spec: GroupedForwardPairKernelSpec,
         code_object: Path,
+        kernel_name: str,
         hip_library: Path | None = None,
     ) -> None:
-        reasons = validate_grouped_forward_pair_solution(solution_key)
-        if reasons:
-            details = "; ".join(reason.rule_id for reason in reasons)
-            raise HIPRuntimeError(f"cannot launch rejected paired solution: {details}")
-        self.solution_key = solution_key
-        self.state = DerivedGroupedForwardPairState.from_solution_key(solution_key)
+        validate_grouped_forward_pair_solution(problem, kernel_spec)
+        self.problem = problem
+        self.kernel_spec = kernel_spec
+        self.state = DerivedGroupedForwardPairState.from_problem_spec(
+            problem, kernel_spec
+        )
         if (
             self.state.kernel_spec.route_ownership
             is not GroupedPairRouteOwnership.DeviceRowTasks
         ):
             raise HIPRuntimeError("row-task launcher requires row-task ownership")
-        super().__init__(code_object, hip_library, solution_key.kernel_name)
+        super().__init__(code_object, hip_library, kernel_name)
 
     def launch(
         self,
@@ -390,9 +390,9 @@ class GroupedForwardPairRowTaskModule(_HIPModule):
                 "task_experts": tasks.task_experts.data_ptr(),
                 "task_row_starts": tasks.task_row_starts.data_ptr(),
                 "task_row_ends": tasks.task_row_ends.data_ptr(),
-                "num_experts": self.solution_key.problem.physical_experts,
-                "nrows_weight": self.solution_key.problem.output_features,
-                "nrows_activation": self.solution_key.problem.aggregate_rows,
+                "num_experts": self.problem.physical_experts,
+                "nrows_weight": self.problem.output_features,
+                "nrows_activation": self.problem.aggregate_rows,
                 "blocks_per_weight_row": state.blocks_per_weight_row,
                 "bytes_per_expert": state.bytes_per_expert,
             }
@@ -402,7 +402,7 @@ class GroupedForwardPairRowTaskModule(_HIPModule):
             self._lib.hipModuleLaunchKernel(
                 self._function,
                 *grid,
-                *self.solution_key.solution.work_group,
+                *state.kernel_spec.geometry.work_group,
                 0,
                 ctypes.c_void_p(stream),
                 packed_arguments.parameters,
@@ -415,7 +415,7 @@ class GroupedForwardPairRowTaskModule(_HIPModule):
 class InstalledGroupedForwardPairRowTaskControl(_HIPModule):
     """Launch one installed IQ2_S N512/K2048 J64 row-task projection."""
 
-    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_row_task_iq2_s_n512_k2048_j64"
+    SYMBOL = "grouped_fwd_row_task_iq2_s_n512_k2048_j64"
     BYTES_PER_EXPERT = 335_872
     DYNAMIC_LDS_BYTES = 30_976
 
@@ -488,7 +488,7 @@ class InstalledGroupedForwardPairRowTaskControl(_HIPModule):
 class InstalledGroupedForwardPairSerialControl(_HIPModule):
     """Launch the installed single-projection N512/K2048 IQ2_S control."""
 
-    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_iq2_s_n512_k2048_j64"
+    SYMBOL = "grouped_fwd_serial_iq2_s_n512_k2048_j64"
     BYTES_PER_EXPERT = 335_872
     DYNAMIC_LDS_BYTES = 30_976
 
@@ -565,11 +565,11 @@ class InstalledGroupedForwardPairIQ2XXSSerialControl(_HIPModule):
 
     _CONFIGS: ClassVar[dict[int, tuple[str, int]]] = {
         64: (
-            "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_iq2_xxs_n2048_k4096_j64",
+            "grouped_fwd_serial_iq2_xxs_n2048_k4096_j64",
             28_928,
         ),
         80: (
-            "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_iq2_xxs_n2048_k4096_j80",
+            "grouped_fwd_serial_iq2_xxs_n2048_k4096_j80",
             31_552,
         ),
     }
@@ -583,9 +583,7 @@ class InstalledGroupedForwardPairIQ2XXSSerialControl(_HIPModule):
     ) -> None:
         config = self._CONFIGS.get(row_tile)
         if config is None:
-            raise HIPRuntimeError(
-                "installed IQ2_XXS control requires J64 or J80"
-            ) from None
+            raise HIPRuntimeError("installed IQ2_XXS control requires J64 or J80")
         symbol, dynamic_lds_bytes = config
         self.row_tile = row_tile
         self.dynamic_lds_bytes = dynamic_lds_bytes
@@ -669,7 +667,7 @@ class InstalledGroupedForwardPairQ3RowTaskControl(
 ):
     """Launch one installed Q3_K N512/K2048 J64 row-task projection."""
 
-    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_row_task_q3_k_n512_k2048_j64"
+    SYMBOL = "grouped_fwd_row_task_q3_k_n512_k2048_j64"
     BYTES_PER_EXPERT = 450_560
     DYNAMIC_LDS_BYTES = 30_976
 
@@ -679,6 +677,6 @@ class InstalledGroupedForwardPairQ3SerialControl(
 ):
     """Launch one installed Q3_K N512/K2048 J64 serial projection."""
 
-    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_q3_k_n512_k2048_j64"
+    SYMBOL = "grouped_fwd_serial_q3_k_n512_k2048_j64"
     BYTES_PER_EXPERT = 450_560
     DYNAMIC_LDS_BYTES = 30_976

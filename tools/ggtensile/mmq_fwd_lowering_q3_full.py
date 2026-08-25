@@ -16,7 +16,11 @@ from .mmq_fwd_physical import (
     Q3FullWeightTiledLdsPhysicalPlan,
     Q3FullWeightTiledLdsRegisterPlan,
 )
-from .mmq_fwd_spec import Q3FullWeightTiledLdsLayout, Q3PackedFieldPart
+from .mmq_fwd_spec import (
+    Q3FullForwardDecodePolicy,
+    Q3FullWeightTiledLdsLayout,
+    Q3PackedFieldPart,
+)
 
 
 @dataclass(frozen=True)
@@ -38,10 +42,8 @@ class FullWeightQ3TiledLdsLowering:
         return physical.registers
 
     def body(self) -> str:
-        physical = cast(
-            Q3FullWeightTiledLdsPhysicalPlan,
-            self.context.state.physical_plan,
-        )
+        physical = self.context.state.physical_plan
+        assert isinstance(physical, Q3FullWeightTiledLdsPhysicalPlan)
         layout = physical.layout
         registers = physical.registers
         state = self.context.state
@@ -206,8 +208,7 @@ class FullWeightQ3TiledLdsLowering:
 
     def _emit_weight_prefetch(self, asm: Assembly, *, half: int) -> None:
         registers = self._registers
-        if half != 0:
-            raise ValueError("full-weight prefetch currently starts at half zero")
+        assert half == 0
         asm.comment("Prefetch Q3_K half 0 raw operands for the next block.")
         asm.inst(
             f"v_bfe_u32 v{registers.temporary.first_register}, v{registers.lane.first_register}, 4, 1"
@@ -311,10 +312,11 @@ class FullWeightQ3TiledLdsLowering:
             else registers.weight_low1_raw.first_register
         )
         high_base = registers.weight_high_raw.first_register
-        decode_ready_frontier = (
-            self.context.state.kernel_spec.decode.metadata_schedule
-            == "Q3FullTileDecodeReadyFrontier"
+        decode_policy = cast(
+            Q3FullForwardDecodePolicy,
+            self.context.state.kernel_spec.decode.policy,
         )
+        decode_ready_frontier = decode_policy.decode_ready_frontier
         for local_group in range(4):
             # Q3 payload groups are interleaved by two logical groups per lane.
             # The top bit wraps after groups 0 and 2, so derive its position from

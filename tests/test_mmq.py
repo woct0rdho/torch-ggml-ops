@@ -5,6 +5,7 @@ import torch_ggml_ops
 from tests.mmq_test_support import find_tensor, load_packed_rows, random_bf16
 from tests.model_test_cases import QWEN_Q4_DENSE_MMQ_TEST_CASE
 from tests.model_test_support import model_reader
+from torch_ggml_ops.runtime_contract import quant_workspace_elements
 
 _ROWS = 2048
 _OUT_FEATURES = 512
@@ -44,7 +45,7 @@ def test_dense_launch_validates_explicit_buffers() -> None:
         (_ROWS, _OUT_FEATURES - 1), dtype=torch.bfloat16, device="cuda"
     )
     workspace = torch.empty(
-        input.numel() // 128 * 144, dtype=torch.uint8, device="cuda"
+        quant_workspace_elements(input.numel()), dtype=torch.uint8, device="cuda"
     )
     with pytest.raises(RuntimeError, match="output"):
         torch.ops.torch_ggml_ops._mmq_launch.default(
@@ -57,7 +58,7 @@ def test_dense_launch_validates_native_operand_contracts() -> None:
     input = random_bf16(_ROWS, 2048, seed=10006)
     output = torch.empty((_ROWS, _OUT_FEATURES), dtype=torch.bfloat16, device="cuda")
     workspace = torch.empty(
-        input.numel() // 128 * 144, dtype=torch.uint8, device="cuda"
+        quant_workspace_elements(input.numel()), dtype=torch.uint8, device="cuda"
     )
 
     def launch(candidate: torch.Tensor, weight: torch.Tensor = packed) -> None:
@@ -92,7 +93,7 @@ def test_dense_launch_validates_every_explicit_buffer_property() -> None:
     packed, quant_type = _q4_weight()
     input = random_bf16(_ROWS, 2048, seed=10007)
     output = torch.empty((_ROWS, _OUT_FEATURES), dtype=torch.bfloat16, device="cuda")
-    workspace_elements = input.numel() // 128 * 144
+    workspace_elements = quant_workspace_elements(input.numel())
     workspace = torch.empty(workspace_elements, dtype=torch.uint8, device="cuda")
 
     def launch(destination: torch.Tensor, scratch: torch.Tensor) -> None:

@@ -125,7 +125,7 @@ def derive_grouped_backward_physical_plan(
             ),
             total_sgprs=scalar.register_count,
         )
-        resources = replace(ordinary.resources, total_sgprs=scalar.register_count)
+        resources = replace(ordinary.resources, sgprs=scalar.register_count)
         return replace(ordinary, registers=registers, resources=resources)
 
     primary = grouped_compute(primary)

@@ -27,7 +27,6 @@ class DecodedWeightLdsLowering:
 
     context: ForwardLoweringContext
 
-    OPERAND_SOURCE: ClassVar[str] = "DecodedWeightLdsBatch8"
     KERNARG: ClassVar[int] = 4
     LOOP_COUNTER: ClassVar[int] = 10
     SCALAR_TEMPORARY: ClassVar[int] = 11
@@ -40,20 +39,13 @@ class DecodedWeightLdsLowering:
         return 8
 
     def body(self) -> str:
-        operand_source = self.context.state.kernel_spec.global_memory.operand_source
-        if operand_source != self.OPERAND_SOURCE:
-            raise TypeError(
-                f"unsupported decoded-weight LDS operand source {operand_source!r}"
-            )
-        return self._body()
+        physical = self.context.state.physical_plan
+        assert isinstance(physical, DecodedWeightLdsPhysicalPlan)
+        return self._body(physical)
 
-    def _body(self) -> str:
+    def _body(self, physical: DecodedWeightLdsPhysicalPlan) -> str:
         """Lower decoded-weight LDS staging and rolled four-group batches."""
         asm = Assembly()
-        physical = cast(
-            DecodedWeightLdsPhysicalPlan,
-            self.context.state.physical_plan,
-        )
         registers = physical.registers
         stage = DecodedWeightLdsStageEmitter(
             DecodedWeightLdsStageInputs(

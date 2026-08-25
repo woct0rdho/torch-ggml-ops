@@ -1,7 +1,7 @@
 """Signed-int8 direct, register-tiled, and tiled-LDS forward lowerings."""
 
 from dataclasses import dataclass
-from typing import ClassVar, cast
+from typing import ClassVar
 
 from .kernel_abi import ORDINARY_FORWARD_ABI
 from .kernel_writer_assembly import (
@@ -36,31 +36,24 @@ class SignedInt8ForwardLowering:
 
     KERNARG: ClassVar[int] = 4
     LOOP_COUNTER: ClassVar[int] = 10
-    OPERAND_SOURCES: ClassVar[frozenset[str]] = frozenset(
-        {
-            "Q8DirectGlobal",
-            "Q8RegisterTiled",
-            "Q8HipTiledLds",
-            "Q8SmallMTiledLds",
-        }
-    )
 
     def body(self) -> str:
         physical = self.context.state.physical_plan
         if isinstance(physical, SignedInt8DirectPhysicalPlan):
-            return self._body_signed_int8_direct_global()
+            return self._body_signed_int8_direct_global(physical)
         if isinstance(physical, SignedInt8RegisterTiledPhysicalPlan):
-            return self._body_signed_int8_register_tiled()
+            return self._body_signed_int8_register_tiled(physical)
         if isinstance(physical, SignedInt8WaveNTiledLdsPhysicalPlan):
-            return self._body_signed_int8_wave_n_tiled_lds()
+            return self._body_signed_int8_wave_n_tiled_lds(physical)
         if isinstance(physical, SignedInt8SmallMTiledLdsPhysicalPlan):
-            return self._body_signed_int8_small_m_tiled_lds()
-        raise TypeError(f"unsupported Q8 physical plan {type(physical).__name__}")
+            return self._body_signed_int8_small_m_tiled_lds(physical)
+        raise AssertionError
 
-    def _body_signed_int8_direct_global(self) -> str:
+    def _body_signed_int8_direct_global(
+        self, physical: SignedInt8DirectPhysicalPlan
+    ) -> str:
         """Lower the isolated one-wave signed-int8 direct-global control."""
         asm = Assembly()
-        physical = cast(SignedInt8DirectPhysicalPlan, self.context.state.physical_plan)
         registers = physical.registers
         name = self.context.kernel_name
         row_stride = self.context.state.packed_weight_row_bytes
@@ -261,13 +254,12 @@ class SignedInt8ForwardLowering:
             if element != 7:
                 asm.inst(f"v_add_nc_u32 v{output_address}, 4, v{output_address}")
 
-    def _body_signed_int8_register_tiled(self) -> str:
+    def _body_signed_int8_register_tiled(
+        self, physical: SignedInt8RegisterTiledPhysicalPlan
+    ) -> str:
         """Lower four signed-int8 fragments per wave in a four-wave group."""
         asm = Assembly()
         wave_tile_m, wave_tile_n = self.context.state.mi_wave_tile
-        physical = cast(
-            SignedInt8RegisterTiledPhysicalPlan, self.context.state.physical_plan
-        )
         registers = physical.registers
         name = self.context.kernel_name
         row_stride = self.context.state.packed_weight_row_bytes
@@ -569,7 +561,9 @@ class SignedInt8ForwardLowering:
                     f"s[{self.KERNARG + 4}:{self.KERNARG + 5}]"
                 )
 
-    def _body_signed_int8_small_m_tiled_lds(self) -> str:
+    def _body_signed_int8_small_m_tiled_lds(
+        self, physical: SignedInt8SmallMTiledLdsPhysicalPlan
+    ) -> str:
         """Lower an exact M32/M64 wave-N Q8 tile with split-row staging."""
         asm = Assembly()
         mechanics = SignedInt8TiledLdsMechanics(
@@ -579,9 +573,6 @@ class SignedInt8ForwardLowering:
         m_fragments = macro_tile_m // 16
         activation_row_share = 128 // macro_tile_m
         groups_per_lane = 4 // activation_row_share
-        physical = cast(
-            SignedInt8SmallMTiledLdsPhysicalPlan, self.context.state.physical_plan
-        )
         registers = physical.registers
         name = self.context.kernel_name
         size = self.context.state.problem_size
@@ -611,8 +602,7 @@ class SignedInt8ForwardLowering:
 
         layout = physical.layout
         policy = physical.policy
-        if policy.stage_order != "WeightThenActivation":
-            raise ValueError("Q8 small-M lowering requires weight-first staging")
+        assert policy.stage_order == "WeightThenActivation"
         tiled_registers: SignedInt8TiledLdsRegisters = registers
         tiled_scale_layout: SignedInt8TiledLdsScaleLayout = layout
         activation_lds_row_stride = layout.activation_row_stride
@@ -749,8 +739,7 @@ class SignedInt8ForwardLowering:
         )
         if paired_scale_reads:
             weight_scale_pair_base_delta = layout.weight_scale_pair_base_delta
-            if weight_scale_pair_base_delta is None:
-                raise ValueError("paired Q8 scale reads require a second-base delta")
+            assert weight_scale_pair_base_delta is not None
             asm.inst(
                 f"v_add_nc_u32 v{temporary}, {weight_scale_pair_base_delta}, "
                 f"v{weight_scale_address}"
@@ -785,14 +774,13 @@ class SignedInt8ForwardLowering:
         emit_kernel_trailer(asm, name)
         return asm.text()
 
-    def _body_signed_int8_wave_n_tiled_lds(self) -> str:
+    def _body_signed_int8_wave_n_tiled_lds(
+        self, physical: SignedInt8WaveNTiledLdsPhysicalPlan
+    ) -> str:
         """Lower a wave-N 128x64 Q8 tile with cooperative LDS operands."""
         asm = Assembly()
         mechanics = SignedInt8TiledLdsMechanics(
             self.KERNARG, self.context.state.contract.activation_block_bytes
-        )
-        physical = cast(
-            SignedInt8WaveNTiledLdsPhysicalPlan, self.context.state.physical_plan
         )
         registers = physical.registers
         layout = physical.layout
@@ -936,7 +924,7 @@ class SignedInt8ForwardLowering:
                 group_base=0,
             )
         else:
-            raise ValueError(f"unsupported Q8 stage order {policy.stage_order!r}")
+            raise AssertionError
         if groups_per_iteration == 8:
             mechanics.emit_weight_stage(
                 asm,
@@ -968,8 +956,7 @@ class SignedInt8ForwardLowering:
         )
         if policy.scale_read == "PairedHoistedSecondBase":
             weight_scale_pair_base_delta = layout.weight_scale_pair_base_delta
-            if weight_scale_pair_base_delta is None:
-                raise ValueError("paired Q8 scale reads require a second-base delta")
+            assert weight_scale_pair_base_delta is not None
             asm.inst(
                 f"v_add_nc_u32 v{temporary}, "
                 f"{weight_scale_pair_base_delta}, v{weight_scale_address}"
@@ -1046,8 +1033,7 @@ class SignedInt8ForwardLowering:
         m_fragments: int = 8,
     ) -> None:
         """Store eight wave-N fragments with one legal global clause."""
-        if m_fragments not in (2, 4, 8):
-            raise ValueError("Q8 HIP-shaped store requires 2, 4, or 8 M fragments")
+        assert m_fragments in (2, 4, 8)
         sums = registers.sums.first_register
         output_address = registers.output_address.first_register
         store_auxiliary = registers.store_auxiliary.first_register

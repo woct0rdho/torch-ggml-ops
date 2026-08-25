@@ -24,7 +24,7 @@ class _ControlSpec:
         return self.out_features * self.packed_row_bytes
 
 
-_PREFIX = "torch_ggml_ops_mmq_gfx1151_v1_grouped_bwd_single_"
+_PREFIX = "grouped_bwd_single_"
 _SPECS = {
     "Q2_K": {
         "m64": (_PREFIX + "q2_k_n4096_k2048_mt64_nt64", 4096, 2048, 672),

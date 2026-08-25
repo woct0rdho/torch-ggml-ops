@@ -1,0 +1,198 @@
+{
+  "KernelFamily": "GroupedBackward",
+  "Target": {
+    "ISA": [
+      11,
+      5,
+      1
+    ],
+    "WavefrontSize": 32,
+    "MatrixInstructionSet": "WmmaV1",
+    "CodeObjectVersion": 5
+  },
+  "ProblemType": {
+    "QuantDataType": "Q5_K",
+    "DataTypeA": "BFloat16",
+    "DataTypeB": "Q5_K",
+    "DestinationDataType": "BFloat16",
+    "ComputeDataType": "Float32",
+    "TransposeA": false,
+    "TransposeB": false
+  },
+  "KernelSpecs": [
+    {
+      "Geometry": {
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "MIWaveTile": [
+          2,
+          4
+        ],
+        "DepthU": 32,
+        "WorkGroupMapping": 1
+      },
+      "Memory": {
+        "LdsLayout": {
+          "Kind": "Padded",
+          "LdsPadB": 8
+        }
+      },
+      "Pipeline": {
+        "PrefetchGlobalRead": 2,
+        "PrefetchLocalRead": 1,
+        "DoubleBufferLds": false,
+        "PrefetchActivation": true,
+        "InterleaveWmmaWaits": true,
+        "PrefetchPackedWeight": true,
+        "PrefetchNextPackedWeight": false,
+        "PackedWeightLaneShare": 1
+      },
+      "Store": {
+        "Priority": "Raised"
+      },
+      "Decode": {
+        "PayloadExtraction": "Packed",
+        "BitfieldShiftPlacement": "Hoisted",
+        "MetadataLoad": "Scalar"
+      },
+      "Ownership": {
+        "Kind": "Serial",
+        "EmptyTilePolicy": "Suppress"
+      },
+      "RowTail": {
+        "Kind": "SecondaryTile",
+        "ThresholdRows": 64,
+        "TileRows": 64
+      }
+    },
+    {
+      "Geometry": {
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "MIWaveTile": [
+          2,
+          8
+        ],
+        "DepthU": 32,
+        "WorkGroupMapping": 1
+      },
+      "Memory": {
+        "LdsLayout": {
+          "Kind": "Padded",
+          "LdsPadB": 8
+        }
+      },
+      "Pipeline": {
+        "PrefetchGlobalRead": 2,
+        "PrefetchLocalRead": 1,
+        "DoubleBufferLds": false,
+        "PrefetchActivation": true,
+        "InterleaveWmmaWaits": true,
+        "PrefetchPackedWeight": true,
+        "PrefetchNextPackedWeight": false,
+        "PackedWeightLaneShare": 1
+      },
+      "Store": {
+        "Priority": "Raised"
+      },
+      "Decode": {
+        "PayloadExtraction": "Packed",
+        "BitfieldShiftPlacement": "Hoisted",
+        "MetadataLoad": "Scalar"
+      },
+      "Ownership": {
+        "Kind": "RouteSplit",
+        "RouteSplitFactor": 16,
+        "EmptyTilePolicy": "Suppress"
+      },
+      "RowTail": {
+        "Kind": "Masked"
+      }
+    },
+    {
+      "Geometry": {
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "MIWaveTile": [
+          2,
+          8
+        ],
+        "DepthU": 32,
+        "WorkGroupMapping": 1
+      },
+      "Memory": {
+        "LdsLayout": {
+          "Kind": "Padded",
+          "LdsPadB": 8
+        }
+      },
+      "Pipeline": {
+        "PrefetchGlobalRead": 2,
+        "PrefetchLocalRead": 1,
+        "DoubleBufferLds": false,
+        "PrefetchActivation": true,
+        "InterleaveWmmaWaits": true,
+        "PrefetchPackedWeight": true,
+        "PrefetchNextPackedWeight": false,
+        "PackedWeightLaneShare": 1
+      },
+      "Store": {
+        "Priority": "Raised"
+      },
+      "Decode": {
+        "PayloadExtraction": "Packed",
+        "BitfieldShiftPlacement": "Hoisted",
+        "MetadataLoad": "Scalar"
+      },
+      "Ownership": {
+        "Kind": "RouteSplit",
+        "RouteSplitFactor": 16,
+        "EmptyTilePolicy": "Execute"
+      },
+      "RowTail": {
+        "Kind": "Masked"
+      }
+    }
+  ],
+  "ExactLogic": [
+    {
+      "Problem": {
+        "M": 16384,
+        "N": 512,
+        "K": 2048,
+        "PhysicalExpertCount": 256,
+        "MaxRouteEntries": 256
+      },
+      "KernelSpecIndex": 0
+    },
+    {
+      "Problem": {
+        "M": 65536,
+        "N": 512,
+        "K": 2048,
+        "PhysicalExpertCount": 256,
+        "MaxRouteEntries": 256
+      },
+      "KernelSpecIndex": 1
+    },
+    {
+      "Problem": {
+        "M": 262144,
+        "N": 512,
+        "K": 2048,
+        "PhysicalExpertCount": 256,
+        "MaxRouteEntries": 256
+      },
+      "KernelSpecIndex": 2
+    }
+  ]
+}

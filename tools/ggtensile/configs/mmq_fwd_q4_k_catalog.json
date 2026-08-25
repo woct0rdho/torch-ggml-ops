@@ -1,364 +1,361 @@
 {
   "KernelFamily": "OrdinaryForward",
-  "ProblemContract": {
-    "quant_type": "Q4_K",
-    "block_values": 256,
-    "packed_weight_block_bytes": 144,
-    "activation_layout": "F16_D4S4",
-    "activation_block_bytes": 144,
-    "kernel_language": "Assembly",
-    "isa": [
+  "Target": {
+    "ISA": [
       11,
       5,
       1
     ],
-    "wavefront_size": 32,
-    "signed_weight": true,
-    "signed_activation": true,
-    "wmma_clamp": true,
-    "weight_decode": "DirectNibble",
-    "scale_arithmetic": "FP16",
-    "arithmetic_contract": "SignedKQuantIntegerWmmaFP16ScaleMinimumCorrection",
-    "destination_type": "BFloat16",
-    "bf16_rounding": "RNEPreserveNaN",
-    "abi": "PackedWeightQ81OutputV1"
+    "WavefrontSize": 32,
+    "MatrixInstructionSet": "WmmaV1",
+    "CodeObjectVersion": 5
+  },
+  "ProblemType": {
+    "QuantDataType": "Q4_K",
+    "DataTypeA": "Q8_1",
+    "DataTypeB": "Q4_K",
+    "DestinationDataType": "BFloat16",
+    "ComputeDataType": "Float32",
+    "TransposeA": false,
+    "TransposeB": true,
+    "ActivationLayout": "F16_D4S4"
   },
   "KernelSpecs": [
     {
-      "geometry": {
-        "work_group": [
+      "Geometry": {
+        "WorkGroup": [
           128,
           1,
           1
         ],
-        "matrix_instruction": [
+        "MatrixInstruction": [
           16,
           16,
           16,
           1
         ],
-        "depth_u": 32
+        "DepthU": 32
       },
-      "ownership": {
-        "mi_wave_group": [
+      "Ownership": {
+        "MIWaveGroup": [
           4,
           1
         ],
-        "mi_wave_tile": [
+        "MIWaveTile": [
           2,
           4
         ]
       },
-      "global_memory": {
-        "operand_source": "DecodedWeightLdsBatch8",
-        "activation_addressing": "MadU24"
+      "GlobalMemory": {
+        "OperandSource": "DecodedWeightLdsBatch8",
+        "ActivationAddressing": "MadU24"
       },
-      "lds": {
-        "address_hoist": "WeightMetadata"
+      "Lds": {
+        "AddressHoist": "WeightMetadata"
       },
-      "decode": {
-        "metadata_conversion": "DirectFloat16Unsigned16",
-        "metadata_schedule": "IndependentExtractionMetadataAfterLowWmma"
+      "Decode": {
+        "MetadataConversion": "DirectFloat16Unsigned16",
+        "IndependentMetadataExtraction": true,
+        "DeferMetadataReads": true
       },
-      "epilogue": {
-        "output_store": "BFloat16RNEClauseBatch8IncrementRows",
-        "pipeline": {
-          "tiles_ahead": 8,
-          "dependency_width": 1,
-          "priority": 0
+      "Epilogue": {
+        "Pipeline": {
+          "TilesAhead": 8,
+          "DependencyWidth": 1,
+          "Priority": 0
         }
       },
-      "instruction_policy": {
-        "accumulator_initialization": "ScalarCopy"
+      "InstructionPolicy": {
+        "AccumulatorInitialization": "ScalarCopy"
       }
     },
     {
-      "geometry": {
-        "work_group": [
+      "Geometry": {
+        "WorkGroup": [
           128,
           1,
           1
         ],
-        "matrix_instruction": [
+        "MatrixInstruction": [
           16,
           16,
           16,
           1
         ],
-        "depth_u": 32
+        "DepthU": 32
       },
-      "ownership": {
-        "mi_wave_group": [
+      "Ownership": {
+        "MIWaveGroup": [
           4,
           1
         ],
-        "mi_wave_tile": [
+        "MIWaveTile": [
           2,
           4
         ]
       },
-      "global_memory": {
-        "operand_source": "DecodedWeightLdsBatch8",
-        "activation_addressing": "MadU24"
+      "GlobalMemory": {
+        "OperandSource": "DecodedWeightLdsBatch8",
+        "ActivationAddressing": "MadU24"
       },
-      "lds": {
-        "address_hoist": "WeightMetadata"
+      "Lds": {
+        "AddressHoist": "WeightMetadata"
       },
-      "decode": {
-        "metadata_conversion": "DirectFloat16Unsigned16",
-        "metadata_schedule": "IndependentExtractionMetadataAfterLowWmma"
+      "Decode": {
+        "MetadataConversion": "DirectFloat16Unsigned16",
+        "IndependentMetadataExtraction": true,
+        "DeferMetadataReads": true
       },
-      "epilogue": {
-        "output_store": "BFloat16RNEClauseBatch8IncrementRows",
-        "pipeline": {
-          "tiles_ahead": 4,
-          "dependency_width": 4,
-          "priority": 2
+      "Epilogue": {
+        "Pipeline": {
+          "TilesAhead": 4,
+          "DependencyWidth": 4,
+          "Priority": 2
         }
       },
-      "instruction_policy": {
-        "accumulator_initialization": "ScalarCopy"
+      "InstructionPolicy": {
+        "AccumulatorInitialization": "ScalarCopy"
       }
     },
     {
-      "geometry": {
-        "work_group": [
+      "Geometry": {
+        "WorkGroup": [
           128,
           1,
           1
         ],
-        "matrix_instruction": [
+        "MatrixInstruction": [
           16,
           16,
           16,
           1
         ],
-        "depth_u": 32
+        "DepthU": 32
       },
-      "ownership": {
-        "mi_wave_group": [
+      "Ownership": {
+        "MIWaveGroup": [
           4,
           1
         ],
-        "mi_wave_tile": [
+        "MIWaveTile": [
           2,
           4
         ]
       },
-      "global_memory": {
-        "operand_source": "DecodedWeightLdsBatch8",
-        "activation_addressing": "MadU24"
+      "GlobalMemory": {
+        "OperandSource": "DecodedWeightLdsBatch8",
+        "ActivationAddressing": "MadU24"
       },
-      "lds": {
-        "address_hoist": "WeightMetadata"
+      "Lds": {
+        "AddressHoist": "WeightMetadata"
       },
-      "decode": {
-        "metadata_conversion": "DirectFloat16Unsigned16",
-        "metadata_schedule": "IndependentExtractionMetadataAfterLowWmma"
+      "Decode": {
+        "MetadataConversion": "DirectFloat16Unsigned16",
+        "IndependentMetadataExtraction": true,
+        "DeferMetadataReads": true
       },
-      "epilogue": {
-        "output_store": "BFloat16RNEClauseBatch8IncrementRows",
-        "pipeline": {
-          "tiles_ahead": 1,
-          "dependency_width": 2,
-          "priority": 2
+      "Epilogue": {
+        "Pipeline": {
+          "TilesAhead": 1,
+          "DependencyWidth": 2,
+          "Priority": 2
         }
       },
-      "instruction_policy": {
-        "accumulator_initialization": "ScalarCopy"
+      "InstructionPolicy": {
+        "AccumulatorInitialization": "ScalarCopy"
       }
     },
     {
-      "geometry": {
-        "work_group": [
+      "Geometry": {
+        "WorkGroup": [
           128,
           1,
           1
         ],
-        "matrix_instruction": [
+        "MatrixInstruction": [
           16,
           16,
           16,
           1
         ],
-        "depth_u": 32
+        "DepthU": 32
       },
-      "ownership": {
-        "mi_wave_group": [
+      "Ownership": {
+        "MIWaveGroup": [
           4,
           1
         ],
-        "mi_wave_tile": [
+        "MIWaveTile": [
           2,
           4
         ]
       },
-      "global_memory": {
-        "operand_source": "DecodedWeightLdsBatch8",
-        "activation_addressing": "MadU24"
+      "GlobalMemory": {
+        "OperandSource": "DecodedWeightLdsBatch8",
+        "ActivationAddressing": "MadU24"
       },
-      "lds": {
-        "address_hoist": "WeightMetadata"
+      "Lds": {
+        "AddressHoist": "WeightMetadata"
       },
-      "decode": {
-        "metadata_conversion": "DirectFloat16Unsigned16",
-        "metadata_schedule": "IndependentExtractionMetadataAfterLowWmma"
+      "Decode": {
+        "MetadataConversion": "DirectFloat16Unsigned16",
+        "IndependentMetadataExtraction": true,
+        "DeferMetadataReads": true
       },
-      "epilogue": {
-        "output_store": "BFloat16RNEClauseBatch8IncrementRows",
-        "pipeline": {
-          "tiles_ahead": 1,
-          "dependency_width": 4,
-          "priority": 2
+      "Epilogue": {
+        "Pipeline": {
+          "TilesAhead": 1,
+          "DependencyWidth": 4,
+          "Priority": 2
         }
       },
-      "instruction_policy": {
-        "accumulator_initialization": "ScalarCopy"
+      "InstructionPolicy": {
+        "AccumulatorInitialization": "ScalarCopy"
       }
     },
     {
-      "geometry": {
-        "work_group": [
+      "Geometry": {
+        "WorkGroup": [
           128,
           1,
           1
         ],
-        "matrix_instruction": [
+        "MatrixInstruction": [
           16,
           16,
           16,
           1
         ],
-        "depth_u": 32
+        "DepthU": 32
       },
-      "ownership": {
-        "mi_wave_group": [
+      "Ownership": {
+        "MIWaveGroup": [
           4,
           1
         ],
-        "mi_wave_tile": [
+        "MIWaveTile": [
           2,
           4
         ]
       },
-      "global_memory": {
-        "operand_source": "DecodedWeightLdsBatch8",
-        "activation_addressing": "MadU24"
+      "GlobalMemory": {
+        "OperandSource": "DecodedWeightLdsBatch8",
+        "ActivationAddressing": "MadU24"
       },
-      "lds": {
-        "address_hoist": "WeightMetadata"
+      "Lds": {
+        "AddressHoist": "WeightMetadata"
       },
-      "decode": {
-        "metadata_conversion": "DirectFloat16Unsigned16",
-        "metadata_schedule": "IndependentExtractionMetadataAfterLowWmma"
+      "Decode": {
+        "MetadataConversion": "DirectFloat16Unsigned16",
+        "IndependentMetadataExtraction": true,
+        "DeferMetadataReads": true
       },
-      "epilogue": {
-        "output_store": "BFloat16RNEClauseBatch8IncrementRows",
-        "pipeline": {
-          "tiles_ahead": 2,
-          "dependency_width": 2,
-          "priority": 2
+      "Epilogue": {
+        "Pipeline": {
+          "TilesAhead": 2,
+          "DependencyWidth": 2,
+          "Priority": 2
         }
       },
-      "instruction_policy": {
-        "accumulator_initialization": "ScalarCopy"
+      "InstructionPolicy": {
+        "AccumulatorInitialization": "ScalarCopy"
       }
     }
   ],
   "ExactLogic": [
     {
       "Problem": {
-        "m": 2048,
-        "n": 512,
-        "k": 2048
+        "M": 2048,
+        "N": 512,
+        "K": 2048
       },
       "KernelSpecIndex": 0
     },
     {
       "Problem": {
-        "m": 8192,
-        "n": 512,
-        "k": 2048
+        "M": 8192,
+        "N": 512,
+        "K": 2048
       },
       "KernelSpecIndex": 0
     },
     {
       "Problem": {
-        "m": 32768,
-        "n": 512,
-        "k": 2048
+        "M": 32768,
+        "N": 512,
+        "K": 2048
       },
       "KernelSpecIndex": 1
     },
     {
       "Problem": {
-        "m": 2048,
-        "n": 2048,
-        "k": 512
+        "M": 2048,
+        "N": 2048,
+        "K": 512
       },
       "KernelSpecIndex": 2
     },
     {
       "Problem": {
-        "m": 8192,
-        "n": 2048,
-        "k": 512
+        "M": 8192,
+        "N": 2048,
+        "K": 512
       },
       "KernelSpecIndex": 3
     },
     {
       "Problem": {
-        "m": 32768,
-        "n": 2048,
-        "k": 512
+        "M": 32768,
+        "N": 2048,
+        "K": 512
       },
       "KernelSpecIndex": 2
     },
     {
       "Problem": {
-        "m": 2048,
-        "n": 2048,
-        "k": 4096
+        "M": 2048,
+        "N": 2048,
+        "K": 4096
       },
       "KernelSpecIndex": 0
     },
     {
       "Problem": {
-        "m": 8192,
-        "n": 2048,
-        "k": 4096
+        "M": 8192,
+        "N": 2048,
+        "K": 4096
       },
       "KernelSpecIndex": 0
     },
     {
       "Problem": {
-        "m": 32768,
-        "n": 2048,
-        "k": 4096
+        "M": 32768,
+        "N": 2048,
+        "K": 4096
       },
       "KernelSpecIndex": 0
     },
     {
       "Problem": {
-        "m": 2048,
-        "n": 8192,
-        "k": 2048
+        "M": 2048,
+        "N": 8192,
+        "K": 2048
       },
       "KernelSpecIndex": 2
     },
     {
       "Problem": {
-        "m": 8192,
-        "n": 8192,
-        "k": 2048
+        "M": 8192,
+        "N": 8192,
+        "K": 2048
       },
       "KernelSpecIndex": 1
     },
     {
       "Problem": {
-        "m": 32768,
-        "n": 8192,
-        "k": 2048
+        "M": 32768,
+        "N": 8192,
+        "K": 2048
       },
       "KernelSpecIndex": 4
     }

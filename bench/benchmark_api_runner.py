@@ -20,6 +20,7 @@ from benchmark_data import input_mapping, prepare_input
 from workload_prior import expert_prior_metadata
 
 import torch_ggml_ops
+from tools.ggtensile.family_registry import mapping_for_instance
 from tools.mmq_correctness import (
     PreparedCase,
     assert_external_reference,
@@ -134,7 +135,7 @@ def _result(
     case_mapping.pop("hip", None)
     result = {
         **case_mapping,
-        "exact_key": case.key.to_mapping(),
+        "exact_key": mapping_for_instance(case.instance),
         "problem": {
             "rows": case.rows,
             "out_features": case.out_features,

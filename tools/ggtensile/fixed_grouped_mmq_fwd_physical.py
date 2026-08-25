@@ -6,7 +6,8 @@ from .mmq_fwd_physical import (
     SignedInt8SmallMTiledLdsPhysicalPlan,
     derive_forward_physical_plan,
 )
-from .mmq_fwd_spec import ForwardKernelSpec, ForwardResourceUsage
+from .mmq_fwd_spec import ForwardKernelSpec
+from .physical_resources import PhysicalResourceUsage
 
 
 @dataclass(frozen=True)
@@ -14,7 +15,7 @@ class FixedQ8ForwardPhysicalPlan:
     """Fixed-group ABI wrapper around the compatible Q8 small-M plan."""
 
     ordinary: SignedInt8SmallMTiledLdsPhysicalPlan
-    resources: ForwardResourceUsage
+    resources: PhysicalResourceUsage
     paired_weight_scale_address_vgpr: int | None
     activation_plane_stride_sgpr: int | None
     weight_lane_offset_vgpr: int | None
@@ -28,8 +29,7 @@ def fixed_q8_forward_physical_plan(
 ) -> FixedQ8ForwardPhysicalPlan:
     """Derive fixed resources from the ordinary Q8 physical authority."""
     ordinary = derive_forward_physical_plan(kernel_spec)
-    if not isinstance(ordinary, SignedInt8SmallMTiledLdsPhysicalPlan):
-        raise TypeError("fixed Q8 forward requires the small-M LDS physical plan")
+    assert isinstance(ordinary, SignedInt8SmallMTiledLdsPhysicalPlan)
     if fixed_address_hoist == "None":
         paired_scale_address = None
         activation_stride_sgpr = None
@@ -40,24 +40,21 @@ def fixed_q8_forward_physical_plan(
         "ReductionLoop",
         "ReductionLoopAndWeightStage",
     ):
+        assert kernel_spec.lds.address_hoist == "CompactDepth32WeightRows"
         paired_scale_address = ordinary.registers.register_count
-        if paired_scale_address >= ordinary.registers.declared_vgprs:
-            raise ValueError("fixed Q8 address hoist requires one rounded VGPR slot")
+        assert paired_scale_address < ordinary.registers.declared_vgprs
         activation_stride_sgpr = 15
         if fixed_address_hoist == "ReductionLoopAndWeightStage":
             weight_lane_offset = paired_scale_address + 1
             weight_payload_address = paired_scale_address + 2
             weight_scale_address = paired_scale_address + 3
-            if weight_scale_address >= ordinary.registers.declared_vgprs:
-                raise ValueError(
-                    "fixed Q8 weight-stage hoist requires four rounded VGPR slots"
-                )
+            assert weight_scale_address < ordinary.registers.declared_vgprs
         else:
             weight_lane_offset = None
             weight_payload_address = None
             weight_scale_address = None
     else:
-        raise ValueError(f"unsupported fixed Q8 address hoist {fixed_address_hoist!r}")
+        raise AssertionError
     return FixedQ8ForwardPhysicalPlan(
         ordinary,
         ordinary.resources,

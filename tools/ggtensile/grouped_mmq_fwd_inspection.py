@@ -3,10 +3,11 @@
 from pathlib import Path
 
 from .grouped_mmq_fwd_model import (
-    GroupedForwardSolutionKey,
+    GroupedForwardProblem,
     GroupedOperandSource,
+    GroupedQ2DecodePolicy,
 )
-from .grouped_mmq_fwd_spec import DerivedGroupedForwardState, GroupedQ2SchedulePolicy
+from .grouped_mmq_fwd_spec import DerivedGroupedForwardState, GroupedForwardKernelSpec
 from .grouped_mmq_fwd_validation import validate_grouped_forward_solution
 from .inspection import (
     ArtifactInspection,
@@ -19,71 +20,52 @@ from .inspection import (
     _max_register_index,
     _metadata,
     _metadata_arguments,
-    _require,
 )
 from .kernel_abi import GROUPED_FORWARD_ABI
 from .toolchain import Toolchain
 
 
 def inspect_grouped_forward_artifact(
-    solution_key: GroupedForwardSolutionKey,
+    problem: GroupedForwardProblem,
+    kernel_spec: GroupedForwardKernelSpec,
+    kernel_name: str,
     code_object: Path,
     toolchain: Toolchain,
 ) -> ArtifactInspection:
-    reasons = validate_grouped_forward_solution(solution_key)
-    if reasons:
-        details = "; ".join(reason.rule_id for reason in reasons)
-        raise InspectionError(f"cannot inspect rejected grouped solution: {details}")
+    validate_grouped_forward_solution(problem, kernel_spec)
     if not code_object.is_file():
         raise InspectionError(f"code object does not exist: {code_object}")
 
-    state = DerivedGroupedForwardState.from_solution_key(solution_key)
+    state = DerivedGroupedForwardState.from_problem_spec(problem, kernel_spec)
     readelf = toolchain.readelf_output(code_object)
     disassembly = toolchain.disassembly_output(code_object)
     metadata = _metadata(readelf)
-    kernel = _kernel_metadata(metadata, solution_key.kernel_name)
+    kernel = _kernel_metadata(metadata, kernel_name)
     instructions = _instructions(disassembly)
-    errors: list[str] = []
-    _require(_elf_value(readelf, "ABI Version") == "3", "code object is not v5", errors)
-    _require(
-        _elf_value(readelf, "Flags").endswith("gfx1151"),
-        "ELF target is not gfx1151",
-        errors,
-    )
-    _require(
-        _global_function_symbols(readelf) == {solution_key.kernel_name},
-        "global kernel symbols do not match grouped solution",
-        errors,
-    )
+    assert _elf_value(readelf, "ABI Version") == "3"
+    assert _elf_value(readelf, "Flags").endswith("gfx1151")
+    assert _global_function_symbols(readelf) == {kernel_name}
 
     expected_metadata = {
         ".kernarg_segment_size": GROUPED_FORWARD_ABI.segment_size,
         ".kernarg_segment_align": GROUPED_FORWARD_ABI.segment_alignment,
         ".group_segment_fixed_size": state.physical_plan.resources.lds_bytes,
-        ".private_segment_fixed_size": 0,
-        ".max_flat_workgroup_size": solution_key.solution.num_threads,
-        ".wavefront_size": solution_key.solution.wavefront_size,
+        ".private_segment_fixed_size": state.physical_plan.resources.private_bytes,
+        ".max_flat_workgroup_size": (
+            state.kernel_spec.geometry.work_group[0]
+            * state.kernel_spec.geometry.work_group[1]
+            * state.kernel_spec.geometry.work_group[2]
+        ),
+        ".wavefront_size": state.contract.wavefront_size,
         ".vgpr_count": state.physical_plan.resources.vgprs,
         ".sgpr_count": state.physical_plan.resources.sgprs,
-        ".vgpr_spill_count": 0,
-        ".sgpr_spill_count": 0,
+        ".vgpr_spill_count": state.physical_plan.resources.vgpr_spills,
+        ".sgpr_spill_count": state.physical_plan.resources.sgpr_spills,
     }
     for field, value in expected_metadata.items():
-        _require(
-            kernel.get(field) == value,
-            f"{field} is {kernel.get(field)!r}, expected {value}",
-            errors,
-        )
-    _require(
-        kernel.get(".uses_dynamic_stack", False) is False,
-        "dynamic stack is enabled",
-        errors,
-    )
-    _require(
-        _metadata_arguments(kernel) == GROUPED_FORWARD_ABI.metadata_arguments,
-        "grouped kernarg ABI does not match",
-        errors,
-    )
+        assert kernel.get(field) == value
+    assert kernel.get(".uses_dynamic_stack", False) is False
+    assert _metadata_arguments(kernel) == GROUPED_FORWARD_ABI.metadata_arguments
 
     mnemonics = tuple(instruction.split(None, 1)[0] for instruction in instructions)
     wmma_count = sum(
@@ -107,11 +89,10 @@ def inspect_grouped_forward_artifact(
     delay_alu_count = mnemonics.count("s_delay_alu")
     buffer_gl0_inv_count = mnemonics.count("buffer_gl0_inv")
     decoded_lds = (
-        solution_key.solution.operand_source
-        is GroupedOperandSource.GroupedDecodedWeightLds
+        state.kernel_spec.operand_source is GroupedOperandSource.GroupedDecodedWeightLds
     )
     iq2_s_full_weight = (
-        solution_key.solution.operand_source
+        state.kernel_spec.operand_source
         is GroupedOperandSource.GroupedIQ2SFullWeightLds
     )
     if iq2_s_full_weight:
@@ -119,33 +100,21 @@ def inspect_grouped_forward_artifact(
     elif decoded_lds:
         row_tiles = sum(state.kernel_spec.row_dispatch.body_row_tiles)
         if (
-            solution_key.problem.quant_data_type == "Q2_K"
-            and isinstance(state.kernel_spec.decode, GroupedQ2SchedulePolicy)
+            problem.quant_data_type == "Q2_K"
+            and isinstance(state.kernel_spec.decode, GroupedQ2DecodePolicy)
             and state.kernel_spec.decode.unrolled_groups
         ):
             expected_wmmas = 20 * row_tiles
-        elif solution_key.problem.quant_data_type == "Q2_K":
+        elif problem.quant_data_type == "Q2_K":
             expected_wmmas = 6 * row_tiles
         else:
             expected_wmmas = 4 * row_tiles
     else:
         expected_wmmas = 16
     expected_barriers = 4 if decoded_lds or iq2_s_full_weight else 0
-    _require(
-        wmma_count == expected_wmmas,
-        f"expected {expected_wmmas} static WMMAs, found {wmma_count}",
-        errors,
-    )
-    _require(
-        barrier_count == expected_barriers,
-        f"expected {expected_barriers} barriers, found {barrier_count}",
-        errors,
-    )
-    _require(
-        not any(mnemonic.startswith("scratch_") for mnemonic in mnemonics),
-        "scratch instruction found",
-        errors,
-    )
+    assert wmma_count == expected_wmmas
+    assert barrier_count == expected_barriers
+    assert not any(mnemonic.startswith("scratch_") for mnemonic in mnemonics)
     call_mnemonics = {
         mnemonic
         for mnemonic in mnemonics
@@ -153,26 +122,13 @@ def inspect_grouped_forward_artifact(
     }
     if not iq2_s_full_weight and "s_getpc_b64" in mnemonics:
         call_mnemonics.add("s_getpc_b64")
-    _require(
-        not call_mnemonics, f"call instruction found: {sorted(call_mnemonics)}", errors
-    )
+    assert not call_mnemonics
     max_vgpr = _max_register_index(disassembly, "v")
     max_sgpr = _max_register_index(disassembly, "s")
-    _require(
-        max_vgpr < state.physical_plan.resources.vgprs,
-        "VGPR index exceeds metadata declaration",
-        errors,
-    )
-    _require(
-        max_sgpr < state.physical_plan.resources.sgprs,
-        "SGPR index exceeds metadata declaration",
-        errors,
-    )
-    if errors:
-        raise InspectionError("grouped artifact rejected: " + "; ".join(errors))
-
+    assert max_vgpr < state.physical_plan.resources.vgprs
+    assert max_sgpr < state.physical_plan.resources.sgprs
     return ArtifactInspection(
-        kernel_name=solution_key.kernel_name,
+        kernel_name=kernel_name,
         code_object_version=5,
         target="gfx1151",
         kernarg_segment_size=_integer(kernel, ".kernarg_segment_size"),

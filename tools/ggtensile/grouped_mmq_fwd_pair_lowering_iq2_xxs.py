@@ -2,13 +2,12 @@
 
 from dataclasses import dataclass
 
-from .grouped_mmq_fwd_lowering import GroupedForwardLoweringResult
 from .grouped_mmq_fwd_pair_lowering_common import (
     GroupedForwardPairLoweringContext,
     GroupedPairK128Mechanics,
 )
 from .grouped_mmq_fwd_pair_model import (
-    GroupedPairDecodeSchedule,
+    GroupedPairIQ2XXSDecodePolicy,
     GroupedPairRouteOwnership,
 )
 from .grouped_mmq_fwd_pair_physical import (
@@ -20,7 +19,12 @@ from .grouped_mmq_fwd_pair_route import (
     GroupedPairRowTaskEmitter,
 )
 from .iq2_xxs_grid import iq2_xxs_grid_rodata
-from .kernel_writer_assembly import Assembly, emit_bf16_rne, emit_kernel_trailer
+from .kernel_writer_assembly import (
+    Assembly,
+    LoweringResult,
+    emit_bf16_rne,
+    emit_kernel_trailer,
+)
 from .mmq_fwd_lowering_mma import emit_signed_i8_wmma
 
 
@@ -35,10 +39,7 @@ class GroupedIQ2XXSPairedK128Lowering:
 
     def _physical_plan(self) -> GroupedIQ2XXSPairPhysicalPlan:
         physical = self.context.state.physical_plan
-        if not isinstance(physical, GroupedIQ2XXSPairPhysicalPlan):
-            raise TypeError(
-                "IQ2_XXS paired lowering requires its IQ2_XXS physical plan"
-            )
+        assert isinstance(physical, GroupedIQ2XXSPairPhysicalPlan)
         return physical
 
     def _activation_label_token(self) -> str:
@@ -51,10 +52,8 @@ class GroupedIQ2XXSPairedK128Lowering:
             self._activation_label_token(),
         )
 
-    def emission(self) -> GroupedForwardLoweringResult:
-        return GroupedForwardLoweringResult(
-            self.body(), (iq2_xxs_grid_rodata(self.GRID_SYMBOL),)
-        )
+    def emission(self) -> LoweringResult:
+        return LoweringResult(self.body(), (iq2_xxs_grid_rodata(self.GRID_SYMBOL),))
 
     def body(self) -> str:
         physical = self._physical_plan()
@@ -65,7 +64,7 @@ class GroupedIQ2XXSPairedK128Lowering:
         scalar = physical.scalar_registers
         state = self.context.state
         asm = Assembly()
-        name = self.context.solution_key.kernel_name
+        name = self.context.kernel_name
 
         if (
             state.kernel_spec.route_ownership
@@ -90,7 +89,7 @@ class GroupedIQ2XXSPairedK128Lowering:
         asm.inst(
             f"s_mul_i32 s{scalar.activation_plane_stride.first_register}, "
             f"s{scalar.nrows_activation.first_register}, "
-            f"{self.context.solution_key.solution.activation_block_bytes}"
+            f"{state.contract.activation_block_bytes}"
         )
         asm.inst(
             f"s_mov_b32 s{scalar.row_start.first_register}, "
@@ -116,7 +115,7 @@ class GroupedIQ2XXSPairedK128Lowering:
         asm.inst(
             f"s_mul_i32 s{scalar.packed_block_offset.first_register}, "
             f"s{scalar.row_start.first_register}, "
-            f"{self.context.solution_key.solution.activation_block_bytes}"
+            f"{state.contract.activation_block_bytes}"
         )
         for register in (
             *registers.sums_first.registers,
@@ -210,8 +209,7 @@ class GroupedIQ2XXSPairedK128Lowering:
         weight_scalar: int,
         half: int,
     ) -> None:
-        if half not in (0, 1):
-            raise ValueError("IQ2_XXS paired decode half must be zero or one")
+        assert half in (0, 1)
         registers = self._physical_plan().registers
         d = registers.producer_d.first_register
         packed = registers.producer_indices.first_register
@@ -347,10 +345,9 @@ class GroupedIQ2XXSPairedK128Lowering:
         asm.inst(f"v_perm_b32 v{destination}, v{negative}, v{positive}, v{selector}")
 
     def _uses_fused_selector(self) -> bool:
-        return (
-            self.context.state.kernel_spec.metadata_schedule
-            is GroupedPairDecodeSchedule.TwoLaneSelectedHalfIQ2XXSFusedSelector
-        )
+        decode = self.context.state.kernel_spec.decode_policy
+        assert isinstance(decode, GroupedPairIQ2XXSDecodePolicy)
+        return decode.fused_grid_selector
 
     def _emit_compute_projection(self, asm: Assembly, sums: int) -> None:
         layout = self._physical_plan().layout

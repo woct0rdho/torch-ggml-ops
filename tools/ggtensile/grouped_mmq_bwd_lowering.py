@@ -8,17 +8,20 @@ from .grouped_mmq_bwd_physical import (
 )
 from .grouped_mmq_bwd_spec import (
     DerivedGroupedBackwardState,
+    GroupedBackwardEmptyTilePolicy,
 )
 from .kernel_abi import GROUPED_BACKWARD_ABI
 from .kernel_writer_assembly import (
+    LoweringResult,
     emit_kernel_trailer,
     emit_pointer_kernarg_loads,
     emit_scale_sgpr_u32,
 )
-from .mmq_bwd_emission import BackwardLoweringResult, BackwardTileAccess, _Assembly
+from .mmq_bwd_emission import BackwardTileAccess, _Assembly
 from .mmq_bwd_lowering import BackwardTileComputeEmitter
 from .mmq_bwd_lowering_quant import emit_unbounded_a_global_loads
 from .mmq_bwd_physical import BackwardRegisterPlan
+from .work_group_mapping import mapped_route_stride, work_group_mapping_shift
 
 
 @dataclass(frozen=True)
@@ -200,17 +203,16 @@ class GroupedBackwardKernelLowering:
         self.state = state
         self.physical = physical
         access = GroupedBackwardTileAccess(physical.route)
-        suppress_inactive_m = not (
-            state.contract.quant_type == "Q5_K"
-            and state.contract.problem_size.m == 262_144
-            and state.spec.ownership.solution_value == "SplitRoutes16"
+        suppress_empty_m = (
+            state.spec.ownership.empty_tile_policy
+            is GroupedBackwardEmptyTilePolicy.Suppress
         )
         self.primary = GroupedBackwardTileComputeEmitter(
             state.primary,
             physical.primary,
             access=access,
             route=physical.route,
-            enabled=suppress_inactive_m,
+            enabled=suppress_empty_m,
         )
         self.secondary = (
             GroupedBackwardTileComputeEmitter(
@@ -218,7 +220,7 @@ class GroupedBackwardKernelLowering:
                 physical.secondary,
                 access=access,
                 route=physical.route,
-                enabled=suppress_inactive_m,
+                enabled=suppress_empty_m,
                 label_suffix="Tail",
             )
             if state.secondary is not None and physical.secondary is not None
@@ -243,17 +245,32 @@ class GroupedBackwardKernelLowering:
         self.primary.emit_quant_constants(asm)
 
         split_factor = self.state.spec.ownership.split_factor
+        mapping = self.state.spec.compute.geometry.work_group_mapping
+        effective_split = mapped_route_stride(split_factor, mapping)
+        if mapping > 1:
+            mapping_shift = work_group_mapping_shift(mapping)
+            asm.comment("Decode WGM-packed grid X into N and an M-task lane.")
+            asm.inst(f"s_and_b32 s{r.input_half}, s2, {mapping - 1}")
+            asm.inst(f"s_lshr_b32 s2, s2, {mapping_shift}")
         asm.comment("Map grid X to N and walk this grid-Y route in M tiles.")
         asm.inst(f"s_mov_b32 s{route.gemm_index}, s3")
         asm.inst("s_mov_b32 s3, s2")
-        asm.inst("s_mov_b32 s2, s4" if split_factor > 1 else "s_mov_b32 s2, 0")
+        if mapping > 1:
+            if split_factor > 1:
+                asm.inst(f"s_mul_i32 s{route.tile_end}, s4, {mapping}")
+                asm.inst(
+                    f"s_add_u32 s{r.input_half}, s{route.tile_end}, s{r.input_half}"
+                )
+            asm.inst(f"s_mov_b32 s2, s{r.input_half}")
+        else:
+            asm.inst("s_mov_b32 s2, s4" if split_factor > 1 else "s_mov_b32 s2, 0")
         n_tiles = (
             self.state.contract.problem_size.n
             // self.state.spec.compute.geometry.macro_tile1
         )
         asm.inst(f"s_cmp_ge_u32 s3, {n_tiles}")
         asm.inst(f"s_cbranch_scc1 {self.EXIT_LABEL}")
-        if split_factor > 1:
+        if effective_split > 1:
             asm.inst(
                 f"s_mul_i32 s{route.tile_end}, s2, "
                 f"{self.state.spec.compute.geometry.macro_tile0}"
@@ -265,7 +282,7 @@ class GroupedBackwardKernelLowering:
 
         if self.secondary is None:
             self.primary.emit_static_coordinates(asm)
-            self._emit_main_route_tiles(asm, split_factor)
+            self._emit_main_route_tiles(asm, effective_split)
         else:
             tail_label = f".LGroupedBackwardTail{self.state.spec.row_tail.tile_rows}"
             done_label = ".LGroupedBackwardTailDone"
@@ -275,7 +292,7 @@ class GroupedBackwardKernelLowering:
             )
             asm.inst(f"s_cbranch_scc1 {tail_label}")
             self.primary.emit_static_coordinates(asm)
-            self._emit_main_route_tiles(asm, split_factor)
+            self._emit_main_route_tiles(asm, effective_split)
             asm.inst(f"s_branch {done_label}")
             asm.label(tail_label)
             asm.inst(f"v_mov_b32 v{self.secondary.registers.serial}, v{r.serial}")
@@ -287,8 +304,8 @@ class GroupedBackwardKernelLowering:
         emit_kernel_trailer(asm, self.kernel_name)
         return asm.text()
 
-    def emission(self) -> BackwardLoweringResult:
-        return BackwardLoweringResult(self.body(), self.primary.trailing_sections())
+    def emission(self) -> LoweringResult:
+        return LoweringResult(self.body(), self.primary.trailing_sections())
 
     def _emit_main_route_tiles(self, asm: _Assembly, split_factor: int) -> None:
         route = self.physical.route

@@ -1,164 +1,159 @@
 {
   "KernelFamily": "OrdinaryForward",
-  "ProblemContract": {
-    "quant_type": "Q6_K",
-    "block_values": 256,
-    "packed_weight_block_bytes": 210,
-    "activation_layout": "F32_D4",
-    "activation_block_bytes": 144,
-    "kernel_language": "Assembly",
-    "isa": [
+  "Target": {
+    "ISA": [
       11,
       5,
       1
     ],
-    "wavefront_size": 32,
-    "signed_weight": true,
-    "signed_activation": true,
-    "wmma_clamp": false,
-    "weight_decode": "DirectQ6Signed",
-    "scale_arithmetic": "Int32ScaleF32",
-    "arithmetic_contract": "SignedQ6Int8ScaleIntegerWmmaF32Correction",
-    "destination_type": "BFloat16",
-    "bf16_rounding": "RNEPreserveNaN",
-    "abi": "PackedWeightQ81OutputV1"
+    "WavefrontSize": 32,
+    "MatrixInstructionSet": "WmmaV1",
+    "CodeObjectVersion": 5
+  },
+  "ProblemType": {
+    "QuantDataType": "Q6_K",
+    "DataTypeA": "Q8_1",
+    "DataTypeB": "Q6_K",
+    "DestinationDataType": "BFloat16",
+    "ComputeDataType": "Float32",
+    "TransposeA": false,
+    "TransposeB": true,
+    "ActivationLayout": "F32_D4"
   },
   "KernelSpecs": [
     {
-      "geometry": {
-        "work_group": [
+      "Geometry": {
+        "WorkGroup": [
           32,
           4,
           1
         ],
-        "matrix_instruction": [
+        "MatrixInstruction": [
           16,
           16,
           16,
           1
         ],
-        "depth_u": 32
+        "DepthU": 32
       },
-      "ownership": {
-        "mi_wave_group": [
+      "Ownership": {
+        "MIWaveGroup": [
           4,
           1
         ],
-        "mi_wave_tile": [
+        "MIWaveTile": [
           1,
           4
         ]
       },
-      "global_memory": {
-        "operand_source": "Q6StructuredDecoded",
-        "activation_addressing": "MadU24",
-        "global_read_cache_policy": "InvalidateL0"
+      "GlobalMemory": {
+        "OperandSource": "Q6StructuredDecoded",
+        "ActivationAddressing": "MadU24",
+        "GlobalReadCachePolicy": "InvalidateL0"
       },
-      "lds": {
-        "address_hoist": "StructuredDecodeDot"
+      "Lds": {
+        "AddressHoist": "StructuredDecodeDot"
       },
-      "decode": {
-        "metadata_conversion": "Float16DToFloat32Signed8Scale"
+      "Decode": {
+        "MetadataConversion": "Float16DToFloat32Signed8Scale"
       },
-      "epilogue": {
-        "output_store": "BFloat16RNEClauseBatch8IncrementRows",
-        "pipeline": {
-          "dependency_width": 2,
-          "scope": "StoreBatch"
+      "Epilogue": {
+        "Pipeline": {
+          "DependencyWidth": 2,
+          "Scope": "StoreBatch"
         }
       },
-      "instruction_policy": {
-        "dependency_delay_mode": "None",
-        "q6_physical_plan": "CanonicalRegisterRoles"
+      "InstructionPolicy": {
+        "DependencyDelayMode": "None",
+        "PhysicalPlan": "CanonicalRegisterRoles"
       },
-      "semantic_schedule": {
-        "traversal": "OutputRoleWavefront",
-        "clustering": "RowBatchedDecodeOrder",
-        "latency": "WavefrontDependencyDistance",
-        "pressure": "ExplicitRoleLifetime",
-        "wait": "ProducerFirstUse",
-        "pairing": "DependencyCompatibleDualIssue"
+      "SemanticSchedule": {
+        "Traversal": "OutputRoleWavefront",
+        "Clustering": "RowBatchedDecodeOrder",
+        "Latency": "WavefrontDependencyDistance",
+        "Pressure": "ExplicitRoleLifetime",
+        "Wait": "ProducerFirstUse",
+        "Pairing": "DependencyCompatibleDualIssue"
       }
     },
     {
-      "geometry": {
-        "work_group": [
+      "Geometry": {
+        "WorkGroup": [
           32,
           4,
           1
         ],
-        "matrix_instruction": [
+        "MatrixInstruction": [
           16,
           16,
           16,
           1
         ],
-        "depth_u": 32
+        "DepthU": 32
       },
-      "ownership": {
-        "mi_wave_group": [
+      "Ownership": {
+        "MIWaveGroup": [
           4,
           1
         ],
-        "mi_wave_tile": [
+        "MIWaveTile": [
           2,
           4
         ]
       },
-      "global_memory": {
-        "operand_source": "Q6StructuredDecoded",
-        "activation_addressing": "MadU24",
-        "global_read_cache_policy": "InvalidateL0"
+      "GlobalMemory": {
+        "OperandSource": "Q6StructuredDecoded",
+        "ActivationAddressing": "MadU24",
+        "GlobalReadCachePolicy": "InvalidateL0"
       },
-      "lds": {
-        "address_hoist": "StructuredDecodeDot"
+      "Lds": {
+        "AddressHoist": "StructuredDecodeDot"
       },
-      "decode": {
-        "metadata_conversion": "Float16DToFloat32Signed8Scale"
+      "Decode": {
+        "MetadataConversion": "Float16DToFloat32Signed8Scale"
       },
-      "epilogue": {
-        "output_store": "BFloat16RNEClauseBatch8IncrementRows",
-        "pipeline": {
-          "dependency_width": 2,
-          "scope": "FullTile"
+      "Epilogue": {
+        "Pipeline": {
+          "DependencyWidth": 2,
+          "Scope": "FullTile"
         }
       },
-      "instruction_policy": {
-        "dependency_delay_mode": "Explicit",
-        "q6_physical_plan": "CanonicalRegisterRoles"
+      "InstructionPolicy": {
+        "DependencyDelayMode": "Explicit",
+        "PhysicalPlan": "CanonicalRegisterRoles"
       },
-      "semantic_schedule": {
-        "traversal": "OutputRoleWavefront",
-        "clustering": "RowBatchedDecodeOrder",
-        "latency": "WavefrontDependencyDistance",
-        "pressure": "ExplicitRoleLifetime",
-        "wait": "ProducerFirstUse",
-        "pairing": "DependencyCompatibleDualIssue"
+      "SemanticSchedule": {
+        "Traversal": "OutputRoleWavefront",
+        "Clustering": "RowBatchedDecodeOrder",
+        "Latency": "WavefrontDependencyDistance",
+        "Pressure": "ExplicitRoleLifetime",
+        "Wait": "ProducerFirstUse",
+        "Pairing": "DependencyCompatibleDualIssue"
       }
     }
   ],
   "ExactLogic": [
     {
       "Problem": {
-        "m": 64,
-        "n": 248320,
-        "k": 2048
+        "M": 64,
+        "N": 248320,
+        "K": 2048
       },
       "KernelSpecIndex": 0
     },
     {
       "Problem": {
-        "m": 128,
-        "n": 248320,
-        "k": 2048
+        "M": 128,
+        "N": 248320,
+        "K": 2048
       },
       "KernelSpecIndex": 1
     },
     {
       "Problem": {
-        "m": 256,
-        "n": 248320,
-        "k": 2048
+        "M": 256,
+        "N": 248320,
+        "K": 2048
       },
       "KernelSpecIndex": 1
     }

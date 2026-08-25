@@ -1,0 +1,112 @@
+{
+  "KernelFamily": "OrdinaryForward",
+  "Target": {
+    "ISA": [
+      11,
+      5,
+      1
+    ],
+    "WavefrontSize": 32,
+    "MatrixInstructionSet": "WmmaV1",
+    "CodeObjectVersion": 5
+  },
+  "ProblemType": {
+    "QuantDataType": "Q3_K",
+    "DataTypeA": "Q8_1",
+    "DataTypeB": "Q3_K",
+    "DestinationDataType": "BFloat16",
+    "ComputeDataType": "Float32",
+    "TransposeA": false,
+    "TransposeB": true,
+    "ActivationLayout": "F32_D4"
+  },
+  "KernelSpecs": [
+    {
+      "Geometry": {
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "MatrixInstruction": [
+          16,
+          16,
+          16,
+          1
+        ],
+        "DepthU": 16
+      },
+      "Ownership": {
+        "MIWaveGroup": [
+          4,
+          1
+        ],
+        "MIWaveTile": [
+          2,
+          4
+        ]
+      },
+      "GlobalMemory": {
+        "OperandSource": "Q3FullWeightTiledLds",
+        "ActivationAddressing": "ScalarPlaneBase"
+      },
+      "Lds": {
+        "AddressHoist": "Q3FullTile336"
+      },
+      "Decode": {
+        "MetadataConversion": "Float16DToFloat32Signed6ScaleShared",
+        "DecodeReadyFrontier": true
+      }
+    }
+  ],
+  "ExactLogic": [
+    {
+      "Problem": {
+        "M": 2048,
+        "N": 4096,
+        "K": 2048
+      },
+      "KernelSpecIndex": 0
+    },
+    {
+      "Problem": {
+        "M": 8192,
+        "N": 4096,
+        "K": 2048
+      },
+      "KernelSpecIndex": 0
+    },
+    {
+      "Problem": {
+        "M": 32768,
+        "N": 4096,
+        "K": 2048
+      },
+      "KernelSpecIndex": 0
+    },
+    {
+      "Problem": {
+        "M": 2048,
+        "N": 2048,
+        "K": 4096
+      },
+      "KernelSpecIndex": 0
+    },
+    {
+      "Problem": {
+        "M": 8192,
+        "N": 2048,
+        "K": 4096
+      },
+      "KernelSpecIndex": 0
+    },
+    {
+      "Problem": {
+        "M": 32768,
+        "N": 2048,
+        "K": 4096
+      },
+      "KernelSpecIndex": 0
+    }
+  ]
+}

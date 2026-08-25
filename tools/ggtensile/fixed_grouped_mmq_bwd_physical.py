@@ -2,7 +2,8 @@
 
 from dataclasses import dataclass, replace
 
-from .mmq_bwd_physical import BackwardPhysicalPlan, BackwardResourcePlan
+from .mmq_bwd_physical import BackwardPhysicalPlan
+from .physical_resources import PhysicalResourceUsage
 
 
 @dataclass(frozen=True)
@@ -13,7 +14,7 @@ class FixedBackwardScalarPlan:
 @dataclass(frozen=True)
 class FixedBackwardPhysicalPlan:
     ordinary: BackwardPhysicalPlan
-    resources: BackwardResourcePlan
+    resources: PhysicalResourceUsage
     scalar: FixedBackwardScalarPlan
 
 
@@ -22,10 +23,9 @@ def derive_fixed_backward_physical_plan(
 ) -> FixedBackwardPhysicalPlan:
     group_byte_offset = ordinary.registers.total_sgprs
     total_sgprs = group_byte_offset + 1
-    if total_sgprs > 64:
-        raise ValueError("fixed backward group offset exceeds the SGPR file")
+    assert total_sgprs <= 64
     registers = replace(ordinary.registers, total_sgprs=total_sgprs)
-    resources = replace(ordinary.resources, total_sgprs=total_sgprs)
+    resources = replace(ordinary.resources, sgprs=total_sgprs)
     fixed_ordinary = replace(ordinary, registers=registers, resources=resources)
     return FixedBackwardPhysicalPlan(
         ordinary=fixed_ordinary,

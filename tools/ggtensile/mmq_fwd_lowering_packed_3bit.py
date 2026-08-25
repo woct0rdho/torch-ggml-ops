@@ -1,7 +1,7 @@
 """Packed three-bit half-tile MMQ forward lowering."""
 
 from dataclasses import dataclass
-from typing import ClassVar, cast
+from typing import ClassVar
 
 from .kernel_abi import ORDINARY_FORWARD_ABI
 from .kernel_writer_assembly import (
@@ -31,9 +31,8 @@ class Packed3BitTiledLdsLowering:
     def body(self) -> str:
         """Lower the isolated wave-N 128x64 Q3_K LDS research control."""
         asm = Assembly()
-        physical = cast(
-            Packed3BitTiledLdsPhysicalPlan, self.context.state.physical_plan
-        )
+        physical = self.context.state.physical_plan
+        assert isinstance(physical, Packed3BitTiledLdsPhysicalPlan)
         registers = physical.registers
         layout = physical.layout
         name = self.context.kernel_name

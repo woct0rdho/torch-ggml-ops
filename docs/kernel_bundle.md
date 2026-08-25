@@ -44,7 +44,7 @@ Forward activation workspaces hold Q8_1 blocks and use:
 workspace_bytes = input.numel() / 128 * 144
 ```
 
-for every valid exact key. Paired Q3_K forward allocates 64-row device tasks; paired IQ2_S forward allocates 32-row tasks. Their explicit capacity is:
+for every valid exact key. Paired Q3_K forward allocates 64-row device tasks; paired IQ2_S forward allocates 64-row tasks. Their explicit capacity is:
 
 ```text
 ceil(aggregate_rows / task_rows) + route_entries
@@ -75,7 +75,7 @@ Every failure occurs before quantization, task setup, or multiply launch. Native
 
 ## Selected inventory
 
-Selected ordinary winners are loaded from the ten strict catalogs in `tools/ggtensile/configs/mmq_<direction>_<quant>_catalog.json`. Selected grouped, paired, and fixed winners are loaded from `tools/ggtensile/configs/mmq_deployment.json`.
+All selected winners are loaded from the strict canonical catalogs in `tools/ggtensile/configs/mmq_*_catalog.json`. Research-only catalogs are kept outside that public directory and are never included in the bundle.
 
 The current public bundle contains 152 independently loadable artifacts:
 
@@ -94,9 +94,9 @@ The current public bundle contains 152 independently loadable artifacts:
 
 The four setup artifacts are the only HIP-compiled entries in the public bundle. All 148 public multiply artifacts come from typed GGTensile assembly writers. Historical HIP controls are built separately for research comparisons; they are never part of public dispatch or used as a fallback.
 
-Each selected route stores one winner only. Inventory parsing reconstructs the typed exact key and verifies its hash, symbol, ABI, workgroup, grid, fixed LDS size, ownership, and row-task bounds against facts derived from that key. Benchmark medians, model names, rejected alternatives, and tuning heuristics are not deployment fields.
+Each selected route stores one winner only. Artifact files use `<symbol>.hsaco`; their names come from the canonical typed key. The deployment builder does not emit a manifest or record toolchain, source, object, code-object, or resource provenance. Benchmark medians, model names, rejected alternatives, and tuning heuristics are not deployment fields.
 
-`csrc/generated/mmq_bundle_table.cuh` contains:
+`csrc/generated/mmq_bundle_table.cuh` is generated directly from the typed inventory and contains:
 - one ordered symbol array indexed by a numeric `MMQKernelIndex`.
 - named indices only for the four setup artifacts.
 - one exact deployment record per multiply artifact.
@@ -106,36 +106,51 @@ There is no generic `KernelNNN` runtime identity or tuning database.
 
 ## Build and package pipeline
 
-`tools/mmq_deployment_bundle.py` is the implementation; `tools/build_mmq_bundle.py` is the stable build entry point. The builder:
-- Loads strict ordinary catalogs and the grouped deployment inventory.
+`tools/mmq_deployment_bundle.py` is the build entry point. The builder:
+- Loads every public canonical catalog from `tools/ggtensile/configs/`.
 - Initializes every GGTensile writer serially and emits deterministic assembly.
 - Assembles and links GGTensile sources for gfx1151, wave32, code-object v5.
 - Compiles only the three quantizers and row-task setup with HIP using deterministic compiler-unit settings.
 - Verifies ELF target data and the single expected exported symbol.
-- Generates the exact host table.
+- Generates operation/quant constants and the exact host table from the typed inventory.
 - Installs the complete set transactionally and removes stale artifacts.
 
-Temporary object files are deleted and never packaged. A failed build removes its staging directory. The ignored `.mmq-build-input` stamp hashes the relevant toolchain identity, typed catalogs/inventory, writers, renderer, and device headers.
+Temporary object files are deleted and never packaged. A failed build removes its staging directory. Every invocation regenerates every public kernel; there is no incremental bundle stamp or freshness check.
 
-Useful gates are:
+The build entry point is:
 
 ```bash
-python tools/build_mmq_bundle.py --check
-python tools/build_mmq_bundle.py --verify-reproducible --jobs 16
+python tools/mmq_deployment_bundle.py --jobs 16
 ```
 
-The reproducibility gate builds the complete bundle twice and requires byte-identical artifacts in inventory order. `--check` verifies the exact artifact set, generated header, and input stamp.
+`setup.py build_ext`, wheel builds, and editable installs run the public bundle builder before compiling `_C.abi3.so`, then copy the exact public HSACO set into the wheel build tree. Historical controls remain outside the public package. Source distributions are not supported. HSACOs remain ignored by Git.
 
-`setup.py build_ext`, wheel builds, and editable installs run the public bundle builder before compiling `_C.abi3.so`, then copy the exact public HSACO set into the wheel build tree. Historical controls remain outside the public package. Source distributions are not supported. HSACOs and local build stamps remain ignored by Git.
+The historical control build is an explicit research-only step. The HSACOs are ignored build outputs and are expected to be rebuilt on a new checkout or after a compiler/source change.
 
-The historical control build is an explicit research-only step:
+From the repository root, with the gfx1151 ROCm toolchain available:
 
 ```bash
+python tools/build_mmq_hip_controls.py --jobs 16
 python tools/build_mmq_hip_controls.py --check
+```
+
+Use `--force` when recovering from a stale or partially copied output directory:
+
+```bash
+python tools/build_mmq_hip_controls.py --force --jobs 16
+```
+
+`--verify-reproducible` compiles the complete 181-control inventory twice, compares the resulting bytes, and installs the first build only after the comparison succeeds:
+
+```bash
 python tools/build_mmq_hip_controls.py --verify-reproducible --jobs 16
 ```
 
-Direct-kernel benchmark runners accept `--hip-root` for the directory containing the historical-control set and otherwise use `build/mmq_hip_controls/gfx1151` when it is available. These controls are comparison artifacts only; their presence does not change the 148-route public inventory.
+The builder requires `hipcc` (or `--hipcc /path/to/hipcc`) and the matching `amdclang++`, `llvm-readelf`, `llvm-objdump`, and `llvm-objcopy` tools. `amdclang++` may be selected with `GGTENSILE_AMDCLANGXX`; the LLVM tools are normally found beside it or on `PATH`. The checked-in `csrc/mmq_core.cuh`, `csrc/ck/`, and `csrc/vendor/llama_cpp/` headers are the source inputs; no GPU is required to compile, although the device tests still require a compatible gfx1151 system and runtime.
+
+A successful build atomically installs one bare-symbol file per historical control under `build/mmq_hip_controls/gfx1151/` and writes a freshness stamp there. The current launchers expect names such as `grouped_fwd_serial_q2_k_n4096_k2048_j32.hsaco`; older prefixed files such as `torch_ggml_ops_mmq_gfx1151_v1_<symbol>.hsaco` do not satisfy lookup and are replaced by a current rebuild. `--check` exits nonzero when the inventory, stamp, compiler, or source inputs are stale.
+
+Direct-kernel benchmark runners accept `--hip-root` for the directory containing the historical-control set. Tests and runners otherwise use `GGTENSILE_HIP_CONTROL_ROOT` when set, followed by `build/mmq_hip_controls/gfx1151` when it is available. These controls are comparison artifacts only; their presence does not change the 148-route public inventory.
 
 ## Runtime loading and launch
 
@@ -145,7 +160,7 @@ The installed layout is:
 torch_ggml_ops/
   _C.abi3.so
   kernels/gfx1151/
-    <exact-versioned-symbol>.hsaco
+    <exact-symbol>.hsaco
     ...
 
 # Optional research-only controls (outside the public package):
@@ -191,7 +206,7 @@ Routed inputs have shape `[R,K]`; packed weights have physical shape `[256,N,pac
 | --- | --- | --- | --- |
 | Forward | Q4_K, Q5_K, IQ2_S | `R in {16384,65536,262144}`, `(N,K)=(2048,512)` | Serial routes |
 | Forward | Q2_K | `R in {12288,49152,196608}`, `(N,K)=(4096,2048)` | Serial routes |
-| Paired forward | IQ2_S | `R in {16384,65536,262144}`, `(N,K)=(512,2048)` | Device tasks, 32 rows/task |
+| Paired forward | IQ2_S | `R in {16384,65536,262144}`, `(N,K)=(512,2048)` | Device tasks, 64 rows/task |
 | Paired forward | Q3_K | `R in {16384,65536,262144}`, `(N,K)=(512,2048)` | Device tasks, 64 rows/task |
 | Paired forward | IQ2_XXS | `R in {12288,49152,196608}`, `(N,K)=(2048,4096)` | Serial routes |
 | Backward | Q4_K, Q5_K, IQ2_S | `R in {16384,65536,262144}`, `(N,K)=(512,2048)` | Exact serial/static-split policy per key |
@@ -230,7 +245,7 @@ Changes to selected keys, bundle generation, launch packing, or public wrappers 
 - strict catalog and deployment-inventory tests.
 - typed launch-metadata derivation checks.
 - exact artifact-count and unique-symbol checks.
-- two-pass bundle reproducibility and `--check`.
+- one complete regeneration of the selected bundle from the typed inventory.
 - editable or wheel build of the extension.
 - native validation tests for dtype, device, contiguity, shape, element count, and effective-pointer alignment.
 - packed-reference and independent numerical checks for affected forward/backward families.

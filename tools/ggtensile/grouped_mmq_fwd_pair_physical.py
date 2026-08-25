@@ -1,33 +1,44 @@
 """Deterministic physical ownership for paired grouped forward."""
 
 from dataclasses import dataclass
+from typing import ClassVar
 
 from .grouped_mmq_fwd_pair_model import GroupedPairRouteOwnership
-from .grouped_mmq_fwd_physical import ForwardResourceUsage
 from .kernel_writer_assembly import RegisterAssignment, RegisterLifetime, RegisterRole
+from .physical_resources import PhysicalResourceUsage
 
 
 @dataclass(frozen=True)
-class GroupedIQ2SPairHalfLdsLayout:
-    activation_rows: int = 64
-    weight_rows: int = 64
-    activation_row_stride: int = 144
-    weight_row_stride: int = 160
-    half_payload_bytes: int = 128
-    half_payload_stride: int = 160
-    weight_scale_offset: int = 128
+class GroupedPairHalfLdsLayout:
+    activation_rows: int
+    allowed_activation_rows: ClassVar[tuple[int, ...]] = (64,)
 
     def __post_init__(self) -> None:
-        if (
-            self.activation_rows,
-            self.weight_rows,
-            self.activation_row_stride,
-            self.weight_row_stride,
-            self.half_payload_bytes,
-            self.half_payload_stride,
-            self.weight_scale_offset,
-        ) != (64, 64, 144, 160, 128, 160, 128):
-            raise ValueError("paired IQ2_S half-LDS layout has fixed dimensions")
+        assert self.activation_rows in self.allowed_activation_rows
+
+    @property
+    def weight_rows(self) -> int:
+        return 64
+
+    @property
+    def activation_row_stride(self) -> int:
+        return 144
+
+    @property
+    def weight_row_stride(self) -> int:
+        return 160
+
+    @property
+    def half_payload_bytes(self) -> int:
+        return 128
+
+    @property
+    def half_payload_stride(self) -> int:
+        return 160
+
+    @property
+    def weight_scale_offset(self) -> int:
+        return 128
 
     @property
     def activation_bytes(self) -> int:
@@ -47,45 +58,16 @@ class GroupedIQ2SPairHalfLdsLayout:
 
 
 @dataclass(frozen=True)
-class GroupedIQ2XXSPairHalfLdsLayout:
+class GroupedIQ2SPairHalfLdsLayout(GroupedPairHalfLdsLayout):
+    activation_rows: int = 64
+
+
+@dataclass(frozen=True)
+class GroupedIQ2XXSPairHalfLdsLayout(GroupedPairHalfLdsLayout):
     """The Q8_0-style decoded IQ2_XXS tile used by the paired lowering."""
 
     activation_rows: int = 64
-    weight_rows: int = 64
-    activation_row_stride: int = 144
-    weight_row_stride: int = 160
-    half_payload_bytes: int = 128
-    half_payload_stride: int = 160
-    weight_scale_offset: int = 128
-
-    def __post_init__(self) -> None:
-        if self.activation_rows not in (64, 80) or (
-            self.weight_rows,
-            self.activation_row_stride,
-            self.weight_row_stride,
-            self.half_payload_bytes,
-            self.half_payload_stride,
-            self.weight_scale_offset,
-        ) != (64, 144, 160, 128, 160, 128):
-            raise ValueError(
-                "paired IQ2_XXS half-LDS layout requires J64 or J80 dimensions"
-            )
-
-    @property
-    def activation_bytes(self) -> int:
-        return self.activation_rows * self.activation_row_stride
-
-    @property
-    def weight_base(self) -> int:
-        return self.activation_bytes
-
-    @property
-    def weight_bytes(self) -> int:
-        return self.weight_rows * self.weight_row_stride
-
-    @property
-    def total_bytes(self) -> int:
-        return self.activation_bytes + self.weight_bytes
+    allowed_activation_rows: ClassVar[tuple[int, ...]] = (64, 80)
 
 
 @dataclass(frozen=True)
@@ -208,42 +190,8 @@ class GroupedIQ2SPairVectorRegisterPlan:
 
 
 @dataclass(frozen=True)
-class GroupedQ3KPairHalfLdsLayout:
+class GroupedQ3KPairHalfLdsLayout(GroupedPairHalfLdsLayout):
     activation_rows: int = 64
-    weight_rows: int = 64
-    activation_row_stride: int = 144
-    weight_row_stride: int = 160
-    half_payload_bytes: int = 128
-    half_payload_stride: int = 160
-    weight_scale_offset: int = 128
-
-    def __post_init__(self) -> None:
-        if (
-            self.activation_rows,
-            self.weight_rows,
-            self.activation_row_stride,
-            self.weight_row_stride,
-            self.half_payload_bytes,
-            self.half_payload_stride,
-            self.weight_scale_offset,
-        ) != (64, 64, 144, 160, 128, 160, 128):
-            raise ValueError("paired Q3_K half-LDS layout has fixed dimensions")
-
-    @property
-    def activation_bytes(self) -> int:
-        return self.activation_rows * self.activation_row_stride
-
-    @property
-    def weight_base(self) -> int:
-        return self.activation_bytes
-
-    @property
-    def weight_bytes(self) -> int:
-        return self.weight_rows * self.weight_row_stride
-
-    @property
-    def total_bytes(self) -> int:
-        return self.activation_bytes + self.weight_bytes
 
 
 @dataclass(frozen=True)
@@ -540,7 +488,7 @@ class GroupedIQ2SPairPhysicalPlan:
     layout: GroupedIQ2SPairHalfLdsLayout
     registers: GroupedIQ2SPairVectorRegisterPlan
     scalar_registers: GroupedIQ2SPairScalarRegisterPlan
-    resources: ForwardResourceUsage
+    resources: PhysicalResourceUsage
 
 
 @dataclass(frozen=True)
@@ -548,7 +496,7 @@ class GroupedIQ2XXSPairPhysicalPlan:
     layout: GroupedIQ2XXSPairHalfLdsLayout
     registers: GroupedIQ2SPairVectorRegisterPlan
     scalar_registers: GroupedIQ2SPairScalarRegisterPlan
-    resources: ForwardResourceUsage
+    resources: PhysicalResourceUsage
 
 
 @dataclass(frozen=True)
@@ -556,7 +504,7 @@ class GroupedQ3KPairPhysicalPlan:
     layout: GroupedQ3KPairHalfLdsLayout
     registers: GroupedQ3KPairVectorRegisterPlan
     scalar_registers: GroupedIQ2SPairScalarRegisterPlan
-    resources: ForwardResourceUsage
+    resources: PhysicalResourceUsage
 
 
 def grouped_iq2_s_pair_physical_plan(
@@ -573,7 +521,7 @@ def grouped_iq2_s_pair_physical_plan(
         layout=layout,
         registers=vector,
         scalar_registers=scalar,
-        resources=ForwardResourceUsage(
+        resources=PhysicalResourceUsage(
             vector.declared_vgprs,
             scalar.declared_sgprs,
             layout.total_bytes,
@@ -600,7 +548,7 @@ def grouped_iq2_xxs_pair_physical_plan(
         layout=layout,
         registers=vector,
         scalar_registers=scalar,
-        resources=ForwardResourceUsage(
+        resources=PhysicalResourceUsage(
             vector.declared_vgprs,
             scalar.declared_sgprs,
             layout.total_bytes,
@@ -622,7 +570,7 @@ def grouped_q3_k_pair_physical_plan(
         layout=layout,
         registers=vector,
         scalar_registers=scalar,
-        resources=ForwardResourceUsage(
+        resources=PhysicalResourceUsage(
             vector.declared_vgprs,
             scalar.declared_sgprs,
             layout.total_bytes,

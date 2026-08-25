@@ -1,0 +1,191 @@
+{
+  "KernelFamily": "GroupedBackward",
+  "Target": {
+    "ISA": [
+      11,
+      5,
+      1
+    ],
+    "WavefrontSize": 32,
+    "MatrixInstructionSet": "WmmaV1",
+    "CodeObjectVersion": 5
+  },
+  "ProblemType": {
+    "QuantDataType": "Q2_K",
+    "DataTypeA": "BFloat16",
+    "DataTypeB": "Q2_K",
+    "DestinationDataType": "BFloat16",
+    "ComputeDataType": "Float32",
+    "TransposeA": false,
+    "TransposeB": false
+  },
+  "KernelSpecs": [
+    {
+      "Geometry": {
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "MIWaveTile": [
+          1,
+          4
+        ],
+        "DepthU": 32,
+        "WorkGroupMapping": 1
+      },
+      "Memory": {
+        "LdsLayout": {
+          "Kind": "Padded",
+          "LdsPadB": 8
+        }
+      },
+      "Pipeline": {
+        "PrefetchGlobalRead": 2,
+        "PrefetchLocalRead": 1,
+        "DoubleBufferLds": false,
+        "PrefetchActivation": true,
+        "InterleaveWmmaWaits": false,
+        "PrefetchPackedWeight": true,
+        "PrefetchNextPackedWeight": false,
+        "PackedWeightLaneShare": 1
+      },
+      "Store": {
+        "Priority": "Raised"
+      },
+      "Decode": {
+        "DecodeDependencyWidth": 4
+      },
+      "Ownership": {
+        "Kind": "Serial",
+        "EmptyTilePolicy": "Suppress"
+      },
+      "RowTail": {
+        "Kind": "Masked"
+      }
+    },
+    {
+      "Geometry": {
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "MIWaveTile": [
+          2,
+          4
+        ],
+        "DepthU": 32,
+        "WorkGroupMapping": 1
+      },
+      "Memory": {
+        "LdsLayout": {
+          "Kind": "Padded",
+          "LdsPadB": 8
+        }
+      },
+      "Pipeline": {
+        "PrefetchGlobalRead": 2,
+        "PrefetchLocalRead": 1,
+        "DoubleBufferLds": false,
+        "PrefetchActivation": true,
+        "InterleaveWmmaWaits": true,
+        "PrefetchPackedWeight": true,
+        "PrefetchNextPackedWeight": false,
+        "PackedWeightLaneShare": 1
+      },
+      "Store": {
+        "Priority": "Raised"
+      },
+      "Decode": {
+        "DecodeDependencyWidth": 4
+      },
+      "Ownership": {
+        "Kind": "Serial",
+        "EmptyTilePolicy": "Suppress"
+      },
+      "RowTail": {
+        "Kind": "SecondaryTile",
+        "ThresholdRows": 64,
+        "TileRows": 64
+      }
+    },
+    {
+      "Geometry": {
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "MIWaveTile": [
+          2,
+          8
+        ],
+        "DepthU": 32,
+        "WorkGroupMapping": 1
+      },
+      "Memory": {
+        "LdsLayout": {
+          "Kind": "Padded",
+          "LdsPadB": 8
+        }
+      },
+      "Pipeline": {
+        "PrefetchGlobalRead": 2,
+        "PrefetchLocalRead": 1,
+        "DoubleBufferLds": false,
+        "PrefetchActivation": true,
+        "InterleaveWmmaWaits": true,
+        "PrefetchPackedWeight": true,
+        "PrefetchNextPackedWeight": false,
+        "PackedWeightLaneShare": 1
+      },
+      "Store": {
+        "Priority": "Raised"
+      },
+      "Decode": {
+        "DecodeDependencyWidth": 4
+      },
+      "Ownership": {
+        "Kind": "RouteSplit",
+        "RouteSplitFactor": 32,
+        "EmptyTilePolicy": "Suppress"
+      },
+      "RowTail": {
+        "Kind": "Masked"
+      }
+    }
+  ],
+  "ExactLogic": [
+    {
+      "Problem": {
+        "M": 12288,
+        "N": 2048,
+        "K": 4096,
+        "PhysicalExpertCount": 256,
+        "MaxRouteEntries": 256
+      },
+      "KernelSpecIndex": 0
+    },
+    {
+      "Problem": {
+        "M": 49152,
+        "N": 2048,
+        "K": 4096,
+        "PhysicalExpertCount": 256,
+        "MaxRouteEntries": 256
+      },
+      "KernelSpecIndex": 1
+    },
+    {
+      "Problem": {
+        "M": 196608,
+        "N": 2048,
+        "K": 4096,
+        "PhysicalExpertCount": 256,
+        "MaxRouteEntries": 256
+      },
+      "KernelSpecIndex": 2
+    }
+  ]
+}

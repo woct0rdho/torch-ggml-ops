@@ -1,0 +1,132 @@
+{
+  "KernelFamily": "GroupedForwardPair",
+  "Target": {
+    "ISA": [
+      11,
+      5,
+      1
+    ],
+    "WavefrontSize": 32,
+    "MatrixInstructionSet": "WmmaV1",
+    "CodeObjectVersion": 5
+  },
+  "ProblemType": {
+    "QuantDataType": "IQ2_XXS",
+    "DataTypeA": "Q8_1",
+    "DataTypeB": "IQ2_XXS",
+    "DestinationDataType": "BFloat16",
+    "ComputeDataType": "Float32",
+    "TransposeA": false,
+    "TransposeB": true,
+    "ActivationLayout": "F32_D4"
+  },
+  "KernelSpecs": [
+    {
+      "Geometry": {
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "MatrixInstruction": [
+          16,
+          16,
+          16,
+          1,
+          1,
+          1,
+          4,
+          4,
+          1
+        ],
+        "MacroTile": [
+          80,
+          64
+        ],
+        "DepthU": 128
+      },
+      "Lowering": {
+        "OperandSource": "ParityGridHalfWeightLds",
+        "RouteOwnership": "SerialRoutes",
+        "ActivationAddressing": "AggregateRowsTiledLinear"
+      },
+      "Projection": {
+        "Interleave": "Interleaved"
+      },
+      "Decode": {
+        "FusedGridSelector": true
+      }
+    },
+    {
+      "Geometry": {
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "MatrixInstruction": [
+          16,
+          16,
+          16,
+          1,
+          1,
+          1,
+          4,
+          4,
+          1
+        ],
+        "MacroTile": [
+          64,
+          64
+        ],
+        "DepthU": 128
+      },
+      "Lowering": {
+        "OperandSource": "ParityGridHalfWeightLds",
+        "RouteOwnership": "SerialRoutes",
+        "ActivationAddressing": "AggregateRowsTiledLinear"
+      },
+      "Projection": {
+        "Interleave": "Interleaved"
+      },
+      "Decode": {
+        "FusedGridSelector": true
+      }
+    }
+  ],
+  "ExactLogic": [
+    {
+      "Problem": {
+        "M": 196608,
+        "N": 2048,
+        "K": 4096,
+        "ProjectionCount": 2,
+        "PhysicalExpertCount": 256,
+        "MaxRouteEntries": 256
+      },
+      "KernelSpecIndex": 0
+    },
+    {
+      "Problem": {
+        "M": 12288,
+        "N": 2048,
+        "K": 4096,
+        "ProjectionCount": 2,
+        "PhysicalExpertCount": 256,
+        "MaxRouteEntries": 256
+      },
+      "KernelSpecIndex": 1
+    },
+    {
+      "Problem": {
+        "M": 49152,
+        "N": 2048,
+        "K": 4096,
+        "ProjectionCount": 2,
+        "PhysicalExpertCount": 256,
+        "MaxRouteEntries": 256
+      },
+      "KernelSpecIndex": 1
+    }
+  ]
+}

@@ -15,7 +15,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.ggtensile.toolchain import Toolchain
-from tools.mmq_hip_control_spec import HIPControlSpec, hip_control_specs, render_control
+from tools.mmq_hip_control_spec import (
+    HIPControlSpec,
+    control_filename,
+    hip_control_specs,
+    render_control,
+)
 
 ARCH = "gfx1151"
 OUTPUT_DIR = ROOT / "build/mmq_hip_controls/gfx1151"
@@ -96,7 +101,7 @@ def _compile(
     )
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text(source_text, encoding="utf-8")
-    destination = staging / spec.filename
+    destination = staging / control_filename(spec.symbol)
     command = [
         str(hipcc),
         "--genco",
@@ -117,7 +122,7 @@ def _compile(
 
 
 def _current(specs: tuple[HIPControlSpec, ...], digest: str) -> bool:
-    expected = {spec.filename for spec in specs}
+    expected = {control_filename(spec.symbol) for spec in specs}
     actual = {path.name for path in OUTPUT_DIR.glob("*.hsaco")}
     return (
         OUTPUT_DIR.is_dir()
@@ -132,6 +137,7 @@ def _build(
 ) -> tuple[Path, list[bytes]]:
     OUTPUT_DIR.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=".mmq-hip-controls-", dir=OUTPUT_DIR.parent))
+    keep_staging = False
     try:
         images: dict[str, bytes] = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as executor:
@@ -143,10 +149,11 @@ def _build(
                 symbol, image = future.result()
                 images[symbol] = image
                 print(f"built {symbol}", flush=True)
+        keep_staging = True
         return staging, [images[spec.symbol] for spec in specs]
-    except Exception:
-        shutil.rmtree(staging, ignore_errors=True)
-        raise
+    finally:
+        if not keep_staging:
+            shutil.rmtree(staging, ignore_errors=True)
 
 
 def _install(staging: Path, digest: str) -> None:

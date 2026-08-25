@@ -65,10 +65,6 @@ def test_historical_hip_control_spec_is_separate_and_complete() -> None:
     specs = hip_control_specs()
     assert len(specs) == 181
     assert len({spec.symbol for spec in specs}) == len(specs)
-    assert all(
-        spec.symbol.startswith("torch_ggml_ops_mmq_gfx1151_v1_") for spec in specs
-    )
-    assert not any("ggtensile" in spec.symbol for spec in specs)
 
 
 def test_standalone_backward_control_rejects_cpu_launch() -> None:

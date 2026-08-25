@@ -136,7 +136,7 @@ Promotion requires a stable greater-than-2% aggregate gain on the disjoint confi
 
 Correctness uses the independent per-group FP32-accumulating reference, old/new output comparison where applicable, input/gradient and packed-weight mutation sensitivity, zero-length/inactive experts, non-multiple M tails, and route changes. Fused pair candidates must preserve one FP32 accumulation of both projections and one BF16 rounding; comparing two separately rounded single calls is not an admissible reference for exact pair semantics.
 
-Promotion must not introduce host inspection of `expert_offsets`, model/router/checkpoint dispatch dimensions, hidden synchronization, atomics where the retained body is atomics-free, prepared weights, or a changed public ABI. The final campaign report includes all rejected candidates, reruns the complete forward/backward and dense controls for shared code, verifies `tools/build_mmq_bundle.py --check`, records artifact hashes, and updates this document with the resulting bundle count.
+Promotion must not introduce host inspection of `expert_offsets`, model/router/checkpoint dispatch dimensions, hidden synchronization, atomics where the retained body is atomics-free, prepared weights, or a changed public ABI. The final campaign report includes all rejected candidates, reruns the complete forward/backward and dense controls for shared code, runs the full deployment build, and updates this document with the resulting bundle count.
 
 ## Final benchmark results
 
@@ -287,7 +287,7 @@ csrc/ck/grouped_mmq_backward_tiled.cuh
 csrc/ck/gguf_decode.cuh
 csrc/mmq_bundle.cpp
 csrc/generated/mmq_bundle_table.cuh
-tools/build_mmq_bundle.py
+tools/mmq_deployment_bundle.py
 tools/mmq_bundle_wrapper_source.py
 ```
 
@@ -369,7 +369,7 @@ Correctness references:
 - Build with all CPU cores:
 
 ```bash
-python tools/build_mmq_bundle.py --force --jobs "$(nproc)"
+python tools/mmq_deployment_bundle.py --jobs "$(nproc)"
 ```
 
 Current public-API commands:
@@ -881,8 +881,8 @@ Final validation after consolidation and the retained controls:
 - `git diff --check` passes.
 - The in-tree extension builds successfully.
 - Both new resource-gated kernels pass wave32, zero-private, zero-spill, scratch-free, call-free, and no-dynamic-stack checks.
-- Two independent clean no-ccache builds pass `--verify-reproducible --jobs 4`.
-- Bundle freshness reports 181 current kernels.
+- The public deployment build regenerates every selected kernel from the typed inventory.
+- The bundle contains the selected public kernel inventory.
 - Qwen 60-point and DeepSeek 27-point final acceptance matrices pass correctness.
 
 Validation commands:
@@ -891,8 +891,7 @@ Validation commands:
 PYTHONPATH=. pytest -q
 ruff check .
 python -m compileall -q bench tools torch_ggml_ops tests
-python tools/build_mmq_bundle.py --check
-python tools/build_mmq_bundle.py --verify-reproducible --jobs 4
+python tools/mmq_deployment_bundle.py --jobs 4
 git diff --check
 ```
 

@@ -5,12 +5,14 @@ from dataclasses import dataclass
 from .fixed_grouped_mmq_bwd_spec import DerivedFixedBackwardState
 from .kernel_abi import FIXED_GROUPED_BACKWARD_ABI
 from .kernel_writer_assembly import (
+    LoweringResult,
     emit_kernel_trailer,
     emit_pointer_kernarg_loads,
 )
-from .mmq_bwd_emission import BackwardLoweringResult, _Assembly
+from .mmq_bwd_emission import _Assembly
 from .mmq_bwd_lowering import BackwardTileComputeEmitter
 from .mmq_bwd_lowering_quant import UnboundedBackwardTileAccess
+from .work_group_mapping import work_group_mapping_shift
 
 
 @dataclass(frozen=True)
@@ -29,7 +31,7 @@ class FixedGroupedQ8BackwardLowering:
     kernel_name: str
     state: DerivedFixedBackwardState
 
-    def emission(self) -> BackwardLoweringResult:
+    def emission(self) -> LoweringResult:
         emitter = BackwardTileComputeEmitter(
             self.state.ordinary,
             self.state.physical.ordinary,
@@ -48,11 +50,25 @@ class FixedGroupedQ8BackwardLowering:
             f"v_add_nc_u32 v{registers.serial}, "
             f"v{registers.serial}, v{registers.temporary}"
         )
-        if self.state.spec.work_group_order == "NMajor":
+        mapping = self.state.spec.compute.geometry.work_group_mapping
+        if mapping == 1 and self.state.spec.work_group_order == "NMajor":
             asm.comment("Map N-major grid X/Y onto the compute emitter's M/N SGPRs.")
             asm.inst(f"s_mov_b32 s{offset}, s2")
             asm.inst("s_mov_b32 s2, s3")
             asm.inst(f"s_mov_b32 s3, s{offset}")
+        elif mapping > 1:
+            shift = work_group_mapping_shift(mapping)
+            asm.comment("Decode the WGM-packed fixed-group M/N grid.")
+            if self.state.spec.work_group_order == "MMajor":
+                asm.inst(f"s_and_b32 s{registers.input_half}, s3, {mapping - 1}")
+                asm.inst(f"s_lshr_b32 s3, s3, {shift}")
+                asm.inst(f"s_mul_i32 s{offset}, s2, {mapping}")
+            else:
+                asm.inst(f"s_and_b32 s{registers.input_half}, s2, {mapping - 1}")
+                asm.inst(f"s_lshr_b32 s2, s2, {shift}")
+                asm.inst(f"s_mul_i32 s{offset}, s3, {mapping}")
+                asm.inst("s_mov_b32 s3, s2")
+            asm.inst(f"s_add_u32 s2, s{offset}, s{registers.input_half}")
 
         asm.comment("Load fixed-group pointers and the packed-bank byte stride.")
         emit_pointer_kernarg_loads(asm, registers.kernarg, FIXED_GROUPED_BACKWARD_ABI)
@@ -77,7 +93,7 @@ class FixedGroupedQ8BackwardLowering:
         emitter.emit_static_coordinates(asm)
         emitter.emit_tile(asm)
         emit_kernel_trailer(asm, self.kernel_name)
-        return BackwardLoweringResult(asm.text(), emitter.trailing_sections())
+        return LoweringResult(asm.text(), emitter.trailing_sections())
 
     @staticmethod
     def _emit_pointer_offset(asm: _Assembly, pointer: int, offset: int) -> None:

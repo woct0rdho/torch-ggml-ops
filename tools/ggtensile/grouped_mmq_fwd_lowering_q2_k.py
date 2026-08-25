@@ -7,8 +7,8 @@ from .grouped_mmq_fwd_lowering import (
 )
 from .grouped_mmq_fwd_lowering_decoded_lds import GroupedDecodedWeightLdsLowering
 from .grouped_mmq_fwd_lowering_row_dispatch import GroupedRowDispatchLabels
+from .grouped_mmq_fwd_model import GroupedQ2DecodePolicy
 from .grouped_mmq_fwd_route import GroupedRouteEmitter
-from .grouped_mmq_fwd_spec import GroupedQ2SchedulePolicy
 from .kernel_writer_assembly import Assembly, emit_kernel_trailer
 from .mmq_fwd_lowering_mma import emit_signed_i8_wmma
 from .mmq_fwd_spec import F16D2S6ActivationMetadata
@@ -17,18 +17,15 @@ from .mmq_fwd_spec import F16D2S6ActivationMetadata
 class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
     """Emit non-paired Q2_K 32-, 64-, or 128-row decoded-LDS controls."""
 
-    def _q2_decode_policy(self) -> GroupedQ2SchedulePolicy:
+    def _q2_decode_policy(self) -> GroupedQ2DecodePolicy:
         policy = self.context.state.kernel_spec.decode
-        if not isinstance(policy, GroupedQ2SchedulePolicy):
-            raise TypeError("Q2_K lowering requires a Q2 decode policy")
+        assert isinstance(policy, GroupedQ2DecodePolicy)
         return policy
 
     def body(self) -> str:
-        solution = self.context.solution_key.solution
-        if solution.operand_source is not self.OPERAND_SOURCE:
-            raise TypeError("Q2_K decoded lowering requires GroupedDecodedWeightLds")
-        if self.context.solution_key.problem.quant_data_type != "Q2_K":
-            raise TypeError("Q2_K decoded lowering requires a Q2_K problem")
+        spec = self.context.state.kernel_spec
+        assert spec.operand_source is self.OPERAND_SOURCE
+        assert self.context.problem.quant_data_type == "Q2_K"
         return self._body_q2()
 
     def _body_q2(self) -> str:
@@ -42,7 +39,7 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
             F16D2S6ActivationMetadata, layout.activation_metadata
         )
         asm = Assembly()
-        name = context.solution_key.kernel_name
+        name = context.kernel_name
         zero_accumulator = registers.zero_accumulator.first_register
         sum_base = registers.sums.first_register
         temporary = registers.temporary.first_register
@@ -58,7 +55,7 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
         asm.inst(
             f"s_mul_i32 s{scalar.activation_plane_stride.first_register}, "
             f"s{scalar.nrows_activation.first_register}, "
-            f"{context.solution_key.solution.activation_block_bytes}"
+            f"{state.contract.activation_block_bytes}"
         )
         asm.inst(
             f"s_mov_b32 s{scalar.row_start.first_register}, "
@@ -149,7 +146,7 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
         asm.inst("s_barrier")
         asm.inst(
             f"s_add_u32 s{self.SCALAR_TEMPORARY}, s{self.SCALAR_TEMPORARY}, "
-            f"{context.solution_key.solution.packed_weight_block_bytes}"
+            f"{state.contract.packed_weight_block_bytes}"
         )
         asm.inst(f"s_add_u32 s{self.LOOP_COUNTER}, s{self.LOOP_COUNTER}, 1")
         asm.inst(f"s_cmp_lt_u32 s{self.LOOP_COUNTER}, {state.blocks_per_weight_row}")
@@ -158,7 +155,7 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
         asm.inst(
             f"s_add_u32 s{scalar.row_start.first_register}, "
             f"s{scalar.row_start.first_register}, "
-            f"{context.solution_key.solution.macro_tile0}"
+            f"{state.kernel_spec.geometry.macro_tile[0]}"
         )
         asm.inst(
             f"s_cmp_lt_u32 s{scalar.row_start.first_register}, "

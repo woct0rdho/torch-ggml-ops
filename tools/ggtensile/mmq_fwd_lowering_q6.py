@@ -1,7 +1,6 @@
 """Structured Q6_K semantic schedule and forward body lowering."""
 
 from dataclasses import dataclass
-from typing import ClassVar
 
 from rocisa import code  # ty: ignore[unresolved-import]
 
@@ -25,8 +24,8 @@ from .mmq_fwd_physical import (
     Q6OffsetAddress,
     Q6PhysicalLayout,
     Q6Sgpr,
+    Q6StructuredPhysicalPlan,
     Q6Vgpr,
-    q6_structured_physical_plan,
 )
 from .mmq_fwd_spec import (
     Q6DotPhase,
@@ -34,6 +33,7 @@ from .mmq_fwd_spec import (
     Q6LdsLayout,
     Q6SignedDecodeSpec,
     QuantForwardSemantics,
+    StructuredQ6ScheduleVariant,
     q6_schedule_from_kernel_spec,
 )
 
@@ -49,15 +49,6 @@ class Q6ScheduleEmitter:
     """Semantic lowering for physically ordered Q6 schedule components."""
 
     def __init__(self, schedule: "Q6ForwardSchedule", name: str) -> None:
-        if schedule.semantic_policy.latency not in {
-            "SerializedDependencyDistance",
-            "WavefrontDependencyDistance",
-        }:
-            raise ValueError("unsupported Q6 latency-lowering policy")
-        if schedule.semantic_policy.pairing != "DependencyCompatibleDualIssue":
-            raise ValueError("unsupported Q6 dual-issue pairing policy")
-        if schedule.semantic_policy.wait != "ProducerFirstUse":
-            raise ValueError("unsupported Q6 wait-lowering policy")
         self.schedule = schedule
         self.name = name
         self.assembly = Assembly(indent="\t")
@@ -127,10 +118,7 @@ class Q6ScheduleEmitter:
             self.schedule.physical_plan == "WideScalarCarryFrontier"
             and len(addresses) > 1
         ):
-            if len(addresses) > 8:
-                raise ValueError(
-                    "Q6 scalar-carry frontier supports at most eight addresses"
-                )
+            assert len(addresses) <= 8
             carry_base = 25
             for index, address in enumerate(addresses):
                 self.inst(
@@ -187,23 +175,18 @@ class Q6ScheduleEmitter:
             destination = read.destination_register
             self._global_read_indices[destination] = self._global_read_count
             if read.local_write_slot is not None:
-                if read.local_write_slot in self._local_write_sources:
-                    raise ValueError(
-                        f"duplicate Q6 local-write slot: {read.local_write_slot}"
-                    )
+                assert read.local_write_slot not in self._local_write_sources
                 self._local_write_sources[read.local_write_slot] = destination
             self._global_read_count += 1
             self._vmem_wait_count = None
 
     def wait_for_global_sources(self, sources: tuple[int, ...]) -> None:
-        if not sources:
-            raise ValueError("Q6 LDS write requires at least one global source")
+        assert sources
         missing_source = next(
             (source for source in sources if source not in self._global_read_indices),
             None,
         )
-        if missing_source is not None:
-            raise ValueError(f"Q6 LDS source has no global producer: v{missing_source}")
+        assert missing_source is None
         latest = max(self._global_read_indices[source] for source in sources)
         required = self._global_read_count - latest - 1
         if self._vmem_wait_count is None or required < self._vmem_wait_count:
@@ -245,11 +228,7 @@ class Q6ScheduleEmitter:
         )
 
     def store_bf16_clause(self, address: str, registers: tuple[int, ...]) -> None:
-        if len(registers) != self.schedule.store_vector_width:
-            raise ValueError(
-                "Q6 store clause does not match StoreVectorWidth: "
-                f"{len(registers)} != {self.schedule.store_vector_width}"
-            )
+        assert len(registers) == self.schedule.store_vector_width
         self.inst("s_clause", hex(self.schedule.store_vector_width - 1))
         for index, register in enumerate(registers):
             offset = f" offset:{4 * index}" if index else ""
@@ -297,10 +276,7 @@ class Q6ScheduleEmitter:
         address: int,
     ) -> None:
         slots = tuple(sorted(self._local_write_sources))
-        if slots != tuple(range(len(slots))) or len(slots) % 2:
-            raise ValueError(
-                "Q6 cooperative local-write slots must be contiguous pairs"
-            )
+        assert not (slots != tuple(range(len(slots))) or len(slots) % 2)
         for pair in range(len(slots) // 2):
             first = self._local_write_sources[2 * pair]
             second = self._local_write_sources[2 * pair + 1]
@@ -369,34 +345,6 @@ def _q6_epilogue_scratch_base(
         reserved=(RegisterAssignment(persistent, 0),),
     )
     return plan.assignment(scratch.name).first_register
-
-
-def _q6_physical_layout(schedule: Q6ForwardSchedule) -> Q6PhysicalLayout:
-    if schedule.semantic_policy.traversal not in {
-        "OutputRoleGroupMajor",
-        "OutputRoleWavefront",
-    }:
-        raise ValueError("unsupported Q6 output traversal policy")
-    if schedule.semantic_policy.clustering not in {
-        "StageDependencyOrder",
-        "RowBatchedDecodeOrder",
-    }:
-        raise ValueError("unsupported Q6 semantic-stage clustering policy")
-    if schedule.semantic_policy.pressure != "ExplicitRoleLifetime":
-        raise ValueError("unsupported Q6 register-pressure policy")
-    mi_wave_tile_m = schedule.mi_wave_tile[0]
-    if mi_wave_tile_m not in (1, 2):
-        raise ValueError(
-            f"unsupported Q6 physical layout for MIWaveTileM={mi_wave_tile_m}"
-        )
-    wave_group_m = schedule.mi_wave_group[0]
-    if wave_group_m not in (4, 8) or schedule.mi_wave_group[1] != 1:
-        raise ValueError(
-            f"unsupported Q6 M-wave ownership for MIWaveGroup={schedule.mi_wave_group}"
-        )
-    return q6_structured_physical_plan(
-        mi_wave_tile_m, wave_group_m, schedule.physical_plan
-    ).layout
 
 
 def _q6_dot_fragment_register(layout: Q6PhysicalLayout, tile: int) -> tuple[int, int]:
@@ -650,9 +598,12 @@ def _q6_emit_dot_accumulation(
         emitter.instruction("s_cmp_lt_u32 s18, 28")
 
 
-def _emit_q6_dot_phase(schedule: Q6ForwardSchedule, phase_index: int) -> code.Module:
+def _emit_q6_dot_phase(
+    schedule: Q6ForwardSchedule,
+    phase_index: int,
+    layout: Q6PhysicalLayout,
+) -> code.Module:
     phase = schedule.phase(phase_index)
-    layout = _q6_physical_layout(schedule)
     shift = phase.register_shift
     label = 2 + 2 * shift
     suffix = (
@@ -679,22 +630,21 @@ def _emit_q6_dot_phase(schedule: Q6ForwardSchedule, phase_index: int) -> code.Mo
 
 def _emit_q6_scheduled_body(
     schedule: Q6ForwardSchedule,
+    layout: Q6PhysicalLayout,
     blocks_per_weight_row: int = 8,
 ) -> code.Module:
-    if blocks_per_weight_row <= 0:
-        raise ValueError("Q6 blocks-per-weight-row must be positive")
-    if len(schedule.dot_register_shifts) != 2:
-        raise ValueError("structured Q6 currently requires exactly two dot phases")
+    assert blocks_per_weight_row > 0
+    assert len(schedule.dot_register_shifts) == 2
     body = code.Module("Q6StructuredDecoded")
-    body.add(_q6_lane_and_address_setup(schedule))
-    body.add(_q6_cooperative_global_loads(schedule))
-    body.add(_q6_packed_decode(schedule))
-    body.add(_q6_decoded_lds_writes(schedule))
-    body.add(_q6_first_stage_barrier(schedule))
-    body.add(_emit_q6_dot_phase(schedule, 0))
-    body.add(_q6_second_stage_loads(schedule))
-    body.add(_emit_q6_dot_phase(schedule, 1))
-    body.add(_q6_bf16_epilogue(schedule, blocks_per_weight_row))
+    body.add(_q6_lane_and_address_setup(schedule, layout))
+    body.add(_q6_cooperative_global_loads(schedule, layout))
+    body.add(_q6_packed_decode(schedule, layout))
+    body.add(_q6_decoded_lds_writes(schedule, layout))
+    body.add(_q6_first_stage_barrier(schedule, layout))
+    body.add(_emit_q6_dot_phase(schedule, 0, layout))
+    body.add(_q6_second_stage_loads(schedule, layout))
+    body.add(_emit_q6_dot_phase(schedule, 1, layout))
+    body.add(_q6_bf16_epilogue(schedule, layout, blocks_per_weight_row))
     return body
 
 
@@ -730,9 +680,11 @@ def _q6_emit_scalar_setup_tail(
         emitter.inst("s_mov_b32", f"s{register}, s4")
 
 
-def _q6_lane_and_address_setup(schedule: Q6ForwardSchedule) -> code.Module:
+def _q6_lane_and_address_setup(
+    schedule: Q6ForwardSchedule,
+    layout: Q6PhysicalLayout,
+) -> code.Module:
     emitter = Q6ScheduleEmitter(schedule, "lane_and_address_setup")
-    layout = _q6_physical_layout(schedule)
     _q6_emit_lane_setup_annotations(emitter, layout)
     if layout.m_wave_groups == 2:
         emitter.inst("v_readfirstlane_b32", "s25, v0")
@@ -823,9 +775,11 @@ def _q6_emit_single_row_lane_and_address_setup(
         emitter.inst("v_add_nc_u32_e32", f"v{destination}, {hex(offset)}, v51")
 
 
-def _q6_cooperative_global_loads(schedule: Q6ForwardSchedule) -> code.Module:
+def _q6_cooperative_global_loads(
+    schedule: Q6ForwardSchedule,
+    layout: Q6PhysicalLayout,
+) -> code.Module:
     emitter = Q6ScheduleEmitter(schedule, "cooperative_global_loads")
-    layout = _q6_physical_layout(schedule)
     if layout.output_tile_rows == 1:
         _q6_emit_single_row_near_weight_reads(emitter, layout)
         _q6_emit_single_row_far_weight_reads(emitter, layout)
@@ -1065,8 +1019,10 @@ def _q6_emit_single_row_activation_reads(emitter: Q6ScheduleEmitter) -> None:
     )
 
 
-def _q6_packed_decode(schedule: Q6ForwardSchedule) -> code.Module:
-    layout = _q6_physical_layout(schedule)
+def _q6_packed_decode(
+    schedule: Q6ForwardSchedule,
+    layout: Q6PhysicalLayout,
+) -> code.Module:
     plan = layout.decode
     semantics = _Q6_SEMANTICS.q6_signed_decode()
     emitter = Q6ScheduleEmitter(schedule, "packed_decode")
@@ -1079,7 +1035,7 @@ def _q6_packed_decode(schedule: Q6ForwardSchedule) -> code.Module:
         f"v{plan.factor_register}, {Q6HalfRegister(plan.factor_source_register, 'l')}",
     )
     lane_shift = Q6Vgpr(plan.lane_shift_register)
-    if schedule.semantic_policy.traversal == "OutputRoleWavefront":
+    if schedule.semantic_policy.variant is StructuredQ6ScheduleVariant.Wavefront:
         _q6_emit_decode_wavefront(emitter, plan, semantics, lane_shift)
         if layout.m_wave_groups == 2:
             emitter.annotation(".LQ6SharedDecodeDone:")
@@ -1126,7 +1082,7 @@ def _q6_emit_decode_wavefront(
     are no longer needed.
     """
     # Keep the helper's inputs at the semantic boundary without introducing an
-    # instruction scheduler or a register-repair fallback.
+    # instruction scheduler or a register-repair pass.
     sources = plan.sources
     outputs = plan.outputs
     signed = semantics
@@ -1174,8 +1130,10 @@ def _q6_emit_decode_wavefront(
         )
 
 
-def _q6_decoded_lds_writes(schedule: Q6ForwardSchedule) -> code.Module:
-    layout = _q6_physical_layout(schedule)
+def _q6_decoded_lds_writes(
+    schedule: Q6ForwardSchedule,
+    layout: Q6PhysicalLayout,
+) -> code.Module:
     plan = layout.decode
     lds = layout.lds
     emitter = Q6ScheduleEmitter(schedule, "decoded_lds_writes")
@@ -1230,8 +1188,10 @@ def _q6_commit_stage(
     )
 
 
-def _q6_first_stage_barrier(schedule: Q6ForwardSchedule) -> code.Module:
-    layout = _q6_physical_layout(schedule)
+def _q6_first_stage_barrier(
+    schedule: Q6ForwardSchedule,
+    layout: Q6PhysicalLayout,
+) -> code.Module:
     emitter = Q6ScheduleEmitter(schedule, "first_stage_barrier")
     if layout.first_stage_vmem_wait is not None:
         emitter.wait_vmem(layout.first_stage_vmem_wait)
@@ -1291,9 +1251,11 @@ def _q6_begin_second_stage(
     )
 
 
-def _q6_second_stage_loads(schedule: Q6ForwardSchedule) -> code.Module:
+def _q6_second_stage_loads(
+    schedule: Q6ForwardSchedule,
+    layout: Q6PhysicalLayout,
+) -> code.Module:
     emitter = Q6ScheduleEmitter(schedule, "second_stage_loads")
-    layout = _q6_physical_layout(schedule)
     _q6_begin_second_stage(emitter, layout)
     emitter.global_read_clause(
         tuple(layout.refill_read(slot, 2, 512 * slot) for slot in range(8))
@@ -1487,10 +1449,10 @@ def _q6_emit_bf16_pipeline(
 
 def _q6_bf16_epilogue(
     schedule: Q6ForwardSchedule,
+    layout: Q6PhysicalLayout,
     blocks_per_weight_row: int = 8,
 ) -> code.Module:
     emitter = Q6ScheduleEmitter(schedule, "bf16_epilogue")
-    layout = _q6_physical_layout(schedule)
     _q6_emit_epilogue_control_flow(emitter, layout, blocks_per_weight_row)
     _q6_initialize_epilogue_address_cursor(emitter, layout)
     _q6_emit_bf16_pipeline(emitter, layout)
@@ -2017,12 +1979,15 @@ class Q6StructuredLowering:
 
     context: ForwardLoweringContext
 
-    OPERAND_SOURCES: ClassVar[frozenset[str]] = frozenset({"Q6StructuredDecoded"})
-
     def body(self) -> str:
-        schedule = q6_schedule_from_kernel_spec(self.context.state.kernel_spec)
+        spec = self.context.state.kernel_spec
+        physical = self.context.state.physical_plan
+        assert isinstance(physical, Q6StructuredPhysicalPlan)
+        schedule = q6_schedule_from_kernel_spec(spec)
         body = _emit_q6_scheduled_body(
-            schedule, self.context.state.blocks_per_weight_row
+            schedule,
+            physical.layout,
+            self.context.state.blocks_per_weight_row,
         )
         return (
             str(body)

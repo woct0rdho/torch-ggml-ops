@@ -2,23 +2,29 @@
 
 import contextlib
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import torch
 
-from tools.ggtensile.fixed_grouped_mmq_bwd_model import FixedBackwardSolutionKey
-from tools.ggtensile.fixed_grouped_mmq_fwd_model import FixedForwardSolutionKey
-from tools.ggtensile.grouped_mmq_bwd_pair_model import GroupedBackwardPairSolutionKey
+from tools.ggtensile.dense_mmq_bwd_runtime import InstalledDenseBackwardModule
+from tools.ggtensile.family_registry import instance_name
+from tools.ggtensile.fixed_grouped_mmq_bwd_model import FixedBackwardProblem
+from tools.ggtensile.fixed_grouped_mmq_bwd_spec import FixedBackwardKernelSpec
+from tools.ggtensile.fixed_grouped_mmq_fwd_model import FixedForwardProblem
+from tools.ggtensile.fixed_grouped_mmq_fwd_spec import FixedForwardKernelSpec
+from tools.ggtensile.grouped_mmq_bwd_pair_model import GroupedBackwardPairProblem
 from tools.ggtensile.grouped_mmq_bwd_pair_runtime import (
     GroupedBackwardPairModule,
     InstalledGroupedBackwardPairIQ2SControl,
     InstalledGroupedBackwardPairIQ2XXSControl,
     InstalledGroupedBackwardPairQ3KControl,
 )
+from tools.ggtensile.grouped_mmq_bwd_pair_spec import GroupedBackwardPairKernelSpec
 from tools.ggtensile.grouped_mmq_bwd_runtime import InstalledGroupedBackwardControl
-from tools.ggtensile.grouped_mmq_fwd_model import GroupedForwardSolutionKey
+from tools.ggtensile.grouped_mmq_bwd_spec import GroupedBackwardKernelSpec
+from tools.ggtensile.grouped_mmq_fwd_model import GroupedForwardProblem
 from tools.ggtensile.grouped_mmq_fwd_pair_model import (
-    GroupedForwardPairSolutionKey,
+    GroupedForwardPairProblem,
     GroupedPairRouteOwnership,
 )
 from tools.ggtensile.grouped_mmq_fwd_pair_runtime import (
@@ -32,7 +38,14 @@ from tools.ggtensile.grouped_mmq_fwd_pair_runtime import (
     InstalledGroupedForwardPairSerialControl,
     InstalledGroupedForwardRowTaskSetup,
 )
-from tools.ggtensile.model import SolutionKey
+from tools.ggtensile.grouped_mmq_fwd_pair_spec import (
+    DerivedGroupedForwardPairState,
+    GroupedForwardPairKernelSpec,
+)
+from tools.ggtensile.grouped_mmq_fwd_spec import GroupedForwardKernelSpec
+from tools.ggtensile.mmq_bwd_spec import BackwardKernelSpec
+from tools.ggtensile.mmq_fwd_spec import ForwardKernelSpec
+from tools.ggtensile.model import ProblemSize
 from tools.ggtensile.runtime import (
     BackwardModule,
     FixedGroupedQ8BackwardModule,
@@ -181,21 +194,24 @@ def _grouped_forward_control(
     route_entries: int,
     root: Path | None,
 ):
-    key = cast(GroupedForwardSolutionKey, case.key)
+    problem = case.instance.problem
+    spec = case.instance.kernel_spec
+    assert isinstance(problem, GroupedForwardProblem)
+    assert isinstance(spec, GroupedForwardKernelSpec)
     if case.quant_type == "Q4_K":
-        return InstalledGroupedForwardModule(key, root)
+        return InstalledGroupedForwardModule(problem, spec, root)
     if case.quant_type == "Q5_K":
         if case.rows < 128 * route_entries:
-            return InstalledGroupedForwardQ5J32Module(key, root)
-        return InstalledGroupedForwardQ5Module(key, root)
+            return InstalledGroupedForwardQ5J32Module(problem, spec, root)
+        return InstalledGroupedForwardQ5Module(problem, spec, root)
     if case.quant_type == "Q2_K":
         if case.rows == 49152 or case.rows < 64 * route_entries:
-            return InstalledGroupedForwardQ2J32J16Module(key, root)
-        return InstalledGroupedForwardQ2J32Module(key, root)
+            return InstalledGroupedForwardQ2J32J16Module(problem, spec, root)
+        return InstalledGroupedForwardQ2J32Module(problem, spec, root)
     if case.quant_type == "IQ2_S":
         if case.rows == 65536 or case.rows < 128 * route_entries:
-            return InstalledGroupedForwardIQ2SJ64J32Module(key, root)
-        return InstalledGroupedForwardIQ2SJ64Module(key, root)
+            return InstalledGroupedForwardIQ2SJ64J32Module(problem, spec, root)
+        return InstalledGroupedForwardIQ2SJ64Module(problem, spec, root)
     raise HIPRuntimeError(f"no grouped-forward HIP control for {case.quant_type}")
 
 
@@ -220,8 +236,9 @@ def _pair_forward_control(case: DeploymentCase, row_tasks: bool, root: Path | No
 
 
 def _pair_backward_control(case: DeploymentCase, root: Path | None):
-    key = cast(GroupedBackwardPairSolutionKey, case.key)
-    macro_tile = key.solution.compute.macro_tile0
+    spec = case.instance.kernel_spec
+    assert isinstance(spec, GroupedBackwardPairKernelSpec)
+    macro_tile = spec.compute.geometry.macro_tile0
     cls = {
         "Q3_K": InstalledGroupedBackwardPairQ3KControl,
         "IQ2_S": InstalledGroupedBackwardPairIQ2SControl,
@@ -252,6 +269,10 @@ def _direct_forward(case: DeploymentCase, prepared: PreparedCase) -> Any:
         workspace = quantizer.allocate(quantizer_input)
         quantizer.launch(quantizer_input, workspace, stream=stream)
         if case.operation == "OrdinaryForward":
+            problem = case.instance.problem
+            spec = case.instance.kernel_spec
+            assert isinstance(problem, ProblemSize)
+            assert isinstance(spec, ForwardKernelSpec)
             output = torch.empty(
                 case.rows,
                 case.out_features,
@@ -259,11 +280,21 @@ def _direct_forward(case: DeploymentCase, prepared: PreparedCase) -> Any:
                 dtype=torch.bfloat16,
             )
             module = stack.enter_context(
-                ForwardModule(cast(SolutionKey, case.key), artifact)
+                ForwardModule(
+                    problem,
+                    case.quant_type,
+                    spec,
+                    artifact,
+                    instance_name(case.instance),
+                )
             )
             module.launch(prepared.packed_weights[0], workspace, output, stream=stream)
         elif case.operation == "GroupedForward":
             assert prepared.route is not None
+            problem = case.instance.problem
+            spec = case.instance.kernel_spec
+            assert isinstance(problem, GroupedForwardProblem)
+            assert isinstance(spec, GroupedForwardKernelSpec)
             output = torch.empty(
                 case.rows,
                 case.out_features,
@@ -272,7 +303,7 @@ def _direct_forward(case: DeploymentCase, prepared: PreparedCase) -> Any:
             )
             module = stack.enter_context(
                 GroupedForwardModule(
-                    cast(GroupedForwardSolutionKey, case.key), artifact
+                    problem, spec, artifact, instance_name(case.instance)
                 )
             )
             module.launch(
@@ -285,6 +316,10 @@ def _direct_forward(case: DeploymentCase, prepared: PreparedCase) -> Any:
             )
         elif case.operation == "GroupedForwardPair":
             assert prepared.route is not None
+            problem = case.instance.problem
+            spec = case.instance.kernel_spec
+            assert isinstance(problem, GroupedForwardPairProblem)
+            assert isinstance(spec, GroupedForwardPairKernelSpec)
             first = torch.empty(
                 case.rows,
                 case.out_features,
@@ -292,20 +327,16 @@ def _direct_forward(case: DeploymentCase, prepared: PreparedCase) -> Any:
                 dtype=torch.bfloat16,
             )
             second = torch.empty_like(first)
-            key = cast(GroupedForwardPairSolutionKey, case.key)
-            row_tasks = (
-                key.solution.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks
-            )
+            row_tasks = spec.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks
             if row_tasks:
-                state = __import__(
-                    "tools.ggtensile.grouped_mmq_fwd_pair_spec",
-                    fromlist=["DerivedGroupedForwardPairState"],
-                ).DerivedGroupedForwardPairState.from_solution_key(key)
+                state = DerivedGroupedForwardPairState.from_problem_spec(problem, spec)
+                row_task_rows = state.kernel_spec.row_task_rows
+                assert row_task_rows is not None
                 tasks = GroupedForwardPairRowTaskWorkspace.allocate(
                     quantizer_input,
                     aggregate_rows=case.rows,
                     route_entries=_route_entry_count(prepared),
-                    row_tile=state.kernel_spec.row_task_rows,
+                    row_tile=row_task_rows,
                 )
                 setup = stack.enter_context(InstalledGroupedForwardRowTaskSetup())
                 setup.launch(
@@ -316,7 +347,9 @@ def _direct_forward(case: DeploymentCase, prepared: PreparedCase) -> Any:
                     stream=stream,
                 )
                 module = stack.enter_context(
-                    GroupedForwardPairRowTaskModule(key, artifact)
+                    GroupedForwardPairRowTaskModule(
+                        problem, spec, artifact, instance_name(case.instance)
+                    )
                 )
                 module.launch(
                     prepared.packed_weights[0],
@@ -328,7 +361,11 @@ def _direct_forward(case: DeploymentCase, prepared: PreparedCase) -> Any:
                     stream=stream,
                 )
             else:
-                module = stack.enter_context(GroupedForwardPairModule(key, artifact))
+                module = stack.enter_context(
+                    GroupedForwardPairModule(
+                        problem, spec, artifact, instance_name(case.instance)
+                    )
+                )
                 module.launch(
                     prepared.packed_weights[0],
                     prepared.packed_weights[1],
@@ -342,6 +379,10 @@ def _direct_forward(case: DeploymentCase, prepared: PreparedCase) -> Any:
             output = (first, second)
         else:
             assert prepared.input is not None
+            problem = case.instance.problem
+            spec = case.instance.kernel_spec
+            assert isinstance(problem, FixedForwardProblem)
+            assert isinstance(spec, FixedForwardKernelSpec)
             output = torch.empty(
                 case.rows,
                 8,
@@ -351,7 +392,7 @@ def _direct_forward(case: DeploymentCase, prepared: PreparedCase) -> Any:
             )
             module = stack.enter_context(
                 FixedGroupedQ8ForwardModule(
-                    cast(FixedForwardSolutionKey, case.key), artifact
+                    problem, spec, artifact, instance_name(case.instance)
                 )
             )
             module.launch(prepared.packed_weights[0], workspace, output, stream=stream)
@@ -370,6 +411,10 @@ def _direct_backward(case: DeploymentCase, prepared: PreparedCase) -> torch.Tens
     stream = torch.cuda.current_stream().cuda_stream
     with contextlib.ExitStack() as stack:
         if case.operation == "OrdinaryBackward":
+            problem = case.instance.problem
+            spec = case.instance.kernel_spec
+            assert isinstance(problem, ProblemSize)
+            assert isinstance(spec, BackwardKernelSpec)
             output = torch.empty(
                 case.rows,
                 case.in_features,
@@ -377,7 +422,13 @@ def _direct_backward(case: DeploymentCase, prepared: PreparedCase) -> torch.Tens
                 dtype=torch.bfloat16,
             )
             module = stack.enter_context(
-                BackwardModule(cast(SolutionKey, case.key), artifact)
+                BackwardModule(
+                    problem,
+                    case.quant_type,
+                    spec,
+                    artifact,
+                    instance_name(case.instance),
+                )
             )
             module.launch(
                 prepared.grad_outputs[0],
@@ -387,6 +438,10 @@ def _direct_backward(case: DeploymentCase, prepared: PreparedCase) -> torch.Tens
             )
         elif case.operation == "GroupedBackward":
             assert prepared.route is not None
+            problem = case.instance.problem
+            spec = case.instance.kernel_spec
+            assert isinstance(problem, ProblemSize)
+            assert isinstance(spec, GroupedBackwardKernelSpec)
             output = torch.empty(
                 case.rows,
                 case.in_features,
@@ -394,7 +449,13 @@ def _direct_backward(case: DeploymentCase, prepared: PreparedCase) -> torch.Tens
                 dtype=torch.bfloat16,
             )
             module = stack.enter_context(
-                GroupedBackwardModule(cast(SolutionKey, case.key), artifact)
+                GroupedBackwardModule(
+                    problem,
+                    case.quant_type,
+                    spec,
+                    artifact,
+                    instance_name(case.instance),
+                )
             )
             module.launch(
                 prepared.grad_outputs[0],
@@ -406,6 +467,10 @@ def _direct_backward(case: DeploymentCase, prepared: PreparedCase) -> torch.Tens
             )
         elif case.operation == "GroupedBackwardPair":
             assert prepared.route is not None
+            problem = case.instance.problem
+            spec = case.instance.kernel_spec
+            assert isinstance(problem, GroupedBackwardPairProblem)
+            assert isinstance(spec, GroupedBackwardPairKernelSpec)
             output = torch.empty(
                 case.rows,
                 case.in_features,
@@ -414,7 +479,7 @@ def _direct_backward(case: DeploymentCase, prepared: PreparedCase) -> torch.Tens
             )
             module = stack.enter_context(
                 GroupedBackwardPairModule(
-                    cast(GroupedBackwardPairSolutionKey, case.key), artifact
+                    problem, spec, artifact, instance_name(case.instance)
                 )
             )
             module.launch(
@@ -428,6 +493,10 @@ def _direct_backward(case: DeploymentCase, prepared: PreparedCase) -> torch.Tens
                 stream=stream,
             )
         else:
+            problem = case.instance.problem
+            spec = case.instance.kernel_spec
+            assert isinstance(problem, FixedBackwardProblem)
+            assert isinstance(spec, FixedBackwardKernelSpec)
             output = torch.empty(
                 case.rows,
                 8,
@@ -437,7 +506,7 @@ def _direct_backward(case: DeploymentCase, prepared: PreparedCase) -> torch.Tens
             )
             module = stack.enter_context(
                 FixedGroupedQ8BackwardModule(
-                    cast(FixedBackwardSolutionKey, case.key), artifact
+                    problem, spec, artifact, instance_name(case.instance)
                 )
             )
             module.launch(
@@ -465,6 +534,10 @@ def _hip_forward(
         workspace = quantizer.allocate(quantizer_input)
         quantizer.launch(quantizer_input, workspace, stream=stream)
         if case.operation == "OrdinaryForward":
+            problem = case.instance.problem
+            spec = case.instance.kernel_spec
+            assert isinstance(problem, ProblemSize)
+            assert isinstance(spec, ForwardKernelSpec)
             output = torch.empty(
                 case.rows,
                 case.out_features,
@@ -472,7 +545,7 @@ def _hip_forward(
                 dtype=torch.bfloat16,
             )
             module = stack.enter_context(
-                FixedHipForwardModule(cast(SolutionKey, case.key), root)
+                FixedHipForwardModule(problem, case.quant_type, spec, root)
             )
             module.launch(prepared.packed_weights[0], workspace, output, stream=stream)
         elif case.operation == "GroupedForward":
@@ -496,6 +569,10 @@ def _hip_forward(
             )
         elif case.operation == "GroupedForwardPair":
             assert prepared.route is not None
+            problem = case.instance.problem
+            spec = case.instance.kernel_spec
+            assert isinstance(problem, GroupedForwardPairProblem)
+            assert isinstance(spec, GroupedForwardPairKernelSpec)
             first = torch.empty(
                 case.rows,
                 case.out_features,
@@ -503,22 +580,18 @@ def _hip_forward(
                 dtype=torch.bfloat16,
             )
             second = torch.empty_like(first)
-            key = cast(GroupedForwardPairSolutionKey, case.key)
-            row_tasks = (
-                key.solution.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks
-            )
+            row_tasks = spec.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks
             module0 = stack.enter_context(_pair_forward_control(case, row_tasks, root))
             module1 = stack.enter_context(_pair_forward_control(case, row_tasks, root))
             if row_tasks:
-                state = __import__(
-                    "tools.ggtensile.grouped_mmq_fwd_pair_spec",
-                    fromlist=["DerivedGroupedForwardPairState"],
-                ).DerivedGroupedForwardPairState.from_solution_key(key)
+                state = DerivedGroupedForwardPairState.from_problem_spec(problem, spec)
+                row_task_rows = state.kernel_spec.row_task_rows
+                assert row_task_rows is not None
                 tasks = GroupedForwardPairRowTaskWorkspace.allocate(
                     quantizer_input,
                     aggregate_rows=case.rows,
                     route_entries=_route_entry_count(prepared),
-                    row_tile=state.kernel_spec.row_task_rows,
+                    row_tile=row_task_rows,
                 )
                 setup = stack.enter_context(InstalledGroupedForwardRowTaskSetup())
                 setup.launch(
@@ -556,6 +629,10 @@ def _hip_forward(
                     )
             output = (first, second)
         else:
+            problem = case.instance.problem
+            spec = case.instance.kernel_spec
+            assert isinstance(problem, FixedForwardProblem)
+            assert isinstance(spec, FixedForwardKernelSpec)
             output = torch.empty(
                 case.rows,
                 8,
@@ -564,9 +641,7 @@ def _hip_forward(
                 dtype=torch.bfloat16,
             )
             module = stack.enter_context(
-                InstalledFixedGroupedQ8ForwardModule(
-                    cast(FixedForwardSolutionKey, case.key), root
-                )
+                InstalledFixedGroupedQ8ForwardModule(problem, spec, root)
             )
             module.launch(prepared.packed_weights[0], workspace, output, stream=stream)
         torch.cuda.synchronize()
@@ -583,6 +658,10 @@ def _hip_backward(
     stream = torch.cuda.current_stream().cuda_stream
     with contextlib.ExitStack() as stack:
         if case.operation == "OrdinaryBackward":
+            problem = case.instance.problem
+            spec = case.instance.kernel_spec
+            assert isinstance(problem, ProblemSize)
+            assert isinstance(spec, BackwardKernelSpec)
             output = torch.empty(
                 case.rows,
                 case.in_features,
@@ -590,10 +669,7 @@ def _hip_backward(
                 dtype=torch.bfloat16,
             )
             module = stack.enter_context(
-                __import__(
-                    "tools.ggtensile.dense_mmq_bwd_runtime",
-                    fromlist=["InstalledDenseBackwardModule"],
-                ).InstalledDenseBackwardModule(cast(SolutionKey, case.key), root)
+                InstalledDenseBackwardModule(problem, case.quant_type, spec, root)
             )
             module.launch(
                 prepared.grad_outputs[0],
@@ -642,6 +718,10 @@ def _hip_backward(
                 stream=stream,
             )
         else:
+            problem = case.instance.problem
+            spec = case.instance.kernel_spec
+            assert isinstance(problem, FixedBackwardProblem)
+            assert isinstance(spec, FixedBackwardKernelSpec)
             output = torch.empty(
                 case.rows,
                 8,
@@ -650,9 +730,7 @@ def _hip_backward(
                 dtype=torch.bfloat16,
             )
             module = stack.enter_context(
-                InstalledFixedGroupedQ8BackwardModule(
-                    cast(FixedBackwardSolutionKey, case.key), root
-                )
+                InstalledFixedGroupedQ8BackwardModule(problem, spec, root)
             )
             module.launch(
                 prepared.grad_outputs[0],

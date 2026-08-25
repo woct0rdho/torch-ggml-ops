@@ -225,8 +225,7 @@ class SignedInt8TiledLdsMechanics:
         paired_weight_scale_address: int | None = None,
     ) -> None:
         """Read one staged Q8 group and accumulate activation fragments."""
-        if m_fragments not in (2, 4, 8):
-            raise ValueError("Q8 HIP-shaped group requires 2, 4, or 8 M fragments")
+        assert m_fragments in (2, 4, 8)
         c = registers.c.first_register
         sums = registers.sums.first_register
         weight_payload = registers.weight_payload.first_register
@@ -252,8 +251,7 @@ class SignedInt8TiledLdsMechanics:
             f"offset:{weight_offset + 16}"
         )
         if policy.scale_read == "PairedHoistedSecondBase":
-            if layout.weight_scale_pair_base_delta is None:
-                raise ValueError("paired Q8 scale reads require a second-base delta")
+            assert layout.weight_scale_pair_base_delta is not None
             second_scale_address = paired_weight_scale_address
             if second_scale_address is None:
                 second_scale_address = temporary
@@ -279,7 +277,7 @@ class SignedInt8TiledLdsMechanics:
                     f"offset:{layout.weight_scale_offset + layout.weight_scale_element_stride * element + 4 * group}"
                 )
         else:
-            raise ValueError(f"unsupported Q8 scale-read policy {policy.scale_read!r}")
+            raise AssertionError
         for m_index in range(m_fragments):
             payload = activation_payloads + 8 * m_index
             activation_row_offset = 16 * m_index * self.activation_block_bytes

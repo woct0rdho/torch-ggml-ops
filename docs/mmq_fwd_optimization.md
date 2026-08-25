@@ -100,7 +100,7 @@ Every isolated forward chunk beats BF16. These timings do not select a productio
 
 ## Production dispatch
 
-Dense forward device bodies are in project-owned `csrc/mmq_core.cuh`. `tools/build_mmq_bundle.py` generates concrete gfx1151 wrappers, `csrc/mmq_bundle.cpp` performs static selection and launch, and `csrc/mmq_hip.cu` owns validation and tensor/workspace allocation.
+Dense forward device bodies are in project-owned `csrc/mmq_core.cuh`. `tools/mmq_deployment_bundle.py` generates concrete gfx1151 wrappers, `csrc/mmq_bundle.cpp` performs static selection and launch, and `csrc/mmq_hip.cu` owns validation and tensor/workspace allocation.
 
 The common full-tile geometry is:
 
@@ -374,7 +374,7 @@ Final validation passed:
 - 83 project tests.
 - Ruff and compileall.
 - in-place extension build.
-- forced 132-kernel bundle build and freshness check.
+- complete regeneration of the 152-kernel deployment bundle.
 - all requested resource gates.
 - independent two-build reproducibility.
 - `git diff --check`.

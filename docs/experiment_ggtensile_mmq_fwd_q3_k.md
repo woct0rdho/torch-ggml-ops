@@ -59,7 +59,7 @@ Strict code-object inspection accepted code-object version 5, target gfx1151, wa
 The accepted artifact is:
 
 ```text
-kernel = torch_ggml_ops_ggtensile_gfx1151_v1_mmq_fwd_q3_k_m2048_n4096_k2048_31c9031538e012be
+kernel = mmq_fwd_q3_k_m2048_n4096_k2048_31c9031538e012be
 solution = ggsol_31c9031538e012be
 ```
 
@@ -327,7 +327,7 @@ speedup = HIP median_ms / GGTensile median_ms
 
 The TFLOPS values are an effective dense-operation rate for comparison. Q3_K uses integer WMMA accumulation and FP32 scale correction, so they are not a claim that the kernel executes native FP32 fused multiply-add instructions.
 
-The table averages the two median times before calculating throughput and reports the six layout-qualified public keys. It contains prequantized multiply bodies only. HIP and GGTensile consume the same workspace produced by the same fixed `torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f32_d4` kernel; activation production is excluded from every throughput and speedup in this table.
+The table averages the two median times before calculating throughput and reports the six layout-qualified public keys. It contains prequantized multiply bodies only. HIP and GGTensile consume the same workspace produced by the same fixed `quantize_bf16_q8_1_f32_d4` kernel; activation production is excluded from every throughput and speedup in this table.
 
 | Family | `(M,N,K)` | Public catalog hash | HIP TFLOPS | GGTensile TFLOPS | GGTensile/HIP speedup |
 | --- | ---: | --- | ---: | ---: | ---: |

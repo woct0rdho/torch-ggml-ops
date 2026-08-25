@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 from typing import ClassVar
 
-from .grouped_mmq_fwd_lowering import GroupedForwardLoweringResult
 from .grouped_mmq_fwd_pair_lowering_common import (
     GroupedForwardPairLoweringContext,
     GroupedPairK128Mechanics,
@@ -18,7 +17,12 @@ from .grouped_mmq_fwd_pair_route import (
     GroupedPairRowTaskEmitter,
 )
 from .iq2_s_grid import iq2_s_grid_rodata
-from .kernel_writer_assembly import Assembly, emit_bf16_rne, emit_kernel_trailer
+from .kernel_writer_assembly import (
+    Assembly,
+    LoweringResult,
+    emit_bf16_rne,
+    emit_kernel_trailer,
+)
 
 
 @dataclass(frozen=True)
@@ -32,8 +36,7 @@ class GroupedIQ2SPairedK128Lowering:
 
     def _physical_plan(self) -> GroupedIQ2SPairPhysicalPlan:
         physical = self.context.state.physical_plan
-        if not isinstance(physical, GroupedIQ2SPairPhysicalPlan):
-            raise TypeError("IQ2_S paired lowering requires its IQ2_S physical plan")
+        assert isinstance(physical, GroupedIQ2SPairPhysicalPlan)
         return physical
 
     def _uses_payload_prefetch(self) -> bool:
@@ -49,8 +52,8 @@ class GroupedIQ2SPairedK128Lowering:
             self._activation_label_token(),
         )
 
-    def emission(self) -> GroupedForwardLoweringResult:
-        return GroupedForwardLoweringResult(
+    def emission(self) -> LoweringResult:
+        return LoweringResult(
             self.body(),
             (iq2_s_grid_rodata(self.GRID_SYMBOL),),
         )
@@ -63,7 +66,7 @@ class GroupedIQ2SPairedK128Lowering:
         scalar = physical.scalar_registers
         state = self.context.state
         asm = Assembly()
-        name = self.context.solution_key.kernel_name
+        name = self.context.kernel_name
 
         if (
             state.kernel_spec.route_ownership
@@ -85,7 +88,7 @@ class GroupedIQ2SPairedK128Lowering:
         asm.inst(
             f"s_mul_i32 s{scalar.activation_plane_stride.first_register}, "
             f"s{scalar.nrows_activation.first_register}, "
-            f"{self.context.solution_key.solution.activation_block_bytes}"
+            f"{state.contract.activation_block_bytes}"
         )
         asm.inst(
             f"s_mov_b32 s{scalar.row_start.first_register}, "
@@ -110,7 +113,7 @@ class GroupedIQ2SPairedK128Lowering:
         asm.inst(
             f"s_mul_i32 s{scalar.packed_block_offset.first_register}, "
             f"s{scalar.row_start.first_register}, "
-            f"{self.context.solution_key.solution.activation_block_bytes}"
+            f"{state.contract.activation_block_bytes}"
         )
         for register in (
             *registers.sums_first.registers,

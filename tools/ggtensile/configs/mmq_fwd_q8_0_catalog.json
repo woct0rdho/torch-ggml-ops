@@ -1,370 +1,355 @@
 {
   "KernelFamily": "OrdinaryForward",
-  "ProblemContract": {
-    "quant_type": "Q8_0",
-    "block_values": 32,
-    "packed_weight_block_bytes": 34,
-    "activation_layout": "F32_D4",
-    "activation_block_bytes": 144,
-    "kernel_language": "Assembly",
-    "isa": [
+  "Target": {
+    "ISA": [
       11,
       5,
       1
     ],
-    "wavefront_size": 32,
-    "signed_weight": true,
-    "signed_activation": true,
-    "wmma_clamp": false,
-    "weight_decode": "DirectSignedInt8",
-    "scale_arithmetic": "Int32ScaleF32",
-    "arithmetic_contract": "SignedQ8Int8ScaleIntegerWmmaF32Correction",
-    "destination_type": "BFloat16",
-    "bf16_rounding": "RNEPreserveNaN",
-    "abi": "PackedWeightQ81OutputV1"
+    "WavefrontSize": 32,
+    "MatrixInstructionSet": "WmmaV1",
+    "CodeObjectVersion": 5
+  },
+  "ProblemType": {
+    "QuantDataType": "Q8_0",
+    "DataTypeA": "Q8_1",
+    "DataTypeB": "Q8_0",
+    "DestinationDataType": "BFloat16",
+    "ComputeDataType": "Float32",
+    "TransposeA": false,
+    "TransposeB": true,
+    "ActivationLayout": "F32_D4"
   },
   "KernelSpecs": [
     {
-      "geometry": {
-        "work_group": [
+      "Geometry": {
+        "WorkGroup": [
           32,
           4,
           1
         ],
-        "matrix_instruction": [
+        "MatrixInstruction": [
           16,
           16,
           16,
           1
         ],
-        "depth_u": 32
+        "DepthU": 32
       },
-      "ownership": {
-        "mi_wave_group": [
+      "Ownership": {
+        "MIWaveGroup": [
           1,
           4
         ],
-        "mi_wave_tile": [
+        "MIWaveTile": [
           8,
           1
         ]
       },
-      "global_memory": {
-        "operand_source": "Q8HipTiledLds",
-        "activation_addressing": "MadU24"
+      "GlobalMemory": {
+        "OperandSource": "Q8HipTiledLds",
+        "ActivationAddressing": "MadU24"
       },
-      "lds": {
-        "address_hoist": "HipTile"
+      "Lds": {
+        "AddressHoist": "HipTile"
       },
-      "decode": {
-        "metadata_conversion": "Float16DToFloat32"
-      },
-      "epilogue": {
-        "output_store": "BFloat16RNEClause64"
+      "Decode": {
+        "MetadataConversion": "Float16DToFloat32"
       }
     },
     {
-      "geometry": {
-        "work_group": [
+      "Geometry": {
+        "WorkGroup": [
           32,
           4,
           1
         ],
-        "matrix_instruction": [
+        "MatrixInstruction": [
           16,
           16,
           16,
           1
         ],
-        "depth_u": 32
+        "DepthU": 32
       },
-      "ownership": {
-        "mi_wave_group": [
+      "Ownership": {
+        "MIWaveGroup": [
           1,
           4
         ],
-        "mi_wave_tile": [
+        "MIWaveTile": [
+          8,
+          1
+        ]
+      },
+      "GlobalMemory": {
+        "OperandSource": "Q8HipTiledLds",
+        "ActivationAddressing": "MadU24"
+      },
+      "Lds": {
+        "AddressHoist": "CompactDepth32WeightRows"
+      },
+      "Decode": {
+        "MetadataConversion": "Float16DToFloat32"
+      }
+    },
+    {
+      "Geometry": {
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "MatrixInstruction": [
+          16,
+          16,
+          16,
+          1
+        ],
+        "DepthU": 32
+      },
+      "Ownership": {
+        "MIWaveGroup": [
+          1,
+          4
+        ],
+        "MIWaveTile": [
           2,
           1
         ]
       },
-      "global_memory": {
-        "operand_source": "Q8SmallMTiledLds",
-        "activation_addressing": "MadU24"
+      "GlobalMemory": {
+        "OperandSource": "Q8SmallMTiledLds",
+        "ActivationAddressing": "MadU24"
       },
-      "lds": {
-        "address_hoist": "SmallMTile"
+      "Lds": {
+        "AddressHoist": "SmallMTile"
       },
-      "decode": {
-        "metadata_conversion": "Float16DToFloat32"
-      },
-      "epilogue": {
-        "output_store": "BFloat16RNEClauseTile"
+      "Decode": {
+        "MetadataConversion": "Float16DToFloat32"
       }
     },
     {
-      "geometry": {
-        "work_group": [
+      "Geometry": {
+        "WorkGroup": [
           32,
           4,
           1
         ],
-        "matrix_instruction": [
+        "MatrixInstruction": [
           16,
           16,
           16,
           1
         ],
-        "depth_u": 32
+        "DepthU": 32
       },
-      "ownership": {
-        "mi_wave_group": [
+      "Ownership": {
+        "MIWaveGroup": [
           1,
           4
         ],
-        "mi_wave_tile": [
+        "MIWaveTile": [
           4,
           1
         ]
       },
-      "global_memory": {
-        "operand_source": "Q8SmallMTiledLds",
-        "activation_addressing": "MadU24"
+      "GlobalMemory": {
+        "OperandSource": "Q8SmallMTiledLds",
+        "ActivationAddressing": "MadU24"
       },
-      "lds": {
-        "address_hoist": "SmallMTile"
+      "Lds": {
+        "AddressHoist": "SmallMTile"
       },
-      "decode": {
-        "metadata_conversion": "Float16DToFloat32"
-      },
-      "epilogue": {
-        "output_store": "BFloat16RNEClauseTile"
-      }
-    },
-    {
-      "geometry": {
-        "work_group": [
-          32,
-          4,
-          1
-        ],
-        "matrix_instruction": [
-          16,
-          16,
-          16,
-          1
-        ],
-        "depth_u": 32
-      },
-      "ownership": {
-        "mi_wave_group": [
-          1,
-          4
-        ],
-        "mi_wave_tile": [
-          8,
-          1
-        ]
-      },
-      "global_memory": {
-        "operand_source": "Q8HipTiledLds",
-        "activation_addressing": "MadU24"
-      },
-      "lds": {
-        "address_hoist": "CompactDepth32WeightRows"
-      },
-      "decode": {
-        "metadata_conversion": "Float16DToFloat32"
-      },
-      "epilogue": {
-        "output_store": "BFloat16RNEClause64"
+      "Decode": {
+        "MetadataConversion": "Float16DToFloat32"
       }
     }
   ],
   "ExactLogic": [
     {
       "Problem": {
-        "m": 2048,
-        "n": 1024,
-        "k": 4096
+        "M": 2048,
+        "N": 1024,
+        "K": 4096
       },
       "KernelSpecIndex": 0
     },
     {
       "Problem": {
-        "m": 8192,
-        "n": 1024,
-        "k": 4096
-      },
-      "KernelSpecIndex": 3
-    },
-    {
-      "Problem": {
-        "m": 32768,
-        "n": 1024,
-        "k": 4096
-      },
-      "KernelSpecIndex": 3
-    },
-    {
-      "Problem": {
-        "m": 2048,
-        "n": 32768,
-        "k": 1024
-      },
-      "KernelSpecIndex": 3
-    },
-    {
-      "Problem": {
-        "m": 8192,
-        "n": 32768,
-        "k": 1024
-      },
-      "KernelSpecIndex": 3
-    },
-    {
-      "Problem": {
-        "m": 32768,
-        "n": 32768,
-        "k": 1024
-      },
-      "KernelSpecIndex": 3
-    },
-    {
-      "Problem": {
-        "m": 2048,
-        "n": 512,
-        "k": 4096
-      },
-      "KernelSpecIndex": 3
-    },
-    {
-      "Problem": {
-        "m": 8192,
-        "n": 512,
-        "k": 4096
-      },
-      "KernelSpecIndex": 3
-    },
-    {
-      "Problem": {
-        "m": 32768,
-        "n": 512,
-        "k": 4096
-      },
-      "KernelSpecIndex": 3
-    },
-    {
-      "Problem": {
-        "m": 2048,
-        "n": 4096,
-        "k": 8192
-      },
-      "KernelSpecIndex": 3
-    },
-    {
-      "Problem": {
-        "m": 8192,
-        "n": 4096,
-        "k": 8192
-      },
-      "KernelSpecIndex": 3
-    },
-    {
-      "Problem": {
-        "m": 32768,
-        "n": 4096,
-        "k": 8192
-      },
-      "KernelSpecIndex": 3
-    },
-    {
-      "Problem": {
-        "m": 2048,
-        "n": 2048,
-        "k": 4096
-      },
-      "KernelSpecIndex": 3
-    },
-    {
-      "Problem": {
-        "m": 8192,
-        "n": 2048,
-        "k": 4096
-      },
-      "KernelSpecIndex": 3
-    },
-    {
-      "Problem": {
-        "m": 32768,
-        "n": 2048,
-        "k": 4096
-      },
-      "KernelSpecIndex": 3
-    },
-    {
-      "Problem": {
-        "m": 2048,
-        "n": 4096,
-        "k": 2048
-      },
-      "KernelSpecIndex": 3
-    },
-    {
-      "Problem": {
-        "m": 8192,
-        "n": 4096,
-        "k": 2048
-      },
-      "KernelSpecIndex": 3
-    },
-    {
-      "Problem": {
-        "m": 32768,
-        "n": 4096,
-        "k": 2048
-      },
-      "KernelSpecIndex": 3
-    },
-    {
-      "Problem": {
-        "m": 32,
-        "n": 129280,
-        "k": 4096
+        "M": 8192,
+        "N": 1024,
+        "K": 4096
       },
       "KernelSpecIndex": 1
     },
     {
       "Problem": {
-        "m": 64,
-        "n": 129280,
-        "k": 4096
+        "M": 32768,
+        "N": 1024,
+        "K": 4096
+      },
+      "KernelSpecIndex": 1
+    },
+    {
+      "Problem": {
+        "M": 2048,
+        "N": 32768,
+        "K": 1024
+      },
+      "KernelSpecIndex": 1
+    },
+    {
+      "Problem": {
+        "M": 8192,
+        "N": 32768,
+        "K": 1024
+      },
+      "KernelSpecIndex": 1
+    },
+    {
+      "Problem": {
+        "M": 32768,
+        "N": 32768,
+        "K": 1024
+      },
+      "KernelSpecIndex": 1
+    },
+    {
+      "Problem": {
+        "M": 2048,
+        "N": 512,
+        "K": 4096
+      },
+      "KernelSpecIndex": 1
+    },
+    {
+      "Problem": {
+        "M": 8192,
+        "N": 512,
+        "K": 4096
+      },
+      "KernelSpecIndex": 1
+    },
+    {
+      "Problem": {
+        "M": 32768,
+        "N": 512,
+        "K": 4096
+      },
+      "KernelSpecIndex": 1
+    },
+    {
+      "Problem": {
+        "M": 2048,
+        "N": 4096,
+        "K": 8192
+      },
+      "KernelSpecIndex": 1
+    },
+    {
+      "Problem": {
+        "M": 8192,
+        "N": 4096,
+        "K": 8192
+      },
+      "KernelSpecIndex": 1
+    },
+    {
+      "Problem": {
+        "M": 32768,
+        "N": 4096,
+        "K": 8192
+      },
+      "KernelSpecIndex": 1
+    },
+    {
+      "Problem": {
+        "M": 2048,
+        "N": 2048,
+        "K": 4096
+      },
+      "KernelSpecIndex": 1
+    },
+    {
+      "Problem": {
+        "M": 8192,
+        "N": 2048,
+        "K": 4096
+      },
+      "KernelSpecIndex": 1
+    },
+    {
+      "Problem": {
+        "M": 32768,
+        "N": 2048,
+        "K": 4096
+      },
+      "KernelSpecIndex": 1
+    },
+    {
+      "Problem": {
+        "M": 2048,
+        "N": 4096,
+        "K": 2048
+      },
+      "KernelSpecIndex": 1
+    },
+    {
+      "Problem": {
+        "M": 8192,
+        "N": 4096,
+        "K": 2048
+      },
+      "KernelSpecIndex": 1
+    },
+    {
+      "Problem": {
+        "M": 32768,
+        "N": 4096,
+        "K": 2048
+      },
+      "KernelSpecIndex": 1
+    },
+    {
+      "Problem": {
+        "M": 32,
+        "N": 129280,
+        "K": 4096
       },
       "KernelSpecIndex": 2
     },
     {
       "Problem": {
-        "m": 128,
-        "n": 129280,
-        "k": 4096
+        "M": 64,
+        "N": 129280,
+        "K": 4096
       },
       "KernelSpecIndex": 3
     },
     {
       "Problem": {
-        "m": 256,
-        "n": 129280,
-        "k": 4096
+        "M": 128,
+        "N": 129280,
+        "K": 4096
       },
-      "KernelSpecIndex": 3
+      "KernelSpecIndex": 1
     },
     {
       "Problem": {
-        "m": 512,
-        "n": 129280,
-        "k": 4096
+        "M": 256,
+        "N": 129280,
+        "K": 4096
       },
-      "KernelSpecIndex": 3
+      "KernelSpecIndex": 1
+    },
+    {
+      "Problem": {
+        "M": 512,
+        "N": 129280,
+        "K": 4096
+      },
+      "KernelSpecIndex": 1
     }
   ]
 }

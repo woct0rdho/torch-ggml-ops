@@ -1,6 +1,7 @@
 from .campaign import CatalogEntry, CatalogError, DeploymentCatalog, load_catalog
 from .dense_mmq_bwd_runtime import InstalledDenseBackwardModule
 from .inspection import ArtifactInspection, InspectionError, inspect_artifact
+from .kernel_instance import KernelInstance
 from .mmq_fwd_reference import (
     decode_q8_0_block,
     decode_q8_0_rows,
@@ -15,7 +16,6 @@ from .mmq_fwd_spec import (
     ForwardKernelCandidate,
     ForwardKernelSpec,
     ForwardProblemContract,
-    ForwardResourceUsage,
     GeometrySpec,
     GlobalMemorySpec,
     HighBitReconstructionSpec,
@@ -28,18 +28,15 @@ from .mmq_fwd_spec import (
     Q6LdsLayout,
     Q6LdsPairRole,
     QuantForwardSemantics,
-    ResourceLimits,
     SemanticSchedulePolicy,
     derive_forward_resource_usage,
 )
 from .model import (
-    BackwardSolution,
-    ForwardSolution,
     KernelArtifact,
     ProblemSize,
     ProblemType,
-    SolutionKey,
 )
+from .physical_resources import HardwareResourceCapacity, PhysicalResourceUsage
 from .runtime import (
     BackwardModule,
     FixedHipForwardModule,
@@ -48,12 +45,11 @@ from .runtime import (
     ForwardModule,
     HIPRuntimeError,
 )
-from .validation import RejectReason, validate_solution
+from .validation import validate_instance
 
 __all__ = [
     "ArtifactInspection",
     "BackwardModule",
-    "BackwardSolution",
     "CatalogEntry",
     "CatalogError",
     "DecodeSpec",
@@ -69,35 +65,33 @@ __all__ = [
     "ForwardKernelSpec",
     "ForwardModule",
     "ForwardProblemContract",
-    "ForwardResourceUsage",
-    "ForwardSolution",
     "GeometrySpec",
     "GlobalMemorySpec",
     "HIPRuntimeError",
+    "HardwareResourceCapacity",
     "HighBitReconstructionSpec",
     "InspectionError",
     "InstalledDenseBackwardModule",
     "InstructionPolicy",
     "KernelArtifact",
+    "KernelInstance",
     "LdsSpec",
     "OwnershipSpec",
     "PackedFieldPart",
     "PackedScaleMinimumFields",
     "PayloadPlaneSpec",
+    "PhysicalResourceUsage",
     "ProblemSize",
     "ProblemType",
     "Q6LdsLayout",
     "Q6LdsPairRole",
     "QuantForwardSemantics",
-    "RejectReason",
-    "ResourceLimits",
     "SemanticSchedulePolicy",
-    "SolutionKey",
     "decode_q8_0_block",
     "decode_q8_0_rows",
     "derive_forward_resource_usage",
     "inspect_artifact",
     "load_catalog",
     "q8_0_matmul_reference",
-    "validate_solution",
+    "validate_instance",
 ]

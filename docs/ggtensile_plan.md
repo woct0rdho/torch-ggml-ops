@@ -40,23 +40,23 @@ Generation accepts immutable typed records:
 - derived states compute geometry, strides, loop counts, ownership, and resources.
 - exact solution keys combine contract, problem, and specification and own stable hashes and symbols.
 
-Ordinary and grouped-backward generic exact keys include `KernelFamily`, `ProblemContract`, `Problem`, and `KernelSpec`. Family-specific grouped, paired, and fixed keys contain `ProblemContract`, `Problem`, and `KernelSpec`. Parameter-only candidates omit the exact problem.
+Every canonical exact key contains `KernelFamily`, `Target`, `ProblemType`, `Problem`, and `KernelSpec`. `ProblemType` carries operation, data types, arithmetic, and transpose identity; `Problem` carries exact mathematical and family axes. Parameter-only candidates omit the exact problem.
 
 The public record roles are explicit:
 - `ProblemType` identifies operation, quantization, data types, arithmetic, and transposition facts used by ordinary construction and validation.
 - `ProblemSize` carries exact positive operation coordinates.
-- `ForwardSolution` and `BackwardSolution`, plus family-specific construction records, are complete in-memory choices; they are not serialized deployment identities.
-- `SolutionKey` is the exact contract/problem/specification selection with canonical JSON and a stable content hash.
-- `RejectReason` carries a stable rule ID, diagnostic, parameters, and source for expected contract or capability rejection.
+- `ForwardKernelSpec`, `BackwardKernelSpec`, and the family-specific kernel-spec records are complete immutable mechanism choices; they are the canonical generation authority and are not serialized as separate deployment identities.
+- `KernelInstance` is the exact contract/problem/kernel-spec selection; it is passive, while the family registry owns canonical mapping, stable hashing, naming, and family dispatch.
+- Validation functions assert contract, capability, geometry, and resource invariants directly and return no rejection data.
 - `KernelArtifact` joins one exact key to source/object/code-object paths, symbol identity, ABI, launch facts, and inspected resources.
 
 ### Schema and identity rules
 
 Canonical serializers do not emit flat construction records or a descriptive document-kind tag. Exact-key, candidate, catalog, archive, and deployment loaders are separate entry points, so a loader never probes document shapes or catches a constructor failure to try another interpretation. A generic loader dispatches on the closed `KernelFamily` value only where that field belongs to the exact-key schema.
 
-The ordinary catalog root is exactly `KernelFamily`, `ProblemContract`, `KernelSpecs`, and `ExactLogic`. `KernelSpecs` is nonempty and contains distinct parameter-only specifications. Each `ExactLogic` entry is exactly a positive canonical `Problem` and an in-range `KernelSpecIndex`; problem sizes are unique, and every listed specification is referenced by at least one exact entry. The family, contract, quantization, and specification must round-trip to the same typed lowering.
+Every catalog root is exactly `KernelFamily`, `Target`, `ProblemType`, `KernelSpecs`, and `ExactLogic`. `KernelSpecs` is nonempty and contains distinct parameter-only specifications. Each `ExactLogic` entry is exactly a positive canonical `Problem` and an in-range `KernelSpecIndex`; problem sizes are unique, and every listed specification is referenced by at least one exact entry. The family, target, problem type, and specification must round-trip to the same typed lowering.
 
-Grouped single, paired, and fixed deployment records carry one exact typed key with `ProblemContract`, `Problem`, and `KernelSpec`. The checked-in deployment inventory stores one selected artifact record per operation/exact-problem identity. Its identity, symbol, ABI, workgroup, grid, LDS size, ownership, and row-task bounds must equal facts derived from that key; duplicate route identities and duplicate artifact identities reject. Timing reports, model names, rejected candidates, and experiment chronology remain outside deployment data.
+Deployment metadata is derived from catalog entries rather than stored in a second identity or inventory schema. Each selected entry contributes one exact operation/problem route; its identity, symbol, ABI, workgroup, grid, LDS size, ownership, and row-task bounds are derived from that key. Timing reports, model names, rejected candidates, and experiment chronology remain outside deployment data.
 
 Parsing is strict:
 - unknown and missing fields reject.
@@ -66,7 +66,7 @@ Parsing is strict:
 - inactive policy fields reject instead of being ignored.
 - accepted fields must affect canonical identity and either validation or lowering.
 
-Candidate identity is parameter-only so one candidate can be tested on another formula-compatible problem. Exact-key identity includes the exact problem. Generated source and code-object digests are artifact evidence, not candidate parameters. An explicitly frozen machine identity projection may remain in hash computation for already-built artifacts, but it is not emitted or accepted as an alternate document shape.
+Candidate identity is parameter-only so one candidate can be tested on another formula-compatible problem. Exact-key identity includes the exact problem. Generated source and code-object digests are artifact evidence, not candidate parameters. Exact-key and candidate hashes are computed directly from their canonical mappings without a document-kind or compatibility projection.
 
 Serialized schema changes are one-time migrations: replace the old schema and update all checked-in catalogs, manifests, tests, and artifact references together. There is no compatibility translation or dual parser; old documents are rejected at the current loader boundary. A migration must preserve or deliberately requalify source, executable, ABI, resource, correctness, and timing identity rather than silently accepting two shapes.
 
@@ -77,7 +77,7 @@ Finite serialized domains use one exact spelling and strict JSON types. Boolean 
 Capability, candidates, and selection are separate:
 - capability predicates describe implemented formula-supported combinations.
 - candidate domains enumerate complete implemented policy points for offline search.
-- ordinary catalogs and the grouped deployment inventory retain selected exact winners.
+- canonical catalogs retain selected exact winners; deployment metadata is derived from them.
 - benchmark reports and archive manifests are evidence and never runtime selection inputs.
 
 The generator never repairs a rejected candidate or substitutes another selected solution.
@@ -90,10 +90,10 @@ One generation follows this closed sequence:
 - Derive one canonical operation state.
 - Derive one concrete physical plan with register roles, lifetimes, LDS layout, and resource usage.
 - Dispatch to one substantial mechanism lowerer.
-- Render one `KernelEnvelope` with the exact ABI, target metadata, symbol, resources, body, and ordered trailing sections.
+- Render one common `KernelEmissionPlan` with the exact ABI, target metadata, symbol, resources, body, and ordered trailing sections.
 - Emit deterministic assembly text.
 
-Expected contract failures return structured rejection reasons before emission. Programming, allocator, and toolchain failures retain their original exception rather than being converted into candidate rejections.
+Expected contract failures raise `AssertionError` before emission. Programming, allocator, and toolchain failures retain their original exception rather than being converted into candidate filtering results.
 
 `kernel_abi.py` is the sole authority for argument order, widths, signedness, aligned offsets, kernarg size, metadata projection, and research-runtime packing. Writers and lowerers do not maintain parallel ABI tables.
 
@@ -129,13 +129,13 @@ The current module ownership is:
 | Module or family | Sole responsibility |
 | --- | --- |
 | `kernel_abi.py` | Argument order, names, value kinds, alignment, kernarg sizes, metadata projection, and runtime packing for every assembly ABI |
-| `kernel_writer_assembly.py` | ROCISA setup, direction-neutral assembly primitives, deterministic register helpers, `KernelEnvelope`, and ordered source rendering |
+| `kernel_writer_assembly.py` | ROCISA setup, direction-neutral assembly primitives, deterministic register helpers, `KernelEmissionPlan`, and ordered source rendering |
 | `kernel_writer_assembly_mmq_fwd.py` / `kernel_writer_assembly_mmq_bwd.py` | Ordinary forward/backward validation, closed lowerer dispatch, and public source envelopes |
 | `mmq_fwd_spec.py` / `mmq_bwd_spec.py` | Direction-specific contracts, complete policies, canonical serialization, derived logical state, and capability predicates |
 | `mmq_fwd_physical.py` / `mmq_bwd_physical.py` | One concrete physical-plan authority per direction for register roles, decoder/address state, LDS layout, lifetimes, and resources |
 | `mmq_fwd_lowering*.py` | Ordinary forward mechanism orchestration, quant decode, staging, WMMA, correction, synchronization, and stores |
 | `mmq_bwd_lowering_quant.py` / `mmq_bwd_lowering.py` / `mmq_bwd_emission.py` | Backward quant-specific readers, common BF16-WMMA pipeline, stores, and bounded typed VOPD formation |
-| `grouped_mmq_fwd_model.py` / `grouped_mmq_fwd_spec.py` / `grouped_mmq_fwd_validation.py` | Routed forward identity, route bounds, typed policies, geometry, derived state, and rejection rules |
+| `grouped_mmq_fwd_model.py` / `grouped_mmq_fwd_spec.py` / `grouped_mmq_fwd_validation.py` | Routed forward identity, route bounds, typed policies, geometry, derived state, and validation rules |
 | `grouped_mmq_fwd_physical.py` / `grouped_mmq_fwd_route.py` | Grouped LDS/register plans and the complete routed ABI prologue and expert rebasing |
 | `grouped_mmq_fwd_lowering*.py` / `grouped_mmq_fwd_inspection.py` | Grouped mechanism emission, row dispatch, decode/correction, output, and plan-derived artifact checks |
 | `grouped_mmq_fwd_pair_*` and its writer facade | Paired forward contracts, shared route/task ownership, physical plans, K128 mechanics, runtime packing, lowering, and inspection |
@@ -143,17 +143,17 @@ The current module ownership is:
 | `grouped_mmq_bwd_pair_*` and its writer facade | Paired backward contracts, pair physical plans, projection interleave, runtime controls, lowering, and inspection |
 | `fixed_grouped_mmq_fwd_*` and `fixed_grouped_mmq_bwd_*` | Fixed eight-group Q8_0 contracts, fixed launch ownership, composed physical plans, lowering, runtime packing, and validation |
 | `inspection.py` and family inspection modules | Artifact checks derived from typed keys and physical plans; no independent resource allocation or winner selection |
-| `mmq_*_search.py` / `campaign.py` / `cli.py` | Complete-candidate construction, bounded neighborhoods, rejection explanations, phase manifests, and offline evidence handling |
-| `archive.py` / `deployment.py` | Lossless evidence loading and strict exact deployment inventory validation |
+| `mmq_*_search.py` / `campaign.py` / `cli.py` | Complete-candidate construction, bounded neighborhoods, validity predicates, phase manifests, and offline evidence handling |
+| `deployment.py` | Strict catalog-derived deployment validation |
 | `bench/benchmark_common.py` / `bench/benchmark_routes.py` | Shared timing protocol, report summaries, and deterministic benchmark route construction |
 
 Pure specification and physical-planning modules do not import ROCISA, invoke the toolchain, benchmark, or read selected inventories. Lowerers do not import catalogs, deployment state, model names, tensor names, or timing reports.
 
-Every writer facade validates one exact key, constructs one derived state and one physical plan, initializes the fixed code-object envelope, and dispatches to one validated lowerer. It owns neither decoder loops, register allocation, LDS offsets, waits, WMMA bodies, epilogues, nor resource formulas. Lowering results are immutable bodies plus ordered mechanism-owned trailing sections; `KernelEnvelope` renders them without knowing quant-specific details.
+Every writer facade accepts one exact key, constructs one derived state and one physical plan, initializes the common code-object emission plan, and dispatches to one explicit lowerer. It owns neither decoder loops, register allocation, LDS offsets, waits, WMMA bodies, epilogues, nor resource formulas. Lowering results are immutable bodies plus ordered mechanism-owned trailing sections; `KernelEmissionPlan` renders them without knowing quant-specific details.
 
 The routed and shared lowering boundaries are equally explicit:
 - `GroupedRouteEmitter` owns the complete routed ABI prologue, launch guards, expert-ID and cumulative-offset loads, invalid-route inertness, and full-width expert-bank rebasing.
-- `GroupedActivationStagingPlan`, `GroupedRowTileDispatchPolicy`, and `GroupedRowTileDispatchEmitter` own bounds-masked staging and the row-body topology derived from macro and tail geometry; output-store policy is validated against that topology.
+- `GroupedActivationStagingPlan`, `GroupedRowTileDispatchPolicy`, and `GroupedRowTileDispatchEmitter` own bounds-masked staging and the row-body topology derived from macro and tail geometry; that topology derives store-clause widths and masked tails.
 - `GroupedPairRouteEmitter` and `GroupedPairRowTaskEmitter` own paired route/task setup. Paired lowerers consume their public operations and do not call sibling private emitters.
 - `DecodedWeightLdsStageEmitter` is the common boundary only for compatible decoded-weight staging, scaled WMMA, and BF16 stores; ordinary and grouped orchestration retain separate contexts.
 - Grouped backward derives primary and optional secondary tile state together from one contract/specification. Fixed grouped forward and backward derive fixed address and group-Z ownership directly from their own typed contracts rather than projecting through an ordinary key.
@@ -186,7 +186,7 @@ Arithmetic, GGUF block layout, ABI field widths, ISA, route-entry bounds, and ex
 
 Search should explore bounded linked neighborhoods rather than an unreviewed Cartesian product. Every candidate value needs strict serialization, capability validation, a physical formula, a complete lowering, inspection expectations, and mutation coverage. A candidate domain is tooling coverage, not proof that optimization is exhausted.
 
-Repository-owned search helpers construct complete typed candidates outside generation. Forward search exposes `candidate_domains`, `candidate_neighbors`, `explain_invalid`, and `canonical_candidate`; backward search exposes the corresponding domain, neighbor, rejection, and canonical-mapping helpers. They filter candidates through normal capability and physical validation, preserve parameter-only identity, and emit exact-pair evidence where a candidate is tested on more than one shape. Search helpers never benchmark, choose a deployment winner, or repair an invalid candidate.
+Repository-owned search helpers construct complete typed candidates outside generation. Forward search exposes `candidate_domains`, `candidate_neighbors`, `is_valid_candidate`, and `canonical_candidate`; backward search exposes the corresponding domain, neighbor, validity, and canonical-mapping helpers. These higher-level search predicates catch `AssertionError` only to filter candidates through normal capability and physical validation. They preserve parameter-only identity and emit exact-pair evidence where a candidate is tested on more than one shape. Search helpers never benchmark, choose a deployment winner, or repair an invalid candidate.
 
 The bounded domain is evidence about implemented coverage, not a proof of exhaustive optimization. A missing value becomes actionable work only when it identifies an in-contract mechanism with an exact target, plausible gain path, complete lowering, and qualification gate. Results can transfer between directions, formats, or shapes as evidence, but the receiving contract, ownership, lifetimes, synchronization, arithmetic order, resources, and exact-key gates must be re-derived.
 
@@ -250,20 +250,20 @@ The implementation has dedicated model/specification, physical-plan, lowering, w
 - fixed grouped forward and backward.
 - grouped forward device-row-task setup contracts.
 
-Ordinary selected winners live in `tools/ggtensile/configs/mmq_<direction>_<quant>_catalog.json`. Grouped and fixed selected winners live in `tools/ggtensile/configs/mmq_deployment.json`. These files retain complete exact identities only; rejected candidates, timing data, model labels, and experiment chronology stay outside deployment configuration.
+All selected winners live in canonical catalogs under `tools/ggtensile/configs/mmq_*_catalog.json`. Research-only catalogs are kept outside the public catalog directory. Catalogs retain exact identity only; rejected candidates, timing data, model labels, and experiment chronology stay outside deployment configuration.
 
 The experiment records under `docs/experiment_ggtensile_*.md` own per-format scopes, candidate history, benchmark protocols, resource observations, rejected mechanisms, and campaign closure. Historical statements in those records are evidence for their point in time; this document and the checked-in typed catalogs are authoritative for current generator architecture and selected identities.
 
 ## Adding or retuning a kernel
 
 - Define or extend the typed problem contract and complete mechanism policy.
-- Add strict parsing, canonical projection, and capability rejection reasons.
+- Add strict parsing, canonical projection, and only simple formula, ABI, mechanism, or resource validation needed by the lowerer.
 - Derive logical geometry and one concrete physical plan.
 - Implement one substantial lowerer and exact ABI envelope.
 - Add structural, serialization, mutation, source, and inspection tests.
 - Search only complete implemented candidates outside generation.
 - Qualify correctness, determinism, resources, and timing on every affected exact key.
-- Retain only the measured winner in the selected catalog or deployment inventory.
+- Retain only the measured winner in the selected catalog.
 - Rebuild the deployment bundle and validate public execution as described in `kernel_bundle.md`.
 
 A fresh cross-format review should classify remaining ideas as duplicate/closed, contract-incompatible, deferred with a prerequisite, or actionable. Actionable in-contract findings require implementation and qualification; results transfer between directions or formats only as evidence, never as automatic selections.

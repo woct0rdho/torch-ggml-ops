@@ -194,7 +194,7 @@ The ordinary Q8 decoder contract rejects this combination with `solution.depthu6
 
 ## Final qualification and selection
 
-The selected solution is exposed as `FixedBackwardSolution.selected_q8_0()`: N-major M128/N128/DepthU64, PGR2, PLR1, SIA4, pad8 single-buffer LDS, packed Q8 extraction, raised-priority element-serial stores, and fixed group Z ownership. Fresh exact artifacts are:
+The selected solution is the kernel specification in `tools/ggtensile/configs/mmq_fixed_grouped_bwd_q8_0_catalog.json`: N-major M128/N128/DepthU64, PGR2, PLR1, SIA4, pad8 single-buffer LDS, packed Q8 extraction, raised-priority element-serial stores, and fixed group Z ownership. Fresh exact artifacts are:
 - B1: `ggsol_e3f23cb5c4ad7aae`
 - B4: `ggsol_8fb858b844ca8109`
 - B16: `ggsol_d0bc5b94d26fe2b3`

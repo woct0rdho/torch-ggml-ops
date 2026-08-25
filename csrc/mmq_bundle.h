@@ -1,5 +1,7 @@
 #pragma once
 
+#include "generated/mmq_bundle_table.cuh"
+
 #include <hip/hip_runtime_api.h>
 
 #include <cstdint>
@@ -65,6 +67,7 @@ void launch_fixed_grouped_forward(
     const int * activations,
     void * output,
     int tokens,
+    int in_features,
     int out_features,
     std::int64_t bytes_per_group,
     hipStream_t stream);
@@ -135,6 +138,7 @@ void launch_fixed_grouped_backward(
     const char * packed_weight,
     void * grad_input,
     int tokens,
+    int in_features,
     int out_features,
     std::int64_t bytes_per_group,
     hipStream_t stream);

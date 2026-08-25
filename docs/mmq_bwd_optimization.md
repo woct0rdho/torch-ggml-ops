@@ -87,7 +87,7 @@ Qwen M64/M128/M256 complete-loop times are `337.030/301.309/251.852 ms`. DeepSee
 
 ### Common contract
 
-`csrc/ck/mmq_backward.cuh` owns the reusable four-wave device body. `tools/build_mmq_bundle.py` generates concrete gfx1151 wrappers, and `csrc/mmq_bundle.cpp` performs static selection from quant type, exact shape, and public row count.
+`csrc/ck/mmq_backward.cuh` owns the reusable four-wave device body. `tools/mmq_deployment_bundle.py` generates concrete gfx1151 wrappers, and `csrc/mmq_bundle.cpp` performs static selection from quant type, exact shape, and public row count.
 
 Backward computes `dY @ W` directly from the forward-layout packed weight. Cotangents are not quantized. The operator does not materialize a dense or transposed logical weight. Unsupported shapes use generic bounds-safe wrappers.
 
@@ -537,19 +537,18 @@ Complete packed-loss measurements remain downstream application benchmarks rathe
 Build and validation:
 
 ```bash
-python tools/build_mmq_bundle.py --force --jobs "$(nproc)"
+python tools/mmq_deployment_bundle.py --jobs "$(nproc)"
 PYTHONPATH=. pytest -q
 ruff check .
 python -m compileall -q bench tools torch_ggml_ops tests
-python tools/build_mmq_bundle.py --check
 git diff --check
 ```
 
 Final status:
 - `100 passed, 14 warnings` from the complete project suite.
-- Bundle freshness reports 179 current kernels.
+- The deployment bundle contains the selected public kernel inventory.
 - All 83 MMQ backward artifacts pass resource gates.
-- Independent ccache-bypassed reproducibility passes for all 179 artifacts.
+- Every selected artifact is regenerated from the typed inventory on each build.
 - The installed extension was rebuilt against the final selector.
 - Generated HSACOs remain ignored by Git and excluded from source distributions. Local wheels may contain verified artifacts.
 

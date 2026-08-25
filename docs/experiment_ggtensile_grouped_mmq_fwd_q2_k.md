@@ -19,8 +19,8 @@ Every retained artifact targets gfx1151 code-object version 5 and wave32. It mus
 ## Installed Controls
 
 The exact non-paired installed controls are:
-- `torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_q2_k_n4096_k2048_j32`
-- `torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_q2_k_n4096_k2048_j32_j16`
+- `grouped_fwd_serial_q2_k_n4096_k2048_j32`
+- `grouped_fwd_serial_q2_k_n4096_k2048_j32_j16`
 
 Both launch a `64 x G` grid with a 128-thread workgroup and 30,336 dynamic LDS bytes. Pure J32 uses 208 VGPRs and 38 SGPRs. The mixed J32/J16 body uses 213 VGPRs and 43 SGPRs. Both have zero private storage and spills.
 

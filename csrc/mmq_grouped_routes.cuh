@@ -15,7 +15,8 @@ void grouped_mmq_launch_cuda(
         quant_type,
         out_features);
     torch_ggml_ops::mmq_bundle::require_exact_deployment(
-        2, static_cast<int32_t>(quant_type), shape.rows,
+        torch_ggml_ops::mmq_bundle::kGroupedForward,
+        static_cast<int32_t>(quant_type), shape.rows,
         shape.out_features, shape.in_features);
     const int64_t workspace_bytes = static_cast<int64_t>(shape.rows) *
         (shape.in_features / kQuantWorkspaceBlockValues) *
@@ -74,7 +75,8 @@ void grouped_mmq_grad_input_launch_cuda(
         quant_type,
         in_features);
     torch_ggml_ops::mmq_bundle::require_exact_deployment(
-        4, static_cast<int32_t>(quant_type), shape.rows,
+        torch_ggml_ops::mmq_bundle::kGroupedBackward,
+        static_cast<int32_t>(quant_type), shape.rows,
         shape.in_features, shape.out_features);
     validate_explicit_buffer(
         grad_input,

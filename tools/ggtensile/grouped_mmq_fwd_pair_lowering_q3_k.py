@@ -2,13 +2,12 @@
 
 from dataclasses import dataclass
 
-from .grouped_mmq_fwd_lowering import GroupedForwardLoweringResult
 from .grouped_mmq_fwd_pair_lowering_common import (
     GroupedForwardPairLoweringContext,
     GroupedPairK128Mechanics,
 )
 from .grouped_mmq_fwd_pair_model import (
-    GroupedPairDecodeSchedule,
+    GroupedPairQ3DecodePolicy,
     GroupedPairRouteOwnership,
 )
 from .grouped_mmq_fwd_pair_physical import (
@@ -19,7 +18,12 @@ from .grouped_mmq_fwd_pair_route import (
     GroupedPairRouteEmitter,
     GroupedPairRowTaskEmitter,
 )
-from .kernel_writer_assembly import Assembly, emit_bf16_rne, emit_kernel_trailer
+from .kernel_writer_assembly import (
+    Assembly,
+    LoweringResult,
+    emit_bf16_rne,
+    emit_kernel_trailer,
+)
 
 
 @dataclass(frozen=True)
@@ -30,8 +34,7 @@ class GroupedQ3KPairedK128Lowering:
 
     def _physical_plan(self) -> GroupedQ3KPairPhysicalPlan:
         physical = self.context.state.physical_plan
-        if not isinstance(physical, GroupedQ3KPairPhysicalPlan):
-            raise TypeError("Q3_K paired lowering requires its Q3_K physical plan")
+        assert isinstance(physical, GroupedQ3KPairPhysicalPlan)
         return physical
 
     def _activation_label_token(self) -> str:
@@ -44,8 +47,8 @@ class GroupedQ3KPairedK128Lowering:
             self._activation_label_token(),
         )
 
-    def emission(self) -> GroupedForwardLoweringResult:
-        return GroupedForwardLoweringResult(self.body())
+    def emission(self) -> LoweringResult:
+        return LoweringResult(self.body())
 
     def body(self) -> str:
         physical = self._physical_plan()
@@ -55,7 +58,7 @@ class GroupedQ3KPairedK128Lowering:
         scalar = physical.scalar_registers
         state = self.context.state
         asm = Assembly()
-        name = self.context.solution_key.kernel_name
+        name = self.context.kernel_name
 
         if (
             state.kernel_spec.route_ownership
@@ -67,7 +70,7 @@ class GroupedQ3KPairedK128Lowering:
         asm.inst(
             f"s_mul_i32 s{scalar.activation_plane_stride.first_register}, "
             f"s{scalar.nrows_activation.first_register}, "
-            f"{self.context.solution_key.solution.activation_block_bytes}"
+            f"{state.contract.activation_block_bytes}"
         )
         asm.inst(
             f"s_mov_b32 s{scalar.row_start.first_register}, "
@@ -91,7 +94,7 @@ class GroupedQ3KPairedK128Lowering:
         asm.inst(
             f"s_mul_i32 s{scalar.packed_block_offset.first_register}, "
             f"s{scalar.row_start.first_register}, "
-            f"{self.context.solution_key.solution.activation_block_bytes}"
+            f"{state.contract.activation_block_bytes}"
         )
         for register in (
             *registers.sums_first.registers,
@@ -184,8 +187,7 @@ class GroupedQ3KPairedK128Lowering:
         weight_scalar: int,
         half: int,
     ) -> None:
-        if half not in (0, 1):
-            raise ValueError("Q3_K paired decode half must be zero or one")
+        assert half in (0, 1)
         registers = self._physical_plan().registers
         semantics = self.context.state.semantics
         part = registers.decode_auxiliary.first_register
@@ -259,10 +261,9 @@ class GroupedQ3KPairedK128Lowering:
         asm.inst(f"v_lshlrev_b32 v{shift}, 3, v{part}")
         metadata_load_offset = semantics.payload_plane("scales").byte_offset - 2
         scale_plane_offset = semantics.payload_plane("scales").byte_offset
-        variable_bfe = (
-            self.context.state.kernel_spec.metadata_schedule
-            is GroupedPairDecodeSchedule.TwoLaneSelectedHalfQ3VariableBFE
-        )
+        decode = self.context.state.kernel_spec.decode_policy
+        assert isinstance(decode, GroupedPairQ3DecodePolicy)
+        variable_bfe = decode.variable_bitfield_extraction
         for local_group in range(4):
             group = 8 * half + 2 * local_group
             low_field, high_field = semantics.q3_scale_fields(group)

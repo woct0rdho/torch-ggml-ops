@@ -1,10 +1,22 @@
 """Typed problem contracts, kernel specifications, and derived MMQ forward state."""
 
 from dataclasses import dataclass, replace
+from enum import Enum
 from types import MappingProxyType
 from typing import TYPE_CHECKING, ClassVar, Literal, cast
 
-from .model import ForwardSolution, ProblemSize, SolutionKey
+from .identity import (
+    GFX1151_TARGET,
+    KernelFamily,
+    KernelTarget,
+    problem_type_mapping,
+    quant_type_from_problem_type,
+)
+from .model import ProblemSize
+from .physical_resources import (
+    GFX1151_RESOURCE_CAPACITY,
+    PhysicalResourceUsage,
+)
 from .quant_formats import (
     Q8_1_D4_BLOCK_VALUES,
     Q8_1_F16_D4S4_BLOCK_BYTES,
@@ -13,7 +25,6 @@ from .quant_formats import (
 )
 from .schema import SchemaError
 from .schema import boolean as _boolean
-from .schema import canonical_value as _canonical_value
 from .schema import integer as _integer
 from .schema import integer_tuple as _integer_tuple
 from .schema import strict_mapping as _strict_mapping
@@ -22,6 +33,27 @@ from .schema import string as _string
 
 if TYPE_CHECKING:
     from .mmq_fwd_physical import ForwardPhysicalPlan
+
+
+@dataclass(frozen=True)
+class FixedForwardDecodePolicy:
+    pass
+
+
+@dataclass(frozen=True)
+class DecodedLdsForwardDecodePolicy:
+    independent_metadata_extraction: bool
+    defer_metadata_reads: bool
+
+
+@dataclass(frozen=True)
+class Q3FullForwardDecodePolicy:
+    decode_ready_frontier: bool
+
+
+ForwardDecodePolicy = (
+    FixedForwardDecodePolicy | DecodedLdsForwardDecodePolicy | Q3FullForwardDecodePolicy
+)
 
 
 @dataclass(frozen=True)
@@ -79,14 +111,13 @@ class Q6SignedDecodeSpec:
     signed_xor: int
 
     def __post_init__(self) -> None:
-        if (
-            self.low_nibble_mask != 0x0F0F0F0F
-            or self.high_bits_mask != 0x30303030
+        assert not (
+            self.low_nibble_mask != 252645135
+            or self.high_bits_mask != 808464432
             or self.high_bits_shift != 4
-            or self.signed_add != 0x60606060
-            or self.signed_xor != 0x80808080
-        ):
-            raise ValueError("unsupported Q6 signed decode formula")
+            or (self.signed_add != 1616928864)
+            or (self.signed_xor != 2155905152)
+        )
 
 
 @dataclass(frozen=True)
@@ -124,14 +155,13 @@ class Q3SignedDecodeSpec:
     signed_xor: int
 
     def __post_init__(self) -> None:
-        if (
-            self.low_mask != 0x03030303
-            or self.high_mask != 0x01010101
+        assert not (
+            self.low_mask != 50529027
+            or self.high_mask != 16843009
             or self.high_destination_shift != 2
-            or self.signed_add != 0x7C7C7C7C
-            or self.signed_xor != 0x80808080
-        ):
-            raise ValueError("unsupported Q3 signed decode formula")
+            or (self.signed_add != 2088533116)
+            or (self.signed_xor != 2155905152)
+        )
 
 
 @dataclass(frozen=True)
@@ -250,13 +280,11 @@ class QuantForwardSemantics:
                 activation_components=("q", "d"),
                 post_wmma_correction="SignedScaleTimesActivationScale",
             )
-        raise ValueError(f"unsupported MMQ forward quant type {quant_type!r}")
+        raise AssertionError
 
     def q3_payload_group(self, group: int) -> Q3PayloadGroupSpec:
-        if self.quant_type != "Q3_K":
-            raise ValueError(f"{self.quant_type} has no Q3 payload groups")
-        if group not in range(16):
-            raise ValueError("Q3 payload group must be in range 0..15")
+        assert self.quant_type == "Q3_K"
+        assert group in range(16)
         half = group // 8
         local_group = group % 8
         return Q3PayloadGroupSpec(
@@ -280,18 +308,15 @@ class QuantForwardSemantics:
         self,
         group: int,
     ) -> tuple[Q3PackedFieldPart, Q3PackedFieldPart]:
-        if self.quant_type != "Q3_K":
-            raise ValueError(f"{self.quant_type} has no Q3 scale fields")
-        if group not in range(16):
-            raise ValueError("Q3 scale group must be in range 0..15")
+        assert self.quant_type == "Q3_K"
+        assert group in range(16)
         return (
             Q3PackedFieldPart(group % 8, 4 * (group // 8), 4),
             Q3PackedFieldPart(8 + group % 4, 2 * (group // 4), 2, 4),
         )
 
     def q3_signed_decode(self) -> Q3SignedDecodeSpec:
-        if self.quant_type != "Q3_K":
-            raise ValueError(f"{self.quant_type} has no signed Q3 decode")
+        assert self.quant_type == "Q3_K"
         return Q3SignedDecodeSpec(
             low_mask=0x03030303,
             high_mask=0x01010101,
@@ -302,8 +327,7 @@ class QuantForwardSemantics:
 
     def low_payload_group_offsets(self, group: int) -> tuple[int, int]:
         """Return the two 128-bit QL vectors consumed by one direct group."""
-        if group not in range(8):
-            raise ValueError("forward packed payload group must be in range 0..7")
+        assert group in range(8)
         low = self.payload_plane("ql")
         return (
             low.byte_offset + 32 * (group // 2),
@@ -311,10 +335,8 @@ class QuantForwardSemantics:
         )
 
     def packed_scale_minimum_fields(self, group: int) -> PackedScaleMinimumFields:
-        if group not in range(8):
-            raise ValueError("packed scale/minimum group must be in range 0..7")
-        if self.post_wmma_correction != "ScaleAndMinimum":
-            raise ValueError(f"{self.quant_type} has no packed scale/minimum fields")
+        assert group in range(8)
+        assert self.post_wmma_correction == "ScaleAndMinimum"
         if group < 4:
             bit = 8 * group
             return PackedScaleMinimumFields(
@@ -354,19 +376,15 @@ class QuantForwardSemantics:
         atom: int,
         plane: Literal["ql", "qh"],
     ) -> int:
-        if self.quant_type != "Q6_K":
-            raise ValueError(f"{self.quant_type} has no Q6 packed payload")
-        if atom not in range(16):
-            raise ValueError(f"unsupported Q6 payload atom: {atom}")
-        if plane not in ("ql", "qh"):
-            raise ValueError(f"unsupported Q6 payload plane: {plane}")
+        assert self.quant_type == "Q6_K"
+        assert atom in range(16)
+        assert plane in ("ql", "qh")
         lane = atom % 8
         low_offset = 512 * ((5 * lane + atom // 8) % 8) + 64 * lane
         return low_offset if plane == "ql" else (low_offset + 128) % 4096
 
     def q6_signed_decode(self) -> Q6SignedDecodeSpec:
-        if self.quant_type != "Q6_K":
-            raise ValueError(f"{self.quant_type} has no signed Q6 decode")
+        assert self.quant_type == "Q6_K"
         return Q6SignedDecodeSpec(
             low_nibble_mask=0x0F0F0F0F,
             high_bits_mask=0x30303030,
@@ -379,7 +397,7 @@ class QuantForwardSemantics:
         for plane in self.payload_planes:
             if plane.name == name:
                 return plane
-        raise ValueError(f"{self.quant_type} has no payload plane {name!r}")
+        raise AssertionError
 
 
 @dataclass(frozen=True)
@@ -405,137 +423,11 @@ class ForwardProblemContract:
     abi: str = "PackedWeightQ81OutputV1"
 
     @classmethod
-    def rejection_reason(
-        cls,
-        quant_type: str,
-        solution: ForwardSolution,
-    ) -> str | None:
+    def for_quant_type(cls, quant_type: str) -> "ForwardProblemContract":
         traits = QUANT_FORMATS.get(quant_type)
-        if traits is None:
-            raise ValueError(f"unsupported MMQ forward quant type {quant_type!r}")
-        checks = (
-            (
-                solution.activation_layout == traits.activation_layout,
-                "forward activation layout does not match quant-format contract",
-            ),
-            (
-                solution.activation_block_bytes == traits.activation_block_bytes,
-                "forward activation block bytes do not match quant-format contract",
-            ),
-            (
-                solution.packed_weight_block_bytes == traits.block_bytes,
-                "forward packed-weight bytes do not match quant-format contract",
-            ),
-            (
-                solution.kernel_language == "Assembly",
-                "forward kernel language must be Assembly",
-            ),
-            (solution.isa == (11, 5, 1), "forward ISA must be gfx1151"),
-            (solution.wavefront_size == 32, "forward wavefront size must be 32"),
-            (
-                solution.signed_weight and solution.signed_activation,
-                "forward dot operands must be signed",
-            ),
-            (
-                solution.wmma_clamp == traits.wmma_clamp,
-                "forward WMMA clamp does not match the quant arithmetic contract",
-            ),
-            (
-                solution.weight_decode == traits.weight_decode,
-                "forward weight decode does not match the quant-format contract",
-            ),
-            (
-                solution.scale_arithmetic == traits.scale_arithmetic,
-                "forward scale arithmetic does not match the quant-format contract",
-            ),
-        )
-        return next((message for accepted, message in checks if not accepted), None)
-
-    @classmethod
-    def from_solution(
-        cls,
-        quant_type: str,
-        solution: ForwardSolution,
-    ) -> "ForwardProblemContract":
-        traits = QUANT_FORMATS.get(quant_type)
-        if traits is None:
-            raise ValueError(f"unsupported MMQ forward quant type {quant_type!r}")
-        rejection = cls.rejection_reason(quant_type, solution)
-        if rejection is not None:
-            raise ValueError(rejection)
+        assert traits is not None
         return cls(
             quant_type=quant_type,
-            block_values=traits.block_values,
-            packed_weight_block_bytes=traits.block_bytes,
-            activation_layout=traits.activation_layout,
-            activation_block_bytes=traits.activation_block_bytes,
-            kernel_language=solution.kernel_language,
-            isa=solution.isa,
-            wavefront_size=solution.wavefront_size,
-            signed_weight=solution.signed_weight,
-            signed_activation=solution.signed_activation,
-            wmma_clamp=solution.wmma_clamp,
-            weight_decode=solution.weight_decode,
-            scale_arithmetic=solution.scale_arithmetic,
-            arithmetic_contract=traits.arithmetic_contract,
-        )
-
-    @classmethod
-    def from_mapping(cls, value: object) -> "ForwardProblemContract":
-        keys = frozenset(
-            {
-                "quant_type",
-                "block_values",
-                "packed_weight_block_bytes",
-                "activation_layout",
-                "activation_block_bytes",
-                "kernel_language",
-                "isa",
-                "wavefront_size",
-                "signed_weight",
-                "signed_activation",
-                "wmma_clamp",
-                "weight_decode",
-                "scale_arithmetic",
-                "arithmetic_contract",
-                "destination_type",
-                "bf16_rounding",
-                "abi",
-            }
-        )
-        item = _strict_mapping(value, name="ForwardProblemContract", keys=keys)
-        contract = cls(
-            quant_type=_string(item["quant_type"], "quant_type"),
-            block_values=_integer(item["block_values"], "block_values"),
-            packed_weight_block_bytes=_integer(
-                item["packed_weight_block_bytes"], "packed_weight_block_bytes"
-            ),
-            activation_layout=_string(item["activation_layout"], "activation_layout"),
-            activation_block_bytes=_integer(
-                item["activation_block_bytes"], "activation_block_bytes"
-            ),
-            kernel_language=_string(item["kernel_language"], "kernel_language"),
-            isa=_integer_tuple(item["isa"], "isa", 3),
-            wavefront_size=_integer(item["wavefront_size"], "wavefront_size"),
-            signed_weight=_boolean(item["signed_weight"], "signed_weight"),
-            signed_activation=_boolean(item["signed_activation"], "signed_activation"),
-            wmma_clamp=_boolean(item["wmma_clamp"], "wmma_clamp"),
-            weight_decode=_string(item["weight_decode"], "weight_decode"),
-            scale_arithmetic=_string(item["scale_arithmetic"], "scale_arithmetic"),
-            arithmetic_contract=_string(
-                item["arithmetic_contract"], "arithmetic_contract"
-            ),
-            destination_type=_string(item["destination_type"], "destination_type"),
-            bf16_rounding=_string(item["bf16_rounding"], "bf16_rounding"),
-            abi=_string(item["abi"], "abi"),
-        )
-        traits = QUANT_FORMATS.get(contract.quant_type)
-        if traits is None:
-            raise SchemaError(
-                f"unsupported MMQ forward quant type {contract.quant_type!r}"
-            ) from None
-        expected = cls(
-            quant_type=contract.quant_type,
             block_values=traits.block_values,
             packed_weight_block_bytes=traits.block_bytes,
             activation_layout=traits.activation_layout,
@@ -550,12 +442,6 @@ class ForwardProblemContract:
             scale_arithmetic=traits.scale_arithmetic,
             arithmetic_contract=traits.arithmetic_contract,
         )
-        if contract != expected:
-            raise SchemaError("ForwardProblemContract is not canonical")
-        return contract
-
-    def to_mapping(self) -> dict[str, object]:
-        return cast(dict[str, object], _canonical_value(self))
 
 
 @dataclass(frozen=True)
@@ -603,22 +489,18 @@ class F16D2S6ActivationMetadata:
     PAYLOAD_VECTOR_BYTES: ClassVar[int] = 16
 
     def __post_init__(self) -> None:
-        if self.block_bytes <= 0:
-            raise ValueError("F16_D2S6 activation block bytes must be positive")
+        assert self.block_bytes > 0
 
     def payload_offset(self, group: int) -> int:
-        if group not in range(self.GROUP_COUNT):
-            raise ValueError("F16_D2S6 activation group must be in range 0..7")
+        assert group in range(self.GROUP_COUNT)
         return self.PAYLOAD_BASE + self.GROUP_PAYLOAD_BYTES * group
 
     def scale_offset(self, group: int) -> int:
-        if group not in range(self.GROUP_COUNT):
-            raise ValueError("F16_D2S6 activation group must be in range 0..7")
+        assert group in range(self.GROUP_COUNT)
         return 2 * (group // 4)
 
     def sum_offset(self, group: int) -> int | None:
-        if group not in range(self.GROUP_COUNT):
-            raise ValueError("F16_D2S6 activation group must be in range 0..7")
+        assert group in range(self.GROUP_COUNT)
         return 4 + 2 * group if group < 6 else None
 
 
@@ -647,21 +529,18 @@ class F16D4S4ActivationMetadata:
     GROUP_SCALE_SUM_BYTES: ClassVar[int] = 4
 
     def __post_init__(self) -> None:
-        if self.block_bytes <= 0:
-            raise ValueError("F16_D4S4 activation block bytes must be positive")
+        assert self.block_bytes > 0
 
     @classmethod
     def for_contract(
         cls,
         contract: ForwardProblemContract,
     ) -> "F16D4S4ActivationMetadata":
-        if contract.activation_layout != "F16_D4S4":
-            raise ValueError("activation metadata requires the F16_D4S4 workspace")
+        assert contract.activation_layout == "F16_D4S4"
         return cls(contract.activation_block_bytes)
 
     def group(self, index: int) -> F16D4S4ActivationGroupRole:
-        if index not in range(self.GROUP_COUNT):
-            raise ValueError("F16_D4S4 activation group must be in range 0..7")
+        assert index in range(self.GROUP_COUNT)
         local_group = index % self.GROUPS_PER_PLANE
         payload_offset = self.PAYLOAD_BASE + self.GROUP_PAYLOAD_BYTES * local_group
         return F16D4S4ActivationGroupRole(
@@ -690,10 +569,8 @@ class DecodedLdsLayout:
         activation_block_bytes: int,
         activation_rows: int = 128,
     ) -> "DecodedLdsLayout":
-        if activation_block_bytes <= 0:
-            raise ValueError("decoded LDS layout requires a positive activation block")
-        if activation_rows not in (64, 128):
-            raise ValueError("decoded LDS layout requires 64 or 128 activation rows")
+        assert activation_block_bytes > 0
+        assert activation_rows in (64, 128)
         activation_metadata = F16D4S4ActivationMetadata(activation_block_bytes)
         weight_row_stride = 2 * activation_block_bytes + 16
         activation_base = 512
@@ -713,14 +590,8 @@ class DecodedLdsLayout:
         activation_block_bytes: int,
         activation_rows: int = 32,
     ) -> "DecodedLdsLayout":
-        if activation_block_bytes <= 0:
-            raise ValueError(
-                "Q2 decoded LDS layout requires a positive activation block"
-            )
-        if activation_rows not in (32, 64, 128):
-            raise ValueError(
-                "Q2 decoded LDS layout requires 32, 64, or 128 activation rows"
-            )
+        assert activation_block_bytes > 0
+        assert activation_rows in (32, 64, 128)
         activation_metadata = F16D2S6ActivationMetadata(activation_block_bytes)
         weight_row_stride = 320
         activation_base = 512
@@ -736,8 +607,7 @@ class DecodedLdsLayout:
 
     @classmethod
     def for_contract(cls, contract: ForwardProblemContract) -> "DecodedLdsLayout":
-        if contract.activation_layout != "F16_D4S4":
-            raise ValueError("decoded LDS layout requires the F16_D4S4 workspace")
+        assert contract.activation_layout == "F16_D4S4"
         return cls.for_activation_block_bytes(contract.activation_block_bytes)
 
     @property
@@ -764,7 +634,7 @@ class Packed3BitTiledLdsLayout:
     scale_count: int = 8
 
     def __post_init__(self) -> None:
-        if (
+        assert (
             min(
                 self.activation_rows,
                 self.weight_rows,
@@ -772,9 +642,8 @@ class Packed3BitTiledLdsLayout:
                 self.decoded_weight_values,
                 self.scale_count,
             )
-            <= 0
-        ):
-            raise ValueError("Q3 half-tile LDS dimensions must be positive")
+            > 0
+        )
 
     @property
     def activation_bytes(self) -> int:
@@ -809,34 +678,37 @@ class Packed3BitTiledLdsLayout:
 class Q3FullWeightTiledLdsLayout:
     """Formula-derived LDS planes for the full 256-value Q3_K tile."""
 
-    activation_rows: int = 128
-    weight_rows: int = 64
-    activation_row_stride: int = Q8_1_F32_D4_BLOCK_BYTES
-    half_payload_bytes: int = 128
-    half_payload_stride: int = 160
-    weight_scale_offset: int = 128
-    weight_scale_bytes: int = 32
-    weight_row_stride: int = 336
+    @property
+    def activation_rows(self) -> int:
+        return 128
 
-    def __post_init__(self) -> None:
-        if (
-            self.activation_rows,
-            self.weight_rows,
-            self.activation_row_stride,
-            self.half_payload_bytes,
-            self.half_payload_stride,
-            self.weight_scale_offset,
-            self.weight_scale_bytes,
-            self.weight_row_stride,
-        ) != (128, 64, Q8_1_F32_D4_BLOCK_BYTES, 128, 160, 128, 32, 336):
-            raise ValueError("Q3 full-weight LDS layout has fixed dimensions")
-        if (
-            self.weight_scale_offset + self.weight_scale_bytes
-            > self.half_payload_stride
-        ):
-            raise ValueError("Q3 full-weight scale plane overlaps half payload stride")
-        if 2 * self.half_payload_stride > self.weight_row_stride:
-            raise ValueError("Q3 full-weight row does not fit its padded stride")
+    @property
+    def weight_rows(self) -> int:
+        return 64
+
+    @property
+    def activation_row_stride(self) -> int:
+        return Q8_1_F32_D4_BLOCK_BYTES
+
+    @property
+    def half_payload_bytes(self) -> int:
+        return 128
+
+    @property
+    def half_payload_stride(self) -> int:
+        return 160
+
+    @property
+    def weight_scale_offset(self) -> int:
+        return 128
+
+    @property
+    def weight_scale_bytes(self) -> int:
+        return 32
+
+    @property
+    def weight_row_stride(self) -> int:
+        return 336
 
     @property
     def activation_bytes(self) -> int:
@@ -872,24 +744,25 @@ class SignedInt8SmallMTiledLdsLayout:
     """Formula-derived LDS planes for an exact M32 or M64 signed-int8 tile."""
 
     activation_rows: int
-    weight_rows: int = 64
-    activation_row_stride: int = Q8_1_F32_D4_BLOCK_BYTES
-    weight_row_stride: int = 304
-    weight_scale_offset: int = 256
 
     def __post_init__(self) -> None:
-        if self.activation_rows not in (32, 64):
-            raise ValueError("Q8 small-M LDS layout requires 32 or 64 rows")
-        if (
-            min(
-                self.weight_rows,
-                self.activation_row_stride,
-                self.weight_row_stride,
-                self.weight_scale_offset,
-            )
-            <= 0
-        ):
-            raise ValueError("Q8 small-M LDS dimensions must be positive")
+        assert self.activation_rows in (32, 64)
+
+    @property
+    def weight_rows(self) -> int:
+        return 64
+
+    @property
+    def activation_row_stride(self) -> int:
+        return Q8_1_F32_D4_BLOCK_BYTES
+
+    @property
+    def weight_row_stride(self) -> int:
+        return 304
+
+    @property
+    def weight_scale_offset(self) -> int:
+        return 256
 
     @property
     def activation_bytes(self) -> int:
@@ -921,21 +794,25 @@ class SignedInt8CompactDepth32TiledLdsLayout:
     """Formula-derived compact signed-int8 LDS planes for depth-32 tiles."""
 
     activation_rows: int
-    weight_rows: int = 64
-    activation_row_stride: int = Q8_1_F32_D4_BLOCK_BYTES
-    weight_row_stride: int = 144
-    weight_scale_offset: int = 128
 
     def __post_init__(self) -> None:
-        if self.activation_rows not in (32, 64, 128):
-            raise ValueError("Q8 compact depth-32 layout requires 32, 64, or 128 rows")
-        if (
-            self.weight_rows,
-            self.activation_row_stride,
-            self.weight_row_stride,
-            self.weight_scale_offset,
-        ) != (64, Q8_1_F32_D4_BLOCK_BYTES, 144, 128):
-            raise ValueError("Q8 compact depth-32 layout has fixed row dimensions")
+        assert self.activation_rows in (32, 64, 128)
+
+    @property
+    def weight_rows(self) -> int:
+        return 64
+
+    @property
+    def activation_row_stride(self) -> int:
+        return Q8_1_F32_D4_BLOCK_BYTES
+
+    @property
+    def weight_row_stride(self) -> int:
+        return 144
+
+    @property
+    def weight_scale_offset(self) -> int:
+        return 128
 
     @property
     def activation_bytes(self) -> int:
@@ -967,20 +844,22 @@ class DecodeSpec:
     """Candidate-selectable metadata and traversal lowering policies."""
 
     metadata_conversion: str
-    metadata_schedule: str | None
+    policy: ForwardDecodePolicy
 
     @property
     def independent_metadata_extraction(self) -> bool:
-        return self.metadata_schedule in (
-            "IndependentExtraction",
-            "IndependentExtractionMetadataAfterLowWmma",
+        return (
+            self.policy.independent_metadata_extraction
+            if isinstance(self.policy, DecodedLdsForwardDecodePolicy)
+            else False
         )
 
     @property
     def defer_metadata_reads(self) -> bool:
-        return self.metadata_schedule in (
-            "MetadataAfterLowWmma",
-            "IndependentExtractionMetadataAfterLowWmma",
+        return (
+            self.policy.defer_metadata_reads
+            if isinstance(self.policy, DecodedLdsForwardDecodePolicy)
+            else False
         )
 
 
@@ -996,50 +875,12 @@ class EpiloguePipelineSpec:
 
 @dataclass(frozen=True)
 class EpilogueSpec:
-    """Destination encoding and optional pipelined-store policy."""
+    """Active pipelined-store policy for mechanisms that expose one."""
 
-    output_store: str
     pipeline: EpiloguePipelineSpec | None
 
 
-@dataclass(frozen=True)
-class ResourceLimits:
-    """Fixed gfx1151 admission limits used by static candidate validation."""
-
-    max_vgprs: int = 256
-    max_sgprs: int = 106
-    max_lds_bytes: int = 64 * 1024
-    require_zero_spills: bool = True
-
-
-FORWARD_RESOURCE_LIMITS = ResourceLimits()
-
-
-@dataclass(frozen=True)
-class ForwardResourceUsage:
-    """Formula-derived static resources; never a candidate tuning dimension."""
-
-    vgprs: int
-    sgprs: int
-    lds_bytes: int
-    private_segment_bytes: int = 0
-    vgpr_spills: int = 0
-    sgpr_spills: int = 0
-
-    def admit(self, limits: ResourceLimits) -> None:
-        if self.vgprs > limits.max_vgprs:
-            raise ValueError("forward VGPR usage exceeds the candidate limit")
-        if self.sgprs > limits.max_sgprs:
-            raise ValueError("forward SGPR usage exceeds the candidate limit")
-        if self.lds_bytes > limits.max_lds_bytes:
-            raise ValueError("forward LDS usage exceeds the candidate limit")
-        if limits.require_zero_spills and (
-            self.private_segment_bytes or self.vgpr_spills or self.sgpr_spills
-        ):
-            raise ValueError("forward candidate requires private storage or spills")
-
-
-def derive_forward_resource_usage(spec: "ForwardKernelSpec") -> ForwardResourceUsage:
+def derive_forward_resource_usage(spec: "ForwardKernelSpec") -> PhysicalResourceUsage:
     from .mmq_fwd_physical import derive_forward_physical_plan
 
     return derive_forward_physical_plan(spec).resources
@@ -1051,54 +892,146 @@ class InstructionPolicy:
 
     accumulator_initialization: str | None
     dependency_delay_mode: str | None
-    q6_physical_plan: str | None
+    physical_plan: str | None
+
+
+class StructuredQ6ScheduleVariant(str, Enum):
+    GroupMajor = "GroupMajor"
+    Wavefront = "Wavefront"
 
 
 @dataclass(frozen=True)
 class SemanticSchedulePolicy:
-    """Second-level deterministic lowering mechanisms, never an issue table."""
+    """Typed semantic schedule with a stable six-field serialized form."""
 
-    traversal: str | None
-    clustering: str | None
-    latency: str | None
-    pressure: str | None
-    wait: str | None
-    pairing: str | None
+    variant: StructuredQ6ScheduleVariant | None = None
+
+    def __post_init__(self) -> None:
+        assert self.variant is None or isinstance(
+            self.variant, StructuredQ6ScheduleVariant
+        )
+
+    @classmethod
+    def from_serialized(
+        cls,
+        *,
+        traversal: str | None,
+        clustering: str | None,
+        latency: str | None,
+        pressure: str | None,
+        wait: str | None,
+        pairing: str | None,
+    ) -> "SemanticSchedulePolicy":
+        fields = (traversal, clustering, latency, pressure, wait, pairing)
+        match fields:
+            case (None, None, None, None, None, None):
+                return cls()
+            case (
+                "OutputRoleGroupMajor",
+                "StageDependencyOrder",
+                "SerializedDependencyDistance",
+                "ExplicitRoleLifetime",
+                "ProducerFirstUse",
+                "DependencyCompatibleDualIssue",
+            ):
+                return cls.structured_q6()
+            case (
+                "OutputRoleWavefront",
+                "RowBatchedDecodeOrder",
+                "WavefrontDependencyDistance",
+                "ExplicitRoleLifetime",
+                "ProducerFirstUse",
+                "DependencyCompatibleDualIssue",
+            ):
+                return cls.structured_q6_wavefront()
+            case _:
+                raise AssertionError
 
     @classmethod
     def structured_q6(cls) -> "SemanticSchedulePolicy":
-        return cls(
-            traversal="OutputRoleGroupMajor",
-            clustering="StageDependencyOrder",
-            latency="SerializedDependencyDistance",
-            pressure="ExplicitRoleLifetime",
-            wait="ProducerFirstUse",
-            pairing="DependencyCompatibleDualIssue",
-        )
+        return cls(StructuredQ6ScheduleVariant.GroupMajor)
 
     @classmethod
     def structured_q6_wavefront(cls) -> "SemanticSchedulePolicy":
-        """Return the typed row/role decode-wavefront policy."""
-        return cls(
-            traversal="OutputRoleWavefront",
-            clustering="RowBatchedDecodeOrder",
-            latency="WavefrontDependencyDistance",
-            pressure="ExplicitRoleLifetime",
-            wait="ProducerFirstUse",
-            pairing="DependencyCompatibleDualIssue",
-        )
+        return cls(StructuredQ6ScheduleVariant.Wavefront)
 
     @classmethod
-    def supported_structured_q6(cls) -> tuple["SemanticSchedulePolicy", ...]:
-        return (cls.structured_q6(), cls.structured_q6_wavefront())
+    def structured_q6_variants(cls) -> tuple["SemanticSchedulePolicy", ...]:
+        return tuple(cls(variant) for variant in StructuredQ6ScheduleVariant)
 
-    @classmethod
-    def inactive(cls) -> "SemanticSchedulePolicy":
-        return cls(None, None, None, None, None, None)
+    def require_structured_q6(self) -> StructuredQ6ScheduleVariant:
+        assert self.variant is not None
+        return self.variant
 
-    def require_structured_q6(self) -> None:
-        if self not in self.supported_structured_q6():
-            raise ValueError("unsupported structured-Q6 semantic schedule policy")
+    def _serialized(self) -> tuple[str | None, ...]:
+        match self.variant:
+            case None:
+                return (None, None, None, None, None, None)
+            case StructuredQ6ScheduleVariant.GroupMajor:
+                return (
+                    "OutputRoleGroupMajor",
+                    "StageDependencyOrder",
+                    "SerializedDependencyDistance",
+                    "ExplicitRoleLifetime",
+                    "ProducerFirstUse",
+                    "DependencyCompatibleDualIssue",
+                )
+            case StructuredQ6ScheduleVariant.Wavefront:
+                return (
+                    "OutputRoleWavefront",
+                    "RowBatchedDecodeOrder",
+                    "WavefrontDependencyDistance",
+                    "ExplicitRoleLifetime",
+                    "ProducerFirstUse",
+                    "DependencyCompatibleDualIssue",
+                )
+
+    @property
+    def traversal(self) -> str | None:
+        return self._serialized()[0]
+
+    @property
+    def clustering(self) -> str | None:
+        return self._serialized()[1]
+
+    @property
+    def latency(self) -> str | None:
+        return self._serialized()[2]
+
+    @property
+    def pressure(self) -> str | None:
+        return self._serialized()[3]
+
+    @property
+    def wait(self) -> str | None:
+        return self._serialized()[4]
+
+    @property
+    def pairing(self) -> str | None:
+        return self._serialized()[5]
+
+
+@dataclass(frozen=True)
+class ForwardDataflowContract:
+    """Addressing and conversion choices owned by one mechanism."""
+
+    activation_addressing: str
+    lds_address_hoists: tuple[str, ...]
+    metadata_conversion: str
+
+    def validate(
+        self,
+        *,
+        activation_addressing: str,
+        lds_address_hoist: str,
+        metadata_conversion: str,
+    ) -> None:
+        assert activation_addressing == self.activation_addressing
+        self.validate_physical(lds_address_hoist)
+        assert metadata_conversion == self.metadata_conversion
+
+    def validate_physical(self, lds_address_hoist: str) -> None:
+        assert lds_address_hoist in self.lds_address_hoists
 
 
 @dataclass(frozen=True)
@@ -1121,6 +1054,7 @@ class ForwardMechanismContract:
     weight_decodes: tuple[str, ...]
     scale_arithmetic: str
     arithmetic_contracts: tuple[str, ...]
+    dataflow: ForwardDataflowContract
     physical_plan: Literal[
         "PackedScaleMinimumDirect",
         "DecodedWeightLds",
@@ -1134,21 +1068,16 @@ class ForwardMechanismContract:
     ]
     ownership: Literal["WaveM", "WaveN"] = "WaveM"
     uses_workitem_id: bool = False
-    extended_legacy_matrix: bool = False
+    extended_matrix_instruction: bool = False
 
-    def rejection_reason(self, contract: ForwardProblemContract) -> str | None:
-        checks = (
-            contract.activation_layout == self.activation_layout,
-            contract.activation_block_bytes == self.activation_block_bytes,
-            contract.block_values == self.weight_block_values,
-            contract.wmma_clamp == self.wmma_clamp,
-            contract.weight_decode in self.weight_decodes,
-            contract.scale_arithmetic == self.scale_arithmetic,
-            contract.arithmetic_contract in self.arithmetic_contracts,
-        )
-        if not all(checks):
-            return "forward data contract does not match the lowering mechanism"
-        return None
+    def validate(self, contract: ForwardProblemContract) -> None:
+        assert contract.activation_layout == self.activation_layout
+        assert contract.activation_block_bytes == self.activation_block_bytes
+        assert contract.block_values == self.weight_block_values
+        assert contract.wmma_clamp == self.wmma_clamp
+        assert contract.weight_decode in self.weight_decodes
+        assert contract.scale_arithmetic == self.scale_arithmetic
+        assert contract.arithmetic_contract in self.arithmetic_contracts
 
 
 _PACKED_SCALE_MINIMUM_CONTRACT = ForwardMechanismContract(
@@ -1161,8 +1090,13 @@ _PACKED_SCALE_MINIMUM_CONTRACT = ForwardMechanismContract(
     weight_decodes=("DirectNibble", "DirectNibbleHighBit"),
     scale_arithmetic="FP16",
     arithmetic_contracts=("SignedKQuantIntegerWmmaFP16ScaleMinimumCorrection",),
+    dataflow=ForwardDataflowContract(
+        activation_addressing="MadU24",
+        lds_address_hoists=("WeightMetadata",),
+        metadata_conversion="DirectFloat16Unsigned16",
+    ),
     physical_plan="DecodedWeightLds",
-    extended_legacy_matrix=True,
+    extended_matrix_instruction=True,
 )
 _SIGNED_INT8_CONTRACT = ForwardMechanismContract(
     lowering="SignedInt8",
@@ -1174,6 +1108,11 @@ _SIGNED_INT8_CONTRACT = ForwardMechanismContract(
     weight_decodes=("DirectSignedInt8",),
     scale_arithmetic="Int32ScaleF32",
     arithmetic_contracts=("SignedQ8Int8ScaleIntegerWmmaF32Correction",),
+    dataflow=ForwardDataflowContract(
+        activation_addressing="MultiplyAdd",
+        lds_address_hoists=("None",),
+        metadata_conversion="Float16DToFloat32",
+    ),
     physical_plan="SignedInt8Direct",
 )
 _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
@@ -1182,8 +1121,13 @@ _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
             _PACKED_SCALE_MINIMUM_CONTRACT,
             lowering="PackedScaleMinimumDirect",
             weight_decodes=("DirectNibble",),
+            dataflow=ForwardDataflowContract(
+                activation_addressing="MultiplyAdd",
+                lds_address_hoists=("None",),
+                metadata_conversion="Float32ThenFloat16",
+            ),
             physical_plan="PackedScaleMinimumDirect",
-            extended_legacy_matrix=False,
+            extended_matrix_instruction=False,
         ),
         "DecodedWeightLdsBatch8": _PACKED_SCALE_MINIMUM_CONTRACT,
         "Q6StructuredDecoded": ForwardMechanismContract(
@@ -1196,9 +1140,14 @@ _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
             weight_decodes=("DirectQ6Signed",),
             scale_arithmetic="Int32ScaleF32",
             arithmetic_contracts=("SignedQ6Int8ScaleIntegerWmmaF32Correction",),
+            dataflow=ForwardDataflowContract(
+                activation_addressing="MadU24",
+                lds_address_hoists=("StructuredDecodeDot",),
+                metadata_conversion="Float16DToFloat32Signed8Scale",
+            ),
             physical_plan="StructuredQ6",
             uses_workitem_id=True,
-            extended_legacy_matrix=True,
+            extended_matrix_instruction=True,
         ),
         "Q3HipTiledLds": ForwardMechanismContract(
             lowering="Packed3BitTiledLds",
@@ -1210,9 +1159,14 @@ _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
             weight_decodes=("DirectQ3Signed",),
             scale_arithmetic="Int32ScaleF32",
             arithmetic_contracts=("SignedQ3Int8ScaleIntegerWmmaF32Correction",),
+            dataflow=ForwardDataflowContract(
+                activation_addressing="MadU24",
+                lds_address_hoists=("Q3HalfTile",),
+                metadata_conversion="Float16DToFloat32Signed6Scale",
+            ),
             physical_plan="Packed3BitTiledLds",
             uses_workitem_id=True,
-            extended_legacy_matrix=True,
+            extended_matrix_instruction=True,
         ),
         "Q3FullWeightTiledLds": ForwardMechanismContract(
             lowering="Packed3BitFullWeightTiledLds",
@@ -1224,30 +1178,45 @@ _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
             weight_decodes=("DirectQ3Signed",),
             scale_arithmetic="Int32ScaleF32",
             arithmetic_contracts=("SignedQ3Int8ScaleIntegerWmmaF32Correction",),
+            dataflow=ForwardDataflowContract(
+                activation_addressing="ScalarPlaneBase",
+                lds_address_hoists=("Q3FullTile336",),
+                metadata_conversion="Float16DToFloat32Signed6ScaleShared",
+            ),
             physical_plan="Packed3BitFullWeightTiledLds",
             uses_workitem_id=True,
-            extended_legacy_matrix=True,
+            extended_matrix_instruction=True,
         ),
         "Q8DirectGlobal": _SIGNED_INT8_CONTRACT,
         "Q8RegisterTiled": replace(
             _SIGNED_INT8_CONTRACT,
             physical_plan="SignedInt8RegisterTiled",
             uses_workitem_id=True,
-            extended_legacy_matrix=True,
+            extended_matrix_instruction=True,
         ),
         "Q8HipTiledLds": replace(
             _SIGNED_INT8_CONTRACT,
+            dataflow=ForwardDataflowContract(
+                activation_addressing="MadU24",
+                lds_address_hoists=("HipTile", "CompactDepth32WeightRows"),
+                metadata_conversion="Float16DToFloat32",
+            ),
             physical_plan="SignedInt8WaveNTiledLds",
             ownership="WaveN",
             uses_workitem_id=True,
-            extended_legacy_matrix=True,
+            extended_matrix_instruction=True,
         ),
         "Q8SmallMTiledLds": replace(
             _SIGNED_INT8_CONTRACT,
+            dataflow=ForwardDataflowContract(
+                activation_addressing="MadU24",
+                lds_address_hoists=("SmallMTile", "CompactDepth32WeightRows"),
+                metadata_conversion="Float16DToFloat32",
+            ),
             physical_plan="SignedInt8SmallMTiledLds",
             ownership="WaveN",
             uses_workitem_id=True,
-            extended_legacy_matrix=True,
+            extended_matrix_instruction=True,
         ),
     }
 )
@@ -1256,206 +1225,8 @@ _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
 def forward_mechanism_contract(operand_source: str) -> ForwardMechanismContract:
     """Return the explicit data-contract domain implemented by a mechanism."""
     mechanism = _FORWARD_MECHANISM_CONTRACTS.get(operand_source)
-    if mechanism is None:
-        raise ValueError(
-            f"unsupported forward operand source {operand_source!r}"
-        ) from None
+    assert mechanism is not None
     return mechanism
-
-
-def forward_kernel_spec_rejection_reason(solution: ForwardSolution) -> str | None:
-    mechanism = _FORWARD_MECHANISM_CONTRACTS.get(solution.operand_source)
-    if mechanism is None:
-        return f"unsupported forward operand source {solution.operand_source!r}"
-    structured_q6 = mechanism.lowering == "StructuredQ6"
-    decoded_staged = mechanism.lowering == "DecodedWeightLds"
-    full_weight_q3 = mechanism.lowering == "Packed3BitFullWeightTiledLds"
-    signed_int8_wave_n_tiled_lds = mechanism.physical_plan == "SignedInt8WaveNTiledLds"
-    signed_int8_small_m_tiled_lds = (
-        mechanism.physical_plan == "SignedInt8SmallMTiledLds"
-    )
-    serialized_q6_schedule = SemanticSchedulePolicy(
-        traversal=solution.q6_output_traversal,
-        clustering=solution.q6_stage_clustering,
-        latency=solution.q6_latency_policy,
-        pressure=solution.q6_pressure_policy,
-        wait=solution.q6_wait_policy,
-        pairing=solution.q6_pairing_policy,
-    )
-    if structured_q6:
-        if (
-            serialized_q6_schedule
-            not in SemanticSchedulePolicy.supported_structured_q6()
-        ):
-            return "unsupported structured-Q6 semantic schedule policy"
-        if solution.q6_physical_plan not in {
-            "CanonicalRegisterRoles",
-            "WideScalarCarryFrontier",
-        }:
-            return "unsupported structured-Q6 physical plan"
-        if solution.q6_physical_plan == "WideScalarCarryFrontier" and (
-            solution.macro_tile0 != 64
-            or serialized_q6_schedule
-            != SemanticSchedulePolicy.structured_q6_wavefront()
-        ):
-            return "wide scalar-carry frontier requires wavefront MT64"
-    elif serialized_q6_schedule != SemanticSchedulePolicy.structured_q6():
-        return "Q6 semantic schedule is inactive for this lowering"
-    elif solution.q6_physical_plan != "CanonicalRegisterRoles":
-        return "Q6 physical plan is inactive for this lowering"
-    expected_legacy_suffix = (
-        (1, 1, 4, 4, 1) if mechanism.extended_legacy_matrix else (1, 1, 1, 1, 1)
-    )
-    if (
-        len(solution.matrix_instruction) != 9
-        or solution.matrix_instruction[4:] != expected_legacy_suffix
-    ):
-        return (
-            "inactive legacy matrix-instruction fields must retain their "
-            "canonical sentinel values"
-        )
-    if signed_int8_wave_n_tiled_lds and solution.depth_u not in (32, 64):
-        return "Q8 HIP-shaped LDS controls require DepthU 32 or 64"
-    if signed_int8_wave_n_tiled_lds and solution.lds_address_hoist not in {
-        "HipTile",
-        "CompactDepth32WeightRows",
-    }:
-        return "Q8 HIP-shaped LDS control has an unsupported layout"
-    if signed_int8_small_m_tiled_lds and solution.lds_address_hoist not in {
-        "SmallMTile",
-        "CompactDepth32WeightRows",
-    }:
-        return "Q8 small-M LDS control has an unsupported layout"
-    if solution.lds_address_hoist == "CompactDepth32WeightRows" and (
-        solution.depth_u != 32
-        or solution.work_group != (32, 4, 1)
-        or solution.macro_tile0 not in (32, 64, 128)
-        or solution.macro_tile1 != 64
-    ):
-        return "Q8 compact depth-32 control requires WG32x4, MT32/MT64/MT128 x N64"
-    inactive_checks: list[tuple[bool, str]] = []
-    if structured_q6:
-        inactive_checks.extend(
-            (
-                (
-                    solution.metadata_schedule == "Serialized",
-                    "metadata schedule is inactive for structured Q6",
-                ),
-                (
-                    solution.epilogue_tiles_ahead == 8,
-                    "tiles-ahead is inactive for structured Q6",
-                ),
-                (
-                    solution.epilogue_priority == 0,
-                    "epilogue priority is inactive for structured Q6",
-                ),
-                (
-                    solution.accumulator_initialization == "ScalarCopy",
-                    "accumulator initialization is inactive for structured Q6",
-                ),
-            )
-        )
-    elif full_weight_q3:
-        inactive_checks.extend(
-            (
-                (
-                    solution.metadata_schedule
-                    in {
-                        "Q3FullTileSharedDecode",
-                        "Q3FullTileDecodeReadyFrontier",
-                    },
-                    "metadata schedule is not the typed Q3 full-tile schedule",
-                ),
-                (
-                    solution.epilogue_tiles_ahead == 8
-                    and solution.epilogue_dependency_width == 1
-                    and solution.epilogue_priority == 0,
-                    "epilogue pipeline is inactive for full-weight Q3",
-                ),
-                (
-                    solution.accumulator_initialization == "ScalarCopy",
-                    "accumulator initialization is inactive for full-weight Q3",
-                ),
-                (
-                    solution.q6_epilogue_pipeline_scope == "StoreBatch"
-                    and solution.q6_dependency_delay_mode == "None"
-                    and solution.q6_global_read_cache_policy == "Default",
-                    "Q6 policies are inactive for full-weight Q3",
-                ),
-            )
-        )
-    elif decoded_staged:
-        inactive_checks.extend(
-            (
-                (
-                    solution.q6_epilogue_pipeline_scope == "StoreBatch",
-                    "Q6 epilogue scope is inactive for decoded-weight LDS",
-                ),
-                (
-                    solution.q6_dependency_delay_mode == "None",
-                    "Q6 delay mode is inactive for decoded-weight LDS",
-                ),
-                (
-                    solution.q6_global_read_cache_policy == "Default",
-                    "Q6 cache policy is inactive for decoded-weight LDS",
-                ),
-            )
-        )
-    else:
-        inactive_checks.extend(
-            (
-                (
-                    solution.metadata_schedule == "Serialized",
-                    "metadata schedule is inactive for direct-global lowering",
-                ),
-                (
-                    solution.epilogue_tiles_ahead == 8
-                    and solution.epilogue_dependency_width == 1
-                    and solution.epilogue_priority == 0,
-                    "epilogue pipeline is inactive for direct-global lowering",
-                ),
-                (
-                    solution.accumulator_initialization == "ScalarCopy",
-                    "accumulator initialization is inactive for direct-global lowering",
-                ),
-                (
-                    solution.q6_epilogue_pipeline_scope == "StoreBatch"
-                    and solution.q6_dependency_delay_mode == "None"
-                    and solution.q6_global_read_cache_policy == "Default",
-                    "Q6 policies are inactive for direct-global lowering",
-                ),
-            )
-        )
-    rejection = next(
-        (message for accepted, message in inactive_checks if not accepted), None
-    )
-    if rejection is not None:
-        return rejection
-    tile_m, tile_n, tile_k, blocks = solution.matrix_instruction[:4]
-    if min(tile_m, tile_n, tile_k, blocks) <= 0:
-        return "forward matrix-instruction dimensions must be positive"
-    num_threads = solution.num_threads
-    if (
-        num_threads <= 0
-        or solution.wavefront_size <= 0
-        or num_threads % solution.wavefront_size
-    ):
-        return "forward workgroup must contain a positive whole number of waves"
-    wave_count = num_threads // solution.wavefront_size
-    mi_wave_group = (
-        (1, wave_count) if mechanism.ownership == "WaveN" else (wave_count, 1)
-    )
-    ownership_divisors = (
-        tile_m * mi_wave_group[0],
-        tile_n * mi_wave_group[1],
-    )
-    if (
-        solution.macro_tile0 % ownership_divisors[0]
-        or solution.macro_tile1 % ownership_divisors[1]
-        or solution.depth_u % tile_k
-    ):
-        return "forward geometry is not divisible by matrix-instruction ownership"
-    return None
 
 
 @dataclass(frozen=True)
@@ -1472,294 +1243,307 @@ class ForwardKernelSpec:
     semantic_schedule: SemanticSchedulePolicy
 
     @classmethod
-    def from_solution(cls, solution: ForwardSolution) -> "ForwardKernelSpec":
-        operand_source = solution.operand_source
-        mechanism = forward_mechanism_contract(operand_source)
-        structured_q6 = mechanism.lowering == "StructuredQ6"
-        decoded_staged = mechanism.lowering == "DecodedWeightLds"
-        full_weight_q3 = mechanism.lowering == "Packed3BitFullWeightTiledLds"
-        serialized_q6_schedule = SemanticSchedulePolicy(
-            traversal=solution.q6_output_traversal,
-            clustering=solution.q6_stage_clustering,
-            latency=solution.q6_latency_policy,
-            pressure=solution.q6_pressure_policy,
-            wait=solution.q6_wait_policy,
-            pairing=solution.q6_pairing_policy,
-        )
-        rejection = forward_kernel_spec_rejection_reason(solution)
-        if rejection is not None:
-            raise ValueError(rejection)
-        tile_m, tile_n, tile_k, blocks = solution.matrix_instruction[:4]
-        num_threads = solution.num_threads
-        wave_count = num_threads // solution.wavefront_size
-        mi_wave_group = (
-            (1, wave_count) if mechanism.ownership == "WaveN" else (wave_count, 1)
-        )
-        ownership_divisors = (
-            tile_m * mi_wave_group[0],
-            tile_n * mi_wave_group[1],
-        )
-        mi_wave_tile = (
-            solution.macro_tile0 // ownership_divisors[0],
-            solution.macro_tile1 // ownership_divisors[1],
-        )
-        pipeline = None
-        if structured_q6:
-            pipeline = EpiloguePipelineSpec(
-                tiles_ahead=None,
-                dependency_width=solution.epilogue_dependency_width,
-                priority=None,
-                scope=solution.q6_epilogue_pipeline_scope,
-            )
-        elif decoded_staged:
-            pipeline = EpiloguePipelineSpec(
-                tiles_ahead=solution.epilogue_tiles_ahead,
-                dependency_width=solution.epilogue_dependency_width,
-                priority=solution.epilogue_priority,
-                scope=None,
-            )
-        return cls(
-            geometry=GeometrySpec(
-                work_group=solution.work_group,
-                matrix_instruction=(tile_m, tile_n, tile_k, blocks),
-                depth_u=solution.depth_u,
-            ),
-            ownership=OwnershipSpec(
-                mi_wave_group=mi_wave_group,
-                mi_wave_tile=mi_wave_tile,
-            ),
-            global_memory=GlobalMemorySpec(
-                operand_source=operand_source,
-                activation_addressing=solution.activation_addressing,
-                global_read_cache_policy=(
-                    solution.q6_global_read_cache_policy if structured_q6 else None
-                ),
-            ),
-            lds=LdsSpec(address_hoist=solution.lds_address_hoist),
-            decode=DecodeSpec(
-                metadata_conversion=solution.metadata_conversion,
-                metadata_schedule=(
-                    solution.metadata_schedule
-                    if decoded_staged or full_weight_q3
-                    else None
-                ),
-            ),
-            epilogue=EpilogueSpec(
-                output_store=solution.output_store,
-                pipeline=pipeline,
-            ),
-            instruction_policy=InstructionPolicy(
-                accumulator_initialization=(
-                    solution.accumulator_initialization if decoded_staged else None
-                ),
-                dependency_delay_mode=(
-                    solution.q6_dependency_delay_mode if structured_q6 else None
-                ),
-                q6_physical_plan=(solution.q6_physical_plan if structured_q6 else None),
-            ),
-            semantic_schedule=(
-                serialized_q6_schedule
-                if structured_q6
-                else SemanticSchedulePolicy.inactive()
-            ),
-        )
-
-    @classmethod
     def from_mapping(cls, value: object) -> "ForwardKernelSpec":
         item = _strict_mapping_optional(
             value,
             name="ForwardKernelSpec",
             required=frozenset(
                 {
-                    "geometry",
-                    "ownership",
-                    "global_memory",
-                    "lds",
-                    "decode",
-                    "epilogue",
+                    "Geometry",
+                    "Ownership",
+                    "GlobalMemory",
+                    "Lds",
+                    "Decode",
                 }
             ),
-            optional=frozenset({"instruction_policy", "semantic_schedule"}),
+            optional=frozenset({"Epilogue", "InstructionPolicy", "SemanticSchedule"}),
         )
         geometry = _strict_mapping(
-            item["geometry"],
-            name="ForwardKernelSpec.geometry",
-            keys=frozenset({"work_group", "matrix_instruction", "depth_u"}),
+            item["Geometry"],
+            name="ForwardKernelSpec.Geometry",
+            keys=frozenset({"WorkGroup", "MatrixInstruction", "DepthU"}),
         )
         ownership = _strict_mapping(
-            item["ownership"],
-            name="ForwardKernelSpec.ownership",
-            keys=frozenset({"mi_wave_group", "mi_wave_tile"}),
+            item["Ownership"],
+            name="ForwardKernelSpec.Ownership",
+            keys=frozenset({"MIWaveGroup", "MIWaveTile"}),
         )
         global_memory = _strict_mapping_optional(
-            item["global_memory"],
-            name="ForwardKernelSpec.global_memory",
-            required=frozenset({"operand_source", "activation_addressing"}),
-            optional=frozenset({"global_read_cache_policy"}),
+            item["GlobalMemory"],
+            name="ForwardKernelSpec.GlobalMemory",
+            required=frozenset({"OperandSource", "ActivationAddressing"}),
+            optional=frozenset({"GlobalReadCachePolicy"}),
         )
         lds = _strict_mapping(
-            item["lds"],
-            name="ForwardKernelSpec.lds",
-            keys=frozenset({"address_hoist"}),
+            item["Lds"],
+            name="ForwardKernelSpec.Lds",
+            keys=frozenset({"AddressHoist"}),
         )
-        decode = _strict_mapping_optional(
-            item["decode"],
-            name="ForwardKernelSpec.decode",
-            required=frozenset({"metadata_conversion"}),
-            optional=frozenset({"metadata_schedule"}),
+        source = _string(global_memory, "OperandSource")
+        mechanism = forward_mechanism_contract(source)
+        if mechanism.lowering == "DecodedWeightLds":
+            decode_keys = frozenset(
+                {
+                    "MetadataConversion",
+                    "IndependentMetadataExtraction",
+                    "DeferMetadataReads",
+                }
+            )
+        elif mechanism.lowering == "Packed3BitFullWeightTiledLds":
+            decode_keys = frozenset({"MetadataConversion", "DecodeReadyFrontier"})
+        else:
+            decode_keys = frozenset({"MetadataConversion"})
+        decode = _strict_mapping(
+            item["Decode"],
+            name="ForwardKernelSpec.Decode",
+            keys=decode_keys,
         )
-        epilogue = _strict_mapping_optional(
-            item["epilogue"],
-            name="ForwardKernelSpec.epilogue",
-            required=frozenset({"output_store"}),
-            optional=frozenset({"pipeline"}),
+        if mechanism.lowering == "DecodedWeightLds":
+            decode_policy: ForwardDecodePolicy = DecodedLdsForwardDecodePolicy(
+                independent_metadata_extraction=_boolean(
+                    decode, "IndependentMetadataExtraction"
+                ),
+                defer_metadata_reads=_boolean(decode, "DeferMetadataReads"),
+            )
+        elif mechanism.lowering == "Packed3BitFullWeightTiledLds":
+            decode_policy = Q3FullForwardDecodePolicy(
+                decode_ready_frontier=_boolean(decode, "DecodeReadyFrontier")
+            )
+        else:
+            decode_policy = FixedForwardDecodePolicy()
+        has_epilogue_policy = mechanism.lowering in {
+            "DecodedWeightLds",
+            "StructuredQ6",
+        }
+        if has_epilogue_policy != ("Epilogue" in item):
+            raise SchemaError(
+                "ForwardKernelSpec.Epilogue presence does not match the lowering family"
+            )
+        epilogue = (
+            _strict_mapping(
+                item["Epilogue"],
+                name="ForwardKernelSpec.Epilogue",
+                keys=frozenset({"Pipeline"}),
+            )
+            if has_epilogue_policy
+            else None
         )
         pipeline = None
-        if "pipeline" in epilogue:
+        if epilogue is not None:
             pipeline_item = _strict_mapping_optional(
-                epilogue["pipeline"],
-                name="ForwardKernelSpec.epilogue.pipeline",
-                required=frozenset({"dependency_width"}),
-                optional=frozenset({"tiles_ahead", "priority", "scope"}),
+                epilogue["Pipeline"],
+                name="ForwardKernelSpec.Epilogue.Pipeline",
+                required=frozenset({"DependencyWidth"}),
+                optional=frozenset({"TilesAhead", "Priority", "Scope"}),
             )
             pipeline = EpiloguePipelineSpec(
                 tiles_ahead=(
-                    _integer(pipeline_item["tiles_ahead"], "tiles_ahead")
-                    if "tiles_ahead" in pipeline_item
+                    _integer(pipeline_item, "TilesAhead")
+                    if "TilesAhead" in pipeline_item
                     else None
                 ),
-                dependency_width=_integer(
-                    pipeline_item["dependency_width"], "dependency_width"
-                ),
+                dependency_width=_integer(pipeline_item, "DependencyWidth"),
                 priority=(
-                    _integer(pipeline_item["priority"], "priority")
-                    if "priority" in pipeline_item
+                    _integer(pipeline_item, "Priority")
+                    if "Priority" in pipeline_item
                     else None
                 ),
                 scope=(
-                    _string(pipeline_item["scope"], "scope")
-                    if "scope" in pipeline_item
+                    _string(pipeline_item, "Scope")
+                    if "Scope" in pipeline_item
                     else None
                 ),
             )
         instruction = _strict_mapping_optional(
-            item.get("instruction_policy", {}),
-            name="ForwardKernelSpec.instruction_policy",
+            item.get("InstructionPolicy", {}),
+            name="ForwardKernelSpec.InstructionPolicy",
             required=frozenset(),
             optional=frozenset(
                 {
-                    "accumulator_initialization",
-                    "dependency_delay_mode",
-                    "q6_physical_plan",
+                    "AccumulatorInitialization",
+                    "DependencyDelayMode",
+                    "PhysicalPlan",
                 }
             ),
         )
         semantic = (
             _strict_mapping(
-                item["semantic_schedule"],
-                name="ForwardKernelSpec.semantic_schedule",
+                item["SemanticSchedule"],
+                name="ForwardKernelSpec.SemanticSchedule",
                 keys=frozenset(
                     {
-                        "traversal",
-                        "clustering",
-                        "latency",
-                        "pressure",
-                        "wait",
-                        "pairing",
+                        "Traversal",
+                        "Clustering",
+                        "Latency",
+                        "Pressure",
+                        "Wait",
+                        "Pairing",
                     }
                 ),
             )
-            if "semantic_schedule" in item
+            if "SemanticSchedule" in item
             else None
+        )
+        semantic_schedule = (
+            SemanticSchedulePolicy.from_serialized(
+                traversal=_string(semantic, "Traversal"),
+                clustering=_string(semantic, "Clustering"),
+                latency=_string(semantic, "Latency"),
+                pressure=_string(semantic, "Pressure"),
+                wait=_string(semantic, "Wait"),
+                pairing=_string(semantic, "Pairing"),
+            )
+            if semantic is not None
+            else SemanticSchedulePolicy()
         )
         return cls(
             geometry=GeometrySpec(
-                work_group=_integer_tuple(geometry["work_group"], "work_group", 3),
+                work_group=_integer_tuple(geometry, "WorkGroup", 3),
                 matrix_instruction=cast(
                     tuple[int, int, int, int],
-                    _integer_tuple(
-                        geometry["matrix_instruction"], "matrix_instruction", 4
-                    ),
+                    _integer_tuple(geometry, "MatrixInstruction", 4),
                 ),
-                depth_u=_integer(geometry["depth_u"], "depth_u"),
+                depth_u=_integer(geometry, "DepthU"),
             ),
             ownership=OwnershipSpec(
                 mi_wave_group=cast(
                     tuple[int, int],
-                    _integer_tuple(ownership["mi_wave_group"], "mi_wave_group", 2),
+                    _integer_tuple(ownership, "MIWaveGroup", 2),
                 ),
                 mi_wave_tile=cast(
                     tuple[int, int],
-                    _integer_tuple(ownership["mi_wave_tile"], "mi_wave_tile", 2),
+                    _integer_tuple(ownership, "MIWaveTile", 2),
                 ),
             ),
             global_memory=GlobalMemorySpec(
-                operand_source=_string(
-                    global_memory["operand_source"], "operand_source"
-                ),
-                activation_addressing=_string(
-                    global_memory["activation_addressing"], "activation_addressing"
-                ),
+                operand_source=source,
+                activation_addressing=_string(global_memory, "ActivationAddressing"),
                 global_read_cache_policy=(
                     _string(
-                        global_memory["global_read_cache_policy"],
-                        "global_read_cache_policy",
+                        global_memory,
+                        "GlobalReadCachePolicy",
                     )
-                    if "global_read_cache_policy" in global_memory
+                    if "GlobalReadCachePolicy" in global_memory
                     else None
                 ),
             ),
-            lds=LdsSpec(address_hoist=_string(lds["address_hoist"], "address_hoist")),
+            lds=LdsSpec(address_hoist=_string(lds, "AddressHoist")),
             decode=DecodeSpec(
-                metadata_conversion=_string(
-                    decode["metadata_conversion"], "metadata_conversion"
-                ),
-                metadata_schedule=(
-                    _string(decode["metadata_schedule"], "metadata_schedule")
-                    if "metadata_schedule" in decode
-                    else None
-                ),
+                metadata_conversion=_string(decode, "MetadataConversion"),
+                policy=decode_policy,
             ),
-            epilogue=EpilogueSpec(
-                output_store=_string(epilogue["output_store"], "output_store"),
-                pipeline=pipeline,
-            ),
+            epilogue=EpilogueSpec(pipeline=pipeline),
             instruction_policy=InstructionPolicy(
                 accumulator_initialization=(
                     _string(
-                        instruction["accumulator_initialization"],
-                        "accumulator_initialization",
+                        instruction,
+                        "AccumulatorInitialization",
                     )
-                    if "accumulator_initialization" in instruction
+                    if "AccumulatorInitialization" in instruction
                     else None
                 ),
                 dependency_delay_mode=(
                     _string(
-                        instruction["dependency_delay_mode"],
-                        "dependency_delay_mode",
+                        instruction,
+                        "DependencyDelayMode",
                     )
-                    if "dependency_delay_mode" in instruction
+                    if "DependencyDelayMode" in instruction
                     else None
                 ),
-                q6_physical_plan=(
-                    _string(instruction["q6_physical_plan"], "q6_physical_plan")
-                    if "q6_physical_plan" in instruction
+                physical_plan=(
+                    _string(instruction, "PhysicalPlan")
+                    if "PhysicalPlan" in instruction
                     else None
                 ),
             ),
-            semantic_schedule=(
-                SemanticSchedulePolicy(
-                    traversal=_string(semantic["traversal"], "traversal"),
-                    clustering=_string(semantic["clustering"], "clustering"),
-                    latency=_string(semantic["latency"], "latency"),
-                    pressure=_string(semantic["pressure"], "pressure"),
-                    wait=_string(semantic["wait"], "wait"),
-                    pairing=_string(semantic["pairing"], "pairing"),
-                )
-                if semantic is not None
-                else SemanticSchedulePolicy.inactive()
-            ),
+            semantic_schedule=semantic_schedule,
         )
+
+    def validate(self, contract: ForwardProblemContract) -> None:
+        mechanism = forward_mechanism_contract(self.global_memory.operand_source)
+        mechanism.validate(contract)
+        mechanism.dataflow.validate(
+            activation_addressing=self.global_memory.activation_addressing,
+            lds_address_hoist=self.lds.address_hoist,
+            metadata_conversion=self.decode.metadata_conversion,
+        )
+        work_group = self.geometry.work_group
+        assert len(work_group) == 3
+        assert min(work_group) > 0
+        assert work_group[2] == 1
+        tile_m, tile_n, tile_k, blocks = self.geometry.matrix_instruction
+        assert min(tile_m, tile_n, tile_k, blocks) > 0
+        threads = work_group[0] * work_group[1] * work_group[2]
+        assert threads % contract.wavefront_size == 0
+        wave_count = threads // contract.wavefront_size
+        expected_group = (
+            (1, wave_count) if mechanism.ownership == "WaveN" else (wave_count, 1)
+        )
+        assert self.ownership.mi_wave_group == expected_group
+        assert min(self.ownership.mi_wave_tile) > 0
+        assert self.macro_tile[0] % (tile_m * expected_group[0]) == 0
+        assert self.macro_tile[1] % (tile_n * expected_group[1]) == 0
+        assert self.geometry.depth_u % tile_k == 0
+        structured_q6 = mechanism.lowering == "StructuredQ6"
+        decoded_staged = mechanism.lowering == "DecodedWeightLds"
+        full_weight_q3 = mechanism.lowering == "Packed3BitFullWeightTiledLds"
+        pipeline = self.epilogue.pipeline
+        if structured_q6:
+            assert isinstance(self.decode.policy, FixedForwardDecodePolicy)
+            assert pipeline is not None
+            assert pipeline.tiles_ahead is None
+            assert pipeline.priority is None
+            assert pipeline.scope in {"StoreBatch", "FullTile"}
+            assert self.instruction_policy.accumulator_initialization is None
+            assert self.instruction_policy.dependency_delay_mode in {"None", "Explicit"}
+            assert self.instruction_policy.physical_plan in {
+                "CanonicalRegisterRoles",
+                "WideScalarCarryFrontier",
+            }
+            assert self.global_memory.global_read_cache_policy in {
+                "Default",
+                "InvalidateL0",
+            }
+            assert self.semantic_schedule.variant is not None
+            if self.instruction_policy.physical_plan == "WideScalarCarryFrontier":
+                assert self.macro_tile[0] == 64
+                assert (
+                    self.semantic_schedule.variant
+                    is StructuredQ6ScheduleVariant.Wavefront
+                )
+        elif decoded_staged:
+            assert isinstance(self.decode.policy, DecodedLdsForwardDecodePolicy)
+            assert pipeline is not None
+            assert pipeline.tiles_ahead is not None
+            assert pipeline.priority is not None
+            assert pipeline.scope is None
+            assert self.instruction_policy.accumulator_initialization in {
+                "ScalarCopy",
+                "VopdPair",
+            }
+            assert self.instruction_policy.dependency_delay_mode is None
+            assert self.instruction_policy.physical_plan is None
+            assert self.global_memory.global_read_cache_policy is None
+            assert self.semantic_schedule.variant is None
+        elif full_weight_q3:
+            assert isinstance(self.decode.policy, Q3FullForwardDecodePolicy)
+            assert pipeline is None
+            assert self.instruction_policy == InstructionPolicy(None, None, None)
+            assert self.global_memory.global_read_cache_policy is None
+            assert self.semantic_schedule.variant is None
+        else:
+            assert isinstance(self.decode.policy, FixedForwardDecodePolicy)
+            assert pipeline is None
+            assert self.instruction_policy == InstructionPolicy(None, None, None)
+            assert self.global_memory.global_read_cache_policy is None
+            assert self.semantic_schedule.variant is None
+        if mechanism.physical_plan == "SignedInt8WaveNTiledLds":
+            assert self.geometry.depth_u in (32, 64)
+        if self.lds.address_hoist == "CompactDepth32WeightRows":
+            assert self.geometry.depth_u == 32
+            assert work_group == (32, 4, 1)
+            assert self.macro_tile[0] in (32, 64, 128)
+            assert self.macro_tile[1] == 64
 
     @property
     def macro_tile(self) -> tuple[int, int]:
@@ -1769,207 +1553,77 @@ class ForwardKernelSpec:
             tile_n * self.ownership.mi_wave_group[1] * self.ownership.mi_wave_tile[1],
         )
 
-    def to_solution(self, contract: ForwardProblemContract) -> ForwardSolution:
-        """Reconstruct the normal serialized build input from a canonical spec."""
-        source = self.global_memory.operand_source
-        mechanism = forward_mechanism_contract(source)
-        decoded_staged = mechanism.lowering == "DecodedWeightLds"
-        structured_q6 = mechanism.lowering == "StructuredQ6"
-        full_weight_q3 = mechanism.lowering == "Packed3BitFullWeightTiledLds"
-        if structured_q6:
-            supported_schedules = SemanticSchedulePolicy.supported_structured_q6()
+    def to_mapping(self) -> dict[str, object]:
+        global_memory: dict[str, object] = {
+            "OperandSource": self.global_memory.operand_source,
+            "ActivationAddressing": self.global_memory.activation_addressing,
+        }
+        if self.global_memory.global_read_cache_policy is not None:
+            global_memory["GlobalReadCachePolicy"] = (
+                self.global_memory.global_read_cache_policy
+            )
+        decode: dict[str, object] = {
+            "MetadataConversion": self.decode.metadata_conversion
+        }
+        if isinstance(self.decode.policy, DecodedLdsForwardDecodePolicy):
+            decode["IndependentMetadataExtraction"] = (
+                self.decode.policy.independent_metadata_extraction
+            )
+            decode["DeferMetadataReads"] = self.decode.policy.defer_metadata_reads
+        elif isinstance(self.decode.policy, Q3FullForwardDecodePolicy):
+            decode["DecodeReadyFrontier"] = self.decode.policy.decode_ready_frontier
         else:
-            supported_schedules = (SemanticSchedulePolicy.inactive(),)
-        if self.semantic_schedule not in supported_schedules:
-            raise ValueError(
-                "forward semantic schedule does not match the lowering family"
-            )
-        contract_rejection = forward_mechanism_contract(source).rejection_reason(
-            contract
-        )
-        if contract_rejection is not None:
-            raise ValueError(contract_rejection)
-        pipeline = self.epilogue.pipeline
-        if (structured_q6 or decoded_staged) != (pipeline is not None):
-            raise ValueError(
-                "forward epilogue pipeline does not match the lowering family"
-            )
-        legacy_suffix = (
-            (1, 1, 4, 4, 1) if mechanism.extended_legacy_matrix else (1, 1, 1, 1, 1)
-        )
-        metadata_schedule = "Q3FullTileSharedDecode" if full_weight_q3 else "Serialized"
-        epilogue_tiles_ahead = 8
-        epilogue_dependency_width = 1
-        epilogue_priority = 0
-        accumulator_initialization = "ScalarCopy"
-        q6_epilogue_pipeline_scope = "StoreBatch"
-        q6_dependency_delay_mode = "None"
-        q6_global_read_cache_policy = "Default"
-        q6_output_traversal = "OutputRoleGroupMajor"
-        q6_stage_clustering = "StageDependencyOrder"
-        q6_latency_policy = "SerializedDependencyDistance"
-        q6_pressure_policy = "ExplicitRoleLifetime"
-        q6_wait_policy = "ProducerFirstUse"
-        q6_pairing_policy = "DependencyCompatibleDualIssue"
-        q6_physical_plan = "CanonicalRegisterRoles"
-        if decoded_staged:
-            assert pipeline is not None
-            if pipeline.tiles_ahead is None or pipeline.priority is None:
-                raise ValueError("decoded-weight LDS requires complete epilogue policy")
-            if self.decode.metadata_schedule is None:
-                raise ValueError("decoded-weight LDS requires a metadata schedule")
-            if self.instruction_policy.accumulator_initialization is None:
-                raise ValueError(
-                    "decoded-weight LDS requires accumulator initialization"
-                )
-            metadata_schedule = self.decode.metadata_schedule
-            epilogue_tiles_ahead = pipeline.tiles_ahead
-            epilogue_dependency_width = pipeline.dependency_width
-            epilogue_priority = pipeline.priority
-            accumulator_initialization = (
+            assert isinstance(self.decode.policy, FixedForwardDecodePolicy)
+        epilogue: dict[str, object] | None = None
+        if self.epilogue.pipeline is not None:
+            policy = self.epilogue.pipeline
+            pipeline: dict[str, object] = {"DependencyWidth": policy.dependency_width}
+            if policy.tiles_ahead is not None:
+                pipeline["TilesAhead"] = policy.tiles_ahead
+            if policy.priority is not None:
+                pipeline["Priority"] = policy.priority
+            if policy.scope is not None:
+                pipeline["Scope"] = policy.scope
+            epilogue = {"Pipeline": pipeline}
+        mapping: dict[str, object] = {
+            "Geometry": {
+                "WorkGroup": list(self.geometry.work_group),
+                "MatrixInstruction": list(self.geometry.matrix_instruction),
+                "DepthU": self.geometry.depth_u,
+            },
+            "Ownership": {
+                "MIWaveGroup": list(self.ownership.mi_wave_group),
+                "MIWaveTile": list(self.ownership.mi_wave_tile),
+            },
+            "GlobalMemory": global_memory,
+            "Lds": {"AddressHoist": self.lds.address_hoist},
+            "Decode": decode,
+        }
+        if epilogue is not None:
+            mapping["Epilogue"] = epilogue
+        instruction: dict[str, object] = {}
+        if self.instruction_policy.accumulator_initialization is not None:
+            instruction["AccumulatorInitialization"] = (
                 self.instruction_policy.accumulator_initialization
             )
-        elif full_weight_q3:
-            if self.decode.metadata_schedule not in {
-                "Q3FullTileSharedDecode",
-                "Q3FullTileDecodeReadyFrontier",
-            }:
-                raise ValueError("full-weight Q3 requires its typed decode schedule")
-            metadata_schedule = self.decode.metadata_schedule
-        elif structured_q6:
-            assert pipeline is not None
-            if pipeline.scope is None:
-                raise ValueError("structured Q6 requires an epilogue scope")
-            if self.instruction_policy.dependency_delay_mode is None:
-                raise ValueError("structured Q6 requires a dependency-delay mode")
-            if self.global_memory.global_read_cache_policy is None:
-                raise ValueError("structured Q6 requires a global-read cache policy")
-            epilogue_dependency_width = pipeline.dependency_width
-            q6_epilogue_pipeline_scope = pipeline.scope
-            q6_dependency_delay_mode = self.instruction_policy.dependency_delay_mode
-            q6_global_read_cache_policy = self.global_memory.global_read_cache_policy
-            q6_output_traversal = cast(str, self.semantic_schedule.traversal)
-            q6_stage_clustering = cast(str, self.semantic_schedule.clustering)
-            q6_latency_policy = cast(str, self.semantic_schedule.latency)
-            q6_pressure_policy = cast(str, self.semantic_schedule.pressure)
-            q6_wait_policy = cast(str, self.semantic_schedule.wait)
-            q6_pairing_policy = cast(str, self.semantic_schedule.pairing)
-            if self.instruction_policy.q6_physical_plan is None:
-                raise ValueError("structured Q6 requires a physical plan")
-            q6_physical_plan = self.instruction_policy.q6_physical_plan
-        solution = ForwardSolution(
-            kernel_language=contract.kernel_language,
-            isa=contract.isa,
-            wavefront_size=contract.wavefront_size,
-            work_group=self.geometry.work_group,
-            matrix_instruction=(*self.geometry.matrix_instruction, *legacy_suffix),
-            macro_tile0=self.macro_tile[0],
-            macro_tile1=self.macro_tile[1],
-            depth_u=self.geometry.depth_u,
-            activation_layout=contract.activation_layout,
-            activation_block_bytes=contract.activation_block_bytes,
-            packed_weight_block_bytes=contract.packed_weight_block_bytes,
-            operand_source=source,
-            weight_decode=contract.weight_decode,
-            lds_address_hoist=self.lds.address_hoist,
-            activation_addressing=self.global_memory.activation_addressing,
-            metadata_conversion=self.decode.metadata_conversion,
-            scale_arithmetic=contract.scale_arithmetic,
-            output_store=self.epilogue.output_store,
-            signed_weight=contract.signed_weight,
-            signed_activation=contract.signed_activation,
-            wmma_clamp=contract.wmma_clamp,
-            metadata_schedule=metadata_schedule,
-            epilogue_tiles_ahead=epilogue_tiles_ahead,
-            epilogue_dependency_width=epilogue_dependency_width,
-            epilogue_priority=epilogue_priority,
-            accumulator_initialization=accumulator_initialization,
-            q6_epilogue_pipeline_scope=q6_epilogue_pipeline_scope,
-            q6_dependency_delay_mode=q6_dependency_delay_mode,
-            q6_global_read_cache_policy=q6_global_read_cache_policy,
-            q6_output_traversal=q6_output_traversal,
-            q6_stage_clustering=q6_stage_clustering,
-            q6_latency_policy=q6_latency_policy,
-            q6_pressure_policy=q6_pressure_policy,
-            q6_wait_policy=q6_wait_policy,
-            q6_pairing_policy=q6_pairing_policy,
-            q6_physical_plan=q6_physical_plan,
-        )
-        if (
-            ForwardProblemContract.from_solution(contract.quant_type, solution)
-            != contract
-        ):
-            raise ValueError("forward fixed contract cannot be represented by the ABI")
-        if ForwardKernelSpec.from_solution(solution) != self:
-            raise ValueError("forward kernel spec cannot be represented by the ABI")
-        return solution
-
-    def to_mapping(self) -> dict[str, object]:
-        return cast(dict[str, object], _canonical_value(self))
-
-    def to_legacy_hash_mapping(self) -> dict[str, object]:
-        """Project the normalized spec onto the frozen pre-normalization identity."""
-        mapping = self.to_mapping()
-        mapping["resource_limits"] = cast(
-            dict[str, object], _canonical_value(FORWARD_RESOURCE_LIMITS)
-        )
+        if self.instruction_policy.dependency_delay_mode is not None:
+            instruction["DependencyDelayMode"] = (
+                self.instruction_policy.dependency_delay_mode
+            )
+        if self.instruction_policy.physical_plan is not None:
+            instruction["PhysicalPlan"] = self.instruction_policy.physical_plan
+        if instruction:
+            mapping["InstructionPolicy"] = instruction
+        if self.semantic_schedule.variant is not None:
+            mapping["SemanticSchedule"] = {
+                "Traversal": self.semantic_schedule.traversal,
+                "Clustering": self.semantic_schedule.clustering,
+                "Latency": self.semantic_schedule.latency,
+                "Pressure": self.semantic_schedule.pressure,
+                "Wait": self.semantic_schedule.wait,
+                "Pairing": self.semantic_schedule.pairing,
+            }
         return mapping
-
-
-def signed_int8_small_m_tiled_kernel_spec(
-    *,
-    work_group: tuple[int, int, int],
-    matrix_instruction: tuple[int, ...],
-    macro_tile: tuple[int, int],
-    depth_u: int,
-    operand_source: str,
-    activation_addressing: str,
-    lds_address_hoist: str,
-    output_store: str,
-) -> ForwardKernelSpec:
-    """Build the typed signed-int8 small-M mechanism without a solution adapter."""
-    mechanism = forward_mechanism_contract(operand_source)
-    if mechanism.physical_plan != "SignedInt8SmallMTiledLds":
-        raise ValueError("fixed Q8 requires the signed-int8 small-M physical plan")
-    tile_m, tile_n, tile_k, blocks = matrix_instruction[:4]
-    threads = work_group[0] * work_group[1] * work_group[2]
-    if threads <= 0 or threads % 32:
-        raise ValueError("signed-int8 small-M workgroup must contain whole waves")
-    waves = threads // 32
-    mi_wave_group = (1, waves) if mechanism.ownership == "WaveN" else (waves, 1)
-    ownership_divisors = (
-        tile_m * mi_wave_group[0],
-        tile_n * mi_wave_group[1],
-    )
-    if macro_tile[0] % ownership_divisors[0] or macro_tile[1] % ownership_divisors[1]:
-        raise ValueError("signed-int8 small-M ownership does not divide the macro tile")
-    return ForwardKernelSpec(
-        geometry=GeometrySpec(
-            work_group=work_group,
-            matrix_instruction=(tile_m, tile_n, tile_k, blocks),
-            depth_u=depth_u,
-        ),
-        ownership=OwnershipSpec(
-            mi_wave_group=mi_wave_group,
-            mi_wave_tile=(
-                macro_tile[0] // ownership_divisors[0],
-                macro_tile[1] // ownership_divisors[1],
-            ),
-        ),
-        global_memory=GlobalMemorySpec(
-            operand_source=operand_source,
-            activation_addressing=activation_addressing,
-            global_read_cache_policy=None,
-        ),
-        lds=LdsSpec(address_hoist=lds_address_hoist),
-        decode=DecodeSpec(
-            metadata_conversion="Float16DToFloat32",
-            metadata_schedule=None,
-        ),
-        epilogue=EpilogueSpec(output_store=output_store, pipeline=None),
-        instruction_policy=InstructionPolicy(None, None, None),
-        semantic_schedule=SemanticSchedulePolicy.inactive(),
-    )
 
 
 @dataclass(frozen=True)
@@ -1984,13 +1638,12 @@ class Q6LdsPairRole:
     last_stage: int
 
     def __post_init__(self) -> None:
-        if (
+        assert not (
             not self.name
             or self.pair < 0
             or min(self.offset0, self.offset1, self.first_stage) < 0
-            or self.last_stage < self.first_stage
-        ):
-            raise ValueError("invalid Q6 LDS pair role")
+            or (self.last_stage < self.first_stage)
+        )
 
 
 @dataclass(frozen=True)
@@ -2001,10 +1654,7 @@ class Q6LdsLayout:
     m_wave_groups: int = 1
 
     def __post_init__(self) -> None:
-        if self.output_rows_per_wave <= 0 or self.m_wave_groups <= 0:
-            raise ValueError(
-                "Q6 LDS output rows per wave and M-wave groups must be positive"
-            )
+        assert not (self.output_rows_per_wave <= 0 or self.m_wave_groups <= 0)
 
     @property
     def stage_stride_bytes(self) -> int:
@@ -2066,8 +1716,7 @@ class Q6LdsLayout:
         )
 
     def cooperative_write_role(self, pair: int) -> Q6LdsPairRole:
-        if pair < 0:
-            raise ValueError("Q6 cooperative-write pair must be nonnegative")
+        assert pair >= 0
         first = self.output_rows_per_wave + 4 * pair
         return Q6LdsPairRole(
             name=f"cooperative_write.{pair}",
@@ -2079,8 +1728,7 @@ class Q6LdsLayout:
         )
 
     def factor_role(self, pair: int) -> Q6LdsPairRole:
-        if pair < 0:
-            raise ValueError("Q6 factor pair must be nonnegative")
+        assert pair >= 0
         return Q6LdsPairRole(
             name=f"factor.{pair}",
             pair=pair,
@@ -2121,42 +1769,27 @@ class Q6ForwardSchedule:
     def __post_init__(self) -> None:
         self.semantic_policy.require_structured_q6()
         _, _, _, blocks = self.matrix_instruction
-        if blocks != 1:
-            raise ValueError("Q6 matrix instruction implements one input block")
-        if not self.dot_register_shifts:
-            raise ValueError("Q6 requires at least one dot phase")
-        if self.physical_plan not in {
+        assert blocks == 1
+        assert self.dot_register_shifts
+        assert self.physical_plan in {
             "CanonicalRegisterRoles",
             "WideScalarCarryFrontier",
-        }:
-            raise ValueError(f"unsupported Q6 physical plan: {self.physical_plan}")
-        if self.physical_plan == "WideScalarCarryFrontier" and (
-            self.macro_tile0 != 64
-            or self.semantic_policy != SemanticSchedulePolicy.structured_q6_wavefront()
-        ):
-            raise ValueError("wide scalar-carry frontier requires wavefront MT64")
-        if (
+        }
+        assert not (
+            self.physical_plan == "WideScalarCarryFrontier"
+            and (
+                self.macro_tile0 != 64
+                or self.semantic_policy
+                != SemanticSchedulePolicy.structured_q6_wavefront()
+            )
+        )
+        assert not (
             self.epilogue_dependency_width not in (1, 2, 4, 8)
             or self.store_vector_width % self.epilogue_dependency_width
-        ):
-            raise ValueError(
-                "unsupported Q6 epilogue dependency width: "
-                f"{self.epilogue_dependency_width}"
-            )
-        if self.epilogue_pipeline_scope not in {"StoreBatch", "FullTile"}:
-            raise ValueError(
-                "unsupported Q6 epilogue pipeline scope: "
-                f"{self.epilogue_pipeline_scope}"
-            )
-        if self.dependency_delay_mode not in ("None", "Explicit"):
-            raise ValueError(
-                f"unsupported Q6 dependency-delay mode: {self.dependency_delay_mode}"
-            )
-        if self.global_read_cache_policy not in ("Default", "InvalidateL0"):
-            raise ValueError(
-                "unsupported Q6 global-read cache policy: "
-                f"{self.global_read_cache_policy}"
-            )
+        )
+        assert self.epilogue_pipeline_scope in {"StoreBatch", "FullTile"}
+        assert self.dependency_delay_mode in ("None", "Explicit")
+        assert self.global_read_cache_policy in ("Default", "InvalidateL0")
 
     @property
     def macro_tile(self) -> tuple[int, int]:
@@ -2192,7 +1825,7 @@ class Q6ForwardSchedule:
         return f"v_wmma_i32_{tile_m}x{tile_n}x{tile_k}_iu8"
 
     @property
-    def resource_usage(self) -> ForwardResourceUsage:
+    def resource_usage(self) -> PhysicalResourceUsage:
         from .mmq_fwd_physical import q6_structured_physical_plan
 
         return q6_structured_physical_plan(
@@ -2200,27 +1833,34 @@ class Q6ForwardSchedule:
         ).resources
 
     def phase(self, phase: int) -> Q6DotPhase:
-        if phase not in range(len(self.dot_register_shifts)):
-            raise ValueError(f"unsupported Q6 dot phase: {phase}")
+        assert phase in range(len(self.dot_register_shifts))
         return Q6DotPhase(self, phase)
+
+
+def validate_forward_kernel_spec_record(
+    problem_size: ProblemSize,
+    contract: ForwardProblemContract,
+    spec: ForwardKernelSpec,
+) -> None:
+    spec.validate(contract)
+    DerivedForwardState.from_contract_spec(problem_size, contract, spec)
 
 
 def q6_schedule_from_kernel_spec(spec: ForwardKernelSpec) -> Q6ForwardSchedule:
     """Derive structured Q6 lowering state from one canonical kernel spec."""
-    if spec.global_memory.operand_source != "Q6StructuredDecoded":
-        raise ValueError("Q6 schedule requires structured decoded operands")
-    if spec.geometry.work_group[0] != 32 or spec.geometry.work_group[2] != 1:
-        raise ValueError("structured Q6 requires WorkGroup=(32,waves,1)")
-    if spec.ownership.mi_wave_group[0] * spec.ownership.mi_wave_group[1] <= 0:
-        raise ValueError("structured Q6 requires at least one wave")
+    assert spec.global_memory.operand_source == "Q6StructuredDecoded"
+    assert spec.geometry.work_group[0] == 32
+    assert spec.geometry.work_group[2] == 1
+    assert spec.ownership.mi_wave_group[0] * spec.ownership.mi_wave_group[1] > 0
     pipeline = spec.epilogue.pipeline
-    if pipeline is None or pipeline.scope is None:
-        raise ValueError("structured Q6 requires an epilogue pipeline")
+    assert pipeline is not None
+    assert pipeline.scope is not None
     delay_mode = spec.instruction_policy.dependency_delay_mode
-    physical_plan = spec.instruction_policy.q6_physical_plan
+    physical_plan = spec.instruction_policy.physical_plan
     cache_policy = spec.global_memory.global_read_cache_policy
-    if delay_mode is None or cache_policy is None or physical_plan is None:
-        raise ValueError("structured Q6 requires delay, cache, and physical policies")
+    assert delay_mode is not None
+    assert cache_policy is not None
+    assert physical_plan is not None
     _, _, tile_k, _ = spec.geometry.matrix_instruction
     return Q6ForwardSchedule(
         matrix_instruction=spec.geometry.matrix_instruction,
@@ -2239,19 +1879,6 @@ def q6_schedule_from_kernel_spec(spec: ForwardKernelSpec) -> Q6ForwardSchedule:
     )
 
 
-def q6_schedule_from_solution(solution: ForwardSolution) -> Q6ForwardSchedule:
-    """Convert the legacy serialized solution and derive its Q6 schedule."""
-    if solution.operand_source != "Q6StructuredDecoded":
-        raise ValueError("Q6 schedule requires structured decoded operands")
-    if solution.work_group[0] != 32 or solution.work_group[2] != 1:
-        raise ValueError("structured Q6 requires WorkGroup=(32,waves,1)")
-    wave_count = solution.num_threads // solution.wavefront_size
-    if wave_count <= 0:
-        raise ValueError("structured Q6 requires at least one wave")
-    kernel_spec = ForwardKernelSpec.from_solution(solution)
-    return q6_schedule_from_kernel_spec(kernel_spec)
-
-
 @dataclass(frozen=True)
 class ForwardKernelCandidate:
     """Canonical complete candidate independent of any exact problem shape."""
@@ -2260,43 +1887,40 @@ class ForwardKernelCandidate:
     kernel_spec: ForwardKernelSpec
 
     @classmethod
-    def from_solution(
-        cls,
-        quant_type: str,
-        solution: ForwardSolution,
-    ) -> "ForwardKernelCandidate":
-        return cls(
-            problem_contract=ForwardProblemContract.from_solution(
-                quant_type,
-                solution,
-            ),
-            kernel_spec=ForwardKernelSpec.from_solution(solution),
-        )
-
-    def to_solution(self) -> ForwardSolution:
-        return self.kernel_spec.to_solution(self.problem_contract)
-
-    @classmethod
     def from_mapping(cls, value: object) -> "ForwardKernelCandidate":
         item = _strict_mapping(
             value,
             name="ForwardKernelCandidate",
-            keys=frozenset({"ProblemContract", "KernelSpec"}),
+            keys=frozenset({"KernelFamily", "Target", "ProblemType", "KernelSpec"}),
         )
-        candidate = cls(
-            problem_contract=ForwardProblemContract.from_mapping(
-                item["ProblemContract"]
+        family = KernelFamily.OrdinaryForward
+        if item["KernelFamily"] != family.value:
+            raise SchemaError("forward candidate has the wrong KernelFamily")
+        KernelTarget.from_mapping(item["Target"])
+        quant_type = quant_type_from_problem_type(item["ProblemType"], family)
+        contract = ForwardProblemContract.for_quant_type(quant_type)
+        spec = ForwardKernelSpec.from_mapping(item["KernelSpec"])
+        validate_forward_kernel_spec_record(
+            ProblemSize(
+                spec.macro_tile[0],
+                spec.macro_tile[1],
+                forward_mechanism_contract(
+                    spec.global_memory.operand_source
+                ).reduction_values,
             ),
-            kernel_spec=ForwardKernelSpec.from_mapping(item["KernelSpec"]),
+            contract,
+            spec,
         )
-        solution = candidate.to_solution()
-        if ForwardKernelSpec.from_solution(solution) != candidate.kernel_spec:
-            raise SchemaError("ForwardKernelSpec does not round-trip canonically")
-        return candidate
+        return cls(problem_contract=contract, kernel_spec=spec)
 
     def to_mapping(self) -> dict[str, object]:
+        family = KernelFamily.OrdinaryForward
         return {
-            "ProblemContract": self.problem_contract.to_mapping(),
+            "KernelFamily": family.value,
+            "Target": GFX1151_TARGET.to_mapping(),
+            "ProblemType": problem_type_mapping(
+                family, self.problem_contract.quant_type
+            ),
             "KernelSpec": self.kernel_spec.to_mapping(),
         }
 
@@ -2316,7 +1940,7 @@ class DerivedForwardState:
     mi_wave_tile: tuple[int, int]
     accumulator_count: int
     k_phases_per_iteration: int
-    resources: ForwardResourceUsage
+    resources: PhysicalResourceUsage
     blocks_per_weight_row: int
     activation_blocks_per_row: int
     packed_weight_row_bytes: int
@@ -2325,19 +1949,14 @@ class DerivedForwardState:
     grid: tuple[int, int, int]
 
     @classmethod
-    def from_solution_key(cls, key: SolutionKey) -> "DerivedForwardState":
-        if not isinstance(key.solution, ForwardSolution):
-            raise TypeError("MMQ forward derived state requires ForwardSolution")
-        solution = key.solution
-        contract = ForwardProblemContract.from_solution(
-            key.problem_type.quant_data_type,
-            solution,
-        )
-        return cls.from_contract_spec(
-            key.problem_size,
-            contract,
-            ForwardKernelSpec.from_solution(solution),
-        )
+    def from_problem_spec(
+        cls,
+        size: ProblemSize,
+        quant_type: str,
+        spec: ForwardKernelSpec,
+    ) -> "DerivedForwardState":
+        contract = ForwardProblemContract.for_quant_type(quant_type)
+        return cls.from_contract_spec(size, contract, spec)
 
     @classmethod
     def from_contract_spec(
@@ -2352,17 +1971,14 @@ class DerivedForwardState:
         payload_bytes = max(
             plane.byte_offset + plane.byte_count for plane in semantics.payload_planes
         )
-        if payload_bytes != contract.packed_weight_block_bytes:
-            raise ValueError("forward payload planes do not cover the packed block")
+        assert payload_bytes == contract.packed_weight_block_bytes
         mechanism = forward_mechanism_contract(kernel_spec.global_memory.operand_source)
-        contract_rejection = mechanism.rejection_reason(contract)
-        if contract_rejection is not None:
-            raise ValueError(contract_rejection)
+        mechanism.validate(contract)
         from .mmq_fwd_physical import derive_forward_physical_plan
 
         physical_plan = derive_forward_physical_plan(kernel_spec)
         resources = physical_plan.resources
-        resources.admit(FORWARD_RESOURCE_LIMITS)
+        resources.admit(GFX1151_RESOURCE_CAPACITY)
         geometry = kernel_spec.geometry
         macro_tile_m, macro_tile_n = kernel_spec.macro_tile
         num_threads = (
@@ -2372,15 +1988,14 @@ class DerivedForwardState:
         _, _, tile_k, _ = geometry.matrix_instruction
         mi_wave_group = kernel_spec.ownership.mi_wave_group
         mi_wave_tile = kernel_spec.ownership.mi_wave_tile
-        for name, value, divisor in (
-            ("M", size.m, macro_tile_m),
-            ("N", size.n, macro_tile_n),
-            ("K", size.k, mechanism.reduction_values),
+        for value, divisor in (
+            (size.m, macro_tile_m),
+            (size.n, macro_tile_n),
+            (size.k, mechanism.reduction_values),
         ):
-            if value <= 0 or divisor <= 0 or value % divisor:
-                raise ValueError(
-                    f"forward {name} must be a positive multiple of {divisor}"
-                )
+            assert value > 0
+            assert divisor > 0
+            assert value % divisor == 0
         blocks_per_weight_row = size.k // contract.block_values
         activation_blocks_per_row = size.k // Q8_1_D4_BLOCK_VALUES
         activation_plane_stride = (

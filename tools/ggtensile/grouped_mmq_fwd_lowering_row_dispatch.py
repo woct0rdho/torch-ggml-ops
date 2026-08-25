@@ -14,6 +14,22 @@ class GroupedRowDispatchLabels:
     body_suffixes: tuple[str, ...]
 
     @classmethod
+    def _multi_way(
+        cls,
+        policy: GroupedRowTileDispatchPolicy,
+        *,
+        branch_label: Callable[[int], str],
+        done_label: str,
+        suffixes: tuple[str, ...],
+    ) -> "GroupedRowDispatchLabels":
+        body_rows = policy.body_rows
+        return cls(
+            tuple((rows, branch_label(rows)) for rows in reversed(body_rows[1:])),
+            done_label,
+            suffixes,
+        )
+
+    @classmethod
     def activation(
         cls,
         policy: GroupedRowTileDispatchPolicy,
@@ -27,14 +43,17 @@ class GroupedRowDispatchLabels:
                 f".LGroupedQ4KActivationDispatchDone{stage}",
                 ("Macro", "Tail"),
             )
-        cls._require_three_way(policy)
-        return cls(
-            (
-                (32, f".LGroupedQ5KActivationRows32Dispatch{stage}"),
-                (64, f".LGroupedQ5KActivationRows64Dispatch{stage}"),
+        return cls._multi_way(
+            policy,
+            branch_label=lambda rows: (
+                f".LGroupedQ5KActivationRows{rows}Dispatch{stage}"
             ),
-            f".LGroupedQ5KActivationThreeWayDone{stage}",
-            ("Rows128", "Rows64", "Rows32"),
+            done_label=(
+                f".LGroupedQ5KActivationThreeWayDone{stage}"
+                if len(policy.body_rows) == 3
+                else f".LGroupedQ5KActivationDispatchDone{stage}"
+            ),
+            suffixes=tuple(f"Rows{rows}" for rows in policy.body_rows),
         )
 
     @classmethod
@@ -51,14 +70,15 @@ class GroupedRowDispatchLabels:
                 f".LGroupedQ4KMmaDispatchDone{group_base}",
                 ("Macro", "Tail"),
             )
-        cls._require_three_way(policy)
-        return cls(
-            (
-                (32, f".LGroupedQ5KMmaRows32Dispatch{group_base}"),
-                (64, f".LGroupedQ5KMmaRows64Dispatch{group_base}"),
+        return cls._multi_way(
+            policy,
+            branch_label=lambda rows: f".LGroupedQ5KMmaRows{rows}Dispatch{group_base}",
+            done_label=(
+                f".LGroupedQ5KMmaThreeWayDone{group_base}"
+                if len(policy.body_rows) == 3
+                else f".LGroupedQ5KMmaDispatchDone{group_base}"
             ),
-            f".LGroupedQ5KMmaThreeWayDone{group_base}",
-            ("Rows128", "Rows64", "Rows32"),
+            suffixes=tuple(f"Rows{rows}" for rows in policy.body_rows),
         )
 
     @classmethod
@@ -69,12 +89,17 @@ class GroupedRowDispatchLabels:
     ) -> "GroupedRowDispatchLabels":
         if len(policy.body_rows) == 1:
             return cls((), None, ("",))
-        if len(policy.body_rows) != 2:
-            raise ValueError("grouped Q2 row dispatch implements one or two bodies")
-        return cls(
-            ((policy.body_rows[-1], f".LGroupedQ2KMmaTailDispatch{group_base}"),),
-            f".LGroupedQ2KMmaDispatchDone{group_base}",
-            ("Macro", "Tail"),
+        if len(policy.body_rows) == 2:
+            return cls(
+                ((policy.body_rows[-1], f".LGroupedQ2KMmaTailDispatch{group_base}"),),
+                f".LGroupedQ2KMmaDispatchDone{group_base}",
+                ("Macro", "Tail"),
+            )
+        return cls._multi_way(
+            policy,
+            branch_label=lambda rows: f".LGroupedQ2KMmaRows{rows}Dispatch{group_base}",
+            done_label=f".LGroupedQ2KMmaDispatchDone{group_base}",
+            suffixes=tuple(f"Rows{rows}" for rows in policy.body_rows),
         )
 
     @classmethod
@@ -90,20 +115,16 @@ class GroupedRowDispatchLabels:
                 ".LGroupedQ4KEpilogueDispatchDone",
                 ("", ""),
             )
-        cls._require_three_way(policy)
-        return cls(
-            (
-                (32, ".LGroupedQ5KEpilogueRows32Dispatch"),
-                (64, ".LGroupedQ5KEpilogueRows64Dispatch"),
+        return cls._multi_way(
+            policy,
+            branch_label=lambda rows: f".LGroupedQ5KEpilogueRows{rows}Dispatch",
+            done_label=(
+                ".LGroupedQ5KEpilogueThreeWayDone"
+                if len(policy.body_rows) == 3
+                else ".LGroupedQ5KEpilogueDispatchDone"
             ),
-            ".LGroupedQ5KEpilogueThreeWayDone",
-            ("", "", ""),
+            suffixes=("",) * len(policy.body_rows),
         )
-
-    @staticmethod
-    def _require_three_way(policy: GroupedRowTileDispatchPolicy) -> None:
-        if policy.body_rows != (128, 64, 32):
-            raise ValueError("grouped three-way row dispatch requires 128/64/32 bodies")
 
 
 GroupedRowBodyEmitter = Callable[[Assembly, int, str], None]
@@ -123,19 +144,18 @@ class GroupedRowTileDispatchEmitter:
         finalize: GroupedRowDispatchFinalizer | None = None,
     ) -> None:
         body_rows = self.policy.body_rows
-        if len(labels.body_suffixes) != len(body_rows):
-            raise ValueError("grouped row dispatch labels do not cover every body")
+        assert len(labels.body_suffixes) == len(body_rows)
         if len(body_rows) == 1:
             emit_body(asm, body_rows[0], labels.body_suffixes[0])
             if finalize is not None:
                 finalize(asm)
             return
-        if labels.done_label is None or len(labels.branch_labels) != len(body_rows) - 1:
-            raise ValueError("grouped multi-body dispatch requires complete labels")
+        assert not (
+            labels.done_label is None or len(labels.branch_labels) != len(body_rows) - 1
+        )
 
         branch_labels = dict(labels.branch_labels)
-        if set(branch_labels) != set(body_rows[1:]):
-            raise ValueError("grouped row dispatch thresholds do not match tail bodies")
+        assert set(branch_labels) == set(body_rows[1:])
         row_count = self.row_tile_rows.first_register
         for threshold, label in labels.branch_labels:
             asm.inst(f"s_cmp_le_u32 s{row_count}, {threshold}")

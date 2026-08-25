@@ -138,7 +138,7 @@ DenseMMQShape validate_dense_mmq(
         reinterpret_cast<uintptr_t>(packed_weight.const_data_ptr()) % 16 == 0,
         "packed_weight data pointer must be 16-byte aligned");
     torch_ggml_ops::mmq_bundle::require_exact_deployment(
-        0,
+        torch_ggml_ops::mmq_bundle::kOrdinaryForward,
         static_cast<int32_t>(quant_type),
         static_cast<int>(rows),
         static_cast<int>(out_features),
@@ -197,7 +197,7 @@ DenseMMQShape validate_dense_mmq_backward(
         reinterpret_cast<uintptr_t>(packed_weight.const_data_ptr()) % 16 == 0,
         "packed_weight data pointer must be 16-byte aligned");
     torch_ggml_ops::mmq_bundle::require_exact_deployment(
-        1,
+        torch_ggml_ops::mmq_bundle::kOrdinaryBackward,
         static_cast<int32_t>(quant_type),
         static_cast<int>(rows),
         static_cast<int>(in_features),

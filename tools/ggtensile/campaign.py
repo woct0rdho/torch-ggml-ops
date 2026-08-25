@@ -1,53 +1,52 @@
+"""Strict canonical selected-kernel catalogs and campaign candidates."""
+
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
 
-from .mmq_bwd_spec import BackwardKernelSpec, BackwardProblemContract
-from .mmq_fwd_spec import (
-    ForwardKernelCandidate,
-    ForwardKernelSpec,
-    ForwardProblemContract,
+from .family_registry import (
+    family_for_instance,
+    mapping_for_instance,
+    parse_instance,
+    problem_size_for_instance,
+    problem_type_for_family,
 )
-from .model import (
-    BackwardSolution,
-    ForwardSolution,
-    ProblemSize,
-    ProblemType,
-    SolutionKey,
+from .identity import (
+    GFX1151_TARGET,
+    KernelFamily,
+    KernelTarget,
+    problem_type_mapping,
+    quant_type_from_problem_type,
 )
-from .quant_formats import QUANT_FORMATS
+from .kernel_instance import KernelInstance
+from .mmq_bwd_spec import BackwardKernelSpec
+from .mmq_fwd_spec import ForwardKernelSpec
+from .model import ProblemSize, ProblemType
+from .quant_formats import BACKWARD_QUANT_FORMATS, GROUPED_QUANT_FORMATS, QUANT_FORMATS
 from .schema import integer, strict_mapping
 
 
 class CatalogError(ValueError):
-    """A deployment catalog is malformed or internally inconsistent."""
-
-
-Solution = BackwardSolution | ForwardSolution
+    """A selected-kernel catalog is malformed or internally inconsistent."""
 
 
 @dataclass(frozen=True)
 class CatalogEntry:
-    """One exact deployment key and its current selected kernel specification."""
+    """One exact selected passive kernel instance."""
 
-    solution_key: SolutionKey
+    instance: KernelInstance
 
     @property
     def problem_size(self) -> ProblemSize:
-        return self.solution_key.problem_size
-
-    @property
-    def solution(self) -> Solution:
-        return cast(Solution, self.solution_key.solution)
+        return problem_size_for_instance(self.instance)
 
     @property
     def operation_type(self) -> str:
-        return self.solution_key.problem_type.operation_type
+        return family_for_instance(self.instance).value
 
     @property
     def quant_data_type(self) -> str:
-        return self.solution_key.problem_type.quant_data_type
+        return self.instance.problem_type.quant_data_type
 
     @property
     def slug(self) -> str:
@@ -56,36 +55,34 @@ class CatalogEntry:
 
     @property
     def expected_logical_weight_shape(self) -> tuple[int, int]:
-        if self.operation_type == "MMQForward":
-            return (self.problem_size.n, self.problem_size.k)
-        return (self.problem_size.k, self.problem_size.n)
+        size = self.problem_size
+        return (
+            (size.n, size.k)
+            if family_for_instance(self.instance).is_forward
+            else (size.k, size.n)
+        )
 
     @property
     def expected_physical_weight_shape(self) -> tuple[int, int]:
         size = self.problem_size
-        quant_format = QUANT_FORMATS[self.quant_data_type]
-        if self.operation_type == "MMQForward":
-            return (
-                size.n,
-                size.k // quant_format.block_values * quant_format.block_bytes,
-            )
-        return (
-            size.k,
-            size.n // quant_format.block_values * quant_format.block_bytes,
-        )
+        formats = {**QUANT_FORMATS, **GROUPED_QUANT_FORMATS, **BACKWARD_QUANT_FORMATS}
+        quant = formats[self.quant_data_type]
+        if family_for_instance(self.instance).is_forward:
+            return size.n, size.k // quant.block_values * quant.block_bytes
+        return size.k, size.n // quant.block_values * quant.block_bytes
 
 
 @dataclass(frozen=True)
 class DeploymentCatalog:
-    """Grid-based exact deployment logic for one MMQ problem type."""
+    """Selected exact logic for one family, target, and problem type."""
 
+    family: KernelFamily
     problem_type: ProblemType
-    solutions: tuple[Solution, ...]
     entries: tuple[CatalogEntry, ...]
 
     @property
-    def solution_keys(self) -> tuple[SolutionKey, ...]:
-        return tuple(entry.solution_key for entry in self.entries)
+    def instances(self) -> tuple[KernelInstance, ...]:
+        return tuple(entry.instance for entry in self.entries)
 
     def entry_for(self, problem_size: ProblemSize) -> CatalogEntry:
         for entry in self.entries:
@@ -96,9 +93,7 @@ class DeploymentCatalog:
         )
 
     def selected(
-        self,
-        *,
-        sizes: tuple[ProblemSize, ...] = (),
+        self, *, sizes: tuple[ProblemSize, ...] = ()
     ) -> tuple[CatalogEntry, ...]:
         if not sizes:
             return self.entries
@@ -115,69 +110,62 @@ class DeploymentCatalog:
         return selected
 
     def to_mapping(self) -> dict[str, object]:
-        solution_indices = {
-            solution: index for index, solution in enumerate(self.solutions)
-        }
-        first_key = self.entries[0].solution_key
-        if isinstance(self.solutions[0], ForwardSolution):
-            family = "OrdinaryForward"
-            contract = ForwardProblemContract.from_solution(
-                self.problem_type.quant_data_type, self.solutions[0]
-            )
-            specs = [
-                ForwardKernelSpec.from_solution(solution).to_mapping()
-                for solution in self.solutions
-                if isinstance(solution, ForwardSolution)
-            ]
-        else:
-            family = "OrdinaryBackward"
-            contract = BackwardProblemContract.from_solution_key(first_key)
-            specs = [
-                BackwardKernelSpec.from_solution(solution).to_mapping(
-                    contract.quant_type
-                )
-                for solution in self.solutions
-                if isinstance(solution, BackwardSolution)
-            ]
+        first = mapping_for_instance(self.entries[0].instance)
+        specs: list[object] = []
+        logic: list[dict[str, object]] = []
+        for entry in self.entries:
+            mapping = mapping_for_instance(entry.instance)
+            for name in ("KernelFamily", "Target", "ProblemType"):
+                if mapping[name] != first[name]:
+                    raise CatalogError(f"catalog entries disagree on {name}")
+            spec = mapping["KernelSpec"]
+            if spec in specs:
+                index = specs.index(spec)
+            else:
+                index = len(specs)
+                specs.append(spec)
+            logic.append({"Problem": mapping["Problem"], "KernelSpecIndex": index})
         return {
-            "KernelFamily": family,
-            "ProblemContract": contract.to_mapping(),
+            "KernelFamily": first["KernelFamily"],
+            "Target": first["Target"],
+            "ProblemType": first["ProblemType"],
             "KernelSpecs": specs,
-            "ExactLogic": [
-                {
-                    "Problem": entry.problem_size.to_canonical_mapping(),
-                    "KernelSpecIndex": solution_indices[entry.solution],
-                }
-                for entry in self.entries
-            ],
+            "ExactLogic": logic,
         }
 
 
-def load_solution(
-    path: Path,
-    *,
-    problem_type: ProblemType,
-) -> Solution:
-    value = json.loads(path.read_text(encoding="utf-8"))
-    if problem_type.operation_type == "MMQForward":
-        candidate = ForwardKernelCandidate.from_mapping(value)
-        if candidate.problem_contract.quant_type != problem_type.quant_data_type:
-            raise CatalogError("candidate ProblemContract does not match the campaign")
-        return candidate.to_solution()
+def unique_kernel_specs(catalog: DeploymentCatalog) -> tuple[object, ...]:
+    """Return each typed kernel specification in catalog order once."""
+    specs: list[object] = []
+    for entry in catalog.entries:
+        spec = entry.instance.kernel_spec
+        if spec not in specs:
+            specs.append(spec)
+    return tuple(specs)
+
+
+def load_kernel_spec(path: Path, *, problem_type: ProblemType) -> object:
+    """Load one canonical candidate KernelSpec for a catalog problem type."""
     item = strict_mapping(
-        value,
-        "BackwardKernelCandidate",
-        frozenset({"ProblemContract", "KernelSpec"}),
+        json.loads(path.read_text(encoding="utf-8")),
+        "kernel candidate",
+        frozenset({"KernelFamily", "Target", "ProblemType", "KernelSpec"}),
         error_type=CatalogError,
     )
-    contract = BackwardProblemContract.from_mapping(
-        item["ProblemContract"], ProblemSize(1, 1, 1)
+    family = (
+        KernelFamily.OrdinaryForward
+        if problem_type.operation_type == "MMQForward"
+        else KernelFamily.OrdinaryBackward
     )
-    if contract.quant_type != problem_type.quant_data_type:
-        raise CatalogError("candidate ProblemContract does not match the campaign")
-    return BackwardKernelSpec.from_mapping(
-        item["KernelSpec"], contract.quant_type
-    ).to_solution(contract)
+    if item["KernelFamily"] != family.value:
+        raise CatalogError("candidate KernelFamily does not match the campaign")
+    KernelTarget.from_mapping(item["Target"])
+    quant = quant_type_from_problem_type(item["ProblemType"], family)
+    if quant != problem_type.quant_data_type:
+        raise CatalogError("candidate ProblemType does not match the campaign")
+    if family is KernelFamily.OrdinaryForward:
+        return ForwardKernelSpec.from_mapping(item["KernelSpec"])
+    return BackwardKernelSpec.from_mapping(item["KernelSpec"], quant)
 
 
 def load_catalog(path: Path) -> DeploymentCatalog:
@@ -185,48 +173,30 @@ def load_catalog(path: Path) -> DeploymentCatalog:
         json.loads(path.read_text(encoding="utf-8")),
         "deployment catalog",
         frozenset(
-            {
-                "KernelFamily",
-                "ProblemContract",
-                "KernelSpecs",
-                "ExactLogic",
-            }
+            {"KernelFamily", "Target", "ProblemType", "KernelSpecs", "ExactLogic"}
         ),
         error_type=CatalogError,
     )
-    family = root["KernelFamily"]
-    if family == "OrdinaryForward":
-        contract = ForwardProblemContract.from_mapping(root["ProblemContract"])
-        problem_type = ProblemType.mmq_forward(contract.quant_type)
-        parse_spec = ForwardKernelSpec.from_mapping
-        to_solution = lambda spec: spec.to_solution(contract)
-    elif family == "OrdinaryBackward":
-        contract = BackwardProblemContract.from_mapping(
-            root["ProblemContract"], ProblemSize(1, 1, 1)
-        )
-        problem_type = ProblemType.mmq_backward(contract.quant_type)
-        parse_spec = lambda value: BackwardKernelSpec.from_mapping(
-            value, contract.quant_type
-        )
-        to_solution = lambda spec: spec.to_solution(contract)
-    else:
-        raise CatalogError(f"unsupported catalog KernelFamily {family!r}")
+    family = KernelFamily(root["KernelFamily"])
+    KernelTarget.from_mapping(root["Target"])
+    quant_type = quant_type_from_problem_type(root["ProblemType"], family)
+    if root["Target"] != GFX1151_TARGET.to_mapping():
+        raise CatalogError("catalog Target is not canonical")
+    if root["ProblemType"] != problem_type_mapping(family, quant_type):
+        raise CatalogError("catalog ProblemType is not canonical")
 
     raw_specs = root["KernelSpecs"]
     if type(raw_specs) is not list or not raw_specs:
         raise CatalogError("KernelSpecs must be a nonempty JSON list")
-    kernel_specs = tuple(parse_spec(value) for value in raw_specs)
-    if len(kernel_specs) != len(set(kernel_specs)):
+    if len({json.dumps(spec, sort_keys=True) for spec in raw_specs}) != len(raw_specs):
         raise CatalogError("KernelSpecs must not contain duplicate specifications")
-    solutions = tuple(to_solution(spec) for spec in kernel_specs)
-    if len(solutions) != len(set(solutions)):
-        raise CatalogError("KernelSpecs must map to distinct lowering specifications")
 
     raw_logic = root["ExactLogic"]
     if type(raw_logic) is not list or not raw_logic:
         raise CatalogError("ExactLogic must be a nonempty JSON list")
     entries: list[CatalogEntry] = []
     selected_indices: set[int] = set()
+    problem_identities: set[str] = set()
     for index, raw_entry in enumerate(raw_logic):
         item = strict_mapping(
             raw_entry,
@@ -234,30 +204,32 @@ def load_catalog(path: Path) -> DeploymentCatalog:
             frozenset({"Problem", "KernelSpecIndex"}),
             error_type=CatalogError,
         )
-        size = ProblemSize.from_canonical_mapping(item["Problem"])
-        if min(size.m, size.n, size.k) <= 0:
-            raise CatalogError(f"ExactLogic[{index}].Problem must be positive")
-        solution_index = integer(
-            item["KernelSpecIndex"],
-            f"ExactLogic[{index}].KernelSpecIndex",
-            error_type=CatalogError,
-        )
-        if not 0 <= solution_index < len(solutions):
+        spec_index = integer(item, "KernelSpecIndex", error_type=CatalogError)
+        if not 0 <= spec_index < len(raw_specs):
             raise CatalogError(
                 f"ExactLogic[{index}].KernelSpecIndex is outside KernelSpecs"
             )
-        selected_indices.add(solution_index)
-        entries.append(
-            CatalogEntry(
-                SolutionKey(problem_type, size, solutions[solution_index]),
-            )
+        exact_mapping = {
+            "KernelFamily": family.value,
+            "Target": root["Target"],
+            "ProblemType": root["ProblemType"],
+            "Problem": item["Problem"],
+            "KernelSpec": raw_specs[spec_index],
+        }
+        instance = parse_instance(exact_mapping)
+        problem_identity = json.dumps(
+            item["Problem"], sort_keys=True, separators=(",", ":")
         )
-
-    sizes = [entry.problem_size for entry in entries]
-    if len(sizes) != len(set(sizes)):
-        raise CatalogError("ExactLogic must not contain duplicate problem sizes")
-    unused = sorted(set(range(len(solutions))) - selected_indices)
+        if problem_identity in problem_identities:
+            raise CatalogError("ExactLogic must not contain duplicate problems")
+        problem_identities.add(problem_identity)
+        selected_indices.add(spec_index)
+        entries.append(CatalogEntry(instance))
+    unused = sorted(set(range(len(raw_specs))) - selected_indices)
     if unused:
         raise CatalogError(f"KernelSpecs contains unreferenced indices: {unused}")
-
-    return DeploymentCatalog(problem_type, solutions, tuple(entries))
+    return DeploymentCatalog(
+        family,
+        problem_type_for_family(family, quant_type),
+        tuple(entries),
+    )

@@ -13,7 +13,6 @@ from tools.mmq_bundle_wrapper_source import (
     render_wrapper,
 )
 
-ABI_PREFIX = "torch_ggml_ops_mmq_gfx1151_v1_"
 QUANT_TYPES = tuple(QuantType)
 BACKWARD_QUANT_TYPES = tuple(
     quant
@@ -27,6 +26,10 @@ ROW_TASK_TYPES = tuple(
 )
 
 
+def control_filename(symbol: str) -> str:
+    return f"{symbol}.hsaco"
+
+
 @dataclass(frozen=True)
 class HIPControlSpec:
     symbol: str
@@ -34,7 +37,7 @@ class HIPControlSpec:
 
     @property
     def filename(self) -> str:
-        return f"{self.symbol}.hsaco"
+        return control_filename(self.symbol)
 
 
 def _forward(
@@ -44,7 +47,7 @@ def _forward(
     **kwargs: Any,
 ) -> HIPControlSpec:
     return HIPControlSpec(
-        ABI_PREFIX + suffix,
+        suffix,
         ForwardConfig(kind=kind, quant_type=quant_type, **kwargs),
     )
 
@@ -71,7 +74,7 @@ def _dense_backward(
         **kwargs,
     }
     return HIPControlSpec(
-        ABI_PREFIX + suffix,
+        suffix,
         DenseBackwardConfig(
             quant_type=quant_type,
             n_tiles=n_tiles,
@@ -88,7 +91,7 @@ def _grouped_backward(
     **kwargs: Any,
 ) -> HIPControlSpec:
     return HIPControlSpec(
-        ABI_PREFIX + suffix,
+        suffix,
         GroupedBackwardConfig(kind=kind, quant_type=quant_type, **kwargs),
     )
 
@@ -190,7 +193,7 @@ def _forward_controls() -> list[HIPControlSpec]:
                 j=64,
                 blocks_per_weight_row=16,
                 groups=8,
-                fallback=True,
+                bounded_tokens=True,
             ),
         ]
     )
@@ -715,8 +718,3 @@ def hip_control_specs() -> tuple[HIPControlSpec, ...]:
 
 def render_control(spec: HIPControlSpec) -> str:
     return render_wrapper(spec.symbol, spec.config)
-
-
-def kernel_specs() -> tuple[HIPControlSpec, ...]:
-    """Compatibility name for callers that consume the historical inventory."""
-    return hip_control_specs()

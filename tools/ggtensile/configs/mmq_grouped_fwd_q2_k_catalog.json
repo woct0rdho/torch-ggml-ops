@@ -1,0 +1,149 @@
+{
+  "KernelFamily": "GroupedForward",
+  "Target": {
+    "ISA": [
+      11,
+      5,
+      1
+    ],
+    "WavefrontSize": 32,
+    "MatrixInstructionSet": "WmmaV1",
+    "CodeObjectVersion": 5
+  },
+  "ProblemType": {
+    "QuantDataType": "Q2_K",
+    "DataTypeA": "Q8_1",
+    "DataTypeB": "Q2_K",
+    "DestinationDataType": "BFloat16",
+    "ComputeDataType": "Float32",
+    "TransposeA": false,
+    "TransposeB": true,
+    "ActivationLayout": "F16_D2S6"
+  },
+  "KernelSpecs": [
+    {
+      "Geometry": {
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "MatrixInstruction": [
+          16,
+          16,
+          16,
+          1,
+          1,
+          1,
+          4,
+          4,
+          1
+        ],
+        "MacroTile": [
+          32,
+          64
+        ],
+        "TailMacroTileM": 16,
+        "DepthU": 32
+      },
+      "Lowering": {
+        "OperandSource": "GroupedDecodedWeightLds",
+        "ActivationAddressing": "AggregateRowsTiled"
+      },
+      "Decode": {
+        "Kind": "ScaleMinimumBitfield",
+        "MetadataConversion": "DirectQ2Float16NibblePairs",
+        "UnrolledGroups": true,
+        "HipAssociation": true,
+        "PartialLds": true,
+        "PreNegatedDm": true,
+        "PairedPayloadWrites": true,
+        "PairedMetadataWrites": true,
+        "DistributedProducer": true
+      },
+      "Epilogue": {
+        "TilesAhead": 1,
+        "DependencyWidth": 2,
+        "Priority": 2
+      }
+    },
+    {
+      "Geometry": {
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "MatrixInstruction": [
+          16,
+          16,
+          16,
+          1,
+          1,
+          1,
+          4,
+          4,
+          1
+        ],
+        "MacroTile": [
+          64,
+          64
+        ],
+        "TailMacroTileM": 64,
+        "DepthU": 32
+      },
+      "Lowering": {
+        "OperandSource": "GroupedDecodedWeightLds",
+        "ActivationAddressing": "AggregateRowsTiled"
+      },
+      "Decode": {
+        "Kind": "ScaleMinimumBitfield",
+        "MetadataConversion": "DirectQ2Float16NibblePairs",
+        "UnrolledGroups": true,
+        "HipAssociation": true,
+        "PartialLds": true,
+        "PreNegatedDm": true,
+        "PairedPayloadWrites": true,
+        "PairedMetadataWrites": true,
+        "DistributedProducer": true
+      },
+      "Epilogue": {
+        "TilesAhead": 4,
+        "DependencyWidth": 2,
+        "Priority": 2
+      }
+    }
+  ],
+  "ExactLogic": [
+    {
+      "Problem": {
+        "M": 12288,
+        "N": 4096,
+        "K": 2048,
+        "PhysicalExpertCount": 256,
+        "MaxRouteEntries": 256
+      },
+      "KernelSpecIndex": 0
+    },
+    {
+      "Problem": {
+        "M": 49152,
+        "N": 4096,
+        "K": 2048,
+        "PhysicalExpertCount": 256,
+        "MaxRouteEntries": 256
+      },
+      "KernelSpecIndex": 0
+    },
+    {
+      "Problem": {
+        "M": 196608,
+        "N": 4096,
+        "K": 2048,
+        "PhysicalExpertCount": 256,
+        "MaxRouteEntries": 256
+      },
+      "KernelSpecIndex": 1
+    }
+  ]
+}

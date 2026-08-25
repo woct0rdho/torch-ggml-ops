@@ -5,30 +5,65 @@ select winners, benchmark kernels, repair invalid candidates, or participate in
 production generation.
 """
 
-import hashlib
-import json
 from dataclasses import dataclass, replace
+from functools import cache
 from itertools import product
+from pathlib import Path
 from typing import Literal
 
+from .campaign import load_catalog, unique_kernel_specs
+from .family_registry import (
+    instance_hash,
+    instance_name,
+    mapping_for_instance,
+    problem_type_for_family,
+)
+from .identity import KernelFamily, canonical_sha256
+from .kernel_instance import KernelInstance
 from .mmq_fwd_spec import (
+    DecodedLdsForwardDecodePolicy,
     ForwardKernelCandidate,
     ForwardKernelSpec,
+    ForwardProblemContract,
     Q6ForwardSchedule,
     SemanticSchedulePolicy,
-    forward_mechanism_contract,
-    q6_schedule_from_solution,
+    StructuredQ6ScheduleVariant,
+    q6_schedule_from_kernel_spec,
 )
-from .model import (
-    ForwardSolution,
-    ProblemSize,
-    ProblemType,
-    SolutionKey,
-)
-from .validation import RejectReason, validate_solution
+from .model import ProblemSize
+from .validation import validate_forward_solution
 
 Q6SearchKnobGroup = Literal["InstructionPolicy", "Epilogue", "PhysicalPlan"]
 ForwardSearchKnobGroup = Literal["InstructionPolicy", "Epilogue", "Metadata"]
+
+_CONFIG_DIR = Path(__file__).with_name("configs")
+_CATALOG_FILENAMES = {
+    "Q3_K": "mmq_fwd_q3_k_catalog.json",
+    "Q4_K": "mmq_fwd_q4_k_catalog.json",
+    "Q5_K": "mmq_fwd_q5_k_catalog.json",
+    "Q6_K": "mmq_fwd_q6_k_catalog.json",
+    "Q8_0": "mmq_fwd_q8_0_catalog.json",
+}
+
+
+@cache
+def _catalog_forward_specs(quant_type: str) -> tuple[ForwardKernelSpec, ...]:
+    catalog = load_catalog(_CONFIG_DIR / _CATALOG_FILENAMES[quant_type])
+    specs = unique_kernel_specs(catalog)
+    assert all(isinstance(spec, ForwardKernelSpec) for spec in specs)
+    return tuple(spec for spec in specs if isinstance(spec, ForwardKernelSpec))
+
+
+def _catalog_q6_spec(macro_tile0: int) -> ForwardKernelSpec:
+    for spec in _catalog_forward_specs("Q6_K"):
+        if spec.macro_tile == (macro_tile0, 64):
+            return spec
+    raise ValueError(f"no catalog Q6_K specification for macro tile {macro_tile0}")
+
+
+def q6_schedule_seed(macro_tile0: int) -> Q6ForwardSchedule:
+    """Load the canonical Q6 geometry seed used by manual schedule search."""
+    return q6_schedule_from_kernel_spec(_catalog_q6_spec(macro_tile0))
 
 
 @dataclass(frozen=True)
@@ -38,53 +73,54 @@ class ForwardCandidateDomain:
     quant_type: str
     problem_size: ProblemSize
     kernel_spec: ForwardKernelSpec
-    seed: ForwardSolution
     knob_groups: tuple[ForwardSearchKnobGroup, ...]
-
-
-def _canonical_json(value: object) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
 def q6_candidate_mapping(schedule: Q6ForwardSchedule) -> dict[str, object]:
     """Return the complete parameter-only identity of one Q6 candidate."""
-    base = ForwardSolution.q6_k_structured_decoded(macro_tile0=schedule.macro_tile0)
-    solution = q6_solution_with_schedule(base, schedule)
-    return ForwardKernelCandidate.from_solution("Q6_K", solution).to_mapping()
+    base = _catalog_q6_spec(schedule.macro_tile0)
+    spec = q6_kernel_spec_with_schedule(base, schedule)
+    return ForwardKernelCandidate(
+        ForwardProblemContract.for_quant_type("Q6_K"), spec
+    ).to_mapping()
 
 
 def q6_candidate_hash(schedule: Q6ForwardSchedule) -> str:
     """Return a stable hash over every assembly-affecting Q6 candidate field."""
-    identity = {
-        "ArtifactKind": "KernelCandidate",
-        "KernelFamily": "OrdinaryForward",
-        **q6_candidate_mapping(schedule),
-    }
-    return hashlib.sha256(_canonical_json(identity).encode()).hexdigest()
+    return canonical_sha256(q6_candidate_mapping(schedule))
 
 
-def q6_solution_with_schedule(
-    base: ForwardSolution,
+def q6_kernel_spec_with_schedule(
+    base: ForwardKernelSpec,
     schedule: Q6ForwardSchedule,
-) -> ForwardSolution:
-    """Serialize one complete candidate through the normal ForwardSolution path."""
-    solution = replace(
+) -> ForwardKernelSpec:
+    """Apply one complete Q6 schedule to a typed base specification."""
+    pipeline = base.epilogue.pipeline
+    assert pipeline is not None
+    spec = replace(
         base,
-        epilogue_dependency_width=schedule.epilogue_dependency_width,
-        q6_epilogue_pipeline_scope=schedule.epilogue_pipeline_scope,
-        q6_dependency_delay_mode=schedule.dependency_delay_mode,
-        q6_global_read_cache_policy=schedule.global_read_cache_policy,
-        q6_output_traversal=schedule.semantic_policy.traversal,
-        q6_stage_clustering=schedule.semantic_policy.clustering,
-        q6_latency_policy=schedule.semantic_policy.latency,
-        q6_pressure_policy=schedule.semantic_policy.pressure,
-        q6_wait_policy=schedule.semantic_policy.wait,
-        q6_pairing_policy=schedule.semantic_policy.pairing,
-        q6_physical_plan=schedule.physical_plan,
+        epilogue=replace(
+            base.epilogue,
+            pipeline=replace(
+                pipeline,
+                dependency_width=schedule.epilogue_dependency_width,
+                scope=schedule.epilogue_pipeline_scope,
+            ),
+        ),
+        global_memory=replace(
+            base.global_memory,
+            global_read_cache_policy=schedule.global_read_cache_policy,
+        ),
+        instruction_policy=replace(
+            base.instruction_policy,
+            dependency_delay_mode=schedule.dependency_delay_mode,
+            physical_plan=schedule.physical_plan,
+        ),
+        semantic_schedule=schedule.semantic_policy,
     )
-    if q6_schedule_from_solution(solution) != schedule:
-        raise ValueError("Q6 schedule geometry does not match the base solution")
-    return solution
+    if q6_schedule_from_kernel_spec(spec) != schedule:
+        raise ValueError("Q6 schedule geometry does not match the base specification")
+    return spec
 
 
 @dataclass(frozen=True)
@@ -93,34 +129,35 @@ class ForwardExactPairManifest:
 
     quant_type: str
     problem_size: ProblemSize
-    candidate: ForwardSolution
+    candidate: ForwardKernelSpec
 
     @property
     def candidate_hash(self) -> str:
         return forward_candidate_hash(self.candidate, self.quant_type)
 
     @property
-    def solution_key(self) -> SolutionKey:
-        return SolutionKey(
-            ProblemType.mmq_forward(self.quant_type),
+    def kernel_instance(self) -> KernelInstance:
+        return KernelInstance.for_gfx1151(
+            KernelFamily.OrdinaryForward,
+            problem_type_for_family(KernelFamily.OrdinaryForward, self.quant_type),
             self.problem_size,
             self.candidate,
         )
 
     @property
     def exact_pair_hash(self) -> str:
-        return hashlib.sha256(_canonical_json(self.to_mapping()).encode()).hexdigest()
+        return canonical_sha256(self.to_mapping())
 
     def to_mapping(self) -> dict[str, object]:
-        solution_key = self.solution_key
+        instance = self.kernel_instance
         return {
             "QuantType": self.quant_type,
             "ProblemSize": self.problem_size.to_mapping(),
             "CandidateHash": self.candidate_hash,
             "Candidate": canonical_candidate(self.candidate, self.quant_type),
-            "SolutionKey": solution_key.to_mapping(),
-            "SolutionHash": solution_key.hash,
-            "KernelName": solution_key.kernel_name,
+            "KernelSpecKey": mapping_for_instance(instance),
+            "KernelSpecHash": instance_hash(instance),
+            "KernelName": instance_name(instance),
         }
 
 
@@ -136,30 +173,29 @@ class Q6ExactPairManifest:
         return q6_candidate_hash(self.schedule)
 
     @property
-    def solution_key(self) -> SolutionKey:
-        base = ForwardSolution.q6_k_structured_decoded(
-            macro_tile0=self.schedule.macro_tile0
-        )
-        solution = q6_solution_with_schedule(base, self.schedule)
-        return SolutionKey(
-            ProblemType.mmq_forward("Q6_K"),
+    def kernel_instance(self) -> KernelInstance:
+        base = _catalog_q6_spec(self.schedule.macro_tile0)
+        spec = q6_kernel_spec_with_schedule(base, self.schedule)
+        return KernelInstance.for_gfx1151(
+            KernelFamily.OrdinaryForward,
+            problem_type_for_family(KernelFamily.OrdinaryForward, "Q6_K"),
             self.problem_size,
-            solution,
+            spec,
         )
 
     @property
     def exact_pair_hash(self) -> str:
-        return hashlib.sha256(_canonical_json(self.to_mapping()).encode()).hexdigest()
+        return canonical_sha256(self.to_mapping())
 
     def to_mapping(self) -> dict[str, object]:
-        solution_key = self.solution_key
+        instance = self.kernel_instance
         return {
             "ProblemSize": self.problem_size.to_mapping(),
             "CandidateHash": self.candidate_hash,
             "Candidate": q6_candidate_mapping(self.schedule),
-            "SolutionKey": solution_key.to_mapping(),
-            "SolutionHash": solution_key.hash,
-            "KernelName": solution_key.kernel_name,
+            "KernelSpecKey": mapping_for_instance(instance),
+            "KernelSpecHash": instance_hash(instance),
+            "KernelName": instance_name(instance),
         }
 
 
@@ -186,14 +222,14 @@ def q6_schedule_neighbors(
     physical_plans = (seed.physical_plan,)
     if "InstructionPolicy" in knob_groups:
         dependency_delay_modes = (
-            ("None", "Explicit") if seed.macro_tile0 == 128 else ("None",)
+            ("None", "Explicit") if seed.macro_tile[0] == 128 else ("None",)
         )
         cache_policies = ("Default", "InvalidateL0")
-        semantic_policies = SemanticSchedulePolicy.supported_structured_q6()
+        semantic_policies = SemanticSchedulePolicy.structured_q6_variants()
     if "Epilogue" in knob_groups:
         dependency_widths = (1, 2, 4, 8)
         pipeline_scopes = ("StoreBatch", "FullTile")
-    if "PhysicalPlan" in knob_groups and seed.macro_tile0 == 64:
+    if "PhysicalPlan" in knob_groups and seed.macro_tile[0] == 64:
         physical_plans = ("CanonicalRegisterRoles", "WideScalarCarryFrontier")
 
     candidates = (
@@ -215,7 +251,7 @@ def q6_schedule_neighbors(
             pipeline_scopes,
         )
         if physical_plan == "CanonicalRegisterRoles"
-        or semantic_policy == SemanticSchedulePolicy.structured_q6_wavefront()
+        or semantic_policy.variant is StructuredQ6ScheduleVariant.Wavefront
     )
     unique = {q6_candidate_hash(candidate): candidate for candidate in candidates}
     return tuple(unique[digest] for digest in sorted(unique))
@@ -223,66 +259,46 @@ def q6_schedule_neighbors(
 
 def q6_schedule_candidates(macro_tile0: int) -> tuple[Q6ForwardSchedule, ...]:
     """Return the complete currently implemented manual neighborhood for a geometry."""
-    selected = ForwardSolution.q6_k_structured_decoded(macro_tile0=macro_tile0)
     return q6_schedule_neighbors(
-        q6_schedule_from_solution(selected),
+        q6_schedule_seed(macro_tile0),
         ("InstructionPolicy", "Epilogue", "PhysicalPlan"),
     )
 
 
 def canonical_candidate(
-    candidate: ForwardSolution,
+    candidate: ForwardKernelSpec,
     quant_type: str,
 ) -> dict[str, object]:
-    """Canonicalize a complete serialized candidate without problem-shape data."""
-    return ForwardKernelCandidate.from_solution(quant_type, candidate).to_mapping()
+    """Canonicalize a complete typed candidate without problem-shape data."""
+    return ForwardKernelCandidate(
+        ForwardProblemContract.for_quant_type(quant_type), candidate
+    ).to_mapping()
 
 
-def forward_candidate_hash(candidate: ForwardSolution, quant_type: str) -> str:
+def forward_candidate_hash(candidate: ForwardKernelSpec, quant_type: str) -> str:
     """Hash a complete forward candidate independently of exact problem shape."""
-    identity = {
-        "ArtifactKind": "KernelCandidate",
-        "KernelFamily": "OrdinaryForward",
-        **canonical_candidate(candidate, quant_type),
-    }
-    return hashlib.sha256(_canonical_json(identity).encode()).hexdigest()
+    return canonical_sha256(canonical_candidate(candidate, quant_type))
 
 
-def explain_invalid(
-    candidate: ForwardSolution,
+def is_valid_candidate(
+    candidate: ForwardKernelSpec,
     quant_type: str,
     shape: ProblemSize,
-) -> tuple[RejectReason, ...]:
-    """Return formula/capability rejection reasons for one exact pair."""
-    return validate_solution(
-        SolutionKey(ProblemType.mmq_forward(quant_type), shape, candidate)
-    )
-
-
-def _candidate_quant_type(candidate: ForwardSolution) -> str:
-    lowering = forward_mechanism_contract(candidate.operand_source).lowering
-    if lowering == "StructuredQ6":
-        return "Q6_K"
-    if lowering in ("Packed3BitTiledLds", "Packed3BitFullWeightTiledLds"):
-        return "Q3_K"
-    if lowering == "SignedInt8":
-        return "Q8_0"
-    if lowering == "DecodedWeightLds":
-        if candidate.weight_decode == "DirectNibble":
-            return "Q4_K"
-        if candidate.weight_decode == "DirectNibbleHighBit":
-            return "Q5_K"
-    raise ValueError(
-        "candidate does not belong to an implemented forward search family"
-    )
+) -> bool:
+    """Return whether one exact candidate/shape pair satisfies codegen assertions."""
+    try:
+        validate_forward_solution(shape, quant_type, candidate)
+    except AssertionError:
+        return False
+    return True
 
 
 def candidate_neighbors(
-    seed: ForwardSolution,
+    seed: ForwardKernelSpec,
+    quant_type: str,
     knob_groups: tuple[ForwardSearchKnobGroup, ...],
-) -> tuple[ForwardSolution, ...]:
+) -> tuple[ForwardKernelSpec, ...]:
     """Build complete linked neighbors outside production code generation."""
-    quant_type = _candidate_quant_type(seed)
     if quant_type == "Q6_K":
         unknown = sorted(set(knob_groups) - {"InstructionPolicy", "Epilogue"})
         if unknown:
@@ -291,10 +307,12 @@ def candidate_neighbors(
             group for group in knob_groups if group in ("InstructionPolicy", "Epilogue")
         )
         schedules = q6_schedule_neighbors(
-            q6_schedule_from_solution(seed),
+            q6_schedule_from_kernel_spec(seed),
             q6_groups,
         )
-        candidates = tuple(q6_solution_with_schedule(seed, item) for item in schedules)
+        candidates = tuple(
+            q6_kernel_spec_with_schedule(seed, item) for item in schedules
+        )
     elif quant_type in ("Q3_K", "Q8_0"):
         if knob_groups:
             raise ValueError(
@@ -309,24 +327,28 @@ def candidate_neighbors(
             raise ValueError(
                 f"unsupported decoded-weight LDS search knob groups: {unknown}"
             )
-        metadata_schedules = (seed.metadata_schedule,)
-        tiles_ahead = (seed.epilogue_tiles_ahead,)
-        dependency_widths = (seed.epilogue_dependency_width,)
-        priorities = (seed.epilogue_priority,)
-        accumulator_initializations = (seed.accumulator_initialization,)
+        pipeline = seed.epilogue.pipeline
+        assert pipeline is not None
+        decode_policies = (seed.decode.policy,)
+        tiles_ahead = (pipeline.tiles_ahead,)
+        dependency_widths = (pipeline.dependency_width,)
+        priorities = (pipeline.priority,)
+        accumulator_initializations = (
+            seed.instruction_policy.accumulator_initialization,
+        )
         if "Metadata" in knob_groups:
-            metadata_schedules = (
+            decode_policies = (
                 (
-                    "Serialized",
-                    "MetadataAfterLowWmma",
-                    "IndependentExtraction",
-                    "IndependentExtractionMetadataAfterLowWmma",
+                    DecodedLdsForwardDecodePolicy(False, False),
+                    DecodedLdsForwardDecodePolicy(False, True),
+                    DecodedLdsForwardDecodePolicy(True, False),
+                    DecodedLdsForwardDecodePolicy(True, True),
                 )
                 if quant_type == "Q4_K"
                 else (
-                    "Serialized",
-                    "MetadataAfterLowWmma",
-                    "IndependentExtractionMetadataAfterLowWmma",
+                    DecodedLdsForwardDecodePolicy(False, False),
+                    DecodedLdsForwardDecodePolicy(False, True),
+                    DecodedLdsForwardDecodePolicy(True, True),
                 )
             )
         if "Epilogue" in knob_groups:
@@ -338,25 +360,38 @@ def candidate_neighbors(
         proposed = (
             replace(
                 seed,
-                metadata_schedule=metadata_schedule,
-                epilogue_tiles_ahead=tiles,
-                epilogue_dependency_width=width,
-                epilogue_priority=priority,
-                accumulator_initialization=initialization,
+                decode=replace(seed.decode, policy=decode_policy),
+                epilogue=replace(
+                    seed.epilogue,
+                    pipeline=replace(
+                        pipeline,
+                        tiles_ahead=tiles,
+                        dependency_width=width,
+                        priority=priority,
+                    ),
+                ),
+                instruction_policy=replace(
+                    seed.instruction_policy,
+                    accumulator_initialization=initialization,
+                ),
             )
-            for metadata_schedule, tiles, width, priority, initialization in product(
-                metadata_schedules,
+            for decode_policy, tiles, width, priority, initialization in product(
+                decode_policies,
                 tiles_ahead,
                 dependency_widths,
                 priorities,
                 accumulator_initializations,
             )
         )
-        capability_shape = ProblemSize(seed.macro_tile0, seed.macro_tile1, 256)
+        capability_shape = ProblemSize(
+            seed.macro_tile[0],
+            seed.macro_tile[1],
+            256,
+        )
         candidates = tuple(
             candidate
             for candidate in proposed
-            if not explain_invalid(candidate, quant_type, capability_shape)
+            if is_valid_candidate(candidate, quant_type, capability_shape)
         )
     unique = {
         forward_candidate_hash(candidate, quant_type): candidate
@@ -370,69 +405,34 @@ def candidate_domains(
     shape: ProblemSize,
 ) -> tuple[ForwardCandidateDomain, ...]:
     """Return linkage-safe complete-candidate domains valid for an exact shape."""
-    domains: list[ForwardCandidateDomain] = []
-    if quant_type == "Q6_K":
-        seeds = tuple(
-            ForwardSolution.q6_k_structured_decoded(macro_tile0=macro_tile0)
-            for macro_tile0 in (64, 128)
+    if quant_type not in _CATALOG_FILENAMES:
+        raise ValueError(
+            "manual forward domains implement Q3_K, Q4_K, Q5_K, Q6_K, and Q8_0"
         )
+    if quant_type == "Q6_K":
         knob_groups: tuple[ForwardSearchKnobGroup, ...] = (
             "InstructionPolicy",
             "Epilogue",
         )
-    elif quant_type == "Q4_K":
-        seeds = (
-            ForwardSolution.q4_k_decoded_weight_lds_extraction(
-                epilogue_tiles_ahead=8,
-                epilogue_dependency_width=1,
-                epilogue_priority=0,
-                metadata_after_low_wmma=True,
-            ),
-        )
+        seeds = _catalog_forward_specs(quant_type)
+    elif quant_type in {"Q4_K", "Q5_K"}:
         knob_groups = ("Metadata", "Epilogue", "InstructionPolicy")
-    elif quant_type == "Q5_K":
-        seeds = (
-            ForwardSolution.q5_k_decoded_weight_lds_extraction(
-                epilogue_tiles_ahead=8,
-                epilogue_dependency_width=1,
-                epilogue_priority=0,
-            ),
+        valid_seeds = tuple(
+            seed
+            for seed in _catalog_forward_specs(quant_type)
+            if is_valid_candidate(seed, quant_type, shape)
         )
-        knob_groups = ("Metadata", "Epilogue", "InstructionPolicy")
-    elif quant_type == "Q3_K":
-        seeds = (
-            ForwardSolution.q3_k_hip_tiled_lds(),
-            ForwardSolution.q3_k_full_weight_tiled_lds(),
-            ForwardSolution.q3_k_full_weight_decode_ready_frontier(),
-        )
-        knob_groups = ()
-    elif quant_type == "Q8_0":
-        seeds = (
-            ForwardSolution.q8_0_direct_global(),
-            ForwardSolution.q8_0_register_tiled(),
-            ForwardSolution.q8_0_hip_tiled_lds(),
-            ForwardSolution.q8_0_hip_tiled_lds_depth64(),
-            ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=32),
-            ForwardSolution.q8_0_small_m_tiled_lds(macro_tile0=64),
-            ForwardSolution.q8_0_compact_depth32_tiled_lds(macro_tile0=32),
-            ForwardSolution.q8_0_compact_depth32_tiled_lds(macro_tile0=64),
-            ForwardSolution.q8_0_compact_depth32_tiled_lds(macro_tile0=128),
-        )
-        knob_groups = ()
+        seeds = valid_seeds[:1]
     else:
-        raise ValueError(
-            "manual forward domains implement Q3_K, Q4_K, Q5_K, Q6_K, and Q8_0"
+        knob_groups = ()
+        seeds = _catalog_forward_specs(quant_type)
+    return tuple(
+        ForwardCandidateDomain(
+            quant_type=quant_type,
+            problem_size=shape,
+            kernel_spec=seed,
+            knob_groups=knob_groups,
         )
-    for seed in seeds:
-        if explain_invalid(seed, quant_type, shape):
-            continue
-        domains.append(
-            ForwardCandidateDomain(
-                quant_type=quant_type,
-                problem_size=shape,
-                kernel_spec=ForwardKernelSpec.from_solution(seed),
-                seed=seed,
-                knob_groups=knob_groups,
-            )
-        )
-    return tuple(domains)
+        for seed in seeds
+        if is_valid_candidate(seed, quant_type, shape)
+    )

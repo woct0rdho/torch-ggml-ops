@@ -404,7 +404,7 @@ The deterministic scheduler-oracle result changed the implementation premise, no
 
 ### Final multiply result
 
-The final selected identity is the typed wavefront lowering. The table reports prequantized multiply bodies only. HIP and GGTensile consume the same workspace from the same fixed `torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f32_d4` kernel; activation production is excluded from every throughput, speedup, and weighted result below. Logical throughput is `2*M*N*K/(median_ms*1e9)`, and speedup is `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile. Each value combines the two independent warmed rotating 25-repeat confirmations by averaging their median times; the largest per-key A/B speed difference was `0.74` percentage points.
+The final selected identity is the typed wavefront lowering. The table reports prequantized multiply bodies only. HIP and GGTensile consume the same workspace from the same fixed `quantize_bf16_q8_1_f32_d4` kernel; activation production is excluded from every throughput, speedup, and weighted result below. Logical throughput is `2*M*N*K/(median_ms*1e9)`, and speedup is `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile. Each value combines the two independent warmed rotating 25-repeat confirmations by averaging their median times; the largest per-key A/B speed difference was `0.74` percentage points.
 
 | `(M,N,K)` | Public catalog hash | HIP TFLOPS | GGTensile TFLOPS | GGTensile/HIP speedup |
 | ---: | --- | ---: | ---: | ---: |

@@ -264,7 +264,7 @@ For narrow M2048, the original 64-point power-of-two grid, a focused 60-point no
 
 ### Final multiply-only result
 
-This is the authoritative prequantized multiply result for all six production keys. Each value combines the two independent warmed 25-repeat rotations, each containing exactly the HIP multiply and selected GGTensile multiply, by averaging their median times. Both multiplies consume one workspace produced by the same fixed `torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f16_d4s4` kernel; quantization is excluded from every throughput and speedup below. Logical throughput is `2*M*N*K/(median_ms*1e9)`, and speedup is `HIP median time / GGTensile median time`. The largest per-key A/B speed difference was `0.53` percentage points.
+This is the authoritative prequantized multiply result for all six production keys. Each value combines the two independent warmed 25-repeat rotations, each containing exactly the HIP multiply and selected GGTensile multiply, by averaging their median times. Both multiplies consume one workspace produced by the same fixed `quantize_bf16_q8_1_f16_d4s4` kernel; quantization is excluded from every throughput and speedup below. Logical throughput is `2*M*N*K/(median_ms*1e9)`, and speedup is `HIP median time / GGTensile median time`. The largest per-key A/B speed difference was `0.53` percentage points.
 
 | Family | `(M,N,K)` | Public catalog hash | HIP TFLOPS | GGTensile TFLOPS | GGTensile/HIP speedup |
 | --- | ---: | --- | ---: | ---: | ---: |

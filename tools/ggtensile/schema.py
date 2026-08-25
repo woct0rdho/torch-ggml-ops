@@ -88,10 +88,15 @@ def canonical_value(value: object) -> object:
     return value
 
 
+def _field(value: object, name: str) -> object:
+    return value[name] if isinstance(value, Mapping) else value
+
+
 def string(value: object, name: str) -> str:
-    if type(value) is not str:
-        raise SchemaError(f"{name} must be str, not {type(value).__name__}")
-    return value
+    item = _field(value, name)
+    if type(item) is not str:
+        raise SchemaError(f"{name} must be str, not {type(item).__name__}")
+    return item
 
 
 def integer(
@@ -100,15 +105,17 @@ def integer(
     *,
     error_type: type[ValueError] = SchemaError,
 ) -> int:
-    if type(value) is not int:
-        raise error_type(f"{name} must be int, not {type(value).__name__}")
-    return value
+    item = _field(value, name)
+    if type(item) is not int:
+        raise error_type(f"{name} must be int, not {type(item).__name__}")
+    return item
 
 
 def boolean(value: object, name: str) -> bool:
-    if type(value) is not bool:
-        raise SchemaError(f"{name} must be bool, not {type(value).__name__}")
-    return value
+    item = _field(value, name)
+    if type(item) is not bool:
+        raise SchemaError(f"{name} must be bool, not {type(item).__name__}")
+    return item
 
 
 @overload
@@ -122,18 +129,16 @@ def integer_tuple(value: object, name: str, length: int) -> tuple[int, ...]: ...
 
 
 def integer_tuple(value: object, name: str, length: int) -> tuple[int, ...]:
-    if not isinstance(value, list) or len(value) != length:
+    item = _field(value, name)
+    if not isinstance(item, list) or len(item) != length:
         raise SchemaError(f"{name} must be a {length}-element list")
-    return tuple(integer(item, f"{name}[{index}]") for index, item in enumerate(value))
-
-
-def integer_triple(value: object, name: str) -> tuple[int, int, int]:
-    values = integer_tuple(value, name, 3)
-    return values[0], values[1], values[2]
+    return tuple(
+        integer(element, f"{name}[{index}]") for index, element in enumerate(item)
+    )
 
 
 def enum_value(value: object, name: str, enum_type: type[EnumT]) -> EnumT:
     serialized = string(value, name)
     if serialized not in enum_type._value2member_map_:
-        raise SchemaError(f"{name} has unsupported value {serialized!r}") from None
+        raise SchemaError(f"{name} has unsupported value {serialized!r}")
     return enum_type(serialized)

@@ -4,12 +4,8 @@ from dataclasses import dataclass
 
 from .iq2_s_grid import IQ2_S_GRID_BYTES
 from .iq2_xxs_grid import IQ2_XXS_GRID_BYTES
-from .mmq_bwd_spec import (
-    BackwardQ2DecodeSchedule,
-    BackwardQ3Pairing,
-    BackwardQ4DecodeSchedule,
-    DerivedBackwardState,
-)
+from .mmq_bwd_spec import BackwardPairing, DerivedBackwardState
+from .physical_resources import PhysicalResourceUsage
 
 
 @dataclass(frozen=True)
@@ -40,29 +36,14 @@ class BackwardDecoderPlan:
     rows: int
     payload_register_count: int
     packed_load_count: int
-    q3_full_vopd: bool
+    full_instruction_pairing: bool
 
 
 @dataclass(frozen=True)
-class BackwardQ2DecodePlan:
-    schedule: BackwardQ2DecodeSchedule
+class BackwardDependencyDecodePlan:
+    dependency_width: int
     value_registers: tuple[int, ...]
     rounding_registers: tuple[int, ...]
-
-    @property
-    def dependency_width(self) -> int:
-        return self.schedule.dependency_width
-
-
-@dataclass(frozen=True)
-class BackwardQ4DecodePlan:
-    schedule: BackwardQ4DecodeSchedule
-    value_registers: tuple[int, ...]
-    rounding_registers: tuple[int, ...]
-
-    @property
-    def dependency_width(self) -> int:
-        return self.schedule.dependency_width
 
 
 @dataclass(frozen=True)
@@ -71,7 +52,7 @@ class BackwardAddressPlan:
     register_count: int
     lds: int
     quant_shift: int
-    q3_low_shift: int
+    low_bitfield_shift: int
 
 
 @dataclass(frozen=True)
@@ -113,22 +94,13 @@ class BackwardLdsPlan:
 
 
 @dataclass(frozen=True)
-class BackwardResourcePlan:
-    total_vgprs: int
-    total_sgprs: int
-    lds_num_bytes: int
-    private_segment_bytes: int = 0
-
-
-@dataclass(frozen=True)
 class BackwardPhysicalPlan:
     registers: BackwardRegisterPlan
     decoder: BackwardDecoderPlan
-    q2_decode: BackwardQ2DecodePlan
-    q4_decode: BackwardQ4DecodePlan
+    dependency_decode: BackwardDependencyDecodePlan
     address: BackwardAddressPlan
     lds: BackwardLdsPlan
-    resources: BackwardResourcePlan
+    resources: PhysicalResourceUsage
 
 
 class _FirstFitRegisters:
@@ -145,7 +117,7 @@ class _FirstFitRegisters:
             if not any(register in self._used for register in registers):
                 self._used.update(registers)
                 return start
-        raise ValueError(f"cannot allocate {count} registers aligned to {alignment}")
+        raise AssertionError
 
 
 def _derive_decoder(state: DerivedBackwardState) -> BackwardDecoderPlan:
@@ -162,13 +134,13 @@ def _derive_decoder(state: DerivedBackwardState) -> BackwardDecoderPlan:
     payload_register_count = decoder_capability.payload_register_count
     packed_load_count = decoder_capability.packed_load_count(decode, rows)
 
-    q3_full_vopd = decode.q3.pairing is BackwardQ3Pairing.Full
+    full_instruction_pairing = decode.pairing is BackwardPairing.Full
     return BackwardDecoderPlan(
         threads=decoder_threads,
         rows=rows,
         payload_register_count=payload_register_count,
         packed_load_count=packed_load_count,
-        q3_full_vopd=q3_full_vopd,
+        full_instruction_pairing=full_instruction_pairing,
     )
 
 
@@ -181,7 +153,7 @@ def _derive_lds_num_bytes(state: DerivedBackwardState) -> int:
         single_buffer = bytes_unpadded + 2 * memory.lds_pad_b * pad_periods
     else:
         single_buffer = 2 * (geometry.depth_u + memory.lds_pad_b) * geometry.macro_tile1
-    return single_buffer * state.spec.pipeline.lds_buffering.buffer_count
+    return single_buffer * (2 if state.spec.pipeline.double_buffer_lds else 1)
 
 
 def derive_backward_physical_plan(
@@ -193,10 +165,10 @@ def derive_backward_physical_plan(
     mechanism = state.contract.mechanism
     decoder_capability = mechanism.decoder
     extended_a = mechanism.address.uses_extended_a(
-        spec.pipeline.schedule, geometry.matrix_instruction[5]
+        spec.pipeline.iteration, geometry.matrix_instruction[5]
     )
     address_register_count = mechanism.address.register_count(
-        spec.pipeline.schedule, geometry.matrix_instruction[5]
+        spec.pipeline.iteration, geometry.matrix_instruction[5]
     )
     address_state_offset = 4 + geometry.matrix_instruction[5] if extended_a else 6
     # Decoder row pointers occupy address[0:rows]. Keep LDS/quant state after
@@ -275,37 +247,27 @@ def derive_backward_physical_plan(
         codebook_base=codebook_base,
         total_sgprs=max(scalar_temporary + 2, codebook_base + 2),
     )
-    q2_schedule = spec.decode.q2.schedule
-    if q2_schedule is not BackwardQ2DecodeSchedule.Serial:
-        q2_values = tuple(
-            registers.valu_b + 2 * slot for slot in range(q2_schedule.dependency_width)
+    dependency_width = spec.decode.dependency_width
+    if dependency_width > 1:
+        decode_values = tuple(
+            registers.valu_b + 2 * slot for slot in range(dependency_width)
         )
     else:
-        q2_values = (registers.temporary + 1 + 2 * decoder.rows,)
-    q2_decode = BackwardQ2DecodePlan(
-        schedule=q2_schedule,
-        value_registers=q2_values,
-        rounding_registers=tuple(value + 1 for value in q2_values),
-    )
-    q4_schedule = spec.decode.q4.schedule
-    if q4_schedule is BackwardQ4DecodeSchedule.DependencyBatch4:
-        q4_values = tuple(registers.valu_b + 2 * slot for slot in range(4))
-    else:
-        q4_values = (registers.temporary + 1 + 2 * decoder.rows,)
-    q4_decode = BackwardQ4DecodePlan(
-        schedule=q4_schedule,
-        value_registers=q4_values,
-        rounding_registers=tuple(value + 1 for value in q4_values),
+        decode_values = (registers.temporary + 1 + 2 * decoder.rows,)
+    dependency_decode = BackwardDependencyDecodePlan(
+        dependency_width=dependency_width,
+        value_registers=decode_values,
+        rounding_registers=tuple(value + 1 for value in decode_values),
     )
     lds_address_register = address + address_state_offset
     quant_shift = lds_address_register + 1
-    q3_low_shift = address + 2 if not extended_a else quant_shift + 1
+    low_bitfield_shift = address + 2 if not extended_a else quant_shift + 1
     address_plan = BackwardAddressPlan(
         uses_extended_a_pointer_state=extended_a,
         register_count=address_register_count,
         lds=lds_address_register,
         quant_shift=quant_shift,
-        q3_low_shift=q3_low_shift,
+        low_bitfield_shift=low_bitfield_shift,
     )
     lds_num_bytes = _derive_lds_num_bytes(state)
     codebook_bytes = {
@@ -321,13 +283,12 @@ def derive_backward_physical_plan(
     return BackwardPhysicalPlan(
         registers=registers,
         decoder=decoder,
-        q2_decode=q2_decode,
-        q4_decode=q4_decode,
+        dependency_decode=dependency_decode,
         address=address_plan,
         lds=lds,
-        resources=BackwardResourcePlan(
-            total_vgprs=registers.total_vgprs,
-            total_sgprs=registers.total_sgprs,
-            lds_num_bytes=resource_lds_num_bytes,
+        resources=PhysicalResourceUsage(
+            vgprs=registers.total_vgprs,
+            sgprs=registers.total_sgprs,
+            lds_bytes=resource_lds_num_bytes,
         ),
     )

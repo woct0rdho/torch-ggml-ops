@@ -19,6 +19,7 @@ from benchmark_data import input_mapping, prepare_input
 from benchmark_kernel_modules import prepare_kernel_comparison
 from workload_prior import expert_prior_metadata
 
+from tools.ggtensile.family_registry import mapping_for_instance
 from tools.mmq_correctness import assert_implementation_equivalence
 from tools.mmq_deployment_cases import hip_control_root
 
@@ -113,7 +114,7 @@ def run_kernels(operation: str, *, routed: bool) -> None:
             case_mapping.pop("hip", None)
             result = {
                 **case_mapping,
-                "exact_key": case.key.to_mapping(),
+                "exact_key": mapping_for_instance(case.instance),
                 "problem": {
                     "rows": case.rows,
                     "out_features": case.out_features,

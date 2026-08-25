@@ -91,13 +91,14 @@ void fixed_grouped_mmq_launch_cuda(
         workspace.mutable_data_ptr(),
         shape.total_rows,
         shape.total_rows,
-        4096,
+        shape.in_features,
         stream);
     torch_ggml_ops::mmq_bundle::launch_fixed_grouped_forward(
         static_cast<const char *>(packed_weight.const_data_ptr()),
         static_cast<const int *>(workspace.const_data_ptr()),
         static_cast<__hip_bfloat16 *>(output.mutable_data_ptr()),
         shape.tokens,
+        shape.in_features,
         shape.out_features,
         shape.bytes_per_group,
         stream);
@@ -113,15 +114,17 @@ void fixed_grouped_mmq_grad_input_launch_cuda(
         grad_input,
         grad_output,
         ScalarType::BFloat16,
-        static_cast<int64_t>(shape.total_rows) * 4096,
+        static_cast<int64_t>(shape.total_rows) * shape.in_features,
         "grad_input");
-    validate_replaced_final_dimension(grad_input, grad_output, 4096, "grad_input");
+    validate_replaced_final_dimension(
+        grad_input, grad_output, shape.in_features, "grad_input");
     torch::stable::accelerator::DeviceGuard guard(grad_output.get_device_index());
     torch_ggml_ops::mmq_bundle::launch_fixed_grouped_backward(
         grad_output.const_data_ptr(),
         static_cast<const char *>(packed_weight.const_data_ptr()),
         grad_input.mutable_data_ptr(),
         shape.tokens,
+        shape.in_features,
         shape.out_features,
         shape.bytes_per_group,
         current_stream(grad_output));

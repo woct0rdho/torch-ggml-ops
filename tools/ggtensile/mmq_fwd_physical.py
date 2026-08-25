@@ -14,7 +14,6 @@ from .mmq_fwd_spec import (
     DecodedLdsLayout,
     F16D4S4ActivationMetadata,
     ForwardKernelSpec,
-    ForwardResourceUsage,
     Packed3BitTiledLdsLayout,
     Q3FullWeightTiledLdsLayout,
     Q6LdsLayout,
@@ -23,6 +22,7 @@ from .mmq_fwd_spec import (
     SignedInt8SmallMTiledLdsLayout,
     forward_mechanism_contract,
 )
+from .physical_resources import PhysicalResourceUsage
 from .quant_formats import Q8_1_F32_D4_BLOCK_BYTES
 
 
@@ -38,17 +38,13 @@ class SignedInt8MmaGroupRole:
 
     @classmethod
     def from_semantics(cls, semantics: QuantForwardSemantics, index: int):
-        if index not in range(4):
-            raise ValueError("signed-int8 direct group requires index 0..3")
-        if (
+        assert index in range(4)
+        assert not (
             semantics.weight_bits != 8
             or semantics.payload_plane("qs").encoding != "SignedInt8"
             or semantics.payload_plane("d").encoding != "Float16"
-            or semantics.post_wmma_correction != "SignedScaleTimesActivationScale"
-        ):
-            raise ValueError(
-                "signed-int8 direct group requires signed payload semantics"
-            )
+            or (semantics.post_wmma_correction != "SignedScaleTimesActivationScale")
+        )
         weight_block_bytes = sum(plane.byte_count for plane in semantics.payload_planes)
         return cls(
             index=index,
@@ -182,8 +178,7 @@ class SignedInt8RegisterTiledRegisterPlan:
 
     @classmethod
     def allocate(cls, wave_tile_m: int, wave_tile_n: int):
-        if wave_tile_m * wave_tile_n != 4:
-            raise ValueError("Q8 register tile must own four 16x16 fragments per wave")
+        assert wave_tile_m * wave_tile_n == 4
         weight_payloads = 8 * wave_tile_n
         activation_payloads = 8 * wave_tile_m
         weight_scales = 8 * wave_tile_n
@@ -467,8 +462,7 @@ class SignedInt8SmallMTiledLdsRegisterPlan:
 
     @classmethod
     def allocate(cls, m_fragments: int):
-        if m_fragments not in (2, 4):
-            raise ValueError("Q8 small-M register plan requires two or four fragments")
+        assert m_fragments in (2, 4)
         c_width = 8 * m_fragments
         sums_base = c_width
         weight_payload_base = 2 * c_width
@@ -917,14 +911,17 @@ class Q3FullWeightTiledLdsRegisterPlan:
             self.lane,
             self.wave,
         )
-        if self.register_count != self.declared_vgprs or self.register_count <= 0:
-            raise ValueError("Q3 full-weight register count is inconsistent")
-        if any(
-            assignment.first_register < 0
-            or assignment.first_register + assignment.role.width > self.register_count
-            for assignment in assignments
-        ):
-            raise ValueError("Q3 full-weight register assignment exceeds the plan")
+        assert not (
+            self.register_count != self.declared_vgprs or self.register_count <= 0
+        )
+        assert not (
+            any(
+                assignment.first_register < 0
+                or assignment.first_register + assignment.role.width
+                > self.register_count
+                for assignment in assignments
+            )
+        )
 
     @staticmethod
     def _fixed(
@@ -985,30 +982,36 @@ class Q3FullWeightTiledLdsRegisterPlan:
 class Q3FullWeightTiledLdsPhysicalPlan:
     layout: Q3FullWeightTiledLdsLayout
     registers: Q3FullWeightTiledLdsRegisterPlan
-    resources: ForwardResourceUsage
+    resources: PhysicalResourceUsage
 
 
 @dataclass(frozen=True)
 class SignedInt8WaveNTiledLdsLayout:
     """Formula-derived ordinary signed-int8 wave-N LDS planes."""
 
-    activation_rows: int = 128
-    weight_rows: int = 64
-    activation_row_stride: int = Q8_1_F32_D4_BLOCK_BYTES
-    weight_row_stride: int = 304
-    weight_scale_offset: int = 256
-    allocation_padding_bytes: int = 512
+    @property
+    def activation_rows(self) -> int:
+        return 128
 
-    def __post_init__(self) -> None:
-        if (
-            self.activation_rows,
-            self.weight_rows,
-            self.activation_row_stride,
-            self.weight_row_stride,
-            self.weight_scale_offset,
-            self.allocation_padding_bytes,
-        ) != (128, 64, Q8_1_F32_D4_BLOCK_BYTES, 304, 256, 512):
-            raise ValueError("ordinary Q8 LDS layout has fixed HIP-shaped dimensions")
+    @property
+    def weight_rows(self) -> int:
+        return 64
+
+    @property
+    def activation_row_stride(self) -> int:
+        return Q8_1_F32_D4_BLOCK_BYTES
+
+    @property
+    def weight_row_stride(self) -> int:
+        return 304
+
+    @property
+    def weight_scale_offset(self) -> int:
+        return 256
+
+    @property
+    def allocation_padding_bytes(self) -> int:
+        return 512
 
     @property
     def activation_bytes(self) -> int:
@@ -1066,8 +1069,7 @@ class Q6Vgpr:
     register: int
 
     def __post_init__(self) -> None:
-        if self.register < 0:
-            raise ValueError("Q6 VGPR must be nonnegative")
+        assert self.register >= 0
 
     def __str__(self) -> str:
         return f"v{self.register}"
@@ -1080,8 +1082,7 @@ class Q6Sgpr:
     register: int
 
     def __post_init__(self) -> None:
-        if self.register < 0:
-            raise ValueError("Q6 SGPR must be nonnegative")
+        assert self.register >= 0
 
     def __str__(self) -> str:
         return f"s{self.register}"
@@ -1113,21 +1114,14 @@ class Q6DependencyDelay:
     second_distance: int | None = None
 
     def __post_init__(self) -> None:
-        if self.kind not in ("VALU_DEP", "SALU_CYCLE"):
-            raise ValueError(f"unsupported Q6 dependency kind: {self.kind}")
-        if self.first_distance <= 0:
-            raise ValueError("Q6 dependency distance must be positive")
-        if self.skip is not None and self.skip not in (
-            "NEXT",
-            "SKIP_1",
-            "SKIP_2",
-            "SKIP_3",
-        ):
-            raise ValueError(f"unsupported Q6 dependency skip: {self.skip}")
-        if (self.skip is None) != (self.second_distance is None):
-            raise ValueError("Q6 paired dependency delay requires skip and second")
-        if self.second_distance is not None and self.second_distance <= 0:
-            raise ValueError("Q6 dependency distance must be positive")
+        assert self.kind in ("VALU_DEP", "SALU_CYCLE")
+        assert self.first_distance > 0
+        assert not (
+            self.skip is not None
+            and self.skip not in ("NEXT", "SKIP_1", "SKIP_2", "SKIP_3")
+        )
+        assert (self.skip is None) == (self.second_distance is None)
+        assert not (self.second_distance is not None and self.second_distance <= 0)
 
     def __str__(self) -> str:
         expression = f"instid0({self.kind}_{self.first_distance})"
@@ -1164,10 +1158,8 @@ class Q6HalfRegister:
     half: Q6HalfName
 
     def __post_init__(self) -> None:
-        if self.register < 0:
-            raise ValueError("Q6 half-register VGPR must be nonnegative")
-        if self.half not in ("l", "h"):
-            raise ValueError("Q6 half-register selector must be 'l' or 'h'")
+        assert self.register >= 0
+        assert self.half in ("l", "h")
 
     def __str__(self) -> str:
         return f"v{self.register}.{self.half}"
@@ -1222,8 +1214,7 @@ class Q6OwnershipRegisterPlan:
                 (164, 165),
             ),
         }.get(output_tile_rows)
-        if source_pairs is None:
-            raise ValueError(f"unsupported Q6 ownership rows: {output_tile_rows}")
+        assert source_pairs is not None
 
         packed_payloads = tuple(
             RegisterAssignment(
@@ -1333,8 +1324,7 @@ class Q6OwnershipRegisterPlan:
     def packed_payload(
         self, atom: int, plane: Q6PackedPayloadPlane
     ) -> RegisterAssignment:
-        if atom not in range(16):
-            raise ValueError(f"unsupported Q6 payload atom: {atom}")
+        assert atom in range(16)
         plane_index = 0 if plane == "ql" else 1
         return self.packed_payloads[2 * atom + plane_index]
 
@@ -1492,24 +1482,15 @@ class Q6GlobalRead:
     local_write_slot: int | None = None
 
     def __post_init__(self) -> None:
-        if (
+        assert not (
             not isinstance(self.destination_register, int)
             or self.destination_register < 0
-        ):
-            destination = (
-                f"v{self.destination_register}"
-                if isinstance(self.destination_register, int)
-                else str(self.destination_register)
-            )
-            raise ValueError(
-                f"Q6 global-read destination must be one VGPR: {destination}"
-            )
-        if not isinstance(self.address_register, int) or self.address_register < 0:
-            raise ValueError("Q6 global-read address must be one VGPR pair")
-        if self.width_bits not in (16, 32):
-            raise ValueError(f"unsupported Q6 global-read width: {self.width_bits}")
-        if self.local_write_slot is not None and self.local_write_slot < 0:
-            raise ValueError("Q6 local-write slot must be nonnegative")
+        )
+        assert not (
+            not isinstance(self.address_register, int) or self.address_register < 0
+        )
+        assert self.width_bits in (16, 32)
+        assert not (self.local_write_slot is not None and self.local_write_slot < 0)
 
     @property
     def payload_assignment(self) -> RegisterAssignment:
@@ -1608,7 +1589,7 @@ class Q6PhysicalRegisterMap:
             )
             right_products = (10, 11, 9, 13, 15, 8, 12, 14)
         else:
-            raise ValueError(f"unsupported Q6 physical output rows: {output_tile_rows}")
+            raise AssertionError
         assignments = [
             RegisterAssignment(
                 RegisterRole(
@@ -1704,8 +1685,7 @@ class Q6PhysicalRegisterMap:
 
     def group_output_roles(self, group: int) -> tuple[Q6AccumulatorOutputRole, ...]:
         roles = tuple(role for role in self.output_roles if role.group == group)
-        if len(roles) != 8:
-            raise ValueError(f"Q6 accumulator group has {len(roles)} output roles")
+        assert len(roles) == 8
         return roles
 
 
@@ -1716,15 +1696,17 @@ class Q6PhysicalLayout:
     output_tile_rows: int
     m_wave_groups: int = 1
 
+    @classmethod
+    def from_wave_group_m(
+        cls, output_tile_rows: int, wave_group_m: int
+    ) -> "Q6PhysicalLayout":
+        assert wave_group_m > 0 and wave_group_m % 4 == 0
+        return cls(output_tile_rows, wave_group_m // 4)
+
     def __post_init__(self) -> None:
-        if self.output_tile_rows not in (1, 2):
-            raise ValueError(
-                f"unsupported Q6 physical output rows: {self.output_tile_rows}"
-            )
-        if self.m_wave_groups not in (1, 2):
-            raise ValueError(f"unsupported Q6 M-wave groups: {self.m_wave_groups}")
-        if self.m_wave_groups == 2 and self.output_tile_rows != 2:
-            raise ValueError("shared Q6 M-wave ownership requires two rows per wave")
+        assert self.output_tile_rows in (1, 2)
+        assert self.m_wave_groups in (1, 2)
+        assert not (self.m_wave_groups == 2 and self.output_tile_rows != 2)
 
     @property
     def registers(self) -> Q6PhysicalRegisterMap:
@@ -1776,8 +1758,7 @@ class Q6PhysicalLayout:
         address: int,
         offset: int = 0,
     ) -> Q6GlobalRead:
-        if slot not in range(len(self.ownership.refill_payloads)):
-            raise ValueError(f"unsupported Q6 refill slot: {slot}")
+        assert slot in range(len(self.ownership.refill_payloads))
         destination = self.ownership.refill_payloads[slot].first_register
         return Q6GlobalRead(
             destination,
@@ -1787,16 +1768,14 @@ class Q6PhysicalLayout:
         )
 
     def decoded_write_address(self, atom: int) -> int:
-        if atom not in range(16):
-            raise ValueError(f"unsupported Q6 decoded write atom: {atom}")
+        assert atom in range(16)
         base = 31 + 28 * self.output_tile_rows
         if self.output_tile_rows == 1:
             return base + atom
         return base + atom + int(atom >= 4) + int(atom >= 9)
 
     def decoded_write_offsets(self, atom: int) -> tuple[int, int]:
-        if atom not in range(16):
-            raise ValueError(f"unsupported Q6 decoded write atom: {atom}")
+        assert atom in range(16)
         canonical_atom = atom if self.output_tile_rows == 1 else (atom + 12) % 16
         if canonical_atom < 9:
             offset0 = (64 + 48 * canonical_atom) % 256
@@ -2059,10 +2038,7 @@ class DecodedWeightLdsRegisterPlan:
 
     @classmethod
     def allocate(cls, row_tiles: int = 8):
-        if row_tiles not in (2, 4, 8):
-            raise ValueError(
-                "decoded-weight LDS requires two, four, or eight row tiles"
-            )
+        assert row_tiles in (2, 4, 8)
         if row_tiles == 8:
             sums_width = 64
             decode_base = 72
@@ -2286,7 +2262,7 @@ class DecodedWeightLdsScalarRegisterPlan:
 class PackedScaleMinimumDirectPhysicalPlan:
     activation_metadata: F16D4S4ActivationMetadata
     registers: PackedScaleMinimumDirectRegisterPlan
-    resources: ForwardResourceUsage
+    resources: PhysicalResourceUsage
 
 
 @dataclass(frozen=True)
@@ -2294,32 +2270,32 @@ class DecodedWeightLdsPhysicalPlan:
     layout: DecodedLdsLayout
     registers: DecodedWeightLdsRegisterPlan
     scalar_registers: DecodedWeightLdsScalarRegisterPlan
-    resources: ForwardResourceUsage
+    resources: PhysicalResourceUsage
 
 
 @dataclass(frozen=True)
 class Q6StructuredPhysicalPlan:
     layout: Q6PhysicalLayout
-    resources: ForwardResourceUsage
+    resources: PhysicalResourceUsage
 
 
 @dataclass(frozen=True)
 class Packed3BitTiledLdsPhysicalPlan:
     layout: Packed3BitTiledLdsLayout
     registers: Packed3BitTiledLdsRegisterPlan
-    resources: ForwardResourceUsage
+    resources: PhysicalResourceUsage
 
 
 @dataclass(frozen=True)
 class SignedInt8DirectPhysicalPlan:
     registers: SignedInt8DirectRegisterPlan
-    resources: ForwardResourceUsage
+    resources: PhysicalResourceUsage
 
 
 @dataclass(frozen=True)
 class SignedInt8RegisterTiledPhysicalPlan:
     registers: SignedInt8RegisterTiledRegisterPlan
-    resources: ForwardResourceUsage
+    resources: PhysicalResourceUsage
 
 
 @dataclass(frozen=True)
@@ -2327,7 +2303,7 @@ class SignedInt8WaveNTiledLdsPhysicalPlan:
     layout: SignedInt8WaveNTiledLdsLayout | SignedInt8CompactDepth32TiledLdsLayout
     registers: SignedInt8WaveNTiledLdsRegisterPlan
     policy: SignedInt8TiledLdsPolicy
-    resources: ForwardResourceUsage
+    resources: PhysicalResourceUsage
 
 
 SignedInt8SmallLdsLayout: TypeAlias = (
@@ -2340,7 +2316,7 @@ class SignedInt8SmallMTiledLdsPhysicalPlan:
     layout: SignedInt8SmallLdsLayout
     registers: SignedInt8SmallMTiledLdsRegisterPlan
     policy: SignedInt8TiledLdsPolicy
-    resources: ForwardResourceUsage
+    resources: PhysicalResourceUsage
 
 
 ForwardPhysicalPlan: TypeAlias = (
@@ -2361,23 +2337,15 @@ def q6_structured_physical_plan(
     wave_group_m: int = 4,
     physical_plan: str = "CanonicalRegisterRoles",
 ) -> Q6StructuredPhysicalPlan:
-    if output_tile_rows not in (1, 2):
-        raise ValueError("structured Q6 implements one or two output rows per wave")
-    if wave_group_m not in (4, 8):
-        raise ValueError("structured Q6 implements four or eight M-owned waves")
-    if physical_plan not in {
-        "CanonicalRegisterRoles",
-        "WideScalarCarryFrontier",
-    }:
-        raise ValueError(f"unsupported structured Q6 physical plan: {physical_plan}")
-    if physical_plan == "WideScalarCarryFrontier" and (
-        output_tile_rows != 1 or wave_group_m != 4
-    ):
-        raise ValueError("wide scalar-carry frontier requires four-wave MT64")
-    layout = Q6PhysicalLayout(output_tile_rows, wave_group_m // 4)
+    assert physical_plan in {"CanonicalRegisterRoles", "WideScalarCarryFrontier"}
+    assert not (
+        physical_plan == "WideScalarCarryFrontier"
+        and (output_tile_rows != 1 or wave_group_m != 4)
+    )
+    layout = Q6PhysicalLayout.from_wave_group_m(output_tile_rows, wave_group_m)
     return Q6StructuredPhysicalPlan(
         layout=layout,
-        resources=ForwardResourceUsage(
+        resources=PhysicalResourceUsage(
             vgprs=layout.declared_vgprs,
             sgprs=(
                 33
@@ -2395,7 +2363,7 @@ def packed_3bit_tiled_lds_physical_plan() -> Packed3BitTiledLdsPhysicalPlan:
     return Packed3BitTiledLdsPhysicalPlan(
         layout=layout,
         registers=registers,
-        resources=ForwardResourceUsage(
+        resources=PhysicalResourceUsage(
             vgprs=registers.declared_vgprs,
             sgprs=16,
             lds_bytes=layout.total_bytes,
@@ -2409,7 +2377,7 @@ def q3_full_weight_tiled_lds_physical_plan() -> Q3FullWeightTiledLdsPhysicalPlan
     return Q3FullWeightTiledLdsPhysicalPlan(
         layout=layout,
         registers=registers,
-        resources=ForwardResourceUsage(
+        resources=PhysicalResourceUsage(
             vgprs=registers.declared_vgprs,
             sgprs=16,
             lds_bytes=layout.total_bytes,
@@ -2421,22 +2389,29 @@ def derive_forward_physical_plan(spec: ForwardKernelSpec) -> ForwardPhysicalPlan
     """Derive one complete mechanism plan without emitting instructions."""
     operand_source = spec.global_memory.operand_source
     mechanism = forward_mechanism_contract(operand_source)
+    mechanism.dataflow.validate_physical(spec.lds.address_hoist)
+    assert spec.geometry.matrix_instruction == (16, 16, 16, 1)
     plan_kind = mechanism.physical_plan
     if plan_kind == "StructuredQ6":
         return q6_structured_physical_plan(
             spec.ownership.mi_wave_tile[0],
             spec.ownership.mi_wave_group[0],
-            spec.instruction_policy.q6_physical_plan or "CanonicalRegisterRoles",
+            spec.instruction_policy.physical_plan or "CanonicalRegisterRoles",
         )
     if plan_kind == "Packed3BitTiledLds":
-        if spec.geometry.work_group != (32, 4, 1) or spec.macro_tile != (128, 64):
-            raise ValueError("Q3 HIP-shaped LDS control requires a 128x64 tile")
+        assert spec.geometry.work_group == (32, 4, 1)
+        assert spec.macro_tile == (128, 64)
+        assert spec.geometry.depth_u == 16
         return packed_3bit_tiled_lds_physical_plan()
     if plan_kind == "Packed3BitFullWeightTiledLds":
-        if spec.geometry.work_group != (32, 4, 1) or spec.macro_tile != (128, 64):
-            raise ValueError("Q3 full-weight LDS control requires a 128x64 tile")
+        assert spec.geometry.work_group == (32, 4, 1)
+        assert spec.macro_tile == (128, 64)
+        assert spec.geometry.depth_u == 16
         return q3_full_weight_tiled_lds_physical_plan()
     if plan_kind == "DecodedWeightLds":
+        assert spec.geometry.work_group == (128, 1, 1)
+        assert spec.macro_tile == (128, 64)
+        assert spec.geometry.depth_u == 32
         layout = DecodedLdsLayout.for_activation_block_bytes(
             mechanism.activation_block_bytes
         )
@@ -2446,93 +2421,88 @@ def derive_forward_physical_plan(spec: ForwardKernelSpec) -> ForwardPhysicalPlan
             layout,
             registers,
             scalar_registers,
-            ForwardResourceUsage(
+            PhysicalResourceUsage(
                 registers.declared_vgprs,
                 16,
                 layout.total_bytes,
             ),
         )
     if plan_kind == "PackedScaleMinimumDirect":
+        assert spec.geometry.work_group == (32, 1, 1)
+        assert spec.macro_tile == (16, 16)
+        assert spec.geometry.depth_u == 32
         registers = PackedScaleMinimumDirectRegisterPlan.allocate()
         return PackedScaleMinimumDirectPhysicalPlan(
             F16D4S4ActivationMetadata(mechanism.activation_block_bytes),
             registers,
-            ForwardResourceUsage(registers.declared_vgprs, 16, 0),
+            PhysicalResourceUsage(registers.declared_vgprs, 16, 0),
         )
     if plan_kind == "SignedInt8Direct":
+        assert spec.geometry.work_group == (32, 1, 1)
+        assert spec.macro_tile == (16, 16)
+        assert spec.geometry.depth_u == 32
         registers = SignedInt8DirectRegisterPlan.allocate()
         return SignedInt8DirectPhysicalPlan(
             registers,
-            ForwardResourceUsage(registers.declared_vgprs, 16, 0),
+            PhysicalResourceUsage(registers.declared_vgprs, 16, 0),
         )
     if plan_kind == "SignedInt8RegisterTiled":
+        assert spec.geometry.work_group == (32, 4, 1)
+        assert spec.geometry.depth_u == 32
         wave_tile_m, wave_tile_n = spec.ownership.mi_wave_tile
         registers = SignedInt8RegisterTiledRegisterPlan.allocate(
             wave_tile_m, wave_tile_n
         )
         return SignedInt8RegisterTiledPhysicalPlan(
             registers,
-            ForwardResourceUsage(registers.declared_vgprs, 16, 0),
+            PhysicalResourceUsage(registers.declared_vgprs, 16, 0),
         )
     if plan_kind == "SignedInt8WaveNTiledLds":
-        if spec.geometry.depth_u not in (32, 64):
-            raise ValueError("Q8 HIP-shaped LDS controls require DepthU 32 or 64")
+        assert spec.geometry.work_group == (32, 4, 1)
+        assert spec.macro_tile == (128, 64)
+        assert spec.geometry.depth_u in (32, 64)
         if spec.lds.address_hoist == "CompactDepth32WeightRows":
             layout = SignedInt8CompactDepth32TiledLdsLayout(
-                activation_rows=spec.macro_tile[0],
-                activation_row_stride=mechanism.activation_block_bytes,
+                activation_rows=spec.macro_tile[0]
             )
             policy = SignedInt8TiledLdsPolicy(
                 "WeightThenActivation", "PairedHoistedSecondBase"
             )
         else:
-            layout = SignedInt8WaveNTiledLdsLayout(
-                activation_row_stride=mechanism.activation_block_bytes
-            )
+            layout = SignedInt8WaveNTiledLdsLayout()
             policy = SignedInt8TiledLdsPolicy("Interleaved", "Scalar")
         registers = SignedInt8WaveNTiledLdsRegisterPlan.allocate()
         return SignedInt8WaveNTiledLdsPhysicalPlan(
             layout,
             registers,
             policy,
-            ForwardResourceUsage(
+            PhysicalResourceUsage(
                 registers.declared_vgprs,
                 16,
                 layout.total_bytes,
             ),
         )
     if plan_kind != "SignedInt8SmallMTiledLds":
-        raise AssertionError(f"unhandled forward physical plan {plan_kind!r}")
+        raise AssertionError
     macro_tile_m, macro_tile_n = spec.macro_tile
-    if (
-        spec.geometry.work_group != (32, 4, 1)
-        or macro_tile_m not in (32, 64)
-        or macro_tile_n != 64
-        or spec.geometry.depth_u != 32
-    ):
-        raise ValueError("Q8 small-M LDS control requires MT32/MT64 x N64, DepthU 32")
+    assert spec.geometry.work_group == (32, 4, 1)
+    assert macro_tile_m in (32, 64)
+    assert macro_tile_n == 64
+    assert spec.geometry.depth_u == 32
     if spec.lds.address_hoist == "SmallMTile":
-        layout: SignedInt8SmallLdsLayout = SignedInt8SmallMTiledLdsLayout(
-            macro_tile_m,
-            activation_row_stride=mechanism.activation_block_bytes,
-        )
+        layout: SignedInt8SmallLdsLayout = SignedInt8SmallMTiledLdsLayout(macro_tile_m)
         policy = SignedInt8TiledLdsPolicy("WeightThenActivation", "Scalar")
-    elif spec.lds.address_hoist == "CompactDepth32WeightRows":
-        layout = SignedInt8CompactDepth32TiledLdsLayout(
-            activation_rows=macro_tile_m,
-            activation_row_stride=mechanism.activation_block_bytes,
-        )
+    else:
+        layout = SignedInt8CompactDepth32TiledLdsLayout(activation_rows=macro_tile_m)
         policy = SignedInt8TiledLdsPolicy(
             "WeightThenActivation", "PairedHoistedSecondBase"
         )
-    else:
-        raise ValueError("Q8 small-M LDS control has an unsupported layout")
     registers = SignedInt8SmallMTiledLdsRegisterPlan.allocate(macro_tile_m // 16)
     return SignedInt8SmallMTiledLdsPhysicalPlan(
         layout,
         registers,
         policy,
-        ForwardResourceUsage(
+        PhysicalResourceUsage(
             registers.declared_vgprs,
             16,
             layout.total_bytes,

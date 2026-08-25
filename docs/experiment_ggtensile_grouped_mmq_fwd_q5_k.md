@@ -19,8 +19,8 @@ Every retained artifact must target gfx1151 code-object version 5 and wave32, ha
 ## Installed Controls
 
 The installed bundle provides exact `N=2048`, `K=512` Q5_K serial J64 and J32 controls:
-- `torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_q5_k_n2048_k512_j64`
-- `torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_q5_k_n2048_k512_j32`
+- `grouped_fwd_serial_q5_k_n2048_k512_j64`
+- `grouped_fwd_serial_q5_k_n2048_k512_j32`
 
 The public policy selects J32 when `R < 128 * G` and J64 otherwise. The research launcher must reproduce that policy without reading route contents on the host. Both controls launch a `32 x G` grid with a 128-thread workgroup; J64 uses 28,928 dynamic LDS bytes and J32 uses 24,192.
 

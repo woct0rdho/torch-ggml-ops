@@ -6,7 +6,6 @@ Every multiply artifact is emitted by a typed GGTensile writer.
 
 import argparse
 import concurrent.futures
-import hashlib
 import os
 import shutil
 import subprocess
@@ -28,52 +27,28 @@ from tools.mmq_deployment_spec import (
 )
 
 CSRC = ROOT / "csrc"
-CONFIG = ROOT / "tools/ggtensile/configs"
 PACKAGE_DIR = ROOT / "torch_ggml_ops/kernels/gfx1151"
 HEADER = CSRC / "generated/mmq_bundle_table.cuh"
 SOURCE_DIR = ROOT / "build/mmq_bundle_sources/gfx1151"
-STAMP = ".mmq-build-input"
 ARCH = "gfx1151"
 
 
-def _digest(items: tuple[BundleKernel, ...], hipcc: Path, toolchain: Toolchain) -> str:
-    digest = hashlib.sha256(
-        subprocess.run(
-            [str(hipcc), "--version"], check=True, capture_output=True
-        ).stdout
-    )
-    digest.update(str(toolchain.assembler).encode())
-    digest.update(
-        subprocess.run(
-            [str(toolchain.assembler), "--version"], check=True, capture_output=True
-        ).stdout
-    )
-    for path in (
-        Path(__file__),
-        ROOT / "tools/mmq_deployment_spec.py",
-        ROOT / "tools/mmq_bundle_wrapper_source.py",
-        ROOT / "tools/ggtensile/configs/mmq_deployment.json",
-        *sorted(CONFIG.glob("mmq_*_catalog.json")),
-        *sorted((ROOT / "tools/ggtensile").glob("*.py")),
-        CSRC / "mmq_core.cuh",
-        *sorted((CSRC / "vendor/llama_cpp").glob("*.cuh")),
-    ):
-        digest.update(path.relative_to(ROOT).as_posix().encode())
-        digest.update(path.read_bytes())
-    digest.update(header_text(items).encode())
-    return digest.hexdigest()
-
-
-def _verify(path: Path, symbol: str, readelf: Path) -> bytes:
+def _verify(path: Path, symbol: str, readelf: Path) -> None:
     data = path.read_bytes()
-    if not data.startswith(b"\x7fELF") or ARCH.encode() not in data:
-        raise RuntimeError(f"invalid gfx1151 code object {path}")
+    if not data.startswith(b"\x7fELF"):
+        raise RuntimeError(f"invalid ELF code object {path}")
     output = subprocess.run(
-        [str(readelf), "--symbols", "--wide", str(path)],
+        [str(readelf), "--file-header", "--symbols", "--wide", str(path)],
         check=True,
         capture_output=True,
         text=True,
     ).stdout
+    flags = next(
+        (line for line in output.splitlines() if line.lstrip().startswith("Flags:")),
+        "",
+    )
+    if ARCH not in flags:
+        raise RuntimeError(f"code object is not {ARCH}: {path}")
     exported = {
         line.split()[-1]
         for line in output.splitlines()
@@ -81,7 +56,6 @@ def _verify(path: Path, symbol: str, readelf: Path) -> bytes:
     }
     if exported != {symbol}:
         raise RuntimeError(f"{path} exports {sorted(exported)}, expected {symbol}")
-    return data
 
 
 def _compile(
@@ -90,16 +64,13 @@ def _compile(
     hipcc: Path,
     toolchain: Toolchain,
     readelf: Path,
-) -> tuple[str, bytes]:
-    destination = staging / kernel.filename
+) -> None:
+    destination = staging / f"{kernel.symbol}.hsaco"
     if kernel.hip_config is not None:
         source_text = render_wrapper(kernel.symbol, kernel.hip_config)
-        source = (
-            SOURCE_DIR
-            / f"{kernel.cpp_id}-{hashlib.sha256(source_text.encode()).hexdigest()[:16]}.cu"
-        )
+        source = SOURCE_DIR / f"{kernel.cpp_id}.cu"
         source.parent.mkdir(parents=True, exist_ok=True)
-        source.write_text(source_text)
+        source.write_text(source_text, encoding="utf-8")
         command = [
             str(hipcc),
             "--genco",
@@ -122,29 +93,15 @@ def _compile(
         toolchain.assemble(assembly, obj)
         toolchain.link(obj, destination)
         obj.unlink()
-    return kernel.cpp_id, _verify(destination, kernel.symbol, readelf)
-
-
-def _current(items: tuple[BundleKernel, ...], digest: str) -> bool:
-    expected = {item.filename for item in items}
-    actual = (
-        {path.name for path in PACKAGE_DIR.iterdir() if path.name != STAMP}
-        if PACKAGE_DIR.is_dir()
-        else set()
-    )
-    return (
-        PACKAGE_DIR.is_dir()
-        and HEADER.is_file()
-        and (PACKAGE_DIR / STAMP).is_file()
-        and expected == actual
-        and HEADER.read_text() == header_text(items)
-        and (PACKAGE_DIR / STAMP).read_text() == digest + "\n"
-    )
+    _verify(destination, kernel.symbol, readelf)
 
 
 def _build(
-    items: tuple[BundleKernel, ...], hipcc: Path, toolchain: Toolchain, jobs: int
-) -> tuple[Path, list[bytes]]:
+    items: tuple[BundleKernel, ...],
+    hipcc: Path,
+    toolchain: Toolchain,
+    jobs: int,
+) -> Path:
     PACKAGE_DIR.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=".mmq-gfx1151-", dir=PACKAGE_DIR.parent))
     try:
@@ -154,7 +111,6 @@ def _build(
                 writer_for(item, toolchain).write(
                     SOURCE_DIR / f"{item.cpp_id}-{item.symbol}.s"
                 )
-        images: dict[str, bytes] = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as executor:
             futures = {
                 executor.submit(
@@ -163,19 +119,17 @@ def _build(
                 for item in items
             }
             for future in concurrent.futures.as_completed(futures):
-                name, image = future.result()
-                images[name] = image
-                print(f"built {name}", flush=True)
-        return staging, [images[item.cpp_id] for item in items]
-    except Exception:
+                future.result()
+                print(f"built {futures[future].cpp_id}", flush=True)
+        return staging
+    except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
 
 
-def _install(staging: Path, items: tuple[BundleKernel, ...], digest: str) -> None:
-    (staging / STAMP).write_text(digest + "\n")
+def _install(staging: Path, items: tuple[BundleKernel, ...]) -> None:
     HEADER.parent.mkdir(parents=True, exist_ok=True)
-    HEADER.write_text(header_text(items))
+    HEADER.write_text(header_text(items), encoding="utf-8")
     old = PACKAGE_DIR.with_name(PACKAGE_DIR.name + ".old")
     shutil.rmtree(old, ignore_errors=True)
     if PACKAGE_DIR.exists():
@@ -188,9 +142,6 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--hipcc", type=Path)
     parser.add_argument("--jobs", type=int, default=min(4, os.cpu_count() or 1))
-    parser.add_argument("--force", action="store_true")
-    parser.add_argument("--check", action="store_true")
-    parser.add_argument("--verify-reproducible", action="store_true")
     args = parser.parse_args()
     if args.jobs < 1:
         parser.error("--jobs must be positive")
@@ -199,21 +150,8 @@ def main() -> None:
         raise FileNotFoundError("hipcc is required to build Q8_1/setup artifacts")
     toolchain = Toolchain.discover()
     items = kernels()
-    digest = _digest(items, hipcc, toolchain)
-    if args.check:
-        if not _current(items, digest):
-            raise SystemExit("MMQ gfx1151 bundle is stale")
-        return
-    if not args.force and not args.verify_reproducible and _current(items, digest):
-        return
-    first, images = _build(items, hipcc, toolchain, args.jobs)
-    if args.verify_reproducible:
-        second, second_images = _build(items, hipcc, toolchain, args.jobs)
-        shutil.rmtree(second, ignore_errors=True)
-        if images != second_images:
-            shutil.rmtree(first, ignore_errors=True)
-            raise RuntimeError("non-reproducible MMQ deployment bundle")
-    _install(first, items, digest)
+    staging = _build(items, hipcc, toolchain, args.jobs)
+    _install(staging, items)
     print(f"installed {len(items)} exact MMQ kernels in {PACKAGE_DIR}")
 
 

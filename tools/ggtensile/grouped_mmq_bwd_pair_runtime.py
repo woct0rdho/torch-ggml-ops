@@ -6,11 +6,15 @@ from typing import ClassVar
 
 import torch
 
-from .grouped_mmq_bwd_pair_model import GroupedBackwardPairSolutionKey
-from .grouped_mmq_bwd_pair_spec import DerivedGroupedBackwardPairState
+from .grouped_mmq_bwd_pair_model import GroupedBackwardPairProblem
+from .grouped_mmq_bwd_pair_spec import (
+    DerivedGroupedBackwardPairState,
+    GroupedBackwardPairKernelSpec,
+)
 from .grouped_mmq_bwd_pair_validation import validate_grouped_backward_pair_solution
 from .kernel_abi import GROUPED_BACKWARD_PAIR_ABI
 from .runtime import HIPRuntimeError, _find_installed_kernel, _HIPModule
+from .work_group_mapping import mapped_grid_extent
 
 
 class GroupedBackwardPairModule(_HIPModule):
@@ -18,23 +22,19 @@ class GroupedBackwardPairModule(_HIPModule):
 
     def __init__(
         self,
-        solution_key: GroupedBackwardPairSolutionKey,
+        problem: GroupedBackwardPairProblem,
+        kernel_spec: GroupedBackwardPairKernelSpec,
         code_object: Path,
+        kernel_name: str,
         hip_library: Path | None = None,
-        *,
-        kernel_name: str | None = None,
     ) -> None:
-        reasons = validate_grouped_backward_pair_solution(solution_key)
-        if reasons:
-            details = "; ".join(reason.rule_id for reason in reasons)
-            raise HIPRuntimeError(f"cannot launch rejected backward pair: {details}")
-        self.solution_key = solution_key
-        self.state = DerivedGroupedBackwardPairState.from_solution_key(solution_key)
-        super().__init__(
-            code_object,
-            hip_library,
-            kernel_name or solution_key.kernel_name,
+        validate_grouped_backward_pair_solution(problem, kernel_spec)
+        self.problem = problem
+        self.kernel_spec = kernel_spec
+        self.state = DerivedGroupedBackwardPairState.from_problem_spec(
+            problem, kernel_spec
         )
+        super().__init__(code_object, hip_library, kernel_name)
 
     def launch(
         self,
@@ -51,7 +51,7 @@ class GroupedBackwardPairModule(_HIPModule):
         if not self._module or not self._function:
             raise HIPRuntimeError("HIP module is closed")
         state = self.state
-        problem = self.solution_key.problem
+        problem = self.problem
         tensors = (
             first_grad_output,
             second_grad_output,
@@ -114,14 +114,17 @@ class GroupedBackwardPairModule(_HIPModule):
                 "bytes_per_expert": state.bytes_per_expert,
             }
         )
-        compute = self.solution_key.solution.compute
+        compute = self.kernel_spec.compute
         self._check(
             self._lib.hipModuleLaunchKernel(
                 self._function,
-                problem.in_features // compute.macro_tile1,
-                route_entries * self.solution_key.solution.route_ownership.split_factor,
+                mapped_grid_extent(
+                    problem.in_features // compute.geometry.macro_tile1,
+                    compute.geometry.work_group_mapping,
+                ),
+                route_entries * self.kernel_spec.route_ownership.split_factor,
                 1,
-                *compute.work_group,
+                *compute.geometry.work_group,
                 0,
                 ctypes.c_void_p(stream),
                 arguments.parameters,
@@ -135,12 +138,8 @@ class InstalledGroupedBackwardPairQ3KControl(_HIPModule):
     """Launch one installed specialized Qwen Q3_K backward-pair body."""
 
     _CONFIGS: ClassVar[dict[int, str]] = {
-        64: (
-            "torch_ggml_ops_mmq_gfx1151_v1_grouped_bwd_pair_q3_k_n512_k2048_mt64_nt64"
-        ),
-        128: (
-            "torch_ggml_ops_mmq_gfx1151_v1_grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64"
-        ),
+        64: ("grouped_bwd_pair_q3_k_n512_k2048_mt64_nt64"),
+        128: ("grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64"),
     }
     PHYSICAL_EXPERTS = 256
     OUT_FEATURES = 512
@@ -163,12 +162,6 @@ class InstalledGroupedBackwardPairQ3KControl(_HIPModule):
             hip_library,
             symbol,
         )
-
-    @staticmethod
-    def dispatched_macro_tile(aggregate_rows: int, route_entries: int) -> int:
-        if aggregate_rows <= 0 or route_entries <= 0:
-            raise HIPRuntimeError("installed pair dispatch dimensions must be positive")
-        return 128 if aggregate_rows >= 128 * route_entries else 64
 
     def launch(
         self,
@@ -236,11 +229,6 @@ class InstalledGroupedBackwardPairQ3KControl(_HIPModule):
             raise HIPRuntimeError("Q3_K pair route metadata lengths differ")
         if len({tensor.device for tensor in tensors}) != 1:
             raise HIPRuntimeError("installed Q3_K pair tensors must share one device")
-        expected_tile = self.dispatched_macro_tile(rows, route_entries)
-        if self.macro_tile0 != expected_tile:
-            raise HIPRuntimeError(
-                f"installed pair dispatch selects M{expected_tile}, not M{self.macro_tile0}"
-            )
 
         arguments = GROUPED_BACKWARD_PAIR_ABI.pack(
             {
@@ -278,12 +266,8 @@ class InstalledGroupedBackwardPairIQ2SControl(_HIPModule):
     """Launch one installed specialized Qwen IQ2_S backward-pair body."""
 
     _CONFIGS: ClassVar[dict[int, str]] = {
-        64: (
-            "torch_ggml_ops_mmq_gfx1151_v1_grouped_bwd_pair_iq2_s_n512_k2048_mt64_nt64"
-        ),
-        128: (
-            "torch_ggml_ops_mmq_gfx1151_v1_grouped_bwd_pair_iq2_s_n512_k2048_mt128_nt64"
-        ),
+        64: ("grouped_bwd_pair_iq2_s_n512_k2048_mt64_nt64"),
+        128: ("grouped_bwd_pair_iq2_s_n512_k2048_mt128_nt64"),
     }
     PHYSICAL_EXPERTS = 256
     OUT_FEATURES = 512
@@ -306,12 +290,6 @@ class InstalledGroupedBackwardPairIQ2SControl(_HIPModule):
             hip_library,
             symbol,
         )
-
-    @staticmethod
-    def dispatched_macro_tile(aggregate_rows: int, route_entries: int) -> int:
-        if aggregate_rows <= 0 or route_entries <= 0:
-            raise HIPRuntimeError("installed pair dispatch dimensions must be positive")
-        return 128 if aggregate_rows >= 128 * route_entries else 64
 
     def launch(
         self,
@@ -379,11 +357,6 @@ class InstalledGroupedBackwardPairIQ2SControl(_HIPModule):
             raise HIPRuntimeError("pair route metadata lengths differ")
         if len({tensor.device for tensor in tensors}) != 1:
             raise HIPRuntimeError("installed IQ2_S pair tensors must share one device")
-        expected_tile = self.dispatched_macro_tile(rows, route_entries)
-        if self.macro_tile0 != expected_tile:
-            raise HIPRuntimeError(
-                f"installed pair dispatch selects M{expected_tile}, not M{self.macro_tile0}"
-            )
 
         arguments = GROUPED_BACKWARD_PAIR_ABI.pack(
             {
@@ -421,16 +394,9 @@ class InstalledGroupedBackwardPairIQ2XXSControl(_HIPModule):
     """Launch one installed specialized DeepSeek IQ2_XXS backward pair."""
 
     _CONFIGS: ClassVar[dict[int, str]] = {
-        64: (
-            "torch_ggml_ops_mmq_gfx1151_v1_grouped_bwd_pair_iq2_xxs_"
-            "n2048_k4096_mt64_nt64"
-        ),
-        128: (
-            "torch_ggml_ops_mmq_gfx1151_v1_grouped_bwd_tuned_pair_iq2_xxs_"
-            "n2048_k4096_mt128_nt64"
-        ),
+        64: ("grouped_bwd_pair_iq2_xxs_n2048_k4096_mt64_nt64"),
+        128: ("grouped_bwd_tuned_pair_iq2_xxs_n2048_k4096_mt128_nt64"),
     }
-    QUALIFIED_M128_ROWS = frozenset({49_152, 196_608})
     PHYSICAL_EXPERTS = 256
     OUT_FEATURES = 2048
     IN_FEATURES = 4096
@@ -450,12 +416,6 @@ class InstalledGroupedBackwardPairIQ2XXSControl(_HIPModule):
         super().__init__(
             code_object or _find_installed_kernel(symbol), hip_library, symbol
         )
-
-    @classmethod
-    def dispatched_macro_tile(cls, aggregate_rows: int) -> int:
-        if aggregate_rows <= 0:
-            raise HIPRuntimeError("installed IQ2_XXS pair rows must be positive")
-        return 128 if aggregate_rows in cls.QUALIFIED_M128_ROWS else 64
 
     def launch(
         self,
@@ -521,12 +481,6 @@ class InstalledGroupedBackwardPairIQ2XXSControl(_HIPModule):
             raise HIPRuntimeError("IQ2_XXS pair route metadata lengths differ")
         if len({tensor.device for tensor in tensors}) != 1:
             raise HIPRuntimeError("installed IQ2_XXS pair tensors must share a device")
-        expected_tile = self.dispatched_macro_tile(rows)
-        if self.macro_tile0 != expected_tile:
-            raise HIPRuntimeError(
-                f"installed IQ2_XXS pair dispatch selects M{expected_tile}, "
-                f"not M{self.macro_tile0}"
-            )
 
         arguments = GROUPED_BACKWARD_PAIR_ABI.pack(
             {

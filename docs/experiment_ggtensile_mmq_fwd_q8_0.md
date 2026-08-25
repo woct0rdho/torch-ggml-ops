@@ -478,7 +478,7 @@ Both confirmations are confidently faster than HIP beyond the `2%` zone in both 
 
 ## Final Multiply Result
 
-The final matrix follows the authoritative public catalog's `(M,N,K)` orientation and reports prequantized multiply-only bodies. HIP and GGTensile consume the same workspace from the same fixed `torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f32_d4` producer; activation production is excluded from every throughput and speedup below. Logical throughput is `2*M*N*K/(median_ms*1e9)`. `GGTensile/HIP` speedup is `GGTensile TFLOPS / HIP TFLOPS`, equivalently `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile. Each row averages the two final public-catalog audit medians; the largest A/B median spread is below one percent.
+The final matrix follows the authoritative public catalog's `(M,N,K)` orientation and reports prequantized multiply-only bodies. HIP and GGTensile consume the same workspace from the same fixed `quantize_bf16_q8_1_f32_d4` producer; activation production is excluded from every throughput and speedup below. Logical throughput is `2*M*N*K/(median_ms*1e9)`. `GGTensile/HIP` speedup is `GGTensile TFLOPS / HIP TFLOPS`, equivalently `HIP median time / GGTensile median time`, so values above `1.0x` favor GGTensile. Each row averages the two final public-catalog audit medians; the largest A/B median spread is below one percent.
 
 | Family | `(M,N,K)` | Public catalog hash | HIP TFLOPS | GGTensile TFLOPS | GGTensile/HIP speedup |
 | --- | ---: | --- | ---: | ---: | ---: |

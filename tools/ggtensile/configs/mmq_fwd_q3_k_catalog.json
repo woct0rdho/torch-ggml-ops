@@ -1,164 +1,110 @@
 {
   "KernelFamily": "OrdinaryForward",
-  "ProblemContract": {
-    "quant_type": "Q3_K",
-    "block_values": 256,
-    "packed_weight_block_bytes": 110,
-    "activation_layout": "F32_D4",
-    "activation_block_bytes": 144,
-    "kernel_language": "Assembly",
-    "isa": [
+  "Target": {
+    "ISA": [
       11,
       5,
       1
     ],
-    "wavefront_size": 32,
-    "signed_weight": true,
-    "signed_activation": true,
-    "wmma_clamp": false,
-    "weight_decode": "DirectQ3Signed",
-    "scale_arithmetic": "Int32ScaleF32",
-    "arithmetic_contract": "SignedQ3Int8ScaleIntegerWmmaF32Correction",
-    "destination_type": "BFloat16",
-    "bf16_rounding": "RNEPreserveNaN",
-    "abi": "PackedWeightQ81OutputV1"
+    "WavefrontSize": 32,
+    "MatrixInstructionSet": "WmmaV1",
+    "CodeObjectVersion": 5
+  },
+  "ProblemType": {
+    "QuantDataType": "Q3_K",
+    "DataTypeA": "Q8_1",
+    "DataTypeB": "Q3_K",
+    "DestinationDataType": "BFloat16",
+    "ComputeDataType": "Float32",
+    "TransposeA": false,
+    "TransposeB": true,
+    "ActivationLayout": "F32_D4"
   },
   "KernelSpecs": [
     {
-      "geometry": {
-        "work_group": [
+      "Geometry": {
+        "WorkGroup": [
           32,
           4,
           1
         ],
-        "matrix_instruction": [
+        "MatrixInstruction": [
           16,
           16,
           16,
           1
         ],
-        "depth_u": 16
+        "DepthU": 16
       },
-      "ownership": {
-        "mi_wave_group": [
+      "Ownership": {
+        "MIWaveGroup": [
           4,
           1
         ],
-        "mi_wave_tile": [
+        "MIWaveTile": [
           2,
           4
         ]
       },
-      "global_memory": {
-        "operand_source": "Q3FullWeightTiledLds",
-        "activation_addressing": "ScalarPlaneBase"
+      "GlobalMemory": {
+        "OperandSource": "Q3FullWeightTiledLds",
+        "ActivationAddressing": "ScalarPlaneBase"
       },
-      "lds": {
-        "address_hoist": "Q3FullTile336"
+      "Lds": {
+        "AddressHoist": "Q3FullTile336"
       },
-      "decode": {
-        "metadata_conversion": "Float16DToFloat32Signed6ScaleShared",
-        "metadata_schedule": "Q3FullTileDecodeReadyFrontier"
-      },
-      "epilogue": {
-        "output_store": "BFloat16RNEClause8"
+      "Decode": {
+        "MetadataConversion": "Float16DToFloat32Signed6ScaleShared",
+        "DecodeReadyFrontier": true
       }
     }
   ],
   "ExactLogic": [
     {
       "Problem": {
-        "m": 2048,
-        "n": 512,
-        "k": 2048
+        "M": 2048,
+        "N": 512,
+        "K": 2048
       },
       "KernelSpecIndex": 0
     },
     {
       "Problem": {
-        "m": 8192,
-        "n": 512,
-        "k": 2048
+        "M": 8192,
+        "N": 512,
+        "K": 2048
       },
       "KernelSpecIndex": 0
     },
     {
       "Problem": {
-        "m": 32768,
-        "n": 512,
-        "k": 2048
+        "M": 32768,
+        "N": 512,
+        "K": 2048
       },
       "KernelSpecIndex": 0
     },
     {
       "Problem": {
-        "m": 2048,
-        "n": 8192,
-        "k": 2048
+        "M": 2048,
+        "N": 8192,
+        "K": 2048
       },
       "KernelSpecIndex": 0
     },
     {
       "Problem": {
-        "m": 8192,
-        "n": 8192,
-        "k": 2048
+        "M": 8192,
+        "N": 8192,
+        "K": 2048
       },
       "KernelSpecIndex": 0
     },
     {
       "Problem": {
-        "m": 32768,
-        "n": 8192,
-        "k": 2048
-      },
-      "KernelSpecIndex": 0
-    },
-    {
-      "Problem": {
-        "m": 2048,
-        "n": 4096,
-        "k": 2048
-      },
-      "KernelSpecIndex": 0
-    },
-    {
-      "Problem": {
-        "m": 8192,
-        "n": 4096,
-        "k": 2048
-      },
-      "KernelSpecIndex": 0
-    },
-    {
-      "Problem": {
-        "m": 32768,
-        "n": 4096,
-        "k": 2048
-      },
-      "KernelSpecIndex": 0
-    },
-    {
-      "Problem": {
-        "m": 2048,
-        "n": 2048,
-        "k": 4096
-      },
-      "KernelSpecIndex": 0
-    },
-    {
-      "Problem": {
-        "m": 8192,
-        "n": 2048,
-        "k": 4096
-      },
-      "KernelSpecIndex": 0
-    },
-    {
-      "Problem": {
-        "m": 32768,
-        "n": 2048,
-        "k": 4096
+        "M": 32768,
+        "N": 8192,
+        "K": 2048
       },
       "KernelSpecIndex": 0
     }

@@ -1,5 +1,11 @@
 import torch
 
+from .runtime_contract import (
+    paired_row_task_capacity,
+    paired_row_task_rows,
+    quant_workspace_elements,
+)
+
 
 def mmq_inplace(
     input: torch.Tensor,
@@ -24,7 +30,9 @@ def mmq_cuda(
         (*input.shape[:-1], out_features), dtype=input.dtype, device=input.device
     )
     workspace = torch.empty(
-        input.numel() // 128 * 144, dtype=torch.uint8, device=input.device
+        quant_workspace_elements(input.numel()),
+        dtype=torch.uint8,
+        device=input.device,
     )
     mmq_inplace(input, packed_weight, quant_type, out_features, output, workspace)
     return output
@@ -68,7 +76,9 @@ def fixed_grouped_mmq_cuda(
         device=input.device,
     )
     workspace = torch.empty(
-        input.numel() // 128 * 144, dtype=torch.uint8, device=input.device
+        quant_workspace_elements(input.numel()),
+        dtype=torch.uint8,
+        device=input.device,
     )
     torch.ops.torch_ggml_ops._fixed_grouped_mmq_launch.default(
         input, packed_weight, output, workspace
@@ -102,7 +112,9 @@ def grouped_mmq_cuda(
         (input.shape[0], out_features), dtype=input.dtype, device=input.device
     )
     workspace = torch.empty(
-        input.numel() // 128 * 144, dtype=torch.uint8, device=input.device
+        quant_workspace_elements(input.numel()),
+        dtype=torch.uint8,
+        device=input.device,
     )
     torch.ops.torch_ggml_ops._grouped_mmq_launch.default(
         input,
@@ -156,11 +168,13 @@ def grouped_mmq_pair_cuda(
     )
     second_output = torch.empty_like(first_output)
     workspace = torch.empty(
-        input.numel() // 128 * 144, dtype=torch.uint8, device=input.device
+        quant_workspace_elements(input.numel()),
+        dtype=torch.uint8,
+        device=input.device,
     )
-    row_task_rows = 64 if quant_type in (11, 22) else 0
+    row_task_rows = paired_row_task_rows(quant_type)
     task_capacity = (
-        (input.shape[0] + row_task_rows - 1) // row_task_rows + expert_indices.numel()
+        paired_row_task_capacity(input.shape[0], expert_indices.numel(), row_task_rows)
         if row_task_rows
         else 0
     )

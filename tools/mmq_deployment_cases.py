@@ -7,12 +7,15 @@ the stable checkpoint representatives used to materialize those exact shapes.
 
 import os
 import sysconfig
-from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
-from tools.ggtensile.deployment import DeploymentKey
+from tools.ggtensile.family_registry import (
+    instance_hash,
+    problem_size_for_instance,
+)
+from tools.ggtensile.kernel_instance import KernelInstance
 from tools.mmq_deployment_spec import kernels
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,29 +33,25 @@ class DeploymentCase:
     operation: str
     identity: str
     symbol: str
-    artifact: str
     quant_type: str
     rows: int
     out_features: int
     in_features: int
     tensor_source: TensorSource
-    key: DeploymentKey
+    instance: KernelInstance
 
     def to_mapping(self) -> dict[str, object]:
         """Return report-safe route metadata without importing ``bench``."""
         return {
-            "operation": self.operation,
-            "identity": self.identity,
-            "symbol": self.symbol,
-            "artifact": self.artifact,
-            "quant_type": self.quant_type,
-            "rows": self.rows,
-            "out_features": self.out_features,
-            "in_features": self.in_features,
-            "model_family": self.tensor_source.model_family,
-            "tensors": list(self.tensor_source.names),
-            "ggtensile": "direct deployed HSACO",
-            "hip": "optional legacy HIP-control HSACO",
+            "KernelFamily": self.operation,
+            "IdentityHash": self.identity,
+            "Symbol": self.symbol,
+            "QuantDataType": self.quant_type,
+            "M": self.rows,
+            "N": self.out_features,
+            "K": self.in_features,
+            "ModelFamily": self.tensor_source.model_family,
+            "Tensors": list(self.tensor_source.names),
         }
 
 
@@ -103,46 +102,14 @@ _GROUPED_TENSORS = {
 }
 
 
-def _integer(mapping: Mapping[str, object], name: str) -> int:
-    value = mapping.get(name)
-    if type(value) is not int:
-        raise ValueError(f"deployment key field {name} is not an integer")
-    return value
-
-
 def _geometry(item) -> tuple[str, int, int, int]:
-    mapping = item.key.to_mapping()
-    contract = mapping["ProblemContract"]
-    problem = mapping["Problem"]
-    if not isinstance(contract, Mapping) or not isinstance(problem, Mapping):
-        raise TypeError("deployment key has invalid problem mappings")
-    quant = str(contract["quant_type"])
-    if item.operation == "OrdinaryForward":
-        return (
-            quant,
-            _integer(problem, "m"),
-            _integer(problem, "n"),
-            _integer(problem, "k"),
-        )
-    if item.operation == "OrdinaryBackward":
-        return (
-            quant,
-            _integer(problem, "m"),
-            _integer(problem, "k"),
-            _integer(problem, "n"),
-        )
-    if item.operation == "GroupedBackward":
-        return (
-            quant,
-            _integer(problem, "m"),
-            _integer(problem, "k"),
-            _integer(problem, "n"),
-        )
-    row_name = "tokens" if item.operation.startswith("Fixed") else "aggregate_rows"
-    rows = _integer(problem, row_name)
-    out_name = "output_features" if "output_features" in contract else "out_features"
-    in_name = "input_features" if "input_features" in contract else "in_features"
-    return quant, rows, _integer(contract, out_name), _integer(contract, in_name)
+    if item.instance is None:
+        raise TypeError("deployment geometry requires a GGTensile instance")
+    problem = problem_size_for_instance(item.instance)
+    quant = item.instance.problem_type.quant_data_type
+    if item.operation.endswith("Backward") or item.operation.endswith("BackwardPair"):
+        return quant, problem.m, problem.k, problem.n
+    return quant, problem.m, problem.n, problem.k
 
 
 def _source(item, quant: str, out_features: int, in_features: int) -> TensorSource:
@@ -169,31 +136,33 @@ def _source(item, quant: str, out_features: int, in_features: int) -> TensorSour
 def public_deployment_cases() -> tuple[DeploymentCase, ...]:
     result: list[DeploymentCase] = []
     for item in kernels():
-        if item.key is None or item.operation is None:
+        if item.instance is None or item.operation is None:
             continue
         quant, rows, out_features, in_features = _geometry(item)
         result.append(
             DeploymentCase(
                 item.operation,
-                item.key.hash,
+                instance_hash(item.instance),
                 item.symbol,
-                item.filename,
                 quant,
                 rows,
                 out_features,
                 in_features,
                 _source(item, quant, out_features, in_features),
-                item.key,
+                item.instance,
             )
         )
     return tuple(result)
 
 
-def case_for_key(operation: str, key: DeploymentKey) -> DeploymentCase:
+def case_for_instance(operation: str, instance: KernelInstance) -> DeploymentCase:
+    identity = instance_hash(instance)
     for case in public_deployment_cases():
-        if case.operation == operation and case.identity == key.hash:
+        if case.operation == operation and case.identity == identity:
             return case
-    raise ValueError(f"{operation} solution {key.hash} is not a public deployment key")
+    raise ValueError(
+        f"{operation} kernel {identity} is not a public deployment instance"
+    )
 
 
 def public_artifact_path(case: DeploymentCase, root: Path | None = None) -> Path:
@@ -204,10 +173,10 @@ def public_artifact_path(case: DeploymentCase, root: Path | None = None) -> Path
         return configured
     roots = (configured, configured / "gfx1151")
     for candidate_root in roots:
-        candidate = candidate_root / case.artifact
+        candidate = candidate_root / f"{case.symbol}.hsaco"
         if candidate.is_file():
             return candidate
-    return roots[0] / case.artifact
+    return roots[0] / f"{case.symbol}.hsaco"
 
 
 def model_path(source: TensorSource) -> Path:

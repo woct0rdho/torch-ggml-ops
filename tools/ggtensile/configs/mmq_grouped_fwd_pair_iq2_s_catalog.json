@@ -1,0 +1,94 @@
+{
+  "KernelFamily": "GroupedForwardPair",
+  "Target": {
+    "ISA": [
+      11,
+      5,
+      1
+    ],
+    "WavefrontSize": 32,
+    "MatrixInstructionSet": "WmmaV1",
+    "CodeObjectVersion": 5
+  },
+  "ProblemType": {
+    "QuantDataType": "IQ2_S",
+    "DataTypeA": "Q8_1",
+    "DataTypeB": "IQ2_S",
+    "DestinationDataType": "BFloat16",
+    "ComputeDataType": "Float32",
+    "TransposeA": false,
+    "TransposeB": true,
+    "ActivationLayout": "F32_D4"
+  },
+  "KernelSpecs": [
+    {
+      "Geometry": {
+        "WorkGroup": [
+          128,
+          1,
+          1
+        ],
+        "MatrixInstruction": [
+          16,
+          16,
+          16,
+          1,
+          1,
+          1,
+          4,
+          4,
+          1
+        ],
+        "MacroTile": [
+          64,
+          64
+        ],
+        "DepthU": 128
+      },
+      "Lowering": {
+        "OperandSource": "GridHalfWeightLds",
+        "RouteOwnership": "DeviceRowTasks",
+        "ActivationAddressing": "AggregateRowsTiledLinear",
+        "RowTaskRows": 64
+      },
+      "Projection": {
+        "Interleave": "Interleaved"
+      }
+    }
+  ],
+  "ExactLogic": [
+    {
+      "Problem": {
+        "M": 16384,
+        "N": 512,
+        "K": 2048,
+        "ProjectionCount": 2,
+        "PhysicalExpertCount": 256,
+        "MaxRouteEntries": 256
+      },
+      "KernelSpecIndex": 0
+    },
+    {
+      "Problem": {
+        "M": 65536,
+        "N": 512,
+        "K": 2048,
+        "ProjectionCount": 2,
+        "PhysicalExpertCount": 256,
+        "MaxRouteEntries": 256
+      },
+      "KernelSpecIndex": 0
+    },
+    {
+      "Problem": {
+        "M": 262144,
+        "N": 512,
+        "K": 2048,
+        "ProjectionCount": 2,
+        "PhysicalExpertCount": 256,
+        "MaxRouteEntries": 256
+      },
+      "KernelSpecIndex": 0
+    }
+  ]
+}

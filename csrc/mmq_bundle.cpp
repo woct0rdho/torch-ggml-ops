@@ -10,19 +10,6 @@
 namespace torch_ggml_ops::mmq_bundle {
 namespace {
 
-constexpr int kOrdinaryForward = 0;
-constexpr int kOrdinaryBackward = 1;
-constexpr int kGroupedForward = 2;
-constexpr int kGroupedForwardPair = 3;
-constexpr int kGroupedBackward = 4;
-constexpr int kGroupedBackwardPair = 5;
-constexpr int kFixedGroupedForward = 6;
-constexpr int kFixedGroupedBackward = 7;
-
-constexpr int kQuantQ2K = 10;
-constexpr int kQuantQ4K = 12;
-constexpr int kQuantQ5K = 13;
-
 static_assert(kMMQKernelSymbols.size() <=
               std::numeric_limits<MMQKernelIndex>::max());
 
@@ -65,10 +52,10 @@ void launch_record(
 }
 
 MMQKernelIndex quantize_kernel(std::int32_t quant_type) {
-    if (quant_type == kQuantQ2K) {
+    if (quant_type == kQuantQ2_K) {
         return kQuantizeQ81F16D2S6;
     }
-    if (quant_type == kQuantQ4K || quant_type == kQuantQ5K) {
+    if (quant_type == kQuantQ4_K || quant_type == kQuantQ5_K) {
         return kQuantizeQ81F16D4S4;
     }
     return kQuantizeQ81F32D4;
@@ -178,11 +165,12 @@ void launch_fixed_grouped_forward(
         const int * activations,
         void * output,
         int tokens,
+        int in_features,
         int out_features,
         std::int64_t bytes_per_group,
         hipStream_t stream) {
     const MMQDeploymentRecord & record = exact_record(
-        kFixedGroupedForward, 8, tokens, out_features, 4096);
+        kFixedGroupedForward, kQuantQ8_0, tokens, out_features, in_features);
     unsigned int tokens_value = static_cast<unsigned int>(tokens);
     unsigned int out_features_value = static_cast<unsigned int>(out_features);
     std::uint64_t bytes_value = static_cast<std::uint64_t>(bytes_per_group);
@@ -328,11 +316,12 @@ void launch_fixed_grouped_backward(
         const char * packed_weight,
         void * grad_input,
         int tokens,
+        int in_features,
         int out_features,
         std::int64_t bytes_per_group,
         hipStream_t stream) {
     const MMQDeploymentRecord & record = exact_record(
-        kFixedGroupedBackward, 8, tokens, 4096, out_features);
+        kFixedGroupedBackward, kQuantQ8_0, tokens, in_features, out_features);
     unsigned int tokens_value = static_cast<unsigned int>(tokens);
     unsigned int out_features_value = static_cast<unsigned int>(out_features);
     std::uint64_t bytes_value = static_cast<std::uint64_t>(bytes_per_group);

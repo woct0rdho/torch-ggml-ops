@@ -31,11 +31,13 @@ void grouped_mmq_pair_launch_cuda(
         shape.bytes_per_expert == second_shape.bytes_per_expert,
         "paired packed weights have different physical contracts");
     torch_ggml_ops::mmq_bundle::require_exact_deployment(
-        3, static_cast<int32_t>(quant_type), shape.rows,
+        torch_ggml_ops::mmq_bundle::kGroupedForwardPair,
+        static_cast<int32_t>(quant_type), shape.rows,
         shape.out_features, shape.in_features);
     const int row_task_rows =
         torch_ggml_ops::mmq_bundle::exact_deployment_row_task_rows(
-            3, static_cast<int32_t>(quant_type), shape.rows,
+            torch_ggml_ops::mmq_bundle::kGroupedForwardPair,
+            static_cast<int32_t>(quant_type), shape.rows,
             shape.out_features, shape.in_features);
     const int max_tasks = row_task_rows == 0
         ? 0
@@ -44,7 +46,8 @@ void grouped_mmq_pair_launch_cuda(
         STD_TORCH_CHECK(
             max_tasks <=
                 torch_ggml_ops::mmq_bundle::exact_deployment_row_task_capacity(
-                    3, static_cast<int32_t>(quant_type), shape.rows,
+                    torch_ggml_ops::mmq_bundle::kGroupedForwardPair,
+                    static_cast<int32_t>(quant_type), shape.rows,
                     shape.out_features, shape.in_features),
             "paired grouped row-task capacity exceeds the deployment bound");
     }
@@ -164,7 +167,8 @@ void grouped_mmq_pair_grad_input_launch_cuda(
             shape.bytes_per_expert == second_shape.bytes_per_expert,
         "paired grouped gradients have different exact problems");
     torch_ggml_ops::mmq_bundle::require_exact_deployment(
-        5, static_cast<int32_t>(quant_type), shape.rows,
+        torch_ggml_ops::mmq_bundle::kGroupedBackwardPair,
+        static_cast<int32_t>(quant_type), shape.rows,
         shape.in_features, shape.out_features);
     validate_explicit_buffer(
         grad_input,

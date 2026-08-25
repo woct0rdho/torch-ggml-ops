@@ -5,14 +5,19 @@ import shutil
 import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
-from .inspection import inspect_artifact
-from .kernel_writer_assembly_grouped_mmq_bwd import (
-    GroupedBackwardKernelWriterAssembly,
+from .family_registry import (
+    family_for_instance,
+    instance_hash,
+    instance_name,
+    mapping_for_instance,
+    parse_instance,
+    writer_for_instance,
 )
-from .kernel_writer_assembly_mmq_bwd import BackwardKernelWriterAssembly
-from .kernel_writer_assembly_mmq_fwd import ForwardKernelWriterAssembly
+from .identity import KernelFamily
+from .inspection import ArtifactInspection, inspect_artifact
+from .kernel_instance import KernelInstance
 from .mmq_fwd_search import (
     ForwardExactPairManifest,
     ForwardSearchKnobGroup,
@@ -21,11 +26,11 @@ from .mmq_fwd_search import (
     candidate_domains,
     candidate_neighbors,
     q6_schedule_neighbors,
+    q6_schedule_seed,
 )
-from .mmq_fwd_spec import q6_schedule_from_solution
-from .model import ForwardSolution, ProblemSize, SolutionKey
+from .model import ProblemSize
 from .toolchain import Toolchain
-from .validation import validate_solution
+from .validation import validate_instance
 
 
 class ManifestError(ValueError):
@@ -39,7 +44,7 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     generate = subparsers.add_parser("generate")
-    generate.add_argument("--solution-key", type=Path, required=True)
+    generate.add_argument("--kernel-spec-key", type=Path, required=True)
     generate.add_argument("--output-dir", type=Path, required=True)
 
     build = subparsers.add_parser("build")
@@ -129,63 +134,45 @@ def _accepted_manifest(
     return manifest
 
 
+def _field(value: object, name: str) -> object:
+    return value[name] if isinstance(value, Mapping) else value
+
+
 def _path(value: object, name: str) -> Path:
-    if type(value) is not str:
+    item = _field(value, name)
+    if type(item) is not str:
         raise ManifestError(f"{name} must be a path string")
-    return Path(value)
+    return Path(item)
 
 
 def _string(value: object, name: str) -> str:
-    if type(value) is not str:
+    item = _field(value, name)
+    if type(item) is not str:
         raise ManifestError(f"{name} must be a string")
-    return value
+    return item
 
 
-def _reject(
-    manifest_path: Path,
-    *,
-    phase: str,
-    error: Exception | None = None,
-    reasons: Sequence[Mapping[str, object]] = (),
-) -> int:
-    manifest: dict[str, Any] = {
-        "Phase": phase,
-        "Status": "Rejected",
-        "RejectReasons": list(reasons),
-    }
-    if error is not None:
-        manifest["Error"] = f"{type(error).__name__}: {error}"
-    _write_json_exclusive(manifest_path, manifest)
-    return 2
+def _load_instance(path: Path) -> KernelInstance:
+    return parse_instance(json.loads(path.read_text(encoding="utf-8")))
 
 
-def _generate(solution_path: Path, output_dir: Path) -> int:
+def _generate(kernel_spec_key_path: Path, output_dir: Path) -> int:
     manifest_path = output_dir / "generate.json"
     if manifest_path.exists():
         raise ManifestError(f"refusing to overwrite {manifest_path}")
     output_dir.mkdir(parents=True, exist_ok=True)
-    key = SolutionKey.from_json_file(solution_path)
+    instance = _load_instance(kernel_spec_key_path)
 
-    reasons = validate_solution(key)
-    if reasons:
-        return _reject(
-            manifest_path,
-            phase="Generate",
-            reasons=tuple(reason.to_mapping() for reason in reasons),
-        )
-
-    solution_output = (output_dir / "solution.json").resolve()
+    kernel_spec_output = (output_dir / "kernel-spec.json").resolve()
     assembly = (output_dir / "kernel.s").resolve()
-    if solution_output.exists() or assembly.exists():
-        raise ManifestError("refusing to overwrite generated solution or assembly")
+    if kernel_spec_output.exists() or assembly.exists():
+        raise ManifestError("refusing to overwrite generated KernelSpec or assembly")
     toolchain = Toolchain.discover()
-    writer_type = {
-        "MMQForward": ForwardKernelWriterAssembly,
-        "MMQBackward": BackwardKernelWriterAssembly,
-        "GroupedMMQBackward": GroupedBackwardKernelWriterAssembly,
-    }[key.problem_type.operation_type]
-    source = writer_type(key, toolchain).source()
-    _write_json_exclusive(solution_output, key.to_mapping())
+    source = writer_for_instance(instance, toolchain).source()
+    mapping = mapping_for_instance(instance)
+    kernel_hash = instance_hash(instance)
+    kernel_name = instance_name(instance)
+    _write_json_exclusive(kernel_spec_output, mapping)
     assembly.parent.mkdir(parents=True, exist_ok=True)
     with assembly.open("x", encoding="utf-8") as handle:
         handle.write(source)
@@ -194,10 +181,10 @@ def _generate(solution_path: Path, output_dir: Path) -> int:
         {
             "Phase": "Generate",
             "Status": "Accepted",
-            "SolutionKey": key.to_mapping(),
-            "SolutionHash": key.hash,
-            "KernelName": key.kernel_name,
-            "SolutionPath": str(solution_output),
+            "KernelSpecKey": mapping,
+            "KernelSpecHash": kernel_hash,
+            "KernelName": kernel_name,
+            "KernelSpecPath": str(kernel_spec_output),
             "AssemblyPath": str(assembly),
             "AssemblySHA256": _sha256(assembly),
         },
@@ -209,23 +196,23 @@ _GENERATE_KEYS = frozenset(
     {
         "Phase",
         "Status",
-        "SolutionKey",
-        "SolutionHash",
+        "KernelSpecKey",
+        "KernelSpecHash",
         "KernelName",
-        "SolutionPath",
+        "KernelSpecPath",
         "AssemblyPath",
         "AssemblySHA256",
     }
 )
 
 
-def _key_from_manifest(manifest: Mapping[str, object]) -> SolutionKey:
-    key = SolutionKey.from_mapping(manifest["SolutionKey"])
-    if manifest.get("SolutionHash") != key.hash:
-        raise ManifestError("manifest SolutionHash does not match SolutionKey")
-    if manifest.get("KernelName") != key.kernel_name:
-        raise ManifestError("manifest KernelName does not match SolutionKey")
-    return key
+def _instance_from_manifest(manifest: Mapping[str, object]) -> KernelInstance:
+    instance = parse_instance(manifest["KernelSpecKey"])
+    if manifest.get("KernelSpecHash") != instance_hash(instance):
+        raise ManifestError("manifest KernelSpecHash does not match KernelSpecKey")
+    if manifest.get("KernelName") != instance_name(instance):
+        raise ManifestError("manifest KernelName does not match KernelSpecKey")
+    return instance
 
 
 def _build(generate_manifest: Path, output_dir: Path | None) -> int:
@@ -234,9 +221,9 @@ def _build(generate_manifest: Path, output_dir: Path | None) -> int:
         phase="Generate",
         keys=_GENERATE_KEYS,
     )
-    key = _key_from_manifest(manifest)
-    assembly = _path(manifest["AssemblyPath"], "AssemblyPath")
-    expected_assembly_hash = _string(manifest["AssemblySHA256"], "AssemblySHA256")
+    instance = _instance_from_manifest(manifest)
+    assembly = _path(manifest, "AssemblyPath")
+    expected_assembly_hash = _string(manifest, "AssemblySHA256")
     destination = output_dir or generate_manifest.parent
     destination.mkdir(parents=True, exist_ok=True)
     build_manifest = destination / "build.json"
@@ -245,12 +232,7 @@ def _build(generate_manifest: Path, output_dir: Path | None) -> int:
     for path in (build_manifest, object_path, code_object):
         if path.exists():
             raise ManifestError(f"refusing to overwrite {path}")
-    if _sha256(assembly) != expected_assembly_hash:
-        return _reject(
-            build_manifest,
-            phase="Build",
-            error=ManifestError("assembly hash does not match generate manifest"),
-        )
+    assert _sha256(assembly) == expected_assembly_hash
 
     toolchain = Toolchain.discover()
     with tempfile.TemporaryDirectory(prefix="ggtensile-build-") as temporary:
@@ -267,9 +249,9 @@ def _build(generate_manifest: Path, output_dir: Path | None) -> int:
         {
             "Phase": "Build",
             "Status": "Accepted",
-            "SolutionKey": key.to_mapping(),
-            "SolutionHash": key.hash,
-            "KernelName": key.kernel_name,
+            "KernelSpecKey": mapping_for_instance(instance),
+            "KernelSpecHash": instance_hash(instance),
+            "KernelName": instance_name(instance),
             "GenerateManifestPath": str(generate_manifest.resolve()),
             "AssemblyPath": str(assembly.resolve()),
             "AssemblySHA256": expected_assembly_hash,
@@ -284,8 +266,8 @@ _BUILD_KEYS = frozenset(
     {
         "Phase",
         "Status",
-        "SolutionKey",
-        "SolutionHash",
+        "KernelSpecKey",
+        "KernelSpecHash",
         "KernelName",
         "GenerateManifestPath",
         "AssemblyPath",
@@ -296,19 +278,63 @@ _BUILD_KEYS = frozenset(
 )
 
 
+def _inspect_instance_artifact(
+    instance: KernelInstance, code_object: Path, toolchain: Toolchain
+) -> ArtifactInspection:
+    family = family_for_instance(instance)
+    problem = instance.problem
+    spec = instance.kernel_spec
+    kernel_name = instance_name(instance)
+    if family is KernelFamily.GroupedForward:
+        from .grouped_mmq_fwd_inspection import inspect_grouped_forward_artifact
+        from .grouped_mmq_fwd_model import GroupedForwardProblem
+        from .grouped_mmq_fwd_spec import GroupedForwardKernelSpec
+
+        assert isinstance(problem, GroupedForwardProblem)
+        assert isinstance(spec, GroupedForwardKernelSpec)
+        return inspect_grouped_forward_artifact(
+            problem, spec, kernel_name, code_object, toolchain
+        )
+    if family is KernelFamily.GroupedForwardPair:
+        from .grouped_mmq_fwd_pair_inspection import (
+            inspect_grouped_forward_pair_artifact,
+        )
+        from .grouped_mmq_fwd_pair_model import GroupedForwardPairProblem
+        from .grouped_mmq_fwd_pair_spec import GroupedForwardPairKernelSpec
+
+        assert isinstance(problem, GroupedForwardPairProblem)
+        assert isinstance(spec, GroupedForwardPairKernelSpec)
+        return inspect_grouped_forward_pair_artifact(
+            problem, spec, kernel_name, code_object, toolchain
+        )
+    if family is KernelFamily.GroupedBackwardPair:
+        from .grouped_mmq_bwd_pair_inspection import (
+            inspect_grouped_backward_pair_artifact,
+        )
+        from .grouped_mmq_bwd_pair_model import GroupedBackwardPairProblem
+        from .grouped_mmq_bwd_pair_spec import GroupedBackwardPairKernelSpec
+
+        assert isinstance(problem, GroupedBackwardPairProblem)
+        assert isinstance(spec, GroupedBackwardPairKernelSpec)
+        return inspect_grouped_backward_pair_artifact(
+            problem, spec, kernel_name, code_object, toolchain
+        )
+    return inspect_artifact(instance, code_object, toolchain)
+
+
 def _inspect(build_manifest: Path, output: Path | None) -> int:
     manifest = _accepted_manifest(
         build_manifest,
         phase="Build",
         keys=_BUILD_KEYS,
     )
-    key = _key_from_manifest(manifest)
-    code_object = _path(manifest["CodeObjectPath"], "CodeObjectPath")
+    instance = _instance_from_manifest(manifest)
+    code_object = _path(manifest, "CodeObjectPath")
     inspection_manifest = output or build_manifest.with_name("inspect.json")
     if inspection_manifest.exists():
         raise ManifestError(f"refusing to overwrite {inspection_manifest}")
 
-    inspection = inspect_artifact(key, code_object, Toolchain.discover())
+    inspection = _inspect_instance_artifact(instance, code_object, Toolchain.discover())
     _write_json_exclusive(
         inspection_manifest,
         {
@@ -333,33 +359,30 @@ def _enumerate_forward(
     entries: list[dict[str, object]] = []
     for domain in candidate_domains(quant_type, problem_size):
         groups = knob_groups or domain.knob_groups
-        for candidate in candidate_neighbors(domain.seed, groups):
+        for candidate in candidate_neighbors(domain.kernel_spec, quant_type, groups):
             pair = ForwardExactPairManifest(quant_type, problem_size, candidate)
-            reasons = validate_solution(pair.solution_key)
-            if reasons:
-                detail = "; ".join(
-                    f"{reason.rule_id}: {reason.message}" for reason in reasons
-                )
-                raise ManifestError(f"enumerated invalid candidate: {detail}")
+            instance = pair.kernel_instance
+            validate_instance(instance)
             candidate_dir = output_dir / pair.candidate_hash
             candidate_dir.mkdir()
             _write_json_exclusive(
-                candidate_dir / "solution-key.json", pair.solution_key.to_mapping()
+                candidate_dir / "kernel-spec-key.json",
+                mapping_for_instance(instance),
             )
             _write_json_exclusive(
                 candidate_dir / "candidate.json",
                 {
                     **pair.to_mapping(),
                     "ExactPairHash": pair.exact_pair_hash,
-                    "SolutionKeyPath": "solution-key.json",
+                    "KernelSpecKeyPath": "kernel-spec-key.json",
                 },
             )
             entries.append(
                 {
                     "CandidateHash": pair.candidate_hash,
                     "ExactPairHash": pair.exact_pair_hash,
-                    "SolutionHash": pair.solution_key.hash,
-                    "KernelName": pair.solution_key.kernel_name,
+                    "KernelSpecHash": instance_hash(instance),
+                    "KernelName": instance_name(instance),
                     "Directory": pair.candidate_hash,
                 }
             )
@@ -385,39 +408,32 @@ def _enumerate_forward_q6(
     if output_dir.exists() and any(output_dir.iterdir()):
         raise ManifestError(f"refusing to populate nonempty {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
-    seed = q6_schedule_from_solution(
-        ForwardSolution.q6_k_structured_decoded(macro_tile0=macro_tile)
-    )
+    seed = q6_schedule_seed(macro_tile)
     candidates = q6_schedule_neighbors(seed, knob_groups)
     entries: list[dict[str, object]] = []
     for schedule in candidates:
         pair = Q6ExactPairManifest(problem_size, schedule)
-        key = pair.solution_key
-        reasons = validate_solution(key)
-        if reasons:
-            detail = "; ".join(
-                f"{reason.rule_id}: {reason.message}" for reason in reasons
-            )
-            raise ManifestError(f"enumerated invalid Q6 candidate: {detail}")
+        instance = pair.kernel_instance
+        validate_instance(instance)
         candidate_dir = output_dir / pair.candidate_hash
         candidate_dir.mkdir()
-        solution_path = candidate_dir / "solution-key.json"
+        kernel_spec_key_path = candidate_dir / "kernel-spec-key.json"
         manifest_path = candidate_dir / "candidate.json"
-        _write_json_exclusive(solution_path, key.to_mapping())
+        _write_json_exclusive(kernel_spec_key_path, mapping_for_instance(instance))
         _write_json_exclusive(
             manifest_path,
             {
                 **pair.to_mapping(),
                 "ExactPairHash": pair.exact_pair_hash,
-                "SolutionKeyPath": "solution-key.json",
+                "KernelSpecKeyPath": "kernel-spec-key.json",
             },
         )
         entries.append(
             {
                 "CandidateHash": pair.candidate_hash,
                 "ExactPairHash": pair.exact_pair_hash,
-                "SolutionHash": key.hash,
-                "KernelName": key.kernel_name,
+                "KernelSpecHash": instance_hash(instance),
+                "KernelName": instance_name(instance),
                 "Directory": pair.candidate_hash,
             }
         )
@@ -438,7 +454,7 @@ def _enumerate_forward_q6(
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     if arguments.command == "generate":
-        return _generate(arguments.solution_key, arguments.output_dir)
+        return _generate(arguments.kernel_spec_key, arguments.output_dir)
     if arguments.command == "build":
         return _build(arguments.generate_manifest, arguments.output_dir)
     if arguments.command == "inspect":

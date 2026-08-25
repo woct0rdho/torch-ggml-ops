@@ -8,11 +8,10 @@ from typing import Literal, Protocol
 import pytest
 
 from tools.ggtensile.campaign import DeploymentCatalog, load_catalog
+from tools.ggtensile.identity import KernelFamily
 from tools.ggtensile.inspection import ArtifactInspection, inspect_artifact
-from tools.ggtensile.model import (
-    ProblemType,
-    SolutionKey,
-)
+from tools.ggtensile.kernel_instance import KernelInstance
+from tools.ggtensile.model import ProblemSize, ProblemType
 from tools.ggtensile.toolchain import Toolchain
 
 _CONFIG_DIR = Path("tools/ggtensile/configs")
@@ -182,7 +181,7 @@ MMQ_FWD_INVENTORY_CASES = (
     GGTensileInventoryCase(
         "fwd",
         "Q3_K",
-        12,
+        6,
         frozenset({2048, 8192, 32768}),
         1,
     ),
@@ -261,10 +260,54 @@ def load_inventory_case(case: GGTensileInventoryCase) -> DeploymentCatalog:
     return load_catalog(case.catalog_path)
 
 
-def selected_solution_keys(
+def selected_instances(
     catalog: DeploymentCatalog,
-) -> tuple[SolutionKey, ...]:
-    return catalog.solution_keys
+) -> tuple[KernelInstance, ...]:
+    if not all(
+        instance.family in {KernelFamily.OrdinaryForward, KernelFamily.OrdinaryBackward}
+        for instance in catalog.instances
+    ):
+        raise TypeError("ordinary inventory contains a non-ordinary instance")
+    return catalog.instances
+
+
+def ordinary_forward_instance(
+    quant_type: str,
+    problem_size: ProblemSize,
+    kernel_spec: object,
+) -> KernelInstance:
+    return KernelInstance.for_gfx1151(
+        KernelFamily.OrdinaryForward,
+        ProblemType.mmq_forward(quant_type),
+        problem_size,
+        kernel_spec,
+    )
+
+
+def ordinary_backward_instance(
+    quant_type: str,
+    problem_size: ProblemSize,
+    kernel_spec: object,
+) -> KernelInstance:
+    return KernelInstance.for_gfx1151(
+        KernelFamily.OrdinaryBackward,
+        ProblemType.mmq_backward(quant_type),
+        problem_size,
+        kernel_spec,
+    )
+
+
+def grouped_backward_instance(
+    quant_type: str,
+    problem_size: ProblemSize,
+    kernel_spec: object,
+) -> KernelInstance:
+    return KernelInstance.for_gfx1151(
+        KernelFamily.GroupedBackward,
+        ProblemType.grouped_mmq_backward(quant_type),
+        problem_size,
+        kernel_spec,
+    )
 
 
 class AssemblyWriter(Protocol):
@@ -279,7 +322,7 @@ class BuiltArtifact:
 
 
 def build_and_inspect(
-    key: SolutionKey,
+    instance: KernelInstance,
     writer: AssemblyWriter,
     toolchain: Toolchain,
     output_dir: Path,
@@ -295,7 +338,7 @@ def build_and_inspect(
     return BuiltArtifact(
         source_hash,
         assembly.read_text(encoding="utf-8"),
-        inspect_artifact(key, code_object, toolchain),
+        inspect_artifact(instance, code_object, toolchain),
     )
 
 

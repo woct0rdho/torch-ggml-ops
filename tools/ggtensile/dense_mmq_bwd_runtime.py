@@ -4,15 +4,14 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
-from .model import SolutionKey
+from .mmq_bwd_spec import BackwardKernelSpec
+from .model import ProblemSize
 from .runtime import (
     BackwardModule,
     HIPRuntimeError,
     _find_installed_kernel,
     _resolve_code_object,
 )
-
-_PREFIX = "torch_ggml_ops_mmq_gfx1151_v1_"
 
 
 @dataclass(frozen=True)
@@ -36,25 +35,24 @@ _Q8_EXACT = {
 }
 
 
-def _select_control(key: SolutionKey) -> _DenseControl:
-    quant_type = key.problem_type.quant_data_type
-    size = key.problem_size
+def _select_control(problem_size: ProblemSize, quant_type: str) -> _DenseControl:
+    size = problem_size
     if quant_type in {"Q3_K", "Q4_K", "Q5_K"}:
         return _DenseControl(
-            f"{_PREFIX}dense_bwd_{quant_type.lower()}_nt64_ki16_g0",
+            f"dense_bwd_{quant_type.lower()}_nt64_ki16_g0",
             n_tiles=4,
             k_iteration=16,
         )
     if quant_type == "Q6_K":
         if size.m == 64:
             return _DenseControl(
-                f"{_PREFIX}dense_bwd_q6_k_m64_nt32_ki64_bounded",
+                "dense_bwd_q6_k_m64_nt32_ki64_bounded",
                 n_tiles=2,
                 k_iteration=64,
             )
         if size.m in {128, 256}:
             return _DenseControl(
-                f"{_PREFIX}dense_bwd_q6_k_m{size.m}_nt64_ki32_bounded",
+                f"dense_bwd_q6_k_m{size.m}_nt64_ki32_bounded",
                 n_tiles=4,
                 k_iteration=32,
                 m_tiles_per_wave=2,
@@ -64,14 +62,14 @@ def _select_control(key: SolutionKey) -> _DenseControl:
         label = _Q8_EXACT.get((size.k, size.n))
         if label is not None:
             return _DenseControl(
-                f"{_PREFIX}dense_bwd_q8_0_exact_{label}",
+                f"dense_bwd_q8_0_exact_{label}",
                 n_tiles=4,
                 k_iteration=16,
                 full_tiles=True,
             )
         if (size.k, size.n) == (129280, 4096) and size.m > 0:
             return _DenseControl(
-                f"{_PREFIX}dense_bwd_q8_0_exact_lm_head_"
+                "dense_bwd_q8_0_exact_lm_head_"
                 f"{'full' if size.m % 64 == 0 else 'bounded'}",
                 n_tiles=4,
                 k_iteration=16,
@@ -88,27 +86,31 @@ class InstalledDenseBackwardModule(BackwardModule):
 
     def __init__(
         self,
-        solution_key: SolutionKey,
+        problem_size: ProblemSize,
+        quant_type: str,
+        kernel_spec: BackwardKernelSpec,
         code_object: Path | None = None,
         hip_library: Path | None = None,
     ) -> None:
-        self.control = _select_control(solution_key)
+        self.control = _select_control(problem_size, quant_type)
         selected = (
             _resolve_code_object(code_object, self.control.symbol)
             if code_object is not None
             else _find_installed_kernel(self.control.symbol)
         )
         super().__init__(
-            solution_key,
+            problem_size,
+            quant_type,
+            kernel_spec,
             selected,
+            self.control.symbol,
             hip_library,
-            kernel_name=self.control.symbol,
         )
 
     def _launch_configuration(
         self,
     ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
-        size = self.solution_key.problem_size
+        size = self.problem_size
         m_per_block = 16 * self.control.m_tiles_per_wave * self.control.active_waves
         n_per_block = 16 * self.control.n_tiles
         m_blocks = math.ceil(size.m / m_per_block)

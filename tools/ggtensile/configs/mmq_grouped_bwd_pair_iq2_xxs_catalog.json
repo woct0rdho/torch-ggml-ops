@@ -1,0 +1,155 @@
+{
+  "KernelFamily": "GroupedBackwardPair",
+  "Target": {
+    "ISA": [
+      11,
+      5,
+      1
+    ],
+    "WavefrontSize": 32,
+    "MatrixInstructionSet": "WmmaV1",
+    "CodeObjectVersion": 5
+  },
+  "ProblemType": {
+    "QuantDataType": "IQ2_XXS",
+    "DataTypeA": "BFloat16",
+    "DataTypeB": "IQ2_XXS",
+    "DestinationDataType": "BFloat16",
+    "ComputeDataType": "Float32",
+    "TransposeA": false,
+    "TransposeB": false
+  },
+  "KernelSpecs": [
+    {
+      "Compute": {
+        "Geometry": {
+          "WorkGroup": [
+            32,
+            4,
+            1
+          ],
+          "MIWaveTile": [
+            1,
+            4
+          ],
+          "DepthU": 32,
+          "WorkGroupMapping": 1
+        },
+        "Memory": {
+          "LdsLayout": {
+            "Kind": "Swizzled",
+            "LdsSwizzleChunkB": 8
+          }
+        },
+        "Pipeline": {
+          "PrefetchGlobalRead": 2,
+          "PrefetchLocalRead": 1,
+          "DoubleBufferLds": false,
+          "PrefetchActivation": true,
+          "InterleaveWmmaWaits": true,
+          "PrefetchPackedWeight": true,
+          "PrefetchNextPackedWeight": true,
+          "PackedWeightLaneShare": 1
+        },
+        "Store": {
+          "Priority": "Raised"
+        }
+      },
+      "Projection": {
+        "DualLds": true,
+        "CodebookStorage": "Lds",
+        "SplitFullTiles": true,
+        "PointerMode": "Direct",
+        "ReadConcurrency": "Concurrent",
+        "ActivationPrefetch": true,
+        "PipelineK": true
+      },
+      "Ownership": {
+        "Kind": "Serial"
+      }
+    },
+    {
+      "Compute": {
+        "Geometry": {
+          "WorkGroup": [
+            32,
+            4,
+            1
+          ],
+          "MIWaveTile": [
+            2,
+            4
+          ],
+          "DepthU": 32,
+          "WorkGroupMapping": 1
+        },
+        "Memory": {
+          "LdsLayout": {
+            "Kind": "Swizzled",
+            "LdsSwizzleChunkB": 8
+          }
+        },
+        "Pipeline": {
+          "PrefetchGlobalRead": 2,
+          "PrefetchLocalRead": 1,
+          "DoubleBufferLds": false,
+          "PrefetchActivation": true,
+          "InterleaveWmmaWaits": false,
+          "PrefetchPackedWeight": true,
+          "PrefetchNextPackedWeight": false,
+          "PackedWeightLaneShare": 1
+        },
+        "Store": {
+          "Priority": "Raised"
+        }
+      },
+      "Projection": {
+        "DualLds": true,
+        "CodebookStorage": "Lds",
+        "SplitFullTiles": true,
+        "PointerMode": "Direct",
+        "ReadConcurrency": "Concurrent",
+        "ActivationPrefetch": true,
+        "PipelineK": false
+      },
+      "Ownership": {
+        "Kind": "Serial"
+      }
+    }
+  ],
+  "ExactLogic": [
+    {
+      "Problem": {
+        "M": 12288,
+        "N": 4096,
+        "K": 2048,
+        "ProjectionCount": 2,
+        "PhysicalExpertCount": 256,
+        "MaxRouteEntries": 256
+      },
+      "KernelSpecIndex": 0
+    },
+    {
+      "Problem": {
+        "M": 49152,
+        "N": 4096,
+        "K": 2048,
+        "ProjectionCount": 2,
+        "PhysicalExpertCount": 256,
+        "MaxRouteEntries": 256
+      },
+      "KernelSpecIndex": 1
+    },
+    {
+      "Problem": {
+        "M": 196608,
+        "N": 4096,
+        "K": 2048,
+        "ProjectionCount": 2,
+        "PhysicalExpertCount": 256,
+        "MaxRouteEntries": 256
+      },
+      "KernelSpecIndex": 1
+    }
+  ]
+}

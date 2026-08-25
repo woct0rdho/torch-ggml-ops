@@ -24,23 +24,15 @@ class PackedScaleMinimumDirectLowering:
 
     context: ForwardLoweringContext
 
-    OPERAND_SOURCE: ClassVar[str] = "Global"
     KERNARG: ClassVar[int] = 4
     LOOP_COUNTER: ClassVar[int] = 10
 
     def body(self) -> str:
-        operand_source = self.context.state.kernel_spec.global_memory.operand_source
-        if operand_source != self.OPERAND_SOURCE:
-            raise TypeError(
-                f"unsupported direct packed operand source {operand_source!r}"
-            )
-        return self._body_global()
+        physical = self.context.state.physical_plan
+        assert isinstance(physical, PackedScaleMinimumDirectPhysicalPlan)
+        return self._body_global(physical)
 
-    def _body_global(self) -> str:
-        physical = cast(
-            PackedScaleMinimumDirectPhysicalPlan,
-            self.context.state.physical_plan,
-        )
+    def _body_global(self, physical: PackedScaleMinimumDirectPhysicalPlan) -> str:
         registers = physical.registers
         activation_metadata = physical.activation_metadata
         asm = Assembly()

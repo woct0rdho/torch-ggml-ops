@@ -1,0 +1,82 @@
+{
+  "KernelFamily": "FixedGroupedForward",
+  "Target": {
+    "ISA": [
+      11,
+      5,
+      1
+    ],
+    "WavefrontSize": 32,
+    "MatrixInstructionSet": "WmmaV1",
+    "CodeObjectVersion": 5
+  },
+  "ProblemType": {
+    "QuantDataType": "Q8_0",
+    "DataTypeA": "Q8_1",
+    "DataTypeB": "Q8_0",
+    "DestinationDataType": "BFloat16",
+    "ComputeDataType": "Float32",
+    "TransposeA": false,
+    "TransposeB": true,
+    "ActivationLayout": "F32_D4"
+  },
+  "KernelSpecs": [
+    {
+      "Geometry": {
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "MatrixInstruction": [
+          16,
+          16,
+          16,
+          1,
+          1,
+          1,
+          4,
+          4,
+          1
+        ],
+        "MacroTileTokens": 64,
+        "MacroTileFeatures": 64,
+        "DepthU": 32
+      },
+      "Lowering": {
+        "OperandSource": "Q8SmallMTiledLds",
+        "LdsAddressHoist": "CompactDepth32WeightRows",
+        "FixedAddressHoist": "ReductionLoopAndWeightStage"
+      }
+    }
+  ],
+  "ExactLogic": [
+    {
+      "Problem": {
+        "M": 2048,
+        "N": 1024,
+        "K": 4096,
+        "GroupCount": 8
+      },
+      "KernelSpecIndex": 0
+    },
+    {
+      "Problem": {
+        "M": 8192,
+        "N": 1024,
+        "K": 4096,
+        "GroupCount": 8
+      },
+      "KernelSpecIndex": 0
+    },
+    {
+      "Problem": {
+        "M": 32768,
+        "N": 1024,
+        "K": 4096,
+        "GroupCount": 8
+      },
+      "KernelSpecIndex": 0
+    }
+  ]
+}

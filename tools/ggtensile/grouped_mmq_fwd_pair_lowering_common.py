@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from .grouped_mmq_fwd_model import GroupedActivationAddressing
-from .grouped_mmq_fwd_pair_model import GroupedForwardPairSolutionKey
+from .grouped_mmq_fwd_pair_model import GroupedForwardPairProblem
 from .grouped_mmq_fwd_pair_physical import (
     GroupedIQ2SPairHalfLdsLayout,
     GroupedIQ2SPairPhysicalPlan,
@@ -30,7 +30,8 @@ GroupedPairHalfLdsLayout = (
 
 @dataclass(frozen=True)
 class GroupedForwardPairLoweringContext:
-    solution_key: GroupedForwardPairSolutionKey
+    kernel_name: str
+    problem: GroupedForwardPairProblem
     state: DerivedGroupedForwardPairState
 
 
@@ -102,7 +103,7 @@ class GroupedPairK128Mechanics:
         stage_index: int,
     ) -> None:
         if (
-            self.context.solution_key.solution.activation_addressing
+            self.context.state.kernel_spec.activation_addressing
             is GroupedActivationAddressing.AggregateRowsTiledLinear
         ):
             self.emit_linear_activation_stage(

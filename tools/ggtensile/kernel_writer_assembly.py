@@ -19,8 +19,7 @@ class RegisterLifetime:
     last_stage: int
 
     def __post_init__(self) -> None:
-        if self.first_stage < 0 or self.last_stage < self.first_stage:
-            raise ValueError("invalid register lifetime")
+        assert not (self.first_stage < 0 or self.last_stage < self.first_stage)
 
     def overlaps(self, other: "RegisterLifetime") -> bool:
         return not (
@@ -37,10 +36,8 @@ class RegisterRole:
     minimum_register: int = 0
 
     def __post_init__(self) -> None:
-        if not self.name or self.width <= 0:
-            raise ValueError("register role requires a name and positive width")
-        if self.alignment <= 0 or self.minimum_register < 0:
-            raise ValueError("invalid register role alignment or minimum")
+        assert not (not self.name or self.width <= 0)
+        assert not (self.alignment <= 0 or self.minimum_register < 0)
 
 
 @dataclass(frozen=True)
@@ -69,15 +66,14 @@ class DeterministicRegisterPlan:
         max_registers: int,
         reserved: tuple[RegisterAssignment, ...] = (),
     ) -> "DeterministicRegisterPlan":
-        if max_registers <= 0:
-            raise ValueError("max_registers must be positive")
-        if len(role_order) != len(set(role_order)) or set(role_order) != set(roles):
-            raise ValueError("role_order must name every register role exactly once")
+        assert max_registers > 0
+        assert not (
+            len(role_order) != len(set(role_order)) or set(role_order) != set(roles)
+        )
         assigned = list(reserved)
         for name in role_order:
             role = roles[name]
-            if role.name != name:
-                raise ValueError("register role mapping key does not match role name")
+            assert role.name == name
             candidate = _align_register(role.minimum_register, role.alignment)
             while candidate + role.width <= max_registers:
                 proposed = range(candidate, candidate + role.width)
@@ -91,7 +87,7 @@ class DeterministicRegisterPlan:
                     break
                 candidate = _align_register(candidate + 1, role.alignment)
             else:
-                raise ValueError(f"register role {name!r} exceeds the register limit")
+                raise AssertionError
         register_count = max(
             (assignment.registers.stop for assignment in assigned),
             default=0,
@@ -109,10 +105,8 @@ class DeterministicRegisterPool:
     """Explicit first-fit checkout/checkin pool over a fixed register set."""
 
     def __init__(self, registers: tuple[int, ...]) -> None:
-        if not registers or any(register < 0 for register in registers):
-            raise ValueError("register pool requires nonnegative registers")
-        if len(registers) != len(set(registers)):
-            raise ValueError("register pool entries must be unique")
+        assert not (not registers or any(register < 0 for register in registers))
+        assert len(registers) == len(set(registers))
         self._registers = tuple(sorted(registers))
         self._assignments: dict[str, RegisterAssignment] = {}
         self._owners: dict[int, str] = {}
@@ -123,8 +117,7 @@ class DeterministicRegisterPool:
         *,
         preferred_register: int | None = None,
     ) -> RegisterAssignment:
-        if role.name in self._assignments:
-            raise ValueError(f"register role {role.name!r} is already checked out")
+        assert role.name not in self._assignments
         candidates = self._registers
         if preferred_register is not None:
             candidates = (preferred_register,)
@@ -141,20 +134,13 @@ class DeterministicRegisterPool:
                 for register in registers:
                     self._owners[register] = role.name
                 return assignment
-        preference = (
-            f" at v{preferred_register}" if preferred_register is not None else ""
-        )
-        raise ValueError(
-            f"register role {role.name!r} cannot be checked out{preference}"
-        )
+        raise AssertionError
 
     def checkin(self, role_name: str) -> RegisterAssignment:
-        if role_name not in self._assignments:
-            raise ValueError(f"register role {role_name!r} is not checked out")
+        assert role_name in self._assignments
         assignment = self._assignments.pop(role_name)
         for register in assignment.registers:
-            if self._owners.pop(register, None) != role_name:
-                raise ValueError(f"register pool ownership mismatch for {role_name!r}")
+            assert self._owners.pop(register, None) == role_name
         return assignment
 
     def assignment(self, role_name: str) -> RegisterAssignment:
@@ -223,6 +209,14 @@ def add_kernel_abi_arguments(signature: _Signature, abi: KernelAbi) -> None:
 
 
 @dataclass(frozen=True)
+class LoweringResult:
+    """Format-neutral body and ordered sections emitted by one lowering."""
+
+    body: str
+    trailing_sections: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class KernelEnvelope:
     module_name: str
     kernel_name: str
@@ -277,6 +271,66 @@ class KernelEnvelope:
         return source
 
 
+@dataclass(frozen=True)
+class KernelEmissionPlan:
+    """Complete deterministic rendering plan produced by a family writer."""
+
+    module_name: str
+    kernel_name: str
+    isa: tuple[int, int, int]
+    wavefront_size: int
+    temporary_prefix: str
+    code_object_version: int
+    group_segment_size: int
+    sgpr_work_group: tuple[int, int, int]
+    vgpr_work_item: int
+    flat_workgroup_size: int
+    total_vgprs: int
+    total_sgprs: int
+    abi: KernelAbi
+    description: str
+    lowering: LoweringResult
+
+    def render(self, assembler: Path) -> str:
+        envelope = KernelEnvelope(
+            module_name=self.module_name,
+            kernel_name=self.kernel_name,
+            isa=self.isa,
+            wavefront_size=self.wavefront_size,
+            assembler=assembler,
+            temporary_prefix=self.temporary_prefix,
+            code_object_version=self.code_object_version,
+            group_segment_size=self.group_segment_size,
+            sgpr_work_group=self.sgpr_work_group,
+            vgpr_work_item=self.vgpr_work_item,
+            flat_workgroup_size=self.flat_workgroup_size,
+            total_vgprs=self.total_vgprs,
+            total_sgprs=self.total_sgprs,
+            abi=self.abi,
+            description=self.description,
+        )
+        envelope.initialize()
+        return envelope.render(
+            self.lowering.body,
+            trailing_sections=self.lowering.trailing_sections,
+        )
+
+
+class AssemblyKernelWriter:
+    """Common source rendering and atomic writing for family writers."""
+
+    assembler: Path
+
+    def emission_plan(self) -> KernelEmissionPlan:
+        raise NotImplementedError
+
+    def source(self) -> str:
+        return self.emission_plan().render(self.assembler)
+
+    def write(self, output: Path) -> str:
+        return write_assembly_source(output, self.source())
+
+
 def initialize_rocisa(
     isa: tuple[int, int, int],
     wavefront_size: int,
@@ -311,8 +365,7 @@ def emit_pointer_kernarg_loads(
         for item in abi.layout
         if item.argument.kind is KernelArgumentKind.GlobalBuffer
     )
-    if len(pointers) < 3:
-        raise ValueError("kernel ABI requires three leading pointer arguments")
+    assert len(pointers) >= 3
     for index, pointer in enumerate(pointers[:3]):
         first = kernarg + 2 * index
         assembly.inst(

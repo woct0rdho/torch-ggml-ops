@@ -6,7 +6,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
-from typing import cast
 
 import gguf
 import numpy as np
@@ -14,7 +13,7 @@ import torch
 from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
 from tools.aiter_gmm_heuristics import gmm_config
-from tools.ggtensile.grouped_mmq_bwd_pair_model import GroupedBackwardPairSolutionKey
+from tools.ggtensile.grouped_mmq_bwd_pair_spec import GroupedBackwardPairKernelSpec
 from tools.ggtensile.quant_formats import BACKWARD_QUANT_FORMATS
 from tools.mmq_deployment_cases import DeploymentCase, model_path
 
@@ -301,9 +300,9 @@ def _route(case: DeploymentCase, device: torch.device) -> RouteData | None:
     # aggregate rows are below 128 rows per active route. Keep the neutral
     # route large enough to exercise that exact selected control.
     if case.operation == "GroupedBackwardPair":
-        macro_tile = cast(
-            GroupedBackwardPairSolutionKey, case.key
-        ).solution.compute.macro_tile0
+        spec = case.instance.kernel_spec
+        assert isinstance(spec, GroupedBackwardPairKernelSpec)
+        macro_tile = spec.compute.geometry.macro_tile0
         if macro_tile == 64:
             entries = min(256, case.rows // 128 + 1)
     preferred = (0, 2, 5, 7, 11, 13, 17, 19)

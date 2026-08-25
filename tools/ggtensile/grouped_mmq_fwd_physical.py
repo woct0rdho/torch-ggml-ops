@@ -14,7 +14,7 @@ from .mmq_fwd_physical import DecodedWeightLdsRegisterPlan
 from .mmq_fwd_spec import (
     DecodedLdsLayout,
     F16D4S4ActivationMetadata,
-    ForwardResourceUsage,
+    PhysicalResourceUsage,
 )
 from .quant_formats import Q8_1_F32_D4_BLOCK_BYTES
 
@@ -210,7 +210,7 @@ class GroupedDirectPhysicalPlan:
     activation_metadata: F16D4S4ActivationMetadata
     vector_registers: GroupedDirectVectorRegisterPlan
     scalar_registers: GroupedDirectScalarRegisterPlan
-    resources: ForwardResourceUsage
+    resources: PhysicalResourceUsage
 
 
 @dataclass(frozen=True)
@@ -324,7 +324,7 @@ class GroupedDecodedPhysicalPlan:
     registers: DecodedWeightLdsRegisterPlan
     scalar_registers: GroupedDecodedScalarRegisterPlan
     activation_staging: "GroupedActivationStagingPlan"
-    resources: ForwardResourceUsage
+    resources: PhysicalResourceUsage
 
 
 class GroupedActivationStageBounds(Enum):
@@ -363,18 +363,11 @@ class GroupedActivationStagingPlan:
     lds_write_dwords: int = 2
 
     def __post_init__(self) -> None:
-        if self.block_bytes <= 0 or self.participating_threads <= 0:
-            raise ValueError("grouped activation staging dimensions must be positive")
-        if self.vector_load_bytes != 4 or self.lds_write_dwords != 2:
-            raise ValueError(
-                "grouped decoded activation staging requires b32 loads and write2 LDS"
-            )
+        assert not (self.block_bytes <= 0 or self.participating_threads <= 0)
+        assert not (self.vector_load_bytes != 4 or self.lds_write_dwords != 2)
 
     def stage(self, row_tile_rows: int) -> GroupedActivationStage:
-        if row_tile_rows <= 0 or row_tile_rows % 16:
-            raise ValueError(
-                "grouped activation staging requires a positive multiple of 16 rows"
-            )
+        assert not (row_tile_rows <= 0 or row_tile_rows % 16)
         total_bytes = row_tile_rows * self.block_bytes
         bytes_per_round = self.vector_load_bytes * self.participating_threads
         loads_per_thread = (total_bytes + bytes_per_round - 1) // bytes_per_round
@@ -398,29 +391,37 @@ class GroupedActivationStagingPlan:
 class GroupedIQ2SFullWeightLdsLayout:
     """Compact J64 LDS ownership for decoded IQ2_S weights and F32_D4 rows."""
 
-    activation_rows: int = 64
-    weight_rows: int = 64
-    activation_row_stride: int = Q8_1_F32_D4_BLOCK_BYTES
-    half_payload_bytes: int = 128
-    half_payload_stride: int = 160
-    weight_scale_offset: int = 128
-    weight_scale_bytes: int = 32
-    weight_row_stride: int = 336
+    @property
+    def activation_rows(self) -> int:
+        return 64
 
-    def __post_init__(self) -> None:
-        if (
-            self.activation_rows,
-            self.weight_rows,
-            self.activation_row_stride,
-            self.half_payload_bytes,
-            self.half_payload_stride,
-            self.weight_scale_offset,
-            self.weight_scale_bytes,
-            self.weight_row_stride,
-        ) != (64, 64, Q8_1_F32_D4_BLOCK_BYTES, 128, 160, 128, 32, 336):
-            raise ValueError(
-                "grouped IQ2_S full-weight LDS layout has fixed dimensions"
-            )
+    @property
+    def weight_rows(self) -> int:
+        return 64
+
+    @property
+    def activation_row_stride(self) -> int:
+        return Q8_1_F32_D4_BLOCK_BYTES
+
+    @property
+    def half_payload_bytes(self) -> int:
+        return 128
+
+    @property
+    def half_payload_stride(self) -> int:
+        return 160
+
+    @property
+    def weight_scale_offset(self) -> int:
+        return 128
+
+    @property
+    def weight_scale_bytes(self) -> int:
+        return 32
+
+    @property
+    def weight_row_stride(self) -> int:
+        return 336
 
     @property
     def activation_bytes(self) -> int:
@@ -527,7 +528,7 @@ class GroupedIQ2SFullWeightPhysicalPlan:
     layout: GroupedIQ2SFullWeightLdsLayout
     registers: GroupedIQ2SFullWeightRegisterPlan
     scalar_registers: GroupedDecodedScalarRegisterPlan
-    resources: ForwardResourceUsage
+    resources: PhysicalResourceUsage
 
 
 def grouped_direct_physical_plan(
@@ -539,7 +540,7 @@ def grouped_direct_physical_plan(
         activation_metadata=F16D4S4ActivationMetadata(activation_block_bytes),
         vector_registers=vector,
         scalar_registers=scalar,
-        resources=ForwardResourceUsage(
+        resources=PhysicalResourceUsage(
             vector.declared_vgprs,
             scalar.declared_sgprs,
             0,
@@ -554,31 +555,24 @@ def grouped_decoded_physical_plan(
     activation_staging: GroupedActivationStagingPlan,
 ) -> GroupedDecodedPhysicalPlan:
     if quant_type == "Q2_K":
-        if macro_tile0 not in (32, 64, 128):
-            raise ValueError(
-                "grouped Q2 decoded plan requires a 32-, 64-, or 128-row tile"
-            )
+        assert macro_tile0 in (32, 64, 128)
         layout = DecodedLdsLayout.for_q2_activation_block_bytes(
             activation_block_bytes, macro_tile0
         )
     else:
-        if macro_tile0 not in (64, 128):
-            raise ValueError("grouped decoded plan requires a 64- or 128-row tile")
+        assert macro_tile0 in (64, 128)
         layout = DecodedLdsLayout.for_activation_block_bytes(
             activation_block_bytes, macro_tile0
         )
     vector = DecodedWeightLdsRegisterPlan.allocate(macro_tile0 // 16)
     scalar = GroupedDecodedScalarRegisterPlan.allocate()
-    if activation_staging.block_bytes != activation_block_bytes:
-        raise ValueError(
-            "grouped activation staging does not match the decoded LDS layout"
-        )
+    assert activation_staging.block_bytes == activation_block_bytes
     return GroupedDecodedPhysicalPlan(
         layout=layout,
         registers=vector,
         scalar_registers=scalar,
         activation_staging=activation_staging,
-        resources=ForwardResourceUsage(
+        resources=PhysicalResourceUsage(
             vector.declared_vgprs,
             scalar.declared_sgprs,
             layout.total_bytes,
@@ -594,7 +588,7 @@ def grouped_iq2_s_full_weight_physical_plan() -> GroupedIQ2SFullWeightPhysicalPl
         layout=layout,
         registers=vector,
         scalar_registers=scalar,
-        resources=ForwardResourceUsage(
+        resources=PhysicalResourceUsage(
             vector.declared_vgprs,
             scalar.declared_sgprs,
             layout.total_bytes,

@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass, replace
 
-from .grouped_mmq_bwd_pair_model import GroupedBackwardPairProjectionSchedule
 from .grouped_mmq_bwd_pair_spec import DerivedGroupedBackwardPairState
 from .grouped_mmq_bwd_physical import GroupedBackwardScalarPlan
 from .iq2_s_grid import IQ2_S_GRID_BYTES
@@ -98,7 +97,7 @@ def derive_grouped_backward_pair_physical_plan(
         codebook_base=first("codebook_base"),
         total_sgprs=plan.register_count,
     )
-    resources = replace(ordinary.resources, total_sgprs=plan.register_count)
+    resources = replace(ordinary.resources, sgprs=plan.register_count)
     ordinary = replace(ordinary, registers=registers, resources=resources)
     scalar = GroupedBackwardPairScalarPlan(
         expert_indices=first("expert_indices"),
@@ -118,26 +117,12 @@ def derive_grouped_backward_pair_physical_plan(
         second_grad_output=first("second_grad_output"),
         second_packed_weight=first("second_packed_weight"),
     )
+    policy = state.kernel_spec.projection_policy
     second_projection = None
-    if state.kernel_spec.projection_schedule in (
-        GroupedBackwardPairProjectionSchedule.DualLdsInterleavedDepthU,
-        GroupedBackwardPairProjectionSchedule.DualLdsGlobalCodebookInterleavedDepthU,
-        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitInterleavedDepthU,
-        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersInterleavedDepthU,
-        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU,
-        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersOverlapSecondReadPrefetchAInterleavedDepthU,
-        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU,
-        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
-        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
-        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
-        GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU,
-    ):
+    if policy.dual_lds:
         decoded_bytes = ordinary.lds.num_bytes
         codebook_offset = 2 * decoded_bytes
-        codebook_in_lds = state.kernel_spec.projection_schedule not in (
-            GroupedBackwardPairProjectionSchedule.DualLdsGlobalCodebookInterleavedDepthU,
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU,
-        )
+        codebook_in_lds = not policy.uses_global_codebook
         codebook_bytes = {
             "Q3_K": 0,
             "IQ2_S": IQ2_S_GRID_BYTES,
@@ -145,7 +130,7 @@ def derive_grouped_backward_pair_physical_plan(
         }[state.contract.quant_type]
         resources = replace(
             ordinary.resources,
-            lds_num_bytes=(
+            lds_bytes=(
                 codebook_offset + codebook_bytes if codebook_in_lds else codebook_offset
             ),
         )
@@ -160,11 +145,7 @@ def derive_grouped_backward_pair_physical_plan(
             ordinary,
             lds=replace(first_lds, base_offset=decoded_bytes),
         )
-        if state.kernel_spec.projection_schedule in (
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersInterleavedDepthU,
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchASerialReadsInterleavedDepthU,
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersOverlapSecondReadPrefetchAInterleavedDepthU,
-        ):
+        if policy.direct_second_pointers and not policy.concurrent_reads:
             second_projection = replace(
                 second_projection,
                 registers=replace(
@@ -172,24 +153,13 @@ def derive_grouped_backward_pair_physical_plan(
                     kernarg=scalar.second_grad_output,
                 ),
             )
-        if state.kernel_spec.projection_schedule in (
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsInterleavedDepthU,
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitConcurrentReadsPrefetchAInterleavedDepthU,
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU,
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU,
-            GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU,
-        ):
+        if policy.concurrent_reads:
             second_payload = (ordinary.registers.total_vgprs + 3) // 4 * 4
             second_registers = replace(
                 second_projection.registers,
                 kernarg=(
                     scalar.second_grad_output
-                    if state.kernel_spec.projection_schedule
-                    is GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitDirectPointersPrefetchAInterleavedDepthU
-                    or state.kernel_spec.projection_schedule
-                    is GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineInterleavedDepthU
-                    or state.kernel_spec.projection_schedule
-                    is GroupedBackwardPairProjectionSchedule.DualLdsFullTileSplitKPipelineGlobalCodebookInterleaveWmmaWaitsDepthU
+                    if policy.direct_second_pointers
                     else second_projection.registers.kernarg
                 ),
                 global_read_b=second_payload,
@@ -197,7 +167,7 @@ def derive_grouped_backward_pair_physical_plan(
                 quant_scale=second_payload + 5,
                 total_vgprs=second_payload + 9,
             )
-            resources = replace(resources, total_vgprs=second_payload + 9)
+            resources = replace(resources, vgprs=second_payload + 9)
             ordinary = replace(
                 ordinary,
                 registers=replace(

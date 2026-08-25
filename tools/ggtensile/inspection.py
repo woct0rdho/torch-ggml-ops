@@ -6,14 +6,23 @@ from typing import Any
 
 import yaml
 
-from .fixed_grouped_mmq_bwd_model import FixedBackwardSolutionKey
-from .fixed_grouped_mmq_bwd_spec import DerivedFixedBackwardState
-from .fixed_grouped_mmq_fwd_model import FixedForwardSolutionKey
-from .fixed_grouped_mmq_fwd_spec import DerivedFixedForwardState
+from .family_registry import instance_name
+from .fixed_grouped_mmq_bwd_model import FixedBackwardProblem
+from .fixed_grouped_mmq_bwd_spec import (
+    DerivedFixedBackwardState,
+    FixedBackwardKernelSpec,
+)
+from .fixed_grouped_mmq_fwd_model import FixedForwardProblem
+from .fixed_grouped_mmq_fwd_spec import (
+    DerivedFixedForwardState,
+    FixedForwardKernelSpec,
+)
 from .grouped_mmq_bwd_physical import derive_grouped_backward_physical_plan
 from .grouped_mmq_bwd_spec import (
     DerivedGroupedBackwardState,
+    GroupedBackwardKernelSpec,
 )
+from .identity import KernelFamily
 from .kernel_abi import (
     FIXED_GROUPED_BACKWARD_ABI,
     FIXED_GROUPED_FORWARD_ABI,
@@ -21,8 +30,9 @@ from .kernel_abi import (
     ORDINARY_BACKWARD_ABI,
     ORDINARY_FORWARD_ABI,
 )
+from .kernel_instance import KernelInstance
 from .mmq_bwd_physical import derive_backward_physical_plan
-from .mmq_bwd_spec import DerivedBackwardState
+from .mmq_bwd_spec import BackwardKernelSpec, DerivedBackwardState
 from .mmq_fwd_physical import (
     DecodedWeightLdsPhysicalPlan,
     Packed3BitTiledLdsPhysicalPlan,
@@ -32,15 +42,9 @@ from .mmq_fwd_physical import (
     SignedInt8RegisterTiledPhysicalPlan,
     SignedInt8SmallMTiledLdsPhysicalPlan,
     SignedInt8WaveNTiledLdsPhysicalPlan,
-    derive_forward_physical_plan,
 )
-from .mmq_fwd_spec import ForwardKernelSpec, derive_forward_resource_usage
-from .model import (
-    BackwardSolution,
-    ForwardSolution,
-    GroupedBackwardSolution,
-    SolutionKey,
-)
+from .mmq_fwd_spec import DerivedForwardState, ForwardKernelSpec
+from .model import ProblemSize
 from .toolchain import Toolchain
 
 
@@ -119,6 +123,28 @@ def _backward_static_wmma_count(state: DerivedBackwardState) -> int:
     return count
 
 
+def _forward_static_wmma_count(state: DerivedForwardState) -> int:
+    physical = state.physical_plan
+    if isinstance(physical, Q6StructuredPhysicalPlan):
+        return 8 * physical.layout.output_tile_rows
+    if isinstance(
+        physical,
+        (Packed3BitTiledLdsPhysicalPlan, Q3FullWeightTiledLdsPhysicalPlan),
+    ):
+        return 128
+    if isinstance(physical, DecodedWeightLdsPhysicalPlan):
+        return 32
+    if isinstance(physical, SignedInt8DirectPhysicalPlan):
+        return 8
+    if isinstance(physical, SignedInt8RegisterTiledPhysicalPlan):
+        return 32
+    if isinstance(physical, SignedInt8WaveNTiledLdsPhysicalPlan):
+        return 2 * state.kernel_spec.geometry.depth_u
+    if isinstance(physical, SignedInt8SmallMTiledLdsPhysicalPlan):
+        return physical.layout.activation_rows // 2
+    return 16
+
+
 def _backward_static_barrier_count(state: DerivedBackwardState) -> int:
     pipeline = state.spec.pipeline
     if pipeline.decoded_b_pipeline:
@@ -127,7 +153,7 @@ def _backward_static_barrier_count(state: DerivedBackwardState) -> int:
 
 
 def inspect_artifact(
-    solution_key: SolutionKey | FixedForwardSolutionKey | FixedBackwardSolutionKey,
+    instance: KernelInstance,
     code_object: Path,
     toolchain: Toolchain,
     *,
@@ -139,47 +165,58 @@ def inspect_artifact(
     readelf = toolchain.readelf_output(code_object)
     disassembly = toolchain.disassembly_output(code_object)
     metadata = _metadata(readelf)
-    kernel = _kernel_metadata(metadata, solution_key.kernel_name)
+    kernel_name = instance_name(instance)
+    kernel = _kernel_metadata(metadata, kernel_name)
     instructions = _instructions(disassembly)
-    errors: list[str] = []
 
-    _require(_elf_value(readelf, "ABI Version") == "3", "code object is not v5", errors)
-    _require(
-        _elf_value(readelf, "Flags").endswith("gfx1151"),
-        "ELF target is not gfx1151",
-        errors,
-    )
+    assert _elf_value(readelf, "ABI Version") == "3"
+    assert _elf_value(readelf, "Flags").endswith("gfx1151")
     functions = _global_function_symbols(readelf)
-    _require(
-        functions == {solution_key.kernel_name},
-        f"global kernel symbols are {sorted(functions)!r}",
-        errors,
-    )
-    solution = solution_key.solution
-    grouped_state = (
-        DerivedGroupedBackwardState.from_solution_key(solution_key)
-        if isinstance(solution_key, SolutionKey)
-        and isinstance(solution, GroupedBackwardSolution)
-        else None
-    )
-    backward_state = (
-        DerivedBackwardState.from_solution_key(solution_key)
-        if isinstance(solution_key, SolutionKey)
-        and isinstance(solution, BackwardSolution)
-        else None
-    )
-    fixed_backward_state = (
-        DerivedFixedBackwardState.from_solution_key(solution_key)
-        if isinstance(solution_key, FixedBackwardSolutionKey)
-        else None
-    )
+    assert functions == {kernel_name}
+    family = instance.family
+    problem = instance.problem
+    spec = instance.kernel_spec
+    quant_type = instance.problem_type.quant_data_type
+    forward_state = None
+    grouped_state = None
+    backward_state = None
+    fixed_backward_state = None
+    fixed_forward_state = None
+    if family is KernelFamily.OrdinaryForward:
+        assert isinstance(problem, ProblemSize) and isinstance(spec, ForwardKernelSpec)
+        forward_state = DerivedForwardState.from_problem_spec(problem, quant_type, spec)
+    elif family is KernelFamily.GroupedBackward:
+        assert isinstance(problem, ProblemSize) and isinstance(
+            spec, GroupedBackwardKernelSpec
+        )
+        grouped_state = DerivedGroupedBackwardState.from_problem_spec(
+            problem, quant_type, spec
+        )
+    elif family is KernelFamily.OrdinaryBackward:
+        assert isinstance(problem, ProblemSize) and isinstance(spec, BackwardKernelSpec)
+        backward_state = DerivedBackwardState.from_problem_spec(
+            problem, quant_type, spec
+        )
+    elif family is KernelFamily.FixedGroupedBackward:
+        assert isinstance(problem, FixedBackwardProblem) and isinstance(
+            spec, FixedBackwardKernelSpec
+        )
+        fixed_backward_state = DerivedFixedBackwardState.from_problem_spec(
+            problem, spec
+        )
+    elif family is KernelFamily.FixedGroupedForward:
+        assert isinstance(problem, FixedForwardProblem) and isinstance(
+            spec, FixedForwardKernelSpec
+        )
+        fixed_forward_state = DerivedFixedForwardState.from_problem_spec(problem, spec)
     _validate_metadata(
         kernel,
-        solution_key,
-        errors,
+        family,
+        forward_state=forward_state,
         backward_state=backward_state,
         grouped_backward_state=grouped_state,
         fixed_backward_state=fixed_backward_state,
+        fixed_forward_state=fixed_forward_state,
     )
 
     mnemonics = tuple(instruction.split(None, 1)[0] for instruction in instructions)
@@ -208,33 +245,11 @@ def inspect_artifact(
     if expected_wmmas is None:
         if fixed_backward_state is not None:
             expected_wmmas = _backward_static_wmma_count(fixed_backward_state.ordinary)
-        elif isinstance(solution_key, FixedForwardSolutionKey):
-            expected_wmmas = solution_key.solution.macro_tile_tokens // 2
-        elif isinstance(solution, ForwardSolution):
-            physical = derive_forward_physical_plan(
-                ForwardKernelSpec.from_solution(solution)
-            )
-            expected_wmmas = (
-                8 * physical.layout.output_tile_rows
-                if isinstance(physical, Q6StructuredPhysicalPlan)
-                else 128
-                if isinstance(
-                    physical,
-                    (Packed3BitTiledLdsPhysicalPlan, Q3FullWeightTiledLdsPhysicalPlan),
-                )
-                else 32
-                if isinstance(physical, DecodedWeightLdsPhysicalPlan)
-                else 8
-                if isinstance(physical, SignedInt8DirectPhysicalPlan)
-                else 32
-                if isinstance(physical, SignedInt8RegisterTiledPhysicalPlan)
-                else 2 * solution.depth_u
-                if isinstance(physical, SignedInt8WaveNTiledLdsPhysicalPlan)
-                else solution.macro_tile0 // 2
-                if isinstance(physical, SignedInt8SmallMTiledLdsPhysicalPlan)
-                else 16
-            )
-        elif isinstance(solution, BackwardSolution | GroupedBackwardSolution):
+        elif fixed_forward_state is not None:
+            expected_wmmas = fixed_forward_state.spec.macro_tile_tokens // 2
+        elif forward_state is not None:
+            expected_wmmas = _forward_static_wmma_count(forward_state)
+        elif backward_state is not None or grouped_state is not None:
             primary_state = (
                 grouped_state.primary if grouped_state is not None else backward_state
             )
@@ -243,23 +258,17 @@ def inspect_artifact(
             expected_wmmas = _backward_static_wmma_count(primary_state)
             if grouped_state is not None and grouped_state.secondary is not None:
                 expected_wmmas += _backward_static_wmma_count(grouped_state.secondary)
-    _require(
-        wmma_count == expected_wmmas,
-        f"expected {expected_wmmas} static WMMAs, found {wmma_count}",
-        errors,
-    )
+    assert wmma_count == expected_wmmas
     expected_barriers = expected_barrier_count
     if expected_barriers is None:
         if fixed_backward_state is not None:
             expected_barriers = _backward_static_barrier_count(
                 fixed_backward_state.ordinary
             )
-        elif isinstance(solution_key, FixedForwardSolutionKey):
+        elif fixed_forward_state is not None:
             expected_barriers = 2
-        elif isinstance(solution, ForwardSolution):
-            physical = derive_forward_physical_plan(
-                ForwardKernelSpec.from_solution(solution)
-            )
+        elif forward_state is not None:
+            physical = forward_state.physical_plan
             expected_barriers = (
                 4
                 if isinstance(
@@ -271,13 +280,13 @@ def inspect_artifact(
                         Q3FullWeightTiledLdsPhysicalPlan,
                     ),
                 )
-                else 2 * solution.depth_u // 32
+                else 2 * forward_state.kernel_spec.geometry.depth_u // 32
                 if isinstance(physical, SignedInt8WaveNTiledLdsPhysicalPlan)
                 else 2
                 if isinstance(physical, SignedInt8SmallMTiledLdsPhysicalPlan)
                 else 0
             )
-        elif isinstance(solution, BackwardSolution | GroupedBackwardSolution):
+        elif backward_state is not None or grouped_state is not None:
             primary_state = (
                 grouped_state.primary if grouped_state is not None else backward_state
             )
@@ -288,49 +297,29 @@ def inspect_artifact(
                 expected_barriers += _backward_static_barrier_count(
                     grouped_state.secondary
                 )
-            if (
-                isinstance(solution_key, SolutionKey)
-                and solution_key.problem_type.quant_data_type == "IQ2_S"
-            ):
+            if quant_type == "IQ2_S":
                 expected_barriers += 1
-    _require(
-        barrier_count == expected_barriers,
-        f"expected {expected_barriers} barriers, found {barrier_count}",
-        errors,
-    )
-    _require(
-        not any(mnemonic.startswith("scratch_") for mnemonic in mnemonics),
-        "scratch instruction found",
-        errors,
-    )
+    assert barrier_count == expected_barriers
+    assert not any(mnemonic.startswith("scratch_") for mnemonic in mnemonics)
     call_mnemonics = {
         mnemonic
         for mnemonic in mnemonics
         if "call" in mnemonic
         or mnemonic in {"s_getpc_b64", "s_setpc_b64", "s_swappc_b64"}
     }
-    if (
-        isinstance(solution_key, SolutionKey)
-        and solution_key.problem_type.quant_data_type == "IQ2_S"
-        and "s_getpc_b64" in call_mnemonics
-    ):
+    if quant_type == "IQ2_S" and "s_getpc_b64" in call_mnemonics:
         call_mnemonics.remove("s_getpc_b64")
-    _require(
-        not call_mnemonics, f"call instruction found: {sorted(call_mnemonics)}", errors
-    )
+    assert not call_mnemonics
 
     max_vgpr = _max_register_index(disassembly, "v")
     max_sgpr = _max_register_index(disassembly, "s")
     vgpr_count = _integer(kernel, ".vgpr_count")
     sgpr_count = _integer(kernel, ".sgpr_count")
-    _require(max_vgpr < vgpr_count, "VGPR index exceeds metadata declaration", errors)
-    _require(max_sgpr < sgpr_count, "SGPR index exceeds metadata declaration", errors)
-
-    if errors:
-        raise InspectionError("artifact rejected: " + "; ".join(errors))
+    assert max_vgpr < vgpr_count
+    assert max_sgpr < sgpr_count
 
     return ArtifactInspection(
-        kernel_name=solution_key.kernel_name,
+        kernel_name=kernel_name,
         code_object_version=5,
         target="gfx1151",
         kernarg_segment_size=_integer(kernel, ".kernarg_segment_size"),
@@ -376,35 +365,35 @@ def _kernel_metadata(
         raise InspectionError("metadata must contain exactly one kernel")
     kernel = kernels[0]
     if not isinstance(kernel, Mapping) or kernel.get(".name") != kernel_name:
-        raise InspectionError("metadata kernel name does not match SolutionKey")
+        raise InspectionError("metadata kernel name does not match KernelSpecKey")
     return kernel
 
 
 def _validate_metadata(
     kernel: Mapping[str, Any],
-    solution_key: SolutionKey | FixedForwardSolutionKey | FixedBackwardSolutionKey,
-    errors: list[str],
+    family: KernelFamily,
     *,
+    forward_state: DerivedForwardState | None,
     backward_state: DerivedBackwardState | None,
     grouped_backward_state: DerivedGroupedBackwardState | None,
     fixed_backward_state: DerivedFixedBackwardState | None,
+    fixed_forward_state: DerivedFixedForwardState | None,
 ) -> None:
-    if isinstance(solution_key, FixedBackwardSolutionKey):
+    if family is KernelFamily.FixedGroupedBackward:
         if fixed_backward_state is None:
             raise TypeError("fixed backward metadata requires derived state")
-        _validate_fixed_backward_metadata(kernel, fixed_backward_state, errors)
+        _validate_fixed_backward_metadata(kernel, fixed_backward_state)
         return
-    if isinstance(solution_key, FixedForwardSolutionKey):
-        _validate_fixed_forward_metadata(kernel, solution_key, errors)
+    if family is KernelFamily.FixedGroupedForward:
+        if fixed_forward_state is None:
+            raise TypeError("fixed forward metadata requires derived state")
+        _validate_fixed_forward_metadata(kernel, fixed_forward_state)
         return
-    solution = solution_key.solution
-    if isinstance(solution, ForwardSolution):
-        _validate_forward_metadata(kernel, solution, errors)
+    if forward_state is not None:
+        _validate_forward_metadata(kernel, forward_state)
         return
-    if isinstance(solution, GroupedBackwardSolution):
-        if grouped_backward_state is None:
-            raise TypeError("grouped backward metadata requires derived state")
-        _validate_grouped_backward_metadata(kernel, grouped_backward_state, errors)
+    if grouped_backward_state is not None:
+        _validate_grouped_backward_metadata(kernel, grouped_backward_state)
         return
     if backward_state is None:
         raise TypeError("backward metadata requires derived state")
@@ -412,167 +401,122 @@ def _validate_metadata(
     expected = {
         ".kernarg_segment_size": ORDINARY_BACKWARD_ABI.segment_size,
         ".kernarg_segment_align": ORDINARY_BACKWARD_ABI.segment_alignment,
-        ".group_segment_fixed_size": physical.resources.lds_num_bytes,
-        ".private_segment_fixed_size": physical.resources.private_segment_bytes,
+        ".group_segment_fixed_size": physical.resources.lds_bytes,
+        ".private_segment_fixed_size": physical.resources.private_bytes,
         ".max_flat_workgroup_size": backward_state.spec.geometry.num_threads,
         ".wavefront_size": backward_state.spec.geometry.wavefront_size,
-        ".vgpr_count": physical.resources.total_vgprs,
-        ".sgpr_count": physical.resources.total_sgprs,
-        ".vgpr_spill_count": 0,
-        ".sgpr_spill_count": 0,
+        ".vgpr_count": physical.resources.vgprs,
+        ".sgpr_count": physical.resources.sgprs,
+        ".vgpr_spill_count": physical.resources.vgpr_spills,
+        ".sgpr_spill_count": physical.resources.sgpr_spills,
     }
     for field, value in expected.items():
         actual = kernel.get(field)
-        _require(actual == value, f"{field} is {actual!r}, expected {value}", errors)
-    _require(
-        kernel.get(".uses_dynamic_stack", False) is False,
-        "dynamic stack is enabled",
-        errors,
-    )
-    _require(
-        _metadata_arguments(kernel) == ORDINARY_BACKWARD_ABI.metadata_arguments,
-        "kernarg ABI does not match",
-        errors,
-    )
+        assert actual == value
+    assert kernel.get(".uses_dynamic_stack", False) is False
+    assert _metadata_arguments(kernel) == ORDINARY_BACKWARD_ABI.metadata_arguments
 
 
 def _validate_fixed_backward_metadata(
     kernel: Mapping[str, Any],
     state: DerivedFixedBackwardState,
-    errors: list[str],
 ) -> None:
     resources = state.physical.resources
     geometry = state.spec.compute.geometry
     expected = {
         ".kernarg_segment_size": FIXED_GROUPED_BACKWARD_ABI.segment_size,
         ".kernarg_segment_align": FIXED_GROUPED_BACKWARD_ABI.segment_alignment,
-        ".group_segment_fixed_size": resources.lds_num_bytes,
-        ".private_segment_fixed_size": resources.private_segment_bytes,
+        ".group_segment_fixed_size": resources.lds_bytes,
+        ".private_segment_fixed_size": resources.private_bytes,
         ".max_flat_workgroup_size": geometry.num_threads,
         ".wavefront_size": geometry.wavefront_size,
-        ".vgpr_count": resources.total_vgprs,
-        ".sgpr_count": resources.total_sgprs,
-        ".vgpr_spill_count": 0,
-        ".sgpr_spill_count": 0,
+        ".vgpr_count": resources.vgprs,
+        ".sgpr_count": resources.sgprs,
+        ".vgpr_spill_count": resources.vgpr_spills,
+        ".sgpr_spill_count": resources.sgpr_spills,
     }
     for field, value in expected.items():
         actual = kernel.get(field)
-        _require(actual == value, f"{field} is {actual!r}, expected {value}", errors)
-    _require(
-        kernel.get(".uses_dynamic_stack", False) is False,
-        "dynamic stack is enabled",
-        errors,
-    )
-    _require(
-        _metadata_arguments(kernel) == FIXED_GROUPED_BACKWARD_ABI.metadata_arguments,
-        "fixed backward kernarg ABI does not match",
-        errors,
-    )
+        assert actual == value
+    assert kernel.get(".uses_dynamic_stack", False) is False
+    assert _metadata_arguments(kernel) == FIXED_GROUPED_BACKWARD_ABI.metadata_arguments
 
 
 def _validate_grouped_backward_metadata(
     kernel: Mapping[str, Any],
     state: DerivedGroupedBackwardState,
-    errors: list[str],
 ) -> None:
     physical = derive_grouped_backward_physical_plan(state)
     expected = {
         ".kernarg_segment_size": GROUPED_BACKWARD_ABI.segment_size,
         ".kernarg_segment_align": GROUPED_BACKWARD_ABI.segment_alignment,
-        ".group_segment_fixed_size": physical.primary.resources.lds_num_bytes,
-        ".private_segment_fixed_size": physical.primary.resources.private_segment_bytes,
+        ".group_segment_fixed_size": physical.primary.resources.lds_bytes,
+        ".private_segment_fixed_size": physical.primary.resources.private_bytes,
         ".max_flat_workgroup_size": state.spec.compute.geometry.num_threads,
         ".wavefront_size": state.spec.compute.geometry.wavefront_size,
-        ".vgpr_count": physical.primary.resources.total_vgprs,
-        ".sgpr_count": physical.primary.resources.total_sgprs,
-        ".vgpr_spill_count": 0,
-        ".sgpr_spill_count": 0,
+        ".vgpr_count": physical.primary.resources.vgprs,
+        ".sgpr_count": physical.primary.resources.sgprs,
+        ".vgpr_spill_count": physical.primary.resources.vgpr_spills,
+        ".sgpr_spill_count": physical.primary.resources.sgpr_spills,
     }
     for field, value in expected.items():
         actual = kernel.get(field)
-        _require(actual == value, f"{field} is {actual!r}, expected {value}", errors)
-    _require(
-        kernel.get(".uses_dynamic_stack", False) is False,
-        "dynamic stack is enabled",
-        errors,
-    )
-    _require(
-        _metadata_arguments(kernel) == GROUPED_BACKWARD_ABI.metadata_arguments,
-        "grouped backward kernarg ABI does not match",
-        errors,
-    )
+        assert actual == value
+    assert kernel.get(".uses_dynamic_stack", False) is False
+    assert _metadata_arguments(kernel) == GROUPED_BACKWARD_ABI.metadata_arguments
 
 
 def _validate_forward_metadata(
     kernel: Mapping[str, Any],
-    solution: ForwardSolution,
-    errors: list[str],
+    state: DerivedForwardState,
 ) -> None:
-    kernel_spec = ForwardKernelSpec.from_solution(solution)
-    resources = derive_forward_resource_usage(kernel_spec)
+    kernel_spec = state.kernel_spec
+    resources = state.resources
     expected = {
         ".kernarg_segment_size": ORDINARY_FORWARD_ABI.segment_size,
         ".kernarg_segment_align": ORDINARY_FORWARD_ABI.segment_alignment,
         ".group_segment_fixed_size": resources.lds_bytes,
-        ".private_segment_fixed_size": 0,
+        ".private_segment_fixed_size": resources.private_bytes,
         ".max_flat_workgroup_size": (
             kernel_spec.geometry.work_group[0]
             * kernel_spec.geometry.work_group[1]
             * kernel_spec.geometry.work_group[2]
         ),
-        ".wavefront_size": solution.wavefront_size,
+        ".wavefront_size": state.contract.wavefront_size,
         ".vgpr_count": resources.vgprs,
         ".sgpr_count": resources.sgprs,
-        ".vgpr_spill_count": 0,
-        ".sgpr_spill_count": 0,
+        ".vgpr_spill_count": resources.vgpr_spills,
+        ".sgpr_spill_count": resources.sgpr_spills,
     }
     for field, value in expected.items():
         actual = kernel.get(field)
-        _require(actual == value, f"{field} is {actual!r}, expected {value}", errors)
-    _require(
-        kernel.get(".uses_dynamic_stack", False) is False,
-        "dynamic stack is enabled",
-        errors,
-    )
-    _require(
-        _metadata_arguments(kernel) == ORDINARY_FORWARD_ABI.metadata_arguments,
-        "forward kernarg ABI does not match",
-        errors,
-    )
+        assert actual == value
+    assert kernel.get(".uses_dynamic_stack", False) is False
+    assert _metadata_arguments(kernel) == ORDINARY_FORWARD_ABI.metadata_arguments
 
 
 def _validate_fixed_forward_metadata(
     kernel: Mapping[str, Any],
-    solution_key: FixedForwardSolutionKey,
-    errors: list[str],
+    state: DerivedFixedForwardState,
 ) -> None:
-    state = DerivedFixedForwardState.from_solution_key(solution_key)
     resources = state.physical.resources
     expected = {
         ".kernarg_segment_size": FIXED_GROUPED_FORWARD_ABI.segment_size,
         ".kernarg_segment_align": FIXED_GROUPED_FORWARD_ABI.segment_alignment,
         ".group_segment_fixed_size": resources.lds_bytes,
-        ".private_segment_fixed_size": 0,
+        ".private_segment_fixed_size": resources.private_bytes,
         ".max_flat_workgroup_size": state.ordinary.num_threads,
-        ".wavefront_size": solution_key.solution.wavefront_size,
+        ".wavefront_size": state.contract.wavefront_size,
         ".vgpr_count": resources.vgprs,
         ".sgpr_count": resources.sgprs,
-        ".vgpr_spill_count": 0,
-        ".sgpr_spill_count": 0,
+        ".vgpr_spill_count": resources.vgpr_spills,
+        ".sgpr_spill_count": resources.sgpr_spills,
     }
     for field, value in expected.items():
         actual = kernel.get(field)
-        _require(actual == value, f"{field} is {actual!r}, expected {value}", errors)
-    _require(
-        kernel.get(".uses_dynamic_stack", False) is False,
-        "dynamic stack is enabled",
-        errors,
-    )
-    _require(
-        _metadata_arguments(kernel) == FIXED_GROUPED_FORWARD_ABI.metadata_arguments,
-        "fixed forward kernarg ABI does not match",
-        errors,
-    )
+        assert actual == value
+    assert kernel.get(".uses_dynamic_stack", False) is False
+    assert _metadata_arguments(kernel) == FIXED_GROUPED_FORWARD_ABI.metadata_arguments
 
 
 def _metadata_arguments(
@@ -635,8 +579,3 @@ def _max_register_index(disassembly: str, prefix: str) -> int:
     for match in pattern.finditer(disassembly):
         values.extend(int(value) for value in match.groups() if value is not None)
     return max(values, default=-1)
-
-
-def _require(condition: bool, message: str, errors: list[str]) -> None:
-    if not condition:
-        errors.append(message)

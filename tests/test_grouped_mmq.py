@@ -7,6 +7,10 @@ from tests.grouped_mmq_test_support import load_expert_weight
 from tests.mmq_test_support import random_bf16
 from tests.model_test_cases import QWEN_MODEL
 from tests.model_test_support import model_reader
+from torch_ggml_ops.runtime_contract import (
+    paired_row_task_capacity,
+    quant_workspace_elements,
+)
 
 _ROWS = 16_384
 _EXPERTS = 256
@@ -91,9 +95,9 @@ def test_paired_launch_validates_explicit_row_task_shapes(
     first_output = torch.empty((_ROWS, 512), dtype=torch.bfloat16, device="cuda")
     second_output = torch.empty_like(first_output)
     workspace = torch.empty(
-        input.numel() // 128 * 144, dtype=torch.uint8, device="cuda"
+        quant_workspace_elements(input.numel()), dtype=torch.uint8, device="cuda"
     )
-    task_capacity = (_ROWS + 63) // 64 + experts.numel()
+    task_capacity = paired_row_task_capacity(_ROWS, experts.numel(), 64)
     task_count = torch.empty(1, dtype=torch.int32, device="cuda")
     task_experts = torch.empty(
         (2, task_capacity // 2), dtype=torch.int32, device="cuda"

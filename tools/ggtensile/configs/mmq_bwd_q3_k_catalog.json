@@ -1,252 +1,264 @@
 {
   "KernelFamily": "OrdinaryBackward",
-  "ProblemContract": {
-    "quant_type": "Q3_K",
-    "block_values": 256,
-    "packed_weight_block_bytes": 110,
-    "kernel_language": "Assembly",
-    "isa": [
+  "Target": {
+    "ISA": [
       11,
       5,
       1
     ],
-    "wavefront_size": 32,
-    "activation_type": "BFloat16",
-    "destination_type": "BFloat16",
-    "compute_type": "Float32",
-    "abi": "BackwardOutputA",
-    "code_object_version": 5
+    "WavefrontSize": 32,
+    "MatrixInstructionSet": "WmmaV1",
+    "CodeObjectVersion": 5
+  },
+  "ProblemType": {
+    "QuantDataType": "Q3_K",
+    "DataTypeA": "BFloat16",
+    "DataTypeB": "Q3_K",
+    "DestinationDataType": "BFloat16",
+    "ComputeDataType": "Float32",
+    "TransposeA": false,
+    "TransposeB": false
   },
   "KernelSpecs": [
     {
-      "geometry": {
-        "work_group": [
+      "Geometry": {
+        "WorkGroup": [
           32,
           4,
           1
         ],
-        "mi_wave_tile": [
+        "MIWaveTile": [
           4,
           4
         ],
-        "depth_u": 32,
-        "work_group_mapping": 2
+        "DepthU": 32,
+        "WorkGroupMapping": 2
       },
-      "memory": {
-        "lds_layout": {
-          "kind": "Padded",
-          "pad_b": 8
+      "Memory": {
+        "LdsLayout": {
+          "Kind": "Padded",
+          "LdsPadB": 8
         }
       },
-      "pipeline": {
-        "global_read_prefetch": 2,
-        "local_read_prefetch": 1,
-        "lds_buffer_count": 1,
-        "schedule": "PrefetchActivationInterleaveWmmaWaits",
-        "packed_weight_prefetch": "CurrentTile",
-        "packed_weight_lane_share": 1
+      "Pipeline": {
+        "PrefetchGlobalRead": 2,
+        "PrefetchLocalRead": 1,
+        "DoubleBufferLds": false,
+        "PrefetchActivation": true,
+        "InterleaveWmmaWaits": true,
+        "PrefetchPackedWeight": true,
+        "PrefetchNextPackedWeight": false,
+        "PackedWeightLaneShare": 1
       },
-      "store": {
-        "priority": "Raised"
+      "Store": {
+        "Priority": "Raised"
       },
-      "decode": {
-        "extraction": "packed",
-        "pairing": "Full"
+      "Decode": {
+        "PayloadExtraction": "Packed",
+        "Pairing": "Full"
       }
     },
     {
-      "geometry": {
-        "work_group": [
+      "Geometry": {
+        "WorkGroup": [
           32,
           4,
           1
         ],
-        "mi_wave_tile": [
+        "MIWaveTile": [
           4,
           4
         ],
-        "depth_u": 32,
-        "work_group_mapping": 1
+        "DepthU": 32,
+        "WorkGroupMapping": 1
       },
-      "memory": {
-        "lds_layout": {
-          "kind": "Padded",
-          "pad_b": 8
+      "Memory": {
+        "LdsLayout": {
+          "Kind": "Padded",
+          "LdsPadB": 8
         }
       },
-      "pipeline": {
-        "global_read_prefetch": 2,
-        "local_read_prefetch": 1,
-        "lds_buffer_count": 1,
-        "schedule": "PrefetchActivationInterleaveWmmaWaits",
-        "packed_weight_prefetch": "CurrentTile",
-        "packed_weight_lane_share": 1
+      "Pipeline": {
+        "PrefetchGlobalRead": 2,
+        "PrefetchLocalRead": 1,
+        "DoubleBufferLds": false,
+        "PrefetchActivation": true,
+        "InterleaveWmmaWaits": true,
+        "PrefetchPackedWeight": true,
+        "PrefetchNextPackedWeight": false,
+        "PackedWeightLaneShare": 1
       },
-      "store": {
-        "priority": "Raised"
+      "Store": {
+        "Priority": "Raised"
       },
-      "decode": {
-        "extraction": "packed",
-        "pairing": "Partial"
+      "Decode": {
+        "PayloadExtraction": "Packed",
+        "Pairing": "Partial"
       }
     },
     {
-      "geometry": {
-        "work_group": [
+      "Geometry": {
+        "WorkGroup": [
           32,
           4,
           1
         ],
-        "mi_wave_tile": [
+        "MIWaveTile": [
+          4,
+          4
+        ],
+        "DepthU": 32,
+        "WorkGroupMapping": 1
+      },
+      "Memory": {
+        "LdsLayout": {
+          "Kind": "Padded",
+          "LdsPadB": 8
+        }
+      },
+      "Pipeline": {
+        "PrefetchGlobalRead": 2,
+        "PrefetchLocalRead": 1,
+        "DoubleBufferLds": false,
+        "PrefetchActivation": true,
+        "InterleaveWmmaWaits": true,
+        "PrefetchPackedWeight": true,
+        "PrefetchNextPackedWeight": false,
+        "PackedWeightLaneShare": 1
+      },
+      "Store": {
+        "Priority": "Raised"
+      },
+      "Decode": {
+        "PayloadExtraction": "Packed",
+        "Pairing": "Full"
+      }
+    },
+    {
+      "Geometry": {
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "MIWaveTile": [
           2,
           4
         ],
-        "depth_u": 32,
-        "work_group_mapping": 1
+        "DepthU": 32,
+        "WorkGroupMapping": 1
       },
-      "memory": {
-        "lds_layout": {
-          "kind": "Padded",
-          "pad_b": 8
+      "Memory": {
+        "LdsLayout": {
+          "Kind": "Padded",
+          "LdsPadB": 8
         }
       },
-      "pipeline": {
-        "global_read_prefetch": 2,
-        "local_read_prefetch": 1,
-        "lds_buffer_count": 1,
-        "schedule": "PrefetchActivationInterleaveWmmaWaits",
-        "packed_weight_prefetch": "CurrentTile",
-        "packed_weight_lane_share": 1
+      "Pipeline": {
+        "PrefetchGlobalRead": 2,
+        "PrefetchLocalRead": 1,
+        "DoubleBufferLds": false,
+        "PrefetchActivation": true,
+        "InterleaveWmmaWaits": true,
+        "PrefetchPackedWeight": true,
+        "PrefetchNextPackedWeight": false,
+        "PackedWeightLaneShare": 1
       },
-      "store": {
-        "priority": "Raised"
+      "Store": {
+        "Priority": "Raised"
       },
-      "decode": {
-        "extraction": "packed",
-        "pairing": "Full"
+      "Decode": {
+        "PayloadExtraction": "Packed",
+        "Pairing": "Full"
       }
     },
     {
-      "geometry": {
-        "work_group": [
+      "Geometry": {
+        "WorkGroup": [
           32,
           4,
           1
         ],
-        "mi_wave_tile": [
+        "MIWaveTile": [
           2,
           8
         ],
-        "depth_u": 32,
-        "work_group_mapping": 1
+        "DepthU": 32,
+        "WorkGroupMapping": 1
       },
-      "memory": {
-        "lds_layout": {
-          "kind": "Padded",
-          "pad_b": 8
+      "Memory": {
+        "LdsLayout": {
+          "Kind": "Padded",
+          "LdsPadB": 8
         }
       },
-      "pipeline": {
-        "global_read_prefetch": 2,
-        "local_read_prefetch": 1,
-        "lds_buffer_count": 1,
-        "schedule": "PrefetchActivationInterleaveWmmaWaits",
-        "packed_weight_prefetch": "CurrentTile",
-        "packed_weight_lane_share": 1
+      "Pipeline": {
+        "PrefetchGlobalRead": 2,
+        "PrefetchLocalRead": 1,
+        "DoubleBufferLds": false,
+        "PrefetchActivation": true,
+        "InterleaveWmmaWaits": true,
+        "PrefetchPackedWeight": true,
+        "PrefetchNextPackedWeight": false,
+        "PackedWeightLaneShare": 1
       },
-      "store": {
-        "priority": "Raised"
+      "Store": {
+        "Priority": "Raised"
       },
-      "decode": {
-        "extraction": "packed",
-        "pairing": "Full"
-      }
-    },
-    {
-      "geometry": {
-        "work_group": [
-          32,
-          4,
-          1
-        ],
-        "mi_wave_tile": [
-          4,
-          4
-        ],
-        "depth_u": 32,
-        "work_group_mapping": 1
-      },
-      "memory": {
-        "lds_layout": {
-          "kind": "Padded",
-          "pad_b": 8
-        }
-      },
-      "pipeline": {
-        "global_read_prefetch": 2,
-        "local_read_prefetch": 1,
-        "lds_buffer_count": 1,
-        "schedule": "PrefetchActivationInterleaveWmmaWaits",
-        "packed_weight_prefetch": "CurrentTile",
-        "packed_weight_lane_share": 1
-      },
-      "store": {
-        "priority": "Raised"
-      },
-      "decode": {
-        "extraction": "packed",
-        "pairing": "Full"
+      "Decode": {
+        "PayloadExtraction": "Packed",
+        "Pairing": "Full"
       }
     }
   ],
   "ExactLogic": [
     {
       "Problem": {
-        "m": 2048,
-        "n": 2048,
-        "k": 512
+        "M": 2048,
+        "N": 2048,
+        "K": 512
       },
       "KernelSpecIndex": 0
     },
     {
       "Problem": {
-        "m": 8192,
-        "n": 2048,
-        "k": 512
+        "M": 8192,
+        "N": 2048,
+        "K": 512
       },
       "KernelSpecIndex": 1
     },
     {
       "Problem": {
-        "m": 32768,
-        "n": 2048,
-        "k": 512
-      },
-      "KernelSpecIndex": 4
-    },
-    {
-      "Problem": {
-        "m": 2048,
-        "n": 2048,
-        "k": 8192
+        "M": 32768,
+        "N": 2048,
+        "K": 512
       },
       "KernelSpecIndex": 2
     },
     {
       "Problem": {
-        "m": 8192,
-        "n": 2048,
-        "k": 8192
-      },
-      "KernelSpecIndex": 2
-    },
-    {
-      "Problem": {
-        "m": 32768,
-        "n": 2048,
-        "k": 8192
+        "M": 2048,
+        "N": 2048,
+        "K": 8192
       },
       "KernelSpecIndex": 3
+    },
+    {
+      "Problem": {
+        "M": 8192,
+        "N": 2048,
+        "K": 8192
+      },
+      "KernelSpecIndex": 3
+    },
+    {
+      "Problem": {
+        "M": 32768,
+        "N": 2048,
+        "K": 8192
+      },
+      "KernelSpecIndex": 4
     }
   ]
 }

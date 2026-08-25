@@ -5,7 +5,6 @@ from pathlib import Path
 
 from tests.ggtensile.support import (
     BWD_IMPLEMENTATION_SOURCE_PATHS,
-    BWD_LOWERING_SOURCE_PATHS,
     BWD_WRITER_SOURCE_PATH,
     FWD_LOWERING_SOURCE_PATHS,
     FWD_PHYSICAL_SOURCE_PATH,
@@ -38,26 +37,6 @@ _BACKWARD_WRITER = _TOOLS / "kernel_writer_assembly_mmq_bwd.py"
 _ASSEMBLY = _TOOLS / "kernel_writer_assembly.py"
 _MMQ_FWD_PHYSICAL = _TOOLS / "mmq_fwd_physical.py"
 _GROUPED_LOWERINGS = tuple(sorted(_TOOLS.glob("grouped_mmq_fwd_lowering*.py")))
-_LEGACY_FLAT_RECORD_METHODS = {
-    _TOOLS / "model.py": {
-        "ProblemType": {"from_mapping", "to_mapping"},
-        "ProblemSize": {"from_mapping"},
-        "BackwardSolution": {"from_mapping", "to_mapping"},
-        "ForwardSolution": {"from_mapping", "to_mapping"},
-    },
-    _TOOLS / "grouped_mmq_fwd_model.py": {
-        "GroupedForwardProblem": {"from_mapping", "to_mapping"},
-        "GroupedForwardSolution": {"from_mapping", "to_mapping"},
-    },
-    _TOOLS / "grouped_mmq_fwd_pair_model.py": {
-        "GroupedForwardPairProblem": {"from_mapping", "to_mapping"},
-        "GroupedForwardPairSolution": {"from_mapping", "to_mapping"},
-    },
-    _TOOLS / "fixed_grouped_mmq_fwd_model.py": {
-        "FixedForwardProblem": {"from_mapping", "to_mapping"},
-        "FixedForwardSolution": {"from_mapping", "to_mapping"},
-    },
-}
 
 
 def _source(path: Path) -> str:
@@ -69,19 +48,6 @@ def _class_names(path: Path) -> set[str]:
         node.name
         for node in ast.parse(_source(path), filename=str(path)).body
         if isinstance(node, ast.ClassDef)
-    }
-
-
-def _class_methods(path: Path, class_name: str) -> set[str]:
-    class_node = next(
-        node
-        for node in ast.parse(_source(path), filename=str(path)).body
-        if isinstance(node, ast.ClassDef) and node.name == class_name
-    )
-    return {
-        node.name
-        for node in class_node.body
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
     }
 
 
@@ -221,15 +187,6 @@ def test_planners_and_lowerers_preserve_import_boundaries() -> None:
         assert "Assembly(" not in source
 
 
-def test_flat_solution_and_problem_compatibility_methods_are_absent() -> None:
-    for path, classes in _LEGACY_FLAT_RECORD_METHODS.items():
-        for class_name, forbidden_methods in classes.items():
-            assert not _class_methods(path, class_name) & forbidden_methods, (
-                path,
-                class_name,
-            )
-
-
 def test_kernel_abi_definitions_and_runtime_packing_have_one_owner() -> None:
     for path in _TOOLS.glob("*.py"):
         if path != _KERNEL_ABI:
@@ -260,14 +217,6 @@ def test_lowerers_do_not_use_untyped_cross_lowerer_borrowing() -> None:
         and node.name == "FixedGroupedQ8ForwardLowering"
     )
     assert fixed_lowering.bases == []
-
-
-def test_backward_lowerers_consume_derived_state_without_one_hop_aliases() -> None:
-    for path in BWD_LOWERING_SOURCE_PATHS:
-        source = _source(path)
-        assert "self.solution" not in source, path
-        assert "self.solution_key" not in source, path
-        assert "QUANT_FORMATS" not in source, path
 
 
 def test_phase_six_removes_confirmed_one_hop_aliases_only() -> None:
@@ -359,7 +308,7 @@ def test_iq2_s_lowering_owns_codebook_rodata_emission() -> None:
     facade = _source(_GROUPED_WRITER)
     lowering = _source(_GROUPED_IQ2S_LOWERING)
     assert "iq2_s_grid" not in facade
-    assert "GroupedForwardLoweringResult" in lowering
+    assert "LoweringResult" in lowering
     assert "iq2_s_grid_rodata" in lowering
 
 

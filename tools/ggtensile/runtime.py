@@ -8,15 +8,21 @@ from types import TracebackType
 import torch
 from typing_extensions import Self
 
-from .fixed_grouped_mmq_bwd_model import FixedBackwardSolutionKey
-from .fixed_grouped_mmq_bwd_spec import DerivedFixedBackwardState
-from .fixed_grouped_mmq_bwd_validation import validate_fixed_backward_solution_key
-from .fixed_grouped_mmq_fwd_model import FixedForwardSolutionKey
-from .fixed_grouped_mmq_fwd_spec import DerivedFixedForwardState
-from .fixed_grouped_mmq_fwd_validation import validate_fixed_forward_solution_key
-from .grouped_mmq_bwd_spec import DerivedGroupedBackwardState
-from .grouped_mmq_fwd_model import GroupedForwardSolutionKey
-from .grouped_mmq_fwd_spec import DerivedGroupedForwardState
+from .fixed_grouped_mmq_bwd_model import FixedBackwardProblem
+from .fixed_grouped_mmq_bwd_spec import (
+    DerivedFixedBackwardState,
+    FixedBackwardKernelSpec,
+)
+from .fixed_grouped_mmq_bwd_validation import validate_fixed_backward_solution
+from .fixed_grouped_mmq_fwd_model import FixedForwardProblem
+from .fixed_grouped_mmq_fwd_spec import (
+    DerivedFixedForwardState,
+    FixedForwardKernelSpec,
+)
+from .fixed_grouped_mmq_fwd_validation import validate_fixed_forward_solution
+from .grouped_mmq_bwd_spec import DerivedGroupedBackwardState, GroupedBackwardKernelSpec
+from .grouped_mmq_fwd_model import GroupedForwardProblem
+from .grouped_mmq_fwd_spec import DerivedGroupedForwardState, GroupedForwardKernelSpec
 from .grouped_mmq_fwd_validation import validate_grouped_forward_solution
 from .kernel_abi import (
     FIXED_GROUPED_BACKWARD_ABI,
@@ -27,20 +33,21 @@ from .kernel_abi import (
     ORDINARY_FORWARD_ABI,
     Q8_1_QUANTIZER_ABI,
 )
-from .mmq_fwd_spec import DerivedForwardState
-from .model import (
-    BackwardSolution,
-    ForwardSolution,
-    GroupedBackwardSolution,
-    SolutionKey,
-)
+from .mmq_bwd_spec import BackwardKernelSpec
+from .mmq_fwd_spec import DerivedForwardState, ForwardKernelSpec
+from .model import ProblemSize
 from .quant_formats import (
     Q8_1_F16_D2S6_BLOCK_BYTES,
     Q8_1_F16_D4S4_BLOCK_BYTES,
     Q8_1_F32_D4_BLOCK_BYTES,
     QUANT_FORMATS,
 )
-from .validation import validate_solution
+from .validation import (
+    validate_backward_solution,
+    validate_forward_solution,
+    validate_grouped_backward_solution,
+)
+from .work_group_mapping import mapped_grid_extent, mapped_m_tile_count
 
 
 class HIPRuntimeError(RuntimeError):
@@ -88,6 +95,7 @@ class _HIPModule:
             ),
             "hipModuleLoad",
         )
+        function_loaded = False
         try:
             self._check(
                 self._lib.hipModuleGetFunction(
@@ -97,9 +105,10 @@ class _HIPModule:
                 ),
                 "hipModuleGetFunction",
             )
-        except Exception:
-            self.close()
-            raise
+            function_loaded = True
+        finally:
+            if not function_loaded:
+                self.close()
 
     def close(self) -> None:
         if self._module:
@@ -155,31 +164,45 @@ class _HIPModule:
         self._lib.hipModuleUnload.restype = ctypes.c_int
 
 
-class _SolutionHIPModule(_HIPModule):
-    """HIP module whose artifact and symbol are described by a solution key."""
+class _OrdinaryHIPModule(_HIPModule):
+    """HIP module over explicit ordinary problem and specification values."""
 
     def __init__(
         self,
-        solution_key: SolutionKey,
+        problem_size: ProblemSize,
+        quant_type: str,
+        kernel_spec: ForwardKernelSpec | BackwardKernelSpec,
         code_object: Path,
+        kernel_name: str,
         hip_library: Path | None = None,
-        *,
-        kernel_name: str | None = None,
     ) -> None:
-        reasons = validate_solution(solution_key)
-        if reasons:
-            details = "; ".join(reason.rule_id for reason in reasons)
-            raise HIPRuntimeError(f"cannot launch rejected solution: {details}")
-        self.solution_key = solution_key
-        super().__init__(
-            code_object,
-            hip_library,
-            kernel_name or solution_key.kernel_name,
-        )
+        self.problem_size = problem_size
+        self.quant_type = quant_type
+        self.kernel_spec = kernel_spec
+        super().__init__(code_object, hip_library, kernel_name)
 
 
-class BackwardModule(_SolutionHIPModule):
+class BackwardModule(_OrdinaryHIPModule):
     """Direct HIP module launcher for the fixed MMQ backward kernarg ABI."""
+
+    def __init__(
+        self,
+        problem_size: ProblemSize,
+        quant_type: str,
+        kernel_spec: BackwardKernelSpec,
+        code_object: Path,
+        kernel_name: str,
+        hip_library: Path | None = None,
+    ) -> None:
+        validate_backward_solution(problem_size, quant_type, kernel_spec)
+        super().__init__(
+            problem_size,
+            quant_type,
+            kernel_spec,
+            code_object,
+            kernel_name,
+            hip_library,
+        )
 
     def launch(
         self,
@@ -191,7 +214,7 @@ class BackwardModule(_SolutionHIPModule):
     ) -> None:
         if not self._module or not self._function:
             raise HIPRuntimeError("HIP module is closed")
-        size = self.solution_key.problem_size
+        size = self.problem_size
         tensors = (grad_output, packed_weight, grad_input)
         if any(not tensor.is_cuda for tensor in tensors):
             raise HIPRuntimeError("all launch tensors must be on a HIP device")
@@ -207,14 +230,13 @@ class BackwardModule(_SolutionHIPModule):
             raise HIPRuntimeError("grad_output shape does not match ProblemSize")
         if tuple(grad_input.shape) != (size.m, size.n):
             raise HIPRuntimeError("grad_input shape does not match ProblemSize")
-        quant_format = QUANT_FORMATS[self.solution_key.problem_type.quant_data_type]
+        quant_format = QUANT_FORMATS[self.quant_type]
         expected_weight_bytes = (
             size.k * (size.n // quant_format.block_values) * quant_format.block_bytes
         )
         if packed_weight.numel() != expected_weight_bytes:
             raise HIPRuntimeError(
-                "packed_weight size does not match "
-                f"{self.solution_key.problem_type.quant_data_type} ProblemSize"
+                f"packed_weight size does not match {self.quant_type} ProblemSize"
             )
         devices = {tensor.device for tensor in tensors}
         if len(devices) != 1:
@@ -248,42 +270,43 @@ class BackwardModule(_SolutionHIPModule):
     def _launch_configuration(
         self,
     ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
-        solution = self.solution_key.solution
-        if not isinstance(solution, BackwardSolution):
-            raise HIPRuntimeError("MMQ backward requires BackwardSolution")
-        group_m = solution.work_group_mapping
-        m_blocks = self.solution_key.problem_size.m // solution.macro_tile0
+        assert isinstance(self.kernel_spec, BackwardKernelSpec)
+        geometry = self.kernel_spec.geometry
+        group_m = geometry.work_group_mapping
+        m_blocks = self.problem_size.m // geometry.macro_tile0
+        mapped_m_tile_count(m_blocks, group_m)
         return (
             (
-                group_m,
-                self.solution_key.problem_size.n // solution.macro_tile1,
+                mapped_grid_extent(1, group_m),
+                self.problem_size.n // geometry.macro_tile1,
                 m_blocks // group_m,
             ),
-            solution.work_group,
+            geometry.work_group,
             0,
         )
 
 
-class GroupedBackwardModule(_SolutionHIPModule):
+class GroupedBackwardModule(_HIPModule):
     """Direct launcher for the exact routed grouped backward ABI."""
 
     def __init__(
         self,
-        solution_key: SolutionKey,
+        problem_size: ProblemSize,
+        quant_type: str,
+        kernel_spec: GroupedBackwardKernelSpec,
         code_object: Path,
+        kernel_name: str,
         hip_library: Path | None = None,
-        *,
-        kernel_name: str | None = None,
     ) -> None:
-        if not isinstance(solution_key.solution, GroupedBackwardSolution):
-            raise HIPRuntimeError(
-                "grouped MMQ backward requires GroupedBackwardSolution"
-            )
-        super().__init__(
-            solution_key,
+        validate_grouped_backward_solution(problem_size, quant_type, kernel_spec)
+        self.problem_size = problem_size
+        self.quant_type = quant_type
+        self.kernel_spec = kernel_spec
+        _HIPModule.__init__(
+            self,
             code_object,
             hip_library,
-            kernel_name=kernel_name,
+            kernel_name,
         )
 
     def launch(
@@ -298,7 +321,9 @@ class GroupedBackwardModule(_SolutionHIPModule):
     ) -> None:
         if not self._module or not self._function:
             raise HIPRuntimeError("HIP module is closed")
-        state = DerivedGroupedBackwardState.from_solution_key(self.solution_key)
+        state = DerivedGroupedBackwardState.from_problem_spec(
+            self.problem_size, self.quant_type, self.kernel_spec
+        )
         size = state.contract.problem_size
         tensors = (
             grad_output,
@@ -384,7 +409,10 @@ class GroupedBackwardModule(_SolutionHIPModule):
         geometry = state.spec.compute.geometry
         return (
             (
-                state.contract.problem_size.n // geometry.macro_tile1,
+                mapped_grid_extent(
+                    state.contract.problem_size.n // geometry.macro_tile1,
+                    geometry.work_group_mapping,
+                ),
                 route_entries,
                 state.spec.ownership.split_factor,
             ),
@@ -393,24 +421,26 @@ class GroupedBackwardModule(_SolutionHIPModule):
         )
 
 
-class ForwardModule(_SolutionHIPModule):
+class ForwardModule(_OrdinaryHIPModule):
     """Direct launcher for an exact packed K-quant/Q8_1 forward kernel."""
 
     def __init__(
         self,
-        solution_key: SolutionKey,
+        problem_size: ProblemSize,
+        quant_type: str,
+        kernel_spec: ForwardKernelSpec,
         code_object: Path,
+        kernel_name: str,
         hip_library: Path | None = None,
-        *,
-        kernel_name: str | None = None,
     ) -> None:
-        if not isinstance(solution_key.solution, ForwardSolution):
-            raise HIPRuntimeError("MMQ forward requires ForwardSolution")
+        validate_forward_solution(problem_size, quant_type, kernel_spec)
         super().__init__(
-            solution_key,
+            problem_size,
+            quant_type,
+            kernel_spec,
             code_object,
+            kernel_name,
             hip_library,
-            kernel_name=kernel_name,
         )
 
     def launch(
@@ -423,7 +453,10 @@ class ForwardModule(_SolutionHIPModule):
     ) -> None:
         if not self._module or not self._function:
             raise HIPRuntimeError("HIP module is closed")
-        state = DerivedForwardState.from_solution_key(self.solution_key)
+        assert isinstance(self.kernel_spec, ForwardKernelSpec)
+        state = DerivedForwardState.from_problem_spec(
+            self.problem_size, self.quant_type, self.kernel_spec
+        )
         size = state.problem_size
         tensors = (packed_weight, activations, output)
         if any(not tensor.is_cuda for tensor in tensors):
@@ -481,7 +514,10 @@ class ForwardModule(_SolutionHIPModule):
     def _launch_configuration(
         self,
     ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
-        state = DerivedForwardState.from_solution_key(self.solution_key)
+        assert isinstance(self.kernel_spec, ForwardKernelSpec)
+        state = DerivedForwardState.from_problem_spec(
+            self.problem_size, self.quant_type, self.kernel_spec
+        )
         return (state.grid, state.kernel_spec.geometry.work_group, 0)
 
 
@@ -490,20 +526,17 @@ class GroupedForwardModule(_HIPModule):
 
     def __init__(
         self,
-        solution_key: GroupedForwardSolutionKey,
+        problem: GroupedForwardProblem,
+        kernel_spec: GroupedForwardKernelSpec,
         code_object: Path,
+        kernel_name: str,
         hip_library: Path | None = None,
-        *,
-        kernel_name: str | None = None,
     ) -> None:
-        reasons = validate_grouped_forward_solution(solution_key)
-        if reasons:
-            details = "; ".join(reason.rule_id for reason in reasons)
-            raise HIPRuntimeError(f"cannot launch rejected grouped solution: {details}")
-        self.solution_key = solution_key
-        super().__init__(
-            code_object, hip_library, kernel_name or solution_key.kernel_name
-        )
+        validate_grouped_forward_solution(problem, kernel_spec)
+        self.problem = problem
+        self.kernel_spec = kernel_spec
+        self.state = DerivedGroupedForwardState.from_problem_spec(problem, kernel_spec)
+        super().__init__(code_object, hip_library, kernel_name)
 
     def launch(
         self,
@@ -517,7 +550,7 @@ class GroupedForwardModule(_HIPModule):
     ) -> None:
         if not self._module or not self._function:
             raise HIPRuntimeError("HIP module is closed")
-        state = DerivedGroupedForwardState.from_solution_key(self.solution_key)
+        state = self.state
         tensors = (
             packed_weight,
             activations,
@@ -550,10 +583,7 @@ class GroupedForwardModule(_HIPModule):
         if expert_indices.ndim != 1 or expert_offsets.ndim != 1:
             raise HIPRuntimeError("route metadata must be one-dimensional")
         route_entries = expert_indices.numel()
-        if (
-            route_entries <= 0
-            or route_entries > self.solution_key.problem.max_route_entries
-        ):
+        if route_entries <= 0 or route_entries > self.problem.max_route_entries:
             raise HIPRuntimeError("route entry count is outside the grouped contract")
         if expert_offsets.numel() != route_entries:
             raise HIPRuntimeError("route metadata lengths must match")
@@ -569,9 +599,9 @@ class GroupedForwardModule(_HIPModule):
                 "dst": output.data_ptr(),
                 "expert_indices": expert_indices.data_ptr(),
                 "expert_offsets": expert_offsets.data_ptr(),
-                "num_experts": self.solution_key.problem.physical_experts,
-                "nrows_weight": self.solution_key.problem.output_features,
-                "nrows_activation": self.solution_key.problem.aggregate_rows,
+                "num_experts": self.problem.physical_experts,
+                "nrows_weight": self.problem.output_features,
+                "nrows_activation": self.problem.aggregate_rows,
                 "blocks_per_weight_row": state.blocks_per_weight_row,
                 "bytes_per_expert": state.bytes_per_expert,
             }
@@ -595,32 +625,32 @@ class GroupedForwardModule(_HIPModule):
     ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
         return (
             self.state_grid(route_entries),
-            self.solution_key.solution.work_group,
+            self.state.kernel_spec.geometry.work_group,
             0,
         )
 
     def state_grid(self, route_entries: int) -> tuple[int, int, int]:
-        return DerivedGroupedForwardState.from_solution_key(self.solution_key).grid(
-            route_entries
-        )
+        return self.state.grid(route_entries)
 
 
 class InstalledGroupedForwardModule(GroupedForwardModule):
     """Direct launcher for the installed HIP Q4_K grouped serial control."""
 
-    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_q4_k_n2048_k512_j64"
+    SYMBOL = "grouped_fwd_serial_q4_k_n2048_k512_j64"
 
     def __init__(
         self,
-        solution_key: GroupedForwardSolutionKey,
+        problem: GroupedForwardProblem,
+        kernel_spec: GroupedForwardKernelSpec,
         code_object: Path | None = None,
         hip_library: Path | None = None,
     ) -> None:
         super().__init__(
-            solution_key,
+            problem,
+            kernel_spec,
             code_object or _find_installed_kernel(self.SYMBOL),
+            self.SYMBOL,
             hip_library,
-            kernel_name=self.SYMBOL,
         )
 
     def _launch_configuration(
@@ -632,28 +662,30 @@ class InstalledGroupedForwardModule(GroupedForwardModule):
 class InstalledGroupedForwardQ5Module(GroupedForwardModule):
     """Direct launcher for the installed HIP Q5_K J64 grouped control."""
 
-    J64_SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_q5_k_n2048_k512_j64"
-    J32_SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_q5_k_n2048_k512_j32"
+    J64_SYMBOL = "grouped_fwd_serial_q5_k_n2048_k512_j64"
+    J32_SYMBOL = "grouped_fwd_serial_q5_k_n2048_k512_j32"
 
     def __init__(
         self,
-        solution_key: GroupedForwardSolutionKey,
+        problem: GroupedForwardProblem,
+        kernel_spec: GroupedForwardKernelSpec,
         code_object: Path | None = None,
         hip_library: Path | None = None,
     ) -> None:
-        if solution_key.problem.quant_data_type != "Q5_K":
+        if problem.quant_data_type != "Q5_K":
             raise HIPRuntimeError("installed Q5_K control requires a Q5_K problem")
         super().__init__(
-            solution_key,
+            problem,
+            kernel_spec,
             code_object or _find_installed_kernel(self.J64_SYMBOL),
+            self.J64_SYMBOL,
             hip_library,
-            kernel_name=self.J64_SYMBOL,
         )
 
     def _launch_configuration(
         self, route_entries: int
     ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
-        if self.solution_key.problem.aggregate_rows < 128 * route_entries:
+        if self.problem.aggregate_rows < 128 * route_entries:
             raise HIPRuntimeError(
                 "the installed Q5_K J32 control requires its dedicated module"
             )
@@ -667,23 +699,25 @@ class InstalledGroupedForwardQ5J32Module(GroupedForwardModule):
 
     def __init__(
         self,
-        solution_key: GroupedForwardSolutionKey,
+        problem: GroupedForwardProblem,
+        kernel_spec: GroupedForwardKernelSpec,
         code_object: Path | None = None,
         hip_library: Path | None = None,
     ) -> None:
-        if solution_key.problem.quant_data_type != "Q5_K":
+        if problem.quant_data_type != "Q5_K":
             raise HIPRuntimeError("installed Q5_K J32 control requires a Q5_K problem")
         super().__init__(
-            solution_key,
+            problem,
+            kernel_spec,
             code_object or _find_installed_kernel(self.SYMBOL),
+            self.SYMBOL,
             hip_library,
-            kernel_name=self.SYMBOL,
         )
 
     def _launch_configuration(
         self, route_entries: int
     ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
-        if self.solution_key.problem.aggregate_rows >= 128 * route_entries:
+        if self.problem.aggregate_rows >= 128 * route_entries:
             raise HIPRuntimeError("installed Q5_K dispatch selects J64 for this route")
         return ((32, route_entries, 1), (32, 4, 1), 24_192)
 
@@ -691,27 +725,29 @@ class InstalledGroupedForwardQ5J32Module(GroupedForwardModule):
 class InstalledGroupedForwardQ2J32Module(GroupedForwardModule):
     """Direct launcher for the installed pure Q2_K J32 control."""
 
-    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_q2_k_n4096_k2048_j32"
+    SYMBOL = "grouped_fwd_serial_q2_k_n4096_k2048_j32"
 
     def __init__(
         self,
-        solution_key: GroupedForwardSolutionKey,
+        problem: GroupedForwardProblem,
+        kernel_spec: GroupedForwardKernelSpec,
         code_object: Path | None = None,
         hip_library: Path | None = None,
     ) -> None:
-        if solution_key.problem.quant_data_type != "Q2_K":
+        if problem.quant_data_type != "Q2_K":
             raise HIPRuntimeError("installed Q2_K J32 control requires a Q2_K problem")
         super().__init__(
-            solution_key,
+            problem,
+            kernel_spec,
             code_object or _find_installed_kernel(self.SYMBOL),
+            self.SYMBOL,
             hip_library,
-            kernel_name=self.SYMBOL,
         )
 
     def _launch_configuration(
         self, route_entries: int
     ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
-        rows = self.solution_key.problem.aggregate_rows
+        rows = self.problem.aggregate_rows
         if rows == 49_152 or rows < 64 * route_entries:
             raise HIPRuntimeError("installed Q2_K dispatch selects mixed J32/J16")
         return ((64, route_entries, 1), (32, 4, 1), 30_336)
@@ -720,29 +756,31 @@ class InstalledGroupedForwardQ2J32Module(GroupedForwardModule):
 class InstalledGroupedForwardQ2J32J16Module(GroupedForwardModule):
     """Direct launcher for the installed mixed Q2_K J32/J16 control."""
 
-    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_q2_k_n4096_k2048_j32_j16"
+    SYMBOL = "grouped_fwd_serial_q2_k_n4096_k2048_j32_j16"
 
     def __init__(
         self,
-        solution_key: GroupedForwardSolutionKey,
+        problem: GroupedForwardProblem,
+        kernel_spec: GroupedForwardKernelSpec,
         code_object: Path | None = None,
         hip_library: Path | None = None,
     ) -> None:
-        if solution_key.problem.quant_data_type != "Q2_K":
+        if problem.quant_data_type != "Q2_K":
             raise HIPRuntimeError(
                 "installed Q2_K mixed control requires a Q2_K problem"
             )
         super().__init__(
-            solution_key,
+            problem,
+            kernel_spec,
             code_object or _find_installed_kernel(self.SYMBOL),
+            self.SYMBOL,
             hip_library,
-            kernel_name=self.SYMBOL,
         )
 
     def _launch_configuration(
         self, route_entries: int
     ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
-        rows = self.solution_key.problem.aggregate_rows
+        rows = self.problem.aggregate_rows
         if rows != 49_152 and rows >= 64 * route_entries:
             raise HIPRuntimeError("installed Q2_K dispatch selects pure J32")
         return ((64, route_entries, 1), (32, 4, 1), 30_336)
@@ -751,27 +789,29 @@ class InstalledGroupedForwardQ2J32J16Module(GroupedForwardModule):
 class InstalledGroupedForwardIQ2SJ64Module(GroupedForwardModule):
     """Direct launcher for the installed pure IQ2_S J64 grouped control."""
 
-    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_iq2_s_n2048_k512_j64"
+    SYMBOL = "grouped_fwd_serial_iq2_s_n2048_k512_j64"
 
     def __init__(
         self,
-        solution_key: GroupedForwardSolutionKey,
+        problem: GroupedForwardProblem,
+        kernel_spec: GroupedForwardKernelSpec,
         code_object: Path | None = None,
         hip_library: Path | None = None,
     ) -> None:
-        if solution_key.problem.quant_data_type != "IQ2_S":
+        if problem.quant_data_type != "IQ2_S":
             raise HIPRuntimeError("installed IQ2_S J64 control requires IQ2_S")
         super().__init__(
-            solution_key,
+            problem,
+            kernel_spec,
             code_object or _find_installed_kernel(self.SYMBOL),
+            self.SYMBOL,
             hip_library,
-            kernel_name=self.SYMBOL,
         )
 
     def _launch_configuration(
         self, route_entries: int
     ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
-        rows = self.solution_key.problem.aggregate_rows
+        rows = self.problem.aggregate_rows
         if rows == 65_536 or rows < 128 * route_entries:
             raise HIPRuntimeError("installed IQ2_S dispatch selects mixed J64/J32")
         return ((32, route_entries, 1), (32, 4, 1), 30_976)
@@ -780,27 +820,29 @@ class InstalledGroupedForwardIQ2SJ64Module(GroupedForwardModule):
 class InstalledGroupedForwardIQ2SJ64J32Module(GroupedForwardModule):
     """Direct launcher for the installed mixed IQ2_S J64/J32 control."""
 
-    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_serial_iq2_s_n2048_k512_j64_j32"
+    SYMBOL = "grouped_fwd_serial_iq2_s_n2048_k512_j64_j32"
 
     def __init__(
         self,
-        solution_key: GroupedForwardSolutionKey,
+        problem: GroupedForwardProblem,
+        kernel_spec: GroupedForwardKernelSpec,
         code_object: Path | None = None,
         hip_library: Path | None = None,
     ) -> None:
-        if solution_key.problem.quant_data_type != "IQ2_S":
+        if problem.quant_data_type != "IQ2_S":
             raise HIPRuntimeError("installed mixed IQ2_S control requires IQ2_S")
         super().__init__(
-            solution_key,
+            problem,
+            kernel_spec,
             code_object or _find_installed_kernel(self.SYMBOL),
+            self.SYMBOL,
             hip_library,
-            kernel_name=self.SYMBOL,
         )
 
     def _launch_configuration(
         self, route_entries: int
     ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
-        rows = self.solution_key.problem.aggregate_rows
+        rows = self.problem.aggregate_rows
         if rows != 65_536 and rows >= 128 * route_entries:
             raise HIPRuntimeError("installed IQ2_S dispatch selects pure J64")
         return ((32, route_entries, 1), (32, 4, 1), 30_976)
@@ -809,7 +851,7 @@ class InstalledGroupedForwardIQ2SJ64J32Module(GroupedForwardModule):
 class FixedQ81F16D2S6QuantizerModule(_HIPModule):
     """Direct launcher for the installed HIP Q8_1 F16_D2S6 producer."""
 
-    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f16_d2s6"
+    SYMBOL = "quantize_bf16_q8_1_f16_d2s6"
 
     def __init__(
         self,
@@ -890,12 +932,13 @@ class FixedHipForwardModule(ForwardModule):
 
     def __init__(
         self,
-        solution_key: SolutionKey,
+        problem_size: ProblemSize,
+        quant_type: str,
+        kernel_spec: ForwardKernelSpec,
         code_object: Path | None = None,
         hip_library: Path | None = None,
     ) -> None:
-        quant_type = solution_key.problem_type.quant_data_type
-        k = solution_key.problem_size.k
+        k = problem_size.k
         allowed_k = {
             "Q3_K": (2048, 4096),
             "Q4_K": (512, 2048, 4096),
@@ -910,7 +953,7 @@ class FixedHipForwardModule(ForwardModule):
         symbol_quant = quant_type.lower()
         # The installed bundle ABI explicitly contrasts ordinary (`dense_fwd`) and
         # grouped entry points, so preserve its external symbol spelling here.
-        m = solution_key.problem_size.m
+        m = problem_size.m
         j = 64 if quant_type == "Q6_K" and m == 64 else 128
         suffix = f"k{k}_j{j}_full"
         if quant_type == "Q3_K" and k == 4096:
@@ -922,19 +965,21 @@ class FixedHipForwardModule(ForwardModule):
                 )
             j = 64
             suffix = f"k4096_j64_{'bounded' if m == 32 else 'full'}"
-        symbol = f"torch_ggml_ops_mmq_gfx1151_v1_dense_fwd_{symbol_quant}_{suffix}"
+        symbol = f"dense_fwd_{symbol_quant}_{suffix}"
         super().__init__(
-            solution_key,
+            problem_size,
+            quant_type,
+            kernel_spec,
             code_object or _find_installed_kernel(symbol),
+            symbol,
             hip_library,
-            kernel_name=symbol,
         )
 
     def _launch_configuration(
         self,
     ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
-        size = self.solution_key.problem_size
-        quant_type = self.solution_key.problem_type.quant_data_type
+        size = self.problem_size
+        quant_type = self.quant_type
         j = 64 if quant_type in ("Q6_K", "Q8_0") and size.m in (32, 64) else 128
         if quant_type == "Q3_K":
             # Match mmq_bundle.cpp: Q3 uses a 36-dword activation tile and
@@ -954,18 +999,17 @@ class FixedGroupedQ8BackwardModule(_HIPModule):
 
     def __init__(
         self,
-        solution_key: FixedBackwardSolutionKey,
+        problem: FixedBackwardProblem,
+        kernel_spec: FixedBackwardKernelSpec,
         code_object: Path,
+        kernel_name: str,
         hip_library: Path | None = None,
-        *,
-        kernel_name: str | None = None,
     ) -> None:
-        validate_fixed_backward_solution_key(solution_key)
-        self.state = DerivedFixedBackwardState.from_solution_key(solution_key)
-        self.solution_key = solution_key
-        super().__init__(
-            code_object, hip_library, kernel_name or solution_key.kernel_name
-        )
+        validate_fixed_backward_solution(problem, kernel_spec)
+        self.problem = problem
+        self.kernel_spec = kernel_spec
+        self.state = DerivedFixedBackwardState.from_problem_spec(problem, kernel_spec)
+        super().__init__(code_object, hip_library, kernel_name)
 
     def launch(
         self,
@@ -1034,29 +1078,23 @@ class FixedGroupedQ8BackwardModule(_HIPModule):
 class InstalledFixedGroupedQ8BackwardModule(FixedGroupedQ8BackwardModule):
     """Direct launcher for the installed fixed Q8_0 production control."""
 
-    M256_SYMBOL = (
-        "torch_ggml_ops_mmq_gfx1151_v1_grouped_bwd_fixed_q8_0_g8_k4096_mt256_nt64"
-    )
-    M192_SYMBOL = (
-        "torch_ggml_ops_mmq_gfx1151_v1_grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64"
-    )
+    M256_SYMBOL = "grouped_bwd_fixed_q8_0_g8_k4096_mt256_nt64"
+    M192_SYMBOL = "grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64"
 
     def __init__(
         self,
-        solution_key: FixedBackwardSolutionKey,
+        problem: FixedBackwardProblem,
+        kernel_spec: FixedBackwardKernelSpec,
         code_object: Path | None = None,
         hip_library: Path | None = None,
     ) -> None:
-        symbol = (
-            self.M192_SYMBOL
-            if solution_key.problem.tokens == 32768
-            else self.M256_SYMBOL
-        )
+        symbol = self.M192_SYMBOL if problem.tokens == 32768 else self.M256_SYMBOL
         super().__init__(
-            solution_key,
+            problem,
+            kernel_spec,
             code_object or _find_installed_kernel(symbol),
+            symbol,
             hip_library,
-            kernel_name=symbol,
         )
 
     def _launch_configuration(self) -> tuple[int, int, int, int, int, int, int]:
@@ -1077,18 +1115,17 @@ class FixedGroupedQ8ForwardModule(_HIPModule):
 
     def __init__(
         self,
-        solution_key: FixedForwardSolutionKey,
+        problem: FixedForwardProblem,
+        kernel_spec: FixedForwardKernelSpec,
         code_object: Path,
+        kernel_name: str,
         hip_library: Path | None = None,
-        *,
-        kernel_name: str | None = None,
     ) -> None:
-        validate_fixed_forward_solution_key(solution_key)
-        self.state = DerivedFixedForwardState.from_solution_key(solution_key)
-        self.solution_key = solution_key
-        super().__init__(
-            code_object, hip_library, kernel_name or solution_key.kernel_name
-        )
+        validate_fixed_forward_solution(problem, kernel_spec)
+        self.problem = problem
+        self.kernel_spec = kernel_spec
+        self.state = DerivedFixedForwardState.from_problem_spec(problem, kernel_spec)
+        super().__init__(code_object, hip_library, kernel_name)
 
     def launch(
         self,
@@ -1154,28 +1191,26 @@ class FixedGroupedQ8ForwardModule(_HIPModule):
 class InstalledFixedGroupedQ8ForwardModule(FixedGroupedQ8ForwardModule):
     """Direct launcher for the installed authoritative fixed-group HIP multiply."""
 
-    FULL_SYMBOL = (
-        "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_fixed_q8_0_g8_k4096_j64_full"
-    )
-    BOUNDED_SYMBOL = (
-        "torch_ggml_ops_mmq_gfx1151_v1_grouped_fwd_fixed_q8_0_g8_k4096_j64_bounded"
-    )
+    FULL_SYMBOL = "grouped_fwd_fixed_q8_0_g8_k4096_j64_full"
+    BOUNDED_SYMBOL = "grouped_fwd_fixed_q8_0_g8_k4096_j64_bounded"
 
     def __init__(
         self,
-        solution_key: FixedForwardSolutionKey,
+        problem: FixedForwardProblem,
+        kernel_spec: FixedForwardKernelSpec,
         code_object: Path | None = None,
         hip_library: Path | None = None,
     ) -> None:
-        if solution_key.problem.output_features % 64:
+        if problem.output_features % 64:
             symbol = self.BOUNDED_SYMBOL
         else:
             symbol = self.FULL_SYMBOL
         super().__init__(
-            solution_key,
+            problem,
+            kernel_spec,
             code_object or _find_installed_kernel(symbol),
+            symbol,
             hip_library,
-            kernel_name=symbol,
         )
 
     def _launch_configuration(self) -> tuple[int, int, int, int, int, int, int]:
@@ -1186,7 +1221,7 @@ class InstalledFixedGroupedQ8ForwardModule(FixedGroupedQ8ForwardModule):
 class FixedQ81F16D4S4QuantizerModule(_HIPModule):
     """Direct launcher for the installed HIP Q8_1 F16_D4S4 producer."""
 
-    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f16_d4s4"
+    SYMBOL = "quantize_bf16_q8_1_f16_d4s4"
 
     def __init__(
         self,
@@ -1266,7 +1301,7 @@ class FixedQ81F16D4S4QuantizerModule(_HIPModule):
 class FixedQ81F32D4QuantizerModule(_HIPModule):
     """Direct launcher for the installed HIP Q8_1 F32_D4 producer."""
 
-    SYMBOL = "torch_ggml_ops_mmq_gfx1151_v1_quantize_bf16_q8_1_f32_d4"
+    SYMBOL = "quantize_bf16_q8_1_f32_d4"
 
     def __init__(
         self,

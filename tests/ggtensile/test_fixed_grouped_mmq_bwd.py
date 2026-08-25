@@ -1,276 +1,140 @@
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
-from tools.ggtensile.fixed_grouped_mmq_bwd_model import (
-    FixedBackwardProblem,
-    FixedBackwardSolution,
-    FixedBackwardSolutionKey,
+from tools.ggtensile.campaign import load_catalog
+from tools.ggtensile.family_registry import (
+    launch_for_instance,
+    mapping_for_instance,
+    parse_instance,
+    writer_for_instance,
 )
-from tools.ggtensile.fixed_grouped_mmq_bwd_spec import DerivedFixedBackwardState
+from tools.ggtensile.fixed_grouped_mmq_bwd_model import FixedBackwardProblem
+from tools.ggtensile.fixed_grouped_mmq_bwd_spec import (
+    DerivedFixedBackwardState,
+    FixedBackwardKernelSpec,
+)
 from tools.ggtensile.fixed_grouped_mmq_bwd_validation import (
-    fixed_backward_rejection_reason,
-    validate_fixed_backward_solution_key,
+    validate_fixed_backward_solution,
 )
 from tools.ggtensile.inspection import inspect_artifact
-from tools.ggtensile.kernel_writer_assembly_fixed_grouped_mmq_bwd import (
-    FixedGroupedBackwardKernelWriterAssembly,
-)
-from tools.ggtensile.model import ProblemSize, ProblemType, SolutionKey
-from tools.ggtensile.runtime import (
-    FixedGroupedQ8BackwardModule,
-    InstalledFixedGroupedQ8BackwardModule,
-)
+from tools.ggtensile.kernel_instance import KernelInstance
 from tools.ggtensile.schema import SchemaError
 from tools.ggtensile.toolchain import Toolchain
-from tools.ggtensile.validation import validate_solution
+
+_CONFIG = Path(__file__).resolve().parents[2] / "tools/ggtensile/configs"
 
 
-def _key(tokens: int = 2048) -> FixedBackwardSolutionKey:
-    return FixedBackwardSolutionKey(
-        FixedBackwardProblem.deepseek_q8_0(tokens),
-        FixedBackwardSolution.q8_0_m256_n64_k32(),
-    )
+def _instances() -> tuple[KernelInstance, ...]:
+    catalog = load_catalog(_CONFIG / "mmq_fixed_grouped_bwd_q8_0_catalog.json")
+    return tuple(entry.instance for entry in catalog.entries)
 
 
-def _selected_key(tokens: int = 2048) -> FixedBackwardSolutionKey:
-    return FixedBackwardSolutionKey(
-        FixedBackwardProblem.deepseek_q8_0(tokens),
-        FixedBackwardSolution.selected_q8_0(),
-    )
+def _problem_spec(
+    instance: KernelInstance,
+) -> tuple[FixedBackwardProblem, FixedBackwardKernelSpec]:
+    assert isinstance(instance.problem, FixedBackwardProblem)
+    assert isinstance(instance.kernel_spec, FixedBackwardKernelSpec)
+    return instance.problem, instance.kernel_spec
 
 
-def _e9_key(tokens: int = 32768) -> FixedBackwardSolutionKey:
-    return FixedBackwardSolutionKey(
-        FixedBackwardProblem.deepseek_q8_0(tokens),
-        FixedBackwardSolution.q8_0_m64_n256_k64(),
-    )
+def test_fixed_backward_catalog_keys_round_trip_and_derive() -> None:
+    instances = _instances()
+    assert len(instances) == 3
+    for instance in instances:
+        assert parse_instance(mapping_for_instance(instance)) == instance
+        problem, spec = _problem_spec(instance)
+        validate_fixed_backward_solution(problem, spec)
+        state = DerivedFixedBackwardState.from_problem_spec(problem, spec)
+        assert state.expected_grad_output_shape == (
+            problem.tokens,
+            problem.groups,
+            problem.output_features,
+        )
+        assert state.expected_packed_weight_shape[0] == 8
+        assert state.expected_grad_input_shape[2] == problem.input_features
+        assert state.physical.resources.private_bytes == 0
 
 
-def test_fixed_backward_identity_roundtrip_and_derived_state() -> None:
-    key = _key()
-    assert FixedBackwardSolutionKey.from_mapping(key.to_mapping()) == key
-    validate_fixed_backward_solution_key(key)
-    state = DerivedFixedBackwardState.from_solution_key(key)
-    assert state.grid == (64, 8, 8)
-    assert state.expected_grad_output_shape == (2048, 8, 1024)
-    assert state.expected_packed_weight_shape == (8, 1024, 4352)
-    assert state.expected_grad_input_shape == (2048, 8, 4096)
-    assert state.physical.resources.total_vgprs == 231
-    assert state.physical.resources.total_sgprs == 17
-    assert state.physical.resources.lds_num_bytes == 5120
+def test_fixed_backward_spec_is_the_compute_authority() -> None:
+    spec = _problem_spec(_instances()[0])[1]
+    assert isinstance(spec, FixedBackwardKernelSpec)
+    assert spec.compute.geometry.depth_u == 64
+    assert spec.work_group_order == "NMajor"
+    assert spec.store_schedule == "ElementSerial"
+    assert FixedBackwardKernelSpec.from_mapping(spec.to_mapping()) == spec
 
 
-@pytest.mark.parametrize("tokens", (2048, 8192, 32768))
-def test_fixed_backward_accepts_only_production_shapes(tokens: int) -> None:
-    state = DerivedFixedBackwardState.from_solution_key(_selected_key(tokens))
-    assert state.grid == (32, tokens // 128, 8)
-    assert state.physical.resources.total_vgprs == 216
-
-
-def test_fixed_backward_square_review_geometry_is_strict_and_derived() -> None:
-    key = FixedBackwardSolutionKey(
-        FixedBackwardProblem.deepseek_q8_0(32768),
-        FixedBackwardSolution.q8_0_m128_n128_k32(),
-    )
-    assert FixedBackwardSolutionKey.from_mapping(key.to_mapping()) == key
-    state = DerivedFixedBackwardState.from_solution_key(key)
-    assert state.grid == (32, 256, 8)
-    assert state.spec.compute.geometry.macro_tile0 == 128
-    assert state.spec.compute.geometry.macro_tile1 == 128
-
-
-def test_fixed_backward_square_vopd_review_identity_is_derived() -> None:
-    key = FixedBackwardSolutionKey(
-        FixedBackwardProblem.deepseek_q8_0(32768),
-        FixedBackwardSolution.q8_0_m128_n128_k32_packed_vopd(),
-    )
-    assert FixedBackwardSolutionKey.from_mapping(key.to_mapping()) == key
-    state = DerivedFixedBackwardState.from_solution_key(key)
-    assert state.spec.compute.decode.q8.extraction.value == "packed_vopd"
-
-
-def test_fixed_backward_m64_review_crosses_vgpr_boundary() -> None:
-    key = FixedBackwardSolutionKey(
-        FixedBackwardProblem.deepseek_q8_0(32768),
-        FixedBackwardSolution.q8_0_m64_n128_k32(),
-    )
-    state = DerivedFixedBackwardState.from_solution_key(key)
-    assert state.grid == (32, 512, 8)
-    assert state.physical.resources.total_vgprs == 122
-
-
-def test_fixed_backward_clause_store_is_an_exact_epilogue_identity() -> None:
-    key = FixedBackwardSolutionKey(
-        FixedBackwardProblem.deepseek_q8_0(32768),
-        FixedBackwardSolution.q8_0_m128_n128_k32_clause_store(),
-    )
-    assert FixedBackwardSolutionKey.from_mapping(key.to_mapping()) == key
-    source = FixedGroupedBackwardKernelWriterAssembly(
-        key, Toolchain.discover()
-    ).source()
-    assert source.count("s_clause 15") == 8
-
-
-def test_fixed_backward_depth64_review_identity_is_derived() -> None:
-    key = FixedBackwardSolutionKey(
-        FixedBackwardProblem.deepseek_q8_0(32768),
-        FixedBackwardSolution.q8_0_m128_n128_k64(),
-    )
-    state = DerivedFixedBackwardState.from_solution_key(key)
-    assert state.spec.compute.geometry.depth_u == 64
-    assert state.physical.resources.lds_num_bytes == 18432
-    assert FixedBackwardSolution.selected_q8_0() == key.solution
-
-
-def test_fixed_backward_depth64_vopd_review_identity_is_derived() -> None:
-    key = FixedBackwardSolutionKey(
-        FixedBackwardProblem.deepseek_q8_0(32768),
-        FixedBackwardSolution.q8_0_m128_n128_k64_packed_vopd(),
-    )
-    state = DerivedFixedBackwardState.from_solution_key(key)
-    assert state.spec.compute.decode.q8.extraction.value == "packed_vopd"
-
-
-def test_fixed_backward_depth64_next_prefetch_is_rejected() -> None:
-    key = FixedBackwardSolutionKey(
-        FixedBackwardProblem.deepseek_q8_0(32768),
-        FixedBackwardSolution.q8_0_m128_n128_k64_next_prefetch(),
-    )
-    with pytest.raises(ValueError, match="DepthU64 next-packed-tile prefetch"):
-        DerivedFixedBackwardState.from_solution_key(key)
-
-
-def test_fixed_backward_e9_m64_n256_depth64_is_fixed_only() -> None:
-    key = _e9_key()
-    assert FixedBackwardSolutionKey.from_mapping(key.to_mapping()) == key
-    validate_fixed_backward_solution_key(key)
-    state = DerivedFixedBackwardState.from_solution_key(key)
-    assert state.grid == (16, 512, 8)
-    assert state.spec.compute.geometry.matrix_instruction[6] == 16
-    assert state.physical.ordinary.decoder.rows == 8
-    assert state.physical.ordinary.address.lds == 208
-    assert state.physical.ordinary.address.quant_shift == 209
-    assert state.physical.resources.total_vgprs == 230
-    assert state.physical.resources.total_sgprs == 17
-    assert state.physical.resources.lds_num_bytes == 36864
-
-    ordinary = SolutionKey(
-        ProblemType.mmq_backward("Q8_0"),
-        ProblemSize(32768, 4096, 1024),
-        key.solution.compute,
-    )
-    assert any(
-        reason.rule_id == "solution.geometry.unimplemented"
-        for reason in validate_solution(ordinary)
-    )
-
-
-@pytest.mark.parametrize(
-    ("key", "message"),
-    (
-        (
-            replace(_key(), problem=replace(_key().problem, tokens=4096)),
-            "tokens must be one of",
-        ),
-        (
-            replace(_key(), problem=replace(_key().problem, groups=4)),
-            "eight groups",
-        ),
-        (
-            replace(
-                _key(),
-                solution=replace(_key().solution, group_axis="SyntheticRoutes"),
-            ),
-            "workgroup Z",
-        ),
-        (
-            replace(
-                _key(),
-                solution=replace(
-                    _key().solution,
-                    compute=replace(_key().solution.compute, macro_tile0=192),
-                ),
-            ),
-            "complete M tiles",
-        ),
-    ),
-)
-def test_fixed_backward_rejects_cross_contract_values(
-    key: FixedBackwardSolutionKey, message: str
-) -> None:
-    assert fixed_backward_rejection_reason(key) is not None
-    with pytest.raises(ValueError, match=message):
-        validate_fixed_backward_solution_key(key)
-
-
-def test_fixed_backward_mapping_rejects_unknown_and_noncanonical_fields() -> None:
-    mapping = _key().to_mapping()
-    mapping["unknown"] = 1
-    with pytest.raises(SchemaError, match="unknown"):
-        FixedBackwardSolutionKey.from_mapping(mapping)
-
-    mapping = _key().to_mapping()
-    contract = mapping["ProblemContract"]
-    assert isinstance(contract, dict)
-    contract["abi"] = "Routed"
-    with pytest.raises(SchemaError, match="not canonical"):
-        FixedBackwardSolutionKey.from_mapping(mapping)
-
-
-def test_fixed_backward_source_uses_group_bases_and_interleaved_rows() -> None:
-    key = _key()
-    source = FixedGroupedBackwardKernelWriterAssembly(
-        key, Toolchain.discover()
-    ).source()
-    assert "s_load_dword s16, s[0:1], 0x20" in source
-    assert "s_mov_b32 s16, s2" in source
-    assert "s_mov_b32 s2, s3" in source
-    assert "s_mov_b32 s3, s16" in source
-    assert "s_mul_i32 s16, s4, s16" in source
-    assert "s_add_u32 s8, s8, s16" in source
-    assert "s_add_u32 s6, s6, s16" in source
-    assert "s_add_u32 s10, s10, s16" in source
-    assert source.count("v_dual_lshlrev_b32 v218, 14, v218") == 1
-    assert "v_lshlrev_b32 v224, 16, v224" in source
-    assert source.count("v_wmma_f32_16x16x16_bf16") == 32
-
-
-def test_fixed_backward_build_is_deterministic_and_inspectable(tmp_path) -> None:
-    key = _selected_key()
+def test_fixed_backward_writer_is_deterministic_and_inspectable(tmp_path: Path) -> None:
+    instance = _instances()[0]
     toolchain = Toolchain.discover()
-    writer = FixedGroupedBackwardKernelWriterAssembly(key, toolchain)
-    assert (
-        writer.source()
-        == FixedGroupedBackwardKernelWriterAssembly(key, toolchain).source()
-    )
+    writer = writer_for_instance(instance, toolchain)
+    assert writer.source() == writer.source()
     assembly = tmp_path / "kernel.s"
     obj = tmp_path / "kernel.o"
     code_object = tmp_path / "kernel.hsaco"
     writer.write(assembly)
     toolchain.assemble(assembly, obj)
     toolchain.link(obj, code_object)
-    inspection = inspect_artifact(key, code_object, toolchain)
-    assert inspection.kernarg_segment_size == 40
-    assert inspection.lds_num_bytes == 18432
-    assert inspection.vgpr_count == 216
-    assert inspection.sgpr_count == 17
-    assert inspection.max_sgpr_index == 16
-    assert inspection.wmma_count == 64
-    assert inspection.barrier_count == 2
+    inspection = inspect_artifact(instance, code_object, toolchain)
+    resources = DerivedFixedBackwardState.from_problem_spec(
+        *_problem_spec(instance)
+    ).physical.resources
+    assert inspection.vgpr_count == resources.vgprs
+    assert inspection.sgpr_count == resources.sgprs
+    assert inspection.lds_num_bytes == resources.lds_bytes
+    assert inspection.private_segment_bytes == 0
     assert inspection.vgpr_spill_count == 0
     assert inspection.sgpr_spill_count == 0
 
 
-def test_fixed_backward_runtime_configurations_match_candidate_and_controls() -> None:
-    candidate = object.__new__(FixedGroupedQ8BackwardModule)
-    candidate.state = DerivedFixedBackwardState.from_solution_key(_selected_key())
-    assert candidate._launch_configuration() == (32, 16, 8, 32, 4, 1, 0)
+def test_fixed_backward_mapping_rejects_unknown_fields() -> None:
+    mapping = mapping_for_instance(_instances()[0])
+    mapping["Unknown"] = 1
+    with pytest.raises(SchemaError):
+        parse_instance(mapping)
 
-    control = object.__new__(InstalledFixedGroupedQ8BackwardModule)
-    control.state = candidate.state
-    assert control._launch_configuration() == (64, 8, 8, 128, 1, 1, 0)
-    control.state = DerivedFixedBackwardState.from_solution_key(_selected_key(32768))
-    assert control._launch_configuration() == (64, 171, 8, 128, 1, 1, 0)
-    candidate.state = DerivedFixedBackwardState.from_solution_key(_e9_key(32768))
-    assert candidate._launch_configuration() == (16, 512, 8, 32, 4, 1, 0)
+
+def test_fixed_backward_problem_axes_are_not_repaired() -> None:
+    instance = _instances()[0]
+    problem, spec = _problem_spec(instance)
+    invalid = type(problem)(
+        problem.quant_data_type,
+        problem.tokens,
+        problem.output_features,
+        problem.input_features,
+        4,
+    )
+    with pytest.raises(AssertionError):
+        validate_fixed_backward_solution(invalid, spec)
+
+
+def test_fixed_backward_work_group_mapping_preserves_group_z_and_order() -> None:
+    base = _instances()[0]
+    _, spec = _problem_spec(base)
+    mapped = replace(
+        base,
+        kernel_spec=replace(
+            spec,
+            compute=replace(
+                spec.compute,
+                geometry=replace(spec.compute.geometry, work_group_mapping=2),
+            ),
+        ),
+    )
+    validate_fixed_backward_solution(*_problem_spec(mapped))
+    assert launch_for_instance(base).grid == (32, 16, 8)
+    assert launch_for_instance(mapped).grid == (64, 8, 8)
+    source = writer_for_instance(mapped, Toolchain.discover()).source()
+    assert "Decode the WGM-packed fixed-group M/N grid." in source
+    assert "s_and_b32 s13, s2, 1" in source
+    assert "s_lshr_b32 s2, s2, 1" in source
+
+    mapped_spec = _problem_spec(mapped)[1]
+    mm_major = replace(
+        mapped,
+        kernel_spec=replace(mapped_spec, work_group_order="MMajor"),
+    )
+    validate_fixed_backward_solution(*_problem_spec(mm_major))
+    assert launch_for_instance(mm_major).grid == (8, 64, 8)

@@ -119,10 +119,10 @@ Independent source generation is byte-reproducible, and both artifacts pass the 
 
 ### Measurement and inspection infrastructure
 
-- `tools/benchmark_ggtensile_mmq_bwd.py` provides warmed rotating HIP, candidate, and assembly-control timing; full-output comparison; independent BF16-reference comparison; and producer-handoff checks.
+- `bench/benchmark_mmq_bwd_kernels.py` and `bench/benchmark_kernel_runner.py` provide the current warmed GGTensile-versus-HIP timing and full-output comparison entrypoints; independent-reference and producer-handoff checks remain in the shared benchmark support.
 - Artifact inspection records ABI and hard resources plus static VALU issues and operations, VOPD pairs, VMEM, LDS, waits, barriers, clauses, dependency delays, and L0 invalidations.
-- `tools/benchmark_ggtensile_mmq_bwd_lower_bounds.py` generates, builds, inspects, and rotates exact `wmma_floor` and `decode_floor` diagnostic artifacts while leaving production `BackwardSolution` and dispatch contracts unchanged.
-- `tools/ggtensile/configs/mmq_bwd_q4_k_catalog.json` contains only the four deduplicated selected kernel specifications and the exact 12-key deployment map. Representative tensors, call counts, historical HIP controls, and selection chronology remain in this record and immutable campaign reports. `tools/run_ggtensile_mmq_bwd_campaign.py` runs prepare, correctness, nine-repeat screen, and 25-repeat confirmation phases serially and reports call-weighted totals without treating that evidence as deployment input.
+- Historical lower-bound diagnostic artifacts remain evidence in this record; their retired driver is not part of the current generation or deployment workflow.
+- `tools/ggtensile/configs/mmq_bwd_q4_k_catalog.json` contains only the four deduplicated selected kernel specifications and the exact 12-key deployment map. Representative tensors, call counts, historical HIP controls, and selection chronology remain in this record and immutable campaign reports. The typed GGTensile CLI owns current generation/build phase manifests; benchmark entrypoints consume those exact artifacts without treating timing evidence as deployment input.
 
 ### Campaign search space and control taxonomy
 

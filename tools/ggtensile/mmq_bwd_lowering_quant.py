@@ -457,10 +457,7 @@ class BackwardQuantLowering:
         if self.state.contract.quant_type == "IQ2_XXS":
             self._emit_iq2_xxs_global_reads_from_current_addresses(asm)
             return
-        raise ValueError(
-            "current-address paired reads are not implemented for "
-            f"{self.state.contract.quant_type}"
-        )
+        raise AssertionError
 
     def _emit_iq2_xxs_global_reads(
         self,
@@ -576,7 +573,7 @@ class BackwardQuantLowering:
         for row in range(decoder_rows):
             asm.inst(f"v_add_nc_u32 v{a + row}, v{a + row}, v{t + 1}")
             asm.inst(f"v_add_nc_u32 v{payload_address}, v{a + row}, v{t + 2}")
-            if self.state.spec.decode.q8.extraction is not BackwardExtraction.scalar:
+            if self.state.spec.decode.extraction is not BackwardExtraction.Scalar:
                 asm.inst(
                     f"global_load_b128 v[{q + 4 * row}:{q + 4 * row + 3}], "
                     f"v{payload_address}, s[{r.kernarg + 2}:{r.kernarg + 3}]"
@@ -928,7 +925,7 @@ class BackwardQuantLowering:
         row: int,
     ) -> None:
         r = self.registers
-        if self.state.spec.decode.q5.vector_metadata_load:
+        if self.state.spec.decode.uses_vector_metadata_load:
             metadata = r.quant_dm + 4 * row
             asm.inst(
                 f"global_load_b128 v[{metadata}:{metadata + 3}], "
@@ -1141,7 +1138,7 @@ class BackwardQuantLowering:
             f"v_lshrrev_b32 v{packed}, v{self.physical.address.quant_shift}, v{packed}"
         )
         asm.inst(f"v_and_b32 v{packed}, 0x03030303, v{packed}")
-        decode_plan = self.physical.q2_decode
+        decode_plan = self.physical.dependency_decode
         if decode_plan.dependency_width > 1:
             elements = tuple(range(first_element, first_element + 4))
             locations = tuple(
@@ -1220,7 +1217,7 @@ class BackwardQuantLowering:
         tiles_per_weight_block = 256 // n_per_tile
         n_shift = n_per_tile.bit_length() - 1
         t = r.temporary
-        low_shift = self.physical.address.q3_low_shift
+        low_shift = self.physical.address.low_bitfield_shift
         high_shift = self.physical.address.quant_shift
         asm.comment("Derive Q6_K payload shifts and signed scaled d values.")
         asm.inst(f"v_and_b32 v{t}, {n_tiles - 1}, v{r.serial}")
@@ -1253,17 +1250,19 @@ class BackwardQuantLowering:
         t = r.temporary
         low = r.global_read_b + 4 * row + first_element // 4
         high = r.global_read_b + 4 * decoder_rows + 4 * row + first_element // 4
-        asm.inst(f"v_lshrrev_b32 v{low}, v{self.physical.address.q3_low_shift}, v{low}")
+        asm.inst(
+            f"v_lshrrev_b32 v{low}, v{self.physical.address.low_bitfield_shift}, v{low}"
+        )
         asm.inst(f"v_and_b32 v{low}, 0x0f0f0f0f, v{low}")
         asm.inst(
             f"v_lshrrev_b32 v{high}, v{self.physical.address.quant_shift}, v{high}"
         )
         asm.inst(f"v_and_b32 v{high}, 0x03030303, v{high}")
         asm.inst(f"v_lshl_or_b32 v{low}, v{high}, 4, v{low}")
-        extraction = self.state.spec.decode.q6.extraction
+        extraction = self.state.spec.decode.extraction
         d_scaled = t + 1 + 2 * row
         value = t + 1 + 2 * decoder_rows
-        if extraction is BackwardExtraction.packed_vopd:
+        if extraction is BackwardExtraction.PackedVopd:
             second_value = value + 1
             rounding = value + 2
             alternate_d = value + 3
@@ -1285,7 +1284,7 @@ class BackwardQuantLowering:
                 for element in range(first_element, first_element + 4)
             )
         for element, element_value, second_element, second_value in elements:
-            if extraction is BackwardExtraction.scalar:
+            if extraction is BackwardExtraction.Scalar:
                 asm.inst(f"v_bfe_u32 v{element_value}, v{low}, {8 * (element % 4)}, 6")
                 asm.inst(f"v_cvt_f32_u32_e32 v{element_value}, v{element_value}")
             else:
@@ -1359,7 +1358,7 @@ class BackwardQuantLowering:
         value = t + 1 + 2 * decoder_rows
         rounding = value + 1
         lds_address = self.physical.address.lds
-        if self.state.spec.decode.q8.extraction is BackwardExtraction.packed_vopd:
+        if self.state.spec.decode.extraction is BackwardExtraction.PackedVopd:
             rounding = value + 2
             alternate_d = value + 3
             if first_element == 0:
@@ -1634,8 +1633,7 @@ class BackwardQuantLowering:
         asm: _Assembly,
         lane_group: int,
     ) -> None:
-        if not self.physical.lds.codebook_in_lds:
-            raise ValueError("IQ2_XXS backward requires its staged codebook")
+        assert self.physical.lds.codebook_in_lds
         r = self.registers
         t = r.temporary
         asm.comment("Load and sign the two IQ2_XXS grids owned by each lane.")
@@ -1766,8 +1764,7 @@ class BackwardQuantLowering:
         r = self.registers
         row = chunk // 4
         element_start = 4 * (chunk % 4)
-        if not 0 < dword_count <= 4 - chunk % 4:
-            raise ValueError("IQ2_XXS decode batch crosses a decoder row")
+        assert 0 < dword_count <= 4 - chunk % 4
         k_span = self.state.spec.geometry.depth_u // self.physical.decoder.rows
         values = tuple(r.valu_b + item for item in range(4 * dword_count))
         for item, value in enumerate(values):
@@ -1851,7 +1848,7 @@ class BackwardQuantLowering:
                 f"v_fma_mix_f32 v{d_scaled}, v{r.quant_dm + row}, v{low}, "
                 "neg(0) op_sel_hi:[1,0,0]"
             )
-        if self.physical.decoder.q3_full_vopd:
+        if self.physical.decoder.full_instruction_pairing:
             if decoder_rows == 1:
                 asm.inst(f"v_mov_b32 v{t + 9}, v{t + 3}")
             else:
@@ -1867,12 +1864,12 @@ class BackwardQuantLowering:
         asm.inst(f"v_and_b32 v{t + 1}, 127, v{t}")
         asm.inst(f"v_lshrrev_b32 v{t + 1}, 5, v{t + 1}")
         asm.inst(f"v_lshlrev_b32 v{t + 1}, 1, v{t + 1}")
-        asm.inst(f"v_mov_b32 v{self.physical.address.q3_low_shift}, v{t + 1}")
+        asm.inst(f"v_mov_b32 v{self.physical.address.low_bitfield_shift}, v{t + 1}")
         asm.inst(f"v_lshrrev_b32 v{t}, 5, v{t}")
         asm.inst(f"v_mov_b32 v{quant_shift}, v{t}")
-        if self.state.spec.decode.q3.extraction is BackwardExtraction.packed:
+        if self.state.spec.decode.extraction is BackwardExtraction.Packed:
             asm.inst(f"v_mov_b32 v{t + 2}, 4.0")
-            if self.physical.decoder.q3_full_vopd:
+            if self.physical.decoder.full_instruction_pairing:
                 asm.inst(f"v_mov_b32 v{t + 1}, 4.0")
 
     def _emit_q3_k_decode_chunk(self, asm: _Assembly, chunk: int) -> None:
@@ -1884,13 +1881,15 @@ class BackwardQuantLowering:
         t = r.temporary
         low = r.global_read_b + 4 * row + first_element // 4
         high = r.global_read_b + 4 * decoder_rows + 4 * row + first_element // 4
-        asm.inst(f"v_lshrrev_b32 v{low}, v{self.physical.address.q3_low_shift}, v{low}")
+        asm.inst(
+            f"v_lshrrev_b32 v{low}, v{self.physical.address.low_bitfield_shift}, v{low}"
+        )
         asm.inst(f"v_and_b32 v{low}, 0x03030303, v{low}")
         asm.inst(
             f"v_lshrrev_b32 v{high}, v{self.physical.address.quant_shift}, v{high}"
         )
         asm.inst(f"v_and_b32 v{high}, 0x01010101, v{high}")
-        if self.state.spec.decode.q3.extraction is BackwardExtraction.packed:
+        if self.state.spec.decode.extraction is BackwardExtraction.Packed:
             asm.inst(f"v_lshl_or_b32 v{low}, v{high}, 2, v{low}")
         else:
             asm.inst(f"v_xor_b32 v{high}, 0x01010101, v{high}")
@@ -1905,7 +1904,7 @@ class BackwardQuantLowering:
                 f"ds_store_b16_d16_hi v{lds_address}, v{value} offset:{lds_offset}"
             )
 
-        if self.state.spec.decode.q3.extraction is BackwardExtraction.scalar:
+        if self.state.spec.decode.extraction is BackwardExtraction.Scalar:
             for element in range(first_element, first_element + 4):
                 value = t + 5
                 rounding = t + 6
@@ -1927,7 +1926,7 @@ class BackwardQuantLowering:
         fourth = first_element + 3
         q0 = t + 5
         q1 = t + 8
-        full_vopd = self.physical.decoder.q3_full_vopd
+        full_vopd = self.physical.decoder.full_instruction_pairing
         q1_low = q1 if full_vopd else (q1 if d_scaled % 2 else t + 7)
         rounding = t + 6
 
@@ -1969,7 +1968,7 @@ class BackwardQuantLowering:
         scale = r.quant_scale
         t = r.temporary
         is_q5 = quant_type == "Q5_K"
-        vector_metadata = is_q5 and self.state.spec.decode.q5.vector_metadata_load
+        vector_metadata = is_q5 and self.state.spec.decode.uses_vector_metadata_load
         asm.comment(f"Unpack {quant_type} six-bit scale/min fields.")
         if vector_metadata:
             asm.comment("Select the lane-owned Q5_K scale-byte triplet.")
@@ -2058,7 +2057,7 @@ class BackwardQuantLowering:
             f"v_lshrrev_b32 v{packed}, v{self.physical.address.quant_shift}, v{packed}"
         )
         asm.inst(f"v_and_b32 v{packed}, 0x0f0f0f0f, v{packed}")
-        decode_plan = self.physical.q4_decode
+        decode_plan = self.physical.dependency_decode
         if decode_plan.dependency_width > 1:
             elements = tuple(range(first_element, first_element + 4))
             locations = tuple(
@@ -2113,7 +2112,7 @@ class BackwardQuantLowering:
         self._emit_q45_metadata_prepare(
             asm, label_suffix=label_suffix, quant_type="Q5_K"
         )
-        if self.state.spec.decode.q5.hoists_nibble_shift:
+        if self.state.spec.decode.hoists_bitfield_shift:
             self._emit_q45_nibble_shift(asm)
         asm.comment("Decode Q5_K low nibbles and high payload bits into LDS.")
         for chunk in range(4 * self.physical.decoder.rows):
@@ -2135,7 +2134,7 @@ class BackwardQuantLowering:
         t = r.temporary
         low = r.global_read_b + 4 * row + first_element // 4
         high = r.global_read_b + 4 * decoder_rows + 4 * row + first_element // 4
-        if not self.state.spec.decode.q5.hoists_nibble_shift:
+        if not self.state.spec.decode.hoists_bitfield_shift:
             asm.inst(f"v_and_b32 v{t}, 1, v{self.physical.address.quant_shift}")
             asm.inst(f"v_lshlrev_b32 v{t}, 2, v{t}")
         asm.inst(f"v_lshrrev_b32 v{low}, v{t}, v{low}")
@@ -2153,7 +2152,7 @@ class BackwardQuantLowering:
             lds_address, lds_offset = self.physical.lds.decoded_store_location(
                 self.registers, self.physical.address, element, row, k_span
             )
-            if self.state.spec.decode.q5.extraction is BackwardExtraction.scalar:
+            if self.state.spec.decode.extraction is BackwardExtraction.Scalar:
                 asm.inst(f"v_bfe_u32 v{value}, v{low}, {8 * (element % 4)}, 5")
                 asm.inst(f"v_cvt_f32_u32_e32 v{value}, v{value}")
             else:
