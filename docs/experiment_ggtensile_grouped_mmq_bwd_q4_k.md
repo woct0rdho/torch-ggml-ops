@@ -110,7 +110,7 @@ The final repository gates were `706 passed` for `pytest -q tests` and a clean `
 
 ## Recursive Final Review
 
-Before declaring this campaign complete, reread this record, `docs/ggtensile_plan.md`, `docs/grouped_mmq_bwd_optimization.md`, the ordinary Q4_K backward experiment, grouped forward histories, current HIP and generated sources, normalized ISA, profiler and timing reports, rejected candidates, gfx1151 ISA/LLVM material, and relevant TensileLite/CK implementations.
+Before declaring this campaign complete, reread this record, `docs/ggtensile_plan.md`, `docs/experiment_hip_grouped_mmq_bwd_q4_k.md`, the ordinary Q4_K backward experiment, grouped forward histories, current HIP and generated sources, normalized ISA, profiler and timing reports, rejected candidates, gfx1151 ISA/LLVM material, and relevant TensileLite/CK implementations.
 
 Classify every remaining idea as retained and measured; rejected by correctness, resources, timing, or reproducibility; contract-incompatible or deferred with an explicit prerequisite; or actionable with an exact target and qualification gate. Implement every actionable finding and repeat the review from the new premise. Completion requires a fresh recursive pass with no actionable in-contract mechanism and every selected exact key correct, deterministic, resource-clean, and faster than its exact HIP control.
 

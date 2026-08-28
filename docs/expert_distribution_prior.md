@@ -1,4 +1,4 @@
-# GGTensile Workload Prior and Benchmark Policy
+# Expert Distribution Prior and Benchmark Policy
 
 ## Status and authority
 

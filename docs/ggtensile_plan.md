@@ -196,7 +196,7 @@ LLVM, HIP, TensileLite, Composable Kernel, and hipBLASLt may supply mechanism vo
 
 ### Workload evidence
 
-Ordinary kernels are timed on their exact shapes. Grouped kernels use the one fitted expert prior or prior law declared for their workload family, evaluated at the exact physical size. The normative fitting, profile-generation, and benchmark-input rules are in `ggtensile_workload_prior.md`.
+Ordinary kernels are timed on their exact shapes. Grouped kernels use the one fitted expert prior or prior law declared for their workload family, evaluated at the exact physical size. The normative fitting, profile-generation, and benchmark-input rules are in `expert_distribution_prior.md`.
 
 A performance benchmark uses one deterministic route profile generated from that law for each exact problem key. Captured routes and language corpora are used only by the offline fitting job; benchmark tooling does not read them afterward. Medoid banks, weighted profile mixtures, alternate fitted laws, and synthetic distributions are not optimization inputs.
 

@@ -57,7 +57,7 @@ The Q8_0 language-model head adds five exact chunk keys:
 
 The complete campaign scope is therefore 23 exact keys. M512 is the primary complete-loss chunk; M256 is the lower-memory alternative; M32/M64/M128 remain required for chunk fallback, capacity behavior, and correctness coverage.
 
-The ordinary shapes and call counts are sourced from `tests/deepseek_dense_cases.py` and `bench/mmq_benchmark_common.py`. Existing dispatch evidence and historical HIP measurements are recorded in `docs/mmq_bwd_optimization.md`.
+The ordinary shapes and call counts are sourced from `tests/deepseek_dense_cases.py` and `bench/mmq_benchmark_common.py`. Historical HIP measurements are recorded in `docs/experiment_hip_mmq_bwd_q8_0.md`.
 
 ## Baseline And Priorities
 
