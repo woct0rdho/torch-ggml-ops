@@ -76,7 +76,7 @@ STABLE_TORCH_LIBRARY_IMPL(torch_ggml_ops, CUDA, m) {
     m.impl("_grouped_mmq_pair_grad_input_launch", TORCH_BOX(&grouped_mmq_pair_grad_input_launch_cuda));
 }
 
-extern "C" PyObject * PyInit__C(void) {
+PyMODINIT_FUNC PyInit__C(void) {
     static PyModuleDef module = {
         PyModuleDef_HEAD_INIT,
         "_C",
