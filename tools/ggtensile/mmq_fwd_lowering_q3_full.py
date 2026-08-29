@@ -17,10 +17,13 @@ from .mmq_fwd_physical import (
     Q3FullWeightTiledLdsRegisterPlan,
 )
 from .mmq_fwd_spec import (
+    ForwardDataMovementPolicy,
+    ForwardDecodeProducerPlan,
     Q3FullForwardDecodePolicy,
     Q3FullWeightTiledLdsLayout,
     Q3PackedFieldPart,
 )
+from .tuning_policy import PipelineStage
 
 
 @dataclass(frozen=True)
@@ -32,6 +35,64 @@ class FullWeightQ3TiledLdsLowering:
     KERNARG: ClassVar[int] = 4
     LOOP_COUNTER: ClassVar[int] = 10
     ACTIVATION_PLANE_SGPR: ClassVar[int] = 11
+
+    @property
+    def _movement(self) -> ForwardDataMovementPolicy:
+        physical = cast(
+            Q3FullWeightTiledLdsPhysicalPlan, self.context.state.physical_plan
+        )
+        return physical.data_movement
+
+    @property
+    def _prefetch_global_read(self) -> bool:
+        physical = cast(
+            Q3FullWeightTiledLdsPhysicalPlan, self.context.state.physical_plan
+        )
+        return physical.pipeline.prefetch_global_read is PipelineStage.DoubleStage
+
+    @property
+    def _producer_plan(self) -> ForwardDecodeProducerPlan:
+        physical = cast(
+            Q3FullWeightTiledLdsPhysicalPlan, self.context.state.physical_plan
+        )
+        return physical.producer_plan
+
+    def _global_load_bytes(
+        self, asm: Assembly, destination: int, address: int, offset: int
+    ) -> None:
+        width = self._movement.payload_global_read_vector_width
+        for chunk in range(0, 16, width):
+            first = destination + chunk // 4
+            last = first + width // 4 - 1
+            source_offset = offset + chunk
+            asm.inst(
+                f"global_load_b{width * 8} v[{first}:{last}], "
+                f"v{address}, s[4:5] offset:{source_offset}"
+            )
+
+    def _lds_write_bytes(
+        self, asm: Assembly, address: int, source: int, offset: int
+    ) -> None:
+        width = self._movement.payload_lds_write_vector_width
+        for chunk in range(0, 16, width):
+            first = source + chunk // 4
+            last = first + width // 4 - 1
+            asm.inst(
+                f"ds_write_b{width * 8} v{address}, v[{first}:{last}] "
+                f"offset:{offset + chunk}"
+            )
+
+    def _metadata_load_bytes(
+        self, asm: Assembly, destination: int, address: int
+    ) -> None:
+        width = self._movement.metadata_load_vector_width
+        for chunk in range(0, 16, width):
+            first = destination + chunk // 4
+            last = first + width // 4 - 1
+            asm.inst(
+                f"global_load_b{width * 8} v[{first}:{last}], v{address}, "
+                f"s[4:5] offset:{94 + chunk}"
+            )
 
     @property
     def _registers(self) -> Q3FullWeightTiledLdsRegisterPlan:
@@ -52,6 +113,8 @@ class FullWeightQ3TiledLdsLowering:
         row_stride = state.packed_weight_row_bytes
         activation_plane_stride = state.activation_plane_stride_bytes
         blocks = state.blocks_per_weight_row
+        producer_plan = self._producer_plan
+        assert producer_plan.producer_wave_ids == (0, 1)
 
         asm.comment("Load pointers for the typed full-weight Q3 tile.")
         emit_pointer_kernarg_loads(asm, self.KERNARG, ORDINARY_FORWARD_ABI)
@@ -127,14 +190,27 @@ class FullWeightQ3TiledLdsLowering:
                 f"v_dual_mov_b32 v{registers.zero_accumulator.first_register + element}, 0 :: "
                 f"v_dual_mov_b32 v{registers.zero_accumulator.first_register + element + 1}, 0"
             )
-        self._emit_weight_prefetch(asm, half=0)
+        if self._prefetch_global_read:
+            self._emit_weight_prefetch(asm, half=0)
         self._emit_weight_scale_bases(asm, layout)
         asm.inst(f"s_mov_b32 s{self.LOOP_COUNTER}, 0")
         asm.label(".LForwardQ3KFullWeightBlockLoop")
 
         self._emit_activation_stage(asm, layout)
-        self._emit_weight_decode(asm, layout, half=0, wait_for_vmem=True)
-        self._emit_weight_decode(asm, layout, half=1, wait_for_vmem=False)
+        self._emit_weight_decode(
+            asm,
+            layout,
+            half=0,
+            wait_for_vmem=self._prefetch_global_read,
+            preloaded=self._prefetch_global_read,
+        )
+        self._emit_weight_decode(
+            asm,
+            layout,
+            half=1,
+            wait_for_vmem=False,
+            preloaded=True,
+        )
         asm.inst("s_waitcnt vmcnt(0)")
         self._emit_activation_stores(asm, layout)
         asm.inst("s_waitcnt lgkmcnt(0)")
@@ -166,7 +242,8 @@ class FullWeightQ3TiledLdsLowering:
             f"{self.context.state.contract.packed_weight_block_bytes}, "
             f"v{registers.weight_address.first_register}"
         )
-        self._emit_weight_prefetch(asm, half=0)
+        if self._prefetch_global_read:
+            self._emit_weight_prefetch(asm, half=0)
         asm.inst("s_branch .LForwardQ3KFullWeightBlockLoop")
         asm.label(".LForwardQ3KFullWeightEnd")
         self._emit_store(asm)
@@ -185,7 +262,7 @@ class FullWeightQ3TiledLdsLowering:
             f"v_add_nc_u32 v{registers.temporary.first_register}, s{self.ACTIVATION_PLANE_SGPR}, "
             f"v{registers.activation_lds_address.first_register}"
         )
-        for chunk in range(layout.activation_row_stride // 16):
+        for chunk in range(self.context.state.contract.activation_block_bytes // 16):
             payload = base + 4 * chunk
             asm.inst(
                 f"global_load_b128 v[{payload}:{payload + 3}], "
@@ -199,11 +276,13 @@ class FullWeightQ3TiledLdsLowering:
     ) -> None:
         registers = self._registers
         base = registers.activation_stage.first_register
-        for chunk in range(layout.activation_row_stride // 16):
+        for chunk in range(self.context.state.contract.activation_block_bytes // 16):
             payload = base + 4 * chunk
-            asm.inst(
-                f"ds_write_b128 v{registers.activation_lds_address.first_register}, "
-                f"v[{payload}:{payload + 3}] offset:{16 * chunk}"
+            self._lds_write_bytes(
+                asm,
+                registers.activation_lds_address.first_register,
+                payload,
+                16 * chunk,
             )
 
     def _emit_weight_prefetch(self, asm: Assembly, *, half: int) -> None:
@@ -220,21 +299,28 @@ class FullWeightQ3TiledLdsLowering:
             f"v_add_nc_u32 v{registers.weight_stage_address.first_register}, "
             f"v{registers.temporary.first_register + 1}, v{registers.weight_address.first_register}"
         )
-        asm.inst(
-            f"global_load_b128 v[{registers.weight_low_raw.first_register}:{registers.weight_low_raw.first_register + 3}], "
-            f"v{registers.weight_stage_address.first_register}, s[4:5] offset:32"
+        self._global_load_bytes(
+            asm,
+            registers.weight_low_raw.first_register,
+            registers.weight_stage_address.first_register,
+            32,
         )
-        asm.inst(
-            f"global_load_b128 v[{registers.weight_high_raw.first_register}:{registers.weight_high_raw.first_register + 3}], "
-            f"v{registers.weight_stage_address.first_register}, s[4:5] offset:0"
+        self._global_load_bytes(
+            asm,
+            registers.weight_high_raw.first_register,
+            registers.weight_stage_address.first_register,
+            0,
         )
-        asm.inst(
-            f"global_load_b128 v[{registers.weight_metadata.first_register}:{registers.weight_metadata.first_register + 3}], "
-            f"v{registers.weight_address.first_register}, s[4:5] offset:94"
+        self._metadata_load_bytes(
+            asm,
+            registers.weight_metadata.first_register,
+            registers.weight_address.first_register,
         )
-        asm.inst(
-            f"global_load_b128 v[{registers.weight_low1_raw.first_register}:{registers.weight_low1_raw.first_register + 3}], "
-            f"v{registers.weight_stage_address.first_register}, s[4:5] offset:64"
+        self._global_load_bytes(
+            asm,
+            registers.weight_low1_raw.first_register,
+            registers.weight_stage_address.first_register,
+            64,
         )
 
     def _emit_weight_scale_bases(
@@ -277,6 +363,7 @@ class FullWeightQ3TiledLdsLowering:
         *,
         half: int,
         wait_for_vmem: bool,
+        preloaded: bool,
     ) -> None:
         registers = self._registers
         asm.comment(
@@ -295,8 +382,12 @@ class FullWeightQ3TiledLdsLowering:
         asm.inst(
             f"v_lshlrev_b32 v{registers.half_shift.first_register}, 3, v{registers.temporary.first_register}"
         )
+        if not preloaded:
+            self._emit_weight_prefetch(asm, half=half)
         if wait_for_vmem:
             asm.inst("s_waitcnt vmcnt(9)")
+        elif not preloaded:
+            asm.inst("s_waitcnt vmcnt(0)")
         asm.inst(
             f"v_add_nc_u32 v{registers.weight_stage_address.first_register}, "
             f"v{registers.temporary.first_register + 1}, v{registers.weight_lds_address.first_register}"
@@ -355,10 +446,11 @@ class FullWeightQ3TiledLdsLowering:
                     )
                     asm.inst(f"v_add_nc_u32 v{destination}, 0x7c7c7c7c, v{destination}")
                     asm.inst(f"v_xor_b32 v{destination}, 0x80808080, v{destination}")
-            asm.inst(
-                f"ds_write_b128 v{registers.weight_stage_address.first_register}, "
-                f"v[{registers.decoded_payload.first_register}:{registers.decoded_payload.first_register + 3}] "
-                f"offset:{32 * local_group}"
+            self._lds_write_bytes(
+                asm,
+                registers.weight_stage_address.first_register,
+                registers.decoded_payload.first_register,
+                32 * local_group,
             )
 
         asm.inst(

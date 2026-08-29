@@ -39,14 +39,17 @@ class FixedGroupedQ8ForwardLowering:
     def _body_fixed_grouped_small_m_tiled_lds(self) -> str:
         asm = Assembly()
         state = self.context.state
+        physical = state.physical.ordinary
         mechanics = SignedInt8TiledLdsMechanics(
-            self.KERNARG, state.contract.activation_block_bytes
+            self.KERNARG,
+            state.contract.activation_block_bytes,
+            physical.layout.activation_row_stride,
+            physical.data_movement,
         )
         macro_tile_m = state.ordinary.kernel_spec.macro_tile[0]
         m_fragments = macro_tile_m // 16
         activation_row_share = 128 // macro_tile_m
         groups_per_lane = 4 // activation_row_share
-        physical = state.physical.ordinary
         registers = physical.registers
         name = self.context.kernel_name
         size = state.ordinary.problem_size

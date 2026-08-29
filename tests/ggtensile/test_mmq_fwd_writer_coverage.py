@@ -25,11 +25,14 @@ from tools.ggtensile.mmq_fwd_spec import (
     DecodedLdsForwardDecodePolicy,
     DerivedForwardState,
     ForwardActivationStaging,
+    ForwardDecodeProducerPlan,
     ForwardKernelSpec,
+    ForwardPipelinePolicy,
     SemanticSchedulePolicy,
 )
 from tools.ggtensile.model import ProblemSize
 from tools.ggtensile.toolchain import Toolchain
+from tools.ggtensile.tuning_policy import IterationSchedule, LdsLayout, PipelineStage
 from tools.ggtensile.validation import validate_forward_solution
 
 
@@ -145,6 +148,156 @@ def test_decoded_policy_fields_are_active() -> None:
     decode_mapping = kernel_spec_mapping["Decode"]
     assert isinstance(decode_mapping, dict)
     assert "DeferMetadataReads" in decode_mapping
+
+
+def test_decoded_data_movement_widths_reach_emitter() -> None:
+    spec = q4_decoded_weight_lds_kernel_spec(
+        epilogue_tiles_ahead=1, epilogue_dependency_width=1, epilogue_priority=0
+    )
+    size = ProblemSize(8192, 2048, 512)
+    toolchain = Toolchain.discover()
+    assert spec.data_movement is not None
+    movement = spec.data_movement
+    base_source = _writer("Q4_K", size, spec, toolchain).source()
+    expected = {
+        "payload_global_read_vector_width": "global_load_b64",
+        "metadata_load_vector_width": "global_load_b64",
+        "payload_lds_write_vector_width": "ds_write_b64",
+        "metadata_lds_write_vector_width": "ds_write_b64",
+    }
+    for field, instruction in expected.items():
+        changed = replace(
+            spec,
+            data_movement=replace(movement, **{field: 8}),
+        )
+        changed_source = _writer("Q4_K", size, changed, toolchain).source()
+        assert changed_source.count(instruction) > base_source.count(instruction)
+
+
+def test_q3_full_pipeline_and_movement_mutations_reach_emitter() -> None:
+    spec = q3_full_weight_tiled_lds_kernel_spec()
+    size = ProblemSize(32768, 4096, 2048)
+    toolchain = Toolchain.discover()
+    assert spec.data_movement is not None
+    movement = spec.data_movement
+    base_source = _writer("Q3_K", size, spec, toolchain).source()
+    single_stage = replace(spec, pipeline=ForwardPipelinePolicy.canonical())
+    single_source = _writer("Q3_K", size, single_stage, toolchain).source()
+    assert single_source.count("s_waitcnt vmcnt(9)") < base_source.count(
+        "s_waitcnt vmcnt(9)"
+    )
+    changed = replace(
+        spec,
+        data_movement=replace(movement, metadata_load_vector_width=8),
+    )
+    changed_source = _writer("Q3_K", size, changed, toolchain).source()
+    assert changed_source.count("global_load_b64") > base_source.count(
+        "global_load_b64"
+    )
+
+
+def test_q3_half_and_signed_width_mutations_reach_emitter() -> None:
+    q3_spec = q3_hip_tiled_lds_kernel_spec()
+    q3_size = ProblemSize(2048, 2048, 2048)
+    q3_toolchain = Toolchain.discover()
+    q3_base = _writer("Q3_K", q3_size, q3_spec, q3_toolchain).source()
+    assert q3_spec.data_movement is not None
+    q3_changed = replace(
+        q3_spec,
+        data_movement=replace(q3_spec.data_movement, payload_lds_write_vector_width=8),
+    )
+    q3_source = _writer("Q3_K", q3_size, q3_changed, q3_toolchain).source()
+    assert q3_source.count("ds_write_b64") > q3_base.count("ds_write_b64")
+
+    signed_spec = q8_small_m_tiled_lds_kernel_spec(32)
+    signed_size = ProblemSize(32, 129280, 4096)
+    assert signed_spec.data_movement is not None
+    signed_changed = replace(
+        signed_spec,
+        data_movement=replace(
+            signed_spec.data_movement, payload_global_read_vector_width=8
+        ),
+    )
+    signed_base = _writer("Q8_0", signed_size, signed_spec, q3_toolchain).source()
+    signed_source = _writer("Q8_0", signed_size, signed_changed, q3_toolchain).source()
+    assert signed_source.count("global_load_b64") > signed_base.count("global_load_b64")
+
+
+def test_q8_noncanonical_staging_is_rejected() -> None:
+    spec = q8_small_m_tiled_lds_kernel_spec(32)
+    assert spec.pipeline is not None
+    invalid = replace(
+        spec,
+        pipeline=replace(
+            spec.pipeline,
+            prefetch_global_read=PipelineStage.DoubleStage,
+            schedule_iter_alg=IterationSchedule.ExplicitPipeline,
+        ),
+    )
+    with pytest.raises(AssertionError):
+        validate_forward_solution(ProblemSize(32, 129280, 4096), "Q8_0", invalid)
+
+
+def test_tiled_activation_padding_preserves_payload_transaction_count() -> None:
+    spec = q3_full_weight_tiled_lds_kernel_spec()
+    size = ProblemSize(32768, 4096, 2048)
+    assert spec.lds.layout is LdsLayout.Canonical
+    padded = replace(
+        spec,
+        lds=replace(
+            spec.lds,
+            layout=LdsLayout.PaddedRows,
+            pad_a=16,
+            pad_b=16,
+        ),
+    )
+    toolchain = Toolchain.discover()
+    base_source = _writer("Q3_K", size, spec, toolchain).source()
+    padded_source = _writer("Q3_K", size, padded, toolchain).source()
+    assert padded_source.count("global_load_b128") == base_source.count(
+        "global_load_b128"
+    )
+    assert padded_source.count("ds_write_b128") == base_source.count("ds_write_b128")
+
+
+def test_signed_int8_rejects_decode_producer_ownership() -> None:
+    spec = q8_small_m_tiled_lds_kernel_spec(32)
+    size = ProblemSize(32, 129280, 4096)
+    assert spec.data_movement is not None
+    changed = replace(
+        spec,
+        data_movement=replace(spec.data_movement, decode_producer_count=2),
+    )
+    with pytest.raises(AssertionError):
+        validate_forward_solution(size, "Q8_0", changed)
+
+
+@pytest.mark.parametrize("producer_count", (1, 4))
+def test_decoded_producer_counts_are_rejected_before_lowering(
+    producer_count: int,
+) -> None:
+    spec = q4_decoded_weight_lds_kernel_spec(
+        epilogue_tiles_ahead=1, epilogue_dependency_width=1, epilogue_priority=0
+    )
+    size = ProblemSize(8192, 2048, 512)
+    assert spec.data_movement is not None
+    changed = replace(
+        spec,
+        data_movement=replace(spec.data_movement, decode_producer_count=producer_count),
+    )
+    with pytest.raises(AssertionError):
+        validate_forward_solution(size, "Q4_K", changed)
+
+
+def test_producer_plan_is_derived_from_qualified_wave_ownership() -> None:
+    plan = ForwardDecodeProducerPlan.for_mechanism(
+        physical_plan="DecodedWeightLds",
+        work_group=(128, 1, 1),
+        producer_count=2,
+    )
+    assert plan.wave_count == 4
+    assert plan.producer_wave_ids == (0, 1)
+    assert plan.metadata_wave_count == 2
 
 
 def test_q6_schedule_mutation_flows_through_writer() -> None:

@@ -31,6 +31,15 @@ from .schema import integer_tuple as _integer_tuple
 from .schema import strict_mapping as _strict_mapping
 from .schema import strict_mapping_optional as _strict_mapping_optional
 from .schema import string as _string
+from .tuning_policy import (
+    ClusterLocalRead,
+    GlobalReadSchedule,
+    IterationSchedule,
+    LdsBuffering,
+    LdsLayout,
+    LocalWriteSchedule,
+    PipelineStage,
+)
 
 if TYPE_CHECKING:
     from .mmq_fwd_physical import ForwardPhysicalPlan
@@ -482,6 +491,161 @@ class ForwardActivationStaging(str, Enum):
 
 
 @dataclass(frozen=True)
+class ForwardPipelinePolicy:
+    """Complete staged-loop policy shared by ordinary staged forward paths."""
+
+    prefetch_global_read: PipelineStage
+    prefetch_local_read: PipelineStage
+    lds_buffering: LdsBuffering
+    cluster_local_read: ClusterLocalRead
+    schedule_global_read: GlobalReadSchedule
+    schedule_local_write: LocalWriteSchedule
+    schedule_iter_alg: IterationSchedule
+
+    @classmethod
+    def canonical(cls) -> "ForwardPipelinePolicy":
+        return cls(
+            PipelineStage.SingleStage,
+            PipelineStage.SingleStage,
+            LdsBuffering.Single,
+            ClusterLocalRead.Disabled,
+            GlobalReadSchedule.Default,
+            LocalWriteSchedule.Default,
+            IterationSchedule.DependencyOrdered,
+        )
+
+    @property
+    def uses_double_buffering(self) -> bool:
+        return self.lds_buffering is LdsBuffering.Double
+
+    def validate(self) -> None:
+        assert self.schedule_global_read is GlobalReadSchedule.Default
+        assert self.prefetch_global_read in {
+            PipelineStage.SingleStage,
+            PipelineStage.DoubleStage,
+        }
+        assert self.prefetch_local_read is PipelineStage.SingleStage
+        assert self.cluster_local_read is ClusterLocalRead.Disabled
+        assert self.schedule_local_write is LocalWriteSchedule.Default
+        assert self.lds_buffering is LdsBuffering.Single
+        if self.schedule_iter_alg is IterationSchedule.DependencyOrdered:
+            assert self.prefetch_global_read is PipelineStage.SingleStage
+        else:
+            assert self.schedule_iter_alg is IterationSchedule.ExplicitPipeline
+            assert self.prefetch_global_read is PipelineStage.DoubleStage
+
+
+@dataclass(frozen=True)
+class ForwardDataMovementPolicy:
+    """Physical byte widths and decode ownership for quantized staging."""
+
+    payload_global_read_vector_width: int
+    metadata_load_vector_width: int
+    payload_lds_write_vector_width: int
+    metadata_lds_write_vector_width: int
+    decode_producer_count: int | None
+
+    @classmethod
+    def canonical(
+        cls, *, decode_producer_count: int | None = 2
+    ) -> "ForwardDataMovementPolicy":
+        return cls(16, 16, 16, 4, decode_producer_count)
+
+    def validate(self) -> None:
+        assert self.payload_global_read_vector_width in (4, 8, 16)
+        assert self.metadata_load_vector_width in (2, 4, 8, 16)
+        assert self.payload_lds_write_vector_width in (4, 8, 16)
+        assert self.metadata_lds_write_vector_width in (4, 8, 16)
+        assert self.decode_producer_count is None or self.decode_producer_count in (
+            1,
+            2,
+            4,
+        )
+
+    def validate_for_mechanism(
+        self,
+        *,
+        physical_plan: str,
+        pipeline: ForwardPipelinePolicy,
+        decode_policy: "ForwardDecodePolicy",
+    ) -> None:
+        """Refine generic byte domains at the emitter contract boundary."""
+        self.validate()
+        canonical_pipeline = ForwardPipelinePolicy.canonical()
+        if physical_plan in {"SignedInt8WaveNTiledLds", "SignedInt8SmallMTiledLds"}:
+            # The signed-int8 tiled emitters have one complete, qualified loop.
+            assert pipeline == canonical_pipeline
+            assert self.decode_producer_count is None
+            assert self.metadata_load_vector_width == 2
+            assert self.metadata_lds_write_vector_width == 4
+            return
+        if physical_plan == "DecodedWeightLds":
+            # Decoded staging has no complete ping-pong or local-read pipeline yet.
+            assert pipeline == canonical_pipeline
+            assert self.metadata_load_vector_width in (4, 8, 16)
+            if (
+                isinstance(decode_policy, DecodedLdsForwardDecodePolicy)
+                and not decode_policy.independent_metadata_extraction
+            ):
+                assert self.metadata_lds_write_vector_width == 4
+            return
+        if physical_plan == "Packed3BitTiledLds":
+            assert pipeline.prefetch_local_read is PipelineStage.SingleStage
+            assert pipeline.lds_buffering is LdsBuffering.Single
+            assert pipeline.cluster_local_read is ClusterLocalRead.Disabled
+            assert pipeline.schedule_global_read is GlobalReadSchedule.Default
+            assert pipeline.schedule_local_write is LocalWriteSchedule.Default
+            assert self.metadata_load_vector_width in (4, 8, 16)
+            assert self.metadata_lds_write_vector_width == 4
+            return
+        if physical_plan == "Packed3BitFullWeightTiledLds":
+            assert self.metadata_load_vector_width in (4, 8, 16)
+            assert self.metadata_lds_write_vector_width == 4
+            return
+        raise AssertionError(f"staged policy is not supported by {physical_plan}")
+
+
+@dataclass(frozen=True)
+class ForwardDecodeProducerPlan:
+    """Validated wave ownership for ordinary decoded-weight producers."""
+
+    producer_count: int
+    wave_count: int
+    producer_wave_ids: tuple[int, ...]
+    metadata_wave_count: int
+
+    @classmethod
+    def for_mechanism(
+        cls,
+        *,
+        physical_plan: str,
+        work_group: tuple[int, int, int],
+        producer_count: int | None,
+    ) -> "ForwardDecodeProducerPlan":
+        assert physical_plan in {
+            "DecodedWeightLds",
+            "Packed3BitTiledLds",
+            "Packed3BitFullWeightTiledLds",
+        }
+        assert producer_count in (1, 2, 4)
+        wave_count = work_group[0] * work_group[1] * work_group[2] // 32
+        assert wave_count == 4
+        # The current row ownership and metadata footprint are qualified for
+        # two producer waves. Other counts need a different register/LDS plan.
+        assert producer_count == 2
+        return cls(
+            producer_count=producer_count,
+            wave_count=wave_count,
+            producer_wave_ids=tuple(range(producer_count)),
+            metadata_wave_count=producer_count,
+        )
+
+    @classmethod
+    def canonical(cls) -> "ForwardDecodeProducerPlan":
+        return cls(2, 4, (0, 1), 2)
+
+
+@dataclass(frozen=True)
 class GlobalMemorySpec:
     """Global operand dataflow and address/cache policies."""
 
@@ -492,9 +656,34 @@ class GlobalMemorySpec:
 
 @dataclass(frozen=True)
 class LdsSpec:
-    """LDS representation/addressing policy for the selected dataflow family."""
+    """LDS representation, padding, and address policy for one family."""
 
     address_hoist: str
+    layout: LdsLayout = LdsLayout.Canonical
+    pad_a: int = 0
+    pad_b: int = 0
+    block_size_per_pad: int = 64
+
+    def __post_init__(self) -> None:
+        assert self.layout in {LdsLayout.Canonical, LdsLayout.PaddedRows}
+        assert self.pad_a in (0, 4, 8, 16)
+        assert self.pad_b in (0, 4, 8, 16)
+        assert self.block_size_per_pad in (64, 128, 256)
+        if self.layout is LdsLayout.Canonical:
+            assert self.pad_a == 0 and self.pad_b == 0
+            assert self.block_size_per_pad == 64
+
+    @property
+    def has_padding(self) -> bool:
+        return self.layout is LdsLayout.PaddedRows
+
+    @property
+    def row_padding_b(self) -> int:
+        return self.pad_b * max(1, self.block_size_per_pad // 64)
+
+    @property
+    def row_padding_a(self) -> int:
+        return self.pad_a * max(1, self.block_size_per_pad // 64)
 
 
 @dataclass(frozen=True)
@@ -582,19 +771,36 @@ class DecodedLdsLayout:
     weight_metadata_base: int
     weight_row_stride: int
     activation_lane_stride: int
+    activation_tile_stride: int
+    layout: LdsLayout = LdsLayout.Canonical
+    pad_a: int = 0
+    pad_b: int = 0
+    block_size_per_pad: int = 64
 
     @classmethod
     def for_activation_block_bytes(
         cls,
         activation_block_bytes: int,
         activation_rows: int = 128,
+        *,
+        layout: LdsLayout = LdsLayout.Canonical,
+        pad_a: int = 0,
+        pad_b: int = 0,
+        block_size_per_pad: int = 64,
     ) -> "DecodedLdsLayout":
         assert activation_block_bytes > 0
         assert activation_rows in (64, 128)
+        assert layout is LdsLayout.Canonical or pad_a > 0 or pad_b > 0
+        if layout is LdsLayout.Canonical:
+            assert pad_a == 0 and pad_b == 0 and block_size_per_pad == 64
         activation_metadata = F16D4S4ActivationMetadata(activation_block_bytes)
-        weight_row_stride = 2 * activation_block_bytes + 16
+        interval_scale = max(1, block_size_per_pad // 64)
+        row_padding_a = pad_a * interval_scale
+        row_padding_b = pad_b * interval_scale
+        activation_row_stride = activation_block_bytes + row_padding_a
+        weight_row_stride = 2 * activation_block_bytes + 16 + row_padding_b
         activation_base = 512
-        weight_data_base = activation_base + activation_rows * activation_block_bytes
+        weight_data_base = activation_base + activation_rows * activation_row_stride
         return cls(
             activation_metadata=activation_metadata,
             activation_base=activation_base,
@@ -602,6 +808,11 @@ class DecodedLdsLayout:
             weight_metadata_base=weight_data_base + 256,
             weight_row_stride=weight_row_stride,
             activation_lane_stride=512,
+            activation_tile_stride=16 * activation_row_stride,
+            layout=layout,
+            pad_a=pad_a,
+            pad_b=pad_b,
+            block_size_per_pad=block_size_per_pad,
         )
 
     @classmethod
@@ -623,6 +834,7 @@ class DecodedLdsLayout:
             weight_metadata_base=weight_data_base + 256,
             weight_row_stride=weight_row_stride,
             activation_lane_stride=512,
+            activation_tile_stride=16 * activation_block_bytes,
         )
 
     @classmethod
@@ -642,6 +854,10 @@ class DecodedLdsLayout:
     def total_bytes(self) -> int:
         return self.weight_data_base + 64 * self.weight_row_stride
 
+    @property
+    def activation_row_padding(self) -> int:
+        return self.activation_tile_stride // 16 - self.activation_metadata.block_bytes
+
 
 @dataclass(frozen=True)
 class Packed3BitTiledLdsLayout:
@@ -652,6 +868,7 @@ class Packed3BitTiledLdsLayout:
     activation_row_stride: int = Q8_1_F32_D4_BLOCK_BYTES
     decoded_weight_values: int = 128
     scale_count: int = 8
+    weight_row_padding: int = 0
 
     def __post_init__(self) -> None:
         assert (
@@ -664,6 +881,7 @@ class Packed3BitTiledLdsLayout:
             )
             > 0
         )
+        assert self.weight_row_padding >= 0
 
     @property
     def activation_bytes(self) -> int:
@@ -679,7 +897,11 @@ class Packed3BitTiledLdsLayout:
 
     @property
     def weight_row_stride(self) -> int:
-        return self.weight_payload_bytes + self.weight_scale_bytes
+        return (
+            self.weight_payload_bytes
+            + self.weight_scale_bytes
+            + self.weight_row_padding
+        )
 
     @property
     def weight_base(self) -> int:
@@ -698,6 +920,13 @@ class Packed3BitTiledLdsLayout:
 class Q3FullWeightTiledLdsLayout:
     """Formula-derived LDS planes for the full 256-value Q3_K tile."""
 
+    activation_row_padding: int = 0
+    weight_row_padding: int = 0
+
+    def __post_init__(self) -> None:
+        assert self.activation_row_padding >= 0
+        assert self.weight_row_padding >= 0
+
     @property
     def activation_rows(self) -> int:
         return 128
@@ -708,7 +937,7 @@ class Q3FullWeightTiledLdsLayout:
 
     @property
     def activation_row_stride(self) -> int:
-        return Q8_1_F32_D4_BLOCK_BYTES
+        return Q8_1_F32_D4_BLOCK_BYTES + self.activation_row_padding
 
     @property
     def half_payload_bytes(self) -> int:
@@ -728,7 +957,7 @@ class Q3FullWeightTiledLdsLayout:
 
     @property
     def weight_row_stride(self) -> int:
-        return 336
+        return 336 + self.weight_row_padding
 
     @property
     def activation_bytes(self) -> int:
@@ -764,9 +993,13 @@ class SignedInt8SmallMTiledLdsLayout:
     """Formula-derived LDS planes for an exact M32 or M64 signed-int8 tile."""
 
     activation_rows: int
+    activation_row_padding: int = 0
+    weight_row_padding: int = 0
 
     def __post_init__(self) -> None:
         assert self.activation_rows in (32, 64)
+        assert self.activation_row_padding >= 0
+        assert self.weight_row_padding >= 0
 
     @property
     def weight_rows(self) -> int:
@@ -774,11 +1007,11 @@ class SignedInt8SmallMTiledLdsLayout:
 
     @property
     def activation_row_stride(self) -> int:
-        return Q8_1_F32_D4_BLOCK_BYTES
+        return Q8_1_F32_D4_BLOCK_BYTES + self.activation_row_padding
 
     @property
     def weight_row_stride(self) -> int:
-        return 304
+        return 304 + self.weight_row_padding
 
     @property
     def weight_scale_offset(self) -> int:
@@ -814,9 +1047,13 @@ class SignedInt8CompactDepth32TiledLdsLayout:
     """Formula-derived compact signed-int8 LDS planes for depth-32 tiles."""
 
     activation_rows: int
+    activation_row_padding: int = 0
+    weight_row_padding: int = 0
 
     def __post_init__(self) -> None:
         assert self.activation_rows in (32, 64, 128)
+        assert self.activation_row_padding >= 0
+        assert self.weight_row_padding >= 0
 
     @property
     def weight_rows(self) -> int:
@@ -824,11 +1061,11 @@ class SignedInt8CompactDepth32TiledLdsLayout:
 
     @property
     def activation_row_stride(self) -> int:
-        return Q8_1_F32_D4_BLOCK_BYTES
+        return Q8_1_F32_D4_BLOCK_BYTES + self.activation_row_padding
 
     @property
     def weight_row_stride(self) -> int:
-        return 144
+        return 144 + self.weight_row_padding
 
     @property
     def weight_scale_offset(self) -> int:
@@ -1241,6 +1478,23 @@ _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
     }
 )
 
+_FORWARD_ROW_LDS_PLANS = frozenset(
+    {
+        "DecodedWeightLds",
+        "Packed3BitTiledLds",
+        "Packed3BitFullWeightTiledLds",
+        "SignedInt8WaveNTiledLds",
+        "SignedInt8SmallMTiledLds",
+    }
+)
+_FORWARD_DECODE_PRODUCER_LOWERINGS = frozenset(
+    {
+        "DecodedWeightLds",
+        "Packed3BitTiledLds",
+        "Packed3BitFullWeightTiledLds",
+    }
+)
+
 
 def forward_mechanism_contract(
     weight_staging: ForwardWeightStaging,
@@ -1263,6 +1517,8 @@ class ForwardKernelSpec:
     epilogue: EpilogueSpec
     instruction_policy: InstructionPolicy
     semantic_schedule: SemanticSchedulePolicy
+    pipeline: ForwardPipelinePolicy | None = None
+    data_movement: ForwardDataMovementPolicy | None = None
 
     @classmethod
     def from_mapping(cls, value: object) -> "ForwardKernelSpec":
@@ -1278,7 +1534,15 @@ class ForwardKernelSpec:
                     "Decode",
                 }
             ),
-            optional=frozenset({"Epilogue", "InstructionPolicy", "SemanticSchedule"}),
+            optional=frozenset(
+                {
+                    "Epilogue",
+                    "InstructionPolicy",
+                    "SemanticSchedule",
+                    "Staging",
+                    "DataMovement",
+                }
+            ),
         )
         geometry = _strict_mapping(
             item["Geometry"],
@@ -1296,13 +1560,153 @@ class ForwardKernelSpec:
             required=frozenset({"WeightStaging", "ActivationStaging"}),
             optional=frozenset({"GlobalReadCachePolicy"}),
         )
-        lds = _strict_mapping(
+        lds = _strict_mapping_optional(
             item["Lds"],
             name="ForwardKernelSpec.Lds",
-            keys=frozenset({"AddressHoist"}),
+            required=frozenset({"AddressHoist"}),
+            optional=frozenset(
+                {"LdsLayout", "LdsPadA", "LdsPadB", "LdsBlockSizePerPad"}
+            ),
         )
         weight_staging = _enum(global_memory, "WeightStaging", ForwardWeightStaging)
         mechanism = forward_mechanism_contract(weight_staging)
+        structured_q6 = mechanism.lowering == "StructuredQ6"
+        cache_present = "GlobalReadCachePolicy" in global_memory
+        if structured_q6 != cache_present:
+            raise SchemaError(
+                "GlobalReadCachePolicy presence does not match the selected lowering"
+            )
+        instruction_keys = (
+            {"AccumulatorInitialization"}
+            if mechanism.lowering == "DecodedWeightLds"
+            else ({"DependencyDelayMode", "PhysicalPlan"} if structured_q6 else set())
+        )
+        instruction_present = "InstructionPolicy" in item
+        if bool(instruction_keys) != instruction_present:
+            raise SchemaError(
+                "InstructionPolicy presence does not match the selected lowering"
+            )
+        if instruction_present:
+            instruction = _strict_mapping(
+                item["InstructionPolicy"],
+                name="ForwardKernelSpec.InstructionPolicy",
+                keys=frozenset(instruction_keys),
+            )
+        else:
+            instruction = {}
+        semantic_present = "SemanticSchedule" in item
+        if structured_q6 != semantic_present:
+            raise SchemaError(
+                "SemanticSchedule presence does not match the selected lowering"
+            )
+        if semantic_present:
+            semantic = _strict_mapping(
+                item["SemanticSchedule"],
+                name="ForwardKernelSpec.SemanticSchedule",
+                keys=frozenset(
+                    {
+                        "Traversal",
+                        "Clustering",
+                        "Latency",
+                        "Pressure",
+                        "Wait",
+                        "Pairing",
+                    }
+                ),
+            )
+        else:
+            semantic = None
+        row_lds = mechanism.physical_plan in _FORWARD_ROW_LDS_PLANS
+        layout_keys = {"LdsLayout", "LdsPadA", "LdsPadB", "LdsBlockSizePerPad"}
+        present_layout_keys = layout_keys & set(lds)
+        if row_lds:
+            if present_layout_keys != layout_keys:
+                raise SchemaError(
+                    "row-LDS mechanisms require the complete LdsLayout policy"
+                )
+            lds_layout = _enum(lds, "LdsLayout", LdsLayout)
+            lds_pad_a = _integer(lds, "LdsPadA")
+            lds_pad_b = _integer(lds, "LdsPadB")
+            lds_block_size_per_pad = _integer(lds, "LdsBlockSizePerPad")
+        else:
+            if present_layout_keys:
+                raise SchemaError("LdsLayout policy is not applicable to this lowering")
+            lds_layout = LdsLayout.Canonical
+            lds_pad_a = 0
+            lds_pad_b = 0
+            lds_block_size_per_pad = 64
+        staged_policy_requested = "Staging" in item or "DataMovement" in item
+        if row_lds != staged_policy_requested:
+            raise SchemaError(
+                "row-LDS mechanisms require Staging and DataMovement; "
+                "other mechanisms reject them"
+            )
+        if staged_policy_requested:
+            if {"Staging", "DataMovement"} - set(item):
+                raise SchemaError(
+                    "ForwardKernelSpec.Staging and DataMovement require each other"
+                )
+            if not row_lds:
+                raise SchemaError("Staging and DataMovement require a row-LDS lowering")
+            pipeline_item = _strict_mapping(
+                item["Staging"],
+                name="ForwardKernelSpec.Staging",
+                keys=frozenset(
+                    {
+                        "PrefetchGlobalRead",
+                        "PrefetchLocalRead",
+                        "LdsBuffering",
+                        "ClusterLocalRead",
+                        "ScheduleGlobalRead",
+                        "ScheduleLocalWrite",
+                        "ScheduleIterAlg",
+                    }
+                ),
+            )
+            forward_pipeline = ForwardPipelinePolicy(
+                _enum(pipeline_item, "PrefetchGlobalRead", PipelineStage),
+                _enum(pipeline_item, "PrefetchLocalRead", PipelineStage),
+                _enum(pipeline_item, "LdsBuffering", LdsBuffering),
+                _enum(pipeline_item, "ClusterLocalRead", ClusterLocalRead),
+                _enum(pipeline_item, "ScheduleGlobalRead", GlobalReadSchedule),
+                _enum(pipeline_item, "ScheduleLocalWrite", LocalWriteSchedule),
+                _enum(pipeline_item, "ScheduleIterAlg", IterationSchedule),
+            )
+            movement_item = _strict_mapping_optional(
+                item["DataMovement"],
+                name="ForwardKernelSpec.DataMovement",
+                required=frozenset(
+                    {
+                        "PayloadGlobalReadVectorWidth",
+                        "MetadataLoadVectorWidth",
+                        "PayloadLdsWriteVectorWidth",
+                        "MetadataLdsWriteVectorWidth",
+                    }
+                ),
+                optional=frozenset({"DecodeProducerCount"}),
+            )
+            has_decode_ownership = (
+                mechanism.lowering in _FORWARD_DECODE_PRODUCER_LOWERINGS
+            )
+            if has_decode_ownership != ("DecodeProducerCount" in movement_item):
+                raise SchemaError(
+                    "DataMovement.DecodeProducerCount presence does not match "
+                    "the selected lowering"
+                )
+            forward_data_movement = ForwardDataMovementPolicy(
+                _integer(movement_item, "PayloadGlobalReadVectorWidth"),
+                _integer(movement_item, "MetadataLoadVectorWidth"),
+                _integer(movement_item, "PayloadLdsWriteVectorWidth"),
+                _integer(movement_item, "MetadataLdsWriteVectorWidth"),
+                (
+                    _integer(movement_item, "DecodeProducerCount")
+                    if "DecodeProducerCount" in movement_item
+                    else None
+                ),
+            )
+        else:
+            forward_pipeline = None
+            forward_data_movement = None
         if mechanism.lowering == "DecodedWeightLds":
             decode_keys = frozenset(
                 {
@@ -1350,15 +1754,19 @@ class ForwardKernelSpec:
             if has_epilogue_policy
             else None
         )
-        pipeline = None
+        epilogue_pipeline = None
         if epilogue is not None:
-            pipeline_item = _strict_mapping_optional(
+            epilogue_keys = (
+                {"TilesAhead", "DependencyWidth", "Priority"}
+                if mechanism.lowering == "DecodedWeightLds"
+                else {"DependencyWidth", "Scope"}
+            )
+            pipeline_item = _strict_mapping(
                 epilogue["Pipeline"],
                 name="ForwardKernelSpec.Epilogue.Pipeline",
-                required=frozenset({"DependencyWidth"}),
-                optional=frozenset({"TilesAhead", "Priority", "Scope"}),
+                keys=frozenset(epilogue_keys),
             )
-            pipeline = EpiloguePipelineSpec(
+            epilogue_pipeline = EpiloguePipelineSpec(
                 tiles_ahead=(
                     _integer(pipeline_item, "TilesAhead")
                     if "TilesAhead" in pipeline_item
@@ -1376,36 +1784,6 @@ class ForwardKernelSpec:
                     else None
                 ),
             )
-        instruction = _strict_mapping_optional(
-            item.get("InstructionPolicy", {}),
-            name="ForwardKernelSpec.InstructionPolicy",
-            required=frozenset(),
-            optional=frozenset(
-                {
-                    "AccumulatorInitialization",
-                    "DependencyDelayMode",
-                    "PhysicalPlan",
-                }
-            ),
-        )
-        semantic = (
-            _strict_mapping(
-                item["SemanticSchedule"],
-                name="ForwardKernelSpec.SemanticSchedule",
-                keys=frozenset(
-                    {
-                        "Traversal",
-                        "Clustering",
-                        "Latency",
-                        "Pressure",
-                        "Wait",
-                        "Pairing",
-                    }
-                ),
-            )
-            if "SemanticSchedule" in item
-            else None
-        )
         semantic_schedule = (
             SemanticSchedulePolicy.from_serialized(
                 traversal=_string(semantic, "Traversal"),
@@ -1453,12 +1831,18 @@ class ForwardKernelSpec:
                     else None
                 ),
             ),
-            lds=LdsSpec(address_hoist=_string(lds, "AddressHoist")),
+            lds=LdsSpec(
+                address_hoist=_string(lds, "AddressHoist"),
+                layout=lds_layout,
+                pad_a=lds_pad_a,
+                pad_b=lds_pad_b,
+                block_size_per_pad=lds_block_size_per_pad,
+            ),
             decode=DecodeSpec(
                 metadata_conversion=_string(decode, "MetadataConversion"),
                 policy=decode_policy,
             ),
-            epilogue=EpilogueSpec(pipeline=pipeline),
+            epilogue=EpilogueSpec(pipeline=epilogue_pipeline),
             instruction_policy=InstructionPolicy(
                 accumulator_initialization=(
                     _string(
@@ -1483,6 +1867,8 @@ class ForwardKernelSpec:
                 ),
             ),
             semantic_schedule=semantic_schedule,
+            pipeline=forward_pipeline,
+            data_movement=forward_data_movement,
         )
 
     def validate(self, contract: ForwardProblemContract) -> None:
@@ -1493,6 +1879,28 @@ class ForwardKernelSpec:
             lds_address_hoist=self.lds.address_hoist,
             metadata_conversion=self.decode.metadata_conversion,
         )
+        row_lds_plans = _FORWARD_ROW_LDS_PLANS
+        if mechanism.physical_plan in row_lds_plans:
+            assert self.pipeline is not None and self.data_movement is not None
+            self.pipeline.validate()
+            self.data_movement.validate_for_mechanism(
+                physical_plan=mechanism.physical_plan,
+                pipeline=self.pipeline,
+                decode_policy=self.decode.policy,
+            )
+            if mechanism.lowering in _FORWARD_DECODE_PRODUCER_LOWERINGS:
+                ForwardDecodeProducerPlan.for_mechanism(
+                    physical_plan=mechanism.physical_plan,
+                    work_group=self.geometry.work_group,
+                    producer_count=self.data_movement.decode_producer_count,
+                )
+        else:
+            assert self.pipeline is None and self.data_movement is None
+        if self.lds.layout is LdsLayout.PaddedRows:
+            assert mechanism.physical_plan in row_lds_plans
+            assert self.lds.pad_a > 0 or self.lds.pad_b > 0
+        else:
+            assert self.lds.pad_a == 0 and self.lds.pad_b == 0
         work_group = self.geometry.work_group
         assert len(work_group) == 3
         assert min(work_group) > 0
@@ -1553,13 +1961,11 @@ class ForwardKernelSpec:
             assert self.semantic_schedule.variant is None
         elif full_weight_q3:
             assert isinstance(self.decode.policy, Q3FullForwardDecodePolicy)
-            assert pipeline is None
             assert self.instruction_policy == InstructionPolicy(None, None, None)
             assert self.global_memory.global_read_cache_policy is None
             assert self.semantic_schedule.variant is None
         else:
             assert isinstance(self.decode.policy, FixedForwardDecodePolicy)
-            assert pipeline is None
             assert self.instruction_policy == InstructionPolicy(None, None, None)
             assert self.global_memory.global_read_cache_policy is None
             assert self.semantic_schedule.variant is None
@@ -1625,6 +2031,36 @@ class ForwardKernelSpec:
             "Lds": {"AddressHoist": self.lds.address_hoist},
             "Decode": decode,
         }
+        mechanism = forward_mechanism_contract(self.global_memory.weight_staging)
+        if mechanism.physical_plan in _FORWARD_ROW_LDS_PLANS:
+            mapping["Lds"] = {
+                "AddressHoist": self.lds.address_hoist,
+                "LdsLayout": self.lds.layout.value,
+                "LdsPadA": self.lds.pad_a,
+                "LdsPadB": self.lds.pad_b,
+                "LdsBlockSizePerPad": self.lds.block_size_per_pad,
+            }
+        if self.pipeline is not None:
+            mapping["Staging"] = {
+                "PrefetchGlobalRead": self.pipeline.prefetch_global_read.value,
+                "PrefetchLocalRead": self.pipeline.prefetch_local_read.value,
+                "LdsBuffering": self.pipeline.lds_buffering.value,
+                "ClusterLocalRead": self.pipeline.cluster_local_read.value,
+                "ScheduleGlobalRead": self.pipeline.schedule_global_read.value,
+                "ScheduleLocalWrite": self.pipeline.schedule_local_write.value,
+                "ScheduleIterAlg": self.pipeline.schedule_iter_alg.value,
+            }
+        if self.data_movement is not None:
+            mapping["DataMovement"] = {
+                "PayloadGlobalReadVectorWidth": self.data_movement.payload_global_read_vector_width,
+                "MetadataLoadVectorWidth": self.data_movement.metadata_load_vector_width,
+                "PayloadLdsWriteVectorWidth": self.data_movement.payload_lds_write_vector_width,
+                "MetadataLdsWriteVectorWidth": self.data_movement.metadata_lds_write_vector_width,
+            }
+            if self.data_movement.decode_producer_count is not None:
+                mapping["DataMovement"]["DecodeProducerCount"] = (
+                    self.data_movement.decode_producer_count
+                )
         if epilogue is not None:
             mapping["Epilogue"] = epilogue
         instruction: dict[str, object] = {}

@@ -13,7 +13,10 @@ from .kernel_writer_assembly import (
 from .mmq_fwd_spec import (
     DecodedLdsLayout,
     F16D4S4ActivationMetadata,
+    ForwardDataMovementPolicy,
+    ForwardDecodeProducerPlan,
     ForwardKernelSpec,
+    ForwardPipelinePolicy,
     Packed3BitTiledLdsLayout,
     Q3FullWeightTiledLdsLayout,
     Q6LdsLayout,
@@ -983,11 +986,21 @@ class Q3FullWeightTiledLdsPhysicalPlan:
     layout: Q3FullWeightTiledLdsLayout
     registers: Q3FullWeightTiledLdsRegisterPlan
     resources: PhysicalResourceUsage
+    pipeline: ForwardPipelinePolicy
+    data_movement: ForwardDataMovementPolicy
+    producer_plan: ForwardDecodeProducerPlan
 
 
 @dataclass(frozen=True)
 class SignedInt8WaveNTiledLdsLayout:
     """Formula-derived ordinary signed-int8 wave-N LDS planes."""
+
+    activation_row_padding: int = 0
+    weight_row_padding: int = 0
+
+    def __post_init__(self) -> None:
+        assert self.activation_row_padding >= 0
+        assert self.weight_row_padding >= 0
 
     @property
     def activation_rows(self) -> int:
@@ -999,11 +1012,11 @@ class SignedInt8WaveNTiledLdsLayout:
 
     @property
     def activation_row_stride(self) -> int:
-        return Q8_1_F32_D4_BLOCK_BYTES
+        return Q8_1_F32_D4_BLOCK_BYTES + self.activation_row_padding
 
     @property
     def weight_row_stride(self) -> int:
-        return 304
+        return 304 + self.weight_row_padding
 
     @property
     def weight_scale_offset(self) -> int:
@@ -2271,6 +2284,9 @@ class DecodedWeightLdsPhysicalPlan:
     registers: DecodedWeightLdsRegisterPlan
     scalar_registers: DecodedWeightLdsScalarRegisterPlan
     resources: PhysicalResourceUsage
+    pipeline: ForwardPipelinePolicy
+    data_movement: ForwardDataMovementPolicy
+    producer_plan: ForwardDecodeProducerPlan
 
 
 @dataclass(frozen=True)
@@ -2284,6 +2300,9 @@ class Packed3BitTiledLdsPhysicalPlan:
     layout: Packed3BitTiledLdsLayout
     registers: Packed3BitTiledLdsRegisterPlan
     resources: PhysicalResourceUsage
+    pipeline: ForwardPipelinePolicy
+    data_movement: ForwardDataMovementPolicy
+    producer_plan: ForwardDecodeProducerPlan
 
 
 @dataclass(frozen=True)
@@ -2304,6 +2323,8 @@ class SignedInt8WaveNTiledLdsPhysicalPlan:
     registers: SignedInt8WaveNTiledLdsRegisterPlan
     policy: SignedInt8TiledLdsPolicy
     resources: PhysicalResourceUsage
+    pipeline: ForwardPipelinePolicy
+    data_movement: ForwardDataMovementPolicy
 
 
 SignedInt8SmallLdsLayout: TypeAlias = (
@@ -2317,6 +2338,8 @@ class SignedInt8SmallMTiledLdsPhysicalPlan:
     registers: SignedInt8SmallMTiledLdsRegisterPlan
     policy: SignedInt8TiledLdsPolicy
     resources: PhysicalResourceUsage
+    pipeline: ForwardPipelinePolicy
+    data_movement: ForwardDataMovementPolicy
 
 
 ForwardPhysicalPlan: TypeAlias = (
@@ -2357,8 +2380,17 @@ def q6_structured_physical_plan(
     )
 
 
-def packed_3bit_tiled_lds_physical_plan() -> Packed3BitTiledLdsPhysicalPlan:
-    layout = Packed3BitTiledLdsLayout()
+def packed_3bit_tiled_lds_physical_plan(
+    *, activation_row_padding: int = 0, weight_row_padding: int = 0
+) -> Packed3BitTiledLdsPhysicalPlan:
+    layout = Packed3BitTiledLdsLayout(
+        weight_row_padding=weight_row_padding,
+    )
+    if activation_row_padding:
+        layout = Packed3BitTiledLdsLayout(
+            activation_row_stride=Q8_1_F32_D4_BLOCK_BYTES + activation_row_padding,
+            weight_row_padding=weight_row_padding,
+        )
     registers = Packed3BitTiledLdsRegisterPlan.allocate()
     return Packed3BitTiledLdsPhysicalPlan(
         layout=layout,
@@ -2368,11 +2400,19 @@ def packed_3bit_tiled_lds_physical_plan() -> Packed3BitTiledLdsPhysicalPlan:
             sgprs=16,
             lds_bytes=layout.total_bytes,
         ),
+        pipeline=ForwardPipelinePolicy.canonical(),
+        data_movement=ForwardDataMovementPolicy.canonical(),
+        producer_plan=ForwardDecodeProducerPlan.canonical(),
     )
 
 
-def q3_full_weight_tiled_lds_physical_plan() -> Q3FullWeightTiledLdsPhysicalPlan:
-    layout = Q3FullWeightTiledLdsLayout()
+def q3_full_weight_tiled_lds_physical_plan(
+    *, activation_row_padding: int = 0, weight_row_padding: int = 0
+) -> Q3FullWeightTiledLdsPhysicalPlan:
+    layout = Q3FullWeightTiledLdsLayout(
+        activation_row_padding=activation_row_padding,
+        weight_row_padding=weight_row_padding,
+    )
     registers = Q3FullWeightTiledLdsRegisterPlan.allocate()
     return Q3FullWeightTiledLdsPhysicalPlan(
         layout=layout,
@@ -2382,7 +2422,20 @@ def q3_full_weight_tiled_lds_physical_plan() -> Q3FullWeightTiledLdsPhysicalPlan
             sgprs=16,
             lds_bytes=layout.total_bytes,
         ),
+        pipeline=ForwardPipelinePolicy.canonical(),
+        data_movement=ForwardDataMovementPolicy.canonical(),
+        producer_plan=ForwardDecodeProducerPlan.canonical(),
     )
+
+
+def _require_forward_staged_policies(
+    spec: ForwardKernelSpec,
+) -> tuple[ForwardPipelinePolicy, ForwardDataMovementPolicy]:
+    pipeline = spec.pipeline
+    data_movement = spec.data_movement
+    assert pipeline is not None
+    assert data_movement is not None
+    return pipeline, data_movement
 
 
 def derive_forward_physical_plan(spec: ForwardKernelSpec) -> ForwardPhysicalPlan:
@@ -2402,21 +2455,58 @@ def derive_forward_physical_plan(spec: ForwardKernelSpec) -> ForwardPhysicalPlan
         assert spec.geometry.work_group == (32, 4, 1)
         assert spec.macro_tile == (128, 64)
         assert spec.geometry.depth_u == 16
-        return packed_3bit_tiled_lds_physical_plan()
+        physical = packed_3bit_tiled_lds_physical_plan(
+            activation_row_padding=spec.lds.row_padding_a,
+            weight_row_padding=spec.lds.row_padding_b,
+        )
+        pipeline, data_movement = _require_forward_staged_policies(spec)
+        return Packed3BitTiledLdsPhysicalPlan(
+            physical.layout,
+            physical.registers,
+            physical.resources,
+            pipeline,
+            data_movement,
+            ForwardDecodeProducerPlan.for_mechanism(
+                physical_plan=plan_kind,
+                work_group=spec.geometry.work_group,
+                producer_count=data_movement.decode_producer_count,
+            ),
+        )
     if plan_kind == "Packed3BitFullWeightTiledLds":
         assert spec.geometry.work_group == (32, 4, 1)
         assert spec.macro_tile == (128, 64)
         assert spec.geometry.depth_u == 16
-        return q3_full_weight_tiled_lds_physical_plan()
+        physical = q3_full_weight_tiled_lds_physical_plan(
+            activation_row_padding=spec.lds.row_padding_a,
+            weight_row_padding=spec.lds.row_padding_b,
+        )
+        pipeline, data_movement = _require_forward_staged_policies(spec)
+        return Q3FullWeightTiledLdsPhysicalPlan(
+            physical.layout,
+            physical.registers,
+            physical.resources,
+            pipeline,
+            data_movement,
+            ForwardDecodeProducerPlan.for_mechanism(
+                physical_plan=plan_kind,
+                work_group=spec.geometry.work_group,
+                producer_count=data_movement.decode_producer_count,
+            ),
+        )
     if plan_kind == "DecodedWeightLds":
         assert spec.geometry.work_group == (128, 1, 1)
         assert spec.macro_tile == (128, 64)
         assert spec.geometry.depth_u == 32
         layout = DecodedLdsLayout.for_activation_block_bytes(
-            mechanism.activation_block_bytes
+            mechanism.activation_block_bytes,
+            layout=spec.lds.layout,
+            pad_a=spec.lds.pad_a,
+            pad_b=spec.lds.pad_b,
+            block_size_per_pad=spec.lds.block_size_per_pad,
         )
         registers = DecodedWeightLdsRegisterPlan.allocate()
         scalar_registers = DecodedWeightLdsScalarRegisterPlan.allocate()
+        pipeline, data_movement = _require_forward_staged_policies(spec)
         return DecodedWeightLdsPhysicalPlan(
             layout,
             registers,
@@ -2425,6 +2515,13 @@ def derive_forward_physical_plan(spec: ForwardKernelSpec) -> ForwardPhysicalPlan
                 registers.declared_vgprs,
                 16,
                 layout.total_bytes,
+            ),
+            pipeline,
+            data_movement,
+            ForwardDecodeProducerPlan.for_mechanism(
+                physical_plan=plan_kind,
+                work_group=spec.geometry.work_group,
+                producer_count=data_movement.decode_producer_count,
             ),
         )
     if plan_kind == "PackedScaleMinimumDirect":
@@ -2463,15 +2560,21 @@ def derive_forward_physical_plan(spec: ForwardKernelSpec) -> ForwardPhysicalPlan
         assert spec.geometry.depth_u in (32, 64)
         if spec.lds.address_hoist == "CompactDepth32WeightRows":
             layout = SignedInt8CompactDepth32TiledLdsLayout(
-                activation_rows=spec.macro_tile[0]
+                activation_rows=spec.macro_tile[0],
+                activation_row_padding=spec.lds.row_padding_a,
+                weight_row_padding=spec.lds.row_padding_b,
             )
             policy = SignedInt8TiledLdsPolicy(
                 "WeightThenActivation", "PairedHoistedSecondBase"
             )
         else:
-            layout = SignedInt8WaveNTiledLdsLayout()
+            layout = SignedInt8WaveNTiledLdsLayout(
+                activation_row_padding=spec.lds.row_padding_a,
+                weight_row_padding=spec.lds.row_padding_b,
+            )
             policy = SignedInt8TiledLdsPolicy("Interleaved", "Scalar")
         registers = SignedInt8WaveNTiledLdsRegisterPlan.allocate()
+        pipeline, data_movement = _require_forward_staged_policies(spec)
         return SignedInt8WaveNTiledLdsPhysicalPlan(
             layout,
             registers,
@@ -2481,6 +2584,8 @@ def derive_forward_physical_plan(spec: ForwardKernelSpec) -> ForwardPhysicalPlan
                 16,
                 layout.total_bytes,
             ),
+            pipeline,
+            data_movement,
         )
     if plan_kind != "SignedInt8SmallMTiledLds":
         raise AssertionError
@@ -2490,14 +2595,23 @@ def derive_forward_physical_plan(spec: ForwardKernelSpec) -> ForwardPhysicalPlan
     assert macro_tile_n == 64
     assert spec.geometry.depth_u == 32
     if spec.lds.address_hoist == "SmallMTile":
-        layout: SignedInt8SmallLdsLayout = SignedInt8SmallMTiledLdsLayout(macro_tile_m)
+        layout: SignedInt8SmallLdsLayout = SignedInt8SmallMTiledLdsLayout(
+            macro_tile_m,
+            spec.lds.row_padding_a,
+            spec.lds.row_padding_b,
+        )
         policy = SignedInt8TiledLdsPolicy("WeightThenActivation", "Scalar")
     else:
-        layout = SignedInt8CompactDepth32TiledLdsLayout(activation_rows=macro_tile_m)
+        layout = SignedInt8CompactDepth32TiledLdsLayout(
+            activation_rows=macro_tile_m,
+            activation_row_padding=spec.lds.row_padding_a,
+            weight_row_padding=spec.lds.row_padding_b,
+        )
         policy = SignedInt8TiledLdsPolicy(
             "WeightThenActivation", "PairedHoistedSecondBase"
         )
     registers = SignedInt8SmallMTiledLdsRegisterPlan.allocate(macro_tile_m // 16)
+    pipeline, data_movement = _require_forward_staged_policies(spec)
     return SignedInt8SmallMTiledLdsPhysicalPlan(
         layout,
         registers,
@@ -2507,4 +2621,6 @@ def derive_forward_physical_plan(spec: ForwardKernelSpec) -> ForwardPhysicalPlan
             16,
             layout.total_bytes,
         ),
+        pipeline,
+        data_movement,
     )

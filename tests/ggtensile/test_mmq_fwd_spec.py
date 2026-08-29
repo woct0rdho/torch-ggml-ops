@@ -10,6 +10,7 @@ from tests.ggtensile.ordinary_forward_fixtures import (
     q6_structured_kernel_spec,
     q8_compact_depth32_tiled_lds_kernel_spec,
     q8_direct_global_kernel_spec,
+    q8_small_m_tiled_lds_kernel_spec,
 )
 from tools.ggtensile.mmq_fwd_spec import (
     DerivedForwardState,
@@ -108,6 +109,42 @@ def test_forward_spec_mapping_is_strict_and_typed() -> None:
     mapping["Unexpected"] = 1
     with pytest.raises(SchemaError):
         ForwardKernelSpec.from_mapping(mapping)
+
+
+def test_forward_schema_requires_applicable_policy_fields() -> None:
+    spec = q4_decoded_weight_lds_kernel_spec(
+        epilogue_tiles_ahead=2, epilogue_dependency_width=1, epilogue_priority=0
+    )
+    mapping = spec.to_mapping()
+    assert isinstance(mapping["Lds"], dict)
+    mapping["Lds"].pop("LdsPadA")
+    with pytest.raises(SchemaError):
+        ForwardKernelSpec.from_mapping(mapping)
+
+    mapping = spec.to_mapping()
+    mapping.pop("Staging")
+    with pytest.raises(SchemaError):
+        ForwardKernelSpec.from_mapping(mapping)
+
+    mapping = spec.to_mapping()
+    assert isinstance(mapping["DataMovement"], dict)
+    mapping["DataMovement"].pop("DecodeProducerCount")
+    with pytest.raises(SchemaError):
+        ForwardKernelSpec.from_mapping(mapping)
+
+
+def test_forward_schema_keeps_semantically_inactive_fields_optional() -> None:
+    signed = q8_small_m_tiled_lds_kernel_spec(32)
+    parsed = ForwardKernelSpec.from_mapping(signed.to_mapping())
+    assert parsed == signed
+    assert parsed.data_movement is not None
+    assert parsed.data_movement.decode_producer_count is None
+
+    direct = q8_direct_global_kernel_spec().to_mapping()
+    assert isinstance(direct["Lds"], dict)
+    direct["Lds"]["LdsLayout"] = "Canonical"
+    with pytest.raises(SchemaError):
+        ForwardKernelSpec.from_mapping(direct)
 
 
 def test_forward_candidate_round_trip_contains_only_kernel_spec_data() -> None:

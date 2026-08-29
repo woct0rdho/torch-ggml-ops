@@ -567,7 +567,10 @@ class SignedInt8ForwardLowering:
         """Lower an exact M32/M64 wave-N Q8 tile with split-row staging."""
         asm = Assembly()
         mechanics = SignedInt8TiledLdsMechanics(
-            self.KERNARG, self.context.state.contract.activation_block_bytes
+            self.KERNARG,
+            self.context.state.contract.activation_block_bytes,
+            physical.layout.activation_row_stride,
+            physical.data_movement,
         )
         macro_tile_m = self.context.state.kernel_spec.macro_tile[0]
         m_fragments = macro_tile_m // 16
@@ -779,11 +782,14 @@ class SignedInt8ForwardLowering:
     ) -> str:
         """Lower a wave-N 128x64 Q8 tile with cooperative LDS operands."""
         asm = Assembly()
+        layout = physical.layout
         mechanics = SignedInt8TiledLdsMechanics(
-            self.KERNARG, self.context.state.contract.activation_block_bytes
+            self.KERNARG,
+            self.context.state.contract.activation_block_bytes,
+            layout.activation_row_stride,
+            physical.data_movement,
         )
         registers = physical.registers
-        layout = physical.layout
         policy = physical.policy
         tiled_registers: SignedInt8TiledLdsRegisters = registers
         tiled_scale_layout: SignedInt8TiledLdsScaleLayout = layout

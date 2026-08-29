@@ -16,7 +16,12 @@ from .mmq_fwd_physical import (
     Packed3BitTiledLdsPhysicalPlan,
     Packed3BitTiledLdsRegisterPlan,
 )
-from .mmq_fwd_spec import Packed3BitTiledLdsLayout
+from .mmq_fwd_spec import (
+    ForwardDataMovementPolicy,
+    ForwardDecodeProducerPlan,
+    Packed3BitTiledLdsLayout,
+)
+from .tuning_policy import PipelineStage
 
 
 @dataclass(frozen=True)
@@ -27,6 +32,54 @@ class Packed3BitTiledLdsLowering:
 
     KERNARG: ClassVar[int] = 4
     LOOP_COUNTER: ClassVar[int] = 10
+
+    @property
+    def _movement(self) -> ForwardDataMovementPolicy:
+        physical = self.context.state.physical_plan
+        assert isinstance(physical, Packed3BitTiledLdsPhysicalPlan)
+        return physical.data_movement
+
+    @property
+    def _producer_plan(self) -> ForwardDecodeProducerPlan:
+        physical = self.context.state.physical_plan
+        assert isinstance(physical, Packed3BitTiledLdsPhysicalPlan)
+        return physical.producer_plan
+
+    def _emit_payload_global_loads(
+        self, asm: Assembly, destination: int, address: int, offset: int
+    ) -> None:
+        width = self._movement.payload_global_read_vector_width
+        for chunk in range(0, 16, width):
+            first = destination + chunk // 4
+            last = first + width // 4 - 1
+            asm.inst(
+                f"global_load_b{width * 8} v[{first}:{last}], v{address}, "
+                f"s[{self.KERNARG}:{self.KERNARG + 1}] offset:{offset + chunk}"
+            )
+
+    def _emit_metadata_global_loads(
+        self, asm: Assembly, destination: int, address: int, offset: int
+    ) -> None:
+        width = self._movement.metadata_load_vector_width
+        for chunk in range(0, 16, width):
+            first = destination + chunk // 4
+            last = first + width // 4 - 1
+            asm.inst(
+                f"global_load_b{width * 8} v[{first}:{last}], v{address}, "
+                f"s[{self.KERNARG}:{self.KERNARG + 1}] offset:{offset + chunk}"
+            )
+
+    def _emit_payload_lds_writes(
+        self, asm: Assembly, address: int, source: int, offset: int
+    ) -> None:
+        width = self._movement.payload_lds_write_vector_width
+        for chunk in range(0, 16, width):
+            first = source + chunk // 4
+            last = first + width // 4 - 1
+            asm.inst(
+                f"ds_write_b{width * 8} v{address}, v[{first}:{last}] "
+                f"offset:{offset + chunk}"
+            )
 
     def body(self) -> str:
         """Lower the isolated wave-N 128x64 Q3_K LDS research control."""
@@ -48,6 +101,10 @@ class Packed3BitTiledLdsLowering:
         temporary = registers.temporary.first_register
         lane = registers.lane.first_register
         wave = registers.wave.first_register
+        prefetch_global_read = (
+            physical.pipeline.prefetch_global_read is PipelineStage.DoubleStage
+        )
+        assert self._producer_plan.producer_wave_ids == (0, 1)
 
         asm.comment("Load pointers for the four-wave Q3_K half-tile control.")
         emit_pointer_kernarg_loads(asm, self.KERNARG, ORDINARY_FORWARD_ABI)
@@ -102,7 +159,8 @@ class Packed3BitTiledLdsLowering:
                 f"v_dual_mov_b32 v{zero_accumulator + element}, 0 :: "
                 f"v_dual_mov_b32 v{zero_accumulator + element + 1}, 0"
             )
-        self._emit_packed_3bit_weight_prefetch(asm, registers, half=0)
+        if prefetch_global_read:
+            self._emit_packed_3bit_weight_prefetch(asm, registers, half=0)
         asm.inst(f"s_mov_b32 s{self.LOOP_COUNTER}, 0")
 
         asm.label(".LForwardQ3KHipTiledLdsBlockLoop")
@@ -113,7 +171,7 @@ class Packed3BitTiledLdsLowering:
                 registers,
                 layout,
                 half,
-                preloaded=half == 0,
+                preloaded=prefetch_global_read and half == 0,
                 store_activation=True,
             )
             asm.inst("s_waitcnt lgkmcnt(0)")
@@ -133,7 +191,8 @@ class Packed3BitTiledLdsLowering:
             f"v_add_nc_u32 v{weight_address}, "
             f"{self.context.state.contract.packed_weight_block_bytes}, v{weight_address}"
         )
-        self._emit_packed_3bit_weight_prefetch(asm, registers, half=0)
+        if prefetch_global_read:
+            self._emit_packed_3bit_weight_prefetch(asm, registers, half=0)
         asm.inst("s_branch .LForwardQ3KHipTiledLdsBlockLoop")
         asm.label(".LForwardQ3KHipTiledLdsEnd")
 
@@ -151,7 +210,7 @@ class Packed3BitTiledLdsLowering:
         activation_stage = registers.activation_stage.first_register
         activation_address = registers.activation_address.first_register
         asm.comment("Stage 128 contiguous Q8_1 F32_D4 rows into LDS.")
-        for chunk in range(layout.activation_row_stride // 16):
+        for chunk in range(self.context.state.contract.activation_block_bytes // 16):
             offset = 16 * chunk
             payload = activation_stage + 4 * chunk
             asm.inst(
@@ -169,7 +228,7 @@ class Packed3BitTiledLdsLowering:
         """Store the ready activation stage into its cooperative LDS tile."""
         activation_stage = registers.activation_stage.first_register
         activation_lds_address = registers.activation_lds_address.first_register
-        for chunk in range(layout.activation_row_stride // 16):
+        for chunk in range(self.context.state.contract.activation_block_bytes // 16):
             offset = 16 * chunk
             payload = activation_stage + 4 * chunk
             asm.inst(
@@ -201,20 +260,14 @@ class Packed3BitTiledLdsLowering:
         asm.inst(f"v_and_b32 v{temporary}, 1, v{temporary}")
         asm.inst(f"v_lshlrev_b32 v{temporary + 1}, 4, v{temporary}")
         asm.inst(f"v_add_nc_u32 v{stage_address}, v{temporary + 1}, v{weight_address}")
-        asm.inst(
-            f"global_load_b128 v[{low_raw}:{low_raw + 3}], v{stage_address}, "
-            f"s[{self.KERNARG}:{self.KERNARG + 1}] "
-            f"offset:{first_group.low_payload_offset}"
+        self._emit_payload_global_loads(
+            asm, low_raw, stage_address, first_group.low_payload_offset
         )
-        asm.inst(
-            f"global_load_b128 v[{high_raw}:{high_raw + 3}], v{stage_address}, "
-            f"s[{self.KERNARG}:{self.KERNARG + 1}] "
-            f"offset:{first_group.high_payload_offset}"
+        self._emit_payload_global_loads(
+            asm, high_raw, stage_address, first_group.high_payload_offset
         )
-        asm.inst(
-            f"global_load_b128 v[{metadata}:{metadata + 3}], v{weight_address}, "
-            f"s[{self.KERNARG}:{self.KERNARG + 1}] "
-            f"offset:{metadata_load_offset}"
+        self._emit_metadata_global_loads(
+            asm, metadata, weight_address, metadata_load_offset
         )
 
     def _emit_packed_3bit_weight_stage(
@@ -254,20 +307,14 @@ class Packed3BitTiledLdsLowering:
         asm.inst(f"v_lshlrev_b32 v{temporary + 1}, 4, v{temporary}")
         asm.inst(f"v_add_nc_u32 v{stage_address}, v{temporary + 1}, v{weight_address}")
         if not preloaded:
-            asm.inst(
-                f"global_load_b128 v[{low_raw}:{low_raw + 3}], v{stage_address}, "
-                f"s[{self.KERNARG}:{self.KERNARG + 1}] "
-                f"offset:{first_group.low_payload_offset}"
+            self._emit_payload_global_loads(
+                asm, low_raw, stage_address, first_group.low_payload_offset
             )
-            asm.inst(
-                f"global_load_b128 v[{high_raw}:{high_raw + 3}], v{stage_address}, "
-                f"s[{self.KERNARG}:{self.KERNARG + 1}] "
-                f"offset:{first_group.high_payload_offset}"
+            self._emit_payload_global_loads(
+                asm, high_raw, stage_address, first_group.high_payload_offset
             )
-            asm.inst(
-                f"global_load_b128 v[{metadata}:{metadata + 3}], v{weight_address}, "
-                f"s[{self.KERNARG}:{self.KERNARG + 1}] "
-                f"offset:{metadata_load_offset}"
+            self._emit_metadata_global_loads(
+                asm, metadata, weight_address, metadata_load_offset
             )
         asm.inst(f"v_lshlrev_b32 v{scale_shift}, 3, v{temporary}")
         asm.inst("s_waitcnt vmcnt(0)")
@@ -308,10 +355,7 @@ class Packed3BitTiledLdsLowering:
                     f"v_xor_b32 v{decoded + item}, {decode.signed_xor:#010x}, "
                     f"v{decoded + item}"
                 )
-            asm.inst(
-                f"ds_write_b128 v{stage_address}, v[{decoded}:{decoded + 3}] "
-                f"offset:{32 * local_group}"
-            )
+            self._emit_payload_lds_writes(asm, stage_address, decoded, 32 * local_group)
 
         asm.inst(f"v_cvt_f32_f16 v{stage_d}, v{metadata + 3}.h")
         asm.inst(f"v_lshlrev_b32 v{temporary + 1}, 2, v{temporary}")

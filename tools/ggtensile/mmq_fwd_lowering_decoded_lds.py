@@ -58,6 +58,9 @@ class DecodedWeightLdsLowering:
                 registers=registers,
                 scalar_registers=physical.scalar_registers,
                 allocated_row_tiles=self._row_tile_count(),
+                pipeline=physical.pipeline,
+                data_movement=physical.data_movement,
+                producer_plan=physical.producer_plan,
             )
         )
         name = self.context.kernel_name
@@ -322,6 +325,13 @@ class DecodedWeightLdsLowering:
                     f"offset:{activation_lane_stride * item}"
                 )
         asm.inst(f"v_lshlrev_b32 v{lds_address}, 2, v{serial}")
+        if physical.layout.activation_row_padding:
+            asm.inst(f"v_lshrrev_b32 v{temporary}, 4, v{serial}")
+            asm.inst(
+                f"v_mul_lo_u32 v{temporary}, "
+                f"{physical.layout.activation_row_padding}, v{temporary}"
+            )
+            asm.inst(f"v_add_nc_u32 v{lds_address}, v{temporary}, v{lds_address}")
         asm.inst(f"v_add_nc_u32 v{lds_address}, {lds_base}, v{lds_address}")
         for item in range(0, 36, 2):
             asm.inst(f"s_waitcnt vmcnt({34 - item})")

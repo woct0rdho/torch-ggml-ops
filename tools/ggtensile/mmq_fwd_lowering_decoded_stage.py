@@ -8,7 +8,14 @@ from .kernel_writer_assembly import Assembly, RegisterAssignment
 from .mmq_fwd_lowering_metadata import emit_packed_scale_minimum
 from .mmq_fwd_lowering_mma import emit_signed_i8_wmma
 from .mmq_fwd_physical import DecodedWeightLdsRegisterPlan
-from .mmq_fwd_spec import DecodedLdsLayout, QuantForwardSemantics
+from .mmq_fwd_spec import (
+    DecodedLdsLayout,
+    ForwardDataMovementPolicy,
+    ForwardDecodeProducerPlan,
+    ForwardPipelinePolicy,
+    QuantForwardSemantics,
+)
+from .tuning_policy import PipelineStage
 
 
 class DecodedSchedulePolicy(Protocol):
@@ -50,6 +57,9 @@ class DecodedWeightLdsStageInputs:
     registers: DecodedWeightLdsRegisterPlan
     scalar_registers: DecodedStageScalarRegisters
     allocated_row_tiles: int
+    pipeline: ForwardPipelinePolicy
+    data_movement: ForwardDataMovementPolicy
+    producer_plan: ForwardDecodeProducerPlan
 
 
 @dataclass(frozen=True)
@@ -79,6 +89,7 @@ class DecodedWeightLdsStageEmitter:
         quant_type = self.inputs.quant_type
         quant_label = quant_type.replace("_", "")
         semantics = self.inputs.semantics
+        movement = self.inputs.data_movement
         high_bits = semantics.high_bit_reconstruction()
         ql_offset = semantics.payload_plane("ql").byte_offset
         qh_offset = (
@@ -87,7 +98,63 @@ class DecodedWeightLdsStageEmitter:
             else 0
         )
         qh_address = auxiliary + 1
-        payload_reads_per_slice = 1 + (high_bits is not None)
+        payload_reads_per_slice = (1 + (high_bits is not None)) * (
+            16 // movement.payload_global_read_vector_width
+        )
+
+        def emit_global_payload(
+            destination: int,
+            address: int,
+            offset: int = 0,
+            force_zero_offset: bool = False,
+        ) -> None:
+            width = movement.payload_global_read_vector_width
+            for chunk in range(0, 16, width):
+                register_count = width // 4
+                first = destination + chunk // 4
+                last = first + register_count - 1
+                byte_width = width * 8
+                source_offset = offset + chunk
+                offset_text = (
+                    f" offset:{source_offset}"
+                    if source_offset or force_zero_offset
+                    else ""
+                )
+                asm.inst(
+                    f"global_load_b{byte_width} v[{first}:{last}], v{address}, "
+                    f"s[{weights}:{weights + 1}]{offset_text}"
+                )
+
+        def emit_lds_payload(address: int, source: int, offset: int = 0) -> None:
+            width = movement.payload_lds_write_vector_width
+            for chunk in range(0, 16, width):
+                register_count = width // 4
+                first = source + chunk // 4
+                last = first + register_count - 1
+                offset_text = f" offset:{offset + chunk}" if offset + chunk else ""
+                asm.inst(
+                    f"ds_write_b{width * 8} v{address}, v[{first}:{last}]{offset_text}"
+                )
+
+        def emit_metadata_load(destination: int, address: int) -> None:
+            width = self.inputs.data_movement.metadata_load_vector_width
+            for chunk in range(0, 16, width):
+                register_count = width // 4
+                first = destination + chunk // 4
+                last = first + register_count - 1
+                offset_text = f" offset:{chunk}" if chunk else ""
+                asm.inst(
+                    f"global_load_b{width * 8} v[{first}:{last}], v{address}, "
+                    f"s[{weights}:{weights + 1}]{offset_text}"
+                )
+
+        assert self.inputs.pipeline.prefetch_global_read in {
+            PipelineStage.SingleStage,
+            PipelineStage.DoubleStage,
+        }
+        if self.inputs.pipeline.prefetch_global_read is PipelineStage.DoubleStage:
+            asm.comment("Establish the next global-read frontier before decoding.")
+            asm.inst("s_waitcnt vmcnt(0)")
 
         asm.comment(f"Cooperatively decode {quant_type} payload into padded LDS rows.")
         asm.inst(f"v_lshrrev_b32 v{temporary}, 3, v{serial}")
@@ -124,7 +191,9 @@ class DecodedWeightLdsStageEmitter:
         asm.inst(f"v_add_nc_u32 v{lds_address}, {weight_lds_base}, v{lds_address}")
 
         metadata_base = staging_base + 32
-        asm.inst(f"s_cmp_lt_u32 s{wave}, 2")
+        asm.inst(
+            f"s_cmp_lt_u32 s{wave}, {self.inputs.producer_plan.metadata_wave_count}"
+        )
         asm.inst(f"s_cbranch_scc0 .LForward{quant_label}DecodedMetadataLoadDone")
         asm.inst(f"v_lshlrev_b32 v{metadata_address}, 6, s2")
         asm.inst(f"v_add_nc_u32 v{metadata_address}, v{serial}, v{metadata_address}")
@@ -133,10 +202,7 @@ class DecodedWeightLdsStageEmitter:
             f"v_add_nc_u32 v{metadata_address}, s{packed_block_offset}, "
             f"v{metadata_address}"
         )
-        asm.inst(
-            f"global_load_b128 v[{metadata_base}:{metadata_base + 3}], "
-            f"v{metadata_address}, s[{weights}:{weights + 1}]"
-        )
+        emit_metadata_load(metadata_base, metadata_address)
         asm.label(f".LForward{quant_label}DecodedMetadataLoadDone")
 
         if high_bits is not None:
@@ -144,15 +210,17 @@ class DecodedWeightLdsStageEmitter:
             for row_slice in range(4):
                 raw_base = staging_base + 8 * row_slice
                 row_qh_base = qh_base + 4 * row_slice
-                asm.inst(
-                    f"global_load_b128 v[{row_qh_base}:{row_qh_base + 3}], "
-                    f"v{qh_address}, s[{weights}:{weights + 1}] "
-                    f"offset:{qh_offset}"
+                emit_global_payload(
+                    row_qh_base,
+                    qh_address,
+                    qh_offset,
+                    force_zero_offset=False,
                 )
-                asm.inst(
-                    f"global_load_b128 v[{raw_base}:{raw_base + 3}], "
-                    f"v{temporary}, s[{weights}:{weights + 1}] "
-                    f"offset:{ql_offset}"
+                emit_global_payload(
+                    raw_base,
+                    temporary,
+                    ql_offset,
+                    force_zero_offset=False,
                 )
                 if row_slice != 3:
                     asm.inst(
@@ -165,17 +233,20 @@ class DecodedWeightLdsStageEmitter:
         else:
             for row_slice in range(4):
                 raw_base = staging_base + 8 * row_slice
-                asm.inst(
-                    f"global_load_b128 v[{raw_base}:{raw_base + 3}], "
-                    f"v{temporary}, s[{weights}:{weights + 1}]"
-                )
+                emit_global_payload(raw_base, temporary)
                 if row_slice != 3:
                     asm.inst(
                         f"v_add_nc_u32 v{temporary}, {16 * row_stride}, v{temporary}"
                     )
         for row_slice in range(4):
             raw_base = staging_base + 8 * row_slice
-            asm.inst(f"s_waitcnt vmcnt({payload_reads_per_slice * (3 - row_slice)})")
+            wait_count = payload_reads_per_slice * (3 - row_slice)
+            if (
+                self.inputs.data_movement.payload_global_read_vector_width != 16
+                or self.inputs.data_movement.metadata_load_vector_width != 16
+            ):
+                wait_count = 0
+            asm.inst(f"s_waitcnt vmcnt({wait_count})")
             if high_bits is not None:
                 qh_base = staging_base + 36 + 4 * row_slice
                 for item in range(4):
@@ -223,11 +294,8 @@ class DecodedWeightLdsStageEmitter:
                     asm.inst(f"v_lshrrev_b32 v{high}, 4, v{low}")
                     asm.inst(f"v_and_b32 v{low}, 0x0f0f0f0f, v{low}")
                     asm.inst(f"v_and_b32 v{high}, 0x0f0f0f0f, v{high}")
-            asm.inst(f"ds_write_b128 v{lds_address}, v[{raw_base}:{raw_base + 3}]")
-            asm.inst(
-                f"ds_write_b128 v{lds_address}, "
-                f"v[{raw_base + 4}:{raw_base + 7}] offset:32"
-            )
+            emit_lds_payload(lds_address, raw_base)
+            emit_lds_payload(lds_address, raw_base + 4, 32)
             if row_slice != 3:
                 asm.inst(
                     f"v_add_nc_u32 v{lds_address}, "
@@ -237,7 +305,9 @@ class DecodedWeightLdsStageEmitter:
         asm.comment(
             f"Compute each packed {quant_type} scale/min pair once per weight row."
         )
-        asm.inst(f"s_cmp_lt_u32 s{wave}, 2")
+        asm.inst(
+            f"s_cmp_lt_u32 s{wave}, {self.inputs.producer_plan.metadata_wave_count}"
+        )
         asm.inst(f"s_cbranch_scc0 .LForward{quant_label}DecodedMetadataDone")
         asm.inst(f"v_mul_lo_u32 v{lds_address}, {weight_lds_stride}, v{serial}")
         asm.inst(
@@ -323,11 +393,21 @@ class DecodedWeightLdsStageEmitter:
                     f"v_pk_mul_f16 v{decode_scratch + 24 + group}, "
                     f"v{metadata_base}, v{decode_scratch + 24 + group}"
                 )
-            for group in range(8):
-                asm.inst(
-                    f"ds_write_b32 v{lds_address}, "
-                    f"v{decode_scratch + 24 + group} offset:{4 * group}"
-                )
+            metadata_width = self.inputs.data_movement.metadata_lds_write_vector_width
+            groups_per_write = metadata_width // 4
+            for group in range(0, 8, groups_per_write):
+                last = group + groups_per_write - 1
+                if metadata_width == 4:
+                    asm.inst(
+                        f"ds_write_b32 v{lds_address}, "
+                        f"v{decode_scratch + 24 + group} offset:{4 * group}"
+                    )
+                else:
+                    asm.inst(
+                        f"ds_write_b{metadata_width * 8} v{lds_address}, "
+                        f"v[{decode_scratch + 24 + group}:{decode_scratch + 24 + last}] "
+                        f"offset:{4 * group}"
+                    )
         else:
             for group in range(8):
                 emit_packed_scale_minimum(
@@ -421,7 +501,7 @@ class DecodedWeightLdsStageEmitter:
                 else low_activation_last
             )
             high_activation = high_activation_base + 4 * tile
-            tile_offset = 16 * tile * activation_metadata.block_bytes
+            tile_offset = tile * decoded_lds.activation_tile_stride
             asm.inst(
                 f"ds_read_b128 v[{low_activation}:{low_activation + 3}], "
                 f"v{lds_address} offset:{tile_offset + activation_metadata.PAYLOAD_BASE}"

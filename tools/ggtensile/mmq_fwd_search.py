@@ -22,19 +22,34 @@ from .identity import KernelFamily, canonical_sha256
 from .kernel_instance import KernelInstance
 from .mmq_fwd_spec import (
     DecodedLdsForwardDecodePolicy,
+    ForwardDataMovementPolicy,
     ForwardKernelCandidate,
     ForwardKernelSpec,
+    ForwardPipelinePolicy,
     ForwardProblemContract,
+    LdsSpec,
     Q6ForwardSchedule,
     SemanticSchedulePolicy,
     StructuredQ6ScheduleVariant,
     q6_schedule_from_kernel_spec,
 )
 from .model import ProblemSize
+from .tuning_policy import (
+    IterationSchedule,
+    LdsLayout,
+    PipelineStage,
+)
 from .validation import validate_forward_solution
 
 Q6SearchKnobGroup = Literal["InstructionPolicy", "Epilogue", "PhysicalPlan"]
-ForwardSearchKnobGroup = Literal["InstructionPolicy", "Epilogue", "Metadata"]
+ForwardSearchKnobGroup = Literal[
+    "InstructionPolicy",
+    "Epilogue",
+    "Metadata",
+    "Staging",
+    "DataMovement",
+    "LdsLayout",
+]
 
 _CONFIG_DIR = Path(__file__).with_name("configs")
 _CATALOG_FILENAMES = {
@@ -321,7 +336,15 @@ def candidate_neighbors(
         candidates = (seed,)
     else:
         unknown = sorted(
-            set(knob_groups) - {"InstructionPolicy", "Epilogue", "Metadata"}
+            set(knob_groups)
+            - {
+                "InstructionPolicy",
+                "Epilogue",
+                "Metadata",
+                "Staging",
+                "DataMovement",
+                "LdsLayout",
+            }
         )
         if unknown:
             raise ValueError(
@@ -329,6 +352,60 @@ def candidate_neighbors(
             )
         pipeline = seed.epilogue.pipeline
         assert pipeline is not None
+        new_policy_groups = {"Staging", "DataMovement"} & set(knob_groups)
+        working_seed = seed
+        if new_policy_groups:
+            working_seed = replace(
+                seed,
+                pipeline=seed.pipeline or ForwardPipelinePolicy.canonical(),
+                data_movement=(
+                    seed.data_movement or ForwardDataMovementPolicy.canonical()
+                ),
+            )
+        staging_policies = (working_seed.pipeline,)
+        movement_policies = (working_seed.data_movement,)
+        lds_policies = (working_seed.lds,)
+        if "Staging" in knob_groups:
+            staging_policies = (
+                ForwardPipelinePolicy.canonical(),
+                replace(
+                    ForwardPipelinePolicy.canonical(),
+                    prefetch_global_read=PipelineStage.DoubleStage,
+                    schedule_iter_alg=IterationSchedule.ExplicitPipeline,
+                ),
+            )
+        if "DataMovement" in knob_groups:
+            movement_policies = tuple(
+                ForwardDataMovementPolicy(
+                    payload_global_read_vector_width=payload_width,
+                    metadata_load_vector_width=metadata_width,
+                    payload_lds_write_vector_width=lds_width,
+                    metadata_lds_write_vector_width=4,
+                    decode_producer_count=2,
+                )
+                for payload_width, metadata_width, lds_width in product(
+                    (4, 8, 16),
+                    (4, 8, 16),
+                    (4, 8, 16),
+                )
+            )
+        if "LdsLayout" in knob_groups:
+            address_hoist = seed.lds.address_hoist
+            lds_policies = (
+                seed.lds,
+                *(
+                    LdsSpec(address_hoist, LdsLayout.PaddedRows, pad_a, pad_b, 64)
+                    for pad_a, pad_b in (
+                        (4, 0),
+                        (8, 0),
+                        (16, 0),
+                        (0, 4),
+                        (0, 8),
+                        (0, 16),
+                        (4, 16),
+                    )
+                ),
+            )
         decode_policies = (seed.decode.policy,)
         tiles_ahead = (pipeline.tiles_ahead,)
         dependency_widths = (pipeline.dependency_width,)
@@ -359,7 +436,10 @@ def candidate_neighbors(
             accumulator_initializations = ("ScalarCopy", "VopdPair")
         proposed = (
             replace(
-                seed,
+                working_seed,
+                pipeline=staging_policy,
+                data_movement=movement_policy,
+                lds=lds_policy,
                 decode=replace(seed.decode, policy=decode_policy),
                 epilogue=replace(
                     seed.epilogue,
@@ -375,12 +455,24 @@ def candidate_neighbors(
                     accumulator_initialization=initialization,
                 ),
             )
-            for decode_policy, tiles, width, priority, initialization in product(
+            for (
+                decode_policy,
+                tiles,
+                width,
+                priority,
+                initialization,
+                staging_policy,
+                movement_policy,
+                lds_policy,
+            ) in product(
                 decode_policies,
                 tiles_ahead,
                 dependency_widths,
                 priorities,
                 accumulator_initializations,
+                staging_policies,
+                movement_policies,
+                lds_policies,
             )
         )
         capability_shape = ProblemSize(
@@ -416,7 +508,14 @@ def candidate_domains(
         )
         seeds = _catalog_forward_specs(quant_type)
     elif quant_type in {"Q4_K", "Q5_K"}:
-        knob_groups = ("Metadata", "Epilogue", "InstructionPolicy")
+        knob_groups = (
+            "Metadata",
+            "Epilogue",
+            "InstructionPolicy",
+            "Staging",
+            "DataMovement",
+            "LdsLayout",
+        )
         valid_seeds = tuple(
             seed
             for seed in _catalog_forward_specs(quant_type)

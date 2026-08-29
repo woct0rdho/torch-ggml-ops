@@ -9,6 +9,7 @@ from .mmq_fwd_physical import (
     SignedInt8TiledLdsRegisters,
     SignedInt8TiledLdsScaleLayout,
 )
+from .mmq_fwd_spec import ForwardDataMovementPolicy
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,8 @@ class SignedInt8TiledLdsMechanics:
 
     kernarg: int
     activation_block_bytes: int
+    activation_row_stride: int
+    data_movement: ForwardDataMovementPolicy
 
     def emit_activation_loads(
         self,
@@ -138,25 +141,30 @@ class SignedInt8TiledLdsMechanics:
         weight_payload = registers.weight_payload.first_register
         weight_stage_payload = registers.weight_stage_payload.first_register
         weight_scales = registers.weight_scales.first_register
-        asm.inst("s_clause 5")
+        movement = self.data_movement
+        payload_width = movement.payload_global_read_vector_width
+        metadata_width = movement.metadata_load_vector_width
+        assert metadata_width == 2
+        load_count = 2 * (2 * (16 // payload_width) + 2 // metadata_width)
+        asm.inst(f"s_clause {load_count - 1}")
         for group in range(2):
             payload = weight_payload if group == 0 else weight_stage_payload
-            asm.inst(
-                f"global_load_b128 v[{payload}:{payload + 3}], "
-                f"v{weight_stage_address}, s[{self.kernarg}:{self.kernarg + 1}] "
-                f"offset:{2 + 34 * (group_base + group)}"
-            )
-            asm.inst(
-                f"global_load_b128 v[{payload + 4}:{payload + 7}], "
-                f"v{weight_stage_address}, s[{self.kernarg}:{self.kernarg + 1}] "
-                f"offset:{18 + 34 * (group_base + group)}"
-            )
-            asm.inst(
-                f"global_load_d16_b16 v{weight_scales + group}, "
-                f"v{weight_stage_address}, "
-                f"s[{self.kernarg}:{self.kernarg + 1}] "
-                f"offset:{34 * (group_base + group)}"
-            )
+            for part, offset in enumerate((2, 18)):
+                for chunk in range(0, 16, payload_width):
+                    first = payload + part * 4 + chunk // 4
+                    last = first + payload_width // 4 - 1
+                    asm.inst(
+                        f"global_load_b{payload_width * 8} v[{first}:{last}], "
+                        f"v{weight_stage_address}, s[{self.kernarg}:{self.kernarg + 1}] "
+                        f"offset:{offset + chunk + 34 * (group_base + group)}"
+                    )
+            for chunk in range(0, 2, metadata_width):
+                first = weight_scales + group + chunk // 2
+                asm.inst(
+                    f"global_load_d16_b16 v{first}, "
+                    f"v{weight_stage_address}, s[{self.kernarg}:{self.kernarg + 1}] "
+                    f"offset:{34 * (group_base + group) + chunk}"
+                )
 
     def emit_weight_writes(
         self,
@@ -192,25 +200,33 @@ class SignedInt8TiledLdsMechanics:
         weight_payload = registers.weight_payload.first_register
         weight_stage_payload = registers.weight_stage_payload.first_register
         weight_scales = registers.weight_scales.first_register
+        movement = self.data_movement
+        payload_width = movement.payload_lds_write_vector_width
+        metadata_width = movement.metadata_lds_write_vector_width
         for group, wait_count in enumerate(wait_counts):
             asm.inst(f"s_waitcnt vmcnt({wait_count})")
             payload = weight_payload if group == 0 else weight_stage_payload
-            asm.inst(
-                f"ds_write_b128 v{lds_address}, v[{payload}:{payload + 3}] "
-                f"offset:{32 * (group_base + group)}"
-            )
-            asm.inst(
-                f"ds_write_b128 v{lds_address}, v[{payload + 4}:{payload + 7}] "
-                f"offset:{16 + 32 * (group_base + group)}"
-            )
+            for part, offset in enumerate((0, 16)):
+                for chunk in range(0, 16, payload_width):
+                    first = payload + part * 4 + chunk // 4
+                    last = first + payload_width // 4 - 1
+                    asm.inst(
+                        f"ds_write_b{payload_width * 8} v{lds_address}, "
+                        f"v[{first}:{last}] "
+                        f"offset:{offset + chunk + 32 * (group_base + group)}"
+                    )
             asm.inst(
                 f"v_cvt_f32_f16 v{weight_scales + group}, v{weight_scales + group}"
             )
-            asm.inst(
-                f"ds_write_b32 v{scale_lds_address}, "
-                f"v{weight_scales + group} "
-                f"offset:{4 * (group_base + group)}"
-            )
+            if metadata_width == 4:
+                asm.inst(
+                    f"ds_write_b32 v{scale_lds_address}, "
+                    f"v{weight_scales + group} offset:{4 * (group_base + group)}"
+                )
+            else:
+                raise AssertionError(
+                    "signed-int8 scale writes require 32-bit transactions"
+                )
 
     def emit_group(
         self,
@@ -280,7 +296,8 @@ class SignedInt8TiledLdsMechanics:
             raise AssertionError
         for m_index in range(m_fragments):
             payload = activation_payloads + 8 * m_index
-            activation_row_offset = 16 * m_index * self.activation_block_bytes
+            row_stride = self.activation_row_stride or self.activation_block_bytes
+            activation_row_offset = 16 * m_index * row_stride
             asm.inst(
                 f"ds_read_b128 v[{payload}:{payload + 3}], "
                 f"v{activation_read_address} "

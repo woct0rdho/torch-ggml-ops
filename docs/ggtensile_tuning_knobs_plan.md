@@ -2,11 +2,26 @@
 
 ## Purpose
 
-This plan defines how to finish the useful TensileLite-style tuning surface in GGTensile while preserving the current generated kernels. It covers ordinary MMQ forward/backward, grouped MMQ, and paired grouped MMQ on gfx1151 wave32.
+This plan defines how to finish the useful TensileLite-style tuning surface in GGTensile while preserving current public behavior and mechanism contracts. The one-time Priority 2 schema migration changed candidate identities and was followed by bundle requalification; any future schema migration requires the same treatment. The plan covers ordinary MMQ forward/backward, grouped MMQ, and paired grouped MMQ on gfx1151 wave32.
 
 The plan is deliberately typed. A field is a tuning knob only when it is serialized, included in candidate identity, validated for the selected problem and quant format, reflected in resource inspection, and consumed by a distinct lowering or physical plan. Inert fields are not accepted.
 
 "Consistent" means that equivalent behavior has one semantic name and one enum domain where possible. It does not mean that every operation or quant format must accept the same values. Quant-specific decoding, LDS ownership, route ownership, and arithmetic remain separate contracts.
+
+## Current implementation status
+
+The Priority 2 schema migration and ordinary-forward codegen completion boundary are complete. Supported values now reach the physical plan or emitted assembly, while unsupported mechanism combinations are rejected before lowering. Performance and production qualification remain separate gates. This work covers ordinary MMQ forward/backward codegen; grouped and paired route, projection, task, and accumulation policies remain specialized contracts.
+
+Completed foundations include:
+- one-time migration of applicable catalogs, fixtures, structural evidence, and candidate serialization to the strict current schema;
+- typed forward staging, LDS layout/padding, data-movement, and decode-producer policies with applicability checks;
+- propagation of those policies through derived state, physical plans, candidate identity, and bounded reference search helpers;
+- explicit rejection of incomplete applicable policy blocks and semantically inactive fields on direct, register, and specialized plans; and
+- regeneration of the public bundle and host table after migration, followed by an in-place extension rebuild.
+
+The codegen audit identified four gaps and the remediation is now complete: Q8 staging capability is narrowed to the canonical single-stage contract, `DecodeProducerCount=2` is derived into physical producer state and consumed by decoded lowerers, Q3 half-tile staging and movement fields reach its emitter, and movement validation is mechanism-specific. Unsupported Q8 staging and producer-count values fail before lowering. These are codegen contracts, not search-quality claims.
+
+The focused audit tests pass, the full repository suite passes (`925 passed, 42 warnings`), and `pre-commit run --all-files` passes. Performance qualification and production search remain separate concerns.
 
 ## Alignment with the GGTensile design
 
@@ -16,7 +31,7 @@ This plan extends `ggtensile_plan.md`; it does not replace its ownership boundar
 - A complete `ForwardKernelSpec`, `BackwardKernelSpec`, or family-specific grouped spec owns every active policy. A partial bag of optional fields is not a candidate.
 - Derived logical state and one mechanism-specific physical plan own geometry, register roles, lifetimes, LDS offsets, synchronization requirements, and resource formulas.
 - Lowerers consume typed policies and emit one complete mechanism. They do not search, repair invalid values, import catalogs or timing results, or fall back to source-order scheduling.
-- Search helpers construct complete parameter-only candidates outside generation. They enumerate bounded linked neighborhoods, validate capability, and record exact-pair evidence; they never benchmark or select deployment winners.
+- `mmq_fwd_search.py` and `mmq_bwd_search.py` are bounded, higher-level reference consumers of the codegen contracts. They construct complete parameter-only candidates, enumerate selected linked neighborhoods, validate capability, and record exact-pair evidence; they are examples of how a consumer may use the codegen, not the authoritative search space, an exhaustive optimizer, or a production deployment selector. A production-grade search harness such as `~/evotensile/` is deferred.
 - Catalogs contain selected canonical specifications and exact logic only. Benchmark reports, rejected candidates, deployment assignments, and experiment chronology remain evidence outside the generator.
 - Shared components are permitted only when operands, ownership, producer/consumer boundaries, barriers, lifetimes, arithmetic order, and edge behavior are equivalent. Matching instruction spelling is insufficient.
 - ABI, route bounds, expert ownership, packed GGUF layout, and output semantics remain contracts. A policy that changes them is a new mechanism and needs its own family contract, not another common knob.
@@ -27,6 +42,8 @@ A new policy must therefore flow through:
 complete typed spec -> derived state -> physical plan -> substantial lowerer
                     -> inspection and validation -> exact candidate identity
 ```
+
+The codegen contract is authoritative. A higher-level search consumer may expose only a subset of valid candidates, use a different traversal, or omit a family entirely. Search coverage is not a reason to accept an inert field or to weaken mechanism validation.
 
 Pure specification and physical-plan modules must remain free of ROCISA, toolchain, benchmark, catalog, and deployment imports. Generation remains deterministic and side-effect-free apart from writing its requested artifact; tuning remains an offline activity.
 
@@ -47,14 +64,15 @@ These values define starting experiments, not universal defaults.
 
 ## Compatibility rule
 
-Existing specs and catalogs are frozen inputs. Generation from an unchanged existing spec must produce the same assembly source, symbol, resources, and artifact identity. This is a hard regression requirement.
+The one-time Priority 2 schema migration is complete. Checked-in catalogs, fixtures, structural evidence, and generated deployment records use the current canonical schema. Pre-migration documents are not supported: old field names, partial applicable policy blocks, and inactive policy fields are rejected at the parser boundary. There is no schema version, compatibility layer, dual parser, silent defaulting, or compatibility projection.
+
+Current canonical specs are now frozen inputs. Generation from an unchanged current spec must produce the same assembly source, symbol, resources, and artifact identity. This is a hard regression requirement.
 
 New implementation fields must follow one of these rules:
-- A legacy spec continues through the old lowering path and has no new serialized policy fields.
-- A new candidate explicitly contains the new policy block and receives a new candidate hash and kernel identity.
-- A schema migration is performed as one explicit operation with updated catalogs, manifests, tests, and artifact references. There is no silent compatibility projection or inferred nearby default.
+- A new candidate explicitly contains the complete applicable policy block and receives a new candidate hash and kernel identity.
+- A future schema migration is performed as one explicit operation with updated catalogs, manifests, tests, artifact references, and requalified bundle outputs.
 
-A refactor may change internal types or introduce enums without changing emitted assembly. Any source change for an unchanged logical spec must fail the identity regression unless the plan records the reason and the affected catalog is deliberately requalified.
+A refactor may change internal types or introduce enums without changing emitted assembly. Any source change for an unchanged current logical spec must fail the identity regression unless the plan records the reason and the affected catalog is deliberately requalified.
 
 ## Common tuning model
 
@@ -89,6 +107,8 @@ The implementation must distinguish these planes instead of applying one unconst
 - `PayloadLdsWriteVectorWidth` and `MetadataLdsWriteVectorWidth` are physical bytes per issued LDS write, initially `4`, `8`, and `16`. They must derive LDS offsets, bank-layout requirements, producer ownership, and wait counts.
 - `StoreClauseWidths` is an ordered tuple of actual physical output store widths, such as `(B32, B64, B128)`. It is not a compound mechanism enum and is distinct from logical `StoreVectorWidth`.
 
+The common numeric domains above are schema-level starting points, not universal permissions. Each physical mechanism must refine them before candidate validation. In particular, a Q8 metadata width is valid only if the Q8 lowerer implements its transaction, extraction, address, register, LDS, wait, and mask behavior. A field must either have a distinct codegen path or be rejected for that mechanism; passing generic typed validation is insufficient.
+
 The high-level mechanism selectors are intentionally not additive fields:
 
 ```text
@@ -96,7 +116,7 @@ ActivationStaging -> direct, single-LDS, double-LDS, or register-tiled activatio
 WeightStaging     -> direct, decoded-LDS, full-weight-LDS, or register-tiled weight ownership
 ```
 
-`ActivationStaging` must replace or decompose the existing `ActivationAddressing` choices. `WeightStaging` must replace or decompose `OperandSource`; it must not be added beside `OperandSource` as an independent selector. The exact enum members are family-specific where the physical contracts differ. Route ownership, paired projection ownership, fixed grouped ownership, and external workspaces remain outside these generic selectors.
+In the current ordinary forward schema, `ActivationStaging` and `WeightStaging` replace or decompose the former `ActivationAddressing` and `OperandSource` choices. They are not additive selectors, and the pre-migration fields are not accepted. The exact enum members are family-specific where the physical contracts differ. Route ownership, paired projection ownership, fixed grouped ownership, and external workspaces remain outside these generic selectors.
 
 ### Producer ownership, metadata, and traversal
 
@@ -108,7 +128,7 @@ WeightStaging     -> direct, decoded-LDS, full-weight-LDS, or register-tiled wei
 
 `StoreTraversal` describes the order in which logical output fragments become global stores. Start with `Canonical`, `TileMajor`, and `RowMajor`; add `ColumnMajor` only if a family has a concrete fragment transform. `StoreClauseWidths` describes the physical width of each emitted clause and must be derived consistently with traversal, masking, and address advancement. It cannot be hidden in a traversal or mechanism enum.
 
-`PackedLoadGrouping` is the canonical name for quantized payload lane sharing/grouping. Its initial semantic values are `PerLane` and `LanePair`; an implementation may add `LaneQuad` only with a format-specific ownership proof. Existing `PackedWeightLaneShare=1/2` maps to these meanings during an explicit schema migration. New specs must not carry both fields.
+`PackedLoadGrouping` is the canonical name for quantized payload lane sharing/grouping. Its initial semantic values are `PerLane` and `LanePair`; an implementation may add `LaneQuad` only with a format-specific ownership proof. The one-time migration maps the former `PackedWeightLaneShare=1/2` meanings to `PerLane/LanePair`; current specs do not carry both fields and pre-migration input is rejected.
 
 ## Existing knobs to make effective
 
@@ -122,9 +142,9 @@ A geometry candidate is valid only if the physical plan can derive all register 
 
 ### Prefetch and pipeline controls
 
-Backward already has active `PrefetchGlobalRead`, `PrefetchLocalRead`, activation prefetch, packed-weight prefetch, next-packed-weight prefetch, and decoded-LDS buffering. Preserve the current serialized values and emitted paths for existing specs. Internally, normalize the meanings to typed `SingleStage`/`DoubleStage` and `Single`/`Double` policies only when the canonical mapping and assembly remain unchanged. A future schema migration may replace awkward booleans or integers, but it must update every catalog and reject the old schema afterward.
+Backward already has active `PrefetchGlobalRead`, `PrefetchLocalRead`, activation prefetch, packed-weight prefetch, next-packed-weight prefetch, and decoded-LDS buffering. Preserve the current serialized values and emitted paths for existing specs. The shared `LdsBuffering` enum is used internally, while backward decode, layout, and store policies remain direction-specific. Any future serialized replacement is another explicit migration and must update every catalog while rejecting the old schema.
 
-Forward should gain a complete staged-loop policy rather than isolated booleans. It must own current and next global reads, LDS writes, local reads, decode first-use points, wait thresholds, and register lifetimes. A candidate with `PrefetchGlobalRead=2` must therefore lower a different complete pipeline.
+Forward carries a typed staged-loop policy for ordinary row-LDS mechanisms. Its serialized policy owns the global-read stage where the emitter supports it; mechanism capability validation rejects unsupported local-read, buffering, clustering, and reordered-schedule values before lowering. A double global-read stage uses an explicit pipeline path rather than silently using the canonical loop. Q8 signed-int8 and Q3 half-tile paths have completed their Priority 2 remediation.
 
 The same semantic policy may be shared between operation types only when the producer/consumer graph and ABI ownership are equivalent. Forward activation staging and backward decoded-weight staging are not automatically equivalent. A shared policy type may be reused at the model boundary while each direction supplies its own physical-plan implementation and capability matrix.
 
@@ -165,7 +185,7 @@ Initial values:
 
 ### Forward staging family
 
-Add a typed `ForwardPipelinePolicy` for decoded-LDS and tiled quantized families. Its first bounded domain should include:
+The typed `ForwardPipelinePolicy` is represented for ordinary decoded-LDS and tiled quantized families, but its codegen support is mechanism-specific and not complete for every serialized path. Its schema domain includes:
 - `PrefetchGlobalRead`: `SingleStage`, `DoubleStage`.
 - `PrefetchLocalRead`: `SingleStage`, `DoubleStage` only after an explicit local-read pipeline exists.
 - `LdsBuffering`: `Single`, `Double` only for a complete ping-pong emitter.
@@ -174,17 +194,13 @@ Add a typed `ForwardPipelinePolicy` for decoded-LDS and tiled quantized families
 - `ScheduleLocalWrite`: `Default`, `Grouped`, `Split` where supported.
 - `ScheduleIterAlg`: `DependencyOrdered`, `ExplicitPipeline`; do not expose `2` or `3` without a named semantic definition.
 
-The first useful combinations are:
-- Retained geometry plus `DoubleStage` global reads.
-- Retained geometry plus `DoubleStage` global reads and `DepthU=32 -> 16` where register/LDS limits permit it.
-- The preceding combination with `ClusterLocalRead=Disabled`.
-- One-buffer versus two-buffer LDS only when the alternate emitter has explicit barriers and resource accounting.
+The migrated catalogs use the canonical single-buffer/default schedule. The bounded search exposes complete linked staging alternatives for applicable Q4_K and Q5_K ordinary paths, including the explicit double-global-read pipeline. Capability validation rejects enum combinations for which the selected physical plan has no complete read, write, wait, or resource path. No double-LDS, double-local-read, clustered, or reordered schedule emitter is implied by the schema enum domain.
 
-Probe each complete combination on exact parent-competitive shapes. Do not transfer a winning staging child to another quant type without validating its decode and LDS contracts.
+Each complete staging candidate still requires exact parent-competitive correctness, resource, reproducibility, and timing evidence. A staging child is not transferred to another quant type without validating its decode and LDS contracts.
 
 ### Forward LDS and vector family
 
-Add `GlobalReadVectorWidthA/B`, `VectorWidthA/B`, and `LocalReadVectorWidth` only to lowerers that have a format-aware load ownership implementation.
+Add `GlobalReadVectorWidthA/B`, `VectorWidthA/B`, and `LocalReadVectorWidth` only to lowerers that have a format-aware load ownership implementation. The current ordinary policy uses the separate physical byte-width fields for packed payload and metadata transactions.
 
 Starting values are `1`, `2`, `4`, and `8` for dense logical global reads, `1`, `2`, and `4` for vector widths, and `8`, `16`, and `32` for local reads. Packed payload reads use `PayloadGlobalReadVectorWidth` and must not inherit this domain. The capability matrix must reject values that cross packed sub-byte fields, misalign `buffer_load` widths, or alter WMMA lane mapping without a corresponding transform.
 
@@ -197,14 +213,11 @@ Validation failures remain candidate evidence, not global format rules.
 
 ## Backward consistency work
 
-Backward's existing fields should be renamed internally to the common semantic vocabulary without changing their legacy serialization or assembly:
-- `DoubleBufferLds` maps to `LdsBuffering`.
-- `Store.Priority` maps to `StorePriority` with `Normal` and `Raised` enum members.
-- `PrefetchGlobalRead` and `PrefetchLocalRead` map to `SingleStage` and `DoubleStage` policies internally.
-- `LdsLayout.Kind`, `LdsPadB`, and `LdsSwizzleChunkB` map to the common layout policy.
-- `ActivationAddressing` and `OperandSource` remain only in unchanged legacy specs; new canonical specs use the decomposed `ActivationStaging` and `WeightStaging` fields. A migration must update all catalogs and reject the old schema rather than parse both forms.
-- `PackedWeightLaneShare` is decomposed into canonical `PackedLoadGrouping`; existing `1/2` meanings become `PerLane/LanePair` only in that explicit migration.
-- `MetadataLoadVectorWidth`, `PayloadLdsWriteVectorWidth`, and `MetadataLdsWriteVectorWidth` describe physical byte transactions, not metadata elements or generic packed words, and are admitted only for formats with aligned lowering support.
+Backward retains direction-specific policies while reusing shared enum meanings where the mapping is exact:
+- `LdsBuffering` is the shared typed enum for single and double LDS buffering.
+- Backward store priority, decode extraction, layout kind, padding, swizzle, and packed-load grouping remain owned by the backward specification and physical plans.
+- The current parser has no `ActivationAddressing`, `OperandSource`, or `PackedWeightLaneShare` input fields. Any future decomposition of another backward field is a new explicit migration, not legacy-input support.
+- Backward metadata and LDS transaction widths remain physical byte quantities and are admitted only for formats with aligned lowering support.
 
 The backward search domain remains quant-aware. Q3/Q4/Q5/Q6/Q8 decode extraction and lane sharing are not one common domain merely because they use the same field name. The physical planner must continue to derive decoder register demand, A address lifetime, LDS size, and wait thresholds from the selected quant backend.
 
@@ -235,38 +248,53 @@ StreamK may be revisited later as an enum-backed execution mode with explicit pa
 
 ### Priority 0: compatibility and architecture foundations
 
-- Freeze existing source hashes, spec mappings, resources, exact correctness outputs, and artifact identities. Add regression tests that unchanged specs regenerate byte-identical assembly.
-- Define the typed semantic schema, canonical serialization, candidate hashing, and per-operation/per-quant capability matrix. Keep the old schema valid only until one explicit migration is complete; do not add a second parser or silent compatibility projection.
-- Implement the `complete typed spec -> derived state -> physical plan -> lowering -> inspection/validation -> candidate identity` boundary from `ggtensile_plan.md`. Keep generation independent of search, catalogs, benchmark reports, and deployment policy.
-- Add lowering-effect tests that prove accepted fields reach derived state and change the physical plan or emitted assembly. Reject inert fields and fields that alter ABI, route ownership, or workspace without a mechanism contract.
-- Define applicability rows for ordinary forward/backward, grouped forward, and paired grouped kernels. Make specialized route, task, projection, and fixed ownership contracts explicit.
+- Complete. The current post-migration source hashes, spec mappings, resources, exact correctness outputs, and artifact identities are covered by regression tests. Unchanged current specs regenerate byte-identical assembly.
+- Complete. The typed semantic schema, canonical serialization, candidate hashing, and per-operation/per-quant capability matrix are in place. The one-time migration is complete; old field names and incomplete applicable policy blocks are rejected without a second parser or silent compatibility projection.
+- Complete. The `complete typed spec -> derived state -> physical plan -> lowering -> inspection/validation -> candidate identity` flow from `ggtensile_plan.md` is implemented, including the Priority 2 codegen-effect boundary. Generation remains independent of search, catalogs, benchmark reports, and deployment policy.
+- Complete for the current forward boundary. Applicability, lowering-effect, unsupported-combination, pre-lowering, and canonical-identity tests cover the migrated schema.
+- Complete. Applicability boundaries are explicit for ordinary forward/backward, grouped forward, and paired grouped kernels, including specialized route, task, projection, and fixed ownership contracts.
 
 ### Priority 1: existing mechanisms and backward-compatible behavior
 
-- Make existing forward and backward knobs demonstrably effective without changing unchanged specs. Preserve current serialized values and emitted assembly for existing catalogs.
-- Normalize existing prefetch, LDS, store, `ActivationAddressing`, `OperandSource`, and quant decode values into typed internal meanings only when the mapping is exact. `ActivationStaging` replaces or decomposes `ActivationAddressing`; `WeightStaging` replaces or decomposes `OperandSource` rather than coexisting with it.
-- Preserve measured starting points while testing complete linked policies: `PrefetchGlobalRead=1/2`, `DepthU=16/32`, `ClusterLocalRead=Disabled`, backward `LdsPadB=8`, and the existing direction-specific prefetch and swizzle combinations.
-- Add effect, resource, correctness, and exact-parent timing checks to `mmq_fwd_search.py` and `mmq_bwd_search.py`. Search helpers enumerate complete valid candidates; they do not construct invalid Cartesian products or make deployment decisions.
-- Retain rejected evidence and artifact provenance. Do not reopen a measured loser without a changed physical premise.
+- Complete for the current canonical schema. Existing forward and backward knobs are typed, canonical specs remain stable, and non-canonical forward values either have distinct codegen effects or are rejected at the mechanism boundary. Current catalog values and emitted assembly remain preserved.
+- Complete for the migrated fields in the implemented families. Prefetch, LDS, store, quant-decode, `ActivationStaging`, and `WeightStaging` meanings are represented at their owning contract boundaries. `ActivationAddressing`, `OperandSource`, and other pre-migration names are not accepted as a second input form.
+- Retained as qualification guidance. Measured starting points remain explicit: `PrefetchGlobalRead=1/2`, `DepthU=16/32`, `ClusterLocalRead=Disabled`, backward `LdsPadB=8`, and the existing direction-specific prefetch and swizzle combinations.
+- Complete as reference consumers. `mmq_fwd_search.py` and `mmq_bwd_search.py` exercise effect, resource, correctness, identity, and exact-pair evidence boundaries for selected neighborhoods. Their domains are intentionally partial and are not the whole codegen search space; they enumerate complete valid candidates but do not need to find production winners or make deployment decisions.
+- Complete. Rejected evidence and artifact provenance remain outside canonical generation and are not silently reopened.
 
 ### Priority 2: high-value staging, LDS, and decode mechanisms
 
-- Implement family-specific `LdsLayout` variants with derived strides, transforms, buffer sizes, and resource formulas. Probe pads `0`, `4`, `8`, and `16` bytes, starting with one-axis changes and the measured `LdsPadA=4, LdsPadB=16` pair. Retain backward's measured `LdsPadB=8` until a replacement is qualified.
-- Implement a complete forward staged loop, beginning with double global-read staging and the bounded `PrefetchGlobalRead=2` plus `DepthU=16` interaction. The plan must cover current/next reads, LDS writes, local reads, decode first use, waits, and register lifetimes.
-- Implement `ActivationStaging` and `WeightStaging` as decomposed policies with family-specific capability rows. Do not expose a selector unless the lowerer has a complete direct, single-stage, double-stage, decoded-LDS, full-LDS, or register-tiled implementation for that value.
-- Add quantized data-plane widths where a physical plan exists: `PayloadGlobalReadVectorWidth` and `MetadataLoadVectorWidth`, followed by `PayloadLdsWriteVectorWidth` and `MetadataLdsWriteVectorWidth`. Initial payload/global/LDS byte widths are `4`, `8`, and `16`; metadata load/LDS byte widths are `2`, `4`, `8`, and `16`, constrained by format alignment and extraction.
-- Add `DecodeProducerCount` with initial values `1`, `2`, and `4` only where producer ownership, destination grouping, barriers, wait thresholds, registers, and edge masks are all derived.
-- Qualify ordinary families before transferring a staging or decode policy to grouped or paired families.
+Implementation status: schema, propagation, mechanism-specific validation, and ordinary-forward codegen completion are complete. Priority 3 and Priority 4 remain separate follow-on work and require their own qualification gates.
+
+Completed foundations:
+- Complete. Family-specific `LdsLayout` variants derive strides, buffer sizes, padding, and resource formulas for ordinary row-LDS plans. The canonical migrated catalogs use explicit `Canonical` layout fields; padded-row candidates are generated only for applicable plans.
+- Complete. The typed forward staged-loop policy is carried in derived physical state and lowerer inputs. Each admitted non-canonical value has a distinct read, write, wait, or pipeline path; unsupported values are rejected before lowering.
+- Complete. `ActivationStaging` and `WeightStaging` are decomposed typed mechanism selectors with family-specific capability rows. The migrated schema rejects policy blocks for direct, register, and specialized contracts where those fields are not semantically owned.
+- Complete. Quantized data-plane fields are typed, propagated, refined per emitter, and either implemented or rejected before lowering. Q8 transaction widths are covered by assembler-validated mutation tests.
+- Complete for the qualified ordinary decoded arrangements. `DecodeProducerCount=2` is derived into a mechanism-specific producer plan and consumed by ordinary Q3 and decoded-LDS lowerers. Counts `1` and `4` are rejected until distinct ownership plans exist.
+- Complete for family boundaries. Generic staging and decode policies are not copied into grouped or paired route contracts. Those families retain specialized route, projection, task, and accumulation policies and require separate qualification before any common policy is introduced.
+
+Priority 2 codegen remediation completed:
+- Q8 staging capability is explicitly limited to its qualified canonical single-stage/default schedule. Alternate staging values are rejected during spec validation rather than serialized into an inert lowering. Q8 payload transaction widths remain active in the signed-int8 tiled emitter.
+- Decode producer ownership is represented by a mechanism-specific physical plan. The qualified two-producer arrangement derives wave ownership and metadata producer count and is consumed by ordinary decoded lowerers; counts `1` and `4` are rejected before lowering.
+- The Q3 half-tile emitter consumes global prefetch, payload/metadata transaction widths, LDS write grouping, and contract-derived activation staging. Width variants are assembler-validated.
+- Mechanism-specific capability validation covers staging, movement widths, producer ownership, and lowering preconditions. Mutation tests prove accepted assembly changes, rejection tests prove invalid candidates stop before lowering, and canonical structural evidence proves unchanged specs remain byte-identical.
+
+Priority 2 codegen is complete. Performance qualification remains a separate evidence task, and no staging or decode policy is transferred to grouped or paired families without separate qualification.
 
 ### Priority 3: linked store and vector mechanisms
+
+Blocked until Priority 2 codegen remediation and qualification gates pass.
 
 - Implement one linked store policy containing `NumElementsPerBatchStore`, `StoreVectorWidth`, `StoreClauseWidths`, `StoreTraversal`, `StoreSyncOpt`, `TilesAhead`, and dependency width. Start store batches at `4`, `8`, `10`, `16`, `20`, `24`, and `32`; logical store widths at `1`, `2`, and `4`; clause widths at `B32`, `B64`, and `B128`.
 - Make every store policy derive output fragment order, conversion temporaries, clause alignment, edge masking, address advancement, and synchronization. New store policies must change assembly and candidate identity; they cannot be labels around one emitter.
 - Add dense-compatible `GlobalReadVectorWidthA/B` and `LocalReadVectorWidth` only after exact lane mappings are proven. Start with dense logical widths `1`, `2`, `4`, and `8`, and local-read widths `8`, `16`, and `32` where the format and emitter support them.
-- Expand payload and metadata global/LDS widths through linked candidates rather than independent knobs. Include `PackedLoadGrouping=PerLane/LanePair`, and consider `LaneQuad` only with a format-specific proof. `PackedWeightLaneShare` is decomposed and removed by migration, not retained as a second field.
+- Extend Priority 2's typed payload and metadata width support only through linked candidates rather than independent knobs. Add or broaden `PackedLoadGrouping=PerLane/LanePair`, and consider `LaneQuad` only with a format-specific proof. The former `PackedWeightLaneShare` field is removed by migration and must not return as a second field.
 - Align common policy names across grouped and paired lowering only where route, row-task, projection, dual-LDS, and accumulation ownership remains equivalent.
 
 ### Priority 4: producer, traversal, and synchronization experiments
+
+Blocked until Priority 2 codegen remediation and Priority 3 linked-policy foundations pass.
 
 - Add `WaveSeparateGlobalReadA/B` with `Shared` and `WaveSeparated` only for multi-wave plans that derive disjoint read ownership, address state, LDS ranges, and waits for each wave.
 - Add `MetadataPrefetch=Disabled/Enabled` only when metadata has a separate producer/consumer frontier and the physical plan carries its address and temporary state.
@@ -281,7 +309,9 @@ Keep `StreamK`, persistent workgroups, prepared weights, external decode workspa
 
 Every new candidate must pass, in order:
 - strict schema round-trip and candidate identity checks;
-- exact geometry, quant-format, ABI, and capability validation;
+- exact geometry, quant-format, ABI, mechanism, and capability validation;
+- a field-effect mutation check proving that every accepted tuning field changes the physical plan or emitted assembly, or is rejected as non-applicable;
+- a pre-lowering validation check proving that no accepted candidate reaches a lowering assertion;
 - deterministic independent generation and build;
 - resource inspection with zero private bytes, spills, scratch, calls, and dynamic stack;
 - packed-HIP correctness and independent dequantized-reference checks;
@@ -297,4 +327,4 @@ No existing kernel changes assembly unless its canonical spec changes. Internal 
 
 New policy values and linked combinations are expected to change assembly. They must receive new candidate identities, new artifacts, and new qualification records. A changed existing default is a catalog change, not an implementation detail, and requires an explicit remeasurement and deployment review.
 
-The implementation is complete when every accepted field has a demonstrated lowering effect, every shared field has an applicability matrix, every quant-specific exception is explicit, unchanged specs remain byte-identical, and future tuning can select only complete, inspectable, correctness-qualified candidates.
+Priority 2 satisfies the current codegen completion boundary. Accepted ordinary-forward fields have physical or lowering effects, unsupported combinations fail before lowering, canonical specs remain byte-identical, and mutation tests cover the implemented widths and staging paths. Priority 3 and Priority 4 remain follow-on work with separate linked-policy, correctness, resource, and performance qualification. The production search harness remains deferred.

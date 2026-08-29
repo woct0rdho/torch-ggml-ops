@@ -15,6 +15,7 @@ from .schema import integer_tuple as _integer_tuple
 from .schema import strict_mapping as _strict_mapping
 from .schema import strict_mapping_optional as _strict_mapping_optional
 from .schema import string as _string
+from .tuning_policy import LdsBuffering
 from .work_group_mapping import work_group_mapping_shift
 
 EnumT = TypeVar("EnumT", bound=Enum)
@@ -62,11 +63,6 @@ class BackwardBitfieldShiftPlacement(str, Enum):
 class BackwardMetadataLoad(str, Enum):
     Scalar = "Scalar"
     Vector = "Vector"
-
-
-class LdsBuffering(str, Enum):
-    Single = "Single"
-    Double = "Double"
 
 
 class PackedLoadGrouping(str, Enum):

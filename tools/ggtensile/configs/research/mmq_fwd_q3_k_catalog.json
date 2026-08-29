@@ -51,11 +51,31 @@
         "ActivationStaging": "ScalarPlaneBase"
       },
       "Lds": {
-        "AddressHoist": "Q3FullTile336"
+        "AddressHoist": "Q3FullTile336",
+        "LdsLayout": "Canonical",
+        "LdsPadA": 0,
+        "LdsPadB": 0,
+        "LdsBlockSizePerPad": 64
       },
       "Decode": {
         "MetadataConversion": "Float16DToFloat32Signed6ScaleShared",
         "DecodeReadyFrontier": true
+      },
+      "Staging": {
+        "PrefetchGlobalRead": "DoubleStage",
+        "PrefetchLocalRead": "SingleStage",
+        "LdsBuffering": "Single",
+        "ClusterLocalRead": "Disabled",
+        "ScheduleGlobalRead": "Default",
+        "ScheduleLocalWrite": "Default",
+        "ScheduleIterAlg": "ExplicitPipeline"
+      },
+      "DataMovement": {
+        "PayloadGlobalReadVectorWidth": 16,
+        "MetadataLoadVectorWidth": 16,
+        "PayloadLdsWriteVectorWidth": 16,
+        "MetadataLdsWriteVectorWidth": 4,
+        "DecodeProducerCount": 2
       }
     }
   ],

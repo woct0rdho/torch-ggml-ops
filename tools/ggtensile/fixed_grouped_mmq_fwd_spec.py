@@ -16,7 +16,9 @@ from .mmq_fwd_spec import (
     EpilogueSpec,
     FixedForwardDecodePolicy,
     ForwardActivationStaging,
+    ForwardDataMovementPolicy,
     ForwardKernelSpec,
+    ForwardPipelinePolicy,
     ForwardProblemContract,
     ForwardWeightStaging,
     GeometrySpec,
@@ -253,6 +255,14 @@ class FixedForwardKernelSpec:
             epilogue=EpilogueSpec(None),
             instruction_policy=InstructionPolicy(None, None, None),
             semantic_schedule=SemanticSchedulePolicy(),
+            pipeline=ForwardPipelinePolicy.canonical(),
+            data_movement=ForwardDataMovementPolicy(
+                16,
+                2,
+                16,
+                4,
+                None,
+            ),
         )
 
 

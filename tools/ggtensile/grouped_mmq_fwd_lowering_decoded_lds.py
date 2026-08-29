@@ -24,6 +24,11 @@ from .mmq_fwd_lowering_decoded_stage import (
     DecodedWeightLdsStageInputs,
     emit_decoded_bf16_tile_store,
 )
+from .mmq_fwd_spec import (
+    ForwardDataMovementPolicy,
+    ForwardDecodeProducerPlan,
+    ForwardPipelinePolicy,
+)
 
 
 @dataclass(frozen=True)
@@ -97,6 +102,9 @@ class GroupedDecodedWeightLdsLowering:
                 registers=registers,
                 scalar_registers=scalar,
                 allocated_row_tiles=self._row_tile_count(),
+                pipeline=ForwardPipelinePolicy.canonical(),
+                data_movement=ForwardDataMovementPolicy.canonical(),
+                producer_plan=ForwardDecodeProducerPlan.canonical(),
             )
         )
 

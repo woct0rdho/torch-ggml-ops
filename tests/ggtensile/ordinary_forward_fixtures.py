@@ -198,6 +198,8 @@ def q8_direct_global_kernel_spec() -> ForwardKernelSpec:
         ),
         lds=LdsSpec("None"),
         decode=DecodeSpec("Float16DToFloat32", FixedForwardDecodePolicy()),
+        pipeline=None,
+        data_movement=None,
     )
 
 
@@ -220,6 +222,8 @@ def q8_register_tiled_kernel_spec(
         ),
         lds=LdsSpec("None"),
         decode=DecodeSpec("Float16DToFloat32", FixedForwardDecodePolicy()),
+        pipeline=None,
+        data_movement=None,
     )
 
 

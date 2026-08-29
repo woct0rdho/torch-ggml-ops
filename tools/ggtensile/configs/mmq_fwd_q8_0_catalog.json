@@ -51,10 +51,29 @@
         "ActivationStaging": "MadU24"
       },
       "Lds": {
-        "AddressHoist": "HipTile"
+        "AddressHoist": "HipTile",
+        "LdsLayout": "Canonical",
+        "LdsPadA": 0,
+        "LdsPadB": 0,
+        "LdsBlockSizePerPad": 64
       },
       "Decode": {
         "MetadataConversion": "Float16DToFloat32"
+      },
+      "Staging": {
+        "PrefetchGlobalRead": "SingleStage",
+        "PrefetchLocalRead": "SingleStage",
+        "LdsBuffering": "Single",
+        "ClusterLocalRead": "Disabled",
+        "ScheduleGlobalRead": "Default",
+        "ScheduleLocalWrite": "Default",
+        "ScheduleIterAlg": "DependencyOrdered"
+      },
+      "DataMovement": {
+        "PayloadGlobalReadVectorWidth": 16,
+        "MetadataLoadVectorWidth": 2,
+        "PayloadLdsWriteVectorWidth": 16,
+        "MetadataLdsWriteVectorWidth": 4
       }
     },
     {
@@ -87,10 +106,29 @@
         "ActivationStaging": "MadU24"
       },
       "Lds": {
-        "AddressHoist": "CompactDepth32WeightRows"
+        "AddressHoist": "CompactDepth32WeightRows",
+        "LdsLayout": "Canonical",
+        "LdsPadA": 0,
+        "LdsPadB": 0,
+        "LdsBlockSizePerPad": 64
       },
       "Decode": {
         "MetadataConversion": "Float16DToFloat32"
+      },
+      "Staging": {
+        "PrefetchGlobalRead": "SingleStage",
+        "PrefetchLocalRead": "SingleStage",
+        "LdsBuffering": "Single",
+        "ClusterLocalRead": "Disabled",
+        "ScheduleGlobalRead": "Default",
+        "ScheduleLocalWrite": "Default",
+        "ScheduleIterAlg": "DependencyOrdered"
+      },
+      "DataMovement": {
+        "PayloadGlobalReadVectorWidth": 16,
+        "MetadataLoadVectorWidth": 2,
+        "PayloadLdsWriteVectorWidth": 16,
+        "MetadataLdsWriteVectorWidth": 4
       }
     },
     {
@@ -123,10 +161,29 @@
         "ActivationStaging": "MadU24"
       },
       "Lds": {
-        "AddressHoist": "SmallMTile"
+        "AddressHoist": "SmallMTile",
+        "LdsLayout": "Canonical",
+        "LdsPadA": 0,
+        "LdsPadB": 0,
+        "LdsBlockSizePerPad": 64
       },
       "Decode": {
         "MetadataConversion": "Float16DToFloat32"
+      },
+      "Staging": {
+        "PrefetchGlobalRead": "SingleStage",
+        "PrefetchLocalRead": "SingleStage",
+        "LdsBuffering": "Single",
+        "ClusterLocalRead": "Disabled",
+        "ScheduleGlobalRead": "Default",
+        "ScheduleLocalWrite": "Default",
+        "ScheduleIterAlg": "DependencyOrdered"
+      },
+      "DataMovement": {
+        "PayloadGlobalReadVectorWidth": 16,
+        "MetadataLoadVectorWidth": 2,
+        "PayloadLdsWriteVectorWidth": 16,
+        "MetadataLdsWriteVectorWidth": 4
       }
     },
     {
@@ -159,10 +216,29 @@
         "ActivationStaging": "MadU24"
       },
       "Lds": {
-        "AddressHoist": "SmallMTile"
+        "AddressHoist": "SmallMTile",
+        "LdsLayout": "Canonical",
+        "LdsPadA": 0,
+        "LdsPadB": 0,
+        "LdsBlockSizePerPad": 64
       },
       "Decode": {
         "MetadataConversion": "Float16DToFloat32"
+      },
+      "Staging": {
+        "PrefetchGlobalRead": "SingleStage",
+        "PrefetchLocalRead": "SingleStage",
+        "LdsBuffering": "Single",
+        "ClusterLocalRead": "Disabled",
+        "ScheduleGlobalRead": "Default",
+        "ScheduleLocalWrite": "Default",
+        "ScheduleIterAlg": "DependencyOrdered"
+      },
+      "DataMovement": {
+        "PayloadGlobalReadVectorWidth": 16,
+        "MetadataLoadVectorWidth": 2,
+        "PayloadLdsWriteVectorWidth": 16,
+        "MetadataLdsWriteVectorWidth": 4
       }
     }
   ],
