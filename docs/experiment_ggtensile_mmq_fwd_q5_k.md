@@ -1,272 +1,21 @@
-# GGTensile MMQ Forward Q5_K Plan
+# GGTensile MMQ Forward Q5_K Results
 
-## Purpose
+## Scope
 
-Build and optimize strict gfx1151 wave32 GGTensile assembly kernels for Q5_K forward over every exact production shape used by the current Qwen workload. The authoritative objective is the prequantized packed multiply body using the fixed HIP-produced Q8_1 `F16_D4S4` workspace. Every exact key must be at least as fast as the installed HIP multiply within measurement error, after which optimization continues only while repeatable in-contract upside remains.
-
-The campaign is autonomous and iterative. After each coherent implementation, correctness, measurement, or review change, update this file with the result and the next premise. Commit changes that are worth retaining; documentation-only checkpoints do not require commits.
-
-## Contract
-
-Target only:
+This record covers the six dense Q5_K forward kernel keys used by the workload:
 - gfx1151, wave32, WMMA V1, BF16 input and output.
-- Authoritative packed GGUF Q5_K weights consumed directly by the kernel.
-- The installed HIP Q8_1 `F16_D4S4` activation producer and exact 144-byte activation workspace blocks.
-- Exact-key artifacts with one `ProblemType`, `ProblemSize`, solution identity, assembly source, and code object.
+- Direct packed GGUF Q5_K weights.
+- A fixed HIP-produced Q8_1 `F16_D4S4` activation workspace.
+- The prequantized packed multiply body only; activation quantization is excluded.
 - Zero private bytes, spills, scratch instructions, calls, and dynamic stack.
-- Serial warmed rotating timing. Builds and independent correctness work may run in parallel, but timed GPU work must remain serial.
-- No prepared weight representation, dense shadow, external decode workspace, split-K, Stream-K, persistent or grouped workgroups, online tuning, producer fusion, or public dispatch change during research.
 
-Forward coordinates are:
+The matrix convention is `output[M,N] = input[M,K] @ dequant_q5_k(weight[N,K]).T`. Q5_K has 256 values in each 176-byte block: FP16 scale/minimum metadata, a 4-bit low payload, and a 32-byte high-bit plane. The retained kernels decode the packed representation directly into the common four-wave `128x64` LDS/WMMA body.
 
-```text
-M = flattened activation rows
-N = out_features
-K = in_features
+## Final Multiply Results
 
-output[M,N] = input[M,K] @ dequant_q5_k(weight[N,K]).T
-```
+Speed is logical matrix throughput: `2*M*N*K/(median_ms*1e9)`. The workspace was produced once by the fixed Q8_1 kernel and reused by both multiply paths. Speedup is `GGTensile TFLOPS / HIP TFLOPS`; values are the average median from two dedicated warmed 25-repeat rotating confirmations.
 
-Q5_K has 256 logical values per 176-byte packed block. It shares Q4_K's FP16 `d`/`dmin`, eight six-bit scale/minimum fields, and 4-bit low payload, and adds a 32-byte high-bit plane. The activation workspace stores four Q8_1 subblocks per 128 values with `F16_D4S4` metadata.
-
-## Exact Production Scope
-
-The ordinary production rows are `M={2048,8192,32768}`. Q5_K appears in two shape families:
-
-| Family | `(N,K)` | Representative tensor | Calls |
-| --- | ---: | --- | ---: |
-| Narrow K/V/shared gate/up | `(512,2048)` | `blk.0.ffn_gate_shexp.weight` | 21 |
-| Shared-expert down | `(2048,512)` | `blk.0.ffn_down_shexp.weight` | 10 |
-
-The six exact keys are the Cartesian product of those families and the three M values. There is no production Q5_K attention-output or attention-query family.
-
-Priority is evidence-driven:
-- Large candidate/HIP kernel margins.
-- Large absolute kernel time.
-- High model call count, especially the 21-call narrow family.
-- Shapes with architectural or neighboring-format evidence for a materially faster mechanism.
-- Smaller repeatable margins only after larger opportunities are exhausted.
-
-A weighted total guides effort but never authorizes retaining a slower exact key.
-
-## Initial Technical Premise
-
-The completed Q4_K forward writer establishes a strong common body: direct packed input, decoded signed-int8 weight staging, Q8_1 activation staging, WMMA accumulation, metadata correction, and contiguous BF16 stores. Q5_K may reuse quant-neutral ownership, LDS, WMMA, synchronization, addressing, and epilogue mechanisms only after its decoder and metadata arithmetic are represented explicitly and tested independently.
-
-The first Q5_K control should retain the Q4_K `128x64`, 128-thread decoded-staged geometry while adding the Q5 high-bit payload decode. The high-bit plane must be consumed during decode and must not remain live through the WMMA body. Initial search order:
-- Port the strict direct and retained decoded-staged controls to Q5_K.
-- Measure all six keys against exact installed HIP controls.
-- Attack the largest observed margins with resource-neutral decode scheduling, high-bit extraction, metadata extraction, and low/high WMMA issue placement.
-- Reuse Q4_K metadata-after-low and independent-extraction schedules only after exact Q5_K measurements.
-- Search bounded Q5-specific payload/vector-load, nibble/high-bit extraction, VOPD, clause, wait, and epilogue neighborhoods.
-- Change geometry or buffering only when profiling and lower bounds establish a new premise.
-
-The existing exact HIP Q5_K kernels report approximately 244 VGPRs, 28 SGPRs, 38,400-byte LDS, and no private storage. A generated candidate may use a different envelope, but any resource increase needs a stable gain above 2% in confirmation.
-
-## Correctness and Resource Gates
-
-Before timing a candidate:
-- Validate the exact 40-byte forward ABI, symbol, gfx1151 target, wave32 geometry, LDS, WMMA count, private segment, spills, scratch, calls, and dynamic stack.
-- Require finite output and input, packed-weight, and Q8_1-workspace mutation sensitivity.
-- When arithmetic order is unchanged, require bit-exact candidate/HIP output.
-- Otherwise require candidate/HIP normalized RMSE `<=5e-4`, maximum absolute error `<=0.015625`, and independent-reference normalized RMSE `<=0.04`.
-- Cover zero, one-hot, positive and negative extrema, low/high payload bits, scale/minimum fields, block boundaries, tile boundaries, reduced K trips, and output row/column boundaries.
-- Require byte-identical rebuilds for any retained identity.
-
-Every executable branch and emitted line in the assembly writer must be covered by unit tests. Coverage must include Q4_K regression paths as well as every new Q5_K decoder, schedule, geometry, and epilogue path.
-
-## Measurement and Promotion
-
-- Nine-repeat screens are pruning evidence only.
-- A replacement schedule must first demonstrate repeatable improvement over its retained parent in direct candidate comparisons.
-- Final promotion requires two independent warmed rotating 25-repeat confirmations containing exactly the HIP multiply and selected GGTensile multiply.
-- Prefer both GGTensile/HIP latency medians `<=1.0x`. A small positive median counts as parity only when that confirmation's paired bootstrap confidence interval includes zero.
-- The fixed HIP Q8_1 quantizer is identical for both paths and excluded from ranking and promotion. Complete-call timing is diagnostic only.
-- Resource-bearing mechanisms require a stable gain above 2%.
-- Resource-neutral unconditional instruction reductions or schedules may be retained when neutral or consistently favorable, but must not regress any exact selected key materially.
-- Preserve immutable JSON timing, correctness, inspection, and source artifacts under `~/tmp/torch-ggml-ops/`.
-
-## Optimization Phases
-
-### Phase 0: Infrastructure and fresh controls
-
-Add strict Q5_K forward problem modeling, exact inventory and catalog, writer/runtime/benchmark support, independent dequantized correctness, mutation gates, inspection, and line-complete unit coverage. Generate and measure a direct control and a Q4-shaped retained decoded-staged control for all six keys.
-
-### Phase 1: Large-margin decoder and schedule work
-
-Prioritize the largest fresh candidate/HIP margins. Search:
-- Q5 high-bit extraction ownership and address formation.
-- Packed low/high payload load width and clauses.
-- Six-bit scale/minimum extraction and conversion placement.
-- High-bit merge operations, shift hoists, masks, and legal gfx1151 VOPD pairs.
-- Metadata reads between low/high WMMA batches.
-- Independent scale/minimum extraction.
-- Dependency-safe LDS wait ladders and bounded instruction scheduling.
-
-### Phase 2: Family-specific main-loop and epilogue work
-
-- Narrow: optimize the worst absolute or relative key first, then retime all M values because it carries 21 model calls.
-- Shared-down: emphasize M2048 when store/stage cost dominates and M32768 when absolute body time creates a larger payoff.
-- Search exact-key epilogue tiles-ahead, dependency width, priority, store clauses, and output-row increments only after the main body is fixed.
-
-### Phase 3: Changed-premise geometry and buffering
-
-Only after lower bounds and counters justify it, test reduced decoded-weight LDS, compact narrow ownership, bounded next-block payload overlap, or alternate DepthU. Do not repeat Q4_K geometries or double-buffer arrangements that lost without explaining why Q5_K's extra high-bit work changes the premise.
-
-### Phase 4: Multiply-only selection
-
-Confirm every exact selected key twice with only the HIP and GGTensile prequantized multiplies in the rotating set. Apply the paired measurement-parity rule independently to every confirmation and preserve per-key solution identities rather than silently generalizing a family schedule.
-
-## Recursive Optimization-Exhaustion Review
-
-Before declaring Q5_K complete, reread this plan; the Q5_K HIP source and normalized ISA; all Q5 forward artifacts, timings, lower bounds, profiles, counters, selected and rejected solutions; the completed Q4_K forward record; dense and grouped Q5_K forward/backward histories; relevant CK, TensileLite, EvoTensile, and hipBLASLt evidence; `~/rdna35-isa-markdown/`; and the AMD LLVM gfx11 instruction, scheduling, hazard, wait, and VOPD definitions and tests.
-
-Classify every remaining idea as:
-- retained and measured;
-- rejected by correctness, resources, timing, or reproducibility;
-- contract-incompatible or deferred with an explicit prerequisite; or
-- actionable with a target key and measurement gate.
-
-Every actionable idea must be implemented and measured, after which the entire review repeats from the new premise. Completion is allowed only when a fresh recursive review finds no actionable in-contract mechanism, every selected exact key beats or reaches measurement parity with the HIP multiply in two independent dedicated confirmations, the residual bottleneck is quantified, all writer lines are covered by unit tests, frozen Q4_K assembly remains byte-identical, and retained artifacts rebuild byte-identically.
-
-This is the same mandatory final-review rule used by the completed Q4_K campaign. Reaching HIP parity does not waive it.
-
-## Campaign Record
-
-### Plan opened
-
-- Defined the six exact production keys and model call weights.
-- Fixed the Q5_K packed-weight and Q8_1 `F16_D4S4` activation contracts.
-- Selected the Q4-shaped decoded-staged body as the first architectural control, with Q5-specific high-bit decode kept explicit.
-- Required complete-call HIP parity per exact key, two independent 25-repeat confirmations, byte-identical rebuilds, and recursive optimization exhaustion.
-- Next: establish fresh HIP timings, add strict Q5_K forward infrastructure, and generate the first direct and decoded-staged controls.
-
-### Fresh installed-HIP baseline
-
-A serial warmed 25-repeat production benchmark was captured at `~/tmp/torch-ggml-ops/ggtensile-fwd-q5-k/hip-baseline-25.json`:
-
-| Family | M=2048 | M=8192 | M=32768 |
-| --- | ---: | ---: | ---: |
-| Narrow `(512,2048)` | `0.198 ms` | `0.830 ms` | `3.235 ms` |
-| Shared-down `(2048,512)` | `0.176 ms` | `0.737 ms` | `2.949 ms` |
-
-The installed packed kernels are already `1.12-1.59x` faster than BF16 for narrow and `7.02-8.17x` faster for shared-down. The largest absolute kernel bodies are the two M32768 keys; narrow carries the larger 21-call model weight. Candidate/HIP margins remain unknown until the first generated controls exist, so infrastructure and exact-key correctness remain the immediate priority.
-
-### Strict Q5_K forward infrastructure and first controls
-
-- Added quant-aware forward `ProblemType`, inventory, catalog, validation, runtime, benchmark, and writer support for Q5_K without weakening Q4_K identities.
-- Added a direct packed Q5_K high-bit decoder to the retained `128x64`, 128-thread decoded-staged body. The decoder loads the 32-byte high plane, merges bit 4 into the low nibbles, and releases high-bit state before WMMA.
-- Added unit coverage for every new Q5_K writer branch and strict artifact inspection. All three initial schedules compile with 239 VGPRs, 16 SGPRs, 38,400-byte LDS, 32 static WMMAs, four barriers, eight store clauses, and zero private storage or spills.
-- Generated all 18 six-key-by-three-schedule artifacts under `~/tmp/torch-ggml-ops/ggtensile-fwd-q5-k/initial-controls/`.
-- The first strict M32768 narrow comparison was bit-exact. The serialized retained parent was `1.0712x` HIP for the multiply, metadata-after-low was `1.0468x`, and independent-extraction-plus-metadata-after-low was `1.0412x`; the last is the initial common control.
-
-Nine-repeat common-control screens over all six keys were bit-exact to HIP and had independent-reference NRMSE `0.01371-0.01384`:
-
-| Family | M=2048 complete/multiply | M=8192 complete/multiply | M=32768 complete/multiply |
-| --- | ---: | ---: | ---: |
-| Narrow | `1.0165/1.0203x` | `0.9960/0.9912x` | `1.0144/1.0412x` |
-| Shared-down | `0.9969/1.0026x` | `1.0210/1.0279x` | `1.0099/1.0217x` |
-
-The largest actionable kernel margin and absolute weighted opportunity is narrow M32768. Shared-down M8192 and M32768 follow. Next: reduce Q5 high-plane decode traffic/instructions and compare the normalized Q5 HIP decoder schedule before broader epilogue work.
-
-### Q5_K payload-address contraction
-
-The high-plane and low-nibble addresses now use two `v_mad_u32_u24` instructions plus immediate VMEM offsets instead of separate shifts and adds. This removes four static VALU instructions from each decoded block without changing registers, LDS, arithmetic, or payload traffic. The odd high-bit merge also masks `0x02020202` and shifts by three directly, removing one shift per packed dword. In a direct 25-repeat rotation on narrow M32768, the combined form was `0.99413x` the original common control and `1.01972x` HIP for the multiply; the address-only form was neutral at `0.99913x` the parent. Both unconditional resource-neutral reductions are retained.
-
-A lane-shared high-plane load loaded `qh` only on two of eight row lanes and broadcast 16 dwords with `ds_bpermute_b32`. After correcting the lane mask it remained bit-exact, but a direct 25-repeat rotation was `1.00705x` the retained reduced-instruction parent and `1.02476x` HIP. A lower-overhead `dpp8:[0,1,0,1,0,1,0,1]` broadcast was also bit-exact but measured `1.00756x` and `1.00714x` its parent on narrow M2048 and M32768. The reduced global transactions do not repay either cross-lane distribution sequence, so high-plane lane sharing is rejected.
-
-### High-bit schedule and lower-bound work
-
-The decoder now shifts all four loaded `qh` dwords in place before starting low-payload nibble extraction, then batches the four low/high nibble preparations before the merge chains. This removes the single shared shift temporary from the critical dependency pattern without changing instruction count, registers, or arithmetic. On narrow M32768, batching measured `0.99067x` the prior parent in a direct 25-repeat rotation. Moving the four independent `qh` shifts to the front of each decoded row added another repeatable `0.99748x` reduction. The combined schedule is retained for every key.
-
-A high-bit-free diagnostic on the original reduced-instruction parent was `0.96845x` the parent with merge arithmetic removed and `0.96702x` with both high-plane loads and merge arithmetic removed. The small difference between those floors shows that high-plane traffic is not the residual problem; byte-wise bit placement and merge issue are. Repeating the floor from the final selected narrow M32768 body found the merge-free artifact at `0.98190x` the final parent. The remaining approximately `1.8%` body floor is bounded by 16 byte-wise dwords, and gfx1151 has no shift/mask/move form that reduces both Q5 bit planes in fewer exact operations.
-
-Measured alternatives were closed:
-- Full-row and two-row preparation batching were neutral at `1.00005x` and `1.00019x` the parent.
-- Even-first, odd-first, plane-grouped, shift-plus-`v_and_or_b32`, and in-place mask schedules either collapsed in a second rotation or moved different M values in opposite directions.
-- Block/decode `s_setprio` controls were neutral or slower.
-- Serialized and metadata-after-low controls at narrow M2048 measured `1.04899x` and `1.01516x` HIP, versus `1.00708x` for independent extraction before epilogue selection.
-- Dynamic eight-group rolling, two-way unrolling, and full unrolling measured neutral to `1.00515x` slower. The larger static bodies increase instruction-fetch pressure without removing enough dynamic control.
-
-### Exact epilogues and accumulator initialization
-
-The original complete-call campaign generated the 64-point power-of-two epilogue grid for priority narrow keys and transferred measured Q4_K epilogues to shared-down. The multiply-only continuation then expanded the Q5_K exact space to every tiles-ahead and dependency width in `[1,8]`. The final retained schedules are:
-
-| Exact key | Epilogue | Accumulator initialization |
-| --- | --- | --- |
-| Narrow M2048 | `a1d8-p0` | scalar copy |
-| Narrow M8192 | `a8d1-p0` | scalar copy |
-| Narrow M32768 | `a7d3-p3` | VOPD pairs |
-| Shared-down M2048 | `a1d2-p2` | scalar copy |
-| Shared-down M8192 | `a1d4-p2` | VOPD pairs |
-| Shared-down M32768 | `a1d2-p2` | scalar copy |
-
-Narrow M2048 remains `a1d8-p0`: it cleared the former complete-call gate, met the final multiply-only parity rule, and no expanded scalar schedule confirmed a repeatable improvement. Narrow M32768 formerly used `a8d4-p3`, but the multiply-only campaign promoted resource-neutral `a7d3-p3` after two parent comparisons and two dedicated HIP comparisons. The three shared-down identities and narrow M8192 remain unchanged.
-
-`AccumulatorInitialization=VopdPair` represents a real emitted path rather than a post-generation patch. It replaces 72 scalar accumulator clears/copies with 36 legal `v_dual_mov_b32` instructions, using `v0` and `v1` as distinct source banks after the first zero pair. It is retained only on exact keys with repeatable evidence: narrow M32768 and shared-down M8192. Narrow M2048 and shared-down M2048/M32768 transfer controls were neutral or inconsistent and remain scalar-copy identities.
-
-### Historical six-key confirmation (A/B diagnostic)
-
-The native selected artifacts are bit-exact to the installed HIP multiply, finite, mutation-sensitive for input, packed weight, and Q8_1 workspace, and retain independent-reference NRMSE near `0.0137-0.0138`. Every artifact uses 239 VGPRs, 16 SGPRs, 38,400-byte LDS, 32 static WMMAs, four barriers, eight output clauses, and zero private bytes, spills, scratch, calls, or dynamic stack.
-
-The last full six-key cohort predates the multiply-only continuation. The table therefore reports only its prequantized multiply bodies, not quantization plus multiply. Logical throughput is `2*M*N*K/(median_ms*1e9)`, and speedup is `HIP median time / GGTensile median time`. A/B are the two independent rotating 25-repeat confirmations.
-
-| Family | `(M,N,K)` | HIP TFLOPS A/B | GGTensile TFLOPS A/B | Speedup vs HIP A/B |
-| --- | ---: | ---: | ---: | ---: |
-| Narrow | `(2048,512,2048)` | `24.749/24.432` | `24.704/24.345` | `0.9982x/0.9964x` |
-| Narrow | `(8192,512,2048)` | `26.018/25.915` | `26.848/26.769` | `1.0319x/1.0329x` |
-| Narrow | `(32768,512,2048)` | `27.208/27.256` | `26.935/26.997` | `0.9900x/0.9905x` |
-| Shared down | `(2048,2048,512)` | `24.127/24.516` | `24.842/25.251` | `1.0296x/1.0300x` |
-| Shared down | `(8192,2048,512)` | `25.817/25.811` | `26.081/26.073` | `1.0102x/1.0101x` |
-| Shared down | `(32768,2048,512)` | `26.106/26.147` | `26.514/26.477` | `1.0156x/1.0126x` |
-
-All six exact complete calls beat HIP in both confirmations. Using 21 narrow calls and 10 shared-down calls, weighted complete latency was `131.006 ms` versus `132.296 ms` HIP in confirmation A (`0.99024x`) and `131.012 ms` versus `132.453 ms` HIP in confirmation B (`0.98912x`). Those complete-call totals are historical diagnostics. Under the old mixed protocol, narrow M2048 and M32768 were the only rows with multiply speedup below `1.0x`, which triggered the continuation below.
-
-Independent rebuilds were byte-identical to the retained timed artifacts. The six selected solution keys, generated assembly, code objects, inspection reports, and both confirmation reports are consolidated under `~/tmp/torch-ggml-ops/ggtensile-fwd-q5-k/retained-authoritative/`.
-
-### Recursive optimization-exhaustion review
-
-The review was repeated after the high-bit schedule gain and again after VOPD accumulator initialization transferred to shared-down M8192. The final classification is:
-- Retained and measured: packed direct Q5 decode; address contraction; direct odd-plane mask/shift; in-place, `qh`-first batched decode; independent metadata extraction after low WMMA; six exact epilogues; exact-key VOPD accumulator initialization; and the common 128x64 four-wave LDS/WMMA body.
-- Rejected by timing: LDS and DPP8 high-plane sharing; alternate high-bit merge forms and orders; scalar/serialized metadata paths; priority changes; full/two-row preparation; loop rolling and unrolling; broad startup VOPD compositions; unchanged 64x64, 128x128, 256x64, and compact 128x32 forward geometries; payload-only prefetch; larger activation or decoded-weight buffers; and nonselected epilogues.
-- Rejected by ISA or premise: gfx1151 AND/AND VOPD pairing, exact two-plane byte insertion in fewer bitwise operations, direct-to-LDS, software instruction prefetch, split barriers, and useful shift/shift VOPD forms.
-- Contract-incompatible: prepared or dense weights, external decode workspaces, split-K, Stream-K, persistent/grouped workgroups, producer fusion, online tuning, and public dispatch changes.
-
-Backward Q5_K scalar extraction and padded 256x64 evidence does not reopen the forward body: it changes transposed ownership and LDS shape, while unchanged forward 256x64/compact ownership already lost and the final high-plane traffic floor is negligible. Grouped J32/J64 and row-task results are likewise small-row or routing mechanisms rather than MMQ forward exact-key premises.
-
-No remaining in-contract mechanism had an unmeasured first-order path under the complete-call objective. The residual final M32768 high-bit merge floor is approximately `1.8%`, but every legal exact lowering found either preserves the same operation count, introduces cross-lane distribution, or regresses another exact key.
-
-## Multiply-only continuation
-
-The promotion objective is now the prequantized packed multiply only. The fixed HIP Q8_1 `F16_D4S4` producer is identical for HIP and GGTensile and is no longer part of selection, ranking, or completion. Complete-call timing remains diagnostic but cannot retain a slower multiply body.
-
-The former six-key table leaves narrow M2048 and M32768 as the only old-protocol rows below `1.0x` multiply speedup. Narrow M8192 and all three shared-down keys remain selected under the multiply-only objective; the two narrow rows are retimed with the dedicated protocol below.
-
-Nine-repeat screens still prune only. Multiply promotion requires two independent warmed rotating 25-repeat confirmations. A key is at parity only when both confirmation medians are no slower than HIP, or when a small positive median is not statistically distinguishable from HIP under a paired bootstrap confidence interval computed from that confirmation's rotating samples. The campaign should target `<=1.0x` in both medians rather than relying on the statistical exception. Correctness, mutation, resource, exact-key identity, byte-identical rebuild, and recursive-review requirements are unchanged.
-
-The review restarted from narrow M32768 and then M2048. Multiply-specific epilogues, startup schedules, decode/WMMA issue order, and lower-bound mechanisms were reconsidered even when neutral or unfavorable for the complete call. Previously rejected mechanisms reopened only when their recorded multiply result or a changed scheduling premise could close one of the two exact gaps. Both keys then cleared the multiply gate, all six keys completed the dedicated confirmation protocol, and the recursive review was repeated before closure.
-
-Q4_K assembly is a frozen regression contract throughout this continuation. Before changing any shared forward model, validator, or writer path, capture the current generated assembly for every retained Q4_K production identity. After each retained implementation change, regenerate and require byte-identical Q4_K assembly. Any Q4_K assembly difference must be isolated, explained, revalidated across all 12 exact keys, and explicitly approved rather than accepted as incidental fallout from Q5_K work.
-
-### Dedicated multiply-only protocol
-
-The earlier `1.01x` narrow M32768 result came from a four-way timing rotation containing HIP complete, GGTensile complete, HIP multiply, and GGTensile multiply. That protocol is valid for complete-call selection but injects two quantizer launches between multiply samples and is not authoritative for the new objective. The dedicated protocol quantizes once, warms only the two prequantized multiply kernels, and alternates HIP/GGTensile launch order for 25 repeats.
-
-Early dedicated retiming established that the apparent narrow-key deficits were primarily a four-operation timing-context artifact. Those runs were used to decide whether the continuation remained plausible; the final authoritative six-key measurements are reported together below rather than duplicated here.
-
-### Multiply-specific epilogue search
-
-The Q5_K epilogue schema was expanded from powers of two to every exact tiles-ahead and dependency width in `[1,8]`, preserving priorities `[0,3]` and both accumulator-initialization emitters. Validation remains strict: normalization must equal the implemented independent-extraction control after those four fields are removed.
-
-All 256 VOPD epilogue combinations were built and screened on narrow M32768. `a7d3-p3-vopd` improved the old `a8d4-p3-vopd` parent by `0.998237x` and `0.998231x` in two independent 25-repeat rotating candidate comparisons. Its initial dedicated paired intervals were `[-14.54, 4.78] us` and `[-14.34, -2.39] us`; the final all-key protocol below confirmed parity again. This exact schedule is the selected multiply-only M32768 identity; it is resource-neutral and leaves the 239-VGPR, 16-SGPR, 38,400-byte-LDS envelope unchanged.
-
-For narrow M2048, the original 64-point power-of-two grid, a focused 60-point non-power neighborhood, and all 196 previously unmeasured scalar combinations were screened. `a2d5-p3` led the exhaustive screen at approximately `0.9948x` the retained parent, but direct 25-repeat parent ratios were `0.99817x` and `1.00168x`; the apparent gain did not confirm. The retained `a1d8-p0` therefore remains selected, and no scalar epilogue schedule is left unmeasured.
-
-### Final multiply-only result
-
-This is the authoritative prequantized multiply result for all six production keys. Each value combines the two independent warmed 25-repeat rotations, each containing exactly the HIP multiply and selected GGTensile multiply, by averaging their median times. Both multiplies consume one workspace produced by the same fixed `quantize_bf16_q8_1_f16_d4s4` kernel; quantization is excluded from every throughput and speedup below. Logical throughput is `2*M*N*K/(median_ms*1e9)`, and speedup is `HIP median time / GGTensile median time`. The largest per-key A/B speed difference was `0.53` percentage points.
-
-| Family | `(M,N,K)` | Public catalog hash | HIP TFLOPS | GGTensile TFLOPS | GGTensile/HIP speedup |
+| Family | Matrix shape `(M,N,K)` | Kernel hash | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP |
 | --- | ---: | --- | ---: | ---: | ---: |
 | Narrow | `(2048,512,2048)` | `ggsol_2eb856fb8c8259f2` | `24.322` | `24.273` | `0.9980x` |
 | Narrow | `(8192,512,2048)` | `ggsol_18c2734df625101c` | `27.223` | `28.131` | `1.0334x` |
@@ -275,136 +24,89 @@ This is the authoritative prequantized multiply result for all six production ke
 | Shared down | `(8192,2048,512)` | `ggsol_0fe2ab74242c5143` | `26.924` | `27.315` | `1.0145x` |
 | Shared down | `(32768,2048,512)` | `ggsol_cc423175d914dfe1` | `27.092` | `27.560` | `1.0173x` |
 
-Narrow M2048 and M32768 satisfy the stated measurement-error exception: their small latency deficits are not statistically distinguishable from HIP in the underlying paired confirmations. Narrow M8192 and all shared-down keys are faster than HIP in both medians. Every candidate output was bit-exact to the HIP multiply; strict correctness, finite-output, independent-reference, and mutation checks remain satisfied.
+The narrow M2048 and M32768 rows are within measurement parity with HIP under their paired confirmations. Narrow M8192 and every shared-down row are faster than HIP in both confirmation medians. M2048 was the most context-sensitive during retuning, so those keys received the final dedicated confirmations rather than being selected from a short screen.
 
-The final selected artifacts, correctness reports, inspection reports, and dedicated confirmation reports are consolidated under `~/tmp/torch-ggml-ops/ggtensile-fwd-q5-k/retained-multiply-authoritative/`. Two independent rebuilds reproduced all six solution keys, generated assemblies, and code objects byte-for-byte.
+## Final Profile And Resources
 
-### Same-Producer Complete-Call Diagnostic
+The final selected artifacts use the same resource envelope:
 
-The separate complete-call audit used one loaded F16_D4S4 producer instance and one shared workspace per HIP/GGTensile pair. It separated multiply and complete phases, used sustained batches for short keys, alternated backend order, and reversed mode order in a second 25-repeat pass. The ratios below are `HIP complete median / GGTensile complete median`; they do not replace the dedicated multiply-only medians above.
+| Resource | GGTensile Q5_K |
+| --- | ---: |
+| VGPRs | `239` |
+| SGPRs | `16` |
+| LDS | `38,400 bytes` |
+| Static WMMA instructions | `32` |
+| Barriers | `4` |
+| Output store clauses | `8` |
+| Private bytes, spills, scratch, calls, dynamic stack | `0` |
 
-| Family | M2048 complete A/B | M8192 complete A/B | M32768 complete A/B |
-| --- | ---: | ---: | ---: |
-| Narrow | `0.9920x/0.9938x` | `1.0213x/1.0225x` | `1.0043x/1.0052x` |
-| Shared down | `1.0086x/0.9820x` | `0.9984x/0.9977x` | `1.0172x/1.0172x` |
+The multiply-only profile below is from the narrow M32768 representative. Profiling perturbs timing, so these counters explain the remaining bottleneck but are not promotion measurements.
 
-Producer inclusion leaves the narrow M8192 gain visible but reduces it to about `1.022x` complete. Shared-down M8192 moves from the authoritative `1.0145x` multiply result to complete-call parity at `0.9984x/0.9977x`. The two M2048 rows are context-sensitive under sustained batching: longer 51-repeat complete confirmations were `0.9877x/1.0021x` for narrow and `0.9646x/1.0136x` for shared down. Those rows support only a parity conclusion for the complete path. Full samples and order splits are in `~/tmp/torch-ggml-ops/fwd-complete-audit-q5-{a,b}.json` and `fwd-complete-audit-q5-short-{c,d}.json`.
-
-### HIP/GGTensile issue evidence
-
-A multiply-only profiler pass on narrow M32768 found these median per-workgroup counters:
-
-| Counter | HIP | GGTensile | Interpretation |
+| Counter per workgroup | HIP | GGTensile | Result |
 | --- | ---: | ---: | --- |
-| All SQ instructions | `103,776` | `88,056` | GGTensile executes about 15% fewer instructions |
-| Branch instructions | `288` | `352` | two rolled four-group loops add 64 branches |
-| Instruction-fetch waits | `2,467` | `2,817` | GGTensile has about 14% more fetch waiting |
-| SQ busy cycles | `64,021` | `63,714` | effectively tied under profiling |
+| SQ instructions | `103,776` | `88,056` | GGTensile executes about 15% fewer |
+| Branch instructions | `288` | `352` | Rolled four-group loops add 64 |
+| Instruction-fetch waits | `2,467` | `2,817` | GGTensile has about 14% more |
+| SQ busy cycles | `64,021` | `63,714` | Effectively tied |
 
-The profiler perturbs absolute timing, so these counters are diagnostic rather than promotion evidence. They exclude raw instruction count, packed traffic, occupancy, and total SQ busy work as explanations for a material residual deficit. The remaining variance is most consistent with instruction placement, branch/fetch behavior, and clock/cache state under the old mixed timing protocol.
+The residual cost is Q5 high-bit insertion: 16 byte-wise merge chains remain on the critical path. A merge-free diagnostic reached about `0.98190x` of the final parent on narrow M32768, bounding the local opportunity near 1.8%. Tested alternatives either retained the same operation count, added cross-lane work, or regressed another exact key.
 
-The installed HIP assembly aggressively pairs startup address operations with accumulator moves through VOPD and statically schedules long decode/WMMA/metadata regions. GGTensile instead uses a smaller rolled body, fewer total instructions, and VOPD-paired accumulator initialization. Earlier full and two-way unrolling regressed, so HIP's larger static layout is evidence for scheduling review, not evidence that copying its unrolling policy will win. Q5 high-bit insertion remains the largest quantified local body floor at approximately `1.8%`; HIP pre-shifts high planes and uses `v_and_or_b32`, while the retained GGTensile path uses direct masks plus `v_lshl_or_b32`. Measured equivalent four-instruction substitutions and cross-lane sharing did not improve the final body.
+## Experiment Log
 
-The apparent remaining slowdown was therefore primarily a measurement-scope artifact: once complete calls are removed from the rotation, both formerly open narrow keys meet multiply parity. The final recursive review found no new in-contract premise with plausible unmeasured upside. All expanded scalar and VOPD epilogues were covered where they could matter; startup pairing, decode schedules, merge forms, lane sharing, loop unrolling, priority controls, alternate geometries, payload prefetch, and larger buffering had already been measured or rejected by ISA and resource premises. The M32768 merge-free lower bound remains only approximately `1.8%`, while tested exact replacements did not realize it without offsetting work.
+The log records kernel mechanisms only. A retained entry means the mechanism is part of the selected kernel or is a measured lowering used by it. A rejected entry remains closed unless a new compiler, ISA, hardware, ownership, or resource premise changes the evidence.
 
-The multiply-only continuation is complete. `a7d3-p3-vopd` is represented in the exact catalog, all six keys pass the two-confirmation gate, independent rebuilds are byte-identical, and regenerated assembly for all 12 frozen Q4_K identities was byte-identical to the pre-continuation baseline when the campaign closed. The later direction-naming refactor intentionally changed only GGTensile operation identities, kernel symbols, and descriptive comments: after normalizing those names, every instruction and directive is unchanged across all 12 Q4_K and all six selected Q5_K artifacts, and every artifact reassembles and passes strict inspection with its retained resource envelope. No further schedule-only Q5_K forward experiment is justified without a changed compiler, ISA, hardware, contract, ownership, or resource premise.
+### Accepted
 
-## Reopened Compact-LDS Campaign
+| Kernel mechanism | Evidence and disposition |
+| --- | --- |
+| Direct packed Q5_K decode into the retained `128x64` body | Bit-exact HIP results, independent-reference NRMSE near `0.0137-0.0138`, finite and mutation-sensitive outputs. The common `239 VGPR / 38,400-byte LDS` body was retained. |
+| Q5 payload-address contraction | Replaced separate shifts/adds with two `v_mad_u32_u24` address operations and immediate VMEM offsets. The combined form measured `0.99413x` its prior parent and `1.01972x` HIP on narrow M32768; the address-only form was neutral at `0.99913x`. Retained as resource-neutral instruction reduction. |
+| Direct odd-plane mask/shift | Masks `0x02020202` and shifts by three directly, removing one shift per packed dword without changing arithmetic. Retained with the address contraction. |
+| `qh`-first batched decode | Shifts the loaded high-bit words in place before low-nibble extraction and batches low/high preparations. Batching measured `0.99067x` its parent; moving the four independent shifts to the front added a repeatable `0.99748x` reduction. Retained across exact keys. |
+| Metadata extraction after low WMMA | Independent scale/minimum extraction is issued after the first low WMMA batch, preserving the dependency-safe metadata schedule. Narrow M2048 serialized and metadata-after-low controls were `1.04899x` and `1.01516x` HIP, while independent extraction reached `1.00708x`. |
+| Four-wave LDS and WMMA ownership | The common `128x64`, four-wave layout remains the best valid resource-neutral body after unchanged `64x64`, `128x128`, `256x64`, and compact `128x32` alternatives lost. |
+| Exact-key epilogues | The selected schedules are narrow M2048 `a1d8-p0` scalar, narrow M8192 `a8d1-p0` scalar, narrow M32768 `a7d3-p3` VOPD, shared-down M2048 `a1d2-p2` scalar, shared-down M8192 `a1d4-p2` VOPD, and shared-down M32768 `a1d2-p2` scalar. |
+| VOPD accumulator initialization | Replaced 72 scalar accumulator clears/copies with 36 legal `v_dual_mov_b32` pairs. Retained only for narrow M32768 and shared-down M8192, where parent comparisons were repeatable and resource-neutral. |
+| Persistent activation-base lifetime | The typed parent keeps the activation LDS base in `v236` and hoists invariant setup. The current-parent unhoisted control was exact but added one VALU issue and was slower; the persistent-base lowering remains selected. |
 
-A newly derived hybrid LDS representation supplies the required changed ownership and resource premise. Preserve the selected `128x64`, 128-thread body, but replace each fully decoded 304-byte weight row with:
-- 128 bytes of raw low-nibble payload.
-- 32 bytes of raw high-bit payload.
-- 32 bytes containing the same eight exact packed FP16 scale/minimum pairs produced cooperatively by the retained decoder.
-- 192 bytes per row and 12,288 bytes for 64 rows.
+### Rejected: Decode And Data Movement
 
-Place the unchanged 18,432-byte Q8_1 `F16_D4S4` activation plane at LDS offset 0 and weight row `r` immediately after it at `18,432 + 192*r`. The candidate therefore uses 30,720 bytes of LDS with no leading gap. Four workgroups fit in 128 KiB WGP LDS instead of three at the selected 38,400-byte allocation. Keep the current `NumVgpr <= 239` envelope, 32 static WMMAs, four barriers, integer WMMA sequence, high-bit insertion semantics, floating-point correction order, BF16 RNE, and exact-key epilogues. The consumer wave expands only its owned raw payload after the LDS read; high-bit state must die before WMMA, and metadata conversion must not be repeated per consumer.
+| Experiment | Evidence and disposition |
+| --- | --- |
+| High-plane lane sharing with `ds_bpermute_b32` | Correct after fixing the lane mask, but measured `1.00705x` the reduced-instruction parent and `1.02476x` HIP on narrow M32768. Rejected: cross-lane distribution does not repay global-load reduction. |
+| DPP8 high-plane broadcast | Bit-exact, but measured `1.00756x` and `1.00714x` its parent on narrow M2048 and M32768. Rejected. |
+| Alternate high-bit merge orders and `v_and_or_b32` forms | Even-first, odd-first, plane-grouped, shift-plus-`v_and_or_b32`, and in-place mask variants moved different M values in opposite directions or collapsed in a second rotation. Rejected. |
+| Q5 payload and metadata transaction widths | Eight current-parent variants per M2048 target passed all correctness and resource gates. No width variant improved the parent in both rotations; every variant remained slower than HIP. The best payload-global-8 result was `0.94854x/1.00121x` parent for narrow and `0.99980x/1.00616x` for shared-down. All four width axes are closed. |
+| Padded decoded rows | `(LdsPadA,LdsPadB)=(4,0),(0,4),(4,16)` were rejected before lowering because the fixed B128 LDS emitter lacks a padding-safe cooperative address transform. No timing claim was made. |
+| Compact LDS with consumer-side decode | A 30,720-byte pair-reuse body achieved four resident workgroups and removed payload LDS traffic, but ran `1.10934x` its parent on narrow M8192. Activation-read overlap was `1.10847x`. Consumer high-bit insertion adds too much serialized work immediately before WMMA. |
+| Payload prefetch and larger buffers | Payload-only prefetch, larger activation buffers, and larger decoded-weight buffers did not remove the high-bit dependency chain and were neutral to slower. Rejected. |
 
-This is not payload-only prefetch, a larger buffer, or an unchanged geometry. Relative to the fully decoded row, it removes 6 KiB of payload LDS writes and 6 KiB of payload LDS reads per staged 64-row Q5 tile while leaving packed global bytes unchanged. The expected gain path is the combined LDS traffic reduction and three-to-four-workgroup transition, not a lower instruction count. Static and exact-trip-normalized dynamic ISA reports must prove that consumer decode is not duplicated and that the retained metadata-after-low and epilogue schedules remain intact.
+### Rejected: Scheduling And Geometry
 
-Use narrow `(8192,512,2048)` as the first common-body discriminator, followed by shared-down `(2048,2048,512)` before any family transfer. Compare a serialized correctness form and at most two dependency-safe consumer-decode placements. Each candidate must pass exact HIP comparison, independent reference, input/packed-weight/workspace mutations, the 40-byte ABI, zero private storage and spills, byte-identical rebuilds, and strict 30,720-byte LDS inspection. Nine-repeat screens prune only. Stop an exact Q5 premise if both placements remain more than 5% slower than its retained parent or fail to realize the four-workgroup class. A resource-bearing candidate advances only after a stable greater-than-2% parent gain, then receives two independent dedicated 25-repeat HIP/parent confirmations under the established multiply-only parity rule. Q4_K frozen assembly remains a mandatory regression check for every shared writer change.
+| Experiment | Evidence and disposition |
+| --- | --- |
+| Serialized metadata and alternate extraction timing | Slower than independent extraction; no stable schedule closed the remaining parent margin. Rejected. |
+| Full-row, two-row, and group batching | Full-row and two-row preparation measured `1.00005x` and `1.00019x` parent. Full and two-way rolling/unrolling reached neutral to `1.00515x` slower and increased instruction-fetch pressure. Rejected. |
+| Startup VOPD compositions and priority controls | Broad startup pairing and block/decode `s_setprio` controls were neutral or slower. Only the exact accumulator-initialization pairs with stable evidence were retained. |
+| Changed forward geometries | Unchanged `64x64`, `128x128`, `256x64`, compact `128x32`, and related ownership variants lost without a Q5-specific resource or traffic gain. Rejected. |
+| Activation-base unhoisting at M2048 | Current-parent scalar and merge reopenings were exact and mutation-sensitive. The two local screen leaders received 25-repeat confirmation: narrow `merge_odd_and_or` was `0.9906x/0.9967x` parent; shared-down `scalar_a3d4_p1` was `0.9992x/1.0017x`. The unhoisted activation-base diagnostic was also slower and used `943` rather than `942` VALU issues. Rejected. |
 
-Q4_K timing does not select or reject Q5_K automatically: Q5's consumer-side high-bit insertion changes the critical path and requires its own exact measurements. WGP mode remains the primary control. A CU-mode pair is conditional on a correct compact body and equal resident-workgroup accounting.
+### Rejected: ISA And Ownership Premises
 
-### Compact-LDS result and remaining bottleneck
+| Experiment | Evidence and disposition |
+| --- | --- |
+| Fewer high-bit operations through VOPD or exact byte insertion | gfx1151 legal pairings do not combine the required two-plane shifts and masks into fewer exact operations. Tested substitutions preserved the operation count or introduced dependencies. Rejected. |
+| Shift/shift and AND/AND VOPD pairings | Not legal or not useful under the gfx1151 instruction definitions and tests. Rejected by ISA constraints. |
+| Direct-to-LDS and split-barrier staging | The required payload/metadata ownership and barrier ordering do not admit a correct lower-cost form under the current decoded contract. Rejected. |
+| Q4/Q6/backward ownership transfers | Backward scalar extraction, padded transposed ownership, grouped J32/J64, and Q6 row compositions change the dataflow or workload shape. Existing forward geometry and high-bit-floor evidence provide no valid transfer premise. Rejected. |
+| Software instruction prefetch | No useful gfx1151 mechanism was found; prior instruction-fetch evidence supports schedule review but not a software-prefetch claim. Rejected. |
 
-The independent narrow `(8192,512,2048)` discriminator was implemented with ordinary activation-read overlap and traffic-correct packed-pair reuse. Pair reuse stages each 128-byte low plane and 32-byte high plane once, retains the high plane across all groups, and reads each low-plane pair once for its low/high groups. Both forms are bit-exact to HIP and the independent reference, finite, mutation-sensitive, and resource-clean.
+## Verification And Closure
 
-| Exact narrow `(8192,512,2048)` | Median ms | Candidate/parent | Candidate/HIP |
-| --- | ---: | ---: | ---: |
-| HIP | `0.628306` | - | `1.00000x` |
-| Retained decoded parent | `0.609428` | `1.00000x` | `0.96995x` |
-| Activation-read overlap | `0.675535` | `1.10847x` | `1.07517x` |
-| Traffic-correct pair reuse | `0.676065` | `1.10934x` | `1.07601x` |
+All selected outputs are bit-exact to the installed HIP multiply, finite, mutation-sensitive for input, packed weight, and Q8_1 workspace, and pass the independent reference. The selected artifacts have exact identities, strict ABI and code-object inspection, zero private storage and spills, and byte-identical independent rebuilds. Frozen Q4_K assembly remained byte-identical during the shared-writer work.
 
-The pair-reuse body has 239 VGPRs, 16 SGPRs, 30,720-byte LDS, 32 static WMMAs, four barriers, and zero private storage or spills. It realizes four resident workgroups and removes 6 KiB of payload LDS writes and exact-trip reads per staged 64-row tile. Q5_K's remaining bottleneck is more strongly consumer-decode-bound than Q4_K: exact-trip normalization replaces 128 producer-side nibble/high-bit operations per wave/block with 320 consumer operations in the rolled loop, a net 192 vector operations plus serial dependencies immediately before WMMA. The residency and traffic gain cannot repay that work.
+The current-parent M2048 reopening rebuilt the previously leading scalar schedules and high-bit merge diagnostics against the typed writer. All 16 artifacts passed correctness and deterministic rebuild gates. No candidate produced stable parent improvement, so no exact key or kernel identity changed.
 
-Both legal placements exceed the 5% stop gate, so the shared-down transfer and CU-mode control are not run. The compact-LDS premise is rejected and its unselected implementation is removed. The six selected artifacts remain authoritative, and frozen Q4_K sources remain byte-identical. A fresh recursive review after the independent Q5 rejection finds no remaining actionable in-contract mechanism; reopening requires a premise that avoids consumer high-bit insertion rather than moving it.
+The remaining quantified bottleneck is the Q5 high-bit merge chain, not packed traffic, occupancy, or total SQ busy work. The accepted reductions and schedules have been exhausted under the current kernel ownership and instruction contract. Further work requires a genuinely different way to remove or hide consumer-side high-bit insertion; repeating width, merge-order, epilogue, loop, or unchanged-geometry searches is not justified.
 
-## Cross-Campaign Reopening Review
-
-The compact Q5_K rejection remains valid. Consumer-side high-bit insertion adds too much serialized work immediately before WMMA, so changing only LDS traffic, buffering, or decode placement is not a useful reopening. A separate current-parent lifetime review found a smaller address-generation premise shared with Q4_K.
-
-### Activation-base lifetime experiment
-
-The historical `v88` reuse assumption is invalid for the current writer because `v88` is an active extraction register. A first alternative that preserved the final metadata base in `v232` across decode produced NaNs when Q5 high-bit decode overwrote that register; that intermediate artifact is rejected by correctness. The corrected diagnostic reads the invariant wave predicate into `s12`, keeps metadata-base computation per block, and reuses `v236` only for the persistent activation LDS base.
-
-The corrected Q5 artifacts were exact to HIP and the retained parent, finite, mutation-sensitive, and independently referenced. They retain `239 VGPR / 16 SGPR / 38,400 LDS`, 32 WMMAs, four barriers, zero private storage, and zero spills, with one fewer static VALU issue.
-
-| Exact representative | Dynamic activation MADs saved per launch | Paired candidate/parent median A/B |
-| --- | ---: | ---: |
-| Narrow `(8192,512,2048)` | `127` | `0.99895x / 0.99674x` |
-| Shared down `(8192,2048,512)` | `31` | `0.99653x / 0.99566x` |
-
-This is a low-risk derived-lowering candidate, not a promotion or a new Q5 tuning knob. The timing signal is sub-percent and the current artifacts are diagnostic assembly. A retained implementation must be typed, preserve the frozen Q4_K assembly regression boundary, cover every writer line, and qualify each affected Q5 exact key independently.
-
-The Q5 high-bit operation floor, lane-sharing results, alternate merge forms, loop rolling/unrolling, and compact consumer-decode rejection remain closed. Any future Q5 reopening must remove consumer high-bit insertion or introduce a genuinely different ownership or instruction premise; the Q4 activation-base result does not make those mechanisms transferable automatically.
-
-The recursive final-review rule is global rather than limited to Q5, forward direction, or the six current shapes. Related Q4/Q6/Q8 or backward findings may reopen this record only after the receiving Q5 ownership, arithmetic, resource, correctness, and timing gates are independently satisfied. No contract, producer, catalog, public bundle, or dispatch change is authorized here.
-
-## Post-Q8 Global Review
-
-The Q8_0 compact-depth32 row composition was reread as a possible Q5_K transfer. It does not change Q5's residual premise: Q5 consumer-side high-bit insertion remains the quantified critical-path floor, and the prior compact-LDS discriminator already showed that removing LDS traffic cannot repay the added decode work. Q5's typed activation-base lifetime is already represented and qualified; the Q8 weight-first and paired-scale layout is not compatible with Q5's packed high-bit ownership without a new decoder/dataflow premise. No actionable Q5-specific in-contract mechanism remains, and all six exact research selections remain unchanged.
-
-## Post-Audit Changed-Premise Reopening
-
-Status: planned and unmeasured. The exhaustive scalar epilogue grid and measured Q5 high-bit merge alternatives remain closed.
-
-The exact experiment is a transfer gate for a complete compiler-oracle semantic policy first qualified in Q6 or Q4. Re-derive Q5 producer/consumer distances, register roles, legal VOPD pairs, and any `s_delay_alu` tokens, then encode one named plan without a compiler in generation, copied instruction order, or post-emission scheduling. Screen narrow M32768 and shared-down M8192. A result must beat the current exact parent and cannot claim the approximately 1.8% high-bit lower bound unless it actually reduces or hides that dependency chain.
-
-## Current Multiply-Only Benchmark Triage
-
-This is a narrow annotation from the current `bench/` direct-kernel protocol. It does not change the selected Q5 identities or public dispatch. The primary report is `~/tmp/torch-ggml-ops/fresh-fwd-multiply-only-20260823-v2/`; the shared-down C/D top-ups are under its `topups/` directory. The runs use prequantized multiply-only timing, 20 warmups, and 25 repeats.
-
-### Retuning candidates
-
-- `ggsol_2eb856fb8c8259f2`, `(2048,512,2048)`: fresh A/B speedups were `0.9496x/0.9309x`, versus the documented `0.9980x`. This is the highest-priority Q5 retuning target.
-- `ggsol_0bd6c5a01aebb61c`, `(2048,2048,512)`: the primary result was `0.9989x/1.0117x`, while the two top-ups were approximately `0.997x/0.954x`. Treat this as a requalification and secondary retuning target, not as a stable promotion result.
-
-The four longer-M identities remain near or above their documented relative results and do not require immediate retuning from this pass.
-
-### Historical closures to reconsider
-
-The M2048 scalar-epilogue grid and alternate Q5 high-bit merge forms deserve a fresh direct screen for the two exact keys above. Their historical closure was made against an older selected-parent timing context, while the current narrow M2048 result is materially below parity and the shared-down result is order-sensitive. The current-parent activation-base lifetime mechanism is also worth extending from its M8192 representatives to M2048 if its typed artifact can be regenerated.
-
-The compact-LDS rejection remains closed: its consumer-side high-bit insertion penalty was several percent, not a noise-scale result. Loop rolling and the existing high-bit operation floor likewise remain closed unless a new ownership or instruction premise removes or hides that dependency chain.
-
-The current disposition is: retune narrow M2048 first, requalify shared-down M2048, conditionally reopen the M2048 scalar/high-bit and activation-base screens, and make no catalog or integration change from this benchmark alone.
-
-The separate numerical experiment changes only final output conversion: compare `RNEPreserveNaN`, `BiasRound`, and `Truncate` while preserving Q5 decode, FP32 correction order, and the fixed Q8_1 producer. Numerical tests, not kernel branches, reject non-finite output and report error distributions. Any approximate result requires model integration and remains outside the exact catalog. Do not compose the exact schedule and approximate conversion experiments until each has independent evidence.
-
-The exact oracle transfer is now a low-priority discriminator. Q6 O1 was timing-neutral under its fixed typed map, and Q5's only quantified local body floor is approximately 1.8%; no Q5 candidate may claim a larger premise without showing how it hides that high-bit chain. For the numerical branch, screen shared-down K512 before the longer-K narrow shape because final conversion is a larger fraction of low-K work. Its planning prior is low to mid single digits, not a measured forecast.
-
-## Post-Phase-2 Data-Movement and LDS Review
-
-Status: planned and unmeasured. The completed Phase 0-2 implementation makes Q5 payload/metadata transaction widths and padded decoded-LDS rows real typed identities. This is a new staging experiment against the current parent, not a reopening of compact consumer decode: the latter remains closed because its high-bit insertion penalty was several percent.
-
-Begin with the two exact M2048 keys whose current direct results are unstable or below the documented margin: narrow `(2048,512,2048)` (`ggsol_2eb856fb8c8259f2`) and shared-down `(2048,2048,512)` (`ggsol_0bd6c5a01aebb61c`). Keep the selected Q5 high-bit extraction order, independent metadata extraction, four-wave ownership, exact epilogue, `DecodeProducerCount=2`, and arithmetic contract fixed. Probe one axis at a time:
-- `PayloadGlobalReadVectorWidth=8` and `4` instead of `16`.
-- `MetadataLoadVectorWidth=8` and `4` instead of `16`.
-- `PayloadLdsWriteVectorWidth=8` and `4` instead of `16`.
-- `MetadataLdsWriteVectorWidth=8` and `16` instead of `4`, with independent metadata extraction retained.
-- `LdsLayout=PaddedRows` with `(LdsPadA,LdsPadB)` of `(4,0)`, `(0,4)`, and `(4,16)`; keep `LdsBlockSizePerPad=64`.
-
-These widths can change transaction issue, decode-to-LDS waits, and bank placement without changing the Q5 high-bit arithmetic. The decoded-Q5 contract still admits only canonical staging and rejects double-stage, double-LDS, local-read, reordered-schedule, and producer-count alternatives before lowering. Do not use a width result to claim that the approximately 1.8% high-bit operation floor has been removed; a retained candidate must show a measured overlap or issue benefit.
-
-Use strict schema/identity and assembler checks, exact HIP/public and independent-reference comparisons, finiteness, input/packed-weight/workspace mutations, code-object-v5/ABI/resource inspection, and deterministic independent rebuilds before timing. Use nine-repeat screens on the two M2048 targets, then require a stable parent improvement and two independent warmed 25-repeat parent/HIP confirmations. Requalify all six Q5 keys for any shared identity; leave the scalar-epilogue and high-bit merge closures reopened only under the separate current-parent direct screens already recorded above.
+Artifacts for the final selected kernels and authoritative multiply confirmations are under `~/tmp/torch-ggml-ops/ggtensile-fwd-q5-k/retained-multiply-authoritative/`. The current-parent reopening artifacts are under `~/tmp/torch-ggml-ops/q5-m2048-reopen-v1/`; the data-movement screen is under `~/tmp/torch-ggml-ops/q5-data-movement-open-v1/`.
