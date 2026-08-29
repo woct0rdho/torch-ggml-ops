@@ -52,7 +52,7 @@ class ForwardKernelWriterAssembly(AssemblyKernelWriter):
             sgpr_work_group=(1, 1, 0),
             vgpr_work_item=int(
                 forward_mechanism_contract(
-                    self.state.kernel_spec.global_memory.operand_source
+                    self.state.kernel_spec.global_memory.weight_staging
                 ).uses_workitem_id
             ),
             flat_workgroup_size=self.state.num_threads,
@@ -67,8 +67,8 @@ class ForwardKernelWriterAssembly(AssemblyKernelWriter):
         )
 
     def _body(self) -> str:
-        operand_source = self.state.kernel_spec.global_memory.operand_source
-        lowering = forward_mechanism_contract(operand_source).lowering
+        weight_staging = self.state.kernel_spec.global_memory.weight_staging
+        lowering = forward_mechanism_contract(weight_staging).lowering
         lowering_types = {
             "StructuredQ6": Q6StructuredLowering,
             "Packed3BitTiledLds": Packed3BitTiledLdsLowering,

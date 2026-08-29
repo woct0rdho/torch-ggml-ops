@@ -16,6 +16,7 @@ from tools.ggtensile.mmq_fwd_spec import (
     ForwardKernelCandidate,
     ForwardKernelSpec,
     ForwardProblemContract,
+    ForwardWeightStaging,
     Packed3BitTiledLdsLayout,
     Q3FullWeightTiledLdsLayout,
     Q6LdsLayout,
@@ -51,15 +52,13 @@ def test_quant_semantics_are_formula_driven() -> None:
 
 
 def test_mechanism_contracts_own_dataflow_and_reduction_domains() -> None:
-    decoded = forward_mechanism_contract("DecodedWeightLdsBatch8")
-    signed = forward_mechanism_contract("Q8DirectGlobal")
+    decoded = forward_mechanism_contract(ForwardWeightStaging.DecodedWeightLdsBatch8)
+    signed = forward_mechanism_contract(ForwardWeightStaging.Q8DirectGlobal)
     assert decoded.lowering == "DecodedWeightLds"
     assert decoded.reduction_values == 256
     assert signed.physical_plan == "SignedInt8Direct"
     assert signed.weight_block_values == 32
     assert signed.reduction_values == 128
-    with pytest.raises(AssertionError):
-        forward_mechanism_contract("unknown")
 
 
 @pytest.mark.parametrize(

@@ -209,7 +209,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
                     * self.state.spec.pipeline.global_read_prefetch
                 )
                 asm.inst(f"s_waitcnt vmcnt({a_load_count})")
-            self._emit_packed_weight_lane_share(asm)
+            self._emit_packed_load_grouping(asm)
             self._emit_quant_decode(asm, label_suffix=self._decode_label_suffix(""))
             if self.state.spec.geometry.num_threads > 128:
                 asm.label(self._label("DecodeReady"))
@@ -289,7 +289,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         self._emit_quant_global_reads(asm, wait_for_reads=False)
         self._emit_first_a_global_reads(asm)
         asm.inst(f"s_waitcnt vmcnt({a_load_count})")
-        self._emit_packed_weight_lane_share(asm)
+        self._emit_packed_load_grouping(asm)
         self._emit_quant_decode(asm, label_suffix=self._decode_label_suffix("Initial"))
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
@@ -317,7 +317,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
 
         self._emit_first_a_global_reads(asm)
         asm.inst(f"s_waitcnt vmcnt({a_load_count})")
-        self._emit_packed_weight_lane_share(asm)
+        self._emit_packed_load_grouping(asm)
         self._emit_quant_decode(asm, label_suffix=self._decode_label_suffix("Steady"))
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")

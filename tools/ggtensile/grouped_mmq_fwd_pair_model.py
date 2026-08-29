@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 
-class GroupedPairOperandSource(str, Enum):
+class GroupedPairWeightStaging(str, Enum):
     GridHalfWeightLds = "GridHalfWeightLds"
     ParityGridHalfWeightLds = "ParityGridHalfWeightLds"
     SignedThreeBitHalfWeightLds = "SignedThreeBitHalfWeightLds"

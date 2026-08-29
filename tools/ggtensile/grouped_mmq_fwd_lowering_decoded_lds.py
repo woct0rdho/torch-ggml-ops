@@ -10,7 +10,7 @@ from .grouped_mmq_fwd_lowering_row_dispatch import (
     GroupedRowDispatchLabels,
     GroupedRowTileDispatchEmitter,
 )
-from .grouped_mmq_fwd_model import GroupedOperandSource
+from .grouped_mmq_fwd_model import GroupedWeightStaging
 from .grouped_mmq_fwd_physical import GroupedDecodedPhysicalPlan
 from .grouped_mmq_fwd_route import GroupedRouteEmitter
 from .kernel_writer_assembly import (
@@ -32,8 +32,8 @@ class GroupedDecodedWeightLdsLowering:
 
     context: GroupedForwardLoweringContext
 
-    OPERAND_SOURCE: ClassVar[GroupedOperandSource] = (
-        GroupedOperandSource.GroupedDecodedWeightLds
+    WEIGHT_STAGING: ClassVar[GroupedWeightStaging] = (
+        GroupedWeightStaging.GroupedDecodedWeightLds
     )
     LOOP_COUNTER: ClassVar[int] = 27
     SCALAR_TEMPORARY: ClassVar[int] = 26
@@ -62,7 +62,7 @@ class GroupedDecodedWeightLdsLowering:
         return LoweringResult(self.body())
 
     def body(self) -> str:
-        assert self.context.state.kernel_spec.operand_source is self.OPERAND_SOURCE
+        assert self.context.state.kernel_spec.weight_staging is self.WEIGHT_STAGING
         return self._body_grouped()
 
     def _body_grouped(self) -> str:

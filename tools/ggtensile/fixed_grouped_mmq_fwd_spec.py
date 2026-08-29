@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import cast
 
 from .fixed_grouped_mmq_fwd_model import (
-    FixedForwardOperandSource,
     FixedForwardProblem,
 )
 from .fixed_grouped_mmq_fwd_physical import (
@@ -16,8 +15,10 @@ from .mmq_fwd_spec import (
     DerivedForwardState,
     EpilogueSpec,
     FixedForwardDecodePolicy,
+    ForwardActivationStaging,
     ForwardKernelSpec,
     ForwardProblemContract,
+    ForwardWeightStaging,
     GeometrySpec,
     GlobalMemorySpec,
     InstructionPolicy,
@@ -80,7 +81,7 @@ class FixedForwardProblemContract:
     isa: tuple[int, int, int]
     wavefront_size: int
     weight_decode: str
-    activation_addressing: str
+    activation_staging: ForwardActivationStaging
     scale_arithmetic: str
     signed_weight: bool
     signed_activation: bool
@@ -108,7 +109,7 @@ class FixedForwardProblemContract:
             isa=(11, 5, 1),
             wavefront_size=32,
             weight_decode="DirectSignedInt8",
-            activation_addressing="FixedGroupRows",
+            activation_staging=ForwardActivationStaging.FixedGroupRows,
             scale_arithmetic="Int32ScaleF32",
             signed_weight=True,
             signed_activation=True,
@@ -152,7 +153,7 @@ class FixedForwardKernelSpec:
     macro_tile_tokens: int
     macro_tile_features: int
     depth_u: int
-    operand_source: FixedForwardOperandSource
+    weight_staging: ForwardWeightStaging
     lds_address_hoist: str
     fixed_address_hoist: str
 
@@ -179,7 +180,7 @@ class FixedForwardKernelSpec:
         lowering = _mapping(
             item["Lowering"],
             "FixedForwardKernelSpec.Lowering",
-            frozenset({"OperandSource", "LdsAddressHoist", "FixedAddressHoist"}),
+            frozenset({"WeightStaging", "LdsAddressHoist", "FixedAddressHoist"}),
         )
         return cls(
             work_group=_integer_tuple(geometry, "WorkGroup", 3),
@@ -187,10 +188,10 @@ class FixedForwardKernelSpec:
             macro_tile_tokens=_integer(geometry, "MacroTileTokens"),
             macro_tile_features=_integer(geometry, "MacroTileFeatures"),
             depth_u=_integer(geometry, "DepthU"),
-            operand_source=_enum(
+            weight_staging=_enum(
                 lowering,
-                "OperandSource",
-                FixedForwardOperandSource,
+                "WeightStaging",
+                ForwardWeightStaging,
             ),
             lds_address_hoist=_string(lowering, "LdsAddressHoist"),
             fixed_address_hoist=_string(lowering, "FixedAddressHoist"),
@@ -206,7 +207,7 @@ class FixedForwardKernelSpec:
                 "DepthU": self.depth_u,
             },
             "Lowering": {
-                "OperandSource": self.operand_source.value,
+                "WeightStaging": self.weight_staging.value,
                 "LdsAddressHoist": self.lds_address_hoist,
                 "FixedAddressHoist": self.fixed_address_hoist,
             },
@@ -215,7 +216,7 @@ class FixedForwardKernelSpec:
     def forward_kernel_spec(
         self, contract: FixedForwardProblemContract
     ) -> ForwardKernelSpec:
-        mechanism = forward_mechanism_contract(self.operand_source.value)
+        mechanism = forward_mechanism_contract(self.weight_staging)
         assert mechanism.physical_plan == "SignedInt8SmallMTiledLds"
         matrix_instruction = cast(
             tuple[int, int, int, int], self.matrix_instruction[:4]
@@ -240,8 +241,8 @@ class FixedForwardKernelSpec:
                 ),
             ),
             global_memory=GlobalMemorySpec(
-                self.operand_source.value,
-                contract.activation_addressing,
+                self.weight_staging,
+                contract.activation_staging,
                 None,
             ),
             lds=LdsSpec(self.lds_address_hoist),

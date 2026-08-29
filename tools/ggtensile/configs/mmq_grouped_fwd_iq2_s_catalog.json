@@ -47,8 +47,8 @@
         "DepthU": 32
       },
       "Lowering": {
-        "OperandSource": "GroupedIQ2SFullWeightLds",
-        "ActivationAddressing": "AggregateRowsTiledLinear"
+        "WeightStaging": "GroupedIQ2SFullWeightLds",
+        "ActivationStaging": "AggregateRowsTiledLinear"
       },
       "Decode": {
         "Kind": "GridCodebook",

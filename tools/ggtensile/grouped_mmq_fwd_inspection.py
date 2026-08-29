@@ -4,8 +4,8 @@ from pathlib import Path
 
 from .grouped_mmq_fwd_model import (
     GroupedForwardProblem,
-    GroupedOperandSource,
     GroupedQ2DecodePolicy,
+    GroupedWeightStaging,
 )
 from .grouped_mmq_fwd_spec import DerivedGroupedForwardState, GroupedForwardKernelSpec
 from .grouped_mmq_fwd_validation import validate_grouped_forward_solution
@@ -89,11 +89,11 @@ def inspect_grouped_forward_artifact(
     delay_alu_count = mnemonics.count("s_delay_alu")
     buffer_gl0_inv_count = mnemonics.count("buffer_gl0_inv")
     decoded_lds = (
-        state.kernel_spec.operand_source is GroupedOperandSource.GroupedDecodedWeightLds
+        state.kernel_spec.weight_staging is GroupedWeightStaging.GroupedDecodedWeightLds
     )
     iq2_s_full_weight = (
-        state.kernel_spec.operand_source
-        is GroupedOperandSource.GroupedIQ2SFullWeightLds
+        state.kernel_spec.weight_staging
+        is GroupedWeightStaging.GroupedIQ2SFullWeightLds
     )
     if iq2_s_full_weight:
         expected_wmmas = 64

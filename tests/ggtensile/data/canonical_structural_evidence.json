@@ -45,7 +45,7 @@
       ]
     ],
     "ABIName": "FixedGroupedBackward",
-    "ExactHash": "ggsol_debae1f7c943f1e3",
+    "ExactHash": "ggsol_b6978ce5fe3e26e4",
     "KernelFamily": "FixedGroupedBackward",
     "Grid": [
       32,
@@ -77,9 +77,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "aad0cd540ba5c3b22962497d5f0909ba6b3054181020ab708e2c30ec9e145eab",
+    "SourceSHA256": "16cda0fd4be8f56e978bfa1f29e13cee832e8830413837fa8ee81873cf31d441",
     "StaticGroupSegmentBytes": 18432,
-    "Symbol": "fixed_grouped_mmq_bwd_q8_0_t2048_n4096_k1024_debae1f7c943f1e3",
+    "Symbol": "fixed_grouped_mmq_bwd_q8_0_t2048_n4096_k1024_b6978ce5fe3e26e4",
     "TotalSGPRs": 17,
     "TotalVGPRs": 216,
     "WorkGroup": [
@@ -134,7 +134,7 @@
       ]
     ],
     "ABIName": "FixedGroupedBackward",
-    "ExactHash": "ggsol_39d393b0296752c6",
+    "ExactHash": "ggsol_41e9701bff12cf4f",
     "KernelFamily": "FixedGroupedBackward",
     "Grid": [
       32,
@@ -166,9 +166,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "869ab0656609ea58aacdd271c940496cd4dcc19167b0276ef734bbc69d2cc8ee",
+    "SourceSHA256": "09c6eee111cfabcc5aa37f0dcbccd5e72a489a746a5e3abeb650ef069f02a676",
     "StaticGroupSegmentBytes": 18432,
-    "Symbol": "fixed_grouped_mmq_bwd_q8_0_t32768_n4096_k1024_39d393b0296752c6",
+    "Symbol": "fixed_grouped_mmq_bwd_q8_0_t32768_n4096_k1024_41e9701bff12cf4f",
     "TotalSGPRs": 17,
     "TotalVGPRs": 216,
     "WorkGroup": [
@@ -223,7 +223,7 @@
       ]
     ],
     "ABIName": "FixedGroupedBackward",
-    "ExactHash": "ggsol_bee6a5d97ad6c9b5",
+    "ExactHash": "ggsol_81a42231db569ec8",
     "KernelFamily": "FixedGroupedBackward",
     "Grid": [
       32,
@@ -255,9 +255,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "df39ac2e73a357759ecbb284ab151f16d861506f718f6ff9b98a26111501ca30",
+    "SourceSHA256": "0f4331bbbaa8fa9048fce28012ea80a21ddd067f3ad8a1baebe3a05d640bfddc",
     "StaticGroupSegmentBytes": 18432,
-    "Symbol": "fixed_grouped_mmq_bwd_q8_0_t8192_n4096_k1024_bee6a5d97ad6c9b5",
+    "Symbol": "fixed_grouped_mmq_bwd_q8_0_t8192_n4096_k1024_81a42231db569ec8",
     "TotalSGPRs": 17,
     "TotalVGPRs": 216,
     "WorkGroup": [
@@ -312,7 +312,7 @@
       ]
     ],
     "ABIName": "FixedGroupedForward",
-    "ExactHash": "ggsol_2e48cd7f6dc5b873",
+    "ExactHash": "ggsol_80d2a010f2ca3571",
     "KernelFamily": "FixedGroupedForward",
     "Grid": [
       16,
@@ -344,9 +344,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "5aea257e3f560eaba38c496cb7fe0b375470d711915eeb4589a74340184291ba",
+    "SourceSHA256": "82343eb442eb48888c6e142da95e0f070730ba9823e612671057bde34656c2e1",
     "StaticGroupSegmentBytes": 18432,
-    "Symbol": "fixed_grouped_mmq_fwd_q8_0_t2048_n1024_k4096_2e48cd7f6dc5b873",
+    "Symbol": "fixed_grouped_mmq_fwd_q8_0_t2048_n1024_k4096_80d2a010f2ca3571",
     "TotalSGPRs": 16,
     "TotalVGPRs": 144,
     "WorkGroup": [
@@ -401,7 +401,7 @@
       ]
     ],
     "ABIName": "FixedGroupedForward",
-    "ExactHash": "ggsol_761ba58cd7826530",
+    "ExactHash": "ggsol_716bf2d5468c5672",
     "KernelFamily": "FixedGroupedForward",
     "Grid": [
       16,
@@ -433,9 +433,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "14b2954c61898559a93da8242fd8f60be94630a6c11d89116346f14e3c5d361a",
+    "SourceSHA256": "ccd1da377867dec981596e2e5399f06a3767133925afd8f063af307b7d6f99c7",
     "StaticGroupSegmentBytes": 18432,
-    "Symbol": "fixed_grouped_mmq_fwd_q8_0_t32768_n1024_k4096_761ba58cd7826530",
+    "Symbol": "fixed_grouped_mmq_fwd_q8_0_t32768_n1024_k4096_716bf2d5468c5672",
     "TotalSGPRs": 16,
     "TotalVGPRs": 144,
     "WorkGroup": [
@@ -490,7 +490,7 @@
       ]
     ],
     "ABIName": "FixedGroupedForward",
-    "ExactHash": "ggsol_b74c314521e28492",
+    "ExactHash": "ggsol_da8fb61dcac7e099",
     "KernelFamily": "FixedGroupedForward",
     "Grid": [
       16,
@@ -522,9 +522,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "27071e09a325b25a8ddd0ff6f2115f7f120ec057893ccf976607ee6437cd68ba",
+    "SourceSHA256": "9862fa2b77c334a9227226183ef179138da82343e9630a1a53faa52bad9bae4c",
     "StaticGroupSegmentBytes": 18432,
-    "Symbol": "fixed_grouped_mmq_fwd_q8_0_t8192_n1024_k4096_b74c314521e28492",
+    "Symbol": "fixed_grouped_mmq_fwd_q8_0_t8192_n1024_k4096_da8fb61dcac7e099",
     "TotalSGPRs": 16,
     "TotalVGPRs": 144,
     "WorkGroup": [
@@ -593,7 +593,7 @@
       ]
     ],
     "ABIName": "GroupedBackward",
-    "ExactHash": "ggsol_b09a9996b8f54f62",
+    "ExactHash": "ggsol_ecd542a746c378f6",
     "KernelFamily": "GroupedBackward",
     "Grid": [
       8,
@@ -626,9 +626,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "3ec28ea94d178edf548cfabd7663b6a64aaf89a4ec754dd46b991a23652a1eb5",
+    "SourceSHA256": "20917ee5c7db6763002f27cc8b3d69da8d320f9ab2cb8655eddef4e0d7fc6cc5",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "grouped_mmq_bwd_q5_k_m16384_n512_k2048_b09a9996b8f54f62",
+    "Symbol": "grouped_mmq_bwd_q5_k_m16384_n512_k2048_ecd542a746c378f6",
     "TotalSGPRs": 35,
     "TotalVGPRs": 140,
     "WorkGroup": [
@@ -697,7 +697,7 @@
       ]
     ],
     "ABIName": "GroupedBackward",
-    "ExactHash": "ggsol_6cec5d16f311e25f",
+    "ExactHash": "ggsol_926aaeede680ecdd",
     "KernelFamily": "GroupedBackward",
     "Grid": [
       4,
@@ -730,9 +730,9 @@
     "RouteSplitFactor": 16,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "05ab27a34fa1b206a4b89a65aca475d9ccefe8d671639ea3a18b560314abf6de",
+    "SourceSHA256": "13375a1c48850515f4a079497986a73cefef8b54191ec30c2034e65b82fb3255",
     "StaticGroupSegmentBytes": 10240,
-    "Symbol": "grouped_mmq_bwd_q5_k_m262144_n512_k2048_6cec5d16f311e25f",
+    "Symbol": "grouped_mmq_bwd_q5_k_m262144_n512_k2048_926aaeede680ecdd",
     "TotalSGPRs": 35,
     "TotalVGPRs": 216,
     "WorkGroup": [
@@ -801,7 +801,7 @@
       ]
     ],
     "ABIName": "GroupedBackward",
-    "ExactHash": "ggsol_4c9bec1e022cc21c",
+    "ExactHash": "ggsol_5345680bd57a2a28",
     "KernelFamily": "GroupedBackward",
     "Grid": [
       4,
@@ -834,9 +834,9 @@
     "RouteSplitFactor": 16,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "3591cb8312dd7040fb5e80a988e2bd8b6d22a19264be1910f88607575868a97a",
+    "SourceSHA256": "2d6224bac76b37466a13212bdb048abfca054d9e475ff8f9aed94f2e4aaf0fe0",
     "StaticGroupSegmentBytes": 10240,
-    "Symbol": "grouped_mmq_bwd_q5_k_m65536_n512_k2048_4c9bec1e022cc21c",
+    "Symbol": "grouped_mmq_bwd_q5_k_m65536_n512_k2048_5345680bd57a2a28",
     "TotalSGPRs": 35,
     "TotalVGPRs": 216,
     "WorkGroup": [
@@ -905,7 +905,7 @@
       ]
     ],
     "ABIName": "GroupedBackward",
-    "ExactHash": "ggsol_9eafa99c1446a8f0",
+    "ExactHash": "ggsol_0ae13568c33c9af8",
     "KernelFamily": "GroupedBackward",
     "Grid": [
       32,
@@ -938,9 +938,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "59ebeedbd628c9ee16b65bc3b688ffc0532eb634bc5cba5575c0e5a0da207d82",
+    "SourceSHA256": "4587257e06dece69f6974860992f6549cb96c4b0c6f5b6c944dbd3f3221f3e98",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "grouped_mmq_bwd_q2_k_m12288_n2048_k4096_9eafa99c1446a8f0",
+    "Symbol": "grouped_mmq_bwd_q2_k_m12288_n2048_k4096_0ae13568c33c9af8",
     "TotalSGPRs": 35,
     "TotalVGPRs": 87,
     "WorkGroup": [
@@ -1009,7 +1009,7 @@
       ]
     ],
     "ABIName": "GroupedBackward",
-    "ExactHash": "ggsol_a2cb377111555314",
+    "ExactHash": "ggsol_1099d95f3abb2771",
     "KernelFamily": "GroupedBackward",
     "Grid": [
       8,
@@ -1042,9 +1042,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "a0b3bcd39d6a8b3d8e23403814bf0fdff41aedb88efbbc59a3a845b68a1bc312",
+    "SourceSHA256": "71a25794f94003d90888b1115f3f85d226b0e6e2ae218c0dd6b2503228ce723b",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "grouped_mmq_bwd_q4_k_m16384_n512_k2048_a2cb377111555314",
+    "Symbol": "grouped_mmq_bwd_q4_k_m16384_n512_k2048_1099d95f3abb2771",
     "TotalSGPRs": 35,
     "TotalVGPRs": 136,
     "WorkGroup": [
@@ -1113,7 +1113,7 @@
       ]
     ],
     "ABIName": "GroupedBackward",
-    "ExactHash": "ggsol_e4fd28729689feec",
+    "ExactHash": "ggsol_643404897e0cc140",
     "KernelFamily": "GroupedBackward",
     "Grid": [
       32,
@@ -1146,9 +1146,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "ed4f5714eed22eee546e8ef7b7708449e1ab48881f2692c76f15a8f918f9aa69",
+    "SourceSHA256": "5fc7ad51ce71b9a2b229180207e78e0663f5db300440b48143a90473a3f8825e",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "grouped_mmq_bwd_q2_k_m49152_n2048_k4096_e4fd28729689feec",
+    "Symbol": "grouped_mmq_bwd_q2_k_m49152_n2048_k4096_643404897e0cc140",
     "TotalSGPRs": 35,
     "TotalVGPRs": 135,
     "WorkGroup": [
@@ -1217,7 +1217,7 @@
       ]
     ],
     "ABIName": "GroupedBackward",
-    "ExactHash": "ggsol_e274a0d33be77af7",
+    "ExactHash": "ggsol_6923db8022074e24",
     "KernelFamily": "GroupedBackward",
     "Grid": [
       16,
@@ -1250,9 +1250,9 @@
     "RouteSplitFactor": 32,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "9e798b01e7d1350c5fad33ba86d3095f2832fa5cd7d581eb42b5e4188f112ef1",
+    "SourceSHA256": "4f4a47716aef9bb5e8d220f8363f0f232fe082855779ccc1caf65314765d1f5d",
     "StaticGroupSegmentBytes": 10240,
-    "Symbol": "grouped_mmq_bwd_q2_k_m196608_n2048_k4096_e274a0d33be77af7",
+    "Symbol": "grouped_mmq_bwd_q2_k_m196608_n2048_k4096_6923db8022074e24",
     "TotalSGPRs": 35,
     "TotalVGPRs": 206,
     "WorkGroup": [
@@ -1321,7 +1321,7 @@
       ]
     ],
     "ABIName": "GroupedBackward",
-    "ExactHash": "ggsol_55b879194c00d3df",
+    "ExactHash": "ggsol_2d3c28ed2a2c4862",
     "KernelFamily": "GroupedBackward",
     "Grid": [
       4,
@@ -1354,9 +1354,9 @@
     "RouteSplitFactor": 4,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "951588c63f98dc17e9e18aecf5bd5ba9973b39801febd92969cc6b14782f9e8b",
+    "SourceSHA256": "ff8680997d2e578324f1f9e53c44e77737a06027739a1b377274b5a59c76a398",
     "StaticGroupSegmentBytes": 10240,
-    "Symbol": "grouped_mmq_bwd_q4_k_m65536_n512_k2048_55b879194c00d3df",
+    "Symbol": "grouped_mmq_bwd_q4_k_m65536_n512_k2048_2d3c28ed2a2c4862",
     "TotalSGPRs": 35,
     "TotalVGPRs": 208,
     "WorkGroup": [
@@ -1425,7 +1425,7 @@
       ]
     ],
     "ABIName": "GroupedBackward",
-    "ExactHash": "ggsol_31a0c2f9ca7fa651",
+    "ExactHash": "ggsol_727917854673fa94",
     "KernelFamily": "GroupedBackward",
     "Grid": [
       4,
@@ -1458,9 +1458,9 @@
     "RouteSplitFactor": 8,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "3f424f1a85f8e62a296d56f524421bdc2d72f7b3756e8cd9e5e656bf021a3efc",
+    "SourceSHA256": "a9496692381f0446868f0e87ce4ae1d490143a005b7c14e9851d4e1a9ccb421c",
     "StaticGroupSegmentBytes": 10240,
-    "Symbol": "grouped_mmq_bwd_q4_k_m262144_n512_k2048_31a0c2f9ca7fa651",
+    "Symbol": "grouped_mmq_bwd_q4_k_m262144_n512_k2048_727917854673fa94",
     "TotalSGPRs": 35,
     "TotalVGPRs": 208,
     "WorkGroup": [
@@ -1529,7 +1529,7 @@
       ]
     ],
     "ABIName": "GroupedBackward",
-    "ExactHash": "ggsol_6c8aad1243dff625",
+    "ExactHash": "ggsol_a2e787e8d932dd73",
     "KernelFamily": "GroupedBackward",
     "Grid": [
       8,
@@ -1562,9 +1562,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "d381db75fc234f8d239a375b0309bd7b954a7bf1b811a40305a82963ae8a2910",
+    "SourceSHA256": "9a6bc4a0e8f182f013e197da4fc8b67d5e6ab065a47324d6e80ca2960f0d84f8",
     "StaticGroupSegmentBytes": 13312,
-    "Symbol": "grouped_mmq_bwd_iq2_s_m16384_n512_k2048_6c8aad1243dff625",
+    "Symbol": "grouped_mmq_bwd_iq2_s_m16384_n512_k2048_a2e787e8d932dd73",
     "TotalSGPRs": 38,
     "TotalVGPRs": 137,
     "WorkGroup": [
@@ -1633,7 +1633,7 @@
       ]
     ],
     "ABIName": "GroupedBackward",
-    "ExactHash": "ggsol_a59e59935389bc21",
+    "ExactHash": "ggsol_a2c1123ed7c956e4",
     "KernelFamily": "GroupedBackward",
     "Grid": [
       4,
@@ -1666,9 +1666,9 @@
     "RouteSplitFactor": 64,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "e004e5e3a7f9c4db5bbd47cafe7893fa8d356951bcba3a7038edebf0edb4f0e5",
+    "SourceSHA256": "0b6695f81fa52cba755e7b9ff078db632aa82fd768dcb7009ba334dca28ee9c7",
     "StaticGroupSegmentBytes": 18432,
-    "Symbol": "grouped_mmq_bwd_iq2_s_m262144_n512_k2048_a59e59935389bc21",
+    "Symbol": "grouped_mmq_bwd_iq2_s_m262144_n512_k2048_a2c1123ed7c956e4",
     "TotalSGPRs": 38,
     "TotalVGPRs": 210,
     "WorkGroup": [
@@ -1737,7 +1737,7 @@
       ]
     ],
     "ABIName": "GroupedBackward",
-    "ExactHash": "ggsol_14fe7db2ae5b1af6",
+    "ExactHash": "ggsol_2718bf51d7d29c00",
     "KernelFamily": "GroupedBackward",
     "Grid": [
       4,
@@ -1770,9 +1770,9 @@
     "RouteSplitFactor": 64,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "8d52fae3329d3eb54cdd4fce0ef7cd34434fe2011dafa976f29beffdc6779009",
+    "SourceSHA256": "efdd3a46655b0387d9b35b5b3b7dfb4299102e75065547d126ffd8c8ca314622",
     "StaticGroupSegmentBytes": 18432,
-    "Symbol": "grouped_mmq_bwd_iq2_s_m65536_n512_k2048_14fe7db2ae5b1af6",
+    "Symbol": "grouped_mmq_bwd_iq2_s_m65536_n512_k2048_2718bf51d7d29c00",
     "TotalSGPRs": 38,
     "TotalVGPRs": 210,
     "WorkGroup": [
@@ -1855,7 +1855,7 @@
       ]
     ],
     "ABIName": "GroupedBackwardPair",
-    "ExactHash": "ggbpair_d5ee56e5f68ad4c2",
+    "ExactHash": "ggbpair_c70dfa5dbe1b0a77",
     "KernelFamily": "GroupedBackwardPair",
     "Grid": [
       32,
@@ -1889,9 +1889,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "8db7686f6e62d75802acce672e201a7221af7f5c63c4650ed5fe5fc07e168c88",
+    "SourceSHA256": "d35627fd66bf9e190b5c37765097be873f5854d066f74a15b5c27157020d778e",
     "StaticGroupSegmentBytes": 10240,
-    "Symbol": "grouped_mmq_bwd_pair_q3_k_r16384_n2048_k512_d5ee56e5f68ad4c2",
+    "Symbol": "grouped_mmq_bwd_pair_q3_k_r16384_n2048_k512_c70dfa5dbe1b0a77",
     "TotalSGPRs": 41,
     "TotalVGPRs": 95,
     "WorkGroup": [
@@ -1974,7 +1974,7 @@
       ]
     ],
     "ABIName": "GroupedBackwardPair",
-    "ExactHash": "ggbpair_243f9fdc33a8a161",
+    "ExactHash": "ggbpair_dcd35a5a31332cee",
     "KernelFamily": "GroupedBackwardPair",
     "Grid": [
       32,
@@ -2008,9 +2008,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "a7aeec1cfdfd4ff14649ff16488831e8ea8461219615873a24ac09b520557095",
+    "SourceSHA256": "1fe54a1d28cea24d4787034c881cbc0e6d55d55ade3985f9e073e0ece643780e",
     "StaticGroupSegmentBytes": 10240,
-    "Symbol": "grouped_mmq_bwd_pair_q3_k_r262144_n2048_k512_243f9fdc33a8a161",
+    "Symbol": "grouped_mmq_bwd_pair_q3_k_r262144_n2048_k512_dcd35a5a31332cee",
     "TotalSGPRs": 41,
     "TotalVGPRs": 143,
     "WorkGroup": [
@@ -2093,7 +2093,7 @@
       ]
     ],
     "ABIName": "GroupedBackwardPair",
-    "ExactHash": "ggbpair_11f2bb8199ddef65",
+    "ExactHash": "ggbpair_e9bb949ba6e40097",
     "KernelFamily": "GroupedBackwardPair",
     "Grid": [
       32,
@@ -2127,9 +2127,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "888dad1ee6a2296186385b5991e17b324e8736643d151ca827f95624108ecd44",
+    "SourceSHA256": "64280d9bfbdcd9c5bb916a045b7c246c681a2abb1d19e465a85f9f1c812d448a",
     "StaticGroupSegmentBytes": 10240,
-    "Symbol": "grouped_mmq_bwd_pair_q3_k_r65536_n2048_k512_11f2bb8199ddef65",
+    "Symbol": "grouped_mmq_bwd_pair_q3_k_r65536_n2048_k512_e9bb949ba6e40097",
     "TotalSGPRs": 41,
     "TotalVGPRs": 143,
     "WorkGroup": [
@@ -2212,7 +2212,7 @@
       ]
     ],
     "ABIName": "GroupedBackwardPair",
-    "ExactHash": "ggbpair_7fc6691cd68c742c",
+    "ExactHash": "ggbpair_e6991168230debad",
     "KernelFamily": "GroupedBackwardPair",
     "Grid": [
       64,
@@ -2246,9 +2246,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "79461fe2dfcf2b550b0d9528de4ae20a2deeaaab5dbe736d9abf13ec0f3f8b75",
+    "SourceSHA256": "8721eed2b669905bf916f7c50199a19aa747958f5627ce9cd3449064e0e4e411",
     "StaticGroupSegmentBytes": 10240,
-    "Symbol": "grouped_mmq_bwd_pair_iq2_xxs_r12288_n4096_k2048_7fc6691cd68c742c",
+    "Symbol": "grouped_mmq_bwd_pair_iq2_xxs_r12288_n4096_k2048_e6991168230debad",
     "TotalSGPRs": 41,
     "TotalVGPRs": 101,
     "WorkGroup": [
@@ -2331,7 +2331,7 @@
       ]
     ],
     "ABIName": "GroupedBackwardPair",
-    "ExactHash": "ggbpair_f39ce634b802fed1",
+    "ExactHash": "ggbpair_491941b123eced9b",
     "KernelFamily": "GroupedBackwardPair",
     "Grid": [
       32,
@@ -2365,9 +2365,9 @@
     "RouteSplitFactor": 8,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "998ebec35b2993d2925467e94705ee08f08929f80c24e9c629df237cd0641838",
+    "SourceSHA256": "32b4cfd03f54a7f21b3a29875d8db886769d27a75613735e586aa2fa3b973fab",
     "StaticGroupSegmentBytes": 8192,
-    "Symbol": "grouped_mmq_bwd_pair_iq2_s_r16384_n2048_k512_f39ce634b802fed1",
+    "Symbol": "grouped_mmq_bwd_pair_iq2_s_r16384_n2048_k512_491941b123eced9b",
     "TotalSGPRs": 41,
     "TotalVGPRs": 149,
     "WorkGroup": [
@@ -2450,7 +2450,7 @@
       ]
     ],
     "ABIName": "GroupedBackwardPair",
-    "ExactHash": "ggbpair_f2d306c86acbdbbd",
+    "ExactHash": "ggbpair_16ebfd6d48d96af7",
     "KernelFamily": "GroupedBackwardPair",
     "Grid": [
       32,
@@ -2484,9 +2484,9 @@
     "RouteSplitFactor": 8,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "45f3e7f081faf60ea68e61b1a209a61f904daef6713ecd96c0069b71767b0421",
+    "SourceSHA256": "68c5318413d7f9202ad6ba2c9e344dab9aafded9074846644e8d40d7b044482c",
     "StaticGroupSegmentBytes": 8192,
-    "Symbol": "grouped_mmq_bwd_pair_iq2_s_r262144_n2048_k512_f2d306c86acbdbbd",
+    "Symbol": "grouped_mmq_bwd_pair_iq2_s_r262144_n2048_k512_16ebfd6d48d96af7",
     "TotalSGPRs": 41,
     "TotalVGPRs": 149,
     "WorkGroup": [
@@ -2569,7 +2569,7 @@
       ]
     ],
     "ABIName": "GroupedBackwardPair",
-    "ExactHash": "ggbpair_03be403b8f99ffed",
+    "ExactHash": "ggbpair_3baa490c89e72c25",
     "KernelFamily": "GroupedBackwardPair",
     "Grid": [
       32,
@@ -2603,9 +2603,9 @@
     "RouteSplitFactor": 8,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "5c3bd75ba98236987e533fbe719d0d39ed71f89d9c7c6ba8e0d06bdf950197f6",
+    "SourceSHA256": "fcf89d66d357354c9e77881a8eb641eb6e4f46cd56afc08ffb0966aa1e6d08d3",
     "StaticGroupSegmentBytes": 8192,
-    "Symbol": "grouped_mmq_bwd_pair_iq2_s_r65536_n2048_k512_03be403b8f99ffed",
+    "Symbol": "grouped_mmq_bwd_pair_iq2_s_r65536_n2048_k512_3baa490c89e72c25",
     "TotalSGPRs": 41,
     "TotalVGPRs": 149,
     "WorkGroup": [
@@ -2688,7 +2688,7 @@
       ]
     ],
     "ABIName": "GroupedBackwardPair",
-    "ExactHash": "ggbpair_039d54404215127d",
+    "ExactHash": "ggbpair_c41643f0f4630430",
     "KernelFamily": "GroupedBackwardPair",
     "Grid": [
       64,
@@ -2722,9 +2722,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "9bc584a6fd32e3ac700e9a68ba3b2567786ed67615e3f83f1cdba6a9b0f3f9d5",
+    "SourceSHA256": "9a463801d118ba254483e5398b41cd58d240c56882a7a6a48a1b411da1ad73e9",
     "StaticGroupSegmentBytes": 10240,
-    "Symbol": "grouped_mmq_bwd_pair_iq2_xxs_r196608_n4096_k2048_039d54404215127d",
+    "Symbol": "grouped_mmq_bwd_pair_iq2_xxs_r196608_n4096_k2048_c41643f0f4630430",
     "TotalSGPRs": 41,
     "TotalVGPRs": 149,
     "WorkGroup": [
@@ -2807,7 +2807,7 @@
       ]
     ],
     "ABIName": "GroupedBackwardPair",
-    "ExactHash": "ggbpair_c45b24da39357dcc",
+    "ExactHash": "ggbpair_ec626eff77b6060d",
     "KernelFamily": "GroupedBackwardPair",
     "Grid": [
       64,
@@ -2841,9 +2841,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "5dbc6ed17b8c13694b6555dbc3ecc37f68f56ae0c91fad114063c61b24ca9414",
+    "SourceSHA256": "8dd1a7996189bb1f0c72c5d03e1212a2814c84c23a49e8b4aa148ae1c1a26d39",
     "StaticGroupSegmentBytes": 10240,
-    "Symbol": "grouped_mmq_bwd_pair_iq2_xxs_r49152_n4096_k2048_c45b24da39357dcc",
+    "Symbol": "grouped_mmq_bwd_pair_iq2_xxs_r49152_n4096_k2048_ec626eff77b6060d",
     "TotalSGPRs": 41,
     "TotalVGPRs": 149,
     "WorkGroup": [
@@ -2926,7 +2926,7 @@
       ]
     ],
     "ABIName": "GroupedForward",
-    "ExactHash": "ggsol_83d040ed55d83936",
+    "ExactHash": "ggsol_f32cc7d2292b1282",
     "KernelFamily": "GroupedForward",
     "Grid": [
       64,
@@ -2959,9 +2959,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "c35a0f9243d8fecf75722e4e7f919086bca1efee78dadea46ade22e2216e2704",
+    "SourceSHA256": "c0335ae485b4b12c767cb72bbd18aa9ecaade9dfd66a0d14e02e2e4437c1c32f",
     "StaticGroupSegmentBytes": 25600,
-    "Symbol": "grouped_mmq_fwd_q2_k_r12288_n4096_k2048_83d040ed55d83936",
+    "Symbol": "grouped_mmq_fwd_q2_k_r12288_n4096_k2048_f32cc7d2292b1282",
     "TotalSGPRs": 40,
     "TotalVGPRs": 135,
     "WorkGroup": [
@@ -3044,7 +3044,7 @@
       ]
     ],
     "ABIName": "GroupedForward",
-    "ExactHash": "ggsol_c08e5c1e7416c319",
+    "ExactHash": "ggsol_686731e4c99c1ffd",
     "KernelFamily": "GroupedForward",
     "Grid": [
       64,
@@ -3077,9 +3077,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "d9dc171e7b1cdba78453f4f70e151583c7d91924a441f7397f66172d6405f98d",
+    "SourceSHA256": "3d6812a1df53b6c7e07ba59d1d4f8803377400fd084158693c933de5c359aa52",
     "StaticGroupSegmentBytes": 25600,
-    "Symbol": "grouped_mmq_fwd_q2_k_r49152_n4096_k2048_c08e5c1e7416c319",
+    "Symbol": "grouped_mmq_fwd_q2_k_r49152_n4096_k2048_686731e4c99c1ffd",
     "TotalSGPRs": 40,
     "TotalVGPRs": 135,
     "WorkGroup": [
@@ -3162,7 +3162,7 @@
       ]
     ],
     "ABIName": "GroupedForward",
-    "ExactHash": "ggsol_f612c5427a89ed19",
+    "ExactHash": "ggsol_37ce03e143353b9d",
     "KernelFamily": "GroupedForward",
     "Grid": [
       64,
@@ -3195,9 +3195,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "53f2905bcc8592baf5b3d4feadda1ce25ccae717daa8c70ab25da60bdff9500c",
+    "SourceSHA256": "376c464e354ac1b2dbc6bea795f6244bebc2bfc0a5b7ab0bd8ce570d6fed08e9",
     "StaticGroupSegmentBytes": 30208,
-    "Symbol": "grouped_mmq_fwd_q2_k_r196608_n4096_k2048_f612c5427a89ed19",
+    "Symbol": "grouped_mmq_fwd_q2_k_r196608_n4096_k2048_37ce03e143353b9d",
     "TotalSGPRs": 40,
     "TotalVGPRs": 159,
     "WorkGroup": [
@@ -3280,7 +3280,7 @@
       ]
     ],
     "ABIName": "GroupedForward",
-    "ExactHash": "ggsol_9612448932c011d6",
+    "ExactHash": "ggsol_bacad5f35e7d3cb5",
     "KernelFamily": "GroupedForward",
     "Grid": [
       32,
@@ -3313,9 +3313,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "325a7493ed9b159279b57c3a6d6ef2a322ef8591bcb77fc9c90acd48da69c270",
+    "SourceSHA256": "2532e3eba6991adf31c3bfca0e0d4ccc9667f87c1820b2bc97594a696f2a7501",
     "StaticGroupSegmentBytes": 30720,
-    "Symbol": "grouped_mmq_fwd_iq2_s_r16384_n2048_k512_9612448932c011d6",
+    "Symbol": "grouped_mmq_fwd_iq2_s_r16384_n2048_k512_bacad5f35e7d3cb5",
     "TotalSGPRs": 40,
     "TotalVGPRs": 116,
     "WorkGroup": [
@@ -3398,7 +3398,7 @@
       ]
     ],
     "ABIName": "GroupedForward",
-    "ExactHash": "ggsol_b422e30dbe546ee3",
+    "ExactHash": "ggsol_da1baae36eda6c5f",
     "KernelFamily": "GroupedForward",
     "Grid": [
       32,
@@ -3431,9 +3431,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "5778759d5dc380bf90d62dda406a47561626b92a32a9b8baecc38d26fb3ba073",
+    "SourceSHA256": "f410b716dcb1331ca33e78cb4e5cdaf7837239bffc89bacd941f13c204204e5c",
     "StaticGroupSegmentBytes": 30720,
-    "Symbol": "grouped_mmq_fwd_iq2_s_r262144_n2048_k512_b422e30dbe546ee3",
+    "Symbol": "grouped_mmq_fwd_iq2_s_r262144_n2048_k512_da1baae36eda6c5f",
     "TotalSGPRs": 40,
     "TotalVGPRs": 116,
     "WorkGroup": [
@@ -3516,7 +3516,7 @@
       ]
     ],
     "ABIName": "GroupedForward",
-    "ExactHash": "ggsol_d8c30034994db480",
+    "ExactHash": "ggsol_ab0d8e160e3e389a",
     "KernelFamily": "GroupedForward",
     "Grid": [
       32,
@@ -3549,9 +3549,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "80a379b85663d3a18ba9045843b7b43d61036979f371126523a1cd850d4d9881",
+    "SourceSHA256": "de5242bb997da823afea81d8824641604323259c1083182a82560a2fb8ea08d5",
     "StaticGroupSegmentBytes": 30720,
-    "Symbol": "grouped_mmq_fwd_iq2_s_r65536_n2048_k512_d8c30034994db480",
+    "Symbol": "grouped_mmq_fwd_iq2_s_r65536_n2048_k512_ab0d8e160e3e389a",
     "TotalSGPRs": 40,
     "TotalVGPRs": 116,
     "WorkGroup": [
@@ -3634,7 +3634,7 @@
       ]
     ],
     "ABIName": "GroupedForward",
-    "ExactHash": "ggsol_f534b1c82f90b00b",
+    "ExactHash": "ggsol_c6a7f10afcf493b2",
     "KernelFamily": "GroupedForward",
     "Grid": [
       32,
@@ -3667,9 +3667,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "367a78a8fb3cecc115b9a00442835365ef3746f5a7458daa24839eb1136ddb1a",
+    "SourceSHA256": "452c5c61b1c813151b456c2fc8cd2f27cb42dc1232fbb032954afaa2bf934d5b",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "grouped_mmq_fwd_q4_k_r262144_n2048_k512_f534b1c82f90b00b",
+    "Symbol": "grouped_mmq_fwd_q4_k_r262144_n2048_k512_c6a7f10afcf493b2",
     "TotalSGPRs": 40,
     "TotalVGPRs": 239,
     "WorkGroup": [
@@ -3752,7 +3752,7 @@
       ]
     ],
     "ABIName": "GroupedForward",
-    "ExactHash": "ggsol_5bcb3a95ffc1e5fa",
+    "ExactHash": "ggsol_c95d0acee91c7c55",
     "KernelFamily": "GroupedForward",
     "Grid": [
       32,
@@ -3785,9 +3785,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "e655f2bf652fa91cee4444b914c25476a39351b187aaefadf855f9abb1250b0b",
+    "SourceSHA256": "011e41176458ea2d5d3418f06414a4a3c42c4bf03f3d010f57a7cbef566df0c3",
     "StaticGroupSegmentBytes": 29184,
-    "Symbol": "grouped_mmq_fwd_q4_k_r16384_n2048_k512_5bcb3a95ffc1e5fa",
+    "Symbol": "grouped_mmq_fwd_q4_k_r16384_n2048_k512_c95d0acee91c7c55",
     "TotalSGPRs": 40,
     "TotalVGPRs": 159,
     "WorkGroup": [
@@ -3870,7 +3870,7 @@
       ]
     ],
     "ABIName": "GroupedForward",
-    "ExactHash": "ggsol_dd15eb8ebd143a37",
+    "ExactHash": "ggsol_03954bfadeddff04",
     "KernelFamily": "GroupedForward",
     "Grid": [
       32,
@@ -3903,9 +3903,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "ab6683bf805b1e8fbc55773799af92206107dafd81017a579ed79424b95b560e",
+    "SourceSHA256": "2ec7020a86e9eaad8aaf7ea81017f778fd5a7b17bf26961c50439e0f01441fde",
     "StaticGroupSegmentBytes": 29184,
-    "Symbol": "grouped_mmq_fwd_q5_k_r16384_n2048_k512_dd15eb8ebd143a37",
+    "Symbol": "grouped_mmq_fwd_q5_k_r16384_n2048_k512_03954bfadeddff04",
     "TotalSGPRs": 40,
     "TotalVGPRs": 159,
     "WorkGroup": [
@@ -3988,7 +3988,7 @@
       ]
     ],
     "ABIName": "GroupedForward",
-    "ExactHash": "ggsol_95951b806ae312cc",
+    "ExactHash": "ggsol_61ba675510b0ed6f",
     "KernelFamily": "GroupedForward",
     "Grid": [
       32,
@@ -4021,9 +4021,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "552b9cd187b2186cd75cfd8a757e4e319eceafc7b7bf420fe830b21e2c834987",
+    "SourceSHA256": "88083440bd79ef5f1de6aa5f14c226161f9240a3073b285495fed6fb5b46471a",
     "StaticGroupSegmentBytes": 29184,
-    "Symbol": "grouped_mmq_fwd_q4_k_r65536_n2048_k512_95951b806ae312cc",
+    "Symbol": "grouped_mmq_fwd_q4_k_r65536_n2048_k512_61ba675510b0ed6f",
     "TotalSGPRs": 40,
     "TotalVGPRs": 159,
     "WorkGroup": [
@@ -4106,7 +4106,7 @@
       ]
     ],
     "ABIName": "GroupedForward",
-    "ExactHash": "ggsol_f2648e0055420ecd",
+    "ExactHash": "ggsol_05410d219cb70dc0",
     "KernelFamily": "GroupedForward",
     "Grid": [
       32,
@@ -4139,9 +4139,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "36d0f71abe438fbfb1fe9ebec5632e2886129957740eaf4b8959dcfa6209699d",
+    "SourceSHA256": "54c9daf8bbfbbe155621f2519121db174d9af2500aa1c4f838db318ff2e43aaa",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "grouped_mmq_fwd_q5_k_r262144_n2048_k512_f2648e0055420ecd",
+    "Symbol": "grouped_mmq_fwd_q5_k_r262144_n2048_k512_05410d219cb70dc0",
     "TotalSGPRs": 40,
     "TotalVGPRs": 239,
     "WorkGroup": [
@@ -4224,7 +4224,7 @@
       ]
     ],
     "ABIName": "GroupedForward",
-    "ExactHash": "ggsol_fe2c7bc6004f42c6",
+    "ExactHash": "ggsol_ff24d8b5206a10b6",
     "KernelFamily": "GroupedForward",
     "Grid": [
       32,
@@ -4257,9 +4257,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "5e3f78a492d135ff1470c357fab1159b8cd85c04599aca22311fee5df30e0c23",
+    "SourceSHA256": "42cb3d840ea1513a6559095d9427689fed124f181612a64d8a2a738e4560bbe1",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "grouped_mmq_fwd_q5_k_r65536_n2048_k512_fe2c7bc6004f42c6",
+    "Symbol": "grouped_mmq_fwd_q5_k_r65536_n2048_k512_ff24d8b5206a10b6",
     "TotalSGPRs": 40,
     "TotalVGPRs": 239,
     "WorkGroup": [
@@ -4356,7 +4356,7 @@
       ]
     ],
     "ABIName": "GroupedForwardPair",
-    "ExactHash": "ggpair_de96a2c1d5a7f534",
+    "ExactHash": "ggpair_3d464d989430091a",
     "KernelFamily": "GroupedForwardPair",
     "Grid": [
       32,
@@ -4390,9 +4390,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "c005df8b31a947f38cea788a86564b238203e129601e00cf2196e82fd40d2c6c",
+    "SourceSHA256": "11e203d6d0293fb9d6da844d49d22f739428e80ebeb517c1d2700d9d50681a65",
     "StaticGroupSegmentBytes": 19456,
-    "Symbol": "grouped_mmq_fwd_pair_iq2_xxs_r12288_n2048_k4096_de96a2c1d5a7f534",
+    "Symbol": "grouped_mmq_fwd_pair_iq2_xxs_r12288_n2048_k4096_3d464d989430091a",
     "TotalSGPRs": 44,
     "TotalVGPRs": 148,
     "WorkGroup": [
@@ -4489,7 +4489,7 @@
       ]
     ],
     "ABIName": "GroupedForwardPair",
-    "ExactHash": "ggpair_4d23debfea870f08",
+    "ExactHash": "ggpair_1906eee569a25cf5",
     "KernelFamily": "GroupedForwardPair",
     "Grid": [
       32,
@@ -4523,9 +4523,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "19bc94e3950bb10517ac432eb54f3cf04e4dd8d0f795cd5345df48adb48939a3",
+    "SourceSHA256": "834f2af9f22a9f313279b1991e0f782a3389be765558f1ef749cc1c1fd5b13d8",
     "StaticGroupSegmentBytes": 19456,
-    "Symbol": "grouped_mmq_fwd_pair_iq2_xxs_r49152_n2048_k4096_4d23debfea870f08",
+    "Symbol": "grouped_mmq_fwd_pair_iq2_xxs_r49152_n2048_k4096_1906eee569a25cf5",
     "TotalSGPRs": 44,
     "TotalVGPRs": 148,
     "WorkGroup": [
@@ -4622,7 +4622,7 @@
       ]
     ],
     "ABIName": "GroupedForwardPair",
-    "ExactHash": "ggpair_44026e1e2d3ac86d",
+    "ExactHash": "ggpair_8468144fc20a1e49",
     "KernelFamily": "GroupedForwardPair",
     "Grid": [
       32,
@@ -4656,9 +4656,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "3a18f3faafb3336e3b30fe73e112f15b3dd3bccb08c7eb759ff219f4a835506f",
+    "SourceSHA256": "4d35657ead3788c3ee0470041b6e35737ef8217aeb80bb01641989025a4fee7d",
     "StaticGroupSegmentBytes": 21760,
-    "Symbol": "grouped_mmq_fwd_pair_iq2_xxs_r196608_n2048_k4096_44026e1e2d3ac86d",
+    "Symbol": "grouped_mmq_fwd_pair_iq2_xxs_r196608_n2048_k4096_8468144fc20a1e49",
     "TotalSGPRs": 44,
     "TotalVGPRs": 180,
     "WorkGroup": [
@@ -4769,7 +4769,7 @@
       ]
     ],
     "ABIName": "GroupedForwardPairRowTask",
-    "ExactHash": "ggpair_87ab2fb4484ee851",
+    "ExactHash": "ggpair_0d821a0c4f9dafa0",
     "KernelFamily": "GroupedForwardPair",
     "Grid": [
       8,
@@ -4803,9 +4803,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": 512,
     "RowTaskRows": 64,
-    "SourceSHA256": "77525d801d0e20e227bc2a976f9fc8f98be2d17db1885ea310fb03098260f283",
+    "SourceSHA256": "0fa4af9f9602c053db8139845fe6ad64ff116355fd2fa3fc1f79d74368a3668e",
     "StaticGroupSegmentBytes": 19456,
-    "Symbol": "grouped_mmq_fwd_pair_iq2_s_r16384_n512_k2048_87ab2fb4484ee851",
+    "Symbol": "grouped_mmq_fwd_pair_iq2_s_r16384_n512_k2048_0d821a0c4f9dafa0",
     "TotalSGPRs": 44,
     "TotalVGPRs": 148,
     "WorkGroup": [
@@ -4916,7 +4916,7 @@
       ]
     ],
     "ABIName": "GroupedForwardPairRowTask",
-    "ExactHash": "ggpair_f4aeb733cd1465b5",
+    "ExactHash": "ggpair_d161b5a8be7347b4",
     "KernelFamily": "GroupedForwardPair",
     "Grid": [
       8,
@@ -4950,9 +4950,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": 4352,
     "RowTaskRows": 64,
-    "SourceSHA256": "c2209e55aa171d1c4267ef10c3e75b21be17cc1e5a551b42b2f713d8bb1307cd",
+    "SourceSHA256": "e1112a72945468f00c1432451abe30755c48b65064c854f8e31dde6daafe7ec3",
     "StaticGroupSegmentBytes": 19456,
-    "Symbol": "grouped_mmq_fwd_pair_iq2_s_r262144_n512_k2048_f4aeb733cd1465b5",
+    "Symbol": "grouped_mmq_fwd_pair_iq2_s_r262144_n512_k2048_d161b5a8be7347b4",
     "TotalSGPRs": 44,
     "TotalVGPRs": 148,
     "WorkGroup": [
@@ -5063,7 +5063,7 @@
       ]
     ],
     "ABIName": "GroupedForwardPairRowTask",
-    "ExactHash": "ggpair_1160787498a74620",
+    "ExactHash": "ggpair_7bc3e427ffbd0b3a",
     "KernelFamily": "GroupedForwardPair",
     "Grid": [
       8,
@@ -5097,9 +5097,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": 1280,
     "RowTaskRows": 64,
-    "SourceSHA256": "e02816d52175a24c40c4f96f70710310539bd760b40791fdc9bb94c7ebdde122",
+    "SourceSHA256": "8e00b76babfaa4f9c4d366512ef26ec6537460cbd60f89cae8e027665a5c4451",
     "StaticGroupSegmentBytes": 19456,
-    "Symbol": "grouped_mmq_fwd_pair_iq2_s_r65536_n512_k2048_1160787498a74620",
+    "Symbol": "grouped_mmq_fwd_pair_iq2_s_r65536_n512_k2048_7bc3e427ffbd0b3a",
     "TotalSGPRs": 44,
     "TotalVGPRs": 148,
     "WorkGroup": [
@@ -5210,7 +5210,7 @@
       ]
     ],
     "ABIName": "GroupedForwardPairRowTask",
-    "ExactHash": "ggpair_6a5a8775f6f613fa",
+    "ExactHash": "ggpair_f6a68bb6041cf068",
     "KernelFamily": "GroupedForwardPair",
     "Grid": [
       8,
@@ -5244,9 +5244,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": 512,
     "RowTaskRows": 64,
-    "SourceSHA256": "c02b3c0ba271cb4956ddbdfd1d6d507dff307e470a2be04e346efc7fbaa5f878",
+    "SourceSHA256": "afa31c86abb5a24e8c03929134bcff9219608935ca06f97ab90808ba96e829e2",
     "StaticGroupSegmentBytes": 19456,
-    "Symbol": "grouped_mmq_fwd_pair_q3_k_r16384_n512_k2048_6a5a8775f6f613fa",
+    "Symbol": "grouped_mmq_fwd_pair_q3_k_r16384_n512_k2048_f6a68bb6041cf068",
     "TotalSGPRs": 44,
     "TotalVGPRs": 148,
     "WorkGroup": [
@@ -5357,7 +5357,7 @@
       ]
     ],
     "ABIName": "GroupedForwardPairRowTask",
-    "ExactHash": "ggpair_812a6b00460860da",
+    "ExactHash": "ggpair_7c4a8883db4338d8",
     "KernelFamily": "GroupedForwardPair",
     "Grid": [
       8,
@@ -5391,9 +5391,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": 4352,
     "RowTaskRows": 64,
-    "SourceSHA256": "e315f9dc08b72c657655ba6e9a2c29dc1877d975a8e16b06f251659bd1d8fc03",
+    "SourceSHA256": "8d4803ea07d5dbae00f96b4927510e283d4cc115a5e24096e216aa400f84e390",
     "StaticGroupSegmentBytes": 19456,
-    "Symbol": "grouped_mmq_fwd_pair_q3_k_r262144_n512_k2048_812a6b00460860da",
+    "Symbol": "grouped_mmq_fwd_pair_q3_k_r262144_n512_k2048_7c4a8883db4338d8",
     "TotalSGPRs": 44,
     "TotalVGPRs": 148,
     "WorkGroup": [
@@ -5504,7 +5504,7 @@
       ]
     ],
     "ABIName": "GroupedForwardPairRowTask",
-    "ExactHash": "ggpair_1191af2f11287608",
+    "ExactHash": "ggpair_bbb4021253bf5093",
     "KernelFamily": "GroupedForwardPair",
     "Grid": [
       8,
@@ -5538,9 +5538,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": 1280,
     "RowTaskRows": 64,
-    "SourceSHA256": "31e377672d79dde47268d2bd14f20624dccb2fdbf0bac5bc729be968ffbda45e",
+    "SourceSHA256": "adedba796f2b1486a0f58b55c8c45ca98c48609c80d183de61769af3dcdba897",
     "StaticGroupSegmentBytes": 19456,
-    "Symbol": "grouped_mmq_fwd_pair_q3_k_r65536_n512_k2048_1191af2f11287608",
+    "Symbol": "grouped_mmq_fwd_pair_q3_k_r65536_n512_k2048_bbb4021253bf5093",
     "TotalSGPRs": 44,
     "TotalVGPRs": 148,
     "WorkGroup": [
@@ -5602,7 +5602,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_f85b0224446063c0",
+    "ExactHash": "ggsol_44b19e571fc6fb31",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -5633,9 +5633,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "3e5d0ae3d56f5712d7c885cfb6d45868dd242b9c07ce4311ca54278f97d80288",
+    "SourceSHA256": "8529e270355ea29271efe78c345dc415c9127212d968852f31403eafcc8c31a3",
     "StaticGroupSegmentBytes": 16384,
-    "Symbol": "mmq_bwd_q5_k_m2048_n512_k2048_f85b0224446063c0",
+    "Symbol": "mmq_bwd_q5_k_m2048_n512_k2048_44b19e571fc6fb31",
     "TotalSGPRs": 16,
     "TotalVGPRs": 220,
     "WorkGroup": [
@@ -5697,7 +5697,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_09fb04bdf2cda616",
+    "ExactHash": "ggsol_cf28142433ab61f5",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -5728,9 +5728,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "ab5ee91c1378eb5ec8cf3039fded8288a4523b777579a09f606a7dfba6382e99",
+    "SourceSHA256": "00fa10bf093eb4e0ce6f592ece3336a1ca3c4d00bc4c5f6e6092dcf35f63e961",
     "StaticGroupSegmentBytes": 16384,
-    "Symbol": "mmq_bwd_q5_k_m32768_n512_k2048_09fb04bdf2cda616",
+    "Symbol": "mmq_bwd_q5_k_m32768_n512_k2048_cf28142433ab61f5",
     "TotalSGPRs": 16,
     "TotalVGPRs": 220,
     "WorkGroup": [
@@ -5792,7 +5792,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_d2be8cd8071a0df5",
+    "ExactHash": "ggsol_455ad6f1b34fb108",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -5823,9 +5823,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "8cc721db31b2de7d78ded9482cf2cb300e0d6ad71a2e3e59d478e2b61153cdff",
+    "SourceSHA256": "f7240d371b637c19e5c622be3e12c0c8f3b1a3b21397a2f850c45239b343b003",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q5_k_m32768_n2048_k512_d2be8cd8071a0df5",
+    "Symbol": "mmq_bwd_q5_k_m32768_n2048_k512_455ad6f1b34fb108",
     "TotalSGPRs": 16,
     "TotalVGPRs": 238,
     "WorkGroup": [
@@ -5887,7 +5887,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_127f2615851efcda",
+    "ExactHash": "ggsol_60125cd8f8d220c6",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -5918,9 +5918,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "fac98faa5b05356aecd46a061e0b532266800a1afd9ed9ecbb65975fb3d0ec28",
+    "SourceSHA256": "06356c67e966680c985db47f68a1b73ddb5195708849be0207d156ce706a1f5d",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q5_k_m8192_n2048_k512_127f2615851efcda",
+    "Symbol": "mmq_bwd_q5_k_m8192_n2048_k512_60125cd8f8d220c6",
     "TotalSGPRs": 16,
     "TotalVGPRs": 238,
     "WorkGroup": [
@@ -5982,7 +5982,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_1f424144ce157305",
+    "ExactHash": "ggsol_4b4c3b8c85dc07e8",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       2,
@@ -6013,9 +6013,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "a9f754b21fa1a47ce7e003f1707c16e08717ed50074ed49d7771d2fb78f23383",
+    "SourceSHA256": "eef122bd3976dc5651bb2a6c972381e779efec4659610bf8c2d14788c689ed42",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q5_k_m2048_n2048_k512_1f424144ce157305",
+    "Symbol": "mmq_bwd_q5_k_m2048_n2048_k512_4b4c3b8c85dc07e8",
     "TotalSGPRs": 16,
     "TotalVGPRs": 238,
     "WorkGroup": [
@@ -6077,7 +6077,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_c88ff402fc53e06c",
+    "ExactHash": "ggsol_d631cd9051ca2d0e",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -6108,9 +6108,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "c94de61d99eff46866b8328016e51eaa60eaa642529d4911fb77f484cd5ad9ab",
+    "SourceSHA256": "e5367474e95b76e9e479efcfa95c4a3eca1a25f2674bfb6f8c3cea6688de4a7a",
     "StaticGroupSegmentBytes": 16384,
-    "Symbol": "mmq_bwd_q5_k_m8192_n512_k2048_c88ff402fc53e06c",
+    "Symbol": "mmq_bwd_q5_k_m8192_n512_k2048_d631cd9051ca2d0e",
     "TotalSGPRs": 16,
     "TotalVGPRs": 220,
     "WorkGroup": [
@@ -6172,7 +6172,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_39d4ad103858c350",
+    "ExactHash": "ggsol_af7a6bf38c07ca9b",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -6203,9 +6203,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "8c3a0101032441bc14fc6a6c1ea9069eb5d7d7d8e5dcd3139cffec27326493c8",
+    "SourceSHA256": "7df466482c578a5fdfcb61a876f2c464fdc853283c38899f6416f75c1af4d899",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q3_k_m2048_n2048_k8192_39d4ad103858c350",
+    "Symbol": "mmq_bwd_q3_k_m2048_n2048_k8192_af7a6bf38c07ca9b",
     "TotalSGPRs": 16,
     "TotalVGPRs": 143,
     "WorkGroup": [
@@ -6267,7 +6267,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_7ac338db3ad5e54d",
+    "ExactHash": "ggsol_dc9a2b99d0581346",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -6298,9 +6298,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "ab89fac8c33284b463fae58283e1e88e2fe33fe806107da1b6a7b69c7a519a11",
+    "SourceSHA256": "95b7ac7ba7af202546b4524bb04bfb59ee0bd14d0934d60f8809f532a43403b2",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q3_k_m8192_n2048_k8192_7ac338db3ad5e54d",
+    "Symbol": "mmq_bwd_q3_k_m8192_n2048_k8192_dc9a2b99d0581346",
     "TotalSGPRs": 16,
     "TotalVGPRs": 143,
     "WorkGroup": [
@@ -6362,7 +6362,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_1d742a52cd147caa",
+    "ExactHash": "ggsol_c8e82906bf4e0680",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -6393,9 +6393,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "4670adad521833723bfb0e93ee0c6e9c940a057f4881d4150063191dea5afd5c",
+    "SourceSHA256": "7bac1f7a29788b29c6a077b6d73fa7ce201b4be4b45f2d6065daa90e4bcbdceb",
     "StaticGroupSegmentBytes": 10240,
-    "Symbol": "mmq_bwd_q3_k_m32768_n2048_k8192_1d742a52cd147caa",
+    "Symbol": "mmq_bwd_q3_k_m32768_n2048_k8192_c8e82906bf4e0680",
     "TotalSGPRs": 16,
     "TotalVGPRs": 218,
     "WorkGroup": [
@@ -6457,7 +6457,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_a683a08e0309256a",
+    "ExactHash": "ggsol_91146b440f4ab12d",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -6488,9 +6488,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "469a97aff93b0f779a23548ce91d68c765050b77a8177585c9752477351161fa",
+    "SourceSHA256": "0d41340092fada46df7184b4bdffc6f6f5ceb329151a66504262682514751521",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q3_k_m32768_n2048_k512_a683a08e0309256a",
+    "Symbol": "mmq_bwd_q3_k_m32768_n2048_k512_91146b440f4ab12d",
     "TotalSGPRs": 16,
     "TotalVGPRs": 243,
     "WorkGroup": [
@@ -6552,7 +6552,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_56ee6330fc3d28d8",
+    "ExactHash": "ggsol_3cc3143bce6a2987",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       2,
@@ -6583,9 +6583,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "d2a49d9673e3953362e6a9b83825649837efcbbb2cf79dffaae9ca4344edf5a6",
+    "SourceSHA256": "bea3c73efcf699532c3b00f12d8ab967ab3164e18a9c2cb097344ebb4d078bbb",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q3_k_m2048_n2048_k512_56ee6330fc3d28d8",
+    "Symbol": "mmq_bwd_q3_k_m2048_n2048_k512_3cc3143bce6a2987",
     "TotalSGPRs": 16,
     "TotalVGPRs": 243,
     "WorkGroup": [
@@ -6647,7 +6647,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_eea8ac1a7b0c3ab2",
+    "ExactHash": "ggsol_8ce1befe635f7860",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -6678,9 +6678,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "d11bda53a65df20fee3919b0dd7c4c6627304012847bfea1b567aee6cbcb2568",
+    "SourceSHA256": "65ba3250e1572f765dc93b94431bd153b8ca1c22cde1a693cd38292193c2b77b",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q3_k_m8192_n2048_k512_eea8ac1a7b0c3ab2",
+    "Symbol": "mmq_bwd_q3_k_m8192_n2048_k512_8ce1befe635f7860",
     "TotalSGPRs": 16,
     "TotalVGPRs": 243,
     "WorkGroup": [
@@ -6742,7 +6742,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_18cb89a92ef93133",
+    "ExactHash": "ggsol_c34883a1d6cdfa4d",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -6773,9 +6773,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "be84f38ec6179c10dfdcf6b208d6e9252a2c5302b963aaccb08ca971a031bdd3",
+    "SourceSHA256": "a59438d652935cd55539dfac131edf40761921d2fb219a85b17d8e83c86a6744",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q8_0_m32768_n4096_k2048_18cb89a92ef93133",
+    "Symbol": "mmq_bwd_q8_0_m32768_n4096_k2048_c34883a1d6cdfa4d",
     "TotalSGPRs": 16,
     "TotalVGPRs": 133,
     "WorkGroup": [
@@ -6837,7 +6837,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_d9087ab3c5818b09",
+    "ExactHash": "ggsol_497b16a21524fd35",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -6868,9 +6868,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "8438932ef3ede65a54020a44535ab15456180d2dfde077e690cf997aa7e88172",
+    "SourceSHA256": "47434878f27941dd09bc96281e4d02a79eaa6fdb18099d9cad989a185f01f143",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q8_0_m8192_n4096_k2048_d9087ab3c5818b09",
+    "Symbol": "mmq_bwd_q8_0_m8192_n4096_k2048_497b16a21524fd35",
     "TotalSGPRs": 16,
     "TotalVGPRs": 133,
     "WorkGroup": [
@@ -6932,7 +6932,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_1449349aff255225",
+    "ExactHash": "ggsol_3ed17a6b54e2e995",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -6963,9 +6963,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "09bdedcf332f2be83d7736f7a7eaa994de9ab2057fa0817feb614244e177ab89",
+    "SourceSHA256": "c1c663cc04a24670690e5bbf36017cc5220993da7445c4d654372b3d59fc3939",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q8_0_m32768_n2048_k4096_1449349aff255225",
+    "Symbol": "mmq_bwd_q8_0_m32768_n2048_k4096_3ed17a6b54e2e995",
     "TotalSGPRs": 16,
     "TotalVGPRs": 133,
     "WorkGroup": [
@@ -7027,7 +7027,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_1d00ac4f657f17a6",
+    "ExactHash": "ggsol_8fdc9c95311213b6",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -7058,9 +7058,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "1fc037b012f0c6172b51c3d32bfbfd2d4d482c3b17b277f4c1d8dfbe8c4937e9",
+    "SourceSHA256": "38abae2a5388bb62ae959121ca5ac7ef711d83fda45b8d57a1ac355e16e4ca1a",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q8_0_m8192_n2048_k4096_1d00ac4f657f17a6",
+    "Symbol": "mmq_bwd_q8_0_m8192_n2048_k4096_8fdc9c95311213b6",
     "TotalSGPRs": 16,
     "TotalVGPRs": 133,
     "WorkGroup": [
@@ -7122,7 +7122,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_a688a655a35a3fab",
+    "ExactHash": "ggsol_b0d446542d5be3dd",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -7153,9 +7153,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "6d0e6d21f42bf2517fe78b60200baff89cddd0fda828e33b1138f46e74249a6b",
+    "SourceSHA256": "34d4379c5d2a6ff5aac72083ea61d2f16f3ce36235ca1f964e88cfbd2de39faa",
     "StaticGroupSegmentBytes": 10240,
-    "Symbol": "mmq_bwd_q8_0_m32768_n1024_k32768_a688a655a35a3fab",
+    "Symbol": "mmq_bwd_q8_0_m32768_n1024_k32768_b0d446542d5be3dd",
     "TotalSGPRs": 16,
     "TotalVGPRs": 202,
     "WorkGroup": [
@@ -7217,7 +7217,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_5c6bbb4636484be1",
+    "ExactHash": "ggsol_8ef0a3439f56bcda",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -7248,9 +7248,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "980a3c427c274bc812442cef676e718fd5ad42b85b9e7b6fbf8f9eda50c32afc",
+    "SourceSHA256": "145211a8187fdfc7d5b2bc4d43edab5aa0a5d8feeb5464936083b571cebd90d2",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q8_0_m512_n4096_k129280_5c6bbb4636484be1",
+    "Symbol": "mmq_bwd_q8_0_m512_n4096_k129280_8ef0a3439f56bcda",
     "TotalSGPRs": 16,
     "TotalVGPRs": 231,
     "WorkGroup": [
@@ -7312,7 +7312,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_2992cd8ef7214dad",
+    "ExactHash": "ggsol_5d99198f5a5b1531",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -7343,9 +7343,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "a478485630104b99c86f3ecfd42862d86c6321eef3c90d17ad4b85523633f08a",
+    "SourceSHA256": "697642c5f6d178699ed217e92d2cf9fa2c7db38cf7c9515ab3eeaf36d061d110",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q8_0_m2048_n4096_k1024_2992cd8ef7214dad",
+    "Symbol": "mmq_bwd_q8_0_m2048_n4096_k1024_5d99198f5a5b1531",
     "TotalSGPRs": 16,
     "TotalVGPRs": 231,
     "WorkGroup": [
@@ -7407,7 +7407,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_5f6f76208df84e76",
+    "ExactHash": "ggsol_1f803f9e9f2e2943",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -7438,9 +7438,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "fb989b541a5b01a8afe9c497e64195c26920454f204980843bd93dbd5d064332",
+    "SourceSHA256": "663d99e2e8e7a2a923fe2b0e0115f0ef6d14633cbb42c2af6c42e2e858d8e84a",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q8_0_m32768_n4096_k1024_5f6f76208df84e76",
+    "Symbol": "mmq_bwd_q8_0_m32768_n4096_k1024_1f803f9e9f2e2943",
     "TotalSGPRs": 16,
     "TotalVGPRs": 231,
     "WorkGroup": [
@@ -7502,7 +7502,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_23085683b06be51c",
+    "ExactHash": "ggsol_2b0fbcdba62f88ea",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -7533,9 +7533,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "de9912df510642bb0ed367ad772df676950086497655acdd91e3a12c49c38d1d",
+    "SourceSHA256": "9d6232a51cb2da3e4636a060f744a86578a523b8c14eb219164a5437cebad9b9",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q8_0_m8192_n4096_k1024_23085683b06be51c",
+    "Symbol": "mmq_bwd_q8_0_m8192_n4096_k1024_2b0fbcdba62f88ea",
     "TotalSGPRs": 16,
     "TotalVGPRs": 231,
     "WorkGroup": [
@@ -7597,7 +7597,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_4893f4a6b338ff73",
+    "ExactHash": "ggsol_4ab3aebdfa07c616",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -7628,9 +7628,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "68845c42fa75576a2d98e238e7c05a53fb3bebdc6a6c5cf12d743c3f1f54e851",
+    "SourceSHA256": "d5c5d7f5573d59a02a098ded816b992c0fc3418b4f13eab165b5e20e30847c9e",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q8_0_m256_n4096_k129280_4893f4a6b338ff73",
+    "Symbol": "mmq_bwd_q8_0_m256_n4096_k129280_4ab3aebdfa07c616",
     "TotalSGPRs": 16,
     "TotalVGPRs": 231,
     "WorkGroup": [
@@ -7692,7 +7692,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_c6d76add1f1795b6",
+    "ExactHash": "ggsol_f668b8070bf0b672",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -7723,9 +7723,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "75cee66e96f75f558ef406e1668a10dd86812d590f6af2cb5a793f3b1a993970",
+    "SourceSHA256": "3a27412685fa9e2444c20c6eef296652d4a96bb2be80927bfe7d1eed217bffdc",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q8_0_m2048_n4096_k2048_c6d76add1f1795b6",
+    "Symbol": "mmq_bwd_q8_0_m2048_n4096_k2048_f668b8070bf0b672",
     "TotalSGPRs": 16,
     "TotalVGPRs": 231,
     "WorkGroup": [
@@ -7787,7 +7787,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_77fe89affdfcd1aa",
+    "ExactHash": "ggsol_ba37265667a0332a",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -7818,9 +7818,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "ad6d4e6d59d505ea951154a0f1351ab8d18bd0cda1d55f394fe1f1cb1193836a",
+    "SourceSHA256": "441121a1aa6a08f72dc5dbba3066e3529d46fe30048eb0d16708b562fe0ddb83",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q8_0_m2048_n2048_k4096_77fe89affdfcd1aa",
+    "Symbol": "mmq_bwd_q8_0_m2048_n2048_k4096_ba37265667a0332a",
     "TotalSGPRs": 16,
     "TotalVGPRs": 231,
     "WorkGroup": [
@@ -7882,7 +7882,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_c09c5de29ed139e7",
+    "ExactHash": "ggsol_55ae41807fbd0868",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -7913,9 +7913,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "36a7ceaad6cbdeab74fc1f44637102e1d9d9dc68c2f2b866e09bcb3dc2af1baa",
+    "SourceSHA256": "0d1b81f8af907e968e832c959f9dedea176bda8482eeff97744e5549a182a56f",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q8_0_m2048_n8192_k4096_c09c5de29ed139e7",
+    "Symbol": "mmq_bwd_q8_0_m2048_n8192_k4096_55ae41807fbd0868",
     "TotalSGPRs": 16,
     "TotalVGPRs": 231,
     "WorkGroup": [
@@ -7977,7 +7977,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_11b0d5ab20c93263",
+    "ExactHash": "ggsol_5f37e19fffe72524",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -8008,9 +8008,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "4beb27a0cb501f7f63f8b55bc6ec4b56741a545a2e3d69b83d6e44fce89a5074",
+    "SourceSHA256": "31c7b6b68d94375ab1dcba520a86c0534fb99bc978cc8cc13d16c13d970de9fa",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q8_0_m32768_n8192_k4096_11b0d5ab20c93263",
+    "Symbol": "mmq_bwd_q8_0_m32768_n8192_k4096_5f37e19fffe72524",
     "TotalSGPRs": 16,
     "TotalVGPRs": 231,
     "WorkGroup": [
@@ -8072,7 +8072,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_e12e57683a355f95",
+    "ExactHash": "ggsol_fc26b587879c3242",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -8103,9 +8103,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "6ca8c165f9fdc6e67bad72a9c87cf3e74bab3cc2ff845f7f39a95409d1d3915d",
+    "SourceSHA256": "b7635ab625ef06bd7f94e7c3f12a79646e566e6ff2b3db14e25e25b9693ab6c9",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q8_0_m8192_n8192_k4096_e12e57683a355f95",
+    "Symbol": "mmq_bwd_q8_0_m8192_n8192_k4096_fc26b587879c3242",
     "TotalSGPRs": 16,
     "TotalVGPRs": 231,
     "WorkGroup": [
@@ -8167,7 +8167,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_a456de4c8d18a742",
+    "ExactHash": "ggsol_3a5738c0aa9c1e29",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -8198,9 +8198,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "b87789f03cf722e7d67713160310235248cea1ffc3373ff692fcbae9e743e348",
+    "SourceSHA256": "5ace36127efc3b81f04a584ed9446a000a1f8896b8a42e0c83a85ca62a868cb0",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q8_0_m2048_n4096_k512_a456de4c8d18a742",
+    "Symbol": "mmq_bwd_q8_0_m2048_n4096_k512_3a5738c0aa9c1e29",
     "TotalSGPRs": 16,
     "TotalVGPRs": 231,
     "WorkGroup": [
@@ -8262,7 +8262,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_2ed82f9bd3bbb675",
+    "ExactHash": "ggsol_681a5edf8b824c29",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -8293,9 +8293,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "cd6d692d6bbd4722b5e4fa332f216bdc4f967723dd4da115fd619b544724280c",
+    "SourceSHA256": "74dd024999604c683163816164620b7e22387487eabca68d1bca3316cc9c4354",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q8_0_m32768_n4096_k512_2ed82f9bd3bbb675",
+    "Symbol": "mmq_bwd_q8_0_m32768_n4096_k512_681a5edf8b824c29",
     "TotalSGPRs": 16,
     "TotalVGPRs": 231,
     "WorkGroup": [
@@ -8357,7 +8357,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_c6caa349716cee2e",
+    "ExactHash": "ggsol_f93b7a54f677aa30",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -8388,9 +8388,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "f8d6667aed727c49fdb3362e7889342f674aeb3c45b000b3c52dabf65dace7b9",
+    "SourceSHA256": "c8f6865af08fa7db6fe64e20878cef3b0d7713e8a6a023c47aa5fe4de32a2de1",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q8_0_m8192_n4096_k512_c6caa349716cee2e",
+    "Symbol": "mmq_bwd_q8_0_m8192_n4096_k512_f93b7a54f677aa30",
     "TotalSGPRs": 16,
     "TotalVGPRs": 231,
     "WorkGroup": [
@@ -8452,7 +8452,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_5c789ba604245eeb",
+    "ExactHash": "ggsol_d99de81b4c72bbf7",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -8483,9 +8483,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "18f29e64b23da3420859fa74eee3654a569bec0868a992be86ecf6f362aec627",
+    "SourceSHA256": "892a224518eca1a4fdafadce2a8b808e8c6ed717691c5d88f4208ccae99840fb",
     "StaticGroupSegmentBytes": 16384,
-    "Symbol": "mmq_bwd_q8_0_m8192_n1024_k32768_5c789ba604245eeb",
+    "Symbol": "mmq_bwd_q8_0_m8192_n1024_k32768_d99de81b4c72bbf7",
     "TotalSGPRs": 16,
     "TotalVGPRs": 220,
     "WorkGroup": [
@@ -8547,7 +8547,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_0428dd31478cb866",
+    "ExactHash": "ggsol_ed1076244ec57d3d",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -8578,9 +8578,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "90e57fa71c96e0afb3848b8127488203d0dfabbc1cc48886e0debfbd9ba9e68c",
+    "SourceSHA256": "815b98c508895e47bf9606f38ac05ac7a2bfdb4bdadb6f48f2ce40f7483d2378",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q6_k_m256_n2048_k248320_0428dd31478cb866",
+    "Symbol": "mmq_bwd_q6_k_m256_n2048_k248320_ed1076244ec57d3d",
     "TotalSGPRs": 16,
     "TotalVGPRs": 240,
     "WorkGroup": [
@@ -8642,7 +8642,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_7b3727e2b2799b2b",
+    "ExactHash": "ggsol_76fa1a4855676e9c",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -8673,9 +8673,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "363d24f2e44a20df4ec08c7c8c1aeeb30950552ef1c5049c144d4cb037a4f05f",
+    "SourceSHA256": "206a9fc84e774a51479c8bb1a2cd47b133adee9bb128df62952f8172ab91c287",
     "StaticGroupSegmentBytes": 4608,
-    "Symbol": "mmq_bwd_q6_k_m64_n2048_k248320_7b3727e2b2799b2b",
+    "Symbol": "mmq_bwd_q6_k_m64_n2048_k248320_76fa1a4855676e9c",
     "TotalSGPRs": 16,
     "TotalVGPRs": 76,
     "WorkGroup": [
@@ -8737,7 +8737,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_5e3edf346c970455",
+    "ExactHash": "ggsol_29a74eb9e61887ed",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -8768,9 +8768,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "6942210c03821a3ba6b4a18fe4739b6af03534cbe6c6c4e7bbb4f34ba1a035fd",
+    "SourceSHA256": "9ecb9049c8ccaa6cd912ff12eaea1673cae32cdd65d74600ca1ca5ba8ee72e2a",
     "StaticGroupSegmentBytes": 9216,
-    "Symbol": "mmq_bwd_q8_0_m32_n4096_k129280_5e3edf346c970455",
+    "Symbol": "mmq_bwd_q8_0_m32_n4096_k129280_29a74eb9e61887ed",
     "TotalSGPRs": 16,
     "TotalVGPRs": 106,
     "WorkGroup": [
@@ -8832,7 +8832,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_35b24eb6c7aa1601",
+    "ExactHash": "ggsol_e406d4a997a19be1",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -8863,9 +8863,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "614191e48d6bb8bcf678801c19f023abb127248d2ed54f0559ad7a4f35a76f16",
+    "SourceSHA256": "693492c07af320d1d26fa16bc0f871bc3feb5ce5b0244b14af5acd74ddcc73c3",
     "StaticGroupSegmentBytes": 9216,
-    "Symbol": "mmq_bwd_q8_0_m64_n4096_k129280_35b24eb6c7aa1601",
+    "Symbol": "mmq_bwd_q8_0_m64_n4096_k129280_e406d4a997a19be1",
     "TotalSGPRs": 16,
     "TotalVGPRs": 92,
     "WorkGroup": [
@@ -8927,7 +8927,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_ff07c90f590ac5eb",
+    "ExactHash": "ggsol_6538f0b3cb2e22e1",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -8958,9 +8958,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "7b5b3588392618191788ea29e21dda341a0907bf38132750eb61c8aebdb825ff",
+    "SourceSHA256": "0cd5acca7dce7756835fd972a820989c85bdda5a2134a07579d6df4aa930e872",
     "StaticGroupSegmentBytes": 4608,
-    "Symbol": "mmq_bwd_q6_k_m128_n2048_k248320_ff07c90f590ac5eb",
+    "Symbol": "mmq_bwd_q6_k_m128_n2048_k248320_6538f0b3cb2e22e1",
     "TotalSGPRs": 16,
     "TotalVGPRs": 108,
     "WorkGroup": [
@@ -9022,7 +9022,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_04b164cdfbf5e0df",
+    "ExactHash": "ggsol_cc9c423da8db42f9",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -9053,9 +9053,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "c231880c1f6259d82057b3b5218891ba629a5eacafd3c303c79a4e064d73f94c",
+    "SourceSHA256": "2c02d5f66816d577c58cc02b2f031cacc6f3a433246d28e39e609cbbd1b18c57",
     "StaticGroupSegmentBytes": 9216,
-    "Symbol": "mmq_bwd_q8_0_m128_n4096_k129280_04b164cdfbf5e0df",
+    "Symbol": "mmq_bwd_q8_0_m128_n4096_k129280_cc9c423da8db42f9",
     "TotalSGPRs": 16,
     "TotalVGPRs": 140,
     "WorkGroup": [
@@ -9117,7 +9117,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_ac573ab4204bba3b",
+    "ExactHash": "ggsol_411e043d82a04f16",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -9148,9 +9148,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "ae66b5abe7ae325b1e88b74bad71c750b4f6759f0085103f5f1747277aecaf49",
+    "SourceSHA256": "bfbfa354fe98ec79234f2b65cfd989be9acdfbb4917face90a6cf1870e9e0591",
     "StaticGroupSegmentBytes": 10240,
-    "Symbol": "mmq_bwd_q8_0_m2048_n1024_k32768_ac573ab4204bba3b",
+    "Symbol": "mmq_bwd_q8_0_m2048_n1024_k32768_411e043d82a04f16",
     "TotalSGPRs": 16,
     "TotalVGPRs": 202,
     "WorkGroup": [
@@ -9212,7 +9212,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_0ecdc2dd9262ab28",
+    "ExactHash": "ggsol_554a1ee0cbb2a3fe",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -9243,9 +9243,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "1a9a21485d2735bf90140befcb1d3381eeef87c670e42bca03b7b50eeb8f8154",
+    "SourceSHA256": "297821269121bff031f6d1edeb64a7916ab4466d015894e2db725e21be1827b9",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q4_k_m32768_n4096_k2048_0ecdc2dd9262ab28",
+    "Symbol": "mmq_bwd_q4_k_m32768_n4096_k2048_554a1ee0cbb2a3fe",
     "TotalSGPRs": 16,
     "TotalVGPRs": 136,
     "WorkGroup": [
@@ -9307,7 +9307,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_d75d2cc2dd9f5c8c",
+    "ExactHash": "ggsol_196b5482b29aaf64",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -9338,9 +9338,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "ea518e2feeaa787c9a24fc91b464ae04f97970425a8bb49f3f4657d0692b389c",
+    "SourceSHA256": "61ef824ad07dfc573ca05033b683cc3556436d39ac9c90f0ee95df99f070cff1",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q4_k_m8192_n4096_k2048_d75d2cc2dd9f5c8c",
+    "Symbol": "mmq_bwd_q4_k_m8192_n4096_k2048_196b5482b29aaf64",
     "TotalSGPRs": 16,
     "TotalVGPRs": 136,
     "WorkGroup": [
@@ -9402,7 +9402,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_f785141730e281ed",
+    "ExactHash": "ggsol_e1bb6e35c73c2a15",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -9433,9 +9433,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "7dee6d0144e887295b670d071dd09a1e48d684d898919fe76b6d9c613c382500",
+    "SourceSHA256": "ee6707902366b7dfed7b14db089549f71cc210605e7778656945b5bb74a28758",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q4_k_m8192_n2048_k8192_f785141730e281ed",
+    "Symbol": "mmq_bwd_q4_k_m8192_n2048_k8192_e1bb6e35c73c2a15",
     "TotalSGPRs": 16,
     "TotalVGPRs": 136,
     "WorkGroup": [
@@ -9497,7 +9497,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_b5547f71f884938d",
+    "ExactHash": "ggsol_f2ae729b0b3d54ba",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -9528,9 +9528,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "52c50b754ea1ab70c4bc3066c5496d942543e600eebd9fe48e2a0cb25ddaeee5",
+    "SourceSHA256": "4313a0de204c469ecbe190f59279bcdbacf1ac5167eb54a78b1cf0c9982c1fd5",
     "StaticGroupSegmentBytes": 16384,
-    "Symbol": "mmq_bwd_q4_k_m2048_n512_k2048_b5547f71f884938d",
+    "Symbol": "mmq_bwd_q4_k_m2048_n512_k2048_f2ae729b0b3d54ba",
     "TotalSGPRs": 16,
     "TotalVGPRs": 212,
     "WorkGroup": [
@@ -9592,7 +9592,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_454a47b6e5dab373",
+    "ExactHash": "ggsol_4fd4e2ab584ba308",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -9623,9 +9623,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "fbd3c10fe29da5895e98ea375bfbe4e2707d31c89c04482c96f34e0a0fe2e001",
+    "SourceSHA256": "d77ab7a1a73312c5600c61d70dbc527dbdc316759440d857e699ab3513e4aab0",
     "StaticGroupSegmentBytes": 16384,
-    "Symbol": "mmq_bwd_q4_k_m32768_n512_k2048_454a47b6e5dab373",
+    "Symbol": "mmq_bwd_q4_k_m32768_n512_k2048_4fd4e2ab584ba308",
     "TotalSGPRs": 16,
     "TotalVGPRs": 212,
     "WorkGroup": [
@@ -9687,7 +9687,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_ef54b92193b7e422",
+    "ExactHash": "ggsol_283a88d55d119a89",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -9718,9 +9718,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "265d043e66babdd6de328fed6cc4962cf8f28ba1b20be45d5dd090baef09cc23",
+    "SourceSHA256": "cd824fafcb6084200aded8e86bb5be4e114d02046bde6dc577890b990a2935cc",
     "StaticGroupSegmentBytes": 16384,
-    "Symbol": "mmq_bwd_q4_k_m8192_n512_k2048_ef54b92193b7e422",
+    "Symbol": "mmq_bwd_q4_k_m8192_n512_k2048_283a88d55d119a89",
     "TotalSGPRs": 16,
     "TotalVGPRs": 212,
     "WorkGroup": [
@@ -9782,7 +9782,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_98480b4c9d397bec",
+    "ExactHash": "ggsol_aa1f0fec231c7a19",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -9813,9 +9813,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "cd3e5bb5508944e7f8032677b391103985e1b4068cd7e18c5e065ca58c170f84",
+    "SourceSHA256": "1bc1b25bfa0eca2245721aee8e06722be0298ca2ed340f22f2144c093b2a0998",
     "StaticGroupSegmentBytes": 16384,
-    "Symbol": "mmq_bwd_q4_k_m2048_n2048_k8192_98480b4c9d397bec",
+    "Symbol": "mmq_bwd_q4_k_m2048_n2048_k8192_aa1f0fec231c7a19",
     "TotalSGPRs": 16,
     "TotalVGPRs": 212,
     "WorkGroup": [
@@ -9877,7 +9877,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_35ec04969fff39a4",
+    "ExactHash": "ggsol_305c4887907d45ab",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -9908,9 +9908,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "21d0b9e4cea2e875caeea8e9267d0e7b60f85d5c3629fc646f454511db0a4a63",
+    "SourceSHA256": "5c4681e326bdc9ff81134c072465e42e37fb93a3277946ba42185824a2f95423",
     "StaticGroupSegmentBytes": 16384,
-    "Symbol": "mmq_bwd_q4_k_m32768_n2048_k8192_35ec04969fff39a4",
+    "Symbol": "mmq_bwd_q4_k_m32768_n2048_k8192_305c4887907d45ab",
     "TotalSGPRs": 16,
     "TotalVGPRs": 212,
     "WorkGroup": [
@@ -9972,7 +9972,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_f910994bc66c22af",
+    "ExactHash": "ggsol_ce0506ff376281f4",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -10003,9 +10003,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "83f61ca7736255ee5f2afe393d17441298cbf825141abd971429a66e1a1bec78",
+    "SourceSHA256": "61be9bc0b76b535aba28d45a1fc54d1e0175dc6ae5cee8fabbbc374817d9ee56",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q4_k_m2048_n4096_k2048_f910994bc66c22af",
+    "Symbol": "mmq_bwd_q4_k_m2048_n4096_k2048_ce0506ff376281f4",
     "TotalSGPRs": 16,
     "TotalVGPRs": 234,
     "WorkGroup": [
@@ -10067,7 +10067,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_1038b8575335513d",
+    "ExactHash": "ggsol_fed7992594317709",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -10098,9 +10098,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "019ebc6c8c5c108639a7e57cb4517b2c94094af1f26f236bed78a1d7a9313faa",
+    "SourceSHA256": "4678eb4a5eec2f6aa929c59f6321ff21363e29c6a0dc9a05f037f004eb26d3fb",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q4_k_m32768_n2048_k512_1038b8575335513d",
+    "Symbol": "mmq_bwd_q4_k_m32768_n2048_k512_fed7992594317709",
     "TotalSGPRs": 16,
     "TotalVGPRs": 234,
     "WorkGroup": [
@@ -10162,7 +10162,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_5bc22d8e94182e44",
+    "ExactHash": "ggsol_ea25b77ecc82d61d",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -10193,9 +10193,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "dccda1456e3701e0f057ab33df85c30741cd37bb52b2d24c7a887aa5a99b7abb",
+    "SourceSHA256": "02e11f4a3579fb1f818a3cdfc656373f5e1268081fbc95b931233aea9327faa8",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q4_k_m8192_n2048_k512_5bc22d8e94182e44",
+    "Symbol": "mmq_bwd_q4_k_m8192_n2048_k512_ea25b77ecc82d61d",
     "TotalSGPRs": 16,
     "TotalVGPRs": 234,
     "WorkGroup": [
@@ -10257,7 +10257,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_d912c6dc667e2e61",
+    "ExactHash": "ggsol_f8ae4100f87d6dac",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       2,
@@ -10288,9 +10288,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "10a9e411aa925df7c5fdee3d62a8052a9403715c0e935c546d7205ba138c4aa2",
+    "SourceSHA256": "f811890b391aab81b2829c8e9d1ab9ef48d8b74d177b041ca359dbab04c8449b",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q4_k_m2048_n2048_k512_d912c6dc667e2e61",
+    "Symbol": "mmq_bwd_q4_k_m2048_n2048_k512_f8ae4100f87d6dac",
     "TotalSGPRs": 16,
     "TotalVGPRs": 234,
     "WorkGroup": [
@@ -10352,7 +10352,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_4ba5553ad81886f7",
+    "ExactHash": "ggsol_9e1b11a801e4ee71",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       8,
@@ -10383,9 +10383,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "0fe0c27a8177269784ebac773d4f3b9da35e8d2b2158db206b374a1e4c5edafb",
+    "SourceSHA256": "71fdfb196227b7ee567584f3f2e1407be595eb294dd9f89e59ef4f3a8d12bd93",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "mmq_fwd_q4_k_m2048_n512_k2048_4ba5553ad81886f7",
+    "Symbol": "mmq_fwd_q4_k_m2048_n512_k2048_9e1b11a801e4ee71",
     "TotalSGPRs": 16,
     "TotalVGPRs": 239,
     "WorkGroup": [
@@ -10447,7 +10447,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_721fb6f71a958bad",
+    "ExactHash": "ggsol_16deeb3eacdcda9e",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       8,
@@ -10478,9 +10478,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "fcc4f777c843487a19f1a9972287634b9c08ef5e2d38cacb49f3abefa54d33ff",
+    "SourceSHA256": "db5ca912531bc095dba1b885fc8947c3bfe0804050165488de505f5135ad019c",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "mmq_fwd_q4_k_m8192_n512_k2048_721fb6f71a958bad",
+    "Symbol": "mmq_fwd_q4_k_m8192_n512_k2048_16deeb3eacdcda9e",
     "TotalSGPRs": 16,
     "TotalVGPRs": 239,
     "WorkGroup": [
@@ -10542,7 +10542,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_5186f06c58019a02",
+    "ExactHash": "ggsol_45a26779f8920bfd",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       8,
@@ -10573,9 +10573,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "0962cd7c98f3d7d8adeb7663b9926d588c384c7eb5cb84379faf4d174d84e8b2",
+    "SourceSHA256": "22f59f3d9cdae82aa39ae82000ea8219f97adc76fe966d350c407779fba8ce86",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "mmq_fwd_q5_k_m8192_n512_k2048_5186f06c58019a02",
+    "Symbol": "mmq_fwd_q5_k_m8192_n512_k2048_45a26779f8920bfd",
     "TotalSGPRs": 16,
     "TotalVGPRs": 239,
     "WorkGroup": [
@@ -10637,7 +10637,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_12ef4d7760c429a1",
+    "ExactHash": "ggsol_d5c7ff80f2982929",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       32,
@@ -10668,9 +10668,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "21fcc49273d1a312b015bfe33fce53d9f9c642044cbe9fd0e12785add2a325d9",
+    "SourceSHA256": "e4b7e95a6abf6cc91debba60a3bc43c31a788142b32cc9038fa5d256414df462",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "mmq_fwd_q4_k_m2048_n2048_k4096_12ef4d7760c429a1",
+    "Symbol": "mmq_fwd_q4_k_m2048_n2048_k4096_d5c7ff80f2982929",
     "TotalSGPRs": 16,
     "TotalVGPRs": 239,
     "WorkGroup": [
@@ -10732,7 +10732,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_59ee1703b854b4c4",
+    "ExactHash": "ggsol_a7931ee95f769110",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       32,
@@ -10763,9 +10763,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "bb5e3b5f8fa973927d354e3cec29dacddb922297bf0bd34443a6609f0774c018",
+    "SourceSHA256": "2edec701890f127f4d3489d7471e89eb3e1e23b0d30a8d786cc58a98701f4ac9",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "mmq_fwd_q4_k_m32768_n2048_k4096_59ee1703b854b4c4",
+    "Symbol": "mmq_fwd_q4_k_m32768_n2048_k4096_a7931ee95f769110",
     "TotalSGPRs": 16,
     "TotalVGPRs": 239,
     "WorkGroup": [
@@ -10827,7 +10827,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_f86c757dede64cbc",
+    "ExactHash": "ggsol_157bedfb3f777047",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       32,
@@ -10858,9 +10858,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "4a82e24766f50bc2c0865caadb1d5d0d7c9b1943eec28d9b917b7b44a15fd1b7",
+    "SourceSHA256": "eadbe562565d814662051b491ec5181f469dd0becff7f7ae78f14eca47835b31",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "mmq_fwd_q4_k_m8192_n2048_k4096_f86c757dede64cbc",
+    "Symbol": "mmq_fwd_q4_k_m8192_n2048_k4096_157bedfb3f777047",
     "TotalSGPRs": 16,
     "TotalVGPRs": 239,
     "WorkGroup": [
@@ -10922,7 +10922,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_ead4eba02dba7cdb",
+    "ExactHash": "ggsol_1aa65fd06e785cd9",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       128,
@@ -10953,9 +10953,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "e1819d14707e0bf024e01e0bbf983fdaf7919593da35b9bbd42bf7dceb7ebb22",
+    "SourceSHA256": "d8315ac80f27f861804397b24fbf40f2c3f5b717c3c7bd7193c2a4591ee9a5b4",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "mmq_fwd_q4_k_m2048_n8192_k2048_ead4eba02dba7cdb",
+    "Symbol": "mmq_fwd_q4_k_m2048_n8192_k2048_1aa65fd06e785cd9",
     "TotalSGPRs": 16,
     "TotalVGPRs": 239,
     "WorkGroup": [
@@ -11017,7 +11017,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_ce96975c3a2297c6",
+    "ExactHash": "ggsol_59f9de5171e2b4ad",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       32,
@@ -11048,9 +11048,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "de69f5628f9674617348fc573d6ad49406bece4ab2fccaf7345cc5ddd056abde",
+    "SourceSHA256": "5feaef48b1b9ee9c019b7e03d33d46f0ff32531cad3ca67065bc1abe987f6142",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "mmq_fwd_q4_k_m2048_n2048_k512_ce96975c3a2297c6",
+    "Symbol": "mmq_fwd_q4_k_m2048_n2048_k512_59f9de5171e2b4ad",
     "TotalSGPRs": 16,
     "TotalVGPRs": 239,
     "WorkGroup": [
@@ -11112,7 +11112,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_156e3f2f6968354a",
+    "ExactHash": "ggsol_ba2c0f2dc08403d8",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       32,
@@ -11143,9 +11143,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "f8a40beab26e8c6d4b04ce72b462201b3fee3a5b671a68f0ba87c9a15742791e",
+    "SourceSHA256": "e5f6491de54741bee238e9cb6fd94204689e2454b58127ff7a55c5fde0f391d9",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "mmq_fwd_q5_k_m2048_n2048_k512_156e3f2f6968354a",
+    "Symbol": "mmq_fwd_q5_k_m2048_n2048_k512_ba2c0f2dc08403d8",
     "TotalSGPRs": 16,
     "TotalVGPRs": 239,
     "WorkGroup": [
@@ -11207,7 +11207,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_1a9a3eba40162ed5",
+    "ExactHash": "ggsol_c1a4172f83b29557",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       32,
@@ -11238,9 +11238,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "0d10856e0c539e2d82a8d8c3d5bdd90a9159c6e463dd36eab8ce633027575f54",
+    "SourceSHA256": "b141d9fcbee97f97344da7e29108a23f0aa5767dc97d896e8d13b90c5cf81f64",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "mmq_fwd_q4_k_m32768_n2048_k512_1a9a3eba40162ed5",
+    "Symbol": "mmq_fwd_q4_k_m32768_n2048_k512_c1a4172f83b29557",
     "TotalSGPRs": 16,
     "TotalVGPRs": 239,
     "WorkGroup": [
@@ -11302,7 +11302,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_de525b1140a4c060",
+    "ExactHash": "ggsol_9f051e9e9e9ea63c",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       32,
@@ -11333,9 +11333,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "e1020fc63b154966d1e4fb13fd7487adfaf5d5492b6e26a6ca1a2290c2044fd5",
+    "SourceSHA256": "3c6eebe331a8c4765b51a433134bad83ff5201057dfaef22c009fde6bb7ef31d",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "mmq_fwd_q5_k_m32768_n2048_k512_de525b1140a4c060",
+    "Symbol": "mmq_fwd_q5_k_m32768_n2048_k512_9f051e9e9e9ea63c",
     "TotalSGPRs": 16,
     "TotalVGPRs": 239,
     "WorkGroup": [
@@ -11397,7 +11397,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_49f217ecb8a0ff66",
+    "ExactHash": "ggsol_312a6d86b8edbc08",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       128,
@@ -11428,9 +11428,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "90125ad06107a612c815a19362299c7afb3babd8f87f10857f7a2bf1dd928a90",
+    "SourceSHA256": "d80f31727d659941b52289962f500f3e0ef8563e771698fa9539fcf787758579",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "mmq_fwd_q4_k_m32768_n8192_k2048_49f217ecb8a0ff66",
+    "Symbol": "mmq_fwd_q4_k_m32768_n8192_k2048_312a6d86b8edbc08",
     "TotalSGPRs": 16,
     "TotalVGPRs": 239,
     "WorkGroup": [
@@ -11492,7 +11492,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_b58c314ff98b85bc",
+    "ExactHash": "ggsol_99da4e50aa88da39",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       8,
@@ -11523,9 +11523,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "518b312b5244eefaaf63a73f3ecd308aeb826b4bdb95965bd714ad5bea537721",
+    "SourceSHA256": "e3f17232aaef091a5fbb6ab676f6751e4ae1eddb21571ce0a8b13d02be2dcf72",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "mmq_fwd_q5_k_m32768_n512_k2048_b58c314ff98b85bc",
+    "Symbol": "mmq_fwd_q5_k_m32768_n512_k2048_99da4e50aa88da39",
     "TotalSGPRs": 16,
     "TotalVGPRs": 239,
     "WorkGroup": [
@@ -11587,7 +11587,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_09132849fe749126",
+    "ExactHash": "ggsol_6823fb6adaa2e44a",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       32,
@@ -11618,9 +11618,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "ce07f42b63a4112dea33f3935b26a3a501d341fa45b48d5a8393d099797f09c5",
+    "SourceSHA256": "933b65d05bfbac9b630a30526f1f48695e3a81a29a6233c63017cf2b0ab9578e",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "mmq_fwd_q4_k_m8192_n2048_k512_09132849fe749126",
+    "Symbol": "mmq_fwd_q4_k_m8192_n2048_k512_6823fb6adaa2e44a",
     "TotalSGPRs": 16,
     "TotalVGPRs": 239,
     "WorkGroup": [
@@ -11682,7 +11682,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_5c8da21403e0070a",
+    "ExactHash": "ggsol_e989e93b486b8ed8",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       32,
@@ -11713,9 +11713,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "919d86248ee1ac6b76795b7b45aa6bffa23225320f67c681044f6adc5c4a1e5d",
+    "SourceSHA256": "70b14794369a2985982a0b9e56fe53d4031c8c69f67815fed4792717f5599ad7",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "mmq_fwd_q5_k_m8192_n2048_k512_5c8da21403e0070a",
+    "Symbol": "mmq_fwd_q5_k_m8192_n2048_k512_e989e93b486b8ed8",
     "TotalSGPRs": 16,
     "TotalVGPRs": 239,
     "WorkGroup": [
@@ -11777,7 +11777,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_f2f620c2e5a8ef63",
+    "ExactHash": "ggsol_6f385d54d7657d81",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       8,
@@ -11808,9 +11808,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "6a61e9c930ad70a04dcdeeda1e6d78d4e3f7ad9a174188e6a68e90aa7306814f",
+    "SourceSHA256": "08fe55424bc2bc2c398bde87fe69e53a01c50e815f5ffb24633dcc12487d1318",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "mmq_fwd_q4_k_m32768_n512_k2048_f2f620c2e5a8ef63",
+    "Symbol": "mmq_fwd_q4_k_m32768_n512_k2048_6f385d54d7657d81",
     "TotalSGPRs": 16,
     "TotalVGPRs": 239,
     "WorkGroup": [
@@ -11872,7 +11872,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_3dce21405b6a70cc",
+    "ExactHash": "ggsol_bd5a0fabcd66c11e",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       128,
@@ -11903,9 +11903,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "825a44048e993ae96efe8b70f6b6bb509fe3e9d00e5bc868e2c4efba0c701c0d",
+    "SourceSHA256": "e71fe12aa423cdd64d7fdd11795bbd5dc31b6e8663b082dfcdc5c3f15f778c5f",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "mmq_fwd_q4_k_m8192_n8192_k2048_3dce21405b6a70cc",
+    "Symbol": "mmq_fwd_q4_k_m8192_n8192_k2048_bd5a0fabcd66c11e",
     "TotalSGPRs": 16,
     "TotalVGPRs": 239,
     "WorkGroup": [
@@ -11967,7 +11967,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_61415e927887468b",
+    "ExactHash": "ggsol_446736f212811687",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       8,
@@ -11998,9 +11998,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "395aa36e219e6aa9669fb527fea9e1a19a688c5a6f5f750f496d20facaccb348",
+    "SourceSHA256": "d64f5b13be5dd75fc9e431e0cc1145954f2197c18a880ffd0a68bb2e62d1a66a",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "mmq_fwd_q5_k_m2048_n512_k2048_61415e927887468b",
+    "Symbol": "mmq_fwd_q5_k_m2048_n512_k2048_446736f212811687",
     "TotalSGPRs": 16,
     "TotalVGPRs": 239,
     "WorkGroup": [
@@ -12062,7 +12062,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_0186b8cb710b2a9a",
+    "ExactHash": "ggsol_f98b9d4e9f655bb6",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       512,
@@ -12093,9 +12093,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "299c2d9e03ec02879dcec74284c49f1de2cfb89c0656fdc14ae445596f496490",
+    "SourceSHA256": "3b433fb218f5e937d6c1cec0de50658d6722a5323f9ec022a9c22cf03f7e3ebe",
     "StaticGroupSegmentBytes": 27648,
-    "Symbol": "mmq_fwd_q8_0_m2048_n32768_k1024_0186b8cb710b2a9a",
+    "Symbol": "mmq_fwd_q8_0_m2048_n32768_k1024_f98b9d4e9f655bb6",
     "TotalSGPRs": 16,
     "TotalVGPRs": 240,
     "WorkGroup": [
@@ -12157,7 +12157,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_dcc7e6b65ab77037",
+    "ExactHash": "ggsol_c65bbe06a1f37b09",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       512,
@@ -12188,9 +12188,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "990c5eae9ed5c873e4b6b56052ed8ce297ec8b78ce5b216942e0188876868410",
+    "SourceSHA256": "9ced5308de6bcc3167349a63f7675a4c793c0b2566882d0f20c61efdf42062f7",
     "StaticGroupSegmentBytes": 27648,
-    "Symbol": "mmq_fwd_q8_0_m32768_n32768_k1024_dcc7e6b65ab77037",
+    "Symbol": "mmq_fwd_q8_0_m32768_n32768_k1024_c65bbe06a1f37b09",
     "TotalSGPRs": 16,
     "TotalVGPRs": 240,
     "WorkGroup": [
@@ -12252,7 +12252,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_cd896fb989a22869",
+    "ExactHash": "ggsol_a447c880e6ce138b",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       512,
@@ -12283,9 +12283,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "cccf114cc428eea61d322cc994024752427dafdfb2a8f287b97a49b63b1db842",
+    "SourceSHA256": "513967e348f982392a68204fc334d0d5146a94df5728c829fb46a3491f918e41",
     "StaticGroupSegmentBytes": 27648,
-    "Symbol": "mmq_fwd_q8_0_m8192_n32768_k1024_cd896fb989a22869",
+    "Symbol": "mmq_fwd_q8_0_m8192_n32768_k1024_a447c880e6ce138b",
     "TotalSGPRs": 16,
     "TotalVGPRs": 240,
     "WorkGroup": [
@@ -12347,7 +12347,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_b837b0be7c829cec",
+    "ExactHash": "ggsol_0cb718bdefdc8c86",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       64,
@@ -12378,9 +12378,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "b80e8e29b9ea1d4c90baea92269c0d3037553e3c4576f9d4b301e6089ce2d8e0",
+    "SourceSHA256": "17702c3e53f340fcfdbaa0b6141f72fa559e425fff9b17d338b5869f890ffc21",
     "StaticGroupSegmentBytes": 27648,
-    "Symbol": "mmq_fwd_q8_0_m2048_n4096_k2048_b837b0be7c829cec",
+    "Symbol": "mmq_fwd_q8_0_m2048_n4096_k2048_0cb718bdefdc8c86",
     "TotalSGPRs": 16,
     "TotalVGPRs": 240,
     "WorkGroup": [
@@ -12442,7 +12442,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_370795fede0c6f37",
+    "ExactHash": "ggsol_eb5e33d8c6d303df",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       64,
@@ -12473,9 +12473,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "64344f12840b786084cf961dd6730d14b037405aed47f3df401cd11091be05b9",
+    "SourceSHA256": "ff52c5d22f3e292f3406446e8aecba97ce9a6bf484596c7ddfbbf8d7c789adb0",
     "StaticGroupSegmentBytes": 27648,
-    "Symbol": "mmq_fwd_q8_0_m32768_n4096_k2048_370795fede0c6f37",
+    "Symbol": "mmq_fwd_q8_0_m32768_n4096_k2048_eb5e33d8c6d303df",
     "TotalSGPRs": 16,
     "TotalVGPRs": 240,
     "WorkGroup": [
@@ -12537,7 +12537,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_ce4e563661f59712",
+    "ExactHash": "ggsol_4f8d418a92ea695d",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       64,
@@ -12568,9 +12568,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "90083406313c9556a6e993416d44b9a61c916192a87c1a2a7fc3b05d4cf03011",
+    "SourceSHA256": "de20e930121c244a86c00723cb35aef85d8a3032a1cc1621bd6475da1b646bc5",
     "StaticGroupSegmentBytes": 27648,
-    "Symbol": "mmq_fwd_q8_0_m8192_n4096_k2048_ce4e563661f59712",
+    "Symbol": "mmq_fwd_q8_0_m8192_n4096_k2048_4f8d418a92ea695d",
     "TotalSGPRs": 16,
     "TotalVGPRs": 240,
     "WorkGroup": [
@@ -12632,7 +12632,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_a35908e812a749b4",
+    "ExactHash": "ggsol_36db352e26730be8",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       2020,
@@ -12663,9 +12663,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "aaafb7b6b4d7fa50a0cfc6424a7201a2eb7c6b88ccf00463ffe3a28d516cbb6a",
+    "SourceSHA256": "30484b7ca43feebf9148068f98801f9ae8fe8bfd4684fd0934405d4308ee2ec3",
     "StaticGroupSegmentBytes": 27648,
-    "Symbol": "mmq_fwd_q8_0_m128_n129280_k4096_a35908e812a749b4",
+    "Symbol": "mmq_fwd_q8_0_m128_n129280_k4096_36db352e26730be8",
     "TotalSGPRs": 16,
     "TotalVGPRs": 240,
     "WorkGroup": [
@@ -12727,7 +12727,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_fd793c2c44ea2a26",
+    "ExactHash": "ggsol_fec57a4019954ddd",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       32,
@@ -12758,9 +12758,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "a3aa2acbae5a14b9b327254cc726973e9164f2ff1ea890a8e73536e42bca9178",
+    "SourceSHA256": "0daf362ffc4c4c4e5b15dae7f009faad2ad8682ff69cd6a878c9d7c6ac340ecc",
     "StaticGroupSegmentBytes": 27648,
-    "Symbol": "mmq_fwd_q8_0_m2048_n2048_k4096_fd793c2c44ea2a26",
+    "Symbol": "mmq_fwd_q8_0_m2048_n2048_k4096_fec57a4019954ddd",
     "TotalSGPRs": 16,
     "TotalVGPRs": 240,
     "WorkGroup": [
@@ -12822,7 +12822,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_297f2a26f1055d14",
+    "ExactHash": "ggsol_d0129d456de6ef4a",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       8,
@@ -12853,9 +12853,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "d6d20ad3435b2ec674836548f7bd70da02a18f06181f7aaca046724347cdd297",
+    "SourceSHA256": "ce7e820b09e11eb9554e773c668d5c25cd0d01a38e8aebbf3938d548e083fe84",
     "StaticGroupSegmentBytes": 27648,
-    "Symbol": "mmq_fwd_q8_0_m2048_n512_k4096_297f2a26f1055d14",
+    "Symbol": "mmq_fwd_q8_0_m2048_n512_k4096_d0129d456de6ef4a",
     "TotalSGPRs": 16,
     "TotalVGPRs": 240,
     "WorkGroup": [
@@ -12917,7 +12917,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_5ba5f31d2f28bdcd",
+    "ExactHash": "ggsol_173bce21e5ff4a96",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       2020,
@@ -12948,9 +12948,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "55efdfc5de1df069b931e0f0a369a14d4679d0f5be4a2334747667e924ca7988",
+    "SourceSHA256": "b95a80a008444dfd5bd74a43f625467a1812278c3b8a1e3b1c97df10c1e54a7c",
     "StaticGroupSegmentBytes": 27648,
-    "Symbol": "mmq_fwd_q8_0_m256_n129280_k4096_5ba5f31d2f28bdcd",
+    "Symbol": "mmq_fwd_q8_0_m256_n129280_k4096_173bce21e5ff4a96",
     "TotalSGPRs": 16,
     "TotalVGPRs": 240,
     "WorkGroup": [
@@ -13012,7 +13012,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_f57a7972b1556c01",
+    "ExactHash": "ggsol_4558928c6ad54ba1",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       16,
@@ -13043,9 +13043,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "47b38f80774bc7ac345bac06cafd59342b9cec1beac6e3f251d49b781b2b82e2",
+    "SourceSHA256": "b00ef091777c748f2785d957cc55486a577d45136e1a07d42c593e423d48a55e",
     "StaticGroupSegmentBytes": 27648,
-    "Symbol": "mmq_fwd_q8_0_m32768_n1024_k4096_f57a7972b1556c01",
+    "Symbol": "mmq_fwd_q8_0_m32768_n1024_k4096_4558928c6ad54ba1",
     "TotalSGPRs": 16,
     "TotalVGPRs": 240,
     "WorkGroup": [
@@ -13107,7 +13107,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_6daee00bc4e284c3",
+    "ExactHash": "ggsol_1db7d0a982fa2f0f",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       32,
@@ -13138,9 +13138,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "a4fb56df15ca061699ef0745ec3ff74732c760f7a0163640671844f20f3b365e",
+    "SourceSHA256": "db24bdd32349102402a18df6ea9134091159b5a033464a3f99f4d28d54fa698b",
     "StaticGroupSegmentBytes": 27648,
-    "Symbol": "mmq_fwd_q8_0_m32768_n2048_k4096_6daee00bc4e284c3",
+    "Symbol": "mmq_fwd_q8_0_m32768_n2048_k4096_1db7d0a982fa2f0f",
     "TotalSGPRs": 16,
     "TotalVGPRs": 240,
     "WorkGroup": [
@@ -13202,7 +13202,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_acd93ad923140085",
+    "ExactHash": "ggsol_b2b87fb6e7357f8b",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       8,
@@ -13233,9 +13233,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "91295b1a181411f632995d5c14cb9dab096666e47789c755907a8df66830f681",
+    "SourceSHA256": "72f4407bc350af26c794da63016b2212211fb80250366ae4aec52309f773d2ff",
     "StaticGroupSegmentBytes": 27648,
-    "Symbol": "mmq_fwd_q8_0_m32768_n512_k4096_acd93ad923140085",
+    "Symbol": "mmq_fwd_q8_0_m32768_n512_k4096_b2b87fb6e7357f8b",
     "TotalSGPRs": 16,
     "TotalVGPRs": 240,
     "WorkGroup": [
@@ -13297,7 +13297,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_0f9b3bfe2fb233db",
+    "ExactHash": "ggsol_5072558135f87f13",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       2020,
@@ -13328,9 +13328,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "92205f5c7753cf20b23b6c9a663fef5cc45c01a17aec651bebb8efceefe93887",
+    "SourceSHA256": "6dfd909762923b8b8b187aeee6cb4b6e891321a577d3698744b9cde91e773ca6",
     "StaticGroupSegmentBytes": 27648,
-    "Symbol": "mmq_fwd_q8_0_m512_n129280_k4096_0f9b3bfe2fb233db",
+    "Symbol": "mmq_fwd_q8_0_m512_n129280_k4096_5072558135f87f13",
     "TotalSGPRs": 16,
     "TotalVGPRs": 240,
     "WorkGroup": [
@@ -13392,7 +13392,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_95583cebb35966ad",
+    "ExactHash": "ggsol_92962cb8f9858b03",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       16,
@@ -13423,9 +13423,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "c22c4b2688c481095e7f3f4ff81d8940c628852fd2cbe655b2510d0a5197d5b4",
+    "SourceSHA256": "13733209844d7337717e2139bc1cb8ec24d2c827a54784550227054bd8650c9a",
     "StaticGroupSegmentBytes": 27648,
-    "Symbol": "mmq_fwd_q8_0_m8192_n1024_k4096_95583cebb35966ad",
+    "Symbol": "mmq_fwd_q8_0_m8192_n1024_k4096_92962cb8f9858b03",
     "TotalSGPRs": 16,
     "TotalVGPRs": 240,
     "WorkGroup": [
@@ -13487,7 +13487,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_bd938ab65602e876",
+    "ExactHash": "ggsol_67e176455550c7f6",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       32,
@@ -13518,9 +13518,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "e1f54cc2d5e0fb9a989960c52c0a6ff0e27f00885b6e325fea3589102ae66f31",
+    "SourceSHA256": "368c95de20c4111efb22f2cd8aac8e89cd9baa5b7deb217415f4d5478b66346b",
     "StaticGroupSegmentBytes": 27648,
-    "Symbol": "mmq_fwd_q8_0_m8192_n2048_k4096_bd938ab65602e876",
+    "Symbol": "mmq_fwd_q8_0_m8192_n2048_k4096_67e176455550c7f6",
     "TotalSGPRs": 16,
     "TotalVGPRs": 240,
     "WorkGroup": [
@@ -13582,7 +13582,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_671507bca725386e",
+    "ExactHash": "ggsol_bd3c9698d7c9e7b4",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       8,
@@ -13613,9 +13613,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "bad7256c0cec109be1e85527a97b80861516fe3d79250511d8907c7ae40eaa45",
+    "SourceSHA256": "170e432530671d6464f31f7c73f2ead5db8827a70a206f085c9daf3407a14dfd",
     "StaticGroupSegmentBytes": 27648,
-    "Symbol": "mmq_fwd_q8_0_m8192_n512_k4096_671507bca725386e",
+    "Symbol": "mmq_fwd_q8_0_m8192_n512_k4096_bd3c9698d7c9e7b4",
     "TotalSGPRs": 16,
     "TotalVGPRs": 240,
     "WorkGroup": [
@@ -13677,7 +13677,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_995fb922e74def19",
+    "ExactHash": "ggsol_2bd5d6649a010c8f",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       64,
@@ -13708,9 +13708,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "6eec01c228fd57351a4d8d186ef14cc1329f1e63ceef2e365504aae36c49f754",
+    "SourceSHA256": "b54c8d00dde86c8db6dc6c92c182763a86fb1d39e2e6c69df9d2ea13446369ee",
     "StaticGroupSegmentBytes": 27648,
-    "Symbol": "mmq_fwd_q8_0_m2048_n4096_k8192_995fb922e74def19",
+    "Symbol": "mmq_fwd_q8_0_m2048_n4096_k8192_2bd5d6649a010c8f",
     "TotalSGPRs": 16,
     "TotalVGPRs": 240,
     "WorkGroup": [
@@ -13772,7 +13772,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_ccace7a678294a95",
+    "ExactHash": "ggsol_6e1052725b3151d0",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       64,
@@ -13803,9 +13803,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "ec11691255b02cc33019b01078ce654858b2cb05ab85023ad973c89c3e1562fd",
+    "SourceSHA256": "8bc0bb68e83535fb0f8498a6a3aa6957541b30273b371a509db8e17adfba97ce",
     "StaticGroupSegmentBytes": 27648,
-    "Symbol": "mmq_fwd_q8_0_m32768_n4096_k8192_ccace7a678294a95",
+    "Symbol": "mmq_fwd_q8_0_m32768_n4096_k8192_6e1052725b3151d0",
     "TotalSGPRs": 16,
     "TotalVGPRs": 240,
     "WorkGroup": [
@@ -13867,7 +13867,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_549dd4a1c2b6c2dc",
+    "ExactHash": "ggsol_07b639afc5295c11",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       64,
@@ -13898,9 +13898,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "10fa14978479afcef2902d2c6388536d22e66ed97cb4fd5180935599492e4794",
+    "SourceSHA256": "22bee32cc3e05dfa73af895f8bd7ae0b803eb6d9c8a808b271e94ce114937038",
     "StaticGroupSegmentBytes": 27648,
-    "Symbol": "mmq_fwd_q8_0_m8192_n4096_k8192_549dd4a1c2b6c2dc",
+    "Symbol": "mmq_fwd_q8_0_m8192_n4096_k8192_07b639afc5295c11",
     "TotalSGPRs": 16,
     "TotalVGPRs": 240,
     "WorkGroup": [
@@ -13962,7 +13962,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_80ebb637f89adbf6",
+    "ExactHash": "ggsol_7a8b82362e6d94a5",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       16,
@@ -13993,9 +13993,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "5210b689dc3a718d80119326f637c422ddd4676a84ef06b66bedae12702631e6",
+    "SourceSHA256": "d763db67fdf7bad3d26bd3143193e9a8b176b6be0714c5811dda876c59e84507",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "mmq_fwd_q8_0_m2048_n1024_k4096_80ebb637f89adbf6",
+    "Symbol": "mmq_fwd_q8_0_m2048_n1024_k4096_7a8b82362e6d94a5",
     "TotalSGPRs": 16,
     "TotalVGPRs": 240,
     "WorkGroup": [
@@ -14057,7 +14057,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_2c79ede514330240",
+    "ExactHash": "ggsol_13a6a7a619a65443",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       2020,
@@ -14088,9 +14088,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "a97665672aeaa597d0687b56e1388d8d5647079e9e74afaa60d843671901ac50",
+    "SourceSHA256": "1957a58f58f1a582d3e2ff59fd9d909b81c03489839018f2d862897d5f35f32b",
     "StaticGroupSegmentBytes": 24064,
-    "Symbol": "mmq_fwd_q8_0_m32_n129280_k4096_2c79ede514330240",
+    "Symbol": "mmq_fwd_q8_0_m32_n129280_k4096_13a6a7a619a65443",
     "TotalSGPRs": 16,
     "TotalVGPRs": 96,
     "WorkGroup": [
@@ -14152,7 +14152,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_eceefb6c02e06eef",
+    "ExactHash": "ggsol_42d2c641c2dd2cc6",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       2020,
@@ -14183,9 +14183,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "0c0b9b92ff5d563e6261cbb423bcd10afde3ad2d478aed02cbc9c5a382dda268",
+    "SourceSHA256": "6040c37a8e356e75b07c9536ddb60d9f3eef4cc0fbb33601c69785cdc73a2a29",
     "StaticGroupSegmentBytes": 28672,
-    "Symbol": "mmq_fwd_q8_0_m64_n129280_k4096_eceefb6c02e06eef",
+    "Symbol": "mmq_fwd_q8_0_m64_n129280_k4096_42d2c641c2dd2cc6",
     "TotalSGPRs": 16,
     "TotalVGPRs": 144,
     "WorkGroup": [
@@ -14247,7 +14247,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_05956cbe7a092a8d",
+    "ExactHash": "ggsol_2c203ec1ce8ac75e",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       64,
@@ -14278,9 +14278,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "3532bfd471fb732aeccbd53acb296485d413dbfcaa8779fae4b9d82ab9372ff7",
+    "SourceSHA256": "ac66a96768fb2b102b3f5138838858212ac47318943fed5ac241ea63e440a402",
     "StaticGroupSegmentBytes": 39936,
-    "Symbol": "mmq_fwd_q3_k_m2048_n4096_k2048_05956cbe7a092a8d",
+    "Symbol": "mmq_fwd_q3_k_m2048_n4096_k2048_2c203ec1ce8ac75e",
     "TotalSGPRs": 16,
     "TotalVGPRs": 200,
     "WorkGroup": [
@@ -14342,7 +14342,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_d28153c03989ac9f",
+    "ExactHash": "ggsol_df01250cbc1c0dcd",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       8,
@@ -14373,9 +14373,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "992f83da8ea424080df4ff5670ae6dec59906e58bcd8bff613fe24b97af1d19e",
+    "SourceSHA256": "c634a8b6f18950cedea1e4fd3dcdd5445e129a44d3a186ee9c213d7d945413ba",
     "StaticGroupSegmentBytes": 39936,
-    "Symbol": "mmq_fwd_q3_k_m2048_n512_k2048_d28153c03989ac9f",
+    "Symbol": "mmq_fwd_q3_k_m2048_n512_k2048_df01250cbc1c0dcd",
     "TotalSGPRs": 16,
     "TotalVGPRs": 200,
     "WorkGroup": [
@@ -14437,7 +14437,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_bc393480bc548bfb",
+    "ExactHash": "ggsol_900d3575ef7b9e19",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       128,
@@ -14468,9 +14468,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "faa8ca0b8d593c408671e113c88ced5814ff0347b423da702699f6f31d677bd3",
+    "SourceSHA256": "0784e868927e41b2cc8b31180b56645f8331f28a450af3ed60d5bce033470c6f",
     "StaticGroupSegmentBytes": 39936,
-    "Symbol": "mmq_fwd_q3_k_m2048_n8192_k2048_bc393480bc548bfb",
+    "Symbol": "mmq_fwd_q3_k_m2048_n8192_k2048_900d3575ef7b9e19",
     "TotalSGPRs": 16,
     "TotalVGPRs": 200,
     "WorkGroup": [
@@ -14532,7 +14532,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_7e659abc427fb106",
+    "ExactHash": "ggsol_30303137a9ac844c",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       64,
@@ -14563,9 +14563,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "76675640a1148237e907c8ef1b8d1d28476638964c5390cc50dc264545a18180",
+    "SourceSHA256": "3b39f6e890d9f104f79f3c46891934bd9b2edb63c7c2f50eb1d615905f51db7a",
     "StaticGroupSegmentBytes": 39936,
-    "Symbol": "mmq_fwd_q3_k_m32768_n4096_k2048_7e659abc427fb106",
+    "Symbol": "mmq_fwd_q3_k_m32768_n4096_k2048_30303137a9ac844c",
     "TotalSGPRs": 16,
     "TotalVGPRs": 200,
     "WorkGroup": [
@@ -14627,7 +14627,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_429a03804aaa666d",
+    "ExactHash": "ggsol_9f40e1e7d6727c79",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       8,
@@ -14658,9 +14658,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "0ab93aab315fefd140c8d3601d80d4d1e3cb7a861b2e7f74b40f3ef7aaf6b62f",
+    "SourceSHA256": "71314c0fcc5b5d14becf1ef3d5b504a1f164903fff6954a458b6136695e9f0ef",
     "StaticGroupSegmentBytes": 39936,
-    "Symbol": "mmq_fwd_q3_k_m32768_n512_k2048_429a03804aaa666d",
+    "Symbol": "mmq_fwd_q3_k_m32768_n512_k2048_9f40e1e7d6727c79",
     "TotalSGPRs": 16,
     "TotalVGPRs": 200,
     "WorkGroup": [
@@ -14722,7 +14722,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_82a11dd1e5b6e121",
+    "ExactHash": "ggsol_f2f00304a68c9dba",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       128,
@@ -14753,9 +14753,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "cdd44fb96f58a48eed8ba04551e66c62abb736df008699d1a0641da3c6d4620d",
+    "SourceSHA256": "8845abfbed9723a983b699c882e3bc87151b7ae08ffdd50d4acc57f370dd050b",
     "StaticGroupSegmentBytes": 39936,
-    "Symbol": "mmq_fwd_q3_k_m32768_n8192_k2048_82a11dd1e5b6e121",
+    "Symbol": "mmq_fwd_q3_k_m32768_n8192_k2048_f2f00304a68c9dba",
     "TotalSGPRs": 16,
     "TotalVGPRs": 200,
     "WorkGroup": [
@@ -14817,7 +14817,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_e55bc54e7d22348a",
+    "ExactHash": "ggsol_3ab5b07ba61017fd",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       64,
@@ -14848,9 +14848,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "5bb7288c3a727525a78c008d55f0bca86c37510efc9b69d9728e2c9fb0784f67",
+    "SourceSHA256": "51cd3870fed8fa0bb6ddc965dcc63a53ced8be2a31b97f3915fdc40bc633d293",
     "StaticGroupSegmentBytes": 39936,
-    "Symbol": "mmq_fwd_q3_k_m8192_n4096_k2048_e55bc54e7d22348a",
+    "Symbol": "mmq_fwd_q3_k_m8192_n4096_k2048_3ab5b07ba61017fd",
     "TotalSGPRs": 16,
     "TotalVGPRs": 200,
     "WorkGroup": [
@@ -14912,7 +14912,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_219612a5369805b5",
+    "ExactHash": "ggsol_d13a2e20772a3f36",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       8,
@@ -14943,9 +14943,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "eb98df71d311c9afb100512294614831cfc048055f5e28947bd7c10c50fe9854",
+    "SourceSHA256": "8cc1bad97d4aaa80eae3eb594d15ff7b3f02780f5700acbdfd4f25a3fb009087",
     "StaticGroupSegmentBytes": 39936,
-    "Symbol": "mmq_fwd_q3_k_m8192_n512_k2048_219612a5369805b5",
+    "Symbol": "mmq_fwd_q3_k_m8192_n512_k2048_d13a2e20772a3f36",
     "TotalSGPRs": 16,
     "TotalVGPRs": 200,
     "WorkGroup": [
@@ -15007,7 +15007,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_b2b8e60d486854b4",
+    "ExactHash": "ggsol_ea474af8c0c5fc1f",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       128,
@@ -15038,9 +15038,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "56fabfe7a446399ee4775c5cc5ec9483bdc870e56c87bc5d0feb470e981eebd8",
+    "SourceSHA256": "2c798debb6c950c15471c3f7df00c8df23badf77d8fde5d9823226e18fc6949d",
     "StaticGroupSegmentBytes": 39936,
-    "Symbol": "mmq_fwd_q3_k_m8192_n8192_k2048_b2b8e60d486854b4",
+    "Symbol": "mmq_fwd_q3_k_m8192_n8192_k2048_ea474af8c0c5fc1f",
     "TotalSGPRs": 16,
     "TotalVGPRs": 200,
     "WorkGroup": [
@@ -15102,7 +15102,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_4cbe72c7696e682c",
+    "ExactHash": "ggsol_35cd5963d378d459",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       32,
@@ -15133,9 +15133,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "317d39b1d23bb9b25526c4fe1dff0da810cba1490c5295b5bd45b102db352741",
+    "SourceSHA256": "0a0f8f038457ba757d389593e75f3998ecac8b30b7e1cfa5a3234a2d143488f0",
     "StaticGroupSegmentBytes": 39936,
-    "Symbol": "mmq_fwd_q3_k_m2048_n2048_k4096_4cbe72c7696e682c",
+    "Symbol": "mmq_fwd_q3_k_m2048_n2048_k4096_35cd5963d378d459",
     "TotalSGPRs": 16,
     "TotalVGPRs": 200,
     "WorkGroup": [
@@ -15197,7 +15197,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_15394ea74863472c",
+    "ExactHash": "ggsol_8cf2953f54daef89",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       32,
@@ -15228,9 +15228,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "90d1c5a38790b01e6c346e0ac14d0263446aeaf89dc974d1e148c8572585307a",
+    "SourceSHA256": "e769aa730ffed18244c6f898ce381114fc0e7bdaf8d14243ca750d384cd1ff30",
     "StaticGroupSegmentBytes": 39936,
-    "Symbol": "mmq_fwd_q3_k_m32768_n2048_k4096_15394ea74863472c",
+    "Symbol": "mmq_fwd_q3_k_m32768_n2048_k4096_8cf2953f54daef89",
     "TotalSGPRs": 16,
     "TotalVGPRs": 200,
     "WorkGroup": [
@@ -15292,7 +15292,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_877a08342ade961f",
+    "ExactHash": "ggsol_06c1f21713b45e43",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       32,
@@ -15323,9 +15323,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "020f0cdc2743fcd9a3309b1a8eb64b2d52ffcca4e8f5ccbdc4f301157e80e806",
+    "SourceSHA256": "9ff32ac8d19f410df0b450e12a1d7082eecada017be20a6561196c83854f10bf",
     "StaticGroupSegmentBytes": 39936,
-    "Symbol": "mmq_fwd_q3_k_m8192_n2048_k4096_877a08342ade961f",
+    "Symbol": "mmq_fwd_q3_k_m8192_n2048_k4096_06c1f21713b45e43",
     "TotalSGPRs": 16,
     "TotalVGPRs": 200,
     "WorkGroup": [
@@ -15387,7 +15387,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_fbaba6a7acacffe4",
+    "ExactHash": "ggsol_7f187e39bc287c24",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       3880,
@@ -15418,9 +15418,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "912cf82c50bdcc23ff8485ae511cdd639ba1fa6c94a0c065bc9b9a38bb5ad627",
+    "SourceSHA256": "256922207c6dbc87516b0185ad878996dfece1e661e477b960ee85fc0020d147",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "mmq_fwd_q6_k_m128_n248320_k2048_fbaba6a7acacffe4",
+    "Symbol": "mmq_fwd_q6_k_m128_n248320_k2048_7f187e39bc287c24",
     "TotalSGPRs": 27,
     "TotalVGPRs": 210,
     "WorkGroup": [
@@ -15482,7 +15482,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_505bfb6ebfa47e9c",
+    "ExactHash": "ggsol_91905def3e2625cc",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       3880,
@@ -15513,9 +15513,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "a747301eb200fa619181d82c14fc40f26eb69b53da3df624f4f99872af8d05bc",
+    "SourceSHA256": "f25bd39927d847d9295a4bad74d73ac58cf770f1cfd050041da056bffef2ff88",
     "StaticGroupSegmentBytes": 38400,
-    "Symbol": "mmq_fwd_q6_k_m256_n248320_k2048_505bfb6ebfa47e9c",
+    "Symbol": "mmq_fwd_q6_k_m256_n248320_k2048_91905def3e2625cc",
     "TotalSGPRs": 27,
     "TotalVGPRs": 210,
     "WorkGroup": [
@@ -15577,7 +15577,7 @@
       ]
     ],
     "ABIName": "OrdinaryForward",
-    "ExactHash": "ggsol_0a067eceaf8ef972",
+    "ExactHash": "ggsol_ef5c904640b7f2fe",
     "KernelFamily": "OrdinaryForward",
     "Grid": [
       3880,
@@ -15608,9 +15608,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "59b929af5308c179574b03f2a5984070c0dbe9397f1d25bcda9b98fd3f1d5cdb",
+    "SourceSHA256": "6f70247f30f7e3b5003bd3d1bbdd8b2d571cb53bc81c8350a6f9021d881d135b",
     "StaticGroupSegmentBytes": 28928,
-    "Symbol": "mmq_fwd_q6_k_m64_n248320_k2048_0a067eceaf8ef972",
+    "Symbol": "mmq_fwd_q6_k_m64_n248320_k2048_ef5c904640b7f2fe",
     "TotalSGPRs": 27,
     "TotalVGPRs": 158,
     "WorkGroup": [

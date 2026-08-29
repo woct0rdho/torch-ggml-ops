@@ -47,8 +47,8 @@
         ]
       },
       "GlobalMemory": {
-        "OperandSource": "Q6StructuredDecoded",
-        "ActivationAddressing": "MadU24",
+        "WeightStaging": "Q6StructuredDecoded",
+        "ActivationStaging": "MadU24",
         "GlobalReadCachePolicy": "InvalidateL0"
       },
       "Lds": {
@@ -102,8 +102,8 @@
         ]
       },
       "GlobalMemory": {
-        "OperandSource": "Q6StructuredDecoded",
-        "ActivationAddressing": "MadU24",
+        "WeightStaging": "Q6StructuredDecoded",
+        "ActivationStaging": "MadU24",
         "GlobalReadCachePolicy": "InvalidateL0"
       },
       "Lds": {

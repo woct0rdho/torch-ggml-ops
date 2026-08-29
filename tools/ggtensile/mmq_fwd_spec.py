@@ -25,6 +25,7 @@ from .quant_formats import (
 )
 from .schema import SchemaError
 from .schema import boolean as _boolean
+from .schema import enum_value as _enum
 from .schema import integer as _integer
 from .schema import integer_tuple as _integer_tuple
 from .schema import strict_mapping as _strict_mapping
@@ -461,12 +462,31 @@ class OwnershipSpec:
     mi_wave_tile: tuple[int, int]
 
 
+class ForwardWeightStaging(str, Enum):
+    Global = "Global"
+    DecodedWeightLdsBatch8 = "DecodedWeightLdsBatch8"
+    Q6StructuredDecoded = "Q6StructuredDecoded"
+    Q3HipTiledLds = "Q3HipTiledLds"
+    Q3FullWeightTiledLds = "Q3FullWeightTiledLds"
+    Q8DirectGlobal = "Q8DirectGlobal"
+    Q8RegisterTiled = "Q8RegisterTiled"
+    Q8HipTiledLds = "Q8HipTiledLds"
+    Q8SmallMTiledLds = "Q8SmallMTiledLds"
+
+
+class ForwardActivationStaging(str, Enum):
+    MadU24 = "MadU24"
+    MultiplyAdd = "MultiplyAdd"
+    ScalarPlaneBase = "ScalarPlaneBase"
+    FixedGroupRows = "FixedGroupRows"
+
+
 @dataclass(frozen=True)
 class GlobalMemorySpec:
     """Global operand dataflow and address/cache policies."""
 
-    operand_source: str
-    activation_addressing: str
+    weight_staging: ForwardWeightStaging
+    activation_staging: ForwardActivationStaging
     global_read_cache_policy: str | None
 
 
@@ -1015,18 +1035,18 @@ class SemanticSchedulePolicy:
 class ForwardDataflowContract:
     """Addressing and conversion choices owned by one mechanism."""
 
-    activation_addressing: str
+    activation_staging: ForwardActivationStaging
     lds_address_hoists: tuple[str, ...]
     metadata_conversion: str
 
     def validate(
         self,
         *,
-        activation_addressing: str,
+        activation_staging: ForwardActivationStaging,
         lds_address_hoist: str,
         metadata_conversion: str,
     ) -> None:
-        assert activation_addressing == self.activation_addressing
+        assert activation_staging == self.activation_staging
         self.validate_physical(lds_address_hoist)
         assert metadata_conversion == self.metadata_conversion
 
@@ -1091,7 +1111,7 @@ _PACKED_SCALE_MINIMUM_CONTRACT = ForwardMechanismContract(
     scale_arithmetic="FP16",
     arithmetic_contracts=("SignedKQuantIntegerWmmaFP16ScaleMinimumCorrection",),
     dataflow=ForwardDataflowContract(
-        activation_addressing="MadU24",
+        activation_staging=ForwardActivationStaging.MadU24,
         lds_address_hoists=("WeightMetadata",),
         metadata_conversion="DirectFloat16Unsigned16",
     ),
@@ -1109,7 +1129,7 @@ _SIGNED_INT8_CONTRACT = ForwardMechanismContract(
     scale_arithmetic="Int32ScaleF32",
     arithmetic_contracts=("SignedQ8Int8ScaleIntegerWmmaF32Correction",),
     dataflow=ForwardDataflowContract(
-        activation_addressing="MultiplyAdd",
+        activation_staging=ForwardActivationStaging.MultiplyAdd,
         lds_address_hoists=("None",),
         metadata_conversion="Float16DToFloat32",
     ),
@@ -1117,20 +1137,20 @@ _SIGNED_INT8_CONTRACT = ForwardMechanismContract(
 )
 _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
     {
-        "Global": replace(
+        ForwardWeightStaging.Global: replace(
             _PACKED_SCALE_MINIMUM_CONTRACT,
             lowering="PackedScaleMinimumDirect",
             weight_decodes=("DirectNibble",),
             dataflow=ForwardDataflowContract(
-                activation_addressing="MultiplyAdd",
+                activation_staging=ForwardActivationStaging.MultiplyAdd,
                 lds_address_hoists=("None",),
                 metadata_conversion="Float32ThenFloat16",
             ),
             physical_plan="PackedScaleMinimumDirect",
             extended_matrix_instruction=False,
         ),
-        "DecodedWeightLdsBatch8": _PACKED_SCALE_MINIMUM_CONTRACT,
-        "Q6StructuredDecoded": ForwardMechanismContract(
+        ForwardWeightStaging.DecodedWeightLdsBatch8: _PACKED_SCALE_MINIMUM_CONTRACT,
+        ForwardWeightStaging.Q6StructuredDecoded: ForwardMechanismContract(
             lowering="StructuredQ6",
             activation_layout="F32_D4",
             activation_block_bytes=Q8_1_F32_D4_BLOCK_BYTES,
@@ -1141,7 +1161,7 @@ _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
             scale_arithmetic="Int32ScaleF32",
             arithmetic_contracts=("SignedQ6Int8ScaleIntegerWmmaF32Correction",),
             dataflow=ForwardDataflowContract(
-                activation_addressing="MadU24",
+                activation_staging=ForwardActivationStaging.MadU24,
                 lds_address_hoists=("StructuredDecodeDot",),
                 metadata_conversion="Float16DToFloat32Signed8Scale",
             ),
@@ -1149,7 +1169,7 @@ _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
             uses_workitem_id=True,
             extended_matrix_instruction=True,
         ),
-        "Q3HipTiledLds": ForwardMechanismContract(
+        ForwardWeightStaging.Q3HipTiledLds: ForwardMechanismContract(
             lowering="Packed3BitTiledLds",
             activation_layout="F32_D4",
             activation_block_bytes=Q8_1_F32_D4_BLOCK_BYTES,
@@ -1160,7 +1180,7 @@ _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
             scale_arithmetic="Int32ScaleF32",
             arithmetic_contracts=("SignedQ3Int8ScaleIntegerWmmaF32Correction",),
             dataflow=ForwardDataflowContract(
-                activation_addressing="MadU24",
+                activation_staging=ForwardActivationStaging.MadU24,
                 lds_address_hoists=("Q3HalfTile",),
                 metadata_conversion="Float16DToFloat32Signed6Scale",
             ),
@@ -1168,7 +1188,7 @@ _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
             uses_workitem_id=True,
             extended_matrix_instruction=True,
         ),
-        "Q3FullWeightTiledLds": ForwardMechanismContract(
+        ForwardWeightStaging.Q3FullWeightTiledLds: ForwardMechanismContract(
             lowering="Packed3BitFullWeightTiledLds",
             activation_layout="F32_D4",
             activation_block_bytes=Q8_1_F32_D4_BLOCK_BYTES,
@@ -1179,7 +1199,7 @@ _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
             scale_arithmetic="Int32ScaleF32",
             arithmetic_contracts=("SignedQ3Int8ScaleIntegerWmmaF32Correction",),
             dataflow=ForwardDataflowContract(
-                activation_addressing="ScalarPlaneBase",
+                activation_staging=ForwardActivationStaging.ScalarPlaneBase,
                 lds_address_hoists=("Q3FullTile336",),
                 metadata_conversion="Float16DToFloat32Signed6ScaleShared",
             ),
@@ -1187,17 +1207,17 @@ _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
             uses_workitem_id=True,
             extended_matrix_instruction=True,
         ),
-        "Q8DirectGlobal": _SIGNED_INT8_CONTRACT,
-        "Q8RegisterTiled": replace(
+        ForwardWeightStaging.Q8DirectGlobal: _SIGNED_INT8_CONTRACT,
+        ForwardWeightStaging.Q8RegisterTiled: replace(
             _SIGNED_INT8_CONTRACT,
             physical_plan="SignedInt8RegisterTiled",
             uses_workitem_id=True,
             extended_matrix_instruction=True,
         ),
-        "Q8HipTiledLds": replace(
+        ForwardWeightStaging.Q8HipTiledLds: replace(
             _SIGNED_INT8_CONTRACT,
             dataflow=ForwardDataflowContract(
-                activation_addressing="MadU24",
+                activation_staging=ForwardActivationStaging.MadU24,
                 lds_address_hoists=("HipTile", "CompactDepth32WeightRows"),
                 metadata_conversion="Float16DToFloat32",
             ),
@@ -1206,10 +1226,10 @@ _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
             uses_workitem_id=True,
             extended_matrix_instruction=True,
         ),
-        "Q8SmallMTiledLds": replace(
+        ForwardWeightStaging.Q8SmallMTiledLds: replace(
             _SIGNED_INT8_CONTRACT,
             dataflow=ForwardDataflowContract(
-                activation_addressing="MadU24",
+                activation_staging=ForwardActivationStaging.MadU24,
                 lds_address_hoists=("SmallMTile", "CompactDepth32WeightRows"),
                 metadata_conversion="Float16DToFloat32",
             ),
@@ -1222,9 +1242,11 @@ _FORWARD_MECHANISM_CONTRACTS = MappingProxyType(
 )
 
 
-def forward_mechanism_contract(operand_source: str) -> ForwardMechanismContract:
+def forward_mechanism_contract(
+    weight_staging: ForwardWeightStaging,
+) -> ForwardMechanismContract:
     """Return the explicit data-contract domain implemented by a mechanism."""
-    mechanism = _FORWARD_MECHANISM_CONTRACTS.get(operand_source)
+    mechanism = _FORWARD_MECHANISM_CONTRACTS.get(weight_staging)
     assert mechanism is not None
     return mechanism
 
@@ -1271,7 +1293,7 @@ class ForwardKernelSpec:
         global_memory = _strict_mapping_optional(
             item["GlobalMemory"],
             name="ForwardKernelSpec.GlobalMemory",
-            required=frozenset({"OperandSource", "ActivationAddressing"}),
+            required=frozenset({"WeightStaging", "ActivationStaging"}),
             optional=frozenset({"GlobalReadCachePolicy"}),
         )
         lds = _strict_mapping(
@@ -1279,8 +1301,8 @@ class ForwardKernelSpec:
             name="ForwardKernelSpec.Lds",
             keys=frozenset({"AddressHoist"}),
         )
-        source = _string(global_memory, "OperandSource")
-        mechanism = forward_mechanism_contract(source)
+        weight_staging = _enum(global_memory, "WeightStaging", ForwardWeightStaging)
+        mechanism = forward_mechanism_contract(weight_staging)
         if mechanism.lowering == "DecodedWeightLds":
             decode_keys = frozenset(
                 {
@@ -1416,8 +1438,12 @@ class ForwardKernelSpec:
                 ),
             ),
             global_memory=GlobalMemorySpec(
-                operand_source=source,
-                activation_addressing=_string(global_memory, "ActivationAddressing"),
+                weight_staging=weight_staging,
+                activation_staging=_enum(
+                    global_memory,
+                    "ActivationStaging",
+                    ForwardActivationStaging,
+                ),
                 global_read_cache_policy=(
                     _string(
                         global_memory,
@@ -1460,10 +1486,10 @@ class ForwardKernelSpec:
         )
 
     def validate(self, contract: ForwardProblemContract) -> None:
-        mechanism = forward_mechanism_contract(self.global_memory.operand_source)
+        mechanism = forward_mechanism_contract(self.global_memory.weight_staging)
         mechanism.validate(contract)
         mechanism.dataflow.validate(
-            activation_addressing=self.global_memory.activation_addressing,
+            activation_staging=self.global_memory.activation_staging,
             lds_address_hoist=self.lds.address_hoist,
             metadata_conversion=self.decode.metadata_conversion,
         )
@@ -1555,8 +1581,8 @@ class ForwardKernelSpec:
 
     def to_mapping(self) -> dict[str, object]:
         global_memory: dict[str, object] = {
-            "OperandSource": self.global_memory.operand_source,
-            "ActivationAddressing": self.global_memory.activation_addressing,
+            "WeightStaging": self.global_memory.weight_staging.value,
+            "ActivationStaging": self.global_memory.activation_staging.value,
         }
         if self.global_memory.global_read_cache_policy is not None:
             global_memory["GlobalReadCachePolicy"] = (
@@ -1848,7 +1874,7 @@ def validate_forward_kernel_spec_record(
 
 def q6_schedule_from_kernel_spec(spec: ForwardKernelSpec) -> Q6ForwardSchedule:
     """Derive structured Q6 lowering state from one canonical kernel spec."""
-    assert spec.global_memory.operand_source == "Q6StructuredDecoded"
+    assert spec.global_memory.weight_staging is ForwardWeightStaging.Q6StructuredDecoded
     assert spec.geometry.work_group[0] == 32
     assert spec.geometry.work_group[2] == 1
     assert spec.ownership.mi_wave_group[0] * spec.ownership.mi_wave_group[1] > 0
@@ -1905,7 +1931,7 @@ class ForwardKernelCandidate:
                 spec.macro_tile[0],
                 spec.macro_tile[1],
                 forward_mechanism_contract(
-                    spec.global_memory.operand_source
+                    spec.global_memory.weight_staging
                 ).reduction_values,
             ),
             contract,
@@ -1972,7 +1998,7 @@ class DerivedForwardState:
             plane.byte_offset + plane.byte_count for plane in semantics.payload_planes
         )
         assert payload_bytes == contract.packed_weight_block_bytes
-        mechanism = forward_mechanism_contract(kernel_spec.global_memory.operand_source)
+        mechanism = forward_mechanism_contract(kernel_spec.global_memory.weight_staging)
         mechanism.validate(contract)
         from .mmq_fwd_physical import derive_forward_physical_plan
 

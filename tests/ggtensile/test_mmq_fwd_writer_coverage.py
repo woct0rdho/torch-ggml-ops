@@ -24,6 +24,7 @@ from tools.ggtensile.mmq_fwd_search import (
 from tools.ggtensile.mmq_fwd_spec import (
     DecodedLdsForwardDecodePolicy,
     DerivedForwardState,
+    ForwardActivationStaging,
     ForwardKernelSpec,
     SemanticSchedulePolicy,
 )
@@ -112,7 +113,10 @@ def test_validation_rejects_dataflow_mutation() -> None:
     )
     invalid = replace(
         spec,
-        global_memory=replace(spec.global_memory, activation_addressing="Unknown"),
+        global_memory=replace(
+            spec.global_memory,
+            activation_staging=ForwardActivationStaging.MultiplyAdd,
+        ),
     )
     size = ProblemSize(8192, 2048, 512)
     with pytest.raises(AssertionError):

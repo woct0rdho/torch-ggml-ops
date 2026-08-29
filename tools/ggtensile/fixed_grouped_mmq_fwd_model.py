@@ -3,15 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 
 from .quant_formats import QUANT_FORMATS
-
-
-class FixedForwardOperandSource(str, Enum):
-    """Physical Q8_0 dataflow families owned by this experiment."""
-
-    Q8SmallMTiledLds = "Q8SmallMTiledLds"
 
 
 @dataclass(frozen=True)

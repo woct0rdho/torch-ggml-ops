@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from .grouped_mmq_fwd_model import GroupedActivationAddressing
+from .grouped_mmq_fwd_model import GroupedActivationStaging
 from .grouped_mmq_fwd_pair_model import GroupedForwardPairProblem
 from .grouped_mmq_fwd_pair_physical import (
     GroupedIQ2SPairHalfLdsLayout,
@@ -103,8 +103,8 @@ class GroupedPairK128Mechanics:
         stage_index: int,
     ) -> None:
         if (
-            self.context.state.kernel_spec.activation_addressing
-            is GroupedActivationAddressing.AggregateRowsTiledLinear
+            self.context.state.kernel_spec.activation_staging
+            is GroupedActivationStaging.AggregateRowsTiledLinear
         ):
             self.emit_linear_activation_stage(
                 asm,

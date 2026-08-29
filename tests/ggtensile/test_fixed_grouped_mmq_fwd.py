@@ -57,7 +57,7 @@ def test_fixed_forward_spec_owns_geometry_and_addressing() -> None:
     spec = instance.kernel_spec
     assert isinstance(spec, FixedForwardKernelSpec)
     assert FixedForwardKernelSpec.from_mapping(spec.to_mapping()) == spec
-    assert spec.operand_source.value == "Q8SmallMTiledLds"
+    assert spec.weight_staging.value == "Q8SmallMTiledLds"
     assert spec.depth_u == 32
     assert spec.macro_tile_tokens > 0
     assert spec.macro_tile_features > 0

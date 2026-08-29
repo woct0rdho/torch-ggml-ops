@@ -268,8 +268,8 @@ def test_inspection_consumes_backward_physical_resources_without_replay() -> Non
     assert "def allocate(cursor: int, count: int, alignment: int = 1)" not in source
 
 
-def test_forward_authority_consumers_do_not_repeat_operand_source_sets() -> None:
-    operand_sources = {
+def test_forward_authority_consumers_do_not_repeat_weight_staging_sets() -> None:
+    weight_staging_values = {
         "Q6StructuredDecoded",
         "Q3HipTiledLds",
         "Q3FullWeightTiledLds",
@@ -285,7 +285,7 @@ def test_forward_authority_consumers_do_not_repeat_operand_source_sets() -> None
             for node in ast.walk(ast.parse(_source(path), filename=str(path)))
             if isinstance(node, ast.Constant) and isinstance(node.value, str)
         }
-        assert not operand_sources & values, path
+        assert not weight_staging_values & values, path
 
 
 def test_grouped_route_emitter_owns_the_complete_route_prologue() -> None:

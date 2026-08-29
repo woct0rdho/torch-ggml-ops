@@ -8,8 +8,8 @@ from .grouped_mmq_fwd_pair_lowering_iq2_xxs import (
 from .grouped_mmq_fwd_pair_lowering_q3_k import GroupedQ3KPairedK128Lowering
 from .grouped_mmq_fwd_pair_model import (
     GroupedForwardPairProblem,
-    GroupedPairOperandSource,
     GroupedPairRouteOwnership,
+    GroupedPairWeightStaging,
 )
 from .grouped_mmq_fwd_pair_spec import (
     DerivedGroupedForwardPairState,
@@ -56,16 +56,16 @@ class GroupedForwardPairKernelWriterAssembly(AssemblyKernelWriter):
             if row_tasks
             else "serial GEMM ownership"
         )
-        operand_source = self.state.kernel_spec.operand_source
-        if operand_source is GroupedPairOperandSource.GridHalfWeightLds:
+        weight_staging = self.state.kernel_spec.weight_staging
+        if weight_staging is GroupedPairWeightStaging.GridHalfWeightLds:
             emission = GroupedIQ2SPairedK128Lowering(self.context).emission()
-        elif operand_source is GroupedPairOperandSource.ParityGridHalfWeightLds:
+        elif weight_staging is GroupedPairWeightStaging.ParityGridHalfWeightLds:
             emission = GroupedIQ2XXSPairedK128Lowering(self.context).emission()
-        elif operand_source is GroupedPairOperandSource.SignedThreeBitHalfWeightLds:
+        elif weight_staging is GroupedPairWeightStaging.SignedThreeBitHalfWeightLds:
             emission = GroupedQ3KPairedK128Lowering(self.context).emission()
         else:
             raise ForwardKernelWriterError(
-                f"paired lowering is unavailable for {operand_source!r}"
+                f"paired lowering is unavailable for {weight_staging!r}"
             )
         return KernelEmissionPlan(
             module_name="GGTensileGroupedForwardPairKernel",

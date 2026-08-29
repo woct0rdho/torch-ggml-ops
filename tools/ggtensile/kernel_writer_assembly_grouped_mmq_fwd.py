@@ -9,8 +9,8 @@ from .grouped_mmq_fwd_lowering_iq2_s import GroupedIQ2SFullWeightLdsLowering
 from .grouped_mmq_fwd_lowering_q2_k import grouped_q2_decoded_lowering
 from .grouped_mmq_fwd_model import (
     GroupedForwardProblem,
-    GroupedOperandSource,
     GroupedQ2DecodePolicy,
+    GroupedWeightStaging,
 )
 from .grouped_mmq_fwd_spec import DerivedGroupedForwardState, GroupedForwardKernelSpec
 from .grouped_mmq_fwd_validation import validate_grouped_forward_solution
@@ -40,18 +40,18 @@ class GroupedForwardKernelWriterAssembly(AssemblyKernelWriter):
         contract = self.state.contract
         resources = self.state.physical_plan.resources
         quant_type = self.state.problem.quant_data_type
-        if spec.operand_source is GroupedOperandSource.GroupedDirectGlobal:
+        if spec.weight_staging is GroupedWeightStaging.GroupedDirectGlobal:
             emission = GroupedPackedScaleMinimumDirectLowering(self.context).emission()
-        elif spec.operand_source is GroupedOperandSource.GroupedDecodedWeightLds:
+        elif spec.weight_staging is GroupedWeightStaging.GroupedDecodedWeightLds:
             if isinstance(self.state.kernel_spec.decode, GroupedQ2DecodePolicy):
                 emission = grouped_q2_decoded_lowering(self.context).emission()
             else:
                 emission = grouped_decoded_lowering(self.context).emission()
-        elif spec.operand_source is GroupedOperandSource.GroupedIQ2SFullWeightLds:
+        elif spec.weight_staging is GroupedWeightStaging.GroupedIQ2SFullWeightLds:
             emission = GroupedIQ2SFullWeightLdsLowering(self.context).emission()
         else:
             raise TypeError(
-                f"unsupported grouped operand source {spec.operand_source!r}"
+                f"unsupported grouped weight staging {spec.weight_staging!r}"
             )
         return KernelEmissionPlan(
             module_name="GGTensileGroupedForwardKernel",

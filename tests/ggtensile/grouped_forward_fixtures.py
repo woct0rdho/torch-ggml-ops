@@ -3,10 +3,10 @@ from pathlib import Path
 
 from tools.ggtensile.campaign import DeploymentCatalog, load_catalog
 from tools.ggtensile.grouped_mmq_fwd_model import (
-    GroupedActivationAddressing,
+    GroupedActivationStaging,
     GroupedDecodedPolicy,
     GroupedForwardProblem,
-    GroupedOperandSource,
+    GroupedWeightStaging,
 )
 from tools.ggtensile.grouped_mmq_fwd_spec import GroupedForwardKernelSpec
 
@@ -92,10 +92,10 @@ class GroupedForwardTestSolutions:
                 macro_tile=(16, 16),
                 tail_macro_tile0=16,
             ),
-            operand_source=GroupedOperandSource.GroupedDirectGlobal,
+            weight_staging=GroupedWeightStaging.GroupedDirectGlobal,
             activation=replace(
                 spec.activation,
-                addressing=GroupedActivationAddressing.AggregateRows,
+                staging=GroupedActivationStaging.AggregateRows,
             ),
             decode=GroupedDecodedPolicy("Float32ThenFloat16", False, False),
             epilogue=replace(spec.epilogue, tiles_ahead=1),
@@ -142,7 +142,7 @@ class GroupedForwardTestSolutions:
             cls.iq2_s_serial_full_weight_lds_64_linear_activation(),
             activation=replace(
                 _IQ2_S_SELECTED.activation,
-                addressing=GroupedActivationAddressing.AggregateRowsTiled,
+                staging=GroupedActivationStaging.AggregateRowsTiled,
             ),
         )
 

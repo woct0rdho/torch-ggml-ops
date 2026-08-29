@@ -64,8 +64,22 @@ class BackwardMetadataLoad(str, Enum):
     Vector = "Vector"
 
 
+class LdsBuffering(str, Enum):
+    Single = "Single"
+    Double = "Double"
+
+
+class PackedLoadGrouping(str, Enum):
+    PerLane = "PerLane"
+    LanePair = "LanePair"
+
+    @property
+    def lane_share(self) -> int:
+        return 1 if self is PackedLoadGrouping.PerLane else 2
+
+
 class BackwardStorePriority(str, Enum):
-    Default = "Default"
+    Normal = "Normal"
     Raised = "Raised"
 
 
@@ -142,7 +156,7 @@ class BackwardQuantRegisterShape:
 
 @dataclass(frozen=True)
 class BackwardMechanismContract:
-    lane_share_values: frozenset[int]
+    packed_load_grouping_values: frozenset[PackedLoadGrouping]
     padded_depth_values: frozenset[int]
     pipeline_n_values: frozenset[int]
     pipeline_depth_values: frozenset[int]
@@ -171,10 +185,10 @@ class BackwardMechanismContract:
 def backward_mechanism_contract(quant_type: str) -> BackwardMechanismContract:
     assert quant_type in BACKWARD_QUANT_FORMATS
     return BackwardMechanismContract(
-        lane_share_values=(
-            frozenset({1, 2})
+        packed_load_grouping_values=(
+            frozenset({PackedLoadGrouping.PerLane, PackedLoadGrouping.LanePair})
             if quant_type in ("Q4_K", "Q5_K", "Q6_K")
-            else frozenset({1})
+            else frozenset({PackedLoadGrouping.PerLane})
         ),
         padded_depth_values=(
             frozenset({32, 64})
@@ -349,15 +363,15 @@ class BackwardMemorySpec:
 class BackwardPipelineSpec:
     global_read_prefetch: int
     local_read_prefetch: int
-    double_buffer_lds: bool
+    lds_buffering: LdsBuffering
     iteration: BackwardIterationPolicy
     prefetch_packed_weight: bool
     prefetch_next_packed_weight: bool
-    packed_weight_lane_share: int
+    packed_load_grouping: PackedLoadGrouping
 
     @property
     def decoded_b_pipeline(self) -> bool:
-        return self.double_buffer_lds
+        return self.lds_buffering is LdsBuffering.Double
 
     @property
     def prefetches_next_packed_tile(self) -> bool:
@@ -380,9 +394,9 @@ class BackwardPipelineSpec:
         assert self.local_read_prefetch in (1, 2)
         assert self.iteration.supports_global_read_prefetch(self.global_read_prefetch)
         assert self.iteration.supports_local_read_prefetch(self.local_read_prefetch)
-        assert self.packed_weight_lane_share in mechanism.lane_share_values
+        assert self.packed_load_grouping in mechanism.packed_load_grouping_values
         assert self.prefetch_packed_weight
-        if self.double_buffer_lds:
+        if self.lds_buffering is LdsBuffering.Double:
             assert self.iteration.prefetch_activation
             assert self.global_read_prefetch == 2
             assert self.local_read_prefetch == 1
@@ -518,12 +532,12 @@ class BackwardKernelSpec:
             "Pipeline": {
                 "PrefetchGlobalRead": self.pipeline.global_read_prefetch,
                 "PrefetchLocalRead": self.pipeline.local_read_prefetch,
-                "DoubleBufferLds": self.pipeline.double_buffer_lds,
+                "LdsBuffering": self.pipeline.lds_buffering.value,
                 "PrefetchActivation": self.pipeline.iteration.prefetch_activation,
                 "InterleaveWmmaWaits": (self.pipeline.iteration.interleave_wmma_waits),
                 "PrefetchPackedWeight": self.pipeline.prefetch_packed_weight,
                 "PrefetchNextPackedWeight": (self.pipeline.prefetch_next_packed_weight),
-                "PackedWeightLaneShare": self.pipeline.packed_weight_lane_share,
+                "PackedLoadGrouping": self.pipeline.packed_load_grouping.value,
             },
             "Store": {"Priority": self.store.priority.value},
         }
@@ -651,19 +665,23 @@ class BackwardKernelSpec:
                 {
                     "PrefetchGlobalRead",
                     "PrefetchLocalRead",
-                    "DoubleBufferLds",
+                    "LdsBuffering",
                     "PrefetchActivation",
                     "InterleaveWmmaWaits",
                     "PrefetchPackedWeight",
                     "PrefetchNextPackedWeight",
-                    "PackedWeightLaneShare",
+                    "PackedLoadGrouping",
                 }
             ),
         )
         pipeline = BackwardPipelineSpec(
             global_read_prefetch=_integer(pipeline_item, "PrefetchGlobalRead"),
             local_read_prefetch=_integer(pipeline_item, "PrefetchLocalRead"),
-            double_buffer_lds=_boolean(pipeline_item, "DoubleBufferLds"),
+            lds_buffering=_serialized_enum(
+                LdsBuffering,
+                pipeline_item["LdsBuffering"],
+                "Pipeline.LdsBuffering",
+            ),
             iteration=BackwardIterationPolicy(
                 prefetch_activation=_boolean(pipeline_item, "PrefetchActivation"),
                 interleave_wmma_waits=_boolean(pipeline_item, "InterleaveWmmaWaits"),
@@ -672,9 +690,10 @@ class BackwardKernelSpec:
             prefetch_next_packed_weight=_boolean(
                 pipeline_item, "PrefetchNextPackedWeight"
             ),
-            packed_weight_lane_share=_integer(
-                pipeline_item,
-                "PackedWeightLaneShare",
+            packed_load_grouping=_serialized_enum(
+                PackedLoadGrouping,
+                pipeline_item["PackedLoadGrouping"],
+                "Pipeline.PackedLoadGrouping",
             ),
         )
         decode = BackwardDecodeSpec(decoder_width=16)

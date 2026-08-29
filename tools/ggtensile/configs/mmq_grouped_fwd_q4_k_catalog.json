@@ -47,8 +47,8 @@
         "DepthU": 32
       },
       "Lowering": {
-        "OperandSource": "GroupedDecodedWeightLds",
-        "ActivationAddressing": "AggregateRowsTiled"
+        "WeightStaging": "GroupedDecodedWeightLds",
+        "ActivationStaging": "AggregateRowsTiled"
       },
       "Decode": {
         "Kind": "ScaleMinimum",
@@ -88,8 +88,8 @@
         "DepthU": 32
       },
       "Lowering": {
-        "OperandSource": "GroupedDecodedWeightLds",
-        "ActivationAddressing": "AggregateRowsTiled"
+        "WeightStaging": "GroupedDecodedWeightLds",
+        "ActivationStaging": "AggregateRowsTiled"
       },
       "Decode": {
         "Kind": "ScaleMinimum",

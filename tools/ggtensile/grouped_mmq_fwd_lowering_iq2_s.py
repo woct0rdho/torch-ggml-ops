@@ -7,7 +7,7 @@ from .grouped_mmq_fwd_lowering import (
     GroupedForwardLoweringContext,
 )
 from .grouped_mmq_fwd_model import (
-    GroupedActivationAddressing,
+    GroupedActivationStaging,
     GroupedIQ2SDecodePolicy,
 )
 from .grouped_mmq_fwd_physical import (
@@ -427,8 +427,8 @@ class GroupedIQ2SFullWeightLdsLowering:
         stage_index: int,
     ) -> None:
         if (
-            self.context.state.kernel_spec.activation.addressing
-            is GroupedActivationAddressing.AggregateRowsTiledLinear
+            self.context.state.kernel_spec.activation.staging
+            is GroupedActivationStaging.AggregateRowsTiledLinear
         ):
             self._emit_linear_activation_stage(asm, layout, stage_index=stage_index)
             return

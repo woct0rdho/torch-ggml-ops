@@ -24,7 +24,7 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
 
     def body(self) -> str:
         spec = self.context.state.kernel_spec
-        assert spec.operand_source is self.OPERAND_SOURCE
+        assert spec.weight_staging is self.WEIGHT_STAGING
         assert self.context.problem.quant_data_type == "Q2_K"
         return self._body_q2()
 

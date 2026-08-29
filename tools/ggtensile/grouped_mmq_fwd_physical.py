@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from enum import Enum
 
-from .grouped_mmq_fwd_model import GroupedActivationAddressing
+from .grouped_mmq_fwd_model import GroupedActivationStaging
 from .kernel_writer_assembly import (
     DeterministicRegisterPlan,
     RegisterAssignment,
@@ -356,7 +356,7 @@ class GroupedActivationStage:
 
 @dataclass(frozen=True)
 class GroupedActivationStagingPlan:
-    addressing: GroupedActivationAddressing
+    staging: GroupedActivationStaging
     block_bytes: int
     participating_threads: int
     vector_load_bytes: int = 4

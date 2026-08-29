@@ -2,16 +2,16 @@
 
 from dataclasses import dataclass
 
-from .grouped_mmq_fwd_model import GroupedActivationAddressing
+from .grouped_mmq_fwd_model import GroupedActivationStaging
 from .grouped_mmq_fwd_pair_model import (
     GroupedForwardPairProblem,
     GroupedPairDecodePolicy,
     GroupedPairFixedDecodePolicy,
     GroupedPairIQ2XXSDecodePolicy,
-    GroupedPairOperandSource,
     GroupedPairProjectionInterleave,
     GroupedPairQ3DecodePolicy,
     GroupedPairRouteOwnership,
+    GroupedPairWeightStaging,
 )
 from .grouped_mmq_fwd_pair_physical import (
     GroupedIQ2SPairPhysicalPlan,
@@ -68,7 +68,7 @@ def validate_grouped_forward_pair_problem(problem: GroupedForwardPairProblem) ->
 
 @dataclass(frozen=True)
 class GroupedPairMechanism:
-    operand_source: GroupedPairOperandSource
+    weight_staging: GroupedPairWeightStaging
     decode_type: type[object]
     weight_decode: str
     metadata_conversion: str
@@ -77,19 +77,19 @@ class GroupedPairMechanism:
 def _paired_mechanism(quant_type: str) -> GroupedPairMechanism | None:
     return {
         "IQ2_S": GroupedPairMechanism(
-            GroupedPairOperandSource.GridHalfWeightLds,
+            GroupedPairWeightStaging.GridHalfWeightLds,
             GroupedPairFixedDecodePolicy,
             "TwoLaneSelectedHalfIQ2SGridSigned",
             "Float16DUnsignedNibbleScaleToFloat32",
         ),
         "IQ2_XXS": GroupedPairMechanism(
-            GroupedPairOperandSource.ParityGridHalfWeightLds,
+            GroupedPairWeightStaging.ParityGridHalfWeightLds,
             GroupedPairIQ2XXSDecodePolicy,
             "TwoLaneSelectedHalfParityGridGridParitySigned",
             "Float16DParitySignsOddScaleToFloat32",
         ),
         "Q3_K": GroupedPairMechanism(
-            GroupedPairOperandSource.SignedThreeBitHalfWeightLds,
+            GroupedPairWeightStaging.SignedThreeBitHalfWeightLds,
             GroupedPairQ3DecodePolicy,
             "TwoLaneSelectedHalfSignedThreeBitSigned",
             "Float16DSignedSixBitScaleToFloat32",
@@ -178,11 +178,11 @@ class GroupedForwardPairGeometry:
 @dataclass(frozen=True)
 class GroupedForwardPairKernelSpec:
     geometry: GroupedForwardPairGeometry
-    operand_source: GroupedPairOperandSource
+    weight_staging: GroupedPairWeightStaging
     projection_interleave: GroupedPairProjectionInterleave
     route_ownership: GroupedPairRouteOwnership
     row_task_rows: int | None
-    activation_addressing: GroupedActivationAddressing
+    activation_staging: GroupedActivationStaging
     decode_policy: GroupedPairDecodePolicy
 
     @classmethod
@@ -215,7 +215,7 @@ class GroupedForwardPairKernelSpec:
             item["Lowering"],
             name="GroupedForwardPairKernelSpec.Lowering",
             required=frozenset(
-                {"OperandSource", "RouteOwnership", "ActivationAddressing"}
+                {"WeightStaging", "RouteOwnership", "ActivationStaging"}
             ),
             optional=frozenset({"RowTaskRows"}),
         )
@@ -252,7 +252,7 @@ class GroupedForwardPairKernelSpec:
             raise SchemaError("paired device row tasks require row_task_rows")
         return cls(
             geometry=geometry,
-            operand_source=_enum(lowering, "OperandSource", GroupedPairOperandSource),
+            weight_staging=_enum(lowering, "WeightStaging", GroupedPairWeightStaging),
             projection_interleave=_enum(
                 projection,
                 "Interleave",
@@ -260,10 +260,10 @@ class GroupedForwardPairKernelSpec:
             ),
             route_ownership=route_ownership,
             row_task_rows=row_task_rows,
-            activation_addressing=_enum(
+            activation_staging=_enum(
                 lowering,
-                "ActivationAddressing",
-                GroupedActivationAddressing,
+                "ActivationStaging",
+                GroupedActivationStaging,
             ),
             decode_policy=decode_policy,
         )
@@ -288,9 +288,9 @@ class GroupedForwardPairKernelSpec:
                 "DepthU": self.geometry.depth_u,
             },
             "Lowering": {
-                "OperandSource": self.operand_source.value,
+                "WeightStaging": self.weight_staging.value,
                 "RouteOwnership": self.route_ownership.value,
-                "ActivationAddressing": self.activation_addressing.value,
+                "ActivationStaging": self.activation_staging.value,
                 **(
                     {"RowTaskRows": self.row_task_rows}
                     if self.row_task_rows is not None
@@ -320,10 +320,10 @@ def validate_grouped_forward_pair_capability(
         kernel_spec.projection_interleave is GroupedPairProjectionInterleave.Interleaved
     )
     assert (
-        kernel_spec.activation_addressing
-        is GroupedActivationAddressing.AggregateRowsTiledLinear
+        kernel_spec.activation_staging
+        is GroupedActivationStaging.AggregateRowsTiledLinear
     )
-    assert kernel_spec.operand_source is mechanism.operand_source
+    assert kernel_spec.weight_staging is mechanism.weight_staging
     assert isinstance(kernel_spec.decode_policy, mechanism.decode_type)
     supported_ownership = {
         "IQ2_S": {

@@ -47,8 +47,8 @@
         ]
       },
       "GlobalMemory": {
-        "OperandSource": "Q3FullWeightTiledLds",
-        "ActivationAddressing": "ScalarPlaneBase"
+        "WeightStaging": "Q3FullWeightTiledLds",
+        "ActivationStaging": "ScalarPlaneBase"
       },
       "Lds": {
         "AddressHoist": "Q3FullTile336"

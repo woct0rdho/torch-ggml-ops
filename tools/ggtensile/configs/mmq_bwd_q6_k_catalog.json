@@ -43,12 +43,12 @@
       "Pipeline": {
         "PrefetchGlobalRead": 2,
         "PrefetchLocalRead": 1,
-        "DoubleBufferLds": false,
+        "LdsBuffering": "Single",
         "PrefetchActivation": true,
         "InterleaveWmmaWaits": false,
         "PrefetchPackedWeight": true,
         "PrefetchNextPackedWeight": false,
-        "PackedWeightLaneShare": 1
+        "PackedLoadGrouping": "PerLane"
       },
       "Store": {
         "Priority": "Raised"
@@ -80,12 +80,12 @@
       "Pipeline": {
         "PrefetchGlobalRead": 2,
         "PrefetchLocalRead": 1,
-        "DoubleBufferLds": false,
+        "LdsBuffering": "Single",
         "PrefetchActivation": true,
         "InterleaveWmmaWaits": false,
         "PrefetchPackedWeight": true,
         "PrefetchNextPackedWeight": false,
-        "PackedWeightLaneShare": 1
+        "PackedLoadGrouping": "PerLane"
       },
       "Store": {
         "Priority": "Raised"
@@ -117,12 +117,12 @@
       "Pipeline": {
         "PrefetchGlobalRead": 2,
         "PrefetchLocalRead": 1,
-        "DoubleBufferLds": false,
+        "LdsBuffering": "Single",
         "PrefetchActivation": true,
         "InterleaveWmmaWaits": false,
         "PrefetchPackedWeight": true,
         "PrefetchNextPackedWeight": true,
-        "PackedWeightLaneShare": 1
+        "PackedLoadGrouping": "PerLane"
       },
       "Store": {
         "Priority": "Raised"

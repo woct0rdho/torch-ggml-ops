@@ -2387,8 +2387,8 @@ def q3_full_weight_tiled_lds_physical_plan() -> Q3FullWeightTiledLdsPhysicalPlan
 
 def derive_forward_physical_plan(spec: ForwardKernelSpec) -> ForwardPhysicalPlan:
     """Derive one complete mechanism plan without emitting instructions."""
-    operand_source = spec.global_memory.operand_source
-    mechanism = forward_mechanism_contract(operand_source)
+    weight_staging = spec.global_memory.weight_staging
+    mechanism = forward_mechanism_contract(weight_staging)
     mechanism.dataflow.validate_physical(spec.lds.address_hoist)
     assert spec.geometry.matrix_instruction == (16, 16, 16, 1)
     plan_kind = mechanism.physical_plan

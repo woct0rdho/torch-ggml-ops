@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from .iq2_s_grid import IQ2_S_GRID_BYTES
 from .iq2_xxs_grid import IQ2_XXS_GRID_BYTES
-from .mmq_bwd_spec import BackwardPairing, DerivedBackwardState
+from .mmq_bwd_spec import BackwardPairing, DerivedBackwardState, LdsBuffering
 from .physical_resources import PhysicalResourceUsage
 
 
@@ -153,7 +153,9 @@ def _derive_lds_num_bytes(state: DerivedBackwardState) -> int:
         single_buffer = bytes_unpadded + 2 * memory.lds_pad_b * pad_periods
     else:
         single_buffer = 2 * (geometry.depth_u + memory.lds_pad_b) * geometry.macro_tile1
-    return single_buffer * (2 if state.spec.pipeline.double_buffer_lds else 1)
+    return single_buffer * (
+        2 if state.spec.pipeline.lds_buffering is LdsBuffering.Double else 1
+    )
 
 
 def derive_backward_physical_plan(

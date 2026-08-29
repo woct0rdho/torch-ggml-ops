@@ -19,6 +19,8 @@ from .mmq_bwd_spec import (
     BackwardKernelSpec,
     BackwardMetadataLoad,
     BackwardPairing,
+    LdsBuffering,
+    PackedLoadGrouping,
 )
 from .model import ProblemSize
 from .validation import validate_backward_solution
@@ -134,11 +136,15 @@ def _decoder_neighbors(
         return (
             replace(
                 seed,
-                pipeline=replace(seed.pipeline, packed_weight_lane_share=1),
+                pipeline=replace(
+                    seed.pipeline, packed_load_grouping=PackedLoadGrouping.PerLane
+                ),
             ),
             replace(
                 seed,
-                pipeline=replace(seed.pipeline, packed_weight_lane_share=2),
+                pipeline=replace(
+                    seed.pipeline, packed_load_grouping=PackedLoadGrouping.LanePair
+                ),
             ),
         )
     if quant_type == "Q5_K":
@@ -167,7 +173,9 @@ def _decoder_neighbors(
             ),
             replace(
                 seed,
-                pipeline=replace(seed.pipeline, packed_weight_lane_share=2),
+                pipeline=replace(
+                    seed.pipeline, packed_load_grouping=PackedLoadGrouping.LanePair
+                ),
             ),
         )
     if quant_type == "Q6_K":
@@ -186,7 +194,9 @@ def _decoder_neighbors(
             ),
             replace(
                 seed,
-                pipeline=replace(seed.pipeline, packed_weight_lane_share=2),
+                pipeline=replace(
+                    seed.pipeline, packed_load_grouping=PackedLoadGrouping.LanePair
+                ),
             ),
         )
     if quant_type == "Q8_0":
@@ -206,7 +216,7 @@ def _pipeline_neighbors(seed: BackwardKernelSpec) -> tuple[BackwardKernelSpec, .
             seed,
             pipeline=replace(
                 seed.pipeline,
-                double_buffer_lds=False,
+                lds_buffering=LdsBuffering.Single,
                 iteration=BackwardIterationPolicy(False, False),
                 global_read_prefetch=1,
                 local_read_prefetch=1,
@@ -217,7 +227,7 @@ def _pipeline_neighbors(seed: BackwardKernelSpec) -> tuple[BackwardKernelSpec, .
             seed,
             pipeline=replace(
                 seed.pipeline,
-                double_buffer_lds=False,
+                lds_buffering=LdsBuffering.Single,
                 iteration=BackwardIterationPolicy(True, False),
                 global_read_prefetch=2,
                 local_read_prefetch=1,
@@ -229,11 +239,11 @@ def _pipeline_neighbors(seed: BackwardKernelSpec) -> tuple[BackwardKernelSpec, .
             memory=replace(seed.memory, lds_pad_b=0, lds_swizzle_chunk_b=8),
             pipeline=replace(
                 seed.pipeline,
-                double_buffer_lds=True,
+                lds_buffering=LdsBuffering.Double,
                 iteration=BackwardIterationPolicy(True, False),
                 global_read_prefetch=2,
                 local_read_prefetch=1,
-                packed_weight_lane_share=1,
+                packed_load_grouping=PackedLoadGrouping.PerLane,
                 prefetch_next_packed_weight=False,
             ),
         ),
@@ -244,7 +254,7 @@ def _pipeline_neighbors(seed: BackwardKernelSpec) -> tuple[BackwardKernelSpec, .
                 seed,
                 pipeline=replace(
                     seed.pipeline,
-                    double_buffer_lds=False,
+                    lds_buffering=LdsBuffering.Single,
                     iteration=BackwardIterationPolicy(False, True),
                     global_read_prefetch=1,
                     local_read_prefetch=2,

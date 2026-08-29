@@ -47,8 +47,8 @@
         ]
       },
       "GlobalMemory": {
-        "OperandSource": "DecodedWeightLdsBatch8",
-        "ActivationAddressing": "MadU24"
+        "WeightStaging": "DecodedWeightLdsBatch8",
+        "ActivationStaging": "MadU24"
       },
       "Lds": {
         "AddressHoist": "WeightMetadata"
@@ -95,8 +95,8 @@
         ]
       },
       "GlobalMemory": {
-        "OperandSource": "DecodedWeightLdsBatch8",
-        "ActivationAddressing": "MadU24"
+        "WeightStaging": "DecodedWeightLdsBatch8",
+        "ActivationStaging": "MadU24"
       },
       "Lds": {
         "AddressHoist": "WeightMetadata"
@@ -143,8 +143,8 @@
         ]
       },
       "GlobalMemory": {
-        "OperandSource": "DecodedWeightLdsBatch8",
-        "ActivationAddressing": "MadU24"
+        "WeightStaging": "DecodedWeightLdsBatch8",
+        "ActivationStaging": "MadU24"
       },
       "Lds": {
         "AddressHoist": "WeightMetadata"
@@ -191,8 +191,8 @@
         ]
       },
       "GlobalMemory": {
-        "OperandSource": "DecodedWeightLdsBatch8",
-        "ActivationAddressing": "MadU24"
+        "WeightStaging": "DecodedWeightLdsBatch8",
+        "ActivationStaging": "MadU24"
       },
       "Lds": {
         "AddressHoist": "WeightMetadata"
@@ -239,8 +239,8 @@
         ]
       },
       "GlobalMemory": {
-        "OperandSource": "DecodedWeightLdsBatch8",
-        "ActivationAddressing": "MadU24"
+        "WeightStaging": "DecodedWeightLdsBatch8",
+        "ActivationStaging": "MadU24"
       },
       "Lds": {
         "AddressHoist": "WeightMetadata"

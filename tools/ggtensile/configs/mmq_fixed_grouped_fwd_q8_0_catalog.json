@@ -44,7 +44,7 @@
         "DepthU": 32
       },
       "Lowering": {
-        "OperandSource": "Q8SmallMTiledLds",
+        "WeightStaging": "Q8SmallMTiledLds",
         "LdsAddressHoist": "CompactDepth32WeightRows",
         "FixedAddressHoist": "ReductionLoopAndWeightStage"
       }

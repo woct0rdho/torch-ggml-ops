@@ -46,9 +46,9 @@
         "DepthU": 128
       },
       "Lowering": {
-        "OperandSource": "ParityGridHalfWeightLds",
+        "WeightStaging": "ParityGridHalfWeightLds",
         "RouteOwnership": "SerialRoutes",
-        "ActivationAddressing": "AggregateRowsTiledLinear"
+        "ActivationStaging": "AggregateRowsTiledLinear"
       },
       "Projection": {
         "Interleave": "Interleaved"
@@ -82,9 +82,9 @@
         "DepthU": 128
       },
       "Lowering": {
-        "OperandSource": "ParityGridHalfWeightLds",
+        "WeightStaging": "ParityGridHalfWeightLds",
         "RouteOwnership": "SerialRoutes",
-        "ActivationAddressing": "AggregateRowsTiledLinear"
+        "ActivationStaging": "AggregateRowsTiledLinear"
       },
       "Projection": {
         "Interleave": "Interleaved"

@@ -20,7 +20,7 @@ from tools.ggtensile.grouped_mmq_fwd_inspection import (
     inspect_grouped_forward_artifact,
 )
 from tools.ggtensile.grouped_mmq_fwd_model import (
-    GroupedActivationAddressing,
+    GroupedActivationStaging,
     GroupedForwardProblem,
 )
 from tools.ggtensile.grouped_mmq_fwd_physical import (
@@ -200,7 +200,7 @@ def test_grouped_iq2_s_writer_embeds_distributed_codebook_decode() -> None:
 
 def test_grouped_activation_staging_derives_exact_and_ceil_masked_stages() -> None:
     staging = GroupedActivationStagingPlan(
-        GroupedActivationAddressing.AggregateRowsTiled,
+        staging=GroupedActivationStaging.AggregateRowsTiled,
         block_bytes=144,
         participating_threads=128,
     )

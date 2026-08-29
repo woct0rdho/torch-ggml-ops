@@ -47,8 +47,8 @@
         ]
       },
       "GlobalMemory": {
-        "OperandSource": "Q8HipTiledLds",
-        "ActivationAddressing": "MadU24"
+        "WeightStaging": "Q8HipTiledLds",
+        "ActivationStaging": "MadU24"
       },
       "Lds": {
         "AddressHoist": "HipTile"
@@ -83,8 +83,8 @@
         ]
       },
       "GlobalMemory": {
-        "OperandSource": "Q8HipTiledLds",
-        "ActivationAddressing": "MadU24"
+        "WeightStaging": "Q8HipTiledLds",
+        "ActivationStaging": "MadU24"
       },
       "Lds": {
         "AddressHoist": "CompactDepth32WeightRows"
@@ -119,8 +119,8 @@
         ]
       },
       "GlobalMemory": {
-        "OperandSource": "Q8SmallMTiledLds",
-        "ActivationAddressing": "MadU24"
+        "WeightStaging": "Q8SmallMTiledLds",
+        "ActivationStaging": "MadU24"
       },
       "Lds": {
         "AddressHoist": "SmallMTile"
@@ -155,8 +155,8 @@
         ]
       },
       "GlobalMemory": {
-        "OperandSource": "Q8SmallMTiledLds",
-        "ActivationAddressing": "MadU24"
+        "WeightStaging": "Q8SmallMTiledLds",
+        "ActivationStaging": "MadU24"
       },
       "Lds": {
         "AddressHoist": "SmallMTile"

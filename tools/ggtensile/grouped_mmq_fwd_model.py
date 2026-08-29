@@ -6,13 +6,13 @@ from dataclasses import dataclass
 from enum import Enum
 
 
-class GroupedOperandSource(str, Enum):
+class GroupedWeightStaging(str, Enum):
     GroupedDirectGlobal = "GroupedDirectGlobal"
     GroupedDecodedWeightLds = "GroupedDecodedWeightLds"
     GroupedIQ2SFullWeightLds = "GroupedIQ2SFullWeightLds"
 
 
-class GroupedActivationAddressing(str, Enum):
+class GroupedActivationStaging(str, Enum):
     AggregateRows = "AggregateRows"
     AggregateRowsTiled = "AggregateRowsTiled"
     AggregateRowsTiledLinear = "AggregateRowsTiledLinear"

@@ -46,9 +46,9 @@
         "DepthU": 128
       },
       "Lowering": {
-        "OperandSource": "GridHalfWeightLds",
+        "WeightStaging": "GridHalfWeightLds",
         "RouteOwnership": "DeviceRowTasks",
-        "ActivationAddressing": "AggregateRowsTiledLinear",
+        "ActivationStaging": "AggregateRowsTiledLinear",
         "RowTaskRows": 64
       },
       "Projection": {

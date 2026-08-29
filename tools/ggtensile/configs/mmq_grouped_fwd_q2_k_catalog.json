@@ -47,8 +47,8 @@
         "DepthU": 32
       },
       "Lowering": {
-        "OperandSource": "GroupedDecodedWeightLds",
-        "ActivationAddressing": "AggregateRowsTiled"
+        "WeightStaging": "GroupedDecodedWeightLds",
+        "ActivationStaging": "AggregateRowsTiled"
       },
       "Decode": {
         "Kind": "ScaleMinimumBitfield",
@@ -93,8 +93,8 @@
         "DepthU": 32
       },
       "Lowering": {
-        "OperandSource": "GroupedDecodedWeightLds",
-        "ActivationAddressing": "AggregateRowsTiled"
+        "WeightStaging": "GroupedDecodedWeightLds",
+        "ActivationStaging": "AggregateRowsTiled"
       },
       "Decode": {
         "Kind": "ScaleMinimumBitfield",

@@ -294,7 +294,7 @@ class BackwardQuantLowering:
         asm.inst(f"v_lshl_add_u32 v{t + 3}, v{t + 2}, 5, v{t + 3}")
         asm.inst(f"v_lshrrev_b32 v{t + 4}, 4, v{t}")
         payload_address = t + 5
-        lane_share = self.state.spec.pipeline.packed_weight_lane_share
+        lane_share = self.state.spec.pipeline.packed_load_grouping.lane_share
         if lane_share == 1:
             for row in range(decoder_rows):
                 block_address = a + row
@@ -763,7 +763,7 @@ class BackwardQuantLowering:
 
         for row in range(decoder_rows):
             asm.inst(f"v_add_nc_u32 v{a + 2 + row}, v{a + row}, v{t + 1}")
-        if self.state.spec.pipeline.packed_weight_lane_share == 2:
+        if self.state.spec.pipeline.packed_load_grouping.lane_share == 2:
             asm.comment("Load packed q bytes on one lane from each nibble pair.")
             asm.inst(f"v_and_b32 v{t + 2}, 2, v{r.serial}")
             asm.inst(f"v_cmp_eq_u32_e32 vcc_lo, 0, v{t + 2}")
@@ -773,7 +773,7 @@ class BackwardQuantLowering:
                 f"global_load_b128 v[{q + 4 * row}:{q + 4 * row + 3}], "
                 f"v{a + 2 + row}, s[{r.kernarg + 2}:{r.kernarg + 3}] offset:16"
             )
-        if self.state.spec.pipeline.packed_weight_lane_share == 2:
+        if self.state.spec.pipeline.packed_load_grouping.lane_share == 2:
             asm.inst(f"s_mov_b32 exec_lo, s{r.scalar_temporary + 1}")
 
         if direct_quant_mapping:
@@ -883,7 +883,7 @@ class BackwardQuantLowering:
 
         for row in range(decoder_rows):
             asm.inst(f"v_add_nc_u32 v{a + 2 + row}, v{a + row}, v{t + 1}")
-        if self.state.spec.pipeline.packed_weight_lane_share == 2:
+        if self.state.spec.pipeline.packed_load_grouping.lane_share == 2:
             asm.comment("Load Q5_K payload planes on one lane from each lane pair.")
             asm.inst(f"v_and_b32 v{t + 2}, 2, v{r.serial}")
             asm.inst(f"v_cmp_eq_u32_e32 vcc_lo, 0, v{t + 2}")
@@ -899,7 +899,7 @@ class BackwardQuantLowering:
                 f"global_load_b128 v[{q_low + 4 * row}:{q_low + 4 * row + 3}], "
                 f"v{a + 2 + row}, s[{r.kernarg + 2}:{r.kernarg + 3}] offset:48"
             )
-        if self.state.spec.pipeline.packed_weight_lane_share == 2:
+        if self.state.spec.pipeline.packed_load_grouping.lane_share == 2:
             asm.inst(f"s_mov_b32 exec_lo, s{r.scalar_temporary + 1}")
 
         if direct_quant_mapping:
@@ -944,8 +944,8 @@ class BackwardQuantLowering:
                 f"offset:{scale_offset}"
             )
 
-    def _emit_packed_weight_lane_share(self, asm: _Assembly) -> None:
-        if self.state.spec.pipeline.packed_weight_lane_share == 1:
+    def _emit_packed_load_grouping(self, asm: _Assembly) -> None:
+        if self.state.spec.pipeline.packed_load_grouping.lane_share == 1:
             return
 
         r = self.registers

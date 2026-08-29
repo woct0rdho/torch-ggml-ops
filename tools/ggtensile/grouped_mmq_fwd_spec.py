@@ -3,13 +3,13 @@
 from dataclasses import dataclass
 
 from .grouped_mmq_fwd_model import (
-    GroupedActivationAddressing,
+    GroupedActivationStaging,
     GroupedDecodedPolicy,
     GroupedDecodePolicy,
     GroupedForwardProblem,
     GroupedIQ2SDecodePolicy,
-    GroupedOperandSource,
     GroupedQ2DecodePolicy,
+    GroupedWeightStaging,
 )
 from .grouped_mmq_fwd_physical import (
     GroupedActivationStagingPlan,
@@ -130,7 +130,7 @@ class GroupedForwardProblemContract:
 
 @dataclass(frozen=True)
 class GroupedActivationPolicy:
-    addressing: GroupedActivationAddressing
+    staging: GroupedActivationStaging
     block_bytes: int
 
 
@@ -298,7 +298,7 @@ class GroupedGeometrySpec:
 @dataclass(frozen=True)
 class GroupedForwardKernelSpec:
     geometry: GroupedGeometrySpec
-    operand_source: GroupedOperandSource
+    weight_staging: GroupedWeightStaging
     activation: GroupedActivationPolicy
     decode: GroupedDecodePolicy
     epilogue: GroupedEpiloguePolicy
@@ -344,7 +344,7 @@ class GroupedForwardKernelSpec:
         lowering = _mapping(
             item["Lowering"],
             "GroupedForwardKernelSpec.Lowering",
-            frozenset({"OperandSource", "ActivationAddressing"}),
+            frozenset({"WeightStaging", "ActivationStaging"}),
         )
         decode_item = _mapping_for_grouped_decode(item["Decode"], contract.quant_type)
         epilogue_item = _mapping(
@@ -354,12 +354,12 @@ class GroupedForwardKernelSpec:
         )
         return cls(
             geometry=geometry,
-            operand_source=_enum(lowering, "OperandSource", GroupedOperandSource),
+            weight_staging=_enum(lowering, "WeightStaging", GroupedWeightStaging),
             activation=GroupedActivationPolicy(
                 _enum(
                     lowering,
-                    "ActivationAddressing",
-                    GroupedActivationAddressing,
+                    "ActivationStaging",
+                    GroupedActivationStaging,
                 ),
                 contract.activation_block_bytes,
             ),
@@ -381,8 +381,8 @@ class GroupedForwardKernelSpec:
                 "DepthU": self.geometry.depth_u,
             },
             "Lowering": {
-                "OperandSource": self.operand_source.value,
-                "ActivationAddressing": self.activation.addressing.value,
+                "WeightStaging": self.weight_staging.value,
+                "ActivationStaging": self.activation.staging.value,
             },
             "Decode": _grouped_decode_mapping(self.decode),
             "Epilogue": {
@@ -405,20 +405,20 @@ def validate_grouped_forward_capability(
     assert geometry.macro_tile[1] > 0
     assert problem.output_features % geometry.macro_tile[1] == 0
 
-    source = kernel_spec.operand_source
+    source = kernel_spec.weight_staging
     decode = kernel_spec.decode
     supported_sources = {
-        "Q2_K": {GroupedOperandSource.GroupedDecodedWeightLds},
+        "Q2_K": {GroupedWeightStaging.GroupedDecodedWeightLds},
         "Q4_K": {
-            GroupedOperandSource.GroupedDirectGlobal,
-            GroupedOperandSource.GroupedDecodedWeightLds,
+            GroupedWeightStaging.GroupedDirectGlobal,
+            GroupedWeightStaging.GroupedDecodedWeightLds,
         },
-        "Q5_K": {GroupedOperandSource.GroupedDecodedWeightLds},
-        "IQ2_S": {GroupedOperandSource.GroupedIQ2SFullWeightLds},
+        "Q5_K": {GroupedWeightStaging.GroupedDecodedWeightLds},
+        "IQ2_S": {GroupedWeightStaging.GroupedIQ2SFullWeightLds},
     }.get(problem.quant_data_type, set())
     assert source in supported_sources
 
-    if source is GroupedOperandSource.GroupedDirectGlobal:
+    if source is GroupedWeightStaging.GroupedDirectGlobal:
         assert geometry.work_group == (32, 1, 1)
         assert geometry.matrix_instruction == (16, 16, 16, 1, 1, 1, 1, 1, 1)
         assert (
@@ -426,7 +426,7 @@ def validate_grouped_forward_capability(
             geometry.tail_macro_tile0,
             geometry.macro_tile[1],
         ) == (16, 16, 16)
-        assert activation.addressing is GroupedActivationAddressing.AggregateRows
+        assert activation.staging is GroupedActivationStaging.AggregateRows
         assert isinstance(decode, GroupedDecodedPolicy)
         assert not decode.independent_metadata_extraction
         assert not decode.defer_metadata_reads
@@ -441,7 +441,7 @@ def validate_grouped_forward_capability(
         )
         return
 
-    if source is GroupedOperandSource.GroupedIQ2SFullWeightLds:
+    if source is GroupedWeightStaging.GroupedIQ2SFullWeightLds:
         assert geometry.work_group == (128, 1, 1)
         assert geometry.matrix_instruction == (16, 16, 16, 1, 1, 1, 4, 4, 1)
         assert (
@@ -449,9 +449,9 @@ def validate_grouped_forward_capability(
             geometry.tail_macro_tile0,
             geometry.macro_tile[1],
         ) == (64, 64, 64)
-        assert activation.addressing in {
-            GroupedActivationAddressing.AggregateRowsTiled,
-            GroupedActivationAddressing.AggregateRowsTiledLinear,
+        assert activation.staging in {
+            GroupedActivationStaging.AggregateRowsTiled,
+            GroupedActivationStaging.AggregateRowsTiledLinear,
         }
         assert isinstance(decode, GroupedIQ2SDecodePolicy)
         assert decode.metadata_conversion == "Float16DUnsignedNibbleScaleToFloat32"
@@ -465,12 +465,12 @@ def validate_grouped_forward_capability(
         )
         return
 
-    assert source is GroupedOperandSource.GroupedDecodedWeightLds
+    assert source is GroupedWeightStaging.GroupedDecodedWeightLds
     row_tiles = geometry.macro_tile[0] // 16
     assert geometry.work_group == (128, 1, 1)
     assert geometry.matrix_instruction == (16, 16, 16, 1, 1, 1, 4, 4, 1)
     assert geometry.macro_tile[1] == 64
-    assert activation.addressing is GroupedActivationAddressing.AggregateRowsTiled
+    assert activation.staging is GroupedActivationStaging.AggregateRowsTiled
     assert isinstance(
         decode,
         GroupedQ2DecodePolicy
@@ -503,7 +503,7 @@ def validate_grouped_forward_capability(
         assert geometry.macro_tile[0] in {64, 128}
 
     activation_staging = GroupedActivationStagingPlan(
-        addressing=kernel_spec.activation.addressing,
+        staging=kernel_spec.activation.staging,
         block_bytes=kernel_spec.activation.block_bytes,
         participating_threads=(
             geometry.work_group[0] * geometry.work_group[1] * geometry.work_group[2]
@@ -564,15 +564,15 @@ class DerivedGroupedForwardState:
         activation_plane_stride_bytes = (
             problem.aggregate_rows * kernel_spec.activation.block_bytes
         )
-        if kernel_spec.operand_source is GroupedOperandSource.GroupedDirectGlobal:
+        if kernel_spec.weight_staging is GroupedWeightStaging.GroupedDirectGlobal:
             physical_plan: (
                 GroupedDirectPhysicalPlan
                 | GroupedDecodedPhysicalPlan
                 | GroupedIQ2SFullWeightPhysicalPlan
             ) = grouped_direct_physical_plan(kernel_spec.activation.block_bytes)
-        elif kernel_spec.operand_source is GroupedOperandSource.GroupedDecodedWeightLds:
+        elif kernel_spec.weight_staging is GroupedWeightStaging.GroupedDecodedWeightLds:
             activation_staging = GroupedActivationStagingPlan(
-                addressing=kernel_spec.activation.addressing,
+                staging=kernel_spec.activation.staging,
                 block_bytes=kernel_spec.activation.block_bytes,
                 participating_threads=(
                     kernel_spec.geometry.work_group[0]
@@ -587,7 +587,7 @@ class DerivedGroupedForwardState:
                 activation_staging,
             )
         elif (
-            kernel_spec.operand_source is GroupedOperandSource.GroupedIQ2SFullWeightLds
+            kernel_spec.weight_staging is GroupedWeightStaging.GroupedIQ2SFullWeightLds
         ):
             physical_plan = grouped_iq2_s_full_weight_physical_plan()
         else:

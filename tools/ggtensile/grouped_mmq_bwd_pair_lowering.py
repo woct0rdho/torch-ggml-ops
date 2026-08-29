@@ -109,7 +109,7 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
                 second._emit_quant_global_reads(asm, wait_for_reads=False)
                 self._emit_first_a_global_reads(asm)
                 asm.inst("s_waitcnt vmcnt(0)")
-                second._emit_packed_weight_lane_share(asm)
+                second._emit_packed_load_grouping(asm)
                 second._emit_quant_decode(
                     asm,
                     label_suffix=second._decode_label_suffix("PairSecond"),
@@ -231,7 +231,7 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
                     active_vmcnt=next_a_loads,
                     inactive_vmcnt=0,
                 )
-                self._emit_packed_weight_lane_share(asm)
+                self._emit_packed_load_grouping(asm)
                 self._emit_concurrent_iq2_xxs_codebook_decodes(
                     asm,
                     second,
@@ -239,13 +239,13 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
                 )
             else:
                 self._emit_k_pipeline_wait(asm, active_vmcnt=13, inactive_vmcnt=5)
-                self._emit_packed_weight_lane_share(asm)
+                self._emit_packed_load_grouping(asm)
                 self._emit_quant_decode(
                     asm,
                     label_suffix=self._decode_label_suffix("PairPipelineFirst"),
                 )
                 self._emit_k_pipeline_wait(asm, active_vmcnt=8, inactive_vmcnt=0)
-                second._emit_packed_weight_lane_share(asm)
+                second._emit_packed_load_grouping(asm)
                 second._emit_quant_decode(
                     asm,
                     label_suffix=second._decode_label_suffix("PairPipelineSecond"),
@@ -342,7 +342,7 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
             f"s_waitcnt vmcnt("
             f"{second.physical.decoder.packed_load_count + a_load_count})"
         )
-        self._emit_packed_weight_lane_share(asm)
+        self._emit_packed_load_grouping(asm)
         if self.state.contract.quant_type == "IQ2_XXS":
             self._emit_concurrent_iq2_xxs_codebook_decodes(
                 asm,
@@ -355,7 +355,7 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
             label_suffix=self._decode_label_suffix("PairFirst"),
         )
         asm.inst(f"s_waitcnt vmcnt({a_load_count})")
-        second._emit_packed_weight_lane_share(asm)
+        second._emit_packed_load_grouping(asm)
         second._emit_quant_decode(
             asm,
             label_suffix=second._decode_label_suffix("PairSecond"),
@@ -372,7 +372,7 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
         second_lane_group = second.registers.temporary + 5
         self._emit_iq2_xxs_codebook_reads(asm, first_lane_group)
         asm.inst(f"s_waitcnt vmcnt({a_load_count})")
-        second._emit_packed_weight_lane_share(asm)
+        second._emit_packed_load_grouping(asm)
         second._emit_iq2_xxs_codebook_reads(asm, second_lane_group)
 
         second_codebook_loads = 2 * second.physical.decoder.rows
@@ -396,8 +396,8 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
         asm: _Assembly,
         second: "GroupedBackwardPairTileComputeEmitter",
     ) -> None:
-        self._emit_packed_weight_lane_share(asm)
-        second._emit_packed_weight_lane_share(asm)
+        self._emit_packed_load_grouping(asm)
+        second._emit_packed_load_grouping(asm)
         self._emit_iq2_s_decode_prepare_addresses(asm)
         second._emit_iq2_s_decode_prepare_addresses(asm)
         load_count = 2 * (self.physical.decoder.rows + second.physical.decoder.rows)
@@ -418,7 +418,7 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
     def _emit_projection_decode(self, asm: _Assembly, name: str) -> None:
         asm.comment(f"Decode the {name.lower()} pair projection into disjoint LDS.")
         self._emit_quant_global_reads(asm, wait_for_reads=True)
-        self._emit_packed_weight_lane_share(asm)
+        self._emit_packed_load_grouping(asm)
         self._emit_quant_decode(
             asm,
             label_suffix=self._decode_label_suffix(f"Pair{name}"),
@@ -427,7 +427,7 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
     def _emit_projection(self, asm: _Assembly, name: str) -> None:
         asm.comment(f"Decode and accumulate the {name.lower()} pair projection.")
         self._emit_quant_global_reads(asm, wait_for_reads=True)
-        self._emit_packed_weight_lane_share(asm)
+        self._emit_packed_load_grouping(asm)
         self._emit_quant_decode(
             asm,
             label_suffix=self._decode_label_suffix(f"Pair{name}"),

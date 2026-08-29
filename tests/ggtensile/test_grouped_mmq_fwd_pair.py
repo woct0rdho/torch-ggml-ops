@@ -15,8 +15,8 @@ from tools.ggtensile.grouped_mmq_fwd_pair_inspection import (
 )
 from tools.ggtensile.grouped_mmq_fwd_pair_model import (
     GroupedForwardPairProblem,
-    GroupedPairOperandSource,
     GroupedPairRouteOwnership,
+    GroupedPairWeightStaging,
 )
 from tools.ggtensile.grouped_mmq_fwd_pair_spec import (
     DerivedGroupedForwardPairState,
@@ -87,13 +87,13 @@ def test_grouped_pair_route_ownership_is_spec_data() -> None:
             assert spec.row_task_rows is not None
 
 
-def test_grouped_pair_capability_rejects_a_cross_format_operand_source() -> None:
+def test_grouped_pair_capability_rejects_a_cross_format_weight_staging() -> None:
     for instance in _catalog_instances():
         problem, spec = _problem_spec(instance)
-        for source in GroupedPairOperandSource:
-            if source is spec.operand_source:
+        for source in GroupedPairWeightStaging:
+            if source is spec.weight_staging:
                 continue
-            invalid_spec = replace(spec, operand_source=source)
+            invalid_spec = replace(spec, weight_staging=source)
             with pytest.raises(AssertionError):
                 validate_grouped_forward_pair_solution(problem, invalid_spec)
 

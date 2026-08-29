@@ -10,7 +10,9 @@ from tools.ggtensile.mmq_fwd_spec import (
     DecodeSpec,
     EpiloguePipelineSpec,
     FixedForwardDecodePolicy,
+    ForwardActivationStaging,
     ForwardKernelSpec,
+    ForwardWeightStaging,
     GeometrySpec,
     GlobalMemorySpec,
     LdsSpec,
@@ -42,7 +44,7 @@ def _find_spec(
 def _q3_full_catalog_spec() -> ForwardKernelSpec:
     return _find_spec(
         "Q3_K",
-        lambda spec: spec.global_memory.operand_source == "Q3FullWeightTiledLds",
+        lambda spec: spec.global_memory.weight_staging == "Q3FullWeightTiledLds",
     )
 
 
@@ -50,7 +52,11 @@ def q3_hip_tiled_lds_kernel_spec() -> ForwardKernelSpec:
     base = _q3_full_catalog_spec()
     return replace(
         base,
-        global_memory=GlobalMemorySpec("Q3HipTiledLds", "MadU24", None),
+        global_memory=GlobalMemorySpec(
+            ForwardWeightStaging.Q3HipTiledLds,
+            ForwardActivationStaging.MadU24,
+            None,
+        ),
         lds=LdsSpec("Q3HalfTile"),
         decode=DecodeSpec("Float16DToFloat32Signed6Scale", FixedForwardDecodePolicy()),
     )
@@ -82,7 +88,7 @@ def _decoded_weight_spec(
 ) -> ForwardKernelSpec:
     base = _find_spec(
         quant_type,
-        lambda spec: spec.global_memory.operand_source == "DecodedWeightLdsBatch8",
+        lambda spec: spec.global_memory.weight_staging == "DecodedWeightLdsBatch8",
     )
     for spec in _catalog_specs(quant_type):
         pipeline = spec.epilogue.pipeline
@@ -179,13 +185,17 @@ def q6_structured_kernel_spec(macro_tile0: int) -> ForwardKernelSpec:
 def q8_direct_global_kernel_spec() -> ForwardKernelSpec:
     base = _find_spec(
         "Q8_0",
-        lambda spec: spec.global_memory.operand_source == "Q8HipTiledLds",
+        lambda spec: spec.global_memory.weight_staging == "Q8HipTiledLds",
     )
     return replace(
         base,
         geometry=GeometrySpec((32, 1, 1), (16, 16, 16, 1), 32),
         ownership=OwnershipSpec((1, 1), (1, 1)),
-        global_memory=GlobalMemorySpec("Q8DirectGlobal", "MultiplyAdd", None),
+        global_memory=GlobalMemorySpec(
+            ForwardWeightStaging.Q8DirectGlobal,
+            ForwardActivationStaging.MultiplyAdd,
+            None,
+        ),
         lds=LdsSpec("None"),
         decode=DecodeSpec("Float16DToFloat32", FixedForwardDecodePolicy()),
     )
@@ -197,13 +207,17 @@ def q8_register_tiled_kernel_spec(
     assert wave_tile_m * wave_tile_n == 4
     base = _find_spec(
         "Q8_0",
-        lambda spec: spec.global_memory.operand_source == "Q8HipTiledLds",
+        lambda spec: spec.global_memory.weight_staging == "Q8HipTiledLds",
     )
     return replace(
         base,
         geometry=GeometrySpec((32, 4, 1), (16, 16, 16, 1), 32),
         ownership=OwnershipSpec((4, 1), (wave_tile_m, wave_tile_n)),
-        global_memory=GlobalMemorySpec("Q8RegisterTiled", "MultiplyAdd", None),
+        global_memory=GlobalMemorySpec(
+            ForwardWeightStaging.Q8RegisterTiled,
+            ForwardActivationStaging.MultiplyAdd,
+            None,
+        ),
         lds=LdsSpec("None"),
         decode=DecodeSpec("Float16DToFloat32", FixedForwardDecodePolicy()),
     )
@@ -213,7 +227,7 @@ def q8_hip_tiled_lds_kernel_spec(depth_u: int = 32) -> ForwardKernelSpec:
     base = _find_spec(
         "Q8_0",
         lambda spec: (
-            spec.global_memory.operand_source == "Q8HipTiledLds"
+            spec.global_memory.weight_staging == "Q8HipTiledLds"
             and spec.lds.address_hoist == "HipTile"
         ),
     )
@@ -250,7 +264,11 @@ class OrdinaryForwardTestSolutions:
         base = q8_direct_global_kernel_spec()
         return replace(
             base,
-            global_memory=GlobalMemorySpec("Global", "MultiplyAdd", None),
+            global_memory=GlobalMemorySpec(
+                ForwardWeightStaging.Global,
+                ForwardActivationStaging.MultiplyAdd,
+                None,
+            ),
             lds=LdsSpec("None"),
             decode=DecodeSpec("Float32ThenFloat16", base.decode.policy),
         )
