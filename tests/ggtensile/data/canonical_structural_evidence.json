@@ -7597,7 +7597,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_4ab3aebdfa07c616",
+    "ExactHash": "ggsol_94d472bf4644b5c2",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -7607,17 +7607,17 @@
     "InstructionCounts": {
       "Barriers": 2,
       "Clauses": 0,
-      "Instructions": 812,
+      "Instructions": 805,
       "Lds": 32,
-      "ValuIssues": 548,
-      "ValuOperations": 560,
+      "ValuIssues": 541,
+      "ValuOperations": 561,
       "Vmem": 146,
-      "Vopd": 12,
+      "Vopd": 20,
       "Waits": 18,
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "3ad46486055c515ce3b616070e773278e42465be8dbb53ddd17462d108096291",
+    "NormalizedSourceSHA256": "d8568d9230cf9b6c55c29bc76f67bee4d5d553687e1b70c46466661cb47cad92",
     "Ownership": "Dense",
     "Problem": {
       "K": 129280,
@@ -7628,9 +7628,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "d5c5d7f5573d59a02a098ded816b992c0fc3418b4f13eab165b5e20e30847c9e",
+    "SourceSHA256": "15362c28a9aacde4c480ab75018d5356667332d2e7a47a1051baf9444276e116",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q8_0_m256_n4096_k129280_4ab3aebdfa07c616",
+    "Symbol": "mmq_bwd_q8_0_m256_n4096_k129280_94d472bf4644b5c2",
     "TotalSGPRs": 16,
     "TotalVGPRs": 231,
     "WorkGroup": [

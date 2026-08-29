@@ -77,7 +77,7 @@ inline constexpr std::array<const char *, 152> kMMQKernelSymbols{{
     "mmq_bwd_q8_0_m32_n4096_k129280_29a74eb9e61887ed",
     "mmq_bwd_q8_0_m64_n4096_k129280_e406d4a997a19be1",
     "mmq_bwd_q8_0_m128_n4096_k129280_cc9c423da8db42f9",
-    "mmq_bwd_q8_0_m256_n4096_k129280_4ab3aebdfa07c616",
+    "mmq_bwd_q8_0_m256_n4096_k129280_94d472bf4644b5c2",
     "mmq_bwd_q8_0_m512_n4096_k129280_8ef0a3439f56bcda",
     "fixed_grouped_mmq_bwd_q8_0_t2048_n4096_k1024_b6978ce5fe3e26e4",
     "fixed_grouped_mmq_bwd_q8_0_t8192_n4096_k1024_81a42231db569ec8",

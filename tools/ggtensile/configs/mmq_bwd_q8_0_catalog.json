@@ -341,6 +341,43 @@
         "PrefetchLocalRead": 1,
         "LdsBuffering": "Single",
         "PrefetchActivation": true,
+        "InterleaveWmmaWaits": true,
+        "PrefetchPackedWeight": true,
+        "PrefetchNextPackedWeight": false,
+        "PackedLoadGrouping": "PerLane"
+      },
+      "Store": {
+        "Priority": "Raised"
+      },
+      "Decode": {
+        "PayloadExtraction": "PackedVopd"
+      }
+    },
+    {
+      "Geometry": {
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "MIWaveTile": [
+          4,
+          4
+        ],
+        "DepthU": 32,
+        "WorkGroupMapping": 1
+      },
+      "Memory": {
+        "LdsLayout": {
+          "Kind": "Padded",
+          "LdsPadB": 8
+        }
+      },
+      "Pipeline": {
+        "PrefetchGlobalRead": 2,
+        "PrefetchLocalRead": 1,
+        "LdsBuffering": "Single",
+        "PrefetchActivation": true,
         "InterleaveWmmaWaits": false,
         "PrefetchPackedWeight": true,
         "PrefetchNextPackedWeight": true,
@@ -529,7 +566,7 @@
         "N": 4096,
         "K": 129280
       },
-      "KernelSpecIndex": 0
+      "KernelSpecIndex": 8
     },
     {
       "Problem": {
@@ -537,7 +574,7 @@
         "N": 4096,
         "K": 129280
       },
-      "KernelSpecIndex": 8
+      "KernelSpecIndex": 9
     }
   ]
 }
