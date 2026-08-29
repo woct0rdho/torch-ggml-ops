@@ -9877,7 +9877,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_305c4887907d45ab",
+    "ExactHash": "ggsol_7cb50a7c50a4b278",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -9897,7 +9897,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "4702045ab2bb3cd6305dc8f04f53cfdce83dc9180761e3a1eafd25ac190d89b6",
+    "NormalizedSourceSHA256": "7ff1069b531220709c41d677ff616a57e6b7ad97129ce13ed247465409bf267e",
     "Ownership": "Dense",
     "Problem": {
       "K": 8192,
@@ -9908,9 +9908,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "5c4681e326bdc9ff81134c072465e42e37fb93a3277946ba42185824a2f95423",
+    "SourceSHA256": "a97eb7e31c64035632c19ab8d60ba1a8217735c724b6eea98b1ed4ea22b567b8",
     "StaticGroupSegmentBytes": 16384,
-    "Symbol": "mmq_bwd_q4_k_m32768_n2048_k8192_305c4887907d45ab",
+    "Symbol": "mmq_bwd_q4_k_m32768_n2048_k8192_7cb50a7c50a4b278",
     "TotalSGPRs": 16,
     "TotalVGPRs": 212,
     "WorkGroup": [
@@ -10067,7 +10067,7 @@
       ]
     ],
     "ABIName": "OrdinaryBackward",
-    "ExactHash": "ggsol_fed7992594317709",
+    "ExactHash": "ggsol_a1288e5bd8984359",
     "KernelFamily": "OrdinaryBackward",
     "Grid": [
       1,
@@ -10087,7 +10087,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "9a59f5eab2dce065936b5b8b853fc0384905a67fc36152ed4a76532e892ce999",
+    "NormalizedSourceSHA256": "ac5de9059dbbb9afcd04e170e16ae1a9046d7be4114a55f7f1793eba6d3f6605",
     "Ownership": "Dense",
     "Problem": {
       "K": 512,
@@ -10098,9 +10098,9 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "4678eb4a5eec2f6aa929c59f6321ff21363e29c6a0dc9a05f037f004eb26d3fb",
+    "SourceSHA256": "2bbd73aa3aa2e47dce1241754fb8fbd0da8eacfd5219a7523564abd4321ffa51",
     "StaticGroupSegmentBytes": 5120,
-    "Symbol": "mmq_bwd_q4_k_m32768_n2048_k512_fed7992594317709",
+    "Symbol": "mmq_bwd_q4_k_m32768_n2048_k512_a1288e5bd8984359",
     "TotalSGPRs": 16,
     "TotalVGPRs": 234,
     "WorkGroup": [

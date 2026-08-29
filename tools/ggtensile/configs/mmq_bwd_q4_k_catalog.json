@@ -96,6 +96,43 @@
           1
         ],
         "MIWaveTile": [
+          4,
+          4
+        ],
+        "DepthU": 32,
+        "WorkGroupMapping": 1
+      },
+      "Memory": {
+        "LdsLayout": {
+          "Kind": "Padded",
+          "LdsPadB": 8
+        }
+      },
+      "Pipeline": {
+        "PrefetchGlobalRead": 2,
+        "PrefetchLocalRead": 1,
+        "LdsBuffering": "Single",
+        "PrefetchActivation": true,
+        "InterleaveWmmaWaits": true,
+        "PrefetchPackedWeight": true,
+        "PrefetchNextPackedWeight": false,
+        "PackedLoadGrouping": "PerLane"
+      },
+      "Store": {
+        "Priority": "Raised"
+      },
+      "Decode": {
+        "DecodeDependencyWidth": 4
+      }
+    },
+    {
+      "Geometry": {
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "MIWaveTile": [
           2,
           8
         ],
@@ -155,6 +192,43 @@
       "Store": {
         "Priority": "Raised"
       }
+    },
+    {
+      "Geometry": {
+        "WorkGroup": [
+          32,
+          4,
+          1
+        ],
+        "MIWaveTile": [
+          2,
+          8
+        ],
+        "DepthU": 32,
+        "WorkGroupMapping": 1
+      },
+      "Memory": {
+        "LdsLayout": {
+          "Kind": "Swizzled",
+          "LdsSwizzleChunkB": 8
+        }
+      },
+      "Pipeline": {
+        "PrefetchGlobalRead": 2,
+        "PrefetchLocalRead": 1,
+        "LdsBuffering": "Double",
+        "PrefetchActivation": true,
+        "InterleaveWmmaWaits": false,
+        "PrefetchPackedWeight": true,
+        "PrefetchNextPackedWeight": false,
+        "PackedLoadGrouping": "PerLane"
+      },
+      "Store": {
+        "Priority": "Normal"
+      },
+      "Decode": {
+        "DecodeDependencyWidth": 4
+      }
     }
   ],
   "ExactLogic": [
@@ -180,7 +254,7 @@
         "N": 2048,
         "K": 512
       },
-      "KernelSpecIndex": 1
+      "KernelSpecIndex": 2
     },
     {
       "Problem": {
@@ -188,7 +262,7 @@
         "N": 512,
         "K": 2048
       },
-      "KernelSpecIndex": 2
+      "KernelSpecIndex": 3
     },
     {
       "Problem": {
@@ -196,7 +270,7 @@
         "N": 512,
         "K": 2048
       },
-      "KernelSpecIndex": 2
+      "KernelSpecIndex": 3
     },
     {
       "Problem": {
@@ -204,7 +278,7 @@
         "N": 512,
         "K": 2048
       },
-      "KernelSpecIndex": 2
+      "KernelSpecIndex": 3
     },
     {
       "Problem": {
@@ -220,7 +294,7 @@
         "N": 4096,
         "K": 2048
       },
-      "KernelSpecIndex": 3
+      "KernelSpecIndex": 4
     },
     {
       "Problem": {
@@ -228,7 +302,7 @@
         "N": 4096,
         "K": 2048
       },
-      "KernelSpecIndex": 3
+      "KernelSpecIndex": 4
     },
     {
       "Problem": {
@@ -236,7 +310,7 @@
         "N": 2048,
         "K": 8192
       },
-      "KernelSpecIndex": 2
+      "KernelSpecIndex": 3
     },
     {
       "Problem": {
@@ -244,7 +318,7 @@
         "N": 2048,
         "K": 8192
       },
-      "KernelSpecIndex": 3
+      "KernelSpecIndex": 4
     },
     {
       "Problem": {
@@ -252,7 +326,7 @@
         "N": 2048,
         "K": 8192
       },
-      "KernelSpecIndex": 2
+      "KernelSpecIndex": 5
     }
   ]
 }
