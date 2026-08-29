@@ -530,3 +530,25 @@ The notable reduction is concentrated in low-N ordinary families, where producer
 ## Candidate-Domain Evidence Boundary
 
 The automated Q8 domain is a bounded deterministic enumerator of complete implemented policies, not evidence that the kernel is exhausted. It can reproduce admissible ownership families but does not encode the historical exact-key timing matrix or prove that every future linked composition has been rejected. Q8 closure remains grounded in the exact artifacts, mutation and reference evidence, measurements, and recursive manual review above. A domain omission is actionable only when it supplies a concrete in-contract mechanism, exact target, plausible gain path, and qualification gate.
+
+## Current Multiply-Only Benchmark Triage
+
+This is a narrow annotation from the current `bench/` direct-kernel protocol. It does not change the Q8 catalog, public dispatch, or the documented Q-A M2048 measurement-error decision. The fresh report is `~/tmp/torch-ggml-ops/fresh-fwd-multiply-only-20260823-v2/`; it uses prequantized multiply-only timing, 20 warmups, and 25 repeats in two independent passes.
+
+### Retuning candidates
+
+The largest relative losses against the documented speedups are concentrated in these exact public identities:
+- Attention output-B: `ggsol_da2d79e7129cd5d7` at `(32768,4096,8192)`, fresh `1.1633x` versus documented `1.2344x`; `ggsol_6525bb03932d9c84` at `(8192,4096,8192)`, fresh `1.1759x` versus `1.2348x`.
+- Attention Q-B: `ggsol_f15bc6c956ce7c52` at `(32768,32768,1024)`, fresh `1.1480x` versus `1.2077x`; `ggsol_323c022d43fb2435` at `(8192,32768,1024)`, fresh `1.1524x` versus `1.1995x`.
+- LM head: `ggsol_ee38be695060a665` at M512, fresh `1.1825x` versus `1.2419x`; `ggsol_796295ce34f4992d` at M128, fresh `1.1816x` versus `1.2370x`; and `ggsol_0da11f24c6cb2f0c` at M256, fresh `1.1886x` versus `1.2341x`.
+- Secondary large-M checks: `ggsol_1389b8104bc29061` (Q-A M32768), `ggsol_0898037fe8783040` (K/V M32768), `ggsol_64f2005dfe00adb8` (shared gate/up M32768), and `ggsol_f3d23f4df3973903` (shared-down M32768).
+
+These kernels are still faster than HIP, so this is a retuning and requalification priority rather than a fallback decision. Q-A M2048 remains explicitly cleared by the hot control comparison; LM-head M32/M64 also improved or held their documented relative results.
+
+### Historical closures to reconsider
+
+The compact Depth32 row-composition closure is the main historical item to revisit, specifically for the Q-B, output-B, and LM-head M128+ families above. The old candidate/parent evidence was strong for its then-current parent, but the current catalog-wide direct results show a materially different relative margin. Rebuild the candidate and parent under the current runner before treating that closure as portable.
+
+DepthU64, terminal-barrier, transposed-scale, broad geometry, and the Q-A M2048 compact rejection have clearer negative or hot-control evidence and should remain closed. No exact-key or public integration change follows from this triage.
+
+The current disposition is: retune the listed large Q8 identities, conditionally requalify compact Depth32 against current parents, and make no catalog or integration change from this benchmark alone.

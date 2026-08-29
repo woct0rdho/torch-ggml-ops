@@ -148,3 +148,19 @@ The disjoint B16 confirmation bracket measures `127.2202 -> 122.2185 ms`, or `1.
 The EvoTensile median-log robust-scale analysis marks all three weighted comparisons confidently faster at 95%: candidate-minus-parent intervals are `[-12.726,-11.661]%` at B1, `[-2.337,-0.829]%` at B4, and `[-4.017,-3.847]%` at B16. The aggregate analysis is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-confirm25-confidence.json`.
 
 Final selected full-row qualification passes at `12288`, `49152`, and `196608` rows with packed-HIP bit equality, deterministic reruns, all active/inactive mutation controls, malformed-route sentinels, and independent BF16 NRMSE below `0.01`. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q2-full-correctness.json`.
+
+## Post-Benchmark Retuning Triage
+
+The current deployed complete-call benchmark used 20 warmups, 25 repeats, one launch per sample, per-call output allocation, and the corrected runtime-dispatched HIP control. It used one deterministic fitted-law profile per route component, whereas the accepted table uses five weighted confirmation medoids; these results are triage evidence, not a replacement for the documented weighted table.
+
+### Kernel that may need retuning
+
+- Q2_K B4, `ggsol_49e0749ea2ff3aa7` deserves a focused retune or requalification. The current learned/hash mixture is `51.1523 ms` HIP versus `37.4316 ms` GGTensile, or `1.3666x`, compared with the documented `1.4648x`. The separate current profiles are `1.3604x` learned and `1.4585x` hash, so the deficit is route-law dependent rather than a correctness failure. Start with the existing B4 `SecondaryTile`/serial body and its `DependencyBatch4` decode; require exact public/HIP output, complete-call timing, and a longer fitted bank before changing geometry.
+
+B1 (`1.6630x` current versus `1.6930x` documented) and B16 (`1.5984x` versus `1.5847x`) do not currently justify retuning on this evidence.
+
+### Closed experiment that may be reopened
+
+- B4 tail ownership and threshold selection (`Mixed128_64` / `SecondaryTile`) was closed around the earlier same-process parent brackets and the `<=64` threshold decision. The current complete-call runner can now compare those exact B4 variants with output allocation and the correctly dispatched installed control. Reopen only the existing threshold candidates, beginning at the `64`/`128` boundary; do not reopen row tasks or a broad split sweep without a new mechanism that removes Q2 scale/minimum reconstruction work.
+
+The prior row-task rejection, B16 `DependencyBatch4` loss, and broad N128/split closures remain supported by their existing exactness, resource, or longer confirmation evidence and are not reopened by this triage alone.

@@ -251,3 +251,22 @@ Selected artifacts rebuilt byte-identically twice:
 | 196,608 | distributed J64 | 159 | 30,208 | 80 | 4 |
 
 Both selected identities again passed uniform, boundary, skewed, repeated-ID, sparse-ID, active/inactive weight, workspace, input, and invalid-output gates bitwise against installed controls. `tests/ggtensile/test_grouped_mmq_fwd.py` passes 40 tests. The broader grouped-plus-dense command passes 167 tests; its five pre-existing Q6 container reproducibility failures leave the asserted Q6 source, `.text`, and resource checks passing. The frozen Q4 source set and selected Q5 artifacts also rebuilt byte-identically.
+
+## Current Multiply-Only Benchmark Triage
+
+This is a narrow annotation from the current `bench/` direct-kernel protocol. It does not change the selected Q2 identities, route contract, catalog, or public dispatch. The fresh grouped report is `~/tmp/torch-ggml-ops/fresh-grouped-fwd-one-law-multiply-20260823/`; it uses the fixed producer, prequantized multiply-only timing, 20 warmups, and 25 repeats.
+
+| Aggregate rows | Selected identity | Fresh HIP/GGTensile speedup |
+| ---: | --- | ---: |
+| 12,288 | `ggsol_62ec879a99f034cd` | `1.2120x` |
+| 49,152 | `ggsol_adafacf7e19b4e5b` | `1.2025x` |
+| 196,608 | `ggsol_e54fb3708d4cacc4` | `1.2873x` |
+
+No selected Q2 kernel is a current retuning target. The fresh direct results remain materially faster than the installed controls and are consistent with the existing conclusion, including the B16 selection.
+
+### Historical closures to reconsider
+
+- The R3 guarded-stride and output-address reduction at `(196608,4096,2048)` is the one reasonable Q2 reopening candidate. Its historical `1.529%` regression was measured with three warmups and nine order-controlled complete-call medoids, including fresh activation quantization. A direct prequantized multiply-only screen would test a different surface with the current 25-repeat protocol. This is a requalification request, not evidence that R3 should be retained.
+- The common R1/R2 route-prologue transfer gate can remain closed unless the B16 direct-kernel retest exposes a setup-dominated gap. The J128 resource-limited path, decoded-LDS alternatives, and zero-bank initialization probes have larger or better explained negative evidence and do not need reopening from this run.
+
+The current disposition is therefore: no Q2 retuning action, one explicitly conditional R3 re-screen, and no catalog or integration change.

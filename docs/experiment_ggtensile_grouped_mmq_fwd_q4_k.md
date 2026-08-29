@@ -246,3 +246,17 @@ G5 adds typed VMEM/LDS events and row-loop LDS liveness to the current B16 paren
 G6 separately compares final-output `RNEPreserveNaN`, `BiasRound`, and `Truncate`. Numerical tests use finite inputs, reject non-finite outputs, and report error distributions; the kernel emits no NaN/Inf branch or repair path. G6 remains outside exact selections and requires model integration. Do not compose G4, G5, and G6 before each independent discriminator is complete.
 
 After G4's measured rejection, run the resource-neutral G6 screen before further G5 optimization. K512 makes output conversion a repeated low-arithmetic-intensity cost, so G6 has the larger remaining body-delta prior. G5 is still valuable for generator correctness and cross-format reuse, but recent fixed-map scheduling results place its expected performance movement in the low single digits. Neither assessment is a timing result.
+
+## Current One-Law Retuning and Reopening Flags
+
+This annotation records the current direct-kernel benchmark only; it does not change the selected Q4_K identities, catalog, dispatch, or integration status. The primary reports are under `~/tmp/torch-ggml-ops/fresh-grouped-fwd-one-law-multiply-20260823/`, with a 75-repeat top-up under `~/tmp/torch-ggml-ops/fresh-grouped-fwd-one-law-multiply-topup-20260823/`.
+
+### Retune flag
+
+- Q4_K B1, `ggsol_9c98efab3bdeda2b` (`R=16,384`) may need further shape-specific tuning or retuning. The current `qwen-learned` realization measured `1.0688x` GGTensile/HIP, with a 75-repeat log-time interval of `[1.0618x, 1.0758x]`, versus the documented `1.1684x`. The route has 233 active experts and a maximum group of 1,297, so this is a stable short-row route result rather than timing noise.
+- Q4_K B4 and B16 do not receive a retune flag from this pass: their current speedups are `1.0327x` and `0.9962x`, respectively, close to the documented rows at the scale of this comparison.
+
+### Reopen flag
+
+- Reopen the Q4-specific B1 R1-R3 route/address screen with the current prequantized multiply-only protocol if B1 tuning is pursued. The historical R1-R3 closure used the earlier Q4 transfer screen and complete-call/medoid procedure; it did not establish that the three small route/address transformations remain neutral for this current short-row realization on the isolated multiply surface. Retiming them is a diagnostic requalification request, not evidence for retaining any transformation.
+- Do not reopen G4 from this discrepancy alone. G4 has direct Q4 body evidence showing a large LDS/resource regression; that conclusion is not explained by the route-law change.

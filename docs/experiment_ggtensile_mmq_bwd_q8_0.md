@@ -281,3 +281,17 @@ The current typed M256 packed-VOPD identity was benchmarked against the installe
 | Mean of medians | 9.4239 | 10.3122 | 28.769 | 26.291 | 1.0943x |
 
 All candidate and HIP outputs matched exactly before and after gradient and packed-weight mutation. The fresh reports are `ggtensile-final-vs-hip-q8-m256-{a,b}.json`. The earlier typed-parent ratios remain acceptance evidence for packed VOPD; the final ratios above are the retained-kernel-versus-HIP results. No deployment-catalog or public-dispatch claim follows from this research-only identity.
+
+## Post-Benchmark Retuning Triage
+
+The corrected direct-kernel run covered all 23 selected Q8_0 keys with the historical shape-selected HIP controls. Correctness remained exact, and every selected candidate remained faster than HIP. Most row-level speedup changes are within the expected measurement envelope; the K/V M2048 control comparison is the one item that should remain open.
+
+### Kernel and control to keep on the tuning watch
+
+- K/V M2048 `ggsol_8f3a1d10bca36750` is a calibration and conditional retuning watch, not a confirmed kernel regression. The pooled batched run measured `0.2478 ms` for GGTensile versus the documented `0.2415 ms`, but the balanced single-launch diagnostic measured `0.2417 ms`, effectively reproducing the documented candidate time. The current HIP control was much faster than the documented one (`0.3956 ms` versus `0.4501 ms` in the single-launch diagnostic), reducing the apparent speedup from `1.8638x` to `1.6372x`. Do not retune the body from the batched result alone. If a fresh single-launch/current-control confirmation shows a candidate regression above the normal gate, prioritize this short-K `256x64` K/V body; otherwise treat the issue as HIP-control drift.
+
+### Closed comparison eligible for reopening
+
+- K/V M2048 final control comparison should be reopened under the current direct-kernel protocol before changing the catalog decision. Re-run the exact candidate and the historical HIP control with 20 warmups, 25 paired samples, and a 50-sample top-up if the log-time interval does not resolve the gap; record both single-launch and batched results. The candidate is near the documented time in the single-launch diagnostic; the larger protocol-dependent movement is in the HIP control. This is a control-calibration reopening, not permission to infer a Q8 decoder improvement or regression for other families.
+
+The broad two-decoded-B, pad/XOR, schedule, and LM-head packed-VOPD conclusions are not reopened by this audit: they either have current final-length evidence, large timing losses, or a separate typed research reopening already recorded above.

@@ -356,3 +356,22 @@ Numerical tests use finite inputs, reject non-finite output, and record normaliz
 Run F3 on shared-down K512 before F1 or F2. Its measured store-only floor is 24-27% of retained latency and every output currently pays the two-instruction conversion, giving `Truncate` a mid-single-digit kernel-latency planning prior and `BiasRound` a smaller one. The same argument is much weaker for K2048/K4096, whose store-only floors are 2-7%.
 
 F1 remains useful exact infrastructure, but prior standalone wait/barrier work and the timing-neutral Q6 fixed-map oracle make a low-single-digit result more likely than a large speedup. F2 now advances only a complete semantic policy with a concrete Q4 dependency difference from rejected Q6 O1; a generic load-frontier transfer is not actionable. These are unmeasured priorities and do not replace paired timing.
+
+## Current Multiply-Only Benchmark Triage
+
+This is a narrow annotation from the current `bench/` direct-kernel protocol. It does not change the selected Q4 identities or public dispatch. The primary report is `~/tmp/torch-ggml-ops/fresh-fwd-multiply-only-20260823-v2/`; focused C/D top-ups are under its `topups/` directory. The runs use prequantized multiply-only timing, 20 warmups, and 25 repeats.
+
+### Retuning candidates
+
+- `ggsol_3ff59047beab3eaa`, `(2048,512,2048)`: primary A/B speedups were `1.0101x/0.9512x`; top-ups were approximately `0.903x/0.964x`. This short-M narrow kernel is the clearest Q4 retuning target.
+- `ggsol_3d508299e01b6d3f`, `(2048,2048,512)`: primary A/B speedups were `1.0204x/0.9769x`; top-ups were approximately `0.963x/0.949x`. Requalify this short-M shared-down kernel before relying on the documented `1.0257x` result.
+
+The other ten public Q4 identities remain above parity in the fresh primary pass and are not immediate retuning targets. The short-M order sensitivity is a reason to retest the two entries above, not a reason to alter the catalog now.
+
+### Historical closures to reconsider
+
+- The typed `OneByEight` loop-form follow-up was closed after a roughly `0.3%` result and a serialized nine-repeat screen. Its current-parent composition should be reopened if a real linked lowering is restored, using direct multiply-only timing and the two short-M targets above.
+- Group-7 packed-payload prefetch and the standalone final-barrier or rolled-loop screens were also closed at sub-percent or nine-repeat resolution. They are reasonable secondary rechecks only when paired with a new dependency or liveness premise; unchanged text-level compositions remain closed.
+- The compact-LDS rejection is not suspicious: both legal placements missed by more than the stated stop gate. It should stay closed unless the consumer decode work or LDS ownership is materially changed.
+
+The current disposition is: retune the two exact short-M identities above first, conditionally reopen the linked loop/prefetch experiments, and make no catalog or integration change from this benchmark alone.

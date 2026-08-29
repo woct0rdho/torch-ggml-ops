@@ -243,3 +243,17 @@ Benchmark timing remains the performance authority because profiler and thread-t
 If X1 timing is ambiguous, stochastic PC sampling may compare issue stalls at `ds_load_b128`, global loads, waits, and decode instructions. A high sample count identifies the instruction waiting to issue, not its execution latency. The generated body has register-selected `v_perm_b32` instructions but no inline literal selector, so the known 96-bit literal-permute fetch pathology is not a current optimization premise. High `ds_load_b128` samples can instead indicate an LDS queue filled by resident waves. Use reduced-scope ATT only for overlap diagnosis and never infer benchmark utilization from trace duration.
 
 Codebook placement, another LDS swizzle, dual buffering, traversal, wider N, or DepthU changes remain closed or conditional unless this exact profile establishes a new bottleneck and an occupancy-safe mechanism. Model-owned prepared representations, changed public APIs, hidden caches, external workspaces, and forward/backward lifetime management remain explicitly deferred outside this kernel-local campaign.
+
+## Post-Benchmark Retuning Triage
+
+The current deployed complete-call benchmark used 20 warmups, 25 repeats, one launch per sample, per-call output allocation, and the corrected runtime-dispatched HIP control. The DeepSeek run uses one deterministic learned/hash profile per component, while the accepted table uses five weighted confirmation medoids; the current result is therefore a retuning signal rather than a replacement performance table.
+
+### Kernel that may need further tuning
+
+- IQ2_XXS pair B16, `ggbpair_1be1cd79ef70bdc7`, should receive a focused retune or current-bank requalification. The fresh learned profile measured `392.4174` versus `309.4629 ms` for HIP/GGTensile, or `1.2681x`; a 50-repeat top-up measured `391.7904` versus `312.8364 ms`, or `1.2524x`. The hash profile is closer at `1.3090x`, but the documented mixture is `1.3203x`. Retain the exact M192 B16 scope and first investigate route-sensitive schedule, wait, and ownership choices before opening another geometry family.
+
+B1 (`1.2136x` current versus `1.1984x` documented) and B4 (`1.4122x` versus `1.3953x`) do not currently require retuning. All current candidate outputs remain bitwise exact against public API and HIP.
+
+### Closed experiments currently not reopened
+
+The X1 lower-state M128 projection-read rejection and the X2 M256 rejection are not suspicious closures under this evidence: X1 lost the B4 fitted comparison by `3.69%`, while M256 was `8.6%` slower at B16 than retained M192 (`0.9206x`) and carried a substantially larger register allocation. The current B16 learned-profile deficit is a deployment-corpus signal, not a measured changed premise for either rejected identity. Reopen those experiments only after a current-bank retune isolates a schedule or ownership bottleneck that changes their exact resource/timing premise.

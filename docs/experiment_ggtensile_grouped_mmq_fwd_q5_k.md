@@ -145,3 +145,17 @@ Screen B16 first against the selected three-way `a1d4-p2` parent, including fitt
 If Q4 qualifies generated wait/liveness analysis, re-derive it for the Q5 high-bit images and require identity mode to reproduce the Q5 parent before changing a wait or barrier. Separately, an approximate output-only experiment may compare `RNEPreserveNaN`, `BiasRound`, and `Truncate`; finite-output checks live in numerical tests, not in kernel branches, and model integration is required before retaining that numerical policy. Do not compose synchronization, persistent images, and output relaxation before isolated results exist.
 
 Screen the resource-neutral output policy before implementing route persistence. Generated synchronization remains exact shared infrastructure with a low-single-digit performance prior; neither priority statement is a timing result.
+
+## Current One-Law Retuning and Reopening Flags
+
+This annotation records the current direct-kernel benchmark only; it does not change the selected Q5_K identities, catalog, dispatch, or integration status. The primary reports are under `~/tmp/torch-ggml-ops/fresh-grouped-fwd-one-law-multiply-20260823/`, with a 75-repeat top-up under `~/tmp/torch-ggml-ops/fresh-grouped-fwd-one-law-multiply-topup-20260823/`.
+
+### Retune flag
+
+- Q5_K B1, `ggsol_a35d42962fcb240d` (`R=16,384`) may need further tuning or retuning. The current `qwen-learned` realization measured `0.9529x` GGTensile/HIP, with a 75-repeat log-time interval of `[0.9457x, 0.9602x]`, versus the documented `0.9987x`. This is a stable current short-row regression, not a sample-count ambiguity.
+- Q5_K B4 and B16 do not receive a retune flag from this pass: their current speedups are `1.0635x` and `0.9990x`, respectively. Their differences from the documented rows are smaller and do not identify a separate shape-wide failure.
+
+### Reopen flag
+
+- Reopen the Q5-specific B1 R1-R3 route/address transfer experiment. Its historical Q5 closure was inherited from the Q4 B1 transfer gate rather than from Q5 direct-kernel timing under the current one-law, prequantized multiply-only protocol. Re-run R1-R3 against the current Q5 B1 parent before treating the shared route/address transformations as closed for Q5. This is a requalification request, not evidence that any R1-R3 variant should be retained.
+- The Q5 route-persistent full-K image remains a planned, format-specific experiment. The current table does not reopen it or transfer the Q4 G4 rejection; it needs its own LDS/resource and timing discriminator if pursued.

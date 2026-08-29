@@ -371,6 +371,25 @@ Status: planned and unmeasured. The exhaustive scalar epilogue grid and measured
 
 The exact experiment is a transfer gate for a complete compiler-oracle semantic policy first qualified in Q6 or Q4. Re-derive Q5 producer/consumer distances, register roles, legal VOPD pairs, and any `s_delay_alu` tokens, then encode one named plan without a compiler in generation, copied instruction order, or post-emission scheduling. Screen narrow M32768 and shared-down M8192. A result must beat the current exact parent and cannot claim the approximately 1.8% high-bit lower bound unless it actually reduces or hides that dependency chain.
 
+## Current Multiply-Only Benchmark Triage
+
+This is a narrow annotation from the current `bench/` direct-kernel protocol. It does not change the selected Q5 identities or public dispatch. The primary report is `~/tmp/torch-ggml-ops/fresh-fwd-multiply-only-20260823-v2/`; the shared-down C/D top-ups are under its `topups/` directory. The runs use prequantized multiply-only timing, 20 warmups, and 25 repeats.
+
+### Retuning candidates
+
+- `ggsol_2eb856fb8c8259f2`, `(2048,512,2048)`: fresh A/B speedups were `0.9496x/0.9309x`, versus the documented `0.9980x`. This is the highest-priority Q5 retuning target.
+- `ggsol_0bd6c5a01aebb61c`, `(2048,2048,512)`: the primary result was `0.9989x/1.0117x`, while the two top-ups were approximately `0.997x/0.954x`. Treat this as a requalification and secondary retuning target, not as a stable promotion result.
+
+The four longer-M identities remain near or above their documented relative results and do not require immediate retuning from this pass.
+
+### Historical closures to reconsider
+
+The M2048 scalar-epilogue grid and alternate Q5 high-bit merge forms deserve a fresh direct screen for the two exact keys above. Their historical closure was made against an older selected-parent timing context, while the current narrow M2048 result is materially below parity and the shared-down result is order-sensitive. The current-parent activation-base lifetime mechanism is also worth extending from its M8192 representatives to M2048 if its typed artifact can be regenerated.
+
+The compact-LDS rejection remains closed: its consumer-side high-bit insertion penalty was several percent, not a noise-scale result. Loop rolling and the existing high-bit operation floor likewise remain closed unless a new ownership or instruction premise removes or hides that dependency chain.
+
+The current disposition is: retune narrow M2048 first, requalify shared-down M2048, conditionally reopen the M2048 scalar/high-bit and activation-base screens, and make no catalog or integration change from this benchmark alone.
+
 The separate numerical experiment changes only final output conversion: compare `RNEPreserveNaN`, `BiasRound`, and `Truncate` while preserving Q5 decode, FP32 correction order, and the fixed Q8_1 producer. Numerical tests, not kernel branches, reject non-finite output and report error distributions. Any approximate result requires model integration and remains outside the exact catalog. Do not compose the exact schedule and approximate conversion experiments until each has independent evidence.
 
 The exact oracle transfer is now a low-priority discriminator. Q6 O1 was timing-neutral under its fixed typed map, and Q5's only quantified local body floor is approximately 1.8%; no Q5 candidate may claim a larger premise without showing how it hides that high-bit chain. For the numerical branch, screen shared-down K512 before the longer-K narrow shape because final conversion is a larger fraction of low-K work. Its planning prior is low to mid single digits, not a measured forecast.

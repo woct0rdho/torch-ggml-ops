@@ -236,3 +236,15 @@ The repaired artifacts are under `~/tmp/torch-ggml-ops/ggtensile-fixed-bwd-q8-e9
 That repair did not establish the required arithmetic identity. Comparing the repaired B1 kernel with the installed fixed HIP control produced a nearly total output mismatch, with normalized RMSE approximately `1.4149`; the output was finite and fully covered, but the values were wrong. The failure is consistent with the inherited fragment ownership or N-tile addressing assumptions for 16 N repeats, which have not been proven by the ordinary writer. Because exactness failed before qualification, no benchmark or dispatch claim is made.
 
 Decision: close and reject E9, including the repaired address-only artifact. Keep the narrow fixed-only admission and planner collision fix because they are tested infrastructure, but do not widen ordinary geometry support or integrate M64/N256 without a separately proven fragment mapping and exact end-to-end result.
+
+## Post-Benchmark Retuning Triage
+
+The corrected direct-kernel benchmark measured the selected E6-derived B1, B4, and B16 kernels with 20 warmups, 25 samples, and launch batching. All three remained bit-exact and faster than HIP: the fresh speedups were `1.3148x`, `1.3462x`, and `1.2616x`. No selected fixed-group kernel currently requires immediate retuning.
+
+### Closed experiments eligible for reopening
+
+- E7 packed-VOPD extraction on E6, B16, `ggsol_28f3a30c774f762b` is the highest-priority fixed-group re-run. It was closed from one 3-warmup/9-sample comparison at `74.0142 ms` versus `73.5100 ms` for E6, a `0.69%` regression. The candidate was bit-exact, but the result is near parity and was not promoted to a final-length bracket. Re-run the exact E7 candidate against the current E6 parent with the direct-kernel protocol, at least 20 warmups and 25 paired samples, with a robust log-time interval. Qualify B1 and B4 only if B16 is no longer a regression and the candidate clears the normal resource-bearing gain gate.
+
+- E5 paired-row clause store is a lower-priority changed-parent reopening, not a direct retune. Its `1.65%` B16 regression was measured against E2 after only a 3-warmup/9-sample screen; the final selected parent is E6/DepthU64, so the old result does not measure an E5-on-E6 composition. Reopen it only as a newly generated E6 variant if a current profile identifies epilogue store pressure. Do not treat the old E5 result as evidence that clauses help, and do not reopen it merely because the current E6 control is faster.
+
+E4's large occupancy loss, E8's unsupported next-prefetch contract, and E9's failed arithmetic identity remain properly closed and are not candidates for a timing-only rerun.

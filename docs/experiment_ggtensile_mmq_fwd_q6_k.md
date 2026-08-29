@@ -510,3 +510,17 @@ Cross-record prioritization makes the reassociation the highest-upside still-unm
 Keep output conversion as the lower-cost independent screen because replacing the Q6 epilogue's exact NaN-preserving sequence with `BiasRound` or `Truncate` removes more instructions than replacing the common two-instruction rounding pair. Report body and complete-call movement separately. Neither planning prior is a timing result, and numerical/model qualification remains authoritative.
 
 Finite-input numerical tests reject any non-finite output and report differing BF16 elements, normalized RMSE, maximum and high-percentile error against the exact parent and dequantized reference. No kernel-side NaN/Inf test, clamp, or repair sequence is added. O2 identities remain outside exact catalogs and require model integration for inference quality, loss, and gradient stability before retention.
+
+## Current Multiply-Only Benchmark Triage
+
+This is a narrow annotation from the current `bench/` direct-kernel protocol. It does not change the selected Q6 identities, exact catalogs, or public dispatch. The fresh report is `~/tmp/torch-ggml-ops/fresh-fwd-multiply-only-20260823-v2/`; it uses prequantized multiply-only timing, 20 warmups, and 25 repeats in two independent passes.
+
+The selected identities `ggsol_e4a90622ebc83190` (M64), `ggsol_67c5d2386851ff85` (M128), and `ggsol_45df63b663fc39b5` (M256) measured `1.0230x`, `1.0085x`, and `1.0043x` HIP speedup. No Q6 kernel is a retuning target from this run.
+
+### Historical closures to reconsider
+
+`WideScalarCarryFrontier`, the exact M64 candidate `ggsol_079a7580f46d8812`, was closed after a nine-repeat screen because it was only `0.05%` slower than its parent, despite beating HIP. That is a plausible current-bench recheck if the artifact can be regenerated: the old margin is below ordinary timing resolution and the new runner provides a 25-repeat direct multiply-only surface. Reopening it would require a fresh typed artifact and the existing exact/resource gates; it does not justify changing the selected M64 identity now.
+
+The shared MT256 candidate remains reasonably closed because it was approximately `2.9%` slower than HIP, not merely within noise. The Q6 fixed-map oracle and O2 arithmetic identities likewise remain research-only and are not reopened by the present parity results.
+
+The current disposition is: no Q6 retuning action, one conditional recheck of `ggsol_079a7580f46d8812`, and no catalog or integration change.

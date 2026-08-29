@@ -212,3 +212,18 @@ I2 derives waits and barriers from typed codebook-load, decoded-image, activatio
 I3 compares only final-output `RNEPreserveNaN`, one-instruction `BiasRound`, and zero-instruction `Truncate`. Numerical tests use finite inputs, fail on non-finite output, and report error distributions; no NaN/Inf handling is emitted in the kernel. I3 is an approximate research identity and requires model integration before retention. I1, I2, and I3 must not be combined until each isolated experiment has qualified.
 
 For execution order, screen I3 before implementing the 52,224-byte I1 body because it changes no LDS or occupancy. I2 remains reusable exact infrastructure but has a low-single-digit performance prior. These priorities are unmeasured and do not weaken any correctness or model-integration gate.
+
+## Current One-Law Retuning and Reopening Flags
+
+This annotation applies to the non-paired IQ2_S serial deployment. The paired IQ2_S J64 correction is a separate resolved issue and is intentionally not reopened here. The primary reports are under `~/tmp/torch-ggml-ops/fresh-grouped-fwd-one-law-multiply-20260823/`, with a 75-repeat top-up under `~/tmp/torch-ggml-ops/fresh-grouped-fwd-one-law-multiply-topup-20260823/`.
+
+### Retune flags
+
+- IQ2_S B1, `ggsol_66d82050f3292c36` (`R=16,384`) may need further tuning or retuning. The current `qwen-learned` realization measured `1.1000x` GGTensile/HIP, with a 75-repeat log-time interval of `[1.0865x, 1.1136x]`, versus the documented `1.2728x`.
+- IQ2_S B4, `ggsol_544c7685f9e404a1` (`R=65,536`) is a lower-priority further-tuning flag: the current speedup is `1.0953x`, with the primary 25-repeat interval `[1.0874x, 1.1033x]`, versus the documented `1.1310x`.
+- IQ2_S B16, `ggsol_22cf9191b894b45e` (`R=262,144`), does not receive a retune flag from this pass. Its current `0.9966x` speedup is effectively the documented `0.9951x` result.
+
+### Reopen flag
+
+- Reopen the non-paired IQ2_S B1/B4 route-ownership and decode-reuse screening as a shape-specific experiment using the current one-law multiply-only protocol. The current evidence is too short-row-sensitive to transfer the B16 serial conclusion to B1/B4. Re-test the existing route/tile candidates independently at B1 and B4 before composing any new persistent decoded-image or synchronization change. The existing I1 full-K image remains a B16-first hypothesis, not a result selected by this note.
+- The earlier N1 zero-bank and instruction-local closures remain closed until a new mechanism changes their premise; the current table does not justify reopening them.

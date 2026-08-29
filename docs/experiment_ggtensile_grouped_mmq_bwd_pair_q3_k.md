@@ -124,3 +124,20 @@ The public bundle exports the three exact catalog identities below. Pair through
 | `(16384,2048,512)` | `ggbpair_72eedb6708bbbe0c` | `5.4546` | `5.2144` | `12.598` | `13.179` | `1.0461x` |
 | `(65536,2048,512)` | `ggbpair_d6b74a04787d53ff` | `13.7708` | `12.0697` | `19.961` | `22.774` | `1.1409x` |
 | `(262144,2048,512)` | `ggbpair_ac794f796fe331a9` | `48.3774` | `45.2834` | `22.728` | `24.281` | `1.0683x` |
+
+## Post-Benchmark Retuning Triage
+
+The current deployed complete-call benchmark used 20 warmups, 25 repeats, one launch per sample, per-call output allocation, and the corrected runtime-dispatched HIP control. The current Qwen run uses one deterministic fitted-law profile; the accepted table uses the confirmation medoids, so the comparison identifies retuning candidates but does not overwrite the accepted table.
+
+### Kernels that may need further tuning
+
+- Q3_K pair B1, `ggbpair_72eedb6708bbbe0c`, is near parity in the current deployment: `5.7902 ms` HIP versus `5.7753 ms` GGTensile, or `1.0026x`. A 50-repeat top-up measured `5.6719` versus `5.5985 ms`, or `1.0131x`, still below the documented `1.0461x`. Retune the M64 serial-prefetch body first, preserving the installed dispatch law and the exact paired ABI.
+- Q3_K pair B16, `ggbpair_ac794f796fe331a9`, may also need a targeted schedule retune. The current result is `49.0524` versus `47.8539 ms`, or `1.0250x`, compared with the documented `1.0683x`. B4 remains healthy at `1.1355x` current versus `1.1409x` documented and is not an immediate retuning target.
+
+Both candidate paths remain bitwise exact against public API and HIP. The lower current margins may reflect the one-profile versus five-medoid corpus difference, so a retune should first use the current complete-call benchmark across a disjoint fitted bank before changing the selected bodies.
+
+### Closed experiment that may be reopened
+
+- The Q3_K SIA5 interleaved-WMMA-wait experiment was removed after a three-warmup, nine-repeat B16 screen at `0.9878x` of SIA4. That is a timing-only closure on an older, shorter protocol. Reopen only an exact resource-neutral SIA5-on-current-parent variant at B1 and B16 with the current complete-call allocation contract, 20 warmups, at least 25 repeats, and robust confidence; retain it only if B1 and B16 both avoid regression and packed-HIP exactness remains unchanged.
+
+The rejected concurrent packed-bank-read identity remains properly closed because it both raised the register envelope to `139 VGPR` and lost its common timing bracket. The B4 serial-prefetch selection also remains closed unless a new candidate changes that resource or ownership premise.

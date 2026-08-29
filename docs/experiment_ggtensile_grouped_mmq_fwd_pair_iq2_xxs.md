@@ -251,3 +251,17 @@ The final table reports prequantized multiply-only throughput. HIP and GGTensile
 | 196,608 | `ggpair_c87599a2a8d4b1f3` | 22.054 | 23.329 | 1.0578x |
 
 All timed outputs in the retained qualification were exact.
+
+## Current One-Law Retuning and Reopening Flags
+
+This annotation records the current paired IQ2_XXS direct-kernel benchmark only; it does not change X1/J80 retention, catalog, dispatch, or integration status. The primary reports are under `~/tmp/torch-ggml-ops/fresh-grouped-fwd-one-law-multiply-20260823/`, with a 75-repeat B1 top-up under `~/tmp/torch-ggml-ops/fresh-grouped-fwd-one-law-multiply-topup-20260823/`.
+
+### Retune and re-evaluation flag
+
+- IQ2_XXS B1, `ggpair_f12ae9a800bd5ecb` (`R=12,288`) should receive further law-separated evaluation before its tuning is considered settled. The current `deepseek-learned` realization measured `1.1296x` GGTensile/HIP, with a primary 25-repeat log-time interval of `[1.1247x, 1.1345x]`, versus the documented `1.1594x`. The current `deepseek-hash` realization measured `1.2799x`, with a 75-repeat interval of `[1.2775x, 1.2822x]`. The spread is route-law sensitivity, not evidence of a single uniform kernel regression, but it is enough to keep B1 open for further tuning.
+- IQ2_XXS B4 and B16 do not receive a retune flag from this pass. The learned/hash post-hoc B4 speedups are approximately `1.1692x`, and the B16 speedups are approximately `1.0610x`, close to the documented rows after the law components are separated.
+
+### Reopen flag
+
+- Reopen the B1 P0/X1 retention and transfer experiment with both DeepSeek laws on the current prequantized multiply-only surface. The documented B1 value came from a learned-law medoid campaign, while the current hash realization is materially faster and the current learned realization is slower. Re-run the retained X1 parent/candidate A/B independently for `deepseek-learned` and `deepseek-hash` before transferring the B1 result to a single law-agnostic tuning conclusion. This does not reopen X2-X4, which have independent timing closures.
+- The B4 and B16 X1/J80 geometry conclusions are not reopened by this law split alone.

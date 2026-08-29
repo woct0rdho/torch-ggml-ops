@@ -195,3 +195,18 @@ The final table reports prequantized multiply-only throughput. HIP and GGTensile
 | 262,144 | `ggpair_6d9aa5f305a16663` | 21.115 | 22.874 | 1.0833x |
 
 All route, malformed-route, mutation, and finite-output checks were exact.
+
+## Current One-Law Retuning and Reopening Flags
+
+This annotation records the current paired Q3_K direct-kernel benchmark only; it does not change the retained key, catalog, dispatch, or integration status. The primary reports are under `~/tmp/torch-ggml-ops/fresh-grouped-fwd-one-law-multiply-20260823/`, with a 75-repeat top-up under `~/tmp/torch-ggml-ops/fresh-grouped-fwd-one-law-multiply-topup-20260823/`.
+
+### Retune flag
+
+- Q3_K B1, `ggpair_0aed3be2b92c0f07` (`R=16,384`) may need further tuning or retuning. The current `qwen-learned` realization measured `1.1546x` GGTensile/HIP, with a 75-repeat log-time interval of `[1.1444x, 1.1649x]`, versus the documented `1.2120x`. The difference survived the 75-sample top-up.
+- Q3_K B4 and B16 do not receive a retune flag from this pass: their current speedups are `1.1203x` and `1.0839x`, close to the documented rows.
+
+### Reopen flags
+
+- Q3-2's B1 transfer decision may be reopened with a current one-law, prequantized multiply-only A/B against its retained parent. Its historical rejection used a five-medoid/complete-call advancement gate and did not isolate the current short-row route realization. This is a requalification request, not a reversal of the recorded rejection.
+- Q3-3's complete/body closure may be reopened as a body-only timing check. The historical candidate was closed because complete-call and body movements were small and directionally inconsistent under nine-repeat medoid timing. The current infrastructure removes activation quantization and separates the multiply body, so it can determine whether the old body result was genuinely neutral without conflating it with complete-call work.
+- Q3-1's sub-percent neutral result and Q3-4's byte-identical executable result are not reopened by this benchmark.

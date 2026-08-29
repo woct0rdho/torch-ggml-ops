@@ -261,3 +261,17 @@ Add independent decoded-weight and output policies for `RNEPreserveNaN`, one-ins
 This is the strongest backward conversion target in the cross-record priority review. The decode floor is 62.8% of complete M64 latency, and each staged value currently pays the tie-bit extraction plus correction add. A resource-neutral `Truncate` candidate therefore has a mid- to high-single-digit body-gain prior; `BiasRound` has a smaller instruction delta but may be the better numerical compromise. These are explicitly unmeasured planning ranges, not retention thresholds. Output-only conversion ranks below decoded staging, and M128/M256 remain transfer gates rather than part of the first screen.
 
 The numerical harness, not the kernel, checks finite output for finite inputs and records differing elements, normalized RMSE, maximum and high-percentile error against the exact parent and independent Q6 reference. No NaN/Inf branch, clamp, or repair sequence belongs in the generated kernel. Approximate policies remain isolated from the exact catalog and require model-training integration, including loss and gradient stability, before they can be accepted.
+
+## Post-Benchmark Retuning Triage
+
+The corrected direct-kernel benchmark used the historical shape-selected HIP controls, 20 warmups, 25 measured samples, and launch batching for short kernels. All three selected Q6_K kernels remained bit-exact to HIP and faster than their current controls. This section records tuning and re-run candidates; it does not change the catalog.
+
+### Kernel to keep on the tuning watch
+
+- M64 `ggsol_47dc5792dc6a3094` remains the first Q6 retuning target. The current direct run measured `5.4576 ms` HIP and `5.1349 ms` GGTensile, or `1.0628x` speedup, with a robust median-log 95% interval of `[1.0521x,1.0737x]`. M128 and M256 measured `1.4049x` and `1.2165x`, so they do not currently need the same attention. M64 is still decode-heavy and has the smallest margin. Start with the already planned decoded-weight BF16 conversion policies or another resource-neutral decode/liveness change; require exact-parent, mutation, resource, and independent-build gates before considering a catalog change.
+
+### Closed experiment eligible for reopening
+
+- Compact M64 two-buffer pipeline `ggsol_89cc8eac2a889c91` was closed after a 3-warmup/9-sample screen at `5.248087 ms` versus `5.201748 ms` for the selected parent, a `1.008908x` candidate/parent ratio. It passed reduced-trip, production, HIP, reference, and mutation correctness, but it never received final-length timing. Re-run this exact candidate against the current M64 parent and HIP with the direct-kernel protocol, at least 20 warmups and 25 paired samples, preferably with a 50-sample top-up and robust log-time interval. Reopen only this M64 identity first; do not generalize the result to M128/M256 or reopen the wider rejected pipelines without a separate gain premise.
+
+The wider-DepthU, lane-sharing, and N64 pipeline rejections are not flagged here: their recorded losses are large enough, or their correctness history is decisive enough, that the current benchmark infrastructure does not by itself make them suspicious closures.
