@@ -187,6 +187,12 @@ def test_lds_layouts_derive_stable_sizes() -> None:
     assert Packed3BitTiledLdsLayout().total_bytes == 28_672
     assert Q3FullWeightTiledLdsLayout().total_bytes == 39_936
     with pytest.raises(AssertionError):
+        Q3FullWeightTiledLdsLayout(16, 16)
+    with pytest.raises(AssertionError):
+        Q3FullWeightTiledLdsLayout(4, 0)
+    with pytest.raises(AssertionError):
+        Q3FullWeightTiledLdsLayout(0, 4)
+    with pytest.raises(AssertionError):
         SignedInt8SmallMTiledLdsLayout(128)
 
 

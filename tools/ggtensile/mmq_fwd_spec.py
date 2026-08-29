@@ -926,6 +926,11 @@ class Q3FullWeightTiledLdsLayout:
     def __post_init__(self) -> None:
         assert self.activation_row_padding >= 0
         assert self.weight_row_padding >= 0
+        # The current Q3 full-tile ownership has no padding-aware swizzle/map.
+        # Keep unqualified padded rows out of code generation until that map is
+        # implemented and independently correctness-qualified.
+        assert self.activation_row_padding == 0
+        assert self.weight_row_padding == 0
 
     @property
     def activation_rows(self) -> int:

@@ -28,6 +28,7 @@ from tools.ggtensile.mmq_fwd_spec import (
     ForwardDecodeProducerPlan,
     ForwardKernelSpec,
     ForwardPipelinePolicy,
+    LdsSpec,
     SemanticSchedulePolicy,
 )
 from tools.ggtensile.model import ProblemSize
@@ -196,6 +197,16 @@ def test_q3_full_pipeline_and_movement_mutations_reach_emitter() -> None:
     )
 
 
+def test_q3_full_padded_lds_is_rejected_before_lowering() -> None:
+    spec = q3_full_weight_tiled_lds_kernel_spec()
+    padded = replace(
+        spec,
+        lds=LdsSpec("Q3FullTile336", LdsLayout.PaddedRows, 16, 0, 64),
+    )
+    with pytest.raises(AssertionError):
+        _writer("Q3_K", ProblemSize(32768, 8192, 2048), padded, Toolchain.discover())
+
+
 def test_q3_half_and_signed_width_mutations_reach_emitter() -> None:
     q3_spec = q3_hip_tiled_lds_kernel_spec()
     q3_size = ProblemSize(2048, 2048, 2048)
@@ -238,7 +249,7 @@ def test_q8_noncanonical_staging_is_rejected() -> None:
         validate_forward_solution(ProblemSize(32, 129280, 4096), "Q8_0", invalid)
 
 
-def test_tiled_activation_padding_preserves_payload_transaction_count() -> None:
+def test_tiled_activation_padding_is_rejected_before_writer_lowering() -> None:
     spec = q3_full_weight_tiled_lds_kernel_spec()
     size = ProblemSize(32768, 4096, 2048)
     assert spec.lds.layout is LdsLayout.Canonical
@@ -251,13 +262,8 @@ def test_tiled_activation_padding_preserves_payload_transaction_count() -> None:
             pad_b=16,
         ),
     )
-    toolchain = Toolchain.discover()
-    base_source = _writer("Q3_K", size, spec, toolchain).source()
-    padded_source = _writer("Q3_K", size, padded, toolchain).source()
-    assert padded_source.count("global_load_b128") == base_source.count(
-        "global_load_b128"
-    )
-    assert padded_source.count("ds_write_b128") == base_source.count("ds_write_b128")
+    with pytest.raises(AssertionError):
+        _writer("Q3_K", size, padded, Toolchain.discover())
 
 
 def test_signed_int8_rejects_decode_producer_ownership() -> None:
