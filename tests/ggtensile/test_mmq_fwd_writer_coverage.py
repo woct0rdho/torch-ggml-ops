@@ -15,6 +15,7 @@ from tests.ggtensile.ordinary_forward_fixtures import (
 from tests.ggtensile.support import ordinary_forward_instance
 from tools.ggtensile.family_registry import instance_name, mapping_for_instance
 from tools.ggtensile.inspection import _forward_static_wmma_count
+from tools.ggtensile.kernel_writer_assembly import Assembly, emit_bf16_conversion
 from tools.ggtensile.kernel_writer_assembly_mmq_fwd import ForwardKernelWriterAssembly
 from tools.ggtensile.mmq_fwd_physical import derive_forward_physical_plan
 from tools.ggtensile.mmq_fwd_search import (
@@ -205,6 +206,47 @@ def test_q3_full_padded_lds_is_rejected_before_lowering() -> None:
     )
     with pytest.raises(AssertionError):
         _writer("Q3_K", ProblemSize(32768, 8192, 2048), padded, Toolchain.discover())
+
+
+def test_decoded_q4_padded_lds_is_rejected_before_lowering() -> None:
+    spec = q4_decoded_weight_lds_kernel_spec(
+        epilogue_tiles_ahead=1, epilogue_dependency_width=1, epilogue_priority=0
+    )
+    padded = replace(
+        spec,
+        lds=replace(spec.lds, layout=LdsLayout.PaddedRows, pad_a=4),
+    )
+    with pytest.raises(AssertionError):
+        _writer("Q4_K", ProblemSize(2048, 512, 2048), padded, Toolchain.discover())
+
+
+def test_bf16_conversion_rejects_unknown_rounding() -> None:
+    with pytest.raises(ValueError):
+        emit_bf16_conversion(Assembly(), 8, 9, "Unknown")
+
+
+@pytest.mark.parametrize("rounding", ("BiasRound", "Truncate"))
+def test_decoded_q4_bf16_rounding_policy_reaches_emitter(rounding: str) -> None:
+    spec = q4_decoded_weight_lds_kernel_spec(
+        epilogue_tiles_ahead=1, epilogue_dependency_width=2, epilogue_priority=2
+    )
+    spec = replace(
+        spec,
+        instruction_policy=replace(spec.instruction_policy, bf16_rounding=rounding),
+    )
+    mapping = spec.to_mapping()
+    instruction = mapping["InstructionPolicy"]
+    assert isinstance(instruction, dict)
+    assert instruction["Bf16Rounding"] == rounding
+    assert ForwardKernelSpec.from_mapping(mapping) == spec
+    source = _writer(
+        "Q4_K", ProblemSize(2048, 2048, 512), spec, Toolchain.discover()
+    ).source()
+    bias_instruction = "v_add_nc_u32 v8, 0x7fff, v8"
+    if rounding == "BiasRound":
+        assert bias_instruction in source
+    else:
+        assert bias_instruction not in source
 
 
 def test_q3_half_and_signed_width_mutations_reach_emitter() -> None:

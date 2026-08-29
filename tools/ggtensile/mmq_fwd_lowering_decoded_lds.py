@@ -6,7 +6,7 @@ from typing import ClassVar, cast
 from .kernel_abi import ORDINARY_FORWARD_ABI
 from .kernel_writer_assembly import (
     Assembly,
-    emit_bf16_rne,
+    emit_bf16_conversion,
     emit_kernel_trailer,
     emit_pointer_kernarg_loads,
 )
@@ -189,6 +189,7 @@ class DecodedWeightLdsLowering:
         temporary = registers.temporary.first_register
         output_address = registers.output_address.first_register
         epilogue_scratch = registers.decode_scratch.first_register
+        rounding = self.context.state.kernel_spec.instruction_policy.bf16_rounding
         pipeline = self.context.state.kernel_spec.epilogue.pipeline
         if (
             pipeline is None
@@ -206,7 +207,7 @@ class DecodedWeightLdsLowering:
 
         if not scheduled:
             for total in range(sum_base, sum_base + 64):
-                emit_bf16_rne(asm, total, temporary)
+                emit_bf16_conversion(asm, total, temporary, rounding)
             self._emit_output_address(asm)
             for tile in range(8):
                 if tile:
@@ -232,28 +233,34 @@ class DecodedWeightLdsLowering:
             tile_count = min(tiles_ahead, 8 - first_tile)
             first_element = 8 * first_tile
             element_count = 8 * tile_count
-            for batch in range(
-                first_element,
-                first_element + element_count,
-                dependency_width,
-            ):
-                batch_count = min(
+            if rounding != "RNEPreserveNaN":
+                for total in range(first_element, first_element + element_count):
+                    emit_bf16_conversion(asm, sum_base + total, temporary, rounding)
+            else:
+                for batch in range(
+                    first_element,
+                    first_element + element_count,
                     dependency_width,
-                    first_element + element_count - batch,
-                )
-                if batch_count == 1:
-                    total = sum_base + batch
-                    emit_bf16_rne(asm, total, temporary)
-                    continue
-                for item in range(batch_count):
-                    total = sum_base + batch + item
-                    asm.inst(f"v_bfe_u32 v{epilogue_scratch + item}, v{total}, 16, 1")
-                for item in range(batch_count):
-                    total = sum_base + batch + item
-                    asm.inst(
-                        f"v_add3_u32 v{total}, v{epilogue_scratch + item}, "
-                        f"v{total}, 0x7fff"
+                ):
+                    batch_count = min(
+                        dependency_width,
+                        first_element + element_count - batch,
                     )
+                    if batch_count == 1:
+                        total = sum_base + batch
+                        emit_bf16_conversion(asm, total, temporary, rounding)
+                        continue
+                    for item in range(batch_count):
+                        total = sum_base + batch + item
+                        asm.inst(
+                            f"v_bfe_u32 v{epilogue_scratch + item}, v{total}, 16, 1"
+                        )
+                    for item in range(batch_count):
+                        total = sum_base + batch + item
+                        asm.inst(
+                            f"v_add3_u32 v{total}, v{epilogue_scratch + item}, "
+                            f"v{total}, 0x7fff"
+                        )
             for relative_tile in range(tile_count):
                 tile = first_tile + relative_tile
                 if tile:

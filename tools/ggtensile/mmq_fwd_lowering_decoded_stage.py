@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, cast
 
 from .kernel_writer_assembly import Assembly, RegisterAssignment
 from .mmq_fwd_lowering_metadata import emit_packed_scale_minimum
@@ -44,6 +44,59 @@ class DecodedStageScalarRegisters(Protocol):
 
     @property
     def group_offset(self) -> RegisterAssignment: ...
+
+
+@dataclass(frozen=True)
+class DecodedLdsDependencyFrontier:
+    """Wait thresholds derived from the current decoded-stage event graph."""
+
+    payload_global_waits: tuple[int, int, int, int]
+    low_wmma_waits: tuple[int, ...]
+    high_wmma_wait: int
+
+    @classmethod
+    def for_inputs(
+        cls,
+        inputs: "DecodedWeightLdsStageInputs",
+        *,
+        row_tiles: int | None = None,
+        defer_metadata_reads: bool | None = None,
+    ) -> "DecodedLdsDependencyFrontier":
+        movement = inputs.data_movement
+        high_bits = inputs.semantics.high_bit_reconstruction()
+        payload_reads_per_slice = (1 + (high_bits is not None)) * (
+            16 // movement.payload_global_read_vector_width
+        )
+        payload_waits = cast(
+            tuple[int, int, int, int],
+            tuple(
+                0
+                if (
+                    movement.payload_global_read_vector_width != 16
+                    or movement.metadata_load_vector_width != 16
+                )
+                else payload_reads_per_slice * (3 - row_slice)
+                for row_slice in range(4)
+            ),
+        )
+        effective_row_tiles = row_tiles or inputs.allocated_row_tiles
+        effective_defer_metadata = (
+            inputs.decode_policy.defer_metadata_reads
+            if defer_metadata_reads is None
+            else defer_metadata_reads
+        )
+        first_wait = (
+            2 * effective_row_tiles - 1
+            if effective_defer_metadata
+            else 2 * effective_row_tiles + effective_row_tiles // 2 + 3
+        )
+        return cls(
+            payload_global_waits=payload_waits,
+            low_wmma_waits=tuple(
+                first_wait - 2 * tile for tile in range(effective_row_tiles)
+            ),
+            high_wmma_wait=4 + effective_row_tiles // 2,
+        )
 
 
 @dataclass(frozen=True)
@@ -91,6 +144,7 @@ class DecodedWeightLdsStageEmitter:
         semantics = self.inputs.semantics
         movement = self.inputs.data_movement
         high_bits = semantics.high_bit_reconstruction()
+        dependency_frontier = DecodedLdsDependencyFrontier.for_inputs(self.inputs)
         ql_offset = semantics.payload_plane("ql").byte_offset
         qh_offset = (
             semantics.payload_plane(high_bits.plane_name).byte_offset
@@ -98,9 +152,6 @@ class DecodedWeightLdsStageEmitter:
             else 0
         )
         qh_address = auxiliary + 1
-        payload_reads_per_slice = (1 + (high_bits is not None)) * (
-            16 // movement.payload_global_read_vector_width
-        )
 
         def emit_global_payload(
             destination: int,
@@ -240,12 +291,7 @@ class DecodedWeightLdsStageEmitter:
                     )
         for row_slice in range(4):
             raw_base = staging_base + 8 * row_slice
-            wait_count = payload_reads_per_slice * (3 - row_slice)
-            if (
-                self.inputs.data_movement.payload_global_read_vector_width != 16
-                or self.inputs.data_movement.metadata_load_vector_width != 16
-            ):
-                wait_count = 0
+            wait_count = dependency_frontier.payload_global_waits[row_slice]
             asm.inst(f"s_waitcnt vmcnt({wait_count})")
             if high_bits is not None:
                 qh_base = staging_base + 36 + 4 * row_slice
@@ -577,13 +623,13 @@ class DecodedWeightLdsStageEmitter:
         sum_base = registers.sums.first_register
         row_tiles = row_tiles or self.inputs.allocated_row_tiles
         allocated_row_tiles = self.inputs.allocated_row_tiles
+        dependency_frontier = DecodedLdsDependencyFrontier.for_inputs(
+            self.inputs,
+            row_tiles=row_tiles,
+            defer_metadata_reads=deferred_metadata_emitter is not None,
+        )
         for tile in range(row_tiles):
-            first_wait = (
-                2 * row_tiles - 1
-                if deferred_metadata_emitter is not None
-                else 2 * row_tiles + row_tiles // 2 + 3
-            )
-            asm.inst(f"s_waitcnt lgkmcnt({first_wait - 2 * tile})")
+            asm.inst(f"s_waitcnt lgkmcnt({dependency_frontier.low_wmma_waits[tile]})")
             c_fragment = c_base + 8 * tile
             low_activation = (
                 c_base + 8 * (tile + 1)
@@ -602,7 +648,7 @@ class DecodedWeightLdsStageEmitter:
             deferred_metadata_emitter()
         for tile in range(row_tiles):
             if tile == row_tiles - 1:
-                asm.inst(f"s_waitcnt lgkmcnt({4 + row_tiles // 2})")
+                asm.inst(f"s_waitcnt lgkmcnt({dependency_frontier.high_wmma_wait})")
             c_fragment = c_base + 8 * tile
             high_activation = high_activation_base + 4 * tile
             emit_signed_i8_wmma(

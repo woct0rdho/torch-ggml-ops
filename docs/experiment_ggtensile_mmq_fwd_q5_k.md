@@ -393,3 +393,18 @@ The current disposition is: retune narrow M2048 first, requalify shared-down M20
 The separate numerical experiment changes only final output conversion: compare `RNEPreserveNaN`, `BiasRound`, and `Truncate` while preserving Q5 decode, FP32 correction order, and the fixed Q8_1 producer. Numerical tests, not kernel branches, reject non-finite output and report error distributions. Any approximate result requires model integration and remains outside the exact catalog. Do not compose the exact schedule and approximate conversion experiments until each has independent evidence.
 
 The exact oracle transfer is now a low-priority discriminator. Q6 O1 was timing-neutral under its fixed typed map, and Q5's only quantified local body floor is approximately 1.8%; no Q5 candidate may claim a larger premise without showing how it hides that high-bit chain. For the numerical branch, screen shared-down K512 before the longer-K narrow shape because final conversion is a larger fraction of low-K work. Its planning prior is low to mid single digits, not a measured forecast.
+
+## Post-Phase-2 Data-Movement and LDS Review
+
+Status: planned and unmeasured. The completed Phase 0-2 implementation makes Q5 payload/metadata transaction widths and padded decoded-LDS rows real typed identities. This is a new staging experiment against the current parent, not a reopening of compact consumer decode: the latter remains closed because its high-bit insertion penalty was several percent.
+
+Begin with the two exact M2048 keys whose current direct results are unstable or below the documented margin: narrow `(2048,512,2048)` (`ggsol_2eb856fb8c8259f2`) and shared-down `(2048,2048,512)` (`ggsol_0bd6c5a01aebb61c`). Keep the selected Q5 high-bit extraction order, independent metadata extraction, four-wave ownership, exact epilogue, `DecodeProducerCount=2`, and arithmetic contract fixed. Probe one axis at a time:
+- `PayloadGlobalReadVectorWidth=8` and `4` instead of `16`.
+- `MetadataLoadVectorWidth=8` and `4` instead of `16`.
+- `PayloadLdsWriteVectorWidth=8` and `4` instead of `16`.
+- `MetadataLdsWriteVectorWidth=8` and `16` instead of `4`, with independent metadata extraction retained.
+- `LdsLayout=PaddedRows` with `(LdsPadA,LdsPadB)` of `(4,0)`, `(0,4)`, and `(4,16)`; keep `LdsBlockSizePerPad=64`.
+
+These widths can change transaction issue, decode-to-LDS waits, and bank placement without changing the Q5 high-bit arithmetic. The decoded-Q5 contract still admits only canonical staging and rejects double-stage, double-LDS, local-read, reordered-schedule, and producer-count alternatives before lowering. Do not use a width result to claim that the approximately 1.8% high-bit operation floor has been removed; a retained candidate must show a measured overlap or issue benefit.
+
+Use strict schema/identity and assembler checks, exact HIP/public and independent-reference comparisons, finiteness, input/packed-weight/workspace mutations, code-object-v5/ABI/resource inspection, and deterministic independent rebuilds before timing. Use nine-repeat screens on the two M2048 targets, then require a stable parent improvement and two independent warmed 25-repeat parent/HIP confirmations. Requalify all six Q5 keys for any shared identity; leave the scalar-epilogue and high-bit merge closures reopened only under the separate current-parent direct screens already recorded above.

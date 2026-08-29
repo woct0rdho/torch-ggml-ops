@@ -392,6 +392,22 @@ def emit_bf16_rne(
     )
 
 
+def emit_bf16_conversion(
+    assembly: Assembly,
+    value_register: int,
+    temporary_register: int,
+    rounding: str,
+) -> None:
+    if rounding == "RNEPreserveNaN":
+        emit_bf16_rne(assembly, value_register, temporary_register)
+    elif rounding == "BiasRound":
+        assembly.inst(f"v_add_nc_u32 v{value_register}, 0x7fff, v{value_register}")
+    elif rounding == "Truncate":
+        return
+    else:
+        raise ValueError(f"unsupported BF16 output conversion: {rounding}")
+
+
 def emit_scale_u32(
     assembly: Assembly,
     destination: int,

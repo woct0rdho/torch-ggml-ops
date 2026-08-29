@@ -552,3 +552,18 @@ The compact Depth32 row-composition closure is the main historical item to revis
 DepthU64, terminal-barrier, transposed-scale, broad geometry, and the Q-A M2048 compact rejection have clearer negative or hot-control evidence and should remain closed. No exact-key or public integration change follows from this triage.
 
 The current disposition is: retune the listed large Q8 identities, conditionally requalify compact Depth32 against current parents, and make no catalog or integration change from this benchmark alone.
+
+## Post-Phase-2 Payload-Width and LDS-Layout Reopening
+
+Status: planned and unmeasured. The compact Depth32 requalification is now a concrete typed reopening: Phase 0-2 proves that Q8 tiled payload global and LDS transaction widths, and padded LDS rows, change the emitted lowerer rather than only the candidate name. The old compact-row result remains closed as a representation decision unless one of these new controls supplies a gain.
+
+Start with the current compact-depth32 exact keys most exposed by the fresh benchmark: Q-B `(8192,32768,1024)` (`ggsol_323c022d43fb2435`) and `(32768,32768,1024)` (`ggsol_f15bc6c956ce7c52`), attention-output B `(8192,4096,8192)` (`ggsol_6525bb03932d9c84`) and `(32768,4096,8192)` (`ggsol_da2d79e7129cd5d7`), and LM-head M128/M256/M512 (`ggsol_796295ce34f4992d`, `ggsol_0da11f24c6cb2f0c`, and `ggsol_ee38be695060a665`). Keep `CompactDepth32WeightRows`, the selected weight-first/paired-scale dataflow, exact Q8 arithmetic, and output ownership fixed.
+
+Probe the active Q8 fields as linked, format-specific controls:
+- `PayloadGlobalReadVectorWidth=8` and `4` instead of `16`.
+- `PayloadLdsWriteVectorWidth=8` and `4` instead of `16`.
+- `LdsLayout=PaddedRows` with one-axis `(LdsPadA,LdsPadB)` values `(4,0)` and `(0,4)`, followed by `(4,16)` only if an isolated pad survives. Keep `LdsBlockSizePerPad=64`.
+
+Q8 tiled metadata remains fixed at `MetadataLoadVectorWidth=2` and `MetadataLdsWriteVectorWidth=4`; `DecodeProducerCount` is not applicable. The canonical single-stage/default pipeline is the only admitted Q8 staging path, so double-stage, double-LDS, clustered, reordered-schedule, and generic producer-ownership experiments are invalid and must reject before lowering. Do not include Q-A M2048's hot-control `HipTile` decision or the already qualified small-M fallback in the first reopening cohort.
+
+Before timing, require exact HIP/public output, independent-reference and finiteness checks, input/packed-weight/workspace mutations, assembler and strict code-object inspection, zero private resources/spills, and deterministic rebuilds. Use nine-repeat screens against the current compact parent and HIP, advance only a stable parent improvement, and require two independent warmed 25-repeat confirmations for any retained width/layout identity. Requalify every exact key sharing the compact mechanism; no result changes the 23-key catalog, public dispatch, or bundle without a separate integration review.

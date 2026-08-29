@@ -797,10 +797,12 @@ class DecodedLdsLayout:
         interval_scale = max(1, block_size_per_pad // 64)
         row_padding_a = pad_a * interval_scale
         row_padding_b = pad_b * interval_scale
-        activation_row_stride = activation_block_bytes + row_padding_a
         weight_row_stride = 2 * activation_block_bytes + 16 + row_padding_b
         activation_base = 512
-        weight_data_base = activation_base + activation_rows * activation_row_stride
+        activation_tile_stride = 16 * activation_block_bytes + row_padding_a
+        weight_data_base = (
+            activation_base + (activation_rows // 16) * activation_tile_stride
+        )
         return cls(
             activation_metadata=activation_metadata,
             activation_base=activation_base,
@@ -808,7 +810,7 @@ class DecodedLdsLayout:
             weight_metadata_base=weight_data_base + 256,
             weight_row_stride=weight_row_stride,
             activation_lane_stride=512,
-            activation_tile_stride=16 * activation_row_stride,
+            activation_tile_stride=activation_tile_stride,
             layout=layout,
             pad_a=pad_a,
             pad_b=pad_b,
@@ -856,7 +858,7 @@ class DecodedLdsLayout:
 
     @property
     def activation_row_padding(self) -> int:
-        return self.activation_tile_stride // 16 - self.activation_metadata.block_bytes
+        return self.activation_tile_stride - 16 * self.activation_metadata.block_bytes
 
 
 @dataclass(frozen=True)
@@ -1150,11 +1152,12 @@ def derive_forward_resource_usage(spec: "ForwardKernelSpec") -> PhysicalResource
 
 @dataclass(frozen=True)
 class InstructionPolicy:
-    """Only active instruction-ordering policies not implied by dependencies."""
+    """Active instruction-ordering and output-conversion policies."""
 
     accumulator_initialization: str | None
     dependency_delay_mode: str | None
     physical_plan: str | None
+    bf16_rounding: str = "RNEPreserveNaN"
 
 
 class StructuredQ6ScheduleVariant(str, Enum):
@@ -1592,11 +1595,19 @@ class ForwardKernelSpec:
                 "InstructionPolicy presence does not match the selected lowering"
             )
         if instruction_present:
-            instruction = _strict_mapping(
-                item["InstructionPolicy"],
-                name="ForwardKernelSpec.InstructionPolicy",
-                keys=frozenset(instruction_keys),
-            )
+            if mechanism.lowering == "DecodedWeightLds":
+                instruction = _strict_mapping_optional(
+                    item["InstructionPolicy"],
+                    name="ForwardKernelSpec.InstructionPolicy",
+                    required=frozenset({"AccumulatorInitialization"}),
+                    optional=frozenset({"Bf16Rounding"}),
+                )
+            else:
+                instruction = _strict_mapping(
+                    item["InstructionPolicy"],
+                    name="ForwardKernelSpec.InstructionPolicy",
+                    keys=frozenset(instruction_keys),
+                )
         else:
             instruction = {}
         semantic_present = "SemanticSchedule" in item
@@ -1870,6 +1881,11 @@ class ForwardKernelSpec:
                     if "PhysicalPlan" in instruction
                     else None
                 ),
+                bf16_rounding=(
+                    _string(instruction, "Bf16Rounding")
+                    if "Bf16Rounding" in instruction
+                    else "RNEPreserveNaN"
+                ),
             ),
             semantic_schedule=semantic_schedule,
             pipeline=forward_pipeline,
@@ -1904,6 +1920,9 @@ class ForwardKernelSpec:
         if self.lds.layout is LdsLayout.PaddedRows:
             assert mechanism.physical_plan in row_lds_plans
             assert self.lds.pad_a > 0 or self.lds.pad_b > 0
+            # Decoded Q4/Q5 uses fixed-width B128 LDS transactions whose
+            # cooperative address transform has no padding-safe form yet.
+            assert mechanism.physical_plan != "DecodedWeightLds"
         else:
             assert self.lds.pad_a == 0 and self.lds.pad_b == 0
         work_group = self.geometry.work_group
@@ -1959,6 +1978,11 @@ class ForwardKernelSpec:
             assert self.instruction_policy.accumulator_initialization in {
                 "ScalarCopy",
                 "VopdPair",
+            }
+            assert self.instruction_policy.bf16_rounding in {
+                "RNEPreserveNaN",
+                "BiasRound",
+                "Truncate",
             }
             assert self.instruction_policy.dependency_delay_mode is None
             assert self.instruction_policy.physical_plan is None
@@ -2079,6 +2103,8 @@ class ForwardKernelSpec:
             )
         if self.instruction_policy.physical_plan is not None:
             instruction["PhysicalPlan"] = self.instruction_policy.physical_plan
+        if self.instruction_policy.bf16_rounding != "RNEPreserveNaN":
+            instruction["Bf16Rounding"] = self.instruction_policy.bf16_rounding
         if instruction:
             mapping["InstructionPolicy"] = instruction
         if self.semantic_schedule.variant is not None:
