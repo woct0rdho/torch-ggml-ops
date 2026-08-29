@@ -1,166 +1,120 @@
 # GGTensile Grouped MMQ Backward Q2_K Experiment
 
-## Purpose
+## Scope And Contract
 
-Implement and optimize isolated gfx1151 grouped Q2_K backward kernels for the DeepSeek routed down projection. Public dispatch, generated bundle tables, extension registration, packaging, and HIP fallback remain unchanged pending a separate integration review.
-
-The promotion objective is the fitted DeepSeek learned/hash routing-prior weighted sum of per-medoid median complete-call latency. Learned and hash components retain the declared reporting weights `40/43` and `3/43`. Uniform, skewed, sparse-ID, and boundary routes remain correctness and diagnostic controls rather than post hoc ranking vetoes.
-
-## Exact Contract
-
-For routed GEMM `g`:
+This record covers the isolated gfx1151 grouped Q2_K backward kernel for the DeepSeek routed down projection. For each expert, the operation is:
 
 ```text
-dY_g[M_g,4096] x W_g[4096,2048] -> dX_g[M_g,2048]
+dY_g[M_g,4096] @ W_g[4096,2048] -> dX_g[M_g,2048]
 ```
 
-The exact aggregate-row keys are `R={12288,49152,196608}`. The physical Q2_K expert bank is `[256,4096,672]`: each 256-value block occupies 84 bytes, each packed row contains eight blocks, and each expert occupies 2,752,512 bytes. Inputs and outputs are contiguous BF16, accumulation is FP32 WMMA V1, and output conversion is BF16 RNE.
+The measured aggregate-row shapes are `R=12288`, `49152`, and `196608`. The Q2_K expert bank is `[256,4096,672]`: each 256-value block occupies 84 bytes, each packed row contains eight blocks, and each expert occupies 2,752,512 bytes. Inputs and outputs are contiguous BF16, accumulation is FP32 WMMA V1, and stores use BF16 round-to-nearest-even.
 
-The grouped ABI remains the 56-byte routed backward research ABI: `grad_output`, `packed_weight`, `grad_input`, `expert_indices`, `expert_offsets`, `num_experts`, `rows`, and `bytes_per_expert`. Route count and optional split ownership are launch geometry. No host route inspection, dense shadow, prepared bank, atomics, reduction workspace, or companion setup kernel is in scope.
+The grouped research ABI is:
 
-The authoritative packed control is `~/models/ds4/DeepSeek-V4-Flash-IQ2XXS.gguf`, tensor `blk.0.ffn_down_exps.weight` (`Q2_K`, `[256,4096,672]`). The independent oracle dequantizes only selected routed experts to BF16 before matmul.
+```text
+grad_output, packed_weight, grad_input,
+expert_indices, expert_offsets, num_experts, rows, bytes_per_expert
+```
 
-## Arithmetic Boundary
+Q2_K uses a dedicated width-16 decoder. Each lane owns one aligned 16-value group, shares its two-bit payload shift and scale/minimum pair across those values, writes decoded weights to LDS as BF16, and uses the established FP32-WMMA/BF16 store path. Q2-specific packed reads, metadata lifetimes, LDS layout, schedule, and route splitting are separate from Q4_K and Q5_K arithmetic.
 
-Q2_K cannot reuse Q4_K/Q5_K arithmetic by renaming the format. A block stores sixteen scale/minimum bytes, 64 two-bit payload bytes, and FP16 `d`/`dmin`. Each decoder lane owns one aligned 16-value group, shares its payload shift and scale/minimum pair across those values, converts decoded weights to BF16 in LDS, and then reuses the established FP32-WMMA and BF16-RNE leaf.
+Timing uses five fitted medoids from each DeepSeek learned/hash component, with reporting weights `40/43` and `3/43`. Complete-call timing includes output allocation. Logical throughput is `2 * R * 2048 * 4096 / (latency_ms * 1e9)`, and the speedup ratio is HIP time divided by GGTensile time.
 
-The installed HIP baseline selects M64/N64/U1 below 128 rows per route, M128/N64/U2 from 128 through 511, and M128/N64/U1 above that. This is evidence for initial geometry and ownership controls, not assumed GGTensile ranking. Q2-specific packed reads, metadata lifetimes, LDS layout, schedule, and route splitting must be measured independently.
+## Final Benchmark Results
 
-## Qualification
+The table shows the fastest qualified HIP-normalized kernel found for each aggregate-row shape. It contains only the requested matrix shape, kernel hash, GGTensile speed, and HIP speedup.
 
-Correctness covers full exact rows, non-aligned route tails, first/non-first routes, sparse and repeated expert IDs, deterministic reruns, gradient and route mutation, active/inactive expert-weight mutation, invalid experts, malformed first/final offsets, and untouched sentinels. Candidate versus packed HIP must be BF16 bit-exact; the independently dequantized reference must remain finite with NRMSE below `0.01`.
+| Matrix shape `(R,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
+| --- | --- | ---: | ---: |
+| `(12288,2048,4096)` | `ggsol_f90ec6b01eaaa1c0` | `15.749` | `1.6930x` |
+| `(49152,2048,4096)` | `ggsol_49e0749ea2ff3aa7` | `23.604` | `1.4648x` |
+| `(196608,2048,4096)` | `ggsol_8356a591b014fc2c` | `27.289` | `1.5847x` |
 
-Inspection requires gfx1151, wave32, code object v5, exact 56-byte metadata, bounded VGPR/SGPR indices, zero private bytes and spills, no scratch/calls/dynamic stack, and derived static WMMA/barrier counts. Independent generate/build/inspect roots must produce byte-identical source and HSACO.
+These identities remained bitwise exact on the final full-row checks. The later inactive-M confirmations improved the selected GGTensile parents, but were parent-to-candidate measurements rather than a replacement three-shape HIP bracket.
 
-Timing uses warmed rotating GPU events and includes output allocation in both HIP and candidate complete-call paths. Search uses five fitted medoids from each DeepSeek learned/hash component. Retained changes receive disjoint confirmation with 5 warmups, 25 repeats, and reversed rotating order. TFLOPS is `2 * R * 2048 * 4096 / (latency_ms * 1e9)`.
+## Final Kernel Profiles
 
-## Final Accepted Performance
+| Kernel hash | Geometry and ownership | Decode schedule | VGPR / SGPR | LDS bytes |
+| --- | --- | --- | ---: | ---: |
+| `ggsol_f90ec6b01eaaa1c0` | M64/N64, masked M tail | DependencyBatch4 | `87 / 35` | `5,120` |
+| `ggsol_49e0749ea2ff3aa7` | M128/N64, `Mixed128_64` tail | DependencyBatch4 | `135 / 35` | `5,120` |
+| `ggsol_8356a591b014fc2c` | M128/N128, SplitRoutes32 | Serial | `206 / 35` | `10,240` |
 
-The public bundle exports the three exact catalog identities below. Logical throughput is `2*R*N*K/(median_ms*1e9)`. Speedup is `HIP time / GGTensile time`, so values above `1.0x` favor GGTensile.
+All final artifacts are gfx1151 code-object-v5 wave32 kernels with zero private bytes, spills, scratch, calls, and dynamic stack. The final LDS layouts use eight-byte row padding. The selected B1, B4, and B16 identities have 8, 16, and 32 static WMMAs respectively, with two barriers and no undeclared register use.
 
-| Exact `(R,N,K)` | Public catalog hash | HIP ms | GGTensile ms | HIP TFLOPS | GGTensile TFLOPS | HIP time / GGTensile time |
-| ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| `(12288,2048,4096)` | `ggsol_f90ec6b01eaaa1c0` | `22.1611` | `13.0902` | `9.303` | `15.749` | `1.6930x` |
-| `(49152,2048,4096)` | `ggsol_49e0749ea2ff3aa7` | `51.1721` | `34.9357` | `16.115` | `23.604` | `1.4648x` |
-| `(196608,2048,4096)` | `ggsol_8356a591b014fc2c` | `191.5512` | `120.8742` | `17.220` | `27.289` | `1.5847x` |
+## Accepted Kernel Experiments
 
-The inactive-M reports measure retained parent versus final candidate, not a fresh three-way HIP bracket. To avoid mixing timing sessions, the HIP and retained-parent values use the earlier disjoint HIP confirmation, and the final latency/TFLOPS and speedup are normalized with the independently confirmed candidate/parent ratios. The latest raw brackets are `14.8789 -> 13.0617 ms` at B1, `35.5258 -> 34.9647 ms` at B4, and `127.2202 -> 122.2185 ms` at B16; reports are `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q2-b1-confirm25.json`, `...-b4-confirm25.json`, and `...-b16-confirm25.json`.
+### Dedicated Q2_K decoder
 
-## Planned Search
+Q2_K received a strict grouped backward identity and a dedicated packed reader rather than being treated as Q4_K or Q5_K. The decoder maps each lane to one aligned 16-value group, performs the shared two-bit extraction, reconstructs scale/minimum values, and writes BF16 decoded weights to the existing WMMA leaf.
 
-- Add strict Q2_K backward identity and exact DeepSeek shapes without changing retained Q4_K/Q5_K source hashes or the grouped ABI.
-- Implement the dedicated Q2_K packed reader and decoded-B LDS arithmetic, then qualify a minimal M128/N128 pilot against packed HIP and the independent oracle.
-- Establish M64/N64, M128/N64, and M128/N128 controls with single-LDS and bounded pipeline schedules.
-- Screen Q2 payload/metadata extraction, LDS padding/swizzle, route tails, and split factors only where emitted ISA or ownership changes.
-- Confirm per-key winners on disjoint learned/hash medoids, qualify full rows, rebuild independently, and report HIP/GGTensile TFLOPS and speedup.
+The M128/N128 SIA2 pilot passed the 625-row boundary matrix bit-for-bit against packed HIP, including deterministic reruns, gradient and route mutations, active and inactive weight mutations, malformed routes, and sentinels. The independent-reference NRMSE was `3.78e-5`. The initial resource profile was 190 VGPRs, 35 SGPRs, 8,192 LDS bytes, 32 WMMAs, and two barriers.
 
-## Completion Record
+### Shape-specific geometry and tail ownership
 
-This section is updated after every coherent implementation or failed experiment.
+The final geometry follows the measured route-size tradeoff: M64/N64 for B1, M128/N64 for B4, and M128/N128 for B16. Eight-byte LDS padding is retained because unpadded rows materially regress both short and medium shapes. The B4 `Mixed128_64` tail selects M64 only through 64 rows; B16 uses SplitRoutes32 to avoid the dominant two-tile route loop.
 
-### Campaign opened
+All selected geometries and tail paths pass exact packed-HIP comparison, route-tail checks, mutations, and deterministic reruns. Geometry, padding, SIA choice, and route split are encoded in the selected identities rather than inferred at timing time.
 
-The completed grouped Q4_K/Q5_K shell, installed DeepSeek Q2_K backward bodies, grouped Q2_K forward lowerer, packed model tensor, and fitted learned/hash prior were audited. The exact backward problem is `(R,2048,4096)` for `R={12288,49152,196608}` with expert stride 2,752,512 bytes. The first coherent change will add a strict Q2 identity, dynamic grouped row-stride handling, generalized benchmark dimensions/prior selection, and a dedicated width-16 two-bit decoder while preserving Q4/Q5 generated source.
+### DependencyBatch4 decode scheduling
 
-### Strict Q2 identity and decoded-LDS pilot
+The Q2-specific `DependencyBatch4` schedule reuses four dead `valu_b` register pairs without changing the resource envelope. It improves B1 by `2.14%` and B4 by `6.38%` against their serial parents while preserving exactness. The same schedule regresses B16 by `1.46%` and loses every fitted medoid, so B1 and B4 retain DependencyBatch4 and B16 retains serial decode.
 
-The backward-only format registry and grouped contract now admit Q2_K while ordinary forward remains unchanged. Q2 grouped identities require only the three exact DeepSeek shapes, emit a distinct symbol/hash, validate the `[256,4096,672]` packed tensor, and guard the full 2,752,512-byte expert stride. Grouped row-byte masking and the benchmark now derive dimensions from the key. DeepSeek timing combines ten learned/hash medoids with the declared `40/43` and `3/43` component weights.
+### Inactive-M consumer suppression
 
-The dedicated decoder maps each lane to one aligned 16-value group, loads one 128-bit payload segment plus its scale/minimum byte and FP16 `d`/`dmin`, performs the shared 2-bit shift, and writes BF16-RNE decoded values to the existing LDS/FP32-WMMA leaf. The M128/N128 SIA2 pilot passes the 625-row boundary matrix bit-for-bit against packed HIP, including deterministic, gradient, route, active/inactive weight, malformed-route, and sentinel controls. Independent-reference NRMSE is `3.78e-5`. The current artifact uses 190 VGPRs, 35 SGPRs, 8 KiB LDS, 32 static WMMAs, and two barriers with zero private bytes or spills.
+The accepted suppression guards wholly inactive waves and inactive 16-row M minitiles around the WMMA consumer while keeping packed decode, LDS traffic, barriers, and masked global access uniform. It uses dead post-prologue scalar state and adds no solution field or resource cost.
 
-The first M128/N64 double-LDS artifact failed packed HIP, determinism, mutations, and the independent oracle. The Q2 one-row metadata allocation exposed an existing pipeline lifetime requirement: the shared decoded-B pipeline uses a second scale-adjacent register for LDS read addressing while next-tile metadata is pending. Reserving that register removes the alias with the swizzled write-address bank. Rebuilt B1/B4/B16 double-LDS artifacts are exact and deterministic at 139 VGPRs; no wait or arithmetic waiver was used. All initial SIA5 geometry controls also pass. Current serial resources are 87 VGPR for M64/N64, 135 for M128/N64, and 206 for M128/N128, all at 35 SGPR with zero private bytes or spills.
+Disjoint confirmation improved retained-parent weighted latency by `13.91%` at B1, `1.60%` at B4, and `4.09%` at B16. Every relevant confirmation medoid remained bitwise exact; nine of ten B4 medoids improved, and every B16 medoid improved. Full-row correctness also passed at all three aggregate sizes, so suppression remains part of the accepted kernel design.
 
-Regenerated retained Q4 and Q5 B1 sources remain byte-identical.
+## Rejected Kernel Experiments
 
-### First fitted-prior geometry screen
+### M128/N128 SIA2 and losing geometries
 
-The initial screen rejected the M128/N128 SIA2 pilot, selected M64/N64 for B1, selected M128/N64 for B4, and selected M128/N128 for B16. Double LDS and the losing geometries were closed by timing; later tail, split, and decode brackets established the parents used for final qualification.
+The initial M128/N128 SIA2 pilot was exact but was not competitive at B1. M64/N64 was rejected for larger keys because repeated Q2 scale/minimum reconstruction outweighed its lower accumulator cost. M128/N128 was rejected for B1 because its register envelope did not pay back on sparse small routes. These alternatives remain valid correctness controls but are not selected identities.
 
-The result differs from the installed HIP geometry because the assembly N128 body is 206 VGPR rather than the historical 255-VGPR cliff. B1 route tails still favor the 87-VGPR M64 body; B4 is within one percent between N64 and N128 and requires same-process resolution; B16 gains materially from N128 packed reuse. Double-LDS is closed unless a later changed mechanism removes work rather than only rescheduling it.
+### Double LDS and alternate layouts
 
-### Layout, schedule, and first tail controls
+The first M128/N64 double-LDS artifact failed exactness, determinism, mutations, and independent-reference checks because Q2 metadata aliased a register later used for decoded-B LDS addressing. Reserving the address register repaired the lifetime and produced exact artifacts, but double LDS was later slower than the padded single-LDS path and was not retained.
 
-Every control remains packed-HIP exact. Eight-byte row padding is essential: plain LDS regresses the B1 M64 body from `15.3135` to `27.5238 ms` and the B4 M128/N64 body from `37.4635` to `44.3643 ms`. Swizzle4/swizzle8 regress B1 to `17.5561/17.6736 ms` and do not beat padding at B4. SIA2 plus plain LDS loses at `27.5723 ms`; SIA5/PGR1 loses at `15.5173 ms`. Padded SIA4 and SIA5 remain close at B1 (`15.1463/15.3135 ms`) and B4 (`37.4354/37.4635 ms`), requiring same-process brackets.
+Plain LDS, SIA2, SIA5/PGR1, and swizzle variants were exact but slower or statistically flat. The final path retains padded single LDS; no alternate layout is selected.
 
-Existing `Mixed128_64` tails, which select M64 only through 64 rows, improve B4 modestly to `37.2586 ms`. The installed Q2 body uses M64 below 128 rows, providing a changed and format-specific premise for one `<128` tail-policy control. The first threshold-only artifact failed correctness because the established M64 branch emits one tile by construction; this was rejected before timing. A typed Q2-only policy with a proper M64 route loop then passed the complete mutation matrix, but regressed to `39.9595 ms` (`1.2283x` HIP) versus `37.2586 ms` for the <=64 policy. Rows 65-127 prefer one masked 135-VGPR M128 tile over two M64 tiles. The failed policy was removed, and no broader threshold is opened.
+### M-tail threshold policy
 
-### B16 layout and ownership controls
+A threshold-only tail artifact failed correctness because the inherited M64 branch emitted one tile by construction. A typed Q2-specific route loop repaired correctness, but the candidate regressed to `39.9595 ms` versus `37.2586 ms` for the existing `<=64` policy. Rows 65-127 favor one masked M128 tile over two M64 tiles, so the broader threshold was rejected.
 
-The padded N128 body is ownership-bound on the skewed B16 prior. SIA5 serial is `132.1376 ms`; split2/4/8/16 improve monotonically to `128.827/128.088/127.692/127.524 ms`, with split16 at `1.5000x` HIP. Plain LDS collapses to `170.905 ms`, swizzle8 regresses to `134.621 ms`, and double-LDS reaches only `133.517 ms`. Padded SIA4 serial is slightly ahead of SIA5 at `131.487` versus `132.138 ms`.
+### Split64 and smaller split factors
 
-Split32 passes all controls and improves SIA5 to `125.3000 ms` (`1.5186x` HIP), unlike the rejected Q5 endpoint. SIA4 split16 is `126.7151 ms` versus SIA5 split16 at `127.5237 ms`, but SIA4 split32 regresses to `126.0449 ms` versus SIA5 at `125.3000 ms`. The dominant learned medoid has routes up to 50 M128 tiles, so split64 was tested as the sole endpoint that removes the last two-tile loop. It is exact but a 15-repeat same-process bracket favors split32 at `126.1163` versus `126.4909 ms` (`0.30%`); split32 wins the dominant learned profile and every hash medoid. Split64 is removed and SplitRoutes32 is retained as the typed maximum.
+Split32 improved the B16 parent and passed all exactness checks. Split64 was exact but lost a balanced bracket by `0.30%`, including the dominant learned profile and every hash medoid. Split64 was removed; SplitRoutes32 is the maximum retained split.
 
-The existing <=64 mixed tail materially changes B4 N128: it reaches `37.1417 ms` versus N64 mixed at `37.2586 ms`, while raising the minimum medoid speedup from `1.1639x` to `1.2277x`. At B16, mixed tails regress split32 from `125.3000` to `126.2204 ms`; the B16 parent remains masked.
+### DependencyBatch4 at B16
 
-Fifteen-repeat same-process brackets lock the macro parents. B1 padded M64/N64 SIA4 is `15.2892 ms` versus SIA5 at `15.4012 ms` (`0.73%`). B4 N64 mixed is `36.9186 ms` versus N128 mixed at `38.6898 ms` (`4.58%`), and N64 mixed SIA5 is `37.3181 ms` versus pure N64 SIA4 at `37.8544 ms` (`1.44%`). B16 SIA5 split32 is `126.9932 ms` versus SIA4 at `127.5897 ms` (`0.47%`). Geometry, tail ownership, SIA, LDS layout, and route splitting are therefore closed around these three parents.
+The B16 DependencyBatch4 candidate was exact but regressed `1.46%` against serial decode and lost every medoid. A temporary dependency-width-two endpoint also lost B16 by `0.51%`. Neither schedule is retained for B16.
 
-### Q2 decode scheduling
+### Arithmetic replacement
 
-A typed Q2 `DependencyBatch4` schedule reuses four dead `valu_b` register pairs and adds no resources. All three controls are exact. Same-process brackets show B1 improving from `15.1730` to `14.8558 ms` (`2.14%`) and B4 from `37.2895` to `35.0546 ms` (`6.38%`). B16 instead regresses from `127.0026` to `128.8607 ms` (`1.46%`) and loses every medoid, so B16 remains serial. A temporary dependency-width-two endpoint was also exact but lost B16 serial in a bracket (`126.3994` versus `127.0545 ms`, `0.51%`) and was removed. Final decoder choices are batch4 at B1/B4 and serial at B16; no other decode arithmetic is opened.
+An FMA/output-modifier replacement for the proven scale/minimum arithmetic assembled and reduced one issue per row, but failed candidate, mutation, and independent-reference comparisons. The proven add/multiply sequence was restored.
 
-### Final confirmation
+### Unrepresented or broad searches
 
-The final artifacts use five warmups, 25 repeats, reversed rotating order, and disjoint confirmation-bank learned/hash medoids. Timings are weighted by the declared `40/43` learned and `3/43` hash reporting weights; both HIP and candidate complete-call paths include output allocation.
+Row-task ownership, U4, broad split sweeps, and N128 reopening after the selected parent were not accepted as generic follow-ups. Existing controls either failed the resource/timing premise or did not remove repeated Q2 scale/minimum reconstruction. No new identity was created for them.
 
-The earlier parent/HIP confirmation is represented in the normalized table above. The latest disjoint parent-to-candidate confirmations are:
+## Remaining Work
 
-| Key | Retained parent -> final candidate (ms) | Candidate / parent |
-| --- | ---: | ---: |
-| B1 | `14.8789 -> 13.0617` | `1.1391x` |
-| B4 | `35.5258 -> 34.9647` | `1.0160x` |
-| B16 | `127.2202 -> 122.2185` | `1.0409x` |
+### Focused B4 requalification
 
-Full-row correctness (`--correctness-rows 0`) is packed-HIP bit-exact at every final key: 12,288, 49,152, and 196,608 rows. Deterministic reruns, gradient mutation, route mutation, and active-weight mutation are exact with zero tail writes. Independent BF16-oracle NRMSE is `8.55e-6`, `5.60e-5`, and `9.81e-5` respectively; all remain below `0.01`.
+A later direct-kernel triage run measured Q2_K B4 at `1.3666x` HIP, below the documented `1.4648x` table value. The separate learned and hash profiles were `1.3604x` and `1.4585x`, indicating route-law sensitivity rather than a correctness issue. B4 is the only selected shape requiring focused retuning or requalification.
 
-Final inspected resources are B1 `87 VGPR / 35 SGPR / 5 KiB LDS`, B4 `135 / 35 / 5 KiB`, and B16 `206 / 35 / 10 KiB`, with zero private bytes and zero VGPR/SGPR spills. Two disjoint generate/build/inspect roots produce byte-identical artifacts.
+Start with the existing B4 M128/N64 `SecondaryTile`/serial-body alternatives and their DependencyBatch4 decode. Use the current complete-call protocol with output allocation, the corrected HIP control, the fitted learned/hash objective, and a longer confirmation bank before changing geometry. Do not broaden the split sweep until this comparison is resolved.
 
-## Reopened post-refactor optimization program
+### Tail-boundary check
 
-Q2_K keeps serial or static split ownership because N64 already exposes 32 column workgroups per expert and device tasks do not remove rounded M-tail arithmetic. The actionable changed premise is therefore inactive-M consumer suppression, not another ownership sweep:
-- Add wave-uniform suppression of wholly inactive 16-row WMMA consumers while keeping width-16 scale/minimum decode and barriers uniform. The HIP analog improved B1 by `8.69-15.15%` and the complete route matrix by `4.73%` geometrically. Measure B1 first, then B4/B16 only if the source form remains resource-neutral and fitted medoids improve.
-- Preserve the selected Q2 `DependencyBatch4` choices at B1/B4 and serial decode at B16. Reconfirm them only after suppression changes the schedule premise; the existing B16 batch4 loss of `1.46%` is a valid fitted closure for the old parent.
-- Do not reopen N128, row tasks, U4, or broad split factors without a mechanism that removes repeated scale/minimum reconstruction. Existing controls already reject those choices by resource or fitted timing.
+Recheck the existing B4 `Mixed128_64` and threshold candidates around the 64/128-row boundary under the current timing protocol. Reopen only these exact threshold identities; a new row-task or broad ownership search requires a separate mechanism that removes Q2 scale/minimum reconstruction work.
 
-All controls remain exact against packed HIP, deterministic, and spill-free. Uniform, skewed, sparse-ID, and boundary timing is diagnostic rather than a fitted-ranking veto.
+B1 and B16 do not currently justify retuning: the triage results were `1.6630x` versus `1.6930x` for B1 and `1.5984x` versus `1.5847x` for B16. The B16 DependencyBatch4 rejection, SplitRoutes32 selection, and broad geometry closures remain closed.
 
-The Q2 research route remains isolated: production dispatch, generated bundles, registration, packaging, extension integration, and HIP fallback were not changed. The final repository gate passes `pytest -q tests` with `718 passed` (14 external PyTorch Python 3.14 deprecation warnings) and `pre-commit run --all-files` with pyupgrade, Ruff check, Ruff format, and ty all passing.
+## Qualification Summary
 
-### Inactive-M suppression build and correctness checkpoint
+The final kernels pass exact packed-HIP comparison at 12,288, 49,152, and 196,608 rows; independent BF16-reference checks; finite-output and full-row coverage checks; deterministic reruns; gradient, route, active-weight, and inactive-weight mutations; malformed-route sentinels; and non-aligned route tails.
 
-The first identity-neutral implementation guards each wholly inactive wave and each inactive 16-row M minitile around the WMMA consumer, while leaving packed decode, LDS traffic, barriers, and masked global access uniform. It reuses dead post-prologue scalar state and adds no solution field. Both manifest Q2_K controls (`Serial` and `DependencyBatch4`) assemble with their prior `190 VGPR / 35 SGPR / 8192 B LDS` envelope and zero private bytes or spills; all grouped manifest identities and static WMMA/barrier counts remain unchanged. The complete build record is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-manifest-build/build.json`.
-
-The strict 625-row boundary matrix for `ggsol_6122db33bb5245ba` passes packed HIP, independent BF16, deterministic rerun, gradient/route/active/inactive-weight mutations, malformed expert/offset controls, and tail sentinels. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q2-correctness.json`. This is a build/correctness checkpoint only; fitted timing against source-preserved parents remains the promotion gate.
-
-The selected B1 `ggsol_f90ec6b01eaaa1c0` source was then built from both the pre-change `c41913f` worktree and the suppression worktree. Both artifacts inspect at `87 VGPR / 35 SGPR / 5120 B LDS`, zero private bytes and spills, eight static WMMAs, and two barriers. A same-process fitted search-bank bracket with allocation in both paths, three warmups, nine repeats, and rotating parent/candidate order lowered weighted complete-call latency from `15.3096` to `13.4143 ms`, or `1.1413x` parent throughput. All five learned and five hash medoids were bitwise exact and improved individually; the minimum ratio was `1.1008x`. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q2-b1-search9.json`. This advances to disjoint fitted confirmation and larger selected keys.
-
-Disjoint confirmation with five warmups, 25 repeats, reversed base order, and the same complete-call allocation contract confirms `14.8789 -> 13.0617 ms`, or `1.1391x`. Every learned/hash confirmation medoid is bitwise exact and faster, with ratios from `1.1094x` through `1.1626x`. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q2-b1-confirm25.json`. Inactive-M suppression is retained for Q2_K B1 and advances to B4/B16 qualification.
-
-The selected B4 mixed-tail `ggsol_49e0749ea2ff3aa7` and B16 split32 `ggsol_8356a591b014fc2c` artifacts reproduce their parent envelopes at `135/206 VGPR`, `35 SGPR`, and `5120/10240 B LDS`, with zero private bytes or spills. Both pass the strict 625-row packed-HIP, independent BF16, deterministic, mutation, malformed-route, and sentinel matrix. Reports are `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q2-b4-correctness.json` and `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q2-b16-correctness.json`. Fitted parent/candidate timing remains outstanding.
-
-The B4 fitted search-bank bracket measures `34.8767 -> 34.5769 ms`, or `1.0087x` weighted parent throughput, with bitwise equality throughout. Hash medoids improve consistently, while two low-weight learned medoids regress. Because the weighted margin is below one percent, this is provisional pending a longer disjoint bracket. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q2-b4-search9.json`.
-
-The B16 fitted search-bank bracket is decisive: `126.5649 -> 121.4406 ms`, or `1.0422x`, with every learned/hash medoid bitwise exact and faster. The minimum per-medoid ratio is `1.0374x`. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q2-b16-search9.json`; B16 advances to disjoint confirmation independently of the marginal B4 result.
-
-The disjoint B4 confirmation bracket resolves the provisional result positively: `35.5258 -> 34.9647 ms`, or `1.0160x`. Nine of ten medoids improve; one low-weight learned profile is `0.9930x`, and all outputs remain bitwise exact. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q2-b4-confirm25.json`. Inactive-M suppression is retained for Q2_K B4.
-
-The disjoint B16 confirmation bracket measures `127.2202 -> 122.2185 ms`, or `1.0409x`, with every learned/hash medoid bitwise exact and faster. The minimum ratio is `1.0394x`. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q2-b16-confirm25.json`. Inactive-M suppression is therefore retained across all selected Q2_K B1/B4/B16 keys.
-
-The EvoTensile median-log robust-scale analysis marks all three weighted comparisons confidently faster at 95%: candidate-minus-parent intervals are `[-12.726,-11.661]%` at B1, `[-2.337,-0.829]%` at B4, and `[-4.017,-3.847]%` at B16. The aggregate analysis is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-confirm25-confidence.json`.
-
-Final selected full-row qualification passes at `12288`, `49152`, and `196608` rows with packed-HIP bit equality, deterministic reruns, all active/inactive mutation controls, malformed-route sentinels, and independent BF16 NRMSE below `0.01`. The report is `~/tmp/torch-ggml-ops/ggtensile-inactive-m-q2-full-correctness.json`.
-
-## Post-Benchmark Retuning Triage
-
-The current deployed complete-call benchmark used 20 warmups, 25 repeats, one launch per sample, per-call output allocation, and the corrected runtime-dispatched HIP control. It used one deterministic fitted-law profile per route component, whereas the accepted table uses five weighted confirmation medoids; these results are triage evidence, not a replacement for the documented weighted table.
-
-### Kernel that may need retuning
-
-- Q2_K B4, `ggsol_49e0749ea2ff3aa7` deserves a focused retune or requalification. The current learned/hash mixture is `51.1523 ms` HIP versus `37.4316 ms` GGTensile, or `1.3666x`, compared with the documented `1.4648x`. The separate current profiles are `1.3604x` learned and `1.4585x` hash, so the deficit is route-law dependent rather than a correctness failure. Start with the existing B4 `SecondaryTile`/serial body and its `DependencyBatch4` decode; require exact public/HIP output, complete-call timing, and a longer fitted bank before changing geometry.
-
-B1 (`1.6630x` current versus `1.6930x` documented) and B16 (`1.5984x` versus `1.5847x`) do not currently justify retuning on this evidence.
-
-### Closed experiment that may be reopened
-
-- B4 tail ownership and threshold selection (`Mixed128_64` / `SecondaryTile`) was closed around the earlier same-process parent brackets and the `<=64` threshold decision. The current complete-call runner can now compare those exact B4 variants with output allocation and the correctly dispatched installed control. Reopen only the existing threshold candidates, beginning at the `64`/`128` boundary; do not reopen row tasks or a broad split sweep without a new mechanism that removes Q2 scale/minimum reconstruction work.
-
-The prior row-task rejection, B16 `DependencyBatch4` loss, and broad N128/split closures remain supported by their existing exactness, resource, or longer confirmation evidence and are not reopened by this triage alone.
+Independent BF16-reference NRMSE is `8.55e-6`, `5.60e-5`, and `9.81e-5` for B1, B4, and B16. Two independent generation/build/inspection roots produce byte-identical artifacts. The retained result is the Q2_K width-16 decoder with padded LDS, shape-specific M/N ownership, DependencyBatch4 at B1/B4, serial decode at B16, SplitRoutes32 for B16, and inactive-M suppression.
