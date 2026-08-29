@@ -1,250 +1,124 @@
-# GGTensile Fixed-Grouped MMQ Backward Q8_0 Experiment
+# GGTensile Fixed-Group MMQ Backward Q8_0 Experiment
 
-## Purpose
+## Scope And Contract
 
-Build, qualify, and optimize a repo-owned gfx1151 assembly implementation of the fixed-group DeepSeek Q8_0 gradient multiply. The work is research-only until an exact artifact beats the installed HIP production dispatch without weakening correctness, determinism, inspection, or shape guards.
-
-The campaign optimizes the largest production margin first. Every coherent mechanism that is retained or rejected is recorded below with its artifact, control, correctness result, timing protocol, and conclusion.
-
-## Exact production contract
-
-There are eight fixed, non-routed groups. For each group `g`:
+This record covers the fixed-group Q8_0 backward kernel for gfx1151. There are eight independent non-routed groups. For each group, the operation is:
 
 ```text
-dY[:, g, :] [tokens, 1024] @ W[g] [1024, 4096]
-    -> dX[:, g, :] [tokens, 4096]
+dY [M, K] @ W [K, N] -> dX [M, N]
 ```
 
-Production token counts are exactly `2048`, `8192`, and `32768` (B1, B4, and B16). All floating tensors are contiguous BF16. The layouts are:
+The measured production shapes use `M` equal to 2,048, 8,192, or 32,768, `N=4096`, and `K=1024`. The tensor layouts are:
 
 ```text
-grad_output   [tokens, 8, 1024]
+grad_output   [tokens, 8, 1024] BF16
+grad_input    [tokens, 8, 4096] BF16
 packed_weight [8, 1024, 4352] uint8
-grad_input    [tokens, 8, 4096]
 ```
 
-Each Q8_0 row contains 4096 values packed as 128 blocks of 34 bytes, hence 4352 bytes per row and 4,456,448 bytes per group. Rows of `grad_output` and `grad_input` are token-major with the group axis interleaved. This is not routed grouped ownership and must not use synthetic route metadata.
+Rows are token-major with the group axis interleaved. Each Q8_0 weight row contains 128 blocks of 34 bytes, for a packed row stride of 4,352 bytes and a per-group size of 4,456,448 bytes.
 
-The fixed six-argument ABI is, in order:
+The fixed six-argument ABI is:
 
 ```text
 grad_output, packed_weight, grad_input,
 tokens (u32), out_features (u32), bytes_per_group (u64)
 ```
 
-The research launcher accepts only the three exact token counts, eight groups, `out_features=1024`, `in_features=4096`, exact dtypes/shapes, contiguous zero-offset storage, and one HIP device.
+The selected kernels use gfx1151 code-object version 5, wave32, 128 threads, and two-dimensional M/N tiling with fixed group-Z ownership. Correctness requires exact BF16 output equality with the installed HIP fixed-group kernel and the independent dequantized reference.
 
-## Production control
+Timing measures the fixed grouped multiply body with the same packed weights and input tensors. Setup, allocation, dequantization, and reference work are outside kernel timing. Logical throughput counts all eight groups as `2*tokens*8*4096*1024/(median_ms*1e9)`.
 
-The exact control is `launch_fixed_grouped_backward` in `csrc/mmq_bundle.cpp`. It dispatches:
-- B1/B4: `grouped_bwd_fixed_q8_0_g8_k4096_mt256_nt64`
-- B16: `grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64`
+## Final Benchmark Results
 
-Historical HIP timings are approximately 6.237 / 25.427 / 97.204 ms for B1/B4/B16. These numbers orient the work but are not acceptance measurements; candidate and installed control must be measured together in the current process and environment.
+The table contains the fastest qualified kernels found across the complete experiment. The speedup is HIP time divided by GGTensile time; values above `1.0x` favor GGTensile. These are the latest direct-kernel measurements using 20 warmups, 25 samples, and launch batching.
 
-## Reuse and ownership boundary
+| Matrix shape `(M,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
+| --- | --- | ---: | ---: |
+| `(2048,4096,1024)` | `ggsol_e3f23cb5c4ad7aae` | `29.459` | `1.3148x` |
+| `(8192,4096,1024)` | `ggsol_8fb858b844ca8109` | `30.059` | `1.3462x` |
+| `(32768,4096,1024)` | `ggsol_d0bc5b94d26fe2b3` | `30.072` | `1.2616x` |
 
-The arithmetic authority is the ordinary MMQ backward Q8_0 pipeline:
-- typed Q8_0 contract and kernel spec in `mmq_bwd_spec.py`
-- physical resources in `mmq_bwd_physical.py`
-- packed reads/decode in `mmq_bwd_lowering_quant.py`
-- BF16 WMMA accumulation and store conversion in `mmq_bwd_lowering.py`
+The three hashes are the same selected E6-derived identities at the three token counts. All remained bitwise exact and faster than HIP in the latest direct-kernel run.
 
-The initial compute identity is the mature ordinary Q8_0 catalog selection for `(M,N,K)=(tokens,4096,1024)`: M256/N64/K32, four waves, two prefetched A halves, SIA5, padded single-buffer LDS, packed Q8 extraction, and raised store priority.
+## Final Kernel Profile
 
-The fixed experiment owns a dedicated model, contract/spec, validation, physical wrapper, lowering, writer, and direct launcher. Its address adapter owns group-Z grid mapping, one packed-weight bank per group, eight-way token-major activation/output row strides, and exact-shape launch guards. The routed grouped backward shell is deliberately not reused.
+| Kernel hash | Geometry and pipeline | Workgroup | VGPR / SGPR | LDS bytes | WMMAs | Barriers |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `ggsol_e3f23cb5c4ad7aae` | N-major M128/N128, DepthU64, PGR2/PLR1/SIA4 | `32x4x1` | `216 / 17` | `18,432` | 64 | 2 |
+| `ggsol_8fb858b844ca8109` | N-major M128/N128, DepthU64, PGR2/PLR1/SIA4 | `32x4x1` | `216 / 17` | `18,432` | 64 | 2 |
+| `ggsol_d0bc5b94d26fe2b3` | N-major M128/N128, DepthU64, PGR2/PLR1/SIA4 | `32x4x1` | `216 / 17` | `18,432` | 64 | 2 |
 
-## Initial lowering (E0)
+The final identity uses the pad-8 single-buffer LDS layout, ordinary packed Q8 extraction, raised-priority element-serial stores, and fixed group-Z address ownership. The artifacts have a 40-byte kernarg segment, no private segment, no spills, no scratch, and no undeclared register use.
 
-Launch grid is `(tokens / 256, 4096 / 64, 8)` and the workgroup is `(32,4,1)`. Grid X is the logical M tile, grid Y is the N tile, and grid Z is the fixed group. The prologue offsets each scalar base pointer to group Z. The composed ordinary tile emitter then uses row strides of `8*1024*2` for `grad_output` and `8*4096*2` for `grad_input`; packed Q8_0 rows remain contiguous within a group.
+## Accepted Kernel Experiments
 
-## Qualification and measurement
+### Fixed ownership with ordinary Q8 arithmetic
 
-Each candidate is built independently and inspected for exact metadata, ABI, workgroup, LDS, VGPR/SGPR declarations, no spills, expected WMMA/barrier counts, and no undeclared register use.
+The fixed lowering keeps the mature ordinary Q8_0 decode, WMMA, correction, and BF16 store arithmetic while supplying fixed group-Z bases, interleaved token-major row strides, and the six-argument address contract. This separated fixed ownership from routed grouped addressing without creating a second arithmetic implementation.
 
-Correctness is checked against both the installed fixed HIP kernel and a BF16 dequantized reference. Qualification covers all three production token counts, full-row writes, repeated-output determinism, poisoned output replacement, and mutations of every group in `grad_output` and `packed_weight`. A candidate is rejected on non-finite output, untouched rows, cross-group contamination, or a material error regression relative to the installed control.
+The independent M256/N64/K32 artifacts were exact at all three shapes and passed finite-output, full-row coverage, repeated-output, poisoned-output, reference, and eight-gradient/eight-weight mutation checks. Their profile was 231 VGPRs, 17 SGPRs, 5,120 LDS bytes, 32 WMMAs, and two barriers. This arithmetic anchor was accepted as the correctness base, but its M-major traversal was rejected as the performance selection because the B16 candidate/HIP time ratio reached `6.275x`.
 
-Timing uses rotating candidate/control order on one stream, synchronized HIP events, at least three warmups and nine measured repetitions, with median and sample spread reported. Setup, allocation, dequantization, and reference work are outside kernel timing. B1, B4, and B16 are always reported together after a mechanism survives focused qualification.
+### N-major workgroup traversal
 
-## Staged plan
+N-major traversal places N tiles on the fastest grid coordinate, completing all N tiles for one activation tile before moving to the next M tile. It preserves the arithmetic and group-Z ownership while increasing reuse of the same gradient-output rows.
 
-- Land the strict fixed identity, physical/address adapter, six-argument writer, direct launcher, source/resource tests, and independent build.
-- Qualify the composed M256/N64/K32 anchor at B1/B4/B16.
-- Measure against the exact installed dispatch and attack the largest relative or absolute margin first.
-- Test one mechanism at a time, retaining only reproducible wins that preserve the full contract.
-- Package any final selected identities only after recursive review closes.
+The N-major artifacts retained the anchor resource profile and passed the full fixed-group correctness and mutation checks. Relative to HIP, they improved latency by `16.6%`, `16.1%`, and `14.5%` at M2K, M8K, and M32K. N-major ownership is part of the final identity.
 
-## Recursive final-review rule
+### M128/N128 square geometry
 
-When a provisional winner exists, rerun inspection, full qualification, and the rotating three-shape benchmark from a clean independent build. Then review the disassembly and timing breakdown for the new largest remaining cost and form one concrete follow-up hypothesis. If that hypothesis is technically coherent, test and document it, then restart this final review on the resulting winner. Stop only when the review produces no justified follow-up mechanism or all justified mechanisms have been measured and rejected.
+The M128/N128 geometry halves the number of N workgroups per M tile while retaining 128 accumulator elements per wave. It was exact at all required shapes and passed the complete fixed-group mutation and reference checks. The artifact profile was 202 VGPRs, 17 SGPRs, 10,240 LDS bytes, 32 WMMAs, and two barriers.
 
-## Experiment log
+M128/N128 reduced latency relative to N-major M256/N64 by `3.1%`, `3.9%`, and `4.3%` at M2K, M8K, and M32K. It was retained as the parent for reduction-loop experiments and then superseded by DepthU64.
 
-### E0: compose mature ordinary Q8_0 arithmetic (retained design)
+### DepthU64 reduction pipeline
 
-Status: retained as the correctness and arithmetic anchor; rejected as the performance selection.
+DepthU64 with PGR2, PLR1, and SIA4 halves reduction-loop iterations, synchronization, and scalar loop work. It raises the decoder-row count and LDS allocation, but the M128/N128 ownership provides enough reuse for the larger staging footprint to pay back.
 
-The fixed layout changes ownership and affine addresses but not one group's `(M,N,K)=(tokens,4096,1024)` arithmetic. Reusing the selected ordinary M256/N64/K32 decoder/WMMA pipeline avoids creating a second Q8_0 arithmetic authority. The fixed layer will alter only group bases, row strides, grid mapping, ABI metadata, validation, and launch behavior.
+The selected artifacts use 216 VGPRs, 17 SGPRs, 18,432 LDS bytes, 64 WMMAs, and two barriers. They were exact at all three shapes and beat M128/N128 by `7.1%`, `2.8%`, and `2.9%` in the initial balanced screen. The later direct-kernel run retained the same identities and measured the final speed table above.
 
-Independent artifacts `ggsol_188223d5da093f20`, `ggsol_685187411ef21738`, and `ggsol_80bcab953d5a9461` passed inspection with 231 VGPRs, 17 SGPRs, 5120-byte LDS, no spills/scratch, 32 static WMMAs, and two barriers. At every production shape the candidate was bitwise identical to the installed HIP output and the 16-token dequantized BF16 reference sample. Every destination element was finite and overwritten, repeat differences were zero, and all eight gradient plus all eight packed-weight mutations changed only their selected group.
+## Rejected Kernel Experiments
 
-Rotating 3-warmup/9-repeat medians were:
+### M64/N256 representability
 
-| Tokens | Candidate (ms) | HIP control (ms) | Candidate / HIP |
-|---:|---:|---:|---:|
-| 2048 | 8.483 | 6.163 | 1.376x |
-| 8192 | 64.137 | 24.929 | 2.573x |
-| 32768 | 583.365 | 92.962 | 6.275x |
+M64/N256 would use sixteen N repeats per wave and was expected to reduce the number of N workgroups again. The shared backward writer and validator support only 2, 4, and 8 N repeats, so this geometry was rejected before artifact generation. No timing result is inferred from the representability failure.
 
-The nonlinear degradation makes B16 the largest absolute and relative gap. The anchor launch varied M tiles on grid X and N tiles on grid Y, unlike the installed HIP traversal. The arithmetic reuse decision remains sound, but this grid order is not retained.
+### Packed-VOPD extraction on M128/N128 DepthU32
 
-### E1: N-major workgroup traversal
+Packed-VOPD Q8 extraction reduced static VALU issues from 608 to 594 but increased VGPRs from 202 to 204. The artifact was bitwise exact, yet its B16 latency was `76.204 ms` versus `75.699 ms` for the M128/N128 parent, a `0.67%` regression. The candidate was rejected.
 
-Status: retained for all production shapes.
+### M64/N128 occupancy tradeoff
 
-The installed kernel places N tiles on grid X and M tiles on grid Y. Since grid X is the fastest workgroup coordinate, that order completes all 64 N tiles for one activation tile before advancing M, increasing reuse of the same `grad_output` rows. E1 swaps X/Y into the ordinary emitter's expected `s2=M`, `s3=N` coordinates while preserving group Z and every arithmetic instruction. This directly targets E0's shape-dependent collapse without confounding the result with a tile or decoder change.
+Reducing M repeats from two to one lowered the declaration to 122 VGPRs while retaining N128. The artifact was exact, but its B16 latency was `107.295 ms`, `41.7%` slower than the M128/N128 parent and `15.5%` slower than HIP. The duplicated decode and workgroup cost dominated the occupancy benefit.
 
-E1 artifacts `ggsol_8c3281ed779f2b01`, `ggsol_0a368afb69590dbf`, and `ggsol_54c9cd4e43d342a7` retained the E0 inspection resources and passed the same full correctness, determinism, poison, reference-sample, and 16-mutation qualification. Rotating medians were:
+### Paired-row clause store
 
-| Tokens | E1 (ms) | HIP control (ms) | E1 / HIP | E1 speedup |
-|---:|---:|---:|---:|---:|
-| 2048 | 5.138 | 6.161 | 0.834x | 16.6% |
-| 8192 | 20.879 | 24.886 | 0.839x | 16.1% |
-| 32768 | 79.125 | 92.534 | 0.855x | 14.5% |
+The paired-row store epilogue added eight static clauses without changing the other resources. It was exact, but B16 latency increased by `1.65%` against the M128/N128 parent. The store path was not the limiting stage for this geometry, so the clause variant was rejected.
 
-B16 improved 7.37x relative to E0. N-major traversal is therefore part of the strict retained solution identity, not a launcher-only policy.
+### Packed-VOPD extraction on DepthU64
 
-### E2: M128/N128 square tile
+The DepthU64 variant was exact but increased the resource declaration from 216 to 218 VGPRs. Its B16 latency was `74.014 ms` versus `73.510 ms` for the DepthU64 parent, a `0.69%` regression. The extra packing did not offset its physical cost.
 
-Status: provisionally retained for all production shapes.
+### Next packed-weight prefetch
 
-B16 remains the largest absolute time. Under N-major traversal, each M tile is read by one workgroup per N tile. Changing M256/N64 to M128/N128 keeps 128 accumulator VGPRs and exact production divisibility while halving the number of N workgroups and the repeated activation traffic per M tile. It also changes packed decode geometry and workgroup count, so it will be measured as a separate exact identity rather than inferred from ordinary-MMQ results.
+Current-and-next packed-weight prefetch was rejected by the selected DepthU64 decoder contract: `depthu64.prefetchpacked.quant` is not implemented. No artifact was emitted. The ordinary decoder's unsupported combination is not a timing result.
 
-The B1/B4/B16 exact artifacts use 202 VGPRs, 17 SGPRs, 10240-byte LDS, no spills/scratch, 32 static WMMAs, and two barriers. Their candidate-versus-HIP screens were bitwise identical. Rotating medians were:
+### M64/N256 DepthU64 repair
 
-| Tokens | E2 (ms) | E1 (ms) | E2 gain | HIP (ms) | E2 / HIP |
-|---:|---:|---:|---:|---:|---:|
-| 2048 | 4.979 | 5.138 | 3.1% | 6.203 | 0.803x |
-| 8192 | 20.067 | 20.879 | 3.9% | 24.855 | 0.807x |
-| 32768 | 75.699 | 79.125 | 4.3% | 92.903 | 0.815x |
+A dedicated M64/N256 DepthU64 attempt first exposed a register-planner collision: decoder row pointers occupied `v200:v207`, overlapping the LDS and quantization state registers. The planner repair moved state to `v208` and `v209`; the repaired artifact inspected cleanly at 230 VGPRs, 17 SGPRs, 36,864 LDS bytes, 64 WMMAs, and two barriers.
 
-E2 wins at every shape and becomes the provisional universal geometry. Full mutation/reference qualification remains required after recursive review.
+The repaired B1 kernel wrote every output element with finite values, but its normalized RMSE against the HIP control was approximately `1.4149`. The fragment ownership or N-tile addressing for sixteen N repeats was therefore incorrect. The repaired identity was rejected before timing.
 
-### E2a: M64/N256 wider tile feasibility
+### BF16 store and clause variants
 
-Status: rejected at the representability gate; not benchmarked.
+Exact BF16 conversion-chain interleaving produced mixed body and complete-call movement with no stable advantage. Store-clause widths 16 and 8 produced occasional sub-percent shape-local signals but did not reproduce a stable gain in independent confirmation. Removing the final store clause was a material regression. No alternate epilogue identity is retained.
 
-M64/N256 would preserve 128 accumulators and halve N workgroups again, but it requires 16 N repeats per wave. The shared backward arithmetic contract and validator intentionally support only 2/4/8 N repeats. Broadening that ordinary writer boundary is not justified while proven Q8 decode mechanisms remain untested, so no artifact was emitted and no timing claim is made.
+### Processor-mode metadata
 
-### E3: packed-VOPD Q8 extraction on E2
+Adding the HIP processor-mode metadata produced byte-identical objects and linked code objects under the configured gfx1151 assembler and linker. It created no distinct executable kernel and was rejected as an optimization identity.
 
-Status: rejected.
+## Qualification Summary
 
-The ordinary Q8_0 campaign measured about a 3.6% packed-VOPD decode gain on an M128 body. E2 also has an M128 macro tile and two decoder rows, so applying only `q8_0_extraction=packed_vopd` is a supported, isolated way to reduce decode issue count on the largest B16 path.
+The final M128/N128/DepthU64 artifacts were independently regenerated and inspected. They passed exact HIP comparison at M2K, M8K, and M32K, finite-output and full-row coverage checks, independent dequantized-reference checks, poisoned-output replacement, repeated-output determinism, and mutations of every gradient-output and packed-weight group.
 
-Artifact `ggsol_bc591301326900ed` was bitwise identical to HIP and reduced static VALU issues from 608 to 594, but increased VGPRs from 202 to 204. Its B16 median was 76.204 ms versus E2's 75.699 ms, a 0.67% regression, and one sample rose to 80.102 ms. The lower issue count does not offset the physical cost here; packed-VOPD is not retained.
-
-### E4: M64/N128 occupancy tradeoff
-
-Status: rejected.
-
-Reducing only M repeats from two to one lowers the derived VGPR declaration from 202 to 122 while retaining N128 and 10240-byte LDS. This may cross a useful occupancy boundary on gfx1151. It doubles workgroups and total packed decode work, so B16 timing will decide whether added occupancy outweighs duplicated B work.
-
-Artifact `ggsol_623857b32aed1720` was bitwise identical and used 122 VGPRs, but its B16 median was 107.295 ms: 41.7% slower than E2 and 15.5% slower than HIP. The duplicated packed decode/workgroup cost dominates occupancy. M64/N128 is not retained.
-
-### E5: paired-row clause store
-
-Status: rejected.
-
-B16 writes 2 GiB of BF16 output. The shared backward emitter has a qualified unbounded store path that converts two physical fragment rows, issues one `s_clause`, and stores the pair through two addresses. E5 applies that epilogue policy to E2 while preserving geometry, decode, and N-major ownership. The store schedule is part of the strict identity.
-
-Artifact `ggsol_e5c776f8240f13ee` was bitwise identical and added eight static clauses without changing resources. Its B16 median was 76.949 ms, 1.65% slower than E2. The epilogue is not the limiting stage at this geometry, so clause pairs are not retained.
-
-### E6: DepthU64 on E2
-
-Status: retained final selection for all production shapes.
-
-Canonical DepthU64/PGR2/PLR1/SIA4 halves reduction-loop iterations, synchronization, and scalar loop work. It raises decoder rows from two to four and LDS from 10240 to 18432 bytes. The ordinary campaign retained DepthU64 only for a different Q-B shape, but the E2 N128 geometry changes the balance enough to justify one isolated B16 screen.
-
-E6 artifacts use 216 VGPRs, 17 SGPRs, 18432-byte LDS, no spills/scratch, 64 static WMMAs, and two static barriers. Candidate-versus-HIP screens were bitwise identical. Rotating medians were:
-
-| Tokens | E6 (ms) | E2 (ms) | E6 gain | HIP (ms) | E6 / HIP |
-|---:|---:|---:|---:|---:|---:|
-| 2048 | 4.624 | 4.979 | 7.1% | 6.210 | 0.745x |
-| 8192 | 19.495 | 20.067 | 2.8% | 25.173 | 0.774x |
-| 32768 | 73.510 | 75.699 | 2.9% | 92.632 | 0.794x |
-
-DepthU64 wins at all three shapes and replaces E2 as the provisional universal selection. Full qualification is recorded below after recursive review.
-
-### E7: packed-VOPD extraction on E6
-
-Status: rejected.
-
-E6 has four decoder rows, twice E3's decode work. Packed-VOPD may therefore save enough issue slots to offset its extra decode VGPRs even though it lost on the DepthU32 body. E7 changes only Q8 extraction on E6 and screens B16 first.
-
-Artifact `ggsol_28f3a30c774f762b` was bitwise identical, but increased the declaration to 218 VGPRs. Its B16 median was 74.014 ms versus E6's 73.510 ms, a 0.69% regression. The extra decode packing does not pay on this body.
-
-### E8: next packed-weight prefetch on E6
-
-Status: rejected at the representability gate; not benchmarked.
-
-E8 enables `CurrentAndNextTile` packed-weight prefetch while retaining E6's DepthU64/SIA4 geometry. It is the last direct overlap hypothesis for the remaining reduction-loop cost; the ordinary campaign's rejected next-prefetch results are relevant prior evidence but do not substitute for this fixed N128/DepthU64 measurement.
-
-The ordinary Q8 decoder contract rejects this combination with `solution.depthu64.prefetchpacked.quant`: DepthU64 next-packed-tile prefetch is not implemented by the selected decoder. No artifact was emitted and no timing claim is made. Widening that decoder contract would violate the reuse boundary; the recursive review therefore has no remaining coherent overlap mechanism to test without starting a separate arithmetic implementation.
-
-## Final qualification and selection
-
-The selected solution is the kernel specification in `tools/ggtensile/configs/mmq_fixed_grouped_bwd_q8_0_catalog.json`: N-major M128/N128/DepthU64, PGR2, PLR1, SIA4, pad8 single-buffer LDS, packed Q8 extraction, raised-priority element-serial stores, and fixed group Z ownership. Fresh exact artifacts are:
-- B1: `ggsol_e3f23cb5c4ad7aae`
-- B4: `ggsol_8fb858b844ca8109`
-- B16: `ggsol_d0bc5b94d26fe2b3`
-
-Each independently inspected as 216 VGPRs, 17 SGPRs, 18432-byte LDS, 40-byte kernarg segment, 128 threads, 64 static WMMAs, two static barriers, no private segment, no spills, no scratch, and no undeclared register use.
-
-### Current public deployment result
-
-The clean final run used five warmups and 25 rotating samples per candidate/control path. It is the latest compatible timing evidence for the three exact public identities; the earlier nine-repeat E6 screens are selection evidence and are not averaged into these medians. Logical throughput counts all eight fixed groups and is `2*tokens*8*4096*1024/(median_ms*1e9)`. Speedup is `HIP time / GGTensile time`, so values above `1.0x` favor the public GGTensile route.
-
-| Tokens | Per-group `(M,N,K)` | Public catalog hash | HIP ms | GGTensile ms | HIP TFLOPS | GGTensile TFLOPS | HIP time / GGTensile time |
-|---:|---:|---|---:|---:|---:|---:|---:|
-| 2048 | `(2048,4096,1024)` | `ggsol_e3f23cb5c4ad7aae` | `6.2892` | `4.8472` | `21.853` | `28.354` | `1.2975x` |
-| 8192 | `(8192,4096,1024)` | `ggsol_8fb858b844ca8109` | `24.9688` | `18.9892` | `22.018` | `28.951` | `1.3149x` |
-| 32768 | `(32768,4096,1024)` | `ggsol_d0bc5b94d26fe2b3` | `93.2404` | `75.0209` | `23.584` | `29.312` | `1.2429x` |
-
-For every shape, the complete output was bitwise identical to the exact installed HIP control and the 16-token dequantized BF16 reference sample. All values were finite, poison was fully replaced, repeat differences were zero, and each of eight gradient plus eight packed-weight mutations changed only its selected group.
-
-The recursive final review rebuilt and reinspected all selected artifacts and retested the largest B16 cost. Packed-VOPD, lower-VGPR M64 ownership, clause stores, and next packed prefetch were respectively measured losses or rejected by the shared decoder contract. M64/N256 would require broadening the ordinary writer's supported geometry. No further mechanism is justified within this campaign's arithmetic-reuse boundary, so the review is closed.
-
-## Post-Audit E9: M64/N256 DepthU64 Geometry
-
-Status: planned and unmeasured. This explicitly changes the representability premise that rejected E2a; it does not reinterpret E2a as a timing result.
-
-Add one dedicated fixed-group solution with M64/N256, DepthU64, PGR2, PLR1, SIA4, the selected pad8 single-buffer layout, ordinary packed Q8 extraction, and N-major ownership. It preserves 128 accumulator elements per wave while replacing eight N repeats with sixteen. Extend repeat-count formulas, fragment ownership, output indexing, resource accounting, and validation only for this complete fixed identity. Ordinary backward solutions and unsupported partial combinations must continue to reject.
-
-Before production timing, emit reduced fixtures that cover the first, middle, and final N fragments; every M fragment; DepthU64 prime and steady iterations; output-address progression; and exact launch rejection. Inspect the resulting code object for the derived VGPR/SGPR/LDS point, 128-thread wave32 metadata, no undeclared registers, and zero private storage or spills. Full correctness must remain bit-exact to HIP and the selected E6 parent under gradient and packed-weight mutations and independent rebuilds.
-
-Screen B16 first against selected M128/N128/DepthU64 E6 because halving N workgroups has its best amortization opportunity there. Advance only for a stable gain greater than two percent, then qualify B1 and B4 independently with paired 25-repeat timing. Failure closes only this sixteen-repeat fixed identity, not arbitrary M64/N256 kernels. This exact geometry experiment requires no model integration and does not authorize public dispatch or packaging changes.
-
-### E9 result: reject after repaired build
-
-Status: rejected; no timing was taken.
-
-The first assembled E9 artifact exposed an address-planner collision before it could be considered a correctness result. With eight decoder rows, the decoder owns `v200:v207`, but the inherited extended-A layout placed LDS and quant state at `v206:v207`. Decoder row-pointer construction therefore overwrote both state registers. The physical planner was corrected to place state after the complete decoder-row range. The repaired E9 plan uses LDS at `v208`, quant state at `v209`, and declares 230 VGPRs instead of 228 while preserving the existing assignments for narrower geometries.
-
-The repaired artifacts are under `~/tmp/torch-ggml-ops/ggtensile-fixed-bwd-q8-e9-m64-n256-address-fixed/` for B1, B4, and B16. All three inspect cleanly with 230 VGPRs, 17 SGPRs, 36,864 bytes of LDS, 64 static WMMAs, two barriers, 40-byte kernargs, 128 threads, zero private bytes, and zero VGPR/SGPR spills. A poisoned-output B1 probe after the fix wrote every `2048 x 8 x 4096` element with finite values; all rows and groups had complete coverage.
-
-That repair did not establish the required arithmetic identity. Comparing the repaired B1 kernel with the installed fixed HIP control produced a nearly total output mismatch, with normalized RMSE approximately `1.4149`; the output was finite and fully covered, but the values were wrong. The failure is consistent with the inherited fragment ownership or N-tile addressing assumptions for 16 N repeats, which have not been proven by the ordinary writer. Because exactness failed before qualification, no benchmark or dispatch claim is made.
-
-Decision: close and reject E9, including the repaired address-only artifact. Keep the narrow fixed-only admission and planner collision fix because they are tested infrastructure, but do not widen ordinary geometry support or integrate M64/N256 without a separately proven fragment mapping and exact end-to-end result.
-
-## Post-Benchmark Retuning Triage
-
-The corrected direct-kernel benchmark measured the selected E6-derived B1, B4, and B16 kernels with 20 warmups, 25 samples, and launch batching. All three remained bit-exact and faster than HIP: the fresh speedups were `1.3148x`, `1.3462x`, and `1.2616x`. No selected fixed-group kernel currently requires immediate retuning.
-
-### Closed experiments eligible for reopening
-
-- E7 packed-VOPD extraction on E6, B16, `ggsol_28f3a30c774f762b` is the highest-priority fixed-group re-run. It was closed from one 3-warmup/9-sample comparison at `74.0142 ms` versus `73.5100 ms` for E6, a `0.69%` regression. The candidate was bit-exact, but the result is near parity and was not promoted to a final-length bracket. Re-run the exact E7 candidate against the current E6 parent with the direct-kernel protocol, at least 20 warmups and 25 paired samples, with a robust log-time interval. Qualify B1 and B4 only if B16 is no longer a regression and the candidate clears the normal resource-bearing gain gate.
-
-- E5 paired-row clause store is a lower-priority changed-parent reopening, not a direct retune. Its `1.65%` B16 regression was measured against E2 after only a 3-warmup/9-sample screen; the final selected parent is E6/DepthU64, so the old result does not measure an E5-on-E6 composition. Reopen it only as a newly generated E6 variant if a current profile identifies epilogue store pressure. Do not treat the old E5 result as evidence that clauses help, and do not reopen it merely because the current E6 control is faster.
-
-E4's large occupancy loss, E8's unsupported next-prefetch contract, and E9's failed arithmetic identity remain properly closed and are not candidates for a timing-only rerun.
+The final artifacts are deterministic gfx1151 code-object-v5 wave32 kernels with the profile above. The selected identity combines N-major ownership, M128/N128 tiling, DepthU64 PGR2/PLR1/SIA4 staging, pad-8 single-buffer LDS, packed Q8 extraction, and fixed group-Z addressing. No rejected or unqualified kernel identity is included in the final benchmark table.
