@@ -2005,6 +2005,9 @@ class ForwardKernelSpec:
             assert work_group == (32, 4, 1)
             assert self.macro_tile[0] in (32, 64, 128)
             assert self.macro_tile[1] == 64
+            # Paired compact weight-scale reads use an 8-bit LDS offset.
+            # Positive B padding moves the second scale beyond that encoding.
+            assert self.lds.pad_b == 0
 
     @property
     def macro_tile(self) -> tuple[int, int]:

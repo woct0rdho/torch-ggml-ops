@@ -608,6 +608,9 @@ class SignedInt8ForwardLowering:
         assert policy.stage_order == "WeightThenActivation"
         tiled_registers: SignedInt8TiledLdsRegisters = registers
         tiled_scale_layout: SignedInt8TiledLdsScaleLayout = layout
+        activation_global_row_stride = (
+            self.context.state.contract.activation_block_bytes
+        )
         activation_lds_row_stride = layout.activation_row_stride
         weight_lds_base = layout.weight_base
         weight_lds_row_stride = layout.weight_row_stride
@@ -642,10 +645,11 @@ class SignedInt8ForwardLowering:
             )
         asm.inst(
             f"v_mul_lo_u32 v{activation_address}, "
-            f"{activation_lds_row_stride}, v{activation_row}"
+            f"{activation_global_row_stride}, v{activation_row}"
         )
         asm.inst(
-            f"v_mul_lo_u32 v{temporary}, {activation_lds_row_stride * macro_tile_m}, s3"
+            f"v_mul_lo_u32 v{temporary}, "
+            f"{activation_global_row_stride * macro_tile_m}, s3"
         )
         asm.inst(
             f"v_add_nc_u32 v{activation_address}, v{temporary}, v{activation_address}"
@@ -818,6 +822,9 @@ class SignedInt8ForwardLowering:
         activation_read_address = registers.activation_read_address.first_register
         weight_row = registers.weight_row.first_register
 
+        activation_global_row_stride = (
+            self.context.state.contract.activation_block_bytes
+        )
         activation_lds_row_stride = layout.activation_row_stride
         weight_lds_base = layout.weight_base
         weight_lds_row_stride = layout.weight_row_stride
@@ -841,11 +848,12 @@ class SignedInt8ForwardLowering:
         asm.inst(f"v_lshlrev_b32 v{temporary}, 5, v{wave}")
         asm.inst(f"v_add_nc_u32 v{activation_row}, v{temporary}, v{lane}")
         asm.inst(
-            f"v_mul_lo_u32 v{activation_address}, {activation_lds_row_stride}, v{activation_row}"
+            f"v_mul_lo_u32 v{activation_address}, "
+            f"{activation_global_row_stride}, v{activation_row}"
         )
         asm.inst(
             f"v_mul_lo_u32 v{temporary}, "
-            f"{activation_lds_row_stride * self.context.state.kernel_spec.macro_tile[0]}, s3"
+            f"{activation_global_row_stride * self.context.state.kernel_spec.macro_tile[0]}, s3"
         )
         asm.inst(
             f"v_add_nc_u32 v{activation_address}, v{temporary}, v{activation_address}"

@@ -15,6 +15,7 @@ from tools.ggtensile.mmq_fwd_search import (
     q6_schedule_candidates,
     q6_schedule_from_kernel_spec,
     q6_schedule_neighbors,
+    q8_reopening_neighbors,
 )
 from tools.ggtensile.mmq_fwd_spec import ForwardKernelSpec
 from tools.ggtensile.model import ProblemSize
@@ -66,6 +67,40 @@ def test_q3_and_q8_domains_have_no_free_knobs() -> None:
     assert q8_domains
     with pytest.raises(ValueError, match="without free knob groups"):
         candidate_neighbors(q8_domains[0].kernel_spec, "Q8_0", ("Epilogue",))
+
+
+def test_q8_reopening_neighbors_are_linked_and_bounded() -> None:
+    shape = ProblemSize(128, 32768, 1024)
+    compact = next(
+        domain
+        for domain in candidate_domains("Q8_0", shape)
+        if domain.kernel_spec.lds.address_hoist == "CompactDepth32WeightRows"
+    )
+    candidates = q8_reopening_neighbors(
+        compact.kernel_spec, ("DataMovement", "LdsLayout")
+    )
+    assert len(candidates) == 5
+    signatures = []
+    for item in candidates:
+        assert item.data_movement is not None
+        signatures.append(
+            (
+                item.data_movement.payload_global_read_vector_width,
+                item.data_movement.payload_lds_write_vector_width,
+                item.lds.pad_a,
+                item.lds.pad_b,
+            )
+        )
+    assert set(signatures) == {
+        (16, 16, 0, 0),
+        (8, 8, 0, 0),
+        (4, 4, 0, 0),
+        (16, 16, 4, 0),
+        (16, 16, 0, 4),
+    }
+    assert q8_reopening_neighbors(
+        compact.kernel_spec, ("DataMovement",)
+    ) == q8_reopening_neighbors(compact.kernel_spec, ("DataMovement",))
 
 
 def test_decoded_weight_domains_expose_typed_policy_neighbors() -> None:

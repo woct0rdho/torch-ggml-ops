@@ -8,6 +8,7 @@ from tests.ggtensile.ordinary_forward_fixtures import (
     q4_decoded_weight_lds_kernel_spec,
     q5_decoded_weight_lds_kernel_spec,
     q6_structured_kernel_spec,
+    q8_compact_depth32_tiled_lds_kernel_spec,
     q8_direct_global_kernel_spec,
     q8_hip_tiled_lds_kernel_spec,
     q8_small_m_tiled_lds_kernel_spec,
@@ -17,7 +18,10 @@ from tools.ggtensile.family_registry import instance_name, mapping_for_instance
 from tools.ggtensile.inspection import _forward_static_wmma_count
 from tools.ggtensile.kernel_writer_assembly import Assembly, emit_bf16_conversion
 from tools.ggtensile.kernel_writer_assembly_mmq_fwd import ForwardKernelWriterAssembly
-from tools.ggtensile.mmq_fwd_physical import derive_forward_physical_plan
+from tools.ggtensile.mmq_fwd_physical import (
+    SignedInt8WaveNTiledLdsPhysicalPlan,
+    derive_forward_physical_plan,
+)
 from tools.ggtensile.mmq_fwd_search import (
     q6_kernel_spec_with_schedule,
     q6_schedule_from_kernel_spec,
@@ -289,6 +293,34 @@ def test_q8_noncanonical_staging_is_rejected() -> None:
     )
     with pytest.raises(AssertionError):
         validate_forward_solution(ProblemSize(32, 129280, 4096), "Q8_0", invalid)
+
+
+def test_q8_padded_activation_keeps_global_workspace_stride() -> None:
+    spec = q8_compact_depth32_tiled_lds_kernel_spec()
+    padded = replace(spec, lds=replace(spec.lds, layout=LdsLayout.PaddedRows, pad_a=4))
+    size = ProblemSize(8192, 32768, 1024)
+    writer = _writer("Q8_0", size, padded, Toolchain.discover())
+    source = writer.source()
+    physical = derive_forward_physical_plan(padded)
+    assert isinstance(physical, SignedInt8WaveNTiledLdsPhysicalPlan)
+    registers = physical.registers
+    assert (
+        f"v_mul_lo_u32 v{registers.activation_address.first_register}, "
+        "144, v"
+        f"{registers.activation_row.first_register}"
+    ) in source
+    assert (
+        f"v_mul_lo_u32 v{registers.activation_lds_address.first_register}, "
+        "148, v"
+        f"{registers.activation_row.first_register}"
+    ) in source
+
+
+def test_q8_compact_pad_b_is_rejected_before_assembly() -> None:
+    spec = q8_compact_depth32_tiled_lds_kernel_spec()
+    padded = replace(spec, lds=replace(spec.lds, layout=LdsLayout.PaddedRows, pad_b=4))
+    with pytest.raises(AssertionError):
+        _writer("Q8_0", ProblemSize(8192, 32768, 1024), padded, Toolchain.discover())
 
 
 def test_tiled_activation_padding_is_rejected_before_writer_lowering() -> None:

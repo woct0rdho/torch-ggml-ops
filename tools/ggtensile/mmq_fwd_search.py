@@ -27,6 +27,7 @@ from .mmq_fwd_spec import (
     ForwardKernelSpec,
     ForwardPipelinePolicy,
     ForwardProblemContract,
+    ForwardWeightStaging,
     LdsSpec,
     Q6ForwardSchedule,
     SemanticSchedulePolicy,
@@ -308,6 +309,59 @@ def is_valid_candidate(
     return True
 
 
+def q8_reopening_neighbors(
+    seed: ForwardKernelSpec,
+    knob_groups: tuple[Literal["DataMovement", "LdsLayout"], ...],
+) -> tuple[ForwardKernelSpec, ...]:
+    """Return bounded linked Q8 payload/LDS reopening candidates."""
+    if seed.global_memory.weight_staging not in {
+        ForwardWeightStaging.Q8HipTiledLds,
+        ForwardWeightStaging.Q8SmallMTiledLds,
+    }:
+        raise ValueError("Q8 reopening requires a tiled-LDS signed-int8 seed")
+    if seed.data_movement is None:
+        raise ValueError("Q8 reopening requires typed data-movement policy")
+    unknown = sorted(set(knob_groups) - {"DataMovement", "LdsLayout"})
+    if unknown:
+        raise ValueError(
+            "Q8_0 exposes complete implemented policies without free knob groups; "
+            f"unsupported reopening groups: {unknown}"
+        )
+    candidates: list[ForwardKernelSpec] = [seed]
+    if "DataMovement" in knob_groups:
+        assert seed.data_movement.metadata_load_vector_width == 2
+        assert seed.data_movement.metadata_lds_write_vector_width == 4
+        candidates.extend(
+            replace(
+                seed,
+                data_movement=replace(
+                    seed.data_movement,
+                    payload_global_read_vector_width=width,
+                    payload_lds_write_vector_width=width,
+                ),
+            )
+            for width in (8, 4)
+        )
+    if "LdsLayout" in knob_groups:
+        candidates.extend(
+            replace(
+                seed,
+                lds=LdsSpec(
+                    seed.lds.address_hoist,
+                    LdsLayout.PaddedRows,
+                    pad_a,
+                    pad_b,
+                    64,
+                ),
+            )
+            for pad_a, pad_b in ((4, 0), (0, 4))
+        )
+    unique = {
+        forward_candidate_hash(candidate, "Q8_0"): candidate for candidate in candidates
+    }
+    return tuple(unique[digest] for digest in sorted(unique))
+
+
 def candidate_neighbors(
     seed: ForwardKernelSpec,
     quant_type: str,
@@ -328,12 +382,22 @@ def candidate_neighbors(
         candidates = tuple(
             q6_kernel_spec_with_schedule(seed, item) for item in schedules
         )
-    elif quant_type in ("Q3_K", "Q8_0"):
+    elif quant_type == "Q3_K":
         if knob_groups:
             raise ValueError(
                 f"{quant_type} exposes complete implemented policies without free knob groups"
             )
         candidates = (seed,)
+    elif quant_type == "Q8_0":
+        unsupported = sorted(set(knob_groups) - {"DataMovement", "LdsLayout"})
+        if unsupported:
+            raise ValueError(
+                f"{quant_type} exposes complete implemented policies without free knob groups"
+            )
+        q8_groups = tuple(
+            group for group in knob_groups if group in ("DataMovement", "LdsLayout")
+        )
+        candidates = q8_reopening_neighbors(seed, q8_groups)
     else:
         unknown = sorted(
             set(knob_groups)
