@@ -433,12 +433,18 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
     def _emit_toggle_lds_write_buffer(self, asm: _Assembly) -> None:
         r = self.registers
         buffer_bytes = self.physical.lds.num_bytes // 2
-        for register in range(r.lds_address, r.lds_address + 4):
-            asm.inst(f"v_xor_b32 v{register}, {buffer_bytes}, v{register}")
+        if self.state.spec.memory.lds_swizzle_chunk_b:
+            for register in range(r.lds_address, r.lds_address + 4):
+                asm.inst(f"v_xor_b32 v{register}, {buffer_bytes}, v{register}")
+        else:
+            lds_address = self.physical.address.lds
+            asm.inst(f"v_xor_b32 v{lds_address}, {buffer_bytes}, v{lds_address}")
 
     def _emit_swap_lds_buffers(self, asm: _Assembly) -> None:
         buffer_bytes = self.physical.lds.num_bytes // 2
-        lds_address = self.physical.address.lds
+        lds_address = self.physical.address.pipeline_read_lds
+        if lds_address is None:
+            lds_address = self.physical.address.lds
         asm.inst(f"v_xor_b32 v{lds_address}, {buffer_bytes}, v{lds_address}")
         self._emit_toggle_lds_write_buffer(asm)
 
@@ -448,23 +454,28 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         first = r.quant_dm
         second = first + 1
         temporary = (
-            r.address
+            r.temporary
             if self.state.contract.quant_type == "Q6_K"
             and self.physical.decoder.rows == 1
             else r.quant_scale
         )
-        lds_address = self.physical.address.lds
+        lds_address = self.physical.address.pipeline_read_lds
+        if lds_address is None:
+            lds_address = self.physical.address.lds
         asm.inst(f"v_and_b32 v{temporary}, 15, v{r.serial}")
         emit_scale_u32(asm, temporary, row_stride, temporary)
         asm.inst(f"v_add_nc_u32 v{temporary}, v{lds_address}, v{temporary}")
-        asm.inst(f"v_and_b32 v{temporary + 1}, 3, v{r.serial}")
-        asm.inst(f"v_lshlrev_b32 v{temporary + 1}, 4, v{temporary + 1}")
-        asm.inst(f"v_add_nc_u32 v{first}, v{temporary}, v{temporary + 1}")
-        if k_tile >= 32:
-            asm.inst(f"v_add_nc_u32 v{first}, {2 * (k_tile // 32) * 32}, v{first}")
-        if k_tile % 32:
-            asm.inst(f"v_xor_b32 v{first}, 32, v{first}")
-        asm.inst(f"v_xor_b32 v{second}, 16, v{first}")
+        if self.state.spec.memory.lds_swizzle_chunk_b:
+            asm.inst(f"v_and_b32 v{temporary + 1}, 3, v{r.serial}")
+            asm.inst(f"v_lshlrev_b32 v{temporary + 1}, 4, v{temporary + 1}")
+            asm.inst(f"v_add_nc_u32 v{first}, v{temporary}, v{temporary + 1}")
+            if k_tile >= 32:
+                asm.inst(f"v_add_nc_u32 v{first}, {2 * (k_tile // 32) * 32}, v{first}")
+            if k_tile % 32:
+                asm.inst(f"v_xor_b32 v{first}, 32, v{first}")
+            asm.inst(f"v_xor_b32 v{second}, 16, v{first}")
+        else:
+            asm.inst(f"v_add_nc_u32 v{first}, {2 * k_tile}, v{temporary}")
 
     def _emit_static_thread_coordinates(self, asm: _Assembly) -> None:
         r = self.registers
@@ -502,6 +513,8 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
             f"v{lds_address}",
             t,
         )
+        if self.physical.address.pipeline_read_lds is not None:
+            asm.inst(f"v_mov_b32 v{self.physical.address.pipeline_read_lds}, 0")
         if self.state.contract.mechanism.extended_quant_address_state:
             asm.emit_pairable_with_pending_zero(
                 PendingZeroPairableOp.AND_B32, quant_shift, 7, r.serial
@@ -890,14 +903,16 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         row_stride = self.physical.lds.row_stride_bytes
         if pipeline and k_tile:
             self._emit_pipeline_lds_read_addresses(asm, k_tile)
-            return (
-                self.state.spec.memory.lds_swizzle_chunk_b,
-                (),
-                r.quant_dm,
-                r.quant_dm + 1,
-                0,
-                row_stride,
-            )
+            if self.state.spec.memory.lds_swizzle_chunk_b:
+                return (
+                    self.state.spec.memory.lds_swizzle_chunk_b,
+                    (),
+                    r.quant_dm,
+                    r.quant_dm + 1,
+                    0,
+                    row_stride,
+                )
+            return (0, (), r.quant_dm, r.quant_dm, 16, row_stride)
 
         t = r.temporary
         asm.inst(f"v_and_b32 v{t}, 15, v{r.serial}")
@@ -905,7 +920,10 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         if self.physical.lds.base_offset:
             asm.inst(f"v_add_nc_u32 v{t}, {self.physical.lds.base_offset}, v{t}")
         if pipeline:
-            asm.inst(f"v_add_nc_u32 v{t}, v{self.physical.address.lds}, v{t}")
+            lds_address = self.physical.address.pipeline_read_lds
+            if lds_address is None:
+                lds_address = self.physical.address.lds
+            asm.inst(f"v_add_nc_u32 v{t}, v{lds_address}, v{t}")
         swizzle = self.state.spec.memory.lds_swizzle_chunk_b
         chunk_addresses: tuple[int, ...] = ()
         if swizzle == 4:

@@ -13,6 +13,7 @@ from tools.ggtensile.mmq_bwd_spec import (
     BackwardIterationPolicy,
     BackwardKernelSpec,
     DerivedBackwardState,
+    LdsBuffering,
 )
 from tools.ggtensile.model import ProblemSize, ProblemType
 from tools.ggtensile.schema import SchemaError
@@ -58,6 +59,41 @@ def test_backward_pipeline_policy_round_trips_canonically() -> None:
     assert pipeline.iteration.interleave_wmma_waits
     assert pipeline.prefetch_packed_weight
     assert not pipeline.prefetch_next_packed_weight
+
+
+def test_q6_compact_pipeline_has_explicit_unswizzled_buffer_state() -> None:
+    instance = _instances()[3]
+    assert isinstance(instance.problem, ProblemSize)
+    spec = instance.kernel_spec
+    assert isinstance(spec, BackwardKernelSpec)
+    candidate = replace(
+        spec,
+        pipeline=replace(spec.pipeline, lds_buffering=LdsBuffering.Double),
+    )
+    state = DerivedBackwardState.from_problem_spec(
+        instance.problem, instance.problem_type.quant_data_type, candidate
+    )
+    physical = derive_backward_physical_plan(state)
+    assert physical.resources.vgprs == 77
+    assert physical.resources.lds_bytes == 9216
+    assert physical.address.pipeline_read_lds is not None
+
+    source = _writer(
+        replace(instance, kernel_spec=candidate), Toolchain.discover()
+    ).source()
+    read_lds = physical.address.pipeline_read_lds
+    write_lds = physical.address.lds
+    first = physical.registers.quant_dm
+    second = first + 1
+    assert f"v_mov_b32 v{read_lds}, 0" in source
+    assert f"v_add_nc_u32 v{physical.registers.temporary}, v{read_lds}" in source
+    assert f"v_xor_b32 v{read_lds}, 4608, v{read_lds}" in source
+    assert f"v_xor_b32 v{write_lds}, 4608, v{write_lds}" in source
+    assert f"v_add_nc_u32 v{first}, 32, v{physical.registers.temporary}" in source
+    assert f"v_xor_b32 v{first}, 32, v{first}" not in source
+    assert f"v_xor_b32 v{second}, 16, v{first}" not in source
+    assert f"ds_load_b128 v[36:39], v{first} offset:16" in source
+    assert "v-1" not in source
 
 
 def test_backward_kernel_spec_round_trips_pascal_case_mapping() -> None:

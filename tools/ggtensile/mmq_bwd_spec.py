@@ -192,12 +192,14 @@ def backward_mechanism_contract(quant_type: str) -> BackwardMechanismContract:
             else frozenset({32})
         ),
         pipeline_n_values=(
-            frozenset({64, 128})
-            if quant_type in ("Q2_K", "Q4_K", "Q6_K")
+            frozenset({32, 64, 128})
+            if quant_type == "Q6_K"
+            else frozenset({64, 128})
+            if quant_type in ("Q2_K", "Q4_K")
             else frozenset({128})
         ),
         pipeline_depth_values=(
-            frozenset({32, 64}) if quant_type == "Q5_K" else frozenset({32})
+            frozenset({32, 64}) if quant_type in ("Q5_K", "Q6_K") else frozenset({32})
         ),
         next_packed_depth_values=(
             frozenset({32, 64}) if quant_type == "Q6_K" else frozenset({32})

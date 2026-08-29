@@ -51,6 +51,7 @@ class BackwardAddressPlan:
     uses_extended_a_pointer_state: bool
     register_count: int
     lds: int
+    pipeline_read_lds: int | None
     quant_shift: int
     low_bitfield_shift: int
 
@@ -213,6 +214,9 @@ def derive_backward_physical_plan(
     )
     temporary = vgprs.allocate(temporary_count)
     serial = vgprs.allocate(1)
+    pipeline_read_lds = None
+    if spec.pipeline.decoded_b_pipeline and not spec.memory.lds_swizzle_chunk_b:
+        pipeline_read_lds = vgprs.allocate(1)
 
     sgprs = _FirstFitRegisters(5, 63)
     kernarg = sgprs.allocate(6, alignment=2)
@@ -240,6 +244,7 @@ def derive_backward_physical_plan(
             serial + 1,
             temporary + temporary_count,
             address + address_register_count,
+            (pipeline_read_lds + 1) if pipeline_read_lds is not None else 0,
         ),
         kernarg=kernarg,
         loop_counter=loop_counter,
@@ -268,6 +273,7 @@ def derive_backward_physical_plan(
         uses_extended_a_pointer_state=extended_a,
         register_count=address_register_count,
         lds=lds_address_register,
+        pipeline_read_lds=pipeline_read_lds,
         quant_shift=quant_shift,
         low_bitfield_shift=low_bitfield_shift,
     )
