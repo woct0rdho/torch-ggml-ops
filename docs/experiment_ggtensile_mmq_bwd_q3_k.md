@@ -1,170 +1,100 @@
-# GGTensile MMQ Backward Q3_K Experiment Plan
+# GGTensile MMQ Backward Q3_K Kernel Experiments
 
-## Purpose
+## Scope
 
-This experiment extends GGTensile MMQ backward to Q3_K on gfx1151, wave32, and WMMA V1. It covers the six exact production keys in the current Qwen workload. HIP remains the correctness and performance oracle and the runtime fallback for unmatched keys; every selected exact production key now beats HIP.
+These experiments cover the ordinary Q3_K MMQ backward kernel on gfx1151, wave32, and WMMA V1. The kernel consumes BF16 grad-output and packed Q3_K weights, accumulates in FP32, and stores BF16 grad-input. Q3_K uses 256-value blocks and 110 packed bytes per block. The direct packed-weight kernel and its exact matrix shape are the unit of identity; prepared weights, external decode storage, grouped ownership, split-K, and persistent workgroups are not Q3 kernel variants in this record.
 
-The generic lifecycle, strict identity rules, phase separation, validation policy, retention gates, and public-integration roadmap remain in [ggtensile_plan.md](ggtensile_plan.md). The completed Q4_K and Q5_K campaigns are architectural references only; no Q4_K or Q5_K tuning result transfers to Q3_K without measurement.
-
-## Exact Scope
-
-MMQ backward uses `M=rows`, `N=in_features`, and `K=out_features`:
-
-```text
-grad_input[M,N] = grad_output[M,K] @ dequant(weight[K,N])
-```
-
-Each generated artifact supports exactly one `ProblemType`, `ProblemSize`, and decoder contract. Q3_K uses 256-value blocks and 110 bytes per block. For the production `N=2048` rows, the packed weight shape is `[K,880]`. No dense shadow, prepared weight, external decode workspace, split-K reduction, persistent workgroup, or grouped MMQ path is in scope.
-
-## Production Inventory
-
-The current Qwen dense workload has two Q3_K geometries:
-
-| Family | `(N,K)` | Packed weight `[K,N]` | Representative tensor | Calls |
-| --- | ---: | ---: | --- | ---: |
-| Narrow/full-attention key | `(2048,512)` | `[512,2048]`, physical `[512,880]` | `blk.3.attn_k.weight` | 9 |
-| Query | `(2048,8192)` | `[8192,2048]`, physical `[8192,880]` | `blk.3.attn_q.weight` | 9 |
-
-The six exact tuning keys are:
+The exact matrices are:
 
 ```text
 (2048, 2048,  512)   (8192, 2048,  512)   (32768, 2048,  512)
 (2048, 2048, 8192)   (8192, 2048, 8192)   (32768, 2048, 8192)
 ```
 
-There is no current production Q3_K shared-down `(N=512,K=2048)` family and no production Q3_K attention-output `(N=4096,K=2048)` family. Do not add those shapes without workload evidence.
+The K512 matrices are the narrow family. The K8192 matrices are the query family. Both use `N=2048`; the different reduction lengths require separate ownership and timing decisions.
 
-The existing HIP dispatch distinguishes two dense full-tile Q3 bodies:
-- `N=2048,K=512`: `DenseBwdQ3KFullNarrow`.
-- `N=2048,K=8192`: `DenseBwdQ3KFullWide`.
+## Final Kernels
 
-Those are initial workload facts, not public GGTensile force controls.
+The table reports the fastest retained kernel found for each exact matrix across the completed experiments. The speedup is `HIP time / GGTensile time`; values above `1.0x` favor GGTensile. The final confirmations were consistent, so no A/B timing columns are included.
 
-## Q3_K Decoder Contract
+| Matrix shape `(M,N,K)` | Kernel hash | Speed (TFLOPS) | Speedup vs HIP |
+| --- | --- | ---: | ---: |
+| `(2048,2048,512)` | `ggsol_47d5421dfdac5c2d` | 26.877 | 1.1383x |
+| `(8192,2048,512)` | `ggsol_74ab47fc6de41c02` | 29.156 | 1.2727x |
+| `(32768,2048,512)` | `ggsol_66ffd967978c0ef1` | 30.049 | 1.2393x |
+| `(2048,2048,8192)` | `ggsol_3f90cc6f487aad42` | 24.840 | 1.2667x |
+| `(8192,2048,8192)` | `ggsol_ccb5384f18e397cd` | 26.703 | 1.2472x |
+| `(32768,2048,8192)` | `ggsol_0e05cc1a23ff2d3e` | 27.162 | 1.2062x |
 
-Q3_K has a 110-byte block with a 32-byte high-mask plane, a 64-byte low 2-bit payload plane, and 12 bytes of scale metadata followed by FP16 `d`. The decoder must combine the low 2-bit payload and high mask into signed 3-bit values, apply the Q3_K scale metadata, convert to BF16, and store the same LDS-facing BF16 tile consumed by the shared WMMA body.
+The six-key call-weighted speedup is `1.2184x`. The selected kernels use the same direct packed Q3_K contract and remain faster than HIP on every exact matrix.
 
-The Q3 backend must own block-byte sizing, high-mask and low-payload loads, scale metadata extraction, signed 3-bit reconstruction, and LDS stores. The common body may own launch flattening, A addressing, prefetch, reduction-trip specialization, WMMA issue order, LDS reads, accumulation, BF16 stores, barriers, and termination only where Q3's LDS tile contract is identical.
+## Final Validation And Resources
 
-Correctness-only reduced reduction depths must include `K=32`, `64`, `96`, and `512`, plus production `K=8192`. Tests must exercise the high-mask plane, all low 2-bit combinations, signed reconstruction boundaries, all eight scale groups, metadata boundaries, the final block boundary, and packed-weight mutation.
+All six final kernels passed:
+- bit-exact comparison with HIP;
+- independent Q3 dequantized BF16 reference comparison;
+- complete grad-output mutation;
+- packed-weight mutation;
+- one-hot packed-bit, signed-boundary, scale-group, and metadata-edge fixtures;
+- reduced-trip checks at K32, K64, K96, and K512 where the geometry permits; and
+- independent deterministic source and code-object rebuilds.
 
-## Multi-Quant Architecture
+The final artifacts have zero private bytes, spills, scratch instructions, calls, and dynamic stack. They use 16 SGPRs and the following resource classes:
 
-- `ProblemType` identifies Q3_K, Q4_K, and Q5_K through strict quant data fields. Quant types must have distinct hashes and symbols.
-- A quant specification owns block bytes, payload planes, metadata layout, decoder width, signed reconstruction, and quant-specific register demand.
-- A shared body owns the fused A/LDS/WMMA/accumulation/store contract only after Q3's LDS tile layout is proven identical.
-- Quant-specific controls belong in strict identity fields. Q3 candidates may include high-mask load ownership, signed 3-bit reconstruction mode, scale metadata layout, packed payload sharing, and Q3-specific LDS swizzle or prefetch. A control is exposed only with a real alternate emitter and validation coverage.
-- Inspection must derive resource accounting from the quant backend, while retaining zero private storage, spills, scratch, calls, dynamic stack, ABI, ISA, and exact-WMMA gates.
+| Kernel cohort | Geometry | VGPRs | LDS |
+| --- | --- | ---: | ---: |
+| Narrow M2048 | padded `256x64x32`, WGM2 | 243 | 5 KiB |
+| Narrow M8192/M32768 | padded `256x64x32`, WGM1 | 243 | 5 KiB |
+| Query M2048/M8192 | padded `128x64x32`, WGM1 | 143 | 5 KiB |
+| Query M32768 | padded `128x128x32`, WGM1 | 218 | 10 KiB |
 
-Do not expose inert Q3 fields on Q4_K or Q5_K solutions. Do not assume the Q4/Q5 176/144-byte payload ordering or decoder register layout applies to Q3's 110-byte block.
+The Q3 decoder owns the 32-byte high-mask plane, 64-byte low 2-bit payload plane, scale metadata, FP16 `d`, signed 3-bit reconstruction, BF16 conversion, and decoded-B LDS stores. The shared body owns activation addressing, LDS reads, WMMA, accumulation, and BF16 output stores only where the decoded tile contract matches.
 
-## Campaign Phases
+## Profile Results
 
-### Inventory and Controls
+The representative final diagnostics separate complete execution into a WMMA/A/LDS floor and a decode/LDS floor. The floors are serial lower bounds used to explain overlap; they are not alternative kernels.
 
-Create a versionless six-key Q3 inventory with representative tensors, call counts, refreshed HIP medians, and an initial generated control. Keep narrow and query as separate families even though they share `N=2048`, because `K=512` and `K=8192` change decode-to-WMMA balance and call-weighted importance.
-
-### Q3 Backend and Strict Validation
-
-Implement Q3 through the quant backend boundary. Add unit coverage for strict problem identity, Q3 block bytes, payload offsets, high-mask/low-payload emission, signed 3-bit reconstruction, scale metadata, physical weight sizing, strict unsupported-quant rejection, and resource-clean independent builds.
-
-Before production timing, pass reduced-trip correctness at `K=32/64/96/512` and a one-hot packed matrix covering every Q3 payload bit, signed 3-bit boundary, scale group, metadata byte, and final block row.
-
-### Baseline Correctness
-
-Require bit-exact HIP comparison for all six production keys, independent Q3 dequantized BF16 reference comparison, complete grad-output mutation, and packed-weight mutation. No timing result is accepted before these checks pass.
-
-### Large-Margin-First Optimization
-
-Use serial immutable generate, build, inspect, correctness, screening, and confirmation phases with warmed rotating same-process controls. Prioritize:
-- The query family first if its long `K=8192` decode path is materially slower or has the largest call-weighted deficit.
-- The narrow family first if its 9 calls and short `K=512` path expose a large decoder overhead or a clear HIP/GGTensile gap.
-- Q3 high-mask/low-payload load ownership and signed reconstruction, especially mechanisms that remove instructions without increasing VGPRs.
-- Two-buffer versus one-buffer decoded-B pipelines only if Q3's 110-byte layout changes overlap or occupancy.
-- Exact Q3 metadata load width, scale extraction, high-mask normalization, and packed payload sharing only through complete emitters.
-- WGM, SIA, PLR, LDS swizzle, and exact-trip controls only where per-key timing or lower-bound evidence justifies them.
-- Exact power-of-two address lowerings and ISA fused operations before resource-bearing ownership changes.
-
-Do not scan Q4/Q5 controls that do not change Q3 assembly. Timing is authoritative; static VALU/VMEM counts, resources, code size, locality, and counters explain the result.
-
-### Selection and Confirmation
-
-Retain only exact-shape-correct, reproducible, resource-clean candidates:
-- zero private bytes, spills, scratch instructions, calls, and dynamic stack.
-- independent generated assembly byte-identical.
-- no stable regression above 1% on another exact key sharing the emitted path.
-- resource-bearing mechanisms require a stable gain above 2%.
-- unconditional instruction/resource reductions may remain when neutral-to-favorable.
-
-Select per exact key, then evaluate the six-key weighted result using call counts. HIP remains fallback for every unmatched key; a GGTensile solution is selected only after it beats HIP on its exact key.
-
-### Lower Bounds and Bottlenecks
-
-For representative long narrow and query keys, generate complete, WMMA/A/LDS-floor, and decode/LDS-floor artifacts when timing diagnosis is ambiguous. Explain whether remaining time is dominated by WMMA/A/LDS, Q3 metadata/payload decode, LDS synchronization, launch/occupancy, or overlap limits.
-
-The campaign is incomplete until narrow and query bottlenecks are separately explained, or evidence proves one common bottleneck dominates both.
-
-## Recursive Optimization-Exhaustion Review
-
-This is the permanent final campaign step. Re-read this plan; the Q4_K and Q5_K experiment logs; dense and grouped MMQ optimization histories; current Q3/Q4/Q5 HIP, CK, GGTensile, and normalized-disassembly sources; inventories, selected and rejected solutions, manifests, lower bounds, profiles, counters, timing brackets, and mutation results; TensileLite, EvoTensile, CK, hipBLASLt, and relevant mechanism studies; and the gfx1151 ISA reference plus LLVM AMDGPU instruction, VOPD, hazard, delay, and scheduling definitions and tests.
-
-Classify every idea as duplicate or closed, contract-incompatible, unsupported, deferred with an explicit prerequisite, or actionable with an exact target key, mechanism, expected gain path, and measurement gate. If the review finds an actionable in-contract idea, implement and measure it before the review can pass, update this plan, and repeat the complete review. The Q3_K campaign is exhausted only when a fresh final pass finds no new valid actionable idea, all prior actionable ideas are retained, rejected, or explicitly deferred, and remaining bottlenecks are explained with evidence.
-
-A plan edit or implementation change creates a new premise and invalidates the prior stopping condition. The review must remain the final step and cannot pass in the same iteration that discovers actionable work.
-
-## Campaign Evidence
-
-The initial `128x128x32` one-buffer Q3 path was correct and fast, but the short-K campaign exposed a missing layout mechanism. HIP's narrow kernel uses an unswizzled decoded-B LDS tile with eight rows of padding. Adding real `LdsPadB=8` support, then reducing the narrow geometry to `256x64x32`, lowered decoder rows, LDS traffic, and accumulator pressure while preserving packed in-kernel decode. The four-M-tile emitter also required separate A-row, LDS, quant-shift, and Q3 low-shift state; aliasing the cached low shift with the third A pointer caused the first `256x64` correctness failure and was fixed before timing.
-
-The retained Q3 emitters use one LDS buffer, packed extraction, fused signed-scale multiplication, SIA5/store priority, decode-shift hoisting, Q3 VOPD pairing where the exact geometry is favorable, and `v_lshl_or_b32` to merge the original high mask with the low payload. All selected artifacts use `LdsPadB=8`, unswizzled B LDS, zero private storage and spills, and pass the hard ABI/resource gates.
-
-| Mechanism | Result | Decision |
-| --- | ---: | --- |
-| Padded `256x64x32`, WGM2 | Q3 narrow M2048 screen `0.8783x` versus HIP; 25-repeat final `0.8831x` | Select for narrow M2048 |
-| Padded `256x64x32`, WGM1 | Q3 narrow M8192/M32768 final `0.7874x`/`0.8073x` versus HIP | Select for narrow M8192 and M32768 |
-| Padded `128x64x32`, WGM1 | Query M2048/M8192 screen gains of about 5%/9% versus prior selected paths | Select for query M2048 and M8192 |
-| Padded `128x128x32`, WGM1 | Query M32768 confirmation `0.9733x` versus the unpadded assembly control | Select for query M32768 |
-| Padded `256x64` for Q4/Q5 shared-down | Q4/Q5 weighted candidate/control `1.4262x`/`1.4577x` | Reject; shared-down remains two-buffer bound |
-| SIA4/store-priority alternatives | Q3, Q4, and Q5 screens were neutral or regressing; Q5's apparent M2048 win became `1.0178x` at 25 repeats | Reject |
-| WGM4/WGM8, PGR1, scalar extraction, alternate swizzles, metadata vector loads | Earlier correctness or timing gates failed | Reject |
-
-### Final result
-
-The current `mmq_bwd_q3_k_catalog.json` is loaded by `tools/mmq_deployment_spec.py:kernels()` as `OrdinaryBackward`. The public bundle wiring in commit `1924d4b` exposes these six exact cases through `public_deployment_cases()`; HIP remains fallback outside these keys. The `ggsol_...` value is the current public catalog hash. Logical throughput is `2*M*N*K/(median_ms*1e9)`, and speedup is `HIP time / GGTensile time`, so values above `1.0x` favor the deployed GGTensile entry. The elapsed columns are the medians used for the calculation; compatible Q3 A/B confirmations are averaged in elapsed-time space.
-
-| Family | `(M,N,K)` | Public catalog hash | HIP ms | GGTensile ms | HIP TFLOPS | GGTensile TFLOPS | HIP time / GGTensile time |
-| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
-| Narrow | `(2048,2048,512)` | `ggsol_47d5421dfdac5c2d` | `0.1819` | `0.1598` | `23.611` | `26.877` | `1.1383x` |
-| Narrow | `(8192,2048,512)` | `ggsol_74ab47fc6de41c02` | `0.7499` | `0.5892` | `22.909` | `29.156` | `1.2727x` |
-| Narrow | `(32768,2048,512)` | `ggsol_66ffd967978c0ef1` | `2.8343` | `2.2870` | `24.246` | `30.049` | `1.2393x` |
-| Query | `(2048,2048,8192)` | `ggsol_3f90cc6f487aad42` | `3.5044` | `2.7664` | `19.610` | `24.840` | `1.2667x` |
-| Query | `(8192,2048,8192)` | `ggsol_ccb5384f18e397cd` | `12.8389` | `10.2939` | `21.410` | `26.703` | `1.2472x` |
-| Query | `(32768,2048,8192)` | `ggsol_0e05cc1a23ff2d3e` | `48.8244` | `40.4792` | `22.520` | `27.162` | `1.2062x` |
-
-The call-weighted speedup after the elapsed-time collapse is `1.2184x`, corresponding to a candidate/HIP latency ratio of `0.8207x`. Query `(32768,2048,8192)` uses the padded B confirmation alone because its A artifact uses the unpadded/swizzled identity rather than the current public catalog entry. The selected resource classes are 243 VGPR/5 KiB LDS for narrow `256x64`, 143 VGPR/5 KiB LDS for query `128x64`, and 218 VGPR/10 KiB LDS for query M32768 `128x128`; each has 16 SGPR, zero private bytes, zero spills, and the expected static WMMA/VMEM/LDS structure. The independent final roots produce byte-identical assembly and matching resource tuples for the compatible catalog entries.
-
-The final correctness phase passed HIP comparison, independent references, complete `grad_output` mutation, and packed-weight mutation on all six exact keys. Reduced-K checks against the final padded `256x64` geometry matched HIP and the independent reference at K32/K64/K96; at K512 candidate and HIP matched each other, while both shared the known 511-element BF16 accumulation-order difference from the independent reference.
-
-Serial lower-bound measurements on the earlier two-buffer control at M32768 remain useful for bottleneck diagnosis:
-
-| Family | Complete | WMMA/A/LDS floor | Decode/LDS floor | Floor sum |
+| Cohort and shape | Complete | WMMA/A/LDS floor | Decode/LDS floor | Floor sum |
 | --- | ---: | ---: | ---: | ---: |
-| Narrow, K512 | `2.618 ms` | `1.621 ms` | `1.166 ms` | `106.4%` |
-| Query, K8192 | `46.780 ms` | `26.666 ms` | `21.019 ms` | `101.9%` |
+| Narrow `(32768,2048,512)` | 2.618 ms | 1.621 ms | 1.166 ms | 106.4% |
+| Query `(32768,2048,8192)` | 46.780 ms | 26.666 ms | 21.019 ms | 101.9% |
 
-The short-K gap was therefore primarily layout, decoder-row, and launch/overlap sensitivity rather than code size. The long query gap remains an overlapped WMMA/decode/LDS pipeline. The final pass also reviewed the HIP and GGTensile logs, CK/TensileLite mechanism notes, normalized disassembly, rocprofiler results, and gfx1151 LLVM/ISA constraints. No remaining in-contract mechanism has a measured path to a stable gain above the resource-bearing threshold. Persistent workgroups, split-K, prepared weights, external decode storage, grouped MMQ, and public runtime dispatch remain outside this campaign or explicitly deferred.
+The short-K path is sensitive primarily to decoded-B layout, decoder rows, and launch/overlap behavior. The long query path is an already overlapped WMMA/decode/LDS pipeline. The profile results do not show a first-order uncovered component that would justify reopening a schedule-only or resource-growing variant.
 
-## Recursive Optimization-Exhaustion Review
+## Accepted Experiments
 
-The padded LDS and compact-geometry rewrite invalidated the earlier HIP-fallback conclusion for narrow M2048 and M32768, so those exact keys were regenerated, correctness-checked, screened, confirmed, and independently reproduced rather than retaining the historical fallback. The follow-up checks covered padded `128x128`, padded `128x64`, padded `256x64`, WGM1/2/4/8, SIA4/SIA5, store priority, address-state allocation for four M tiles, and Q3 reduced-K behavior. Large-margin layout and geometry opportunities are exhausted. Remaining timing is bounded by fused WMMA/decode/LDS overlap and short-K launch/occupancy behavior; smaller instruction-count changes did not clear the stable timing gate. A fresh final pass finds no new valid actionable mechanism, so this review closes the Q3 campaign.
+### Padded LDS and compact ownership
 
-## Completion Record
+The original `128x128x32` one-buffer body was correct but left the short-K path behind the HIP layout. The accepted layout is unswizzled decoded-B LDS with `LdsPadB=8`. Reducing the narrow body to `256x64x32` lowered decoder rows, LDS traffic, and accumulator pressure without changing the packed representation.
 
-Documentation-only plan updates remain uncommitted unless explicitly requested.
-- Six exact Q3_K production shapes identified from the current Qwen inventory.
-- Strict Q3_K ProblemType, solution identity, and multi-quant backend support.
-- Q3_K reduced-trip, one-hot, HIP, independent-reference, and producer-mutation correctness.
-- Padded LDS support, compact `256x64` short-K geometry, four-M-tile address-state separation, and exact-key selection.
-- Final six-key confirmation and independent reproducibility rebuild.
-- Recursive final optimization-exhaustion review with no actionable mechanism remaining.
-- Public runtime dispatch deferred until broader MMQ quant coverage and complete workload validation.
+The accepted exact ownership is shape-specific:
+- `256x64x32`, WGM2 for narrow M2048;
+- `256x64x32`, WGM1 for narrow M8192 and M32768;
+- `128x64x32`, WGM1 for query M2048 and M8192; and
+- `128x128x32`, WGM1 for query M32768.
+
+The four-M-tile emitter required separate A-row, LDS, quant-shift, and Q3 low-shift state. That separation corrected an early `256x64` aliasing failure before production timing.
+
+### Decode and instruction selection
+
+Packed extraction is retained for every exact matrix. The retained decoder uses fused signed-scale reconstruction, decode-shift hoisting, Q3-specific legal VOPD pairing where the geometry permits it, and `v_lshl_or_b32` to merge the high mask with the low payload. Decode pairing is `Full` for five final keys; the narrow M8192 key uses the qualified `Partial` pairing.
+
+All final kernels use `DepthU=32`, `PrefetchGlobalRead=2`, `PrefetchLocalRead=1`, activation prefetch, one decoded-B LDS buffer, packed per-lane payload loading, and the selected interleaved WMMA-wait schedule. Store priority remains raised. These controls are retained only as part of complete, exact shape-specific kernels.
+
+## Rejected Experiments
+
+The following alternatives were built or screened and did not replace the final kernels:
+
+| Experiment | Evidence and disposition |
+| --- | --- |
+| Unpadded decoded-B LDS | The later `LdsPadB=8` body improved the short-K layouts and superseded the unpadded control. The unpadded `128x128` body remained slower on the relevant exact keys. |
+| Alternate LDS swizzles and padding layouts | Correctness or timing gates failed; the final rows use unswizzled pad8. |
+| Two-buffer versus one-buffer decoded-B pipeline | The earlier two-buffer control did not expose a stable gain over the accepted padded one-buffer ownership. The lower-bound profiles show that the long path already overlaps decode and WMMA/LDS work. |
+| WGM4 and WGM8 | Larger traversal ownership did not produce a stable gain and was removed. WGM2 remains only for narrow M2048. |
+| PGR1 and alternate SIA schedules | Reduced prefetch or alternate scheduling was neutral or regressing against the selected PGR2/SIA5 body. |
+| Scalar Q3 extraction | It increased decoder work without a qualifying timing benefit and was rejected. |
+| Metadata vector loads | Earlier correctness and timing gates did not show a gain over the format-aware scalar metadata path. |
+| Store-priority alternatives | The no-priority and related alternatives were neutral or regressing; raised priority remains in the final kernels. |
+| Broad geometry and ownership changes | Larger tiles, smaller ownership, and extra-wave arrangements either duplicated decode/A work, increased residency pressure, or lost to the selected shape-specific body. |
+
+The final follow-up reviewed the accepted padded `128x128`, padded `128x64`, and padded `256x64` bodies; WGM1/2/4/8; SIA4/SIA5; store priority; four-M-tile address state; reduced-K behavior; decoder extraction; LDS layouts; and the two-buffer control. No remaining direct Q3_K kernel experiment has a measured path to a stable gain above the resource-bearing threshold. Historical arithmetic, ABI, unsupported-resource, and non-direct execution mechanisms remain outside this kernel log.
