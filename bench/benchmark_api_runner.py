@@ -1,5 +1,6 @@
 """Driver for complete public-API versus logical-baseline benchmarks."""
 
+import math
 from collections.abc import Callable
 from typing import Any
 
@@ -7,12 +8,13 @@ import gguf
 import torch
 from benchmark_common import (
     OPERATIONS,
+    AdaptiveTimingPolicy,
+    adaptive_timings,
     device_info,
     logical_flops,
     parse_args,
     print_result,
     release_cuda,
-    rotating_timings,
     select_cases,
     write_report,
 )
@@ -23,6 +25,7 @@ import torch_ggml_ops
 from tools.ggtensile.family_registry import mapping_for_instance
 from tools.mmq_correctness import (
     PreparedCase,
+    RouteData,
     assert_external_reference,
     external_reference,
 )
@@ -77,58 +80,122 @@ def _public_forward(prepared: PreparedCase, input_tensor: torch.Tensor) -> Any:
     return torch_ggml_ops.fixed_grouped_mmq(input_tensor, prepared.packed_weights[0])
 
 
-def _public_callable(prepared: PreparedCase) -> tuple[Callable[[], Any], str]:
+def _public_callable(
+    prepared: PreparedCase,
+    route_bank: tuple[RouteData, ...] | None = None,
+) -> tuple[Callable[[], Any], str, Callable[[int], None] | None]:
     case = prepared.case
     input_value = prepared.input
     if input_value is None:
         raise ValueError("public benchmark input is missing")
+    if route_bank is not None and not route_bank:
+        raise ValueError("public routed benchmark has an empty route bank")
+
     if case.operation.endswith("Forward") or case.operation == "GroupedForwardPair":
-        return lambda: _public_forward(prepared, input_value), "complete_public_call"
+
+        def select_sample(index: int) -> None:
+            if route_bank is None or not 0 <= index < len(route_bank):
+                raise IndexError(
+                    f"route vector index {index} is outside the route bank"
+                )
+            prepared.route = route_bank[index]
+
+        return (
+            lambda: _public_forward(prepared, input_value),
+            "complete_public_call",
+            select_sample if route_bank is not None else None,
+        )
 
     input_tensor = input_value.detach().requires_grad_(True)
-    outputs = _public_forward(prepared, input_tensor)
-    grad_outputs: Any = (
-        prepared.grad_outputs
-        if isinstance(outputs, tuple)
-        else prepared.grad_outputs[0]
-    )
+    graph_state: dict[str, Any] = {}
+
+    def rebuild_graph() -> None:
+        outputs = _public_forward(prepared, input_tensor)
+        graph_state["outputs"] = outputs
+        graph_state["grad_outputs"] = (
+            prepared.grad_outputs
+            if isinstance(outputs, tuple)
+            else prepared.grad_outputs[0]
+        )
+
+    rebuild_graph()
 
     def backward() -> torch.Tensor:
         return torch.autograd.grad(
-            outputs,
+            graph_state["outputs"],
             input_tensor,
-            grad_outputs,
+            graph_state["grad_outputs"],
             retain_graph=True,
         )[0]
 
-    return backward, "autograd_backward_only"
+    def select_sample(index: int) -> None:
+        if route_bank is None or not 0 <= index < len(route_bank):
+            raise IndexError(f"route vector index {index} is outside the route bank")
+        prepared.route = route_bank[index]
+        rebuild_graph()
+
+    return (
+        backward,
+        "autograd_backward_only",
+        select_sample if route_bank is not None else None,
+    )
 
 
 def _result(
     prepared: PreparedCase,
     benchmark_input,
     args,
+    adaptive_policy: AdaptiveTimingPolicy,
     public_call: Callable[[], Any],
     public_surface: str,
+    select_sample: Callable[[int], None] | None,
 ) -> dict[str, object]:
     case = prepared.case
     spec = OPERATIONS[case.operation]
     baseline_call = lambda: external_reference(prepared)
-    public_output = public_call()
-    baseline_output = baseline_call()
-    torch.cuda.synchronize()
-    correctness = _correctness(public_output, baseline_output)
-    del public_output, baseline_output
+    if select_sample is not None:
+        if benchmark_input.route_bank is None:
+            raise RuntimeError("public routed comparison is missing its route bank")
+        correctness_samples = []
+        for route_index in range(len(benchmark_input.route_bank)):
+            select_sample(route_index)
+            public_output = public_call()
+            baseline_output = baseline_call()
+            torch.cuda.synchronize()
+            correctness_samples.append(
+                {
+                    "sample_index": route_index,
+                    "metrics": _correctness(public_output, baseline_output),
+                }
+            )
+            del public_output, baseline_output
+        correctness = {
+            "route_vectors_checked": len(correctness_samples),
+            "samples": correctness_samples,
+        }
+    else:
+        public_output = public_call()
+        baseline_output = baseline_call()
+        torch.cuda.synchronize()
+        correctness = _correctness(public_output, baseline_output)
+        del public_output, baseline_output
     flops = logical_flops(case, spec)
-    timing, order = rotating_timings(
+    timing, adaptive = adaptive_timings(
         {"public_api": public_call, "baseline": baseline_call},
+        policy=adaptive_policy,
         warmup=args.warmup,
-        repeats=args.repeats,
         launches_per_sample=args.launches_per_sample,
         flops=flops,
+        select_sample=select_sample,
+        sample_capacity=(
+            len(benchmark_input.route_bank)
+            if select_sample is not None and benchmark_input.route_bank is not None
+            else None
+        ),
     )
-    speedup = float(timing["baseline"]["median_ms"]) / float(
-        timing["public_api"]["median_ms"]
+    speedup = math.exp(
+        float(timing["baseline"]["median_log_ms"])
+        - float(timing["public_api"]["median_log_ms"])
     )
     case_mapping = case.to_mapping()
     case_mapping.pop("ggtensile", None)
@@ -147,14 +214,21 @@ def _result(
         "protocol": {
             "surface": public_surface,
             "warmup": args.warmup,
-            "repeats": args.repeats,
+            "initial_samples": args.repeats,
+            "max_samples": args.max_samples,
+            "sample_step": args.sample_step,
             "launches_per_sample": args.launches_per_sample,
-            "sample_order": order,
             "correctness_before_timing": True,
+            "correctness_route_vectors": (
+                len(benchmark_input.route_bank)
+                if select_sample is not None and benchmark_input.route_bank is not None
+                else 1
+            ),
             "weight_dequantization_in_timing": False,
             "public_forward_graph_construction_in_backward_timing": False,
             "public_autograd_in_backward_timing": case.operation.endswith("Backward")
             or case.operation == "GroupedBackwardPair",
+            "adaptive": adaptive,
         },
         "implementations": {
             "public_api": {"label": spec.public_label},
@@ -178,6 +252,15 @@ def run_api(operation: str, *, routed: bool) -> None:
     cases = select_cases(operation, args.model_family, args.case)
     if not cases:
         raise ValueError(f"no {operation} cases exist for {args.model_family}")
+    adaptive_policy = AdaptiveTimingPolicy(
+        min_samples=args.repeats,
+        max_samples=args.max_samples,
+        sample_step=args.sample_step,
+        confidence=args.adaptive_confidence,
+        epsilon_pct=args.adaptive_epsilon_pct,
+        stable_rounds=args.adaptive_stable_rounds,
+        noise_floor_pct=args.adaptive_noise_floor_pct,
+    )
     report = {
         "comparison": "public_api_vs_baseline",
         "operation": operation,
@@ -193,6 +276,7 @@ def run_api(operation: str, *, routed: bool) -> None:
             ),
             "case_selectors": args.case,
             "input_seed": args.seed,
+            "adaptive_timing_policy": adaptive_policy.to_mapping(),
         },
         "results": [],
     }
@@ -204,16 +288,24 @@ def run_api(operation: str, *, routed: bool) -> None:
             reader,
             expert_prior=args.expert_prior,
             seed=args.seed,
+            route_vectors=args.max_samples if routed else 1,
+            route_seed=args.seed,
+            full_logical_weights=routed,
         )
         prepared = benchmark_input.prepared
-        public_call, public_surface = _public_callable(prepared)
+        public_call, public_surface, select_sample = _public_callable(
+            prepared,
+            benchmark_input.route_bank if routed else None,
+        )
         report["results"].append(
             _result(
                 prepared,
                 benchmark_input,
                 args,
+                adaptive_policy,
                 public_call,
                 public_surface,
+                select_sample,
             )
         )
         write_report(args.output, report)

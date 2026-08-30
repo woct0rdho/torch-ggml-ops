@@ -4,27 +4,37 @@
 
 This document is the authority for expert-route workload fitting and performance-benchmark input selection. It supplements `ggtensile_plan.md`: the plan defines generator architecture and exact kernel identity; this document defines the route distribution used to rank optimization candidates.
 
-Historical experiment records preserve the distributions and timing procedures that were actually used at the time. They are evidence, not current instructions. In particular, references to five medoids, captured-route replay, corpus mixtures, or synthetic timing controls are superseded for a new optimization campaign by the single-prior policy below.
+Historical experiment records preserve the distributions and timing procedures that were actually used at the time. They are evidence, not current instructions. In particular, references to five medoids, captured-route replay, corpus mixtures, or synthetic timing controls are superseded for a new optimization campaign by the single-prior route-bank policy below. Historical result documents are not rewritten when this protocol changes.
 
 ## Normative policy
 
-For every workload family or explicitly declared problem type, select exactly one fitted expert prior law. The law is the optimization target. Do not rank a candidate against a different distribution, a second fitted law, a medoid bank, or a weighted mixture of profiles.
+For every workload family or explicitly declared problem type, select exactly one fitted expert prior law. The law is the optimization target. Do not rank a candidate against a different distribution, a second fitted law, a medoid bank, or a weighted mixture of fitted laws.
 
 The fitting phase and the benchmark phase are separate:
 - An offline fitting job may read captured route data and, where needed, token IDs and frozen router tables.
 - The job emits one fit artifact containing the law, coefficients, fit corpus identity, fit seed, and validation statistics.
 - Benchmark tooling consumes only that fitted law and the exact problem metadata. It does not read route captures, language corpora, checkpoint reports, or route-analysis JSON.
-- For each exact problem key, the law is evaluated at its physical token/row size and produces one deterministic expert distribution. That declared profile is reused for candidate and retained-parent timing.
+- For each exact problem key, the law is evaluated at its physical token/row size and produces a deterministic bank of complete expert-route vectors. The bank is generated before timing, from one serialized seed and the declared maximum sample count. Each vector contains the full `rows_per_expert[256]` realization, compact `expert_indices`, cumulative `expert_offsets`, and group sizes. Candidate and retained-parent timing use the same vector at each paired sample.
 
 If the fitting inputs or method change, repeat qualification for the resulting fit. Do not mix profiles from different fits or silently add another benchmark distribution.
 
 The workload family is defined by routing semantics and physical contract, not by quantization alone. A law may be shared by compatible Qwen shapes, for example, while a distinct learned-router or hash-router contract receives its own law. Learned and hash routing must not be combined into a `40/43` plus `3/43` timing mixture; either they are declared separate problem families with one law each, or one explicitly fitted law is selected for the combined problem type before timing begins.
 
-Paired gate/up projections reuse the one route profile for their shared routed rows. Their packed weights, outputs, arithmetic, and timing records remain separate where the exact operator contracts differ.
+Paired gate/up projections reuse each route vector for their shared routed rows. Their packed weights, outputs, arithmetic, and timing records remain separate where the exact operator contracts differ.
 
 `uniform`, `skewed`, `sparse`, `repeated`, `boundary`, alternate language corpora, and exact captured profiles may still be used for non-timed correctness, malformed-route, tail, mutation, and ABI coverage. They are not optimization targets, ranking inputs, weights, fallback gates, or performance controls. A correctness matrix must not be reported as evidence for which candidate is faster.
 
-No medoid reduction is part of the current policy. If the fitted law is stochastic, choose and serialize one deterministic seed and one resulting profile for each exact benchmark key. Do not generate a search bank, reduce it with k-medoids, retain multiple medoid weights, or rotate among profiles during a benchmark.
+No medoid reduction is part of the current policy. If the fitted law is stochastic, choose and serialize one deterministic seed and generate the route bank directly. Do not generate a search bank, reduce it with k-medoids, retain medoid weights, replay captured routes, or mix alternate route controls into the timed result.
+
+## Distributional route-bank benchmark protocol
+
+The route bank is the distributional measurement unit for grouped direct-kernel and public-API benchmarks. The benchmark allocates route tensors, activation workspaces, and any paired row-task workspaces before the timing loop. For paired IQ2_S direct kernels, the deployed J64 row-task descriptors are built once for every route vector before timing; activation quantization and row-task setup are outside the multiply-only timing surface.
+
+The timing loop takes exactly one timing sample for each selected route vector. A route is selected once, then the identical route tensors are passed to HIP and GGTensile. `launches_per_sample` may average multiple launches inside that one timed event; it does not select another route or create another sample. Route order alternates implementation order to reduce cache and launch-order bias. Numeric activation and weight values remain fixed across the bank; expert IDs may change packed-weight addresses, cache behavior, and work partitioning, which is intentional route variability.
+
+The route count is adaptive. The current defaults are an initial prefix of `16` vectors, a maximum of `128`, expansion steps of `16`, `90%` confidence, a `2%` relative estimate tolerance, two consecutive stable rounds, and a `0.5%` noise floor. The bank is still generated to the maximum before timing so stopping does not create routes or allocations inside the timed loop. Dense and fixed non-routed direct-kernel and public-API measurements use the same adaptive estimator, with one ordinary timing sample per iteration rather than one route vector.
+
+Stability is evaluated in log-time space. Each implementation records standard deviation, scaled MAD, scaled IQR, median standard error, confidence half-width, and consecutive-prefix estimate changes. The primary speedup is `exp(median_log(HIP) - median_log(GGTensile))`; per-route observations and the adaptive stopping metadata remain in the report. This reports a paired distributional comparison without replacing the route bank with a single aggregate row count.
 
 ## Fit contract
 
@@ -186,9 +196,9 @@ The DeepSeek one-step assignment audit changed route histograms in `40/43` layer
 
 The capture-free hash surrogate tracks the observed shape reasonably but is not exact token/table projection: the two independent shape metrics stayed under `4%` error at B1 and B4, while the B16 maximum-group metric was `5.4%` high. This is a fit diagnostic and a reason to record the exact hash projection when token IDs and `tid2eid` are available, not a reason to add another timed law.
 
-Before claiming production-frequency weighting, extend the corpus with early, middle, and late checkpoints or training states, multiple data seeds, same-batch before/after-update captures where router trainability matters, and explicit layer and projection invocation frequencies. A pooled fit may remain the selected one-law model after that work, but the fit report must show why its pooling and weights represent the declared workload family. These breadth requirements trigger a new fit and requalification of the one-law/one-profile benchmark procedure; they do not authorize concurrent laws, medoid banks, or profile mixtures.
+Before claiming production-frequency weighting, extend the corpus with early, middle, and late checkpoints or training states, multiple data seeds, same-batch before/after-update captures where router trainability matters, and explicit layer and projection invocation frequencies. A pooled fit may remain the selected one-law model after that work, but the fit report must show why its pooling and weights represent the declared workload family. These breadth requirements trigger a new fit and requalification of the one-law route-bank benchmark procedure; they do not authorize concurrent laws, medoid banks, or profile mixtures.
 
-## Historical multi-medoid analysis and current concise rule
+## Historical multi-medoid analysis
 
 This section migrates the former medoid analysis so that old campaign reports remain intelligible. The procedure below was useful for studying route sensitivity, but it is superseded as a performance-benchmark input method. A medoid was a representative sampled route profile; it was never a second fitted law.
 
@@ -221,11 +231,11 @@ The profile weights were often highly uneven. In one historical B16 ownership sc
 
 Route shape and corpus also changed comparator ranking. The historical DeepSeek B16 replay measured packed grouped-MMQ versus the BF16 AITER reference at `0.942x`, `1.031x`, and `0.854x` for the IQ2_XXS pair on Chinese, English, and random inputs, respectively; the Q2_K down path measured `0.698x`, `0.747x`, and `0.537x`. The English case crossed ownership relative to the other two corpora. This was evidence that candidate ranking is route-sensitive, not evidence that every corpus or every medoid should become a timed optimization target.
 
-### Current one-law benchmark rule
+### Current one-law route-bank rule
 
-The fitted law remains the workload model. For benchmark brevity, each exact problem key now materializes one deterministic profile from that law and reuses the same route tensors for the candidate and retained parent. The law is still distributional; selecting one timed realization is an intentional concise benchmark procedure, not a claim that one profile exhausts its residual support or is mathematically equivalent to integrating over the law.
+The fitted law remains the workload model. Each exact problem key now materializes a deterministic route bank from that law before timing and uses the same route tensors for the candidate and retained parent. The law is still distributional; the bank is a finite paired sample, not a claim that its finite median exhausts the residual support or is mathematically equivalent to integrating over the law.
 
-Current benchmarks therefore do not generate five medoids, average or rotate over medoids, replay captures, or include synthetic route controls in performance ranking. Historical medoid tables remain useful for fit validation, route-sensitivity discussion, and non-timed correctness, ABI, mutation, malformed-route, and tail coverage. They cannot select a candidate, supply benchmark weights, or silently broaden the declared optimization target.
+Current benchmarks therefore do not generate five medoids, average or rotate over medoids, replay captures, or include synthetic route controls in performance ranking. They do generate a seeded bank of complete prior samples and measure one sample per selected route, with adaptive stopping. Historical medoid tables remain useful for fit validation, route-sensitivity discussion, and non-timed correctness, ABI, mutation, malformed-route, and tail coverage. They cannot select a candidate, supply benchmark weights, or silently broaden the declared optimization target.
 
 ## Fit validation and benchmark handoff
 
@@ -240,8 +250,8 @@ The migrated non-hash prior-predictive medians were:
 | DeepSeek learned, B4/S2048 | `(249, 0.486, 38.2, 19.8x)` | `(249, 0.471, 40.9, 19.3x)` |
 | DeepSeek learned, B16/S2048 | `(254, 0.479, 39.6, 20.0x)` | `(254, 0.446, 44.0, 18.8x)` |
 
-The prior remained compatible with the Qwen equal-total-token partition check at B1/S2048, B2/S1024, and B4/S512. DeepSeek extrapolation beyond S2048 was not established. These limitations belong in the fit artifact and do not justify adding benchmark profiles.
+The prior remained compatible with the Qwen equal-total-token partition check at B1/S2048, B2/S1024, and B4/S512. DeepSeek extrapolation beyond S2048 was not established. These limitations belong in the fit artifact and do not justify changing the one-law route-bank benchmark procedure.
 
-A benchmark report must record the fit provenance, exact problem key, physical size, deterministic profile seed, route entries, and complete route tensors or a digest of them. It must state that no captured data, medoid bank, alternate corpus, or synthetic timing control was used. Candidate and retained-parent timings must use identical frozen route tensors and the same allocation/launch contract.
+A benchmark report must record the fit provenance, exact problem key, physical size, deterministic route-bank seed, vector count, adaptive policy and stopping metadata, route entries, and complete route tensors or a digest of them. It must state that no captured data, medoid bank, alternate corpus, or synthetic timing control was used. Candidate and retained-parent timings must use identical frozen route tensors and the same allocation/launch contract. For paired IQ2_S, it must also record that J64 row-task descriptors were prepared for every route before timing.
 
 The current optimization claim is therefore narrow: performance is improved or rejected under one declared fitted prior law for one declared workload family/problem type. Correctness and malformed-route coverage can be broader, but no broader route result can be used to silently change the optimization target.

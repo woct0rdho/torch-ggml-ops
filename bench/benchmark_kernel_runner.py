@@ -1,17 +1,19 @@
 """Driver for preallocated GGTensile versus HIP-control benchmarks."""
 
+import math
 from typing import Any
 
 import gguf
 import torch
 from benchmark_common import (
     OPERATIONS,
+    AdaptiveTimingPolicy,
+    adaptive_timings,
     device_info,
     logical_flops,
     parse_args,
     print_result,
     release_cuda,
-    rotating_timings,
     select_cases,
     write_report,
 )
@@ -47,6 +49,15 @@ def run_kernels(operation: str, *, routed: bool) -> None:
     cases = select_cases(operation, args.model_family, args.case)
     if not cases:
         raise ValueError(f"no {operation} cases exist for {args.model_family}")
+    adaptive_policy = AdaptiveTimingPolicy(
+        min_samples=args.repeats,
+        max_samples=args.max_samples,
+        sample_step=args.sample_step,
+        confidence=args.adaptive_confidence,
+        epsilon_pct=args.adaptive_epsilon_pct,
+        stable_rounds=args.adaptive_stable_rounds,
+        noise_floor_pct=args.adaptive_noise_floor_pct,
+    )
     selected_hip_root = args.hip_root or hip_control_root()
     if selected_hip_root is None or not selected_hip_root.exists():
         raise FileNotFoundError(
@@ -68,6 +79,7 @@ def run_kernels(operation: str, *, routed: bool) -> None:
             ),
             "case_selectors": args.case,
             "input_seed": args.seed,
+            "adaptive_timing_policy": adaptive_policy.to_mapping(),
             "ggtensile_root": str(args.ggtensile_root) if args.ggtensile_root else None,
             "hip_root": str(selected_hip_root),
         },
@@ -81,6 +93,8 @@ def run_kernels(operation: str, *, routed: bool) -> None:
             reader,
             expert_prior=args.expert_prior,
             seed=args.seed,
+            route_vectors=args.max_samples if routed else 1,
+            route_seed=args.seed,
         )
         prepared = benchmark_input.prepared
         with prepare_kernel_comparison(
@@ -88,26 +102,57 @@ def run_kernels(operation: str, *, routed: bool) -> None:
             prepared,
             ggtensile_root=args.ggtensile_root,
             hip_root=selected_hip_root,
+            route_bank=benchmark_input.route_bank,
         ) as comparison:
-            comparison.launch_ggtensile()
-            comparison.launch_hip()
-            torch.cuda.synchronize()
-            correctness = _correctness(
-                comparison.ggtensile_output, comparison.hip_output
-            )
+            if comparison.select_sample is not None:
+                if benchmark_input.route_bank is None:
+                    raise RuntimeError("routed comparison is missing its route bank")
+                correctness_samples = []
+                for route_index in range(len(benchmark_input.route_bank)):
+                    comparison.select_sample(route_index)
+                    comparison.launch_ggtensile()
+                    comparison.launch_hip()
+                    torch.cuda.synchronize()
+                    correctness_samples.append(
+                        {
+                            "sample_index": route_index,
+                            "metrics": _correctness(
+                                comparison.ggtensile_output,
+                                comparison.hip_output,
+                            ),
+                        }
+                    )
+                correctness = {
+                    "route_vectors_checked": len(correctness_samples),
+                    "samples": correctness_samples,
+                }
+            else:
+                comparison.launch_ggtensile()
+                comparison.launch_hip()
+                torch.cuda.synchronize()
+                correctness = _correctness(
+                    comparison.ggtensile_output, comparison.hip_output
+                )
             flops = logical_flops(case, spec)
-            timing, order = rotating_timings(
+            timing, adaptive = adaptive_timings(
                 {
                     "ggtensile": comparison.launch_ggtensile,
                     "hip": comparison.launch_hip,
                 },
+                policy=adaptive_policy,
                 warmup=args.warmup,
-                repeats=args.repeats,
                 launches_per_sample=args.launches_per_sample,
                 flops=flops,
+                select_sample=comparison.select_sample if routed else None,
+                sample_capacity=(
+                    len(benchmark_input.route_bank)
+                    if routed and benchmark_input.route_bank is not None
+                    else None
+                ),
             )
-            speedup = float(timing["hip"]["median_ms"]) / float(
-                timing["ggtensile"]["median_ms"]
+            speedup = math.exp(
+                float(timing["hip"]["median_log_ms"])
+                - float(timing["ggtensile"]["median_log_ms"])
             )
             case_mapping = case.to_mapping()
             case_mapping.pop("ggtensile", None)
@@ -130,16 +175,23 @@ def run_kernels(operation: str, *, routed: bool) -> None:
                         else "prequantized_direct_forward_kernel"
                     ),
                     "warmup": args.warmup,
-                    "repeats": args.repeats,
+                    "initial_samples": args.repeats,
+                    "max_samples": args.max_samples,
+                    "sample_step": args.sample_step,
                     "launches_per_sample": args.launches_per_sample,
-                    "sample_order": order,
                     "correctness_before_timing": True,
+                    "correctness_route_vectors": (
+                        len(benchmark_input.route_bank)
+                        if routed and benchmark_input.route_bank is not None
+                        else 1
+                    ),
                     "activation_quantization_in_timing": False
                     if not backward
                     else None,
                     "row_task_setup_in_timing": False if not backward else None,
                     "output_allocation_in_timing": False,
                     "torch_autograd_in_timing": False,
+                    "adaptive": adaptive,
                 },
                 "implementations": comparison.metadata,
                 "correctness": correctness,
