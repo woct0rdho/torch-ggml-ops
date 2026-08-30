@@ -5,9 +5,13 @@ from dataclasses import dataclass
 import torch
 
 if __package__:
-    from .workload_prior import ExpertPrior, ExpertProfile, profile_for_routed_rows
+    from .workload_prior import (
+        ExpertPrior,
+        ExpertProfile,
+        profiles_for_routed_rows,
+    )
 else:
-    from workload_prior import ExpertPrior, ExpertProfile, profile_for_routed_rows
+    from workload_prior import ExpertPrior, ExpertProfile, profiles_for_routed_rows
 
 
 @dataclass(frozen=True)
@@ -20,7 +24,22 @@ class RouteDistribution:
 def fitted_prior_distribution_for_rows(
     prior: str | ExpertPrior, aggregate_rows: int
 ) -> RouteDistribution:
-    return _distribution_from_profile(profile_for_routed_rows(prior, aggregate_rows))
+    return _distribution_from_profile(
+        profiles_for_routed_rows(prior, aggregate_rows, 1)[0]
+    )
+
+
+def fitted_prior_distributions_for_rows(
+    prior: str | ExpertPrior,
+    aggregate_rows: int,
+    count: int,
+    *,
+    seed: int | None = None,
+) -> tuple[RouteDistribution, ...]:
+    return tuple(
+        _distribution_from_profile(profile)
+        for profile in profiles_for_routed_rows(prior, aggregate_rows, count, seed=seed)
+    )
 
 
 def _distribution_from_profile(profile: ExpertProfile) -> RouteDistribution:

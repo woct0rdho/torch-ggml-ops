@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
-from tools.aiter_gmm_heuristics import gmm_config
+from tools.aiter_gmm_compat import gmm_config
 from tools.ggtensile.grouped_mmq_bwd_pair_spec import GroupedBackwardPairKernelSpec
 from tools.ggtensile.quant_formats import BACKWARD_QUANT_FORMATS
 from tools.mmq_deployment_cases import DeploymentCase, model_path
@@ -456,6 +456,8 @@ def routed_forward_reference(
     logical_weight: torch.Tensor,
     expert_indices: torch.Tensor,
     group_sizes: torch.Tensor,
+    *,
+    quant_type: str | None = None,
 ) -> torch.Tensor:
     selected = _active_routed_weight(logical_weight, expert_indices).transpose(1, 2)
     config = gmm_config(
@@ -463,6 +465,7 @@ def routed_forward_reference(
         input_tensor.shape[1],
         selected.shape[-1],
         selected.stride(1) == 1,
+        quant_type=quant_type,
     )
     return _gmm(input_tensor, selected, group_sizes, config)
 
@@ -472,6 +475,8 @@ def routed_backward_reference(
     logical_weight: torch.Tensor,
     expert_indices: torch.Tensor,
     group_sizes: torch.Tensor,
+    *,
+    quant_type: str | None = None,
 ) -> torch.Tensor:
     selected = _active_routed_weight(logical_weight, expert_indices).contiguous()
     config = gmm_config(
@@ -479,6 +484,7 @@ def routed_backward_reference(
         grad_output.shape[1],
         selected.shape[-1],
         selected.stride(1) == 1,
+        quant_type=quant_type,
     )
     return _gmm(grad_output, selected, group_sizes, config)
 
@@ -490,12 +496,22 @@ def routed_backward_pair_reference(
     second_logical_weight: torch.Tensor,
     expert_indices: torch.Tensor,
     group_sizes: torch.Tensor,
+    *,
+    quant_type: str | None = None,
 ) -> torch.Tensor:
     first = routed_backward_reference(
-        first_grad_output, first_logical_weight, expert_indices, group_sizes
+        first_grad_output,
+        first_logical_weight,
+        expert_indices,
+        group_sizes,
+        quant_type=quant_type,
     )
     second = routed_backward_reference(
-        second_grad_output, second_logical_weight, expert_indices, group_sizes
+        second_grad_output,
+        second_logical_weight,
+        expert_indices,
+        group_sizes,
+        quant_type=quant_type,
     )
     return torch.add(first, second).contiguous()
 
@@ -527,7 +543,11 @@ def _routed_forward_reference(
     route: RouteData,
 ) -> torch.Tensor:
     return routed_forward_reference(
-        input_tensor, logical, route.expert_indices, route.group_sizes
+        input_tensor,
+        logical,
+        route.expert_indices,
+        route.group_sizes,
+        quant_type=case.quant_type,
     )
 
 
@@ -539,7 +559,11 @@ def _routed_backward_reference(
 ) -> torch.Tensor:
     if len(logical) == 1:
         return routed_backward_reference(
-            grad_outputs[0], logical[0], route.expert_indices, route.group_sizes
+            grad_outputs[0],
+            logical[0],
+            route.expert_indices,
+            route.group_sizes,
+            quant_type=case.quant_type,
         )
     return routed_backward_pair_reference(
         grad_outputs[0],
@@ -548,6 +572,7 @@ def _routed_backward_reference(
         logical[1],
         route.expert_indices,
         route.group_sizes,
+        quant_type=case.quant_type,
     )
 
 

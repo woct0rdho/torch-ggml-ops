@@ -238,9 +238,11 @@ def _sample_hash(tokens: int, rng: np.random.Generator) -> np.ndarray:
 def sample_expert_profile(
     value: str | ExpertPrior,
     tokens: int,
+    *,
+    seed: int | None = None,
 ) -> ExpertProfile:
     prior = parse_expert_prior(value)
-    selected_seed = default_profile_seed(prior, tokens)
+    selected_seed = default_profile_seed(prior, tokens) if seed is None else int(seed)
     rng = np.random.default_rng(selected_seed)
     rows = (
         _sample_learned(LEARNED_LAWS[prior], tokens, rng)
@@ -257,6 +259,22 @@ def sample_expert_profile(
     return ExpertProfile(prior, tokens, top_k, selected_seed, tuple(map(int, rows)))
 
 
+def sample_expert_profiles(
+    value: str | ExpertPrior,
+    tokens: int,
+    count: int,
+    *,
+    seed: int | None = None,
+) -> tuple[ExpertProfile, ...]:
+    if count <= 0:
+        raise ValueError("expert profile count must be positive")
+    first_seed = default_profile_seed(value, tokens) if seed is None else int(seed)
+    return tuple(
+        sample_expert_profile(value, tokens, seed=first_seed + index)
+        for index in range(count)
+    )
+
+
 def profile_for_routed_rows(
     value: str | ExpertPrior, aggregate_rows: int
 ) -> ExpertProfile:
@@ -265,3 +283,17 @@ def profile_for_routed_rows(
     if remainder or tokens <= 0:
         raise ValueError("aggregate rows do not match the selected fitted law")
     return sample_expert_profile(value, tokens)
+
+
+def profiles_for_routed_rows(
+    value: str | ExpertPrior,
+    aggregate_rows: int,
+    count: int,
+    *,
+    seed: int | None = None,
+) -> tuple[ExpertProfile, ...]:
+    top_k = expert_prior_top_k(value)
+    tokens, remainder = divmod(aggregate_rows, top_k)
+    if remainder or tokens <= 0:
+        raise ValueError("aggregate rows do not match the selected fitted law")
+    return sample_expert_profiles(value, tokens, count, seed=seed)
