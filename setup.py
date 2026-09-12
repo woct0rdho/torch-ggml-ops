@@ -48,7 +48,7 @@ _enable_ccache()
 class BuildExtension(cpp_extension.BuildExtension):
     def run(self) -> None:
         subprocess.run(
-            [sys.executable, "tools/mmq_deployment_bundle.py"],
+            [sys.executable, "-m", "tools.mmq_deployment_bundle"],
             cwd=ROOT,
             check=True,
         )

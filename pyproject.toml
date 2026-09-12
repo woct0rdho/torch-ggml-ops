@@ -9,6 +9,9 @@ description = "PyTorch bindings of GGML operators"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
+# We deliberately avoid declaring torch as a dependency because it's nontrivial to install
+# Also, we need the Python package rocisa from rocm-libraries
+dependencies = []
 
 [tool.ruff]
 target-version = "py310"

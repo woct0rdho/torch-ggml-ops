@@ -1,7 +1,7 @@
 """Neutral metadata for exact MMQ deployment correctness cases.
 
-This module intentionally has no dependency on ``bench``.  The selected keys
-come from the checked-in catalogs and deployment inventory; tensor names are
+This module intentionally has no dependency on ``bench``. The selected keys
+come from the checked-in catalogs and deployment inventory. Tensor names are
 the stable checkpoint representatives used to materialize those exact shapes.
 """
 

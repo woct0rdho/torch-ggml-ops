@@ -1654,8 +1654,8 @@ class ForwardKernelSpec:
         staged_policy_requested = "Staging" in item or "DataMovement" in item
         if row_lds != staged_policy_requested:
             raise SchemaError(
-                "row-LDS mechanisms require Staging and DataMovement; "
-                "other mechanisms reject them"
+                "row-LDS mechanisms require Staging and DataMovement. "
+                "Other mechanisms reject them"
             )
         if staged_policy_requested:
             if {"Staging", "DataMovement"} - set(item):

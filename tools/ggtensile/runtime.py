@@ -1390,7 +1390,7 @@ def _find_hip_library() -> Path:
         candidate = purelib / package / "lib" / "libamdhip64.so"
         if candidate.is_file():
             return candidate
-    raise HIPRuntimeError("cannot find libamdhip64.so; set GGTENSILE_HIP_LIBRARY")
+    raise HIPRuntimeError("cannot find libamdhip64.so. Set GGTENSILE_HIP_LIBRARY")
 
 
 def _find_installed_kernel(symbol: str) -> Path:
@@ -1426,4 +1426,4 @@ def _find_installed_kernel(symbol: str) -> Path:
         candidate = root / f"{symbol}.hsaco"
         if candidate.is_file():
             return candidate
-    raise HIPRuntimeError(f"cannot find installed kernel {symbol}; set {override_name}")
+    raise HIPRuntimeError(f"cannot find installed kernel {symbol}. Set {override_name}")

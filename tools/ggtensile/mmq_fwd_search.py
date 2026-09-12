@@ -198,8 +198,8 @@ def q6_schedule_neighbors(
 ) -> tuple[Q6ForwardSchedule, ...]:
     """Enumerate a deterministic linked neighborhood around one complete seed.
 
-    Only implemented domains are exposed. The result consists of complete schedules;
-    code generation receives one result and performs no search or repair.
+    Only implemented domains are exposed. The result consists of complete schedules.
+    Code generation receives one result and performs no search or repair.
     """
     unknown = sorted(
         set(knob_groups) - {"InstructionPolicy", "Epilogue", "PhysicalPlan"}
@@ -298,8 +298,8 @@ def q8_reopening_neighbors(
     unknown = sorted(set(knob_groups) - {"DataMovement", "LdsLayout"})
     if unknown:
         raise ValueError(
-            "Q8_0 exposes complete implemented policies without free knob groups; "
-            f"unsupported reopening groups: {unknown}"
+            "Q8_0 exposes complete implemented policies without free knob groups. "
+            f"Unsupported reopening groups: {unknown}"
         )
     candidates: list[ForwardKernelSpec] = [seed]
     if "DataMovement" in knob_groups:

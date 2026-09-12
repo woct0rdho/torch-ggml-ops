@@ -1076,7 +1076,7 @@ def _q6_emit_decode_wavefront(
     """Emit the fixed hazard-aware row/role decode frontier.
 
     The physical plan intentionally reuses each atom's packed QH register for the
-    next output high role.  All destructive QH shifts therefore form the first
+    next output high role. All destructive QH shifts therefore form the first
     frontier, the high-role handoff is walked in atom order, and the independent
     low merge and signed normalization frontiers are deferred until their inputs
     are no longer needed.

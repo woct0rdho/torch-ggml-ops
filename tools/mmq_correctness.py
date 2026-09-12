@@ -10,11 +10,11 @@ from pathlib import Path
 import gguf
 import numpy as np
 import torch
-from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 
 from tools.aiter_gmm_compat import gmm_config
 from tools.ggtensile.grouped_mmq_bwd_pair_spec import GroupedBackwardPairKernelSpec
 from tools.ggtensile.quant_formats import BACKWARD_QUANT_FORMATS
+from tools.gguf_dequant_compat import dequantize_gguf_tensor
 from tools.mmq_deployment_cases import DeploymentCase, model_path
 
 CONTROL_NRMSE_LIMIT = 5e-4
@@ -149,8 +149,8 @@ def assert_changed(before: torch.Tensor, after: torch.Tensor, label: str) -> Non
 
 
 def _packed_shape(case: DeploymentCase) -> tuple[int, ...]:
-    # Backward/grouped deployment tables include the IQ2 physical layouts;
-    # using the superset here keeps packed-shape derivation independent of the
+    # Backward/grouped deployment tables include the IQ2 physical layouts.
+    # Using the superset here keeps packed-shape derivation independent of the
     # operation family.
     fmt = BACKWARD_QUANT_FORMATS[case.quant_type]
     row_bytes = case.in_features // fmt.block_values * fmt.block_bytes

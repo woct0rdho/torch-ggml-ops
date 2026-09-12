@@ -106,7 +106,7 @@ There is no generic `KernelNNN` runtime identity or tuning database.
 
 ## Build and package pipeline
 
-`tools/mmq_deployment_bundle.py` is the build entry point. The builder:
+`tools/mmq_deployment_bundle.py` is the build entry point. It is run as a module from the repository root, because `bench/` and `tools/` are repository scripts and are never packaged into the wheel. The builder:
 - Loads every public canonical catalog from `tools/ggtensile/configs/`.
 - Initializes every GGTensile writer serially and emits deterministic assembly.
 - Assembles and links GGTensile sources for gfx1151, wave32, code-object v5.
@@ -120,7 +120,7 @@ Temporary object files are deleted and never packaged. A failed build removes it
 The build entry point is:
 
 ```bash
-python tools/mmq_deployment_bundle.py --jobs 16
+python -m tools.mmq_deployment_bundle --jobs 16
 ```
 
 `setup.py build_ext`, wheel builds, and editable installs run the public bundle builder before compiling `_C.abi3.so`, then copy the exact public HSACO set into the wheel build tree. Historical controls remain outside the public package. Source distributions are not supported. HSACOs remain ignored by Git.
@@ -130,20 +130,20 @@ The historical control build is an explicit research-only step. The HSACOs are i
 From the repository root, with the gfx1151 ROCm toolchain available:
 
 ```bash
-python tools/build_mmq_hip_controls.py --jobs 16
-python tools/build_mmq_hip_controls.py --check
+python -m tools.build_mmq_hip_controls --jobs 16
+python -m tools.build_mmq_hip_controls --check
 ```
 
 Use `--force` when recovering from a stale or partially copied output directory:
 
 ```bash
-python tools/build_mmq_hip_controls.py --force --jobs 16
+python -m tools.build_mmq_hip_controls --force --jobs 16
 ```
 
 `--verify-reproducible` compiles the complete 181-control inventory twice, compares the resulting bytes, and installs the first build only after the comparison succeeds:
 
 ```bash
-python tools/build_mmq_hip_controls.py --verify-reproducible --jobs 16
+python -m tools.build_mmq_hip_controls --verify-reproducible --jobs 16
 ```
 
 The builder requires `hipcc` (or `--hipcc /path/to/hipcc`) and the matching `amdclang++`, `llvm-readelf`, `llvm-objdump`, and `llvm-objcopy` tools. `amdclang++` may be selected with `GGTENSILE_AMDCLANGXX`; the LLVM tools are normally found beside it or on `PATH`. The checked-in `csrc/mmq_core.cuh`, `csrc/ck/`, and `csrc/vendor/llama_cpp/` headers are the source inputs; no GPU is required to compile, although the device tests still require a compatible gfx1151 system and runtime.

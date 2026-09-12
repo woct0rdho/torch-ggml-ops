@@ -537,7 +537,7 @@ class GroupedQ2KDecodedWeightLdsLowering(GroupedDecodedWeightLdsLowering):
             )
 
         # Sum dwords start at byte four. Groups 6-7 intentionally read the
-        # first payload dword; their branch ignores the packed high half and
+        # first payload dword. Their branch ignores the packed high half and
         # reconstructs the sum with an all-ones WMMA.
         asm.inst(f"s_lshr_b32 s{self.GROUP_OFFSET}, s{self.GROUP_LOOP}, 1")
         asm.inst(f"s_lshl_b32 s{self.GROUP_OFFSET}, s{self.GROUP_OFFSET}, 2")

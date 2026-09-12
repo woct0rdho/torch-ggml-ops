@@ -6,13 +6,8 @@ import hashlib
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 from tools.ggtensile.toolchain import Toolchain
 from tools.mmq_hip_control_spec import (
@@ -22,6 +17,7 @@ from tools.mmq_hip_control_spec import (
     render_control,
 )
 
+ROOT = Path(__file__).resolve().parents[1]
 ARCH = "gfx1151"
 OUTPUT_DIR = ROOT / "build/mmq_hip_controls/gfx1151"
 SOURCE_DIR = ROOT / "build/mmq_hip_control_sources/gfx1151"

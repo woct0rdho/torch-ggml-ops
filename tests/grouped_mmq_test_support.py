@@ -1,9 +1,9 @@
 import gguf
 import torch
-from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
 from transformers.integrations.moe import _grouped_linear
 
 from tests.mmq_test_support import find_tensor, load_packed_experts
+from tools.gguf_dequant_compat import dequantize_gguf_tensor
 
 
 def small_route() -> tuple[torch.Tensor, torch.Tensor]:

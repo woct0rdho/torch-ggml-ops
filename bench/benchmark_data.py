@@ -1,4 +1,4 @@
-"""Materialize exact deployment cases for both benchmark surfaces."""
+"""Materialize packed inputs and optional BF16 baseline weights."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -6,13 +6,13 @@ from pathlib import Path
 import gguf
 import numpy as np
 import torch
-from benchmark_routes import (
+
+from bench.benchmark_routes import (
     fitted_prior_distributions_for_rows,
     make_route_tensors,
 )
-from transformers.integrations.gguf_dequant import dequantize_gguf_tensor
-
 from tools.ggtensile.quant_formats import BACKWARD_QUANT_FORMATS
+from tools.gguf_dequant_compat import dequantize_gguf_tensor
 from tools.mmq_correctness import PreparedCase, RouteData
 from tools.mmq_deployment_cases import DeploymentCase
 
@@ -23,6 +23,23 @@ class BenchmarkInput:
     tensor_shapes: tuple[tuple[int, ...], ...]
     route_metadata: dict[str, object] | None
     route_bank: tuple[RouteData, ...] | None = None
+
+
+@dataclass
+class RouteSelection:
+    routes: tuple[RouteData, ...]
+    index: int = 0
+
+    def select(self, index: int) -> None:
+        if not 0 <= index < len(self.routes):
+            raise IndexError(f"route vector index {index} is outside the route bank")
+        self.index = index
+
+    @property
+    def current(self) -> RouteData:
+        if not self.routes:
+            raise RuntimeError("route selection is empty")
+        return self.routes[self.index]
 
 
 def _packed_shape(case: DeploymentCase) -> tuple[int, ...]:
@@ -44,12 +61,39 @@ def _find_tensor(reader: gguf.GGUFReader, name: str) -> gguf.ReaderTensor:
 
 def _random_bf16(shape: tuple[int, ...], seed: int) -> torch.Tensor:
     generator = torch.Generator(device="cuda").manual_seed(seed)
-    return torch.randn(
-        shape,
-        generator=generator,
-        device="cuda",
-        dtype=torch.bfloat16,
-    ).contiguous()
+    return torch.randn(shape, generator=generator, device="cuda", dtype=torch.bfloat16)
+
+
+def _route_metadata(distributions) -> dict[str, object]:
+    def offsets_for(distribution) -> list[int]:
+        total = 0
+        offsets = []
+        for rows in distribution.group_sizes_cpu:
+            total += rows
+            offsets.append(total)
+        return offsets
+
+    first = distributions[0]
+    return {
+        "vector_count": len(distributions),
+        "bank_seed": first.profile.seed,
+        "seed_stride": 1,
+        "profile": first.profile.to_mapping(),
+        "expert_indices": list(first.expert_indices_cpu),
+        "expert_offsets": offsets_for(first),
+        "group_sizes": list(first.group_sizes_cpu),
+        "vectors": [
+            {
+                "profile": distribution.profile.to_mapping(),
+                "expert_indices": list(distribution.expert_indices_cpu),
+                "expert_offsets": offsets_for(distribution),
+                "group_sizes": list(distribution.group_sizes_cpu),
+            }
+            for distribution in distributions
+        ],
+        "generated_from_fitted_prior": True,
+        "captured_or_synthetic_timing_profiles": False,
+    }
 
 
 def prepare_input(
@@ -60,7 +104,7 @@ def prepare_input(
     seed: int,
     route_vectors: int = 1,
     route_seed: int | None = None,
-    full_logical_weights: bool = False,
+    materialize_baseline: bool = False,
 ) -> BenchmarkInput:
     expected_shape = _packed_shape(case)
     packed_weights = []
@@ -91,16 +135,13 @@ def prepare_input(
         tensor_shapes.append(tuple(int(value) for value in tensor.data.shape))
 
     route = None
-    route_metadata = None
     route_bank = None
+    route_metadata = None
     if case.operation.startswith("Grouped"):
         if expert_prior is None:
-            raise ValueError("routed benchmark cases require an expert prior")
+            raise ValueError("grouped benchmark cases require an expert prior")
         distributions = fitted_prior_distributions_for_rows(
-            expert_prior,
-            case.rows,
-            route_vectors,
-            seed=route_seed,
+            expert_prior, case.rows, route_vectors, seed=route_seed
         )
         route_bank = tuple(
             RouteData(
@@ -111,65 +152,24 @@ def prepare_input(
             for distribution in distributions
         )
         route = route_bank[0]
-
-        def offsets_for(distribution) -> list[int]:
-            total = 0
-            offsets = []
-            for rows in distribution.group_sizes_cpu:
-                total += rows
-                offsets.append(total)
-            return offsets
-
-        first_distribution = distributions[0]
-        route_metadata = {
-            "vector_count": len(distributions),
-            "bank_seed": first_distribution.profile.seed,
-            "seed_stride": 1,
-            "profile": first_distribution.profile.to_mapping(),
-            "expert_indices": list(first_distribution.expert_indices_cpu),
-            "expert_offsets": offsets_for(first_distribution),
-            "group_sizes": list(first_distribution.group_sizes_cpu),
-            "vectors": [
-                {
-                    "profile": distribution.profile.to_mapping(),
-                    "expert_indices": list(distribution.expert_indices_cpu),
-                    "expert_offsets": offsets_for(distribution),
-                    "group_sizes": list(distribution.group_sizes_cpu),
-                }
-                for distribution in distributions
-            ],
-            "generated_from_fitted_prior": True,
-            "captured_or_synthetic_timing_profiles": False,
-        }
+        route_metadata = _route_metadata(distributions)
 
     logical_weights = []
-    for packed, tensor_type in zip(packed_weights, tensor_types, strict=True):
-        active_route = route is not None and not full_logical_weights
-        source = (
-            packed.index_select(0, route.expert_indices) if active_route else packed
-        )
-        if active_route:
-            logical_shape = (
-                route.expert_indices.numel(),
-                case.out_features,
-                case.in_features,
+    if materialize_baseline:
+        for packed, tensor_type in zip(packed_weights, tensor_types, strict=True):
+            if route is not None:
+                logical_shape = (256, case.out_features, case.in_features)
+            elif case.operation.startswith("Fixed"):
+                logical_shape = (8, case.out_features, case.in_features)
+            else:
+                logical_shape = (case.out_features, case.in_features)
+            logical_weights.append(
+                dequantize_gguf_tensor(
+                    packed, tensor_type, dtype=torch.bfloat16, device="cuda"
+                )
+                .reshape(logical_shape)
+                .contiguous()
             )
-        elif route:
-            logical_shape = (256, case.out_features, case.in_features)
-        elif case.operation.startswith("Fixed"):
-            logical_shape = (8, case.out_features, case.in_features)
-        else:
-            logical_shape = (case.out_features, case.in_features)
-        logical_weights.append(
-            dequantize_gguf_tensor(
-                source,
-                tensor_type,
-                dtype=torch.bfloat16,
-                device="cuda",
-            )
-            .reshape(logical_shape)
-            .contiguous()
-        )
 
     case_seed = (seed ^ int(case.identity[-8:], 16)) & 0xFFFFFFFF
     input_shape = (
@@ -199,12 +199,7 @@ def prepare_input(
         grad_outputs,
         route,
     )
-    return BenchmarkInput(
-        prepared,
-        tuple(tensor_shapes),
-        route_metadata,
-        route_bank,
-    )
+    return BenchmarkInput(prepared, tuple(tensor_shapes), route_metadata, route_bank)
 
 
 def input_mapping(value: BenchmarkInput, model: Path) -> dict[str, object]:
@@ -218,6 +213,7 @@ def input_mapping(value: BenchmarkInput, model: Path) -> dict[str, object]:
         else None,
         "grad_output_shapes": [list(item.shape) for item in prepared.grad_outputs],
         "route": value.route_metadata,
+        "baseline_weights_materialized": bool(prepared.logical_weights),
         "input_dtype": str(torch.bfloat16),
         "packed_dtype": str(torch.uint8),
     }

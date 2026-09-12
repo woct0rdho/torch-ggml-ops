@@ -119,7 +119,7 @@ def _find_assembler() -> Path:
         if candidate.is_file():
             return candidate
     raise ToolchainError(
-        "cannot find amdclang++; set GGTENSILE_AMDCLANGXX or add it to PATH"
+        "cannot find amdclang++. Set GGTENSILE_AMDCLANGXX or add it to PATH"
     )
 
 

@@ -1705,7 +1705,7 @@ class BackwardQuantLowering:
                 ((t + 2, 0), (t + 2, 4), (t + 3, 0), (t + 3, 4)),
             )
 
-            # Bits 28-31 hold scale; bit 27 is discarded by forcing oddness.
+            # Bits 28-31 hold scale. Bit 27 is discarded by forcing oddness.
             asm.inst(f"v_lshrrev_b32 v{t + 4}, 27, v{metadata + 1}")
             asm.inst(f"v_or_b32 v{t + 4}, 1, v{t + 4}")
             asm.inst(f"v_cvt_f32_u32 v{t + 4}, v{t + 4}")

@@ -4,14 +4,11 @@ from dataclasses import dataclass
 
 import torch
 
-if __package__:
-    from .workload_prior import (
-        ExpertPrior,
-        ExpertProfile,
-        profiles_for_routed_rows,
-    )
-else:
-    from workload_prior import ExpertPrior, ExpertProfile, profiles_for_routed_rows
+from bench.workload_prior import (
+    ExpertPrior,
+    ExpertProfile,
+    profiles_for_routed_rows,
+)
 
 
 @dataclass(frozen=True)

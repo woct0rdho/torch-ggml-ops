@@ -81,7 +81,7 @@ def _control_path(symbol: str, supplied: Path | None) -> Path:
         if path.is_file():
             return path
     raise HIPRuntimeError(
-        f"cannot find HIP control {symbol}; pass --hip-code-object or set "
+        f"cannot find HIP control {symbol}. Pass --hip-code-object or set "
         "GGTENSILE_HIP_CONTROL_ROOT"
     )
 

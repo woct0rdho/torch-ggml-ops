@@ -9,13 +9,8 @@ import concurrent.futures
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 from tools.ggtensile.toolchain import Toolchain
 from tools.mmq_bundle_wrapper_source import render_wrapper
@@ -26,6 +21,7 @@ from tools.mmq_deployment_spec import (
     writer_for,
 )
 
+ROOT = Path(__file__).resolve().parents[1]
 CSRC = ROOT / "csrc"
 PACKAGE_DIR = ROOT / "torch_ggml_ops/kernels/gfx1151"
 HEADER = CSRC / "generated/mmq_bundle_table.cuh"
