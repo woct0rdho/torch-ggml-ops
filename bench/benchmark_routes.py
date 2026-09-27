@@ -1,4 +1,9 @@
-"""Route tensors backed by the canonical fitted benchmark workload laws."""
+"""Route tensors backed by the canonical fitted benchmark workload laws.
+
+Every vector is materialized in the production caller's contract: one group per
+physical expert, zero rows for inactive experts, and cumulative int32 offsets
+over every group.
+"""
 
 from dataclasses import dataclass
 
@@ -13,7 +18,13 @@ from bench.workload_prior import (
 
 @dataclass(frozen=True)
 class RouteDistribution:
-    expert_indices_cpu: tuple[int, ...]
+    """One complete expert-route vector in the production call contract.
+
+    ``group_sizes_cpu`` covers every physical expert. ``active_expert_indices_cpu``
+    is the active support, which is report provenance rather than dispatch input.
+    """
+
+    active_expert_indices_cpu: tuple[int, ...]
     group_sizes_cpu: tuple[int, ...]
     profile: ExpertProfile
 
@@ -40,21 +51,25 @@ def fitted_prior_distributions_for_rows(
 
 
 def _distribution_from_profile(profile: ExpertProfile) -> RouteDistribution:
-    expert_indices = tuple(
+    support = tuple(
         expert for expert, rows in enumerate(profile.rows_per_expert) if rows
     )
-    group_sizes = tuple(profile.rows_per_expert[expert] for expert in expert_indices)
-    return RouteDistribution(expert_indices, group_sizes, profile)
+    return RouteDistribution(support, tuple(profile.rows_per_expert), profile)
 
 
 def make_route_tensors(
     distribution: RouteDistribution,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    expert_indices = torch.tensor(
-        distribution.expert_indices_cpu, device="cuda", dtype=torch.int64
-    )
+    """Return int64 expert ids, int32 offsets, and int32 group sizes.
+
+    This is the production caller's contract: every physical expert owns a group,
+    inactive experts carry zero rows, and the offsets are a prefix sum over all
+    groups rather than over the active support.
+    """
+
     group_sizes = torch.tensor(
         distribution.group_sizes_cpu, device="cuda", dtype=torch.int32
     )
-    expert_offsets = group_sizes.cumsum(0).to(torch.int32).contiguous()
+    expert_indices = torch.arange(group_sizes.numel(), device="cuda", dtype=torch.int64)
+    expert_offsets = group_sizes.cumsum(0, dtype=torch.int32)
     return expert_indices, expert_offsets, group_sizes

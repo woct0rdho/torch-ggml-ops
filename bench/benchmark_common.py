@@ -71,7 +71,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hip-root", type=Path)
     parser.add_argument("--warmup", type=int, default=3)
     parser.add_argument("--repeats", type=int, default=9)
-    parser.add_argument("--route-vectors", type=int)
     parser.add_argument("--launches-per-sample", type=int, default=1)
     parser.add_argument("--seed", type=int, default=20260824)
     args = parser.parse_args()
@@ -90,13 +89,7 @@ def parse_args() -> argparse.Namespace:
         parser.error(
             "warmup must be nonnegative, and repeats and launches must be positive"
         )
-    args.route_vectors = (
-        args.repeats if args.route_vectors is None else args.route_vectors
-    )
-    if args.route_vectors <= 0 or (spec.routed and args.route_vectors < args.repeats):
-        parser.error(
-            "--route-vectors must be positive and at least --repeats for grouped operations"
-        )
+    args.route_vectors = args.repeats if spec.routed else 1
     return args
 
 

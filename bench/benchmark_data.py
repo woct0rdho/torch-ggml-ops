@@ -22,6 +22,7 @@ class BenchmarkInput:
     prepared: PreparedCase
     tensor_shapes: tuple[tuple[int, ...], ...]
     route_metadata: dict[str, object] | None
+    case_seed: int
     route_bank: tuple[RouteData, ...] | None = None
 
 
@@ -105,16 +106,13 @@ def _route_metadata(distributions) -> dict[str, object]:
         "vector_count": len(distributions),
         "bank_seed": first.profile.seed,
         "seed_stride": 1,
-        "profile": first.profile.to_mapping(),
-        "expert_indices": list(first.expert_indices_cpu),
-        "expert_offsets": offsets_for(first),
-        "group_sizes": list(first.group_sizes_cpu),
         "vectors": [
             {
                 "profile": distribution.profile.to_mapping(),
-                "expert_indices": list(distribution.expert_indices_cpu),
-                "expert_offsets": offsets_for(distribution),
+                "active_experts": len(distribution.active_expert_indices_cpu),
+                "active_expert_indices": list(distribution.active_expert_indices_cpu),
                 "group_sizes": list(distribution.group_sizes_cpu),
+                "expert_offsets": offsets_for(distribution),
             }
             for distribution in distributions
         ],
@@ -130,7 +128,6 @@ def prepare_input(
     expert_prior: str | None,
     seed: int,
     route_vectors: int = 1,
-    route_seed: int | None = None,
     materialize_baseline: bool = False,
 ) -> BenchmarkInput:
     expected_shape = _packed_shape(case)
@@ -161,6 +158,11 @@ def prepare_input(
         tensor_types.append(tensor.tensor_type)
         tensor_shapes.append(tuple(int(value) for value in tensor.data.shape))
 
+    # One stable seed per case derives both the input tensors and the route bank,
+    # so cases never share a random stream. The two consumers draw from different
+    # generators (torch CUDA for inputs, numpy for routes).
+    case_seed = (seed ^ int(case.identity[-8:], 16)) & 0xFFFFFFFF
+
     route = None
     route_bank = None
     route_metadata = None
@@ -168,12 +170,14 @@ def prepare_input(
         if expert_prior is None:
             raise ValueError("grouped benchmark cases require an expert prior")
         distributions = fitted_prior_distributions_for_rows(
-            expert_prior, case.rows, route_vectors, seed=route_seed
+            expert_prior, case.rows, route_vectors, seed=case_seed
         )
         route_bank = tuple(
             RouteData(
                 *make_route_tensors(distribution),
-                distribution.expert_indices_cpu,
+                # CPU tuples are report provenance: the active support and the
+                # complete production group sizes.
+                distribution.active_expert_indices_cpu,
                 distribution.group_sizes_cpu,
             )
             for distribution in distributions
@@ -194,7 +198,6 @@ def prepare_input(
                 _dequantize_logical(packed, tensor_type, logical_shape)
             )
 
-    case_seed = (seed ^ int(case.identity[-8:], 16)) & 0xFFFFFFFF
     input_shape = (
         (case.rows, 8, case.in_features)
         if case.operation.startswith("Fixed")
@@ -222,7 +225,9 @@ def prepare_input(
         grad_outputs,
         route,
     )
-    return BenchmarkInput(prepared, tuple(tensor_shapes), route_metadata, route_bank)
+    return BenchmarkInput(
+        prepared, tuple(tensor_shapes), route_metadata, case_seed, route_bank
+    )
 
 
 def input_mapping(value: BenchmarkInput, model: Path) -> dict[str, object]:
@@ -231,6 +236,7 @@ def input_mapping(value: BenchmarkInput, model: Path) -> dict[str, object]:
         "model": str(model),
         "tensor_names": list(prepared.case.tensor_source.names),
         "physical_tensor_shapes": [list(shape) for shape in value.tensor_shapes],
+        "case_seed": value.case_seed,
         "input_shape": list(prepared.input.shape)
         if prepared.input is not None
         else None,

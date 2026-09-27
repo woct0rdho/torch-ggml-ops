@@ -44,10 +44,10 @@ def run() -> None:
         "configuration": {
             "expert_prior": args.expert_prior,
             "case_selectors": args.case,
-            "input_seed": args.seed,
+            "seed": args.seed,
             "warmup": args.warmup,
             "repeats": args.repeats,
-            "route_vectors": args.route_vectors if spec.routed else 1,
+            "route_vectors": args.route_vectors,
             "launches_per_sample": args.launches_per_sample,
             "ggtensile_root": str(args.ggtensile_root) if args.ggtensile_root else None,
             "hip_root": str(hip_root) if hip_root else None,
@@ -64,8 +64,7 @@ def run() -> None:
                 reader,
                 expert_prior=args.expert_prior,
                 seed=args.seed,
-                route_vectors=args.route_vectors if spec.routed else 1,
-                route_seed=args.seed,
+                route_vectors=args.route_vectors,
                 materialize_baseline="baseline" in names,
             )
             prepared = benchmark_input.prepared

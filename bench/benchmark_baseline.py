@@ -1,4 +1,8 @@
-"""Prepared BF16 baselines for the benchmark kernel surfaces."""
+"""Prepared BF16 baselines for the benchmark kernel surfaces.
+
+The routed baseline consumes the dense BF16 expert weights and the route bank's
+full-expert group sizes, which is how the production caller invokes AITER gmm.
+"""
 
 import torch
 from aiter.ops.triton.gmm import gmm
@@ -7,28 +11,6 @@ from bench.benchmark_common import Implementation
 from bench.benchmark_data import RouteSelection
 from tools.aiter_gmm_heuristics import gmm_config
 from tools.mmq_correctness import PreparedCase
-
-
-def _padded_group_sizes(
-    prepared: PreparedCase, selection: RouteSelection
-) -> tuple[torch.Tensor, ...]:
-    """Return full-expert group sizes with zero rows for inactive experts.
-
-    The dense BF16 expert weights are consumed directly, so no per-route gather
-    of the selected experts is materialized. This is the production caller's
-    convention: every expert group is present and inactive experts have zero
-    rows.
-    """
-
-    if not prepared.logical_weights:
-        raise ValueError("the baseline requires materialized BF16 weights")
-    num_experts = int(prepared.logical_weights[0].shape[0])
-    return tuple(
-        torch.zeros(num_experts, device="cuda", dtype=torch.int32).index_copy_(
-            0, route.expert_indices, route.group_sizes
-        )
-        for route in selection.routes
-    )
 
 
 def _gmm_config(prepared: PreparedCase, prior: str) -> dict[str, int]:
@@ -51,6 +33,8 @@ def prepare_baseline(
 ) -> Implementation:
     case = prepared.case
     input_tensor = prepared.input
+    if not prepared.logical_weights:
+        raise ValueError("the baseline requires materialized BF16 weights")
     if input_tensor is None and case.operation.endswith("Forward"):
         raise ValueError("baseline forward input is missing")
     if case.operation.startswith("Grouped") and prior is None:
@@ -79,7 +63,6 @@ def prepare_baseline(
     elif case.operation in {"GroupedForward", "GroupedBackward"}:
         forward = case.operation == "GroupedForward"
         assert prior is not None
-        group_sizes = _padded_group_sizes(prepared, selection)
         config = _gmm_config(prepared, prior)
         lhs = input_tensor if forward else prepared.grad_outputs[0]
         assert lhs is not None
@@ -96,7 +79,7 @@ def prepare_baseline(
             return gmm(
                 lhs,
                 rhs,
-                group_sizes[selection.index],
+                selection.current.group_sizes,
                 preferred_element_type=lhs.dtype,
                 existing_out=output,
                 config=config,
@@ -105,7 +88,6 @@ def prepare_baseline(
     elif case.operation == "GroupedForwardPair":
         assert prior is not None and input_tensor is not None
         lhs: torch.Tensor = input_tensor
-        group_sizes = _padded_group_sizes(prepared, selection)
         config = _gmm_config(prepared, prior)
         rhs_values = tuple(
             weight.transpose(1, 2) for weight in prepared.logical_weights
@@ -122,7 +104,7 @@ def prepare_baseline(
                 gmm(
                     lhs,
                     rhs,
-                    group_sizes[selection.index],
+                    selection.current.group_sizes,
                     preferred_element_type=lhs.dtype,
                     existing_out=output,
                     config=config,
@@ -132,7 +114,6 @@ def prepare_baseline(
 
     elif case.operation == "GroupedBackwardPair":
         assert prior is not None
-        group_sizes = _padded_group_sizes(prepared, selection)
         config = _gmm_config(prepared, prior)
         rhs_values = tuple(prepared.logical_weights)
         outputs = tuple(
@@ -148,7 +129,7 @@ def prepare_baseline(
                 gmm(
                     grad_output,
                     rhs,
-                    group_sizes[selection.index],
+                    selection.current.group_sizes,
                     preferred_element_type=grad_output.dtype,
                     existing_out=output,
                     config=config,
