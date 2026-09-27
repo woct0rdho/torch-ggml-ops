@@ -9,9 +9,8 @@ from tools.ggtensile.mmq_fwd_search import (
     candidate_domains,
     candidate_neighbors,
     canonical_candidate,
-    forward_candidate_hash,
     is_valid_candidate,
-    q6_candidate_hash,
+    q6_candidate_mapping,
     q6_schedule_candidates,
     q6_schedule_from_kernel_spec,
     q6_schedule_neighbors,
@@ -21,10 +20,10 @@ from tools.ggtensile.mmq_fwd_spec import ForwardKernelSpec
 from tools.ggtensile.model import ProblemSize
 
 
-def test_q6_candidate_hash_covers_complete_schedule() -> None:
+def test_q6_candidate_mapping_covers_complete_schedule() -> None:
     selected = q6_schedule_from_kernel_spec(q6_structured_kernel_spec(64))
     changed = replace(selected, global_read_cache_policy="Default")
-    assert q6_candidate_hash(selected) != q6_candidate_hash(changed)
+    assert q6_candidate_mapping(selected) != q6_candidate_mapping(changed)
     mapping = canonical_candidate(q6_structured_kernel_spec(64), "Q6_K")
     problem_type = mapping["ProblemType"]
     kernel_spec = mapping["KernelSpec"]
@@ -49,7 +48,7 @@ def test_forward_domains_are_linked_and_shape_validated() -> None:
         assert all(is_valid_candidate(item, "Q6_K", shape) for item in candidates)
         assert all(isinstance(item, ForwardKernelSpec) for item in candidates)
     seed = domains[0].kernel_spec
-    assert forward_candidate_hash(seed, "Q6_K") == forward_candidate_hash(seed, "Q6_K")
+    assert canonical_candidate(seed, "Q6_K") == canonical_candidate(seed, "Q6_K")
     assert not is_valid_candidate(seed, "Q6_K", ProblemSize(65, 248320, 2048))
     with pytest.raises(ValueError, match="Q3_K, Q4_K, Q5_K, Q6_K, and Q8_0"):
         candidate_domains("Q2_K", shape)
@@ -128,10 +127,14 @@ def test_q6_exact_pair_manifest_separates_candidate_and_shape_identity() -> None
     schedule = q6_schedule_from_kernel_spec(q6_structured_kernel_spec(128))
     first = Q6ExactPairManifest(ProblemSize(128, 248320, 2048), schedule)
     second = Q6ExactPairManifest(ProblemSize(256, 248320, 2048), schedule)
-    assert first.candidate_hash == second.candidate_hash
-    assert first.exact_pair_hash != second.exact_pair_hash
-    mapping = json.loads(json.dumps(first.to_mapping()))
-    assert mapping["CandidateHash"] == first.candidate_hash
+    first_mapping = first.to_mapping()
+    second_mapping = second.to_mapping()
+    assert first_mapping["Candidate"] == second_mapping["Candidate"]
+    assert first_mapping["KernelSpecHash"] != second_mapping["KernelSpecHash"]
+    assert "CandidateHash" not in first_mapping
+    assert "ExactPairHash" not in first_mapping
+    mapping = json.loads(json.dumps(first_mapping))
+    assert mapping["ProblemSize"] == {"M": 128, "N": 248320, "K": 2048}
     assert (
         mapping["KernelSpecKey"]["KernelSpec"]["Epilogue"]["Pipeline"]["Scope"]
         == "FullTile"

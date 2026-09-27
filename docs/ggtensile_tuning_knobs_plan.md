@@ -69,7 +69,7 @@ The one-time Priority 2 schema migration is complete. Checked-in catalogs, fixtu
 Current canonical specs are now frozen inputs. Generation from an unchanged current spec must produce the same assembly source, symbol, resources, and artifact identity. This is a hard regression requirement.
 
 New implementation fields must follow one of these rules:
-- A new candidate explicitly contains the complete applicable policy block and receives a new candidate hash and kernel identity.
+- A new candidate explicitly contains the complete applicable policy block and receives a new canonical candidate mapping and kernel identity.
 - A future schema migration is performed as one explicit operation with updated catalogs, manifests, tests, artifact references, and requalified bundle outputs.
 
 A refactor may change internal types or introduce enums without changing emitted assembly. Any source change for an unchanged current logical spec must fail the identity regression unless the plan records the reason and the affected catalog is deliberately requalified.
@@ -249,7 +249,7 @@ StreamK may be revisited later as an enum-backed execution mode with explicit pa
 ### Priority 0: compatibility and architecture foundations
 
 - Complete. The current post-migration source hashes, spec mappings, resources, exact correctness outputs, and artifact identities are covered by regression tests. Unchanged current specs regenerate byte-identical assembly.
-- Complete. The typed semantic schema, canonical serialization, candidate hashing, and per-operation/per-quant capability matrix are in place. The one-time migration is complete; old field names and incomplete applicable policy blocks are rejected without a second parser or silent compatibility projection.
+- Complete. The typed semantic schema, canonical serialization, candidate identity, and per-operation/per-quant capability matrix are in place. The one-time migration is complete; old field names and incomplete applicable policy blocks are rejected without a second parser or silent compatibility projection.
 - Complete. The `complete typed spec -> derived state -> physical plan -> lowering -> inspection/validation -> candidate identity` flow from `ggtensile_plan.md` is implemented, including the Priority 2 codegen-effect boundary. Generation remains independent of search, catalogs, benchmark reports, and deployment policy.
 - Complete for the current forward boundary. Applicability, lowering-effect, unsupported-combination, pre-lowering, and canonical-identity tests cover the migrated schema.
 - Complete. Applicability boundaries are explicit for ordinary forward/backward, grouped forward, and paired grouped kernels, including specialized route, task, projection, and fixed ownership contracts.

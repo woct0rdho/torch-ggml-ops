@@ -76,9 +76,13 @@ class KernelTarget:
 GFX1151_TARGET = KernelTarget((11, 5, 1), 32, MatrixInstructionSet.WmmaV1, 5)
 
 
+def canonical_text(value: object) -> str:
+    """Return the canonical JSON text shared by identity and candidate keys."""
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
 def canonical_sha256(value: object) -> str:
-    serialized = json.dumps(value, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    return hashlib.sha256(canonical_text(value).encode("utf-8")).hexdigest()
 
 
 def exact_key_hash(value: object, *, prefix: str = "ggsol") -> str:

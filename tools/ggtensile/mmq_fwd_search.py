@@ -18,7 +18,7 @@ from .family_registry import (
     mapping_for_instance,
     problem_type_for_family,
 )
-from .identity import KernelFamily, canonical_sha256
+from .identity import KernelFamily, canonical_text
 from .kernel_instance import KernelInstance
 from .mmq_fwd_spec import (
     DecodedLdsForwardDecodePolicy,
@@ -101,11 +101,6 @@ def q6_candidate_mapping(schedule: Q6ForwardSchedule) -> dict[str, object]:
     ).to_mapping()
 
 
-def q6_candidate_hash(schedule: Q6ForwardSchedule) -> str:
-    """Return a stable hash over every assembly-affecting Q6 candidate field."""
-    return canonical_sha256(q6_candidate_mapping(schedule))
-
-
 def q6_kernel_spec_with_schedule(
     base: ForwardKernelSpec,
     schedule: Q6ForwardSchedule,
@@ -148,10 +143,6 @@ class ForwardExactPairManifest:
     candidate: ForwardKernelSpec
 
     @property
-    def candidate_hash(self) -> str:
-        return forward_candidate_hash(self.candidate, self.quant_type)
-
-    @property
     def kernel_instance(self) -> KernelInstance:
         return KernelInstance.for_gfx1151(
             KernelFamily.OrdinaryForward,
@@ -160,16 +151,11 @@ class ForwardExactPairManifest:
             self.candidate,
         )
 
-    @property
-    def exact_pair_hash(self) -> str:
-        return canonical_sha256(self.to_mapping())
-
     def to_mapping(self) -> dict[str, object]:
         instance = self.kernel_instance
         return {
             "QuantType": self.quant_type,
             "ProblemSize": self.problem_size.to_mapping(),
-            "CandidateHash": self.candidate_hash,
             "Candidate": canonical_candidate(self.candidate, self.quant_type),
             "KernelSpecKey": mapping_for_instance(instance),
             "KernelSpecHash": instance_hash(instance),
@@ -185,10 +171,6 @@ class Q6ExactPairManifest:
     schedule: Q6ForwardSchedule
 
     @property
-    def candidate_hash(self) -> str:
-        return q6_candidate_hash(self.schedule)
-
-    @property
     def kernel_instance(self) -> KernelInstance:
         base = _catalog_q6_spec(self.schedule.macro_tile0)
         spec = q6_kernel_spec_with_schedule(base, self.schedule)
@@ -199,15 +181,10 @@ class Q6ExactPairManifest:
             spec,
         )
 
-    @property
-    def exact_pair_hash(self) -> str:
-        return canonical_sha256(self.to_mapping())
-
     def to_mapping(self) -> dict[str, object]:
         instance = self.kernel_instance
         return {
             "ProblemSize": self.problem_size.to_mapping(),
-            "CandidateHash": self.candidate_hash,
             "Candidate": q6_candidate_mapping(self.schedule),
             "KernelSpecKey": mapping_for_instance(instance),
             "KernelSpecHash": instance_hash(instance),
@@ -269,8 +246,10 @@ def q6_schedule_neighbors(
         if physical_plan == "CanonicalRegisterRoles"
         or semantic_policy.variant is StructuredQ6ScheduleVariant.Wavefront
     )
-    unique = {q6_candidate_hash(candidate): candidate for candidate in candidates}
-    return tuple(unique[digest] for digest in sorted(unique))
+    unique = {}
+    for candidate in candidates:
+        unique.setdefault(canonical_text(q6_candidate_mapping(candidate)), candidate)
+    return tuple(unique.values())
 
 
 def q6_schedule_candidates(macro_tile0: int) -> tuple[Q6ForwardSchedule, ...]:
@@ -289,11 +268,6 @@ def canonical_candidate(
     return ForwardKernelCandidate(
         ForwardProblemContract.for_quant_type(quant_type), candidate
     ).to_mapping()
-
-
-def forward_candidate_hash(candidate: ForwardKernelSpec, quant_type: str) -> str:
-    """Hash a complete forward candidate independently of exact problem shape."""
-    return canonical_sha256(canonical_candidate(candidate, quant_type))
 
 
 def is_valid_candidate(
@@ -356,10 +330,12 @@ def q8_reopening_neighbors(
             )
             for pad_a, pad_b in ((4, 0), (0, 4))
         )
-    unique = {
-        forward_candidate_hash(candidate, "Q8_0"): candidate for candidate in candidates
-    }
-    return tuple(unique[digest] for digest in sorted(unique))
+    unique: dict[str, ForwardKernelSpec] = {}
+    for candidate in candidates:
+        unique.setdefault(
+            canonical_text(canonical_candidate(candidate, "Q8_0")), candidate
+        )
+    return tuple(unique.values())
 
 
 def candidate_neighbors(
@@ -549,11 +525,12 @@ def candidate_neighbors(
             for candidate in proposed
             if is_valid_candidate(candidate, quant_type, capability_shape)
         )
-    unique = {
-        forward_candidate_hash(candidate, quant_type): candidate
-        for candidate in candidates
-    }
-    return tuple(unique[digest] for digest in sorted(unique))
+    unique: dict[str, ForwardKernelSpec] = {}
+    for candidate in candidates:
+        unique.setdefault(
+            canonical_text(canonical_candidate(candidate, quant_type)), candidate
+        )
+    return tuple(unique.values())
 
 
 def candidate_domains(

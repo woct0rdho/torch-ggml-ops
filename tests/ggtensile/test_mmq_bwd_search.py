@@ -3,8 +3,8 @@ from typing import Any, cast
 
 import pytest
 
+from tools.ggtensile.identity import canonical_text
 from tools.ggtensile.mmq_bwd_search import (
-    backward_candidate_hash,
     backward_candidate_mapping,
     candidate_domains,
     candidate_neighbors,
@@ -29,7 +29,10 @@ def test_backward_domains_are_linked_deterministic_and_typed() -> None:
             domain.seed, quant_type, shape, domain.knob_groups
         )
         assert len(
-            {backward_candidate_hash(item, quant_type) for item in candidates}
+            {
+                canonical_text(backward_candidate_mapping(item, quant_type))
+                for item in candidates
+            }
         ) == len(candidates)
         assert all(isinstance(item, BackwardKernelSpec) for item in candidates)
         assert all(is_valid_candidate(item, quant_type, shape) for item in candidates)
@@ -77,6 +80,6 @@ def test_backward_candidate_identity_covers_serialized_policy() -> None:
         seed,
         decode=replace(seed.decode, extraction=BackwardExtraction.PackedVopd),
     )
-    assert backward_candidate_hash(seed, "Q8_0") != backward_candidate_hash(
+    assert backward_candidate_mapping(seed, "Q8_0") != backward_candidate_mapping(
         changed, "Q8_0"
     )

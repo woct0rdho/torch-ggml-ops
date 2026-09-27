@@ -363,7 +363,8 @@ def _enumerate_forward(
             pair = ForwardExactPairManifest(quant_type, problem_size, candidate)
             instance = pair.kernel_instance
             validate_instance(instance)
-            candidate_dir = output_dir / pair.candidate_hash
+            kernel_name = instance_name(instance)
+            candidate_dir = output_dir / kernel_name
             candidate_dir.mkdir()
             _write_json_exclusive(
                 candidate_dir / "kernel-spec-key.json",
@@ -373,17 +374,14 @@ def _enumerate_forward(
                 candidate_dir / "candidate.json",
                 {
                     **pair.to_mapping(),
-                    "ExactPairHash": pair.exact_pair_hash,
                     "KernelSpecKeyPath": "kernel-spec-key.json",
                 },
             )
             entries.append(
                 {
-                    "CandidateHash": pair.candidate_hash,
-                    "ExactPairHash": pair.exact_pair_hash,
                     "KernelSpecHash": instance_hash(instance),
-                    "KernelName": instance_name(instance),
-                    "Directory": pair.candidate_hash,
+                    "KernelName": kernel_name,
+                    "Directory": kernel_name,
                 }
             )
     _write_json_exclusive(
@@ -415,7 +413,8 @@ def _enumerate_forward_q6(
         pair = Q6ExactPairManifest(problem_size, schedule)
         instance = pair.kernel_instance
         validate_instance(instance)
-        candidate_dir = output_dir / pair.candidate_hash
+        kernel_name = instance_name(instance)
+        candidate_dir = output_dir / kernel_name
         candidate_dir.mkdir()
         kernel_spec_key_path = candidate_dir / "kernel-spec-key.json"
         manifest_path = candidate_dir / "candidate.json"
@@ -424,17 +423,14 @@ def _enumerate_forward_q6(
             manifest_path,
             {
                 **pair.to_mapping(),
-                "ExactPairHash": pair.exact_pair_hash,
                 "KernelSpecKeyPath": "kernel-spec-key.json",
             },
         )
         entries.append(
             {
-                "CandidateHash": pair.candidate_hash,
-                "ExactPairHash": pair.exact_pair_hash,
                 "KernelSpecHash": instance_hash(instance),
-                "KernelName": instance_name(instance),
-                "Directory": pair.candidate_hash,
+                "KernelName": kernel_name,
+                "Directory": kernel_name,
             }
         )
     _write_json_exclusive(

@@ -9,7 +9,7 @@ from .campaign import load_catalog, unique_kernel_specs
 from .identity import (
     GFX1151_TARGET,
     KernelFamily,
-    canonical_sha256,
+    canonical_text,
     problem_type_mapping,
 )
 from .mmq_bwd_spec import (
@@ -83,10 +83,6 @@ def backward_candidate_mapping(
         "ProblemType": problem_type_mapping(family, quant_type),
         "KernelSpec": candidate.to_mapping(quant_type),
     }
-
-
-def backward_candidate_hash(candidate: BackwardKernelSpec, quant_type: str) -> str:
-    return canonical_sha256(backward_candidate_mapping(candidate, quant_type))
 
 
 def is_valid_candidate(
@@ -304,10 +300,12 @@ def candidate_neighbors(
         for candidate in proposed
         if is_valid_candidate(candidate, quant_type, shape)
     )
-    unique = {
-        backward_candidate_hash(candidate, quant_type): candidate for candidate in valid
-    }
-    return tuple(unique[digest] for digest in sorted(unique))
+    unique: dict[str, BackwardKernelSpec] = {}
+    for candidate in valid:
+        unique.setdefault(
+            canonical_text(backward_candidate_mapping(candidate, quant_type)), candidate
+        )
+    return tuple(unique.values())
 
 
 def candidate_domains(

@@ -66,7 +66,7 @@ Parsing is strict:
 - inactive policy fields reject instead of being ignored.
 - accepted fields must affect canonical identity and either validation or lowering.
 
-Candidate identity is parameter-only so one candidate can be tested on another formula-compatible problem. Exact-key identity includes the exact problem. Generated source and code-object digests are artifact evidence, not candidate parameters. Exact-key and candidate hashes are computed directly from their canonical mappings without a document-kind or compatibility projection.
+Candidate identity is parameter-only so one candidate can be tested on another formula-compatible problem. Exact-key identity includes the exact problem. Generated source and code-object digests are artifact evidence, not candidate parameters. Exact-key identity is hashed from its canonical mapping; a parameter-only candidate is identified by its canonical mapping and typed equality, without a document-kind or compatibility projection.
 
 Serialized schema changes are one-time migrations: replace the old schema and update all checked-in catalogs, manifests, tests, and artifact references together. There is no compatibility translation or dual parser; old documents are rejected at the current loader boundary. A migration must preserve or deliberately requalify source, executable, ABI, resource, correctness, and timing identity rather than silently accepting two shapes.
 
