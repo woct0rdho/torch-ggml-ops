@@ -109,7 +109,7 @@ class KernelArtifact:
     assembly_path: Path
     object_path: Path | None
     code_object_path: Path | None
-    assembly_sha256: str
+    assembly_digest: str
     vgpr_count: int
     sgpr_count: int
     lds_num_bytes: int
@@ -121,12 +121,14 @@ class KernelArtifact:
             "KernelSpecKey": mapping_for_instance(self.instance),
             "KernelSpecHash": instance_hash(self.instance),
             "KernelName": instance_name(self.instance),
-            "AssemblyPath": str(self.assembly_path),
-            "ObjectPath": str(self.object_path) if self.object_path else None,
-            "CodeObjectPath": (
-                str(self.code_object_path) if self.code_object_path else None
-            ),
-            "AssemblySHA256": self.assembly_sha256,
+            "Artifacts": {
+                "AssemblyPath": str(self.assembly_path),
+                "ObjectPath": str(self.object_path) if self.object_path else None,
+                "CodeObjectPath": (
+                    str(self.code_object_path) if self.code_object_path else None
+                ),
+                "AssemblyDigest": self.assembly_digest,
+            },
             "NumVgpr": self.vgpr_count,
             "NumSgpr": self.sgpr_count,
             "LdsNumBytes": self.lds_num_bytes,

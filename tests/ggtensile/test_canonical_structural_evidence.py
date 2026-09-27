@@ -43,7 +43,7 @@ def test_catalogs_preserve_canonical_structural_evidence() -> None:
             if candidate["KernelFamily"] == record["KernelFamily"]
             and candidate["QuantDataType"] == record["QuantDataType"]
             and candidate["Problem"] == record["Problem"]
-            and candidate["NormalizedSourceSHA256"] == record["NormalizedSourceSHA256"]
+            and candidate["ExactHash"] == record["ExactHash"]
         ]
         if len(matches) != 1:
             unmatched.append((record["KernelFamily"], record["Problem"], len(matches)))

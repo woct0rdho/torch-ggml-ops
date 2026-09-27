@@ -1,4 +1,3 @@
-import hashlib
 from dataclasses import replace
 from pathlib import Path
 
@@ -855,7 +854,7 @@ def test_iq2_xxs_m64_sia5_pipeline_build_is_deterministic_and_inspectable(
         _Solutions.iq2_xxs_m64_n64_sia5_dual_lds_full_tile_split_k_pipeline(),
     )
     toolchain = Toolchain.discover()
-    build_hashes = []
+    build_images = []
     for directory_name in ("first", "second"):
         directory = tmp_path / directory_name
         directory.mkdir()
@@ -865,14 +864,11 @@ def test_iq2_xxs_m64_sia5_pipeline_build_is_deterministic_and_inspectable(
         _writer(key, toolchain).write(assembly)
         toolchain.assemble(assembly, object_path)
         toolchain.link(object_path, code_object)
-        build_hashes.append(
-            tuple(
-                hashlib.sha256(path.read_bytes()).hexdigest()
-                for path in (assembly, object_path, code_object)
-            )
+        build_images.append(
+            tuple(path.read_bytes() for path in (assembly, object_path, code_object))
         )
 
-    assert build_hashes[0] == build_hashes[1]
+    assert build_images[0] == build_images[1]
     result = _inspect(key, tmp_path / "second" / "kernel.hsaco", toolchain)
     assert result.kernarg_segment_size == 72
     assert result.max_flat_workgroup_size == 128

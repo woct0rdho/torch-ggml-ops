@@ -1,4 +1,3 @@
-import hashlib
 import os
 import tempfile
 from collections.abc import Mapping
@@ -10,6 +9,7 @@ import rocisa  # ty: ignore[unresolved-import]
 from rocisa import code  # ty: ignore[unresolved-import]
 from rocisa.enum import SignatureValueKind as SVK  # ty: ignore[unresolved-import]
 
+from .digest import sha256_hex
 from .kernel_abi import KernelAbi, KernelArgumentKind
 
 
@@ -352,7 +352,7 @@ def write_assembly_source(output: Path, source: str) -> str:
     temporary = output.with_suffix(output.suffix + ".tmp")
     temporary.write_text(source, encoding="utf-8")
     temporary.replace(output)
-    return hashlib.sha256(source.encode("utf-8")).hexdigest()
+    return sha256_hex(source.encode("utf-8"))
 
 
 def emit_pointer_kernarg_loads(

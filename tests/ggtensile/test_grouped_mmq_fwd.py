@@ -1,4 +1,3 @@
-import hashlib
 from dataclasses import replace
 from pathlib import Path
 
@@ -866,10 +865,7 @@ def test_grouped_q4_k_artifact_passes_strict_inspection(tmp_path: Path) -> None:
     toolchain.link(first_object, first_code_object)
     toolchain.assemble(second_assembly, second_object)
     toolchain.link(second_object, second_code_object)
-    assert (
-        hashlib.sha256(first_code_object.read_bytes()).digest()
-        == hashlib.sha256(second_code_object.read_bytes()).digest()
-    )
+    assert first_code_object.read_bytes() == second_code_object.read_bytes()
     inspection = _inspect(key, first_code_object, toolchain)
     assert inspection.kernarg_segment_size == 64
     assert inspection.vgpr_count == 88

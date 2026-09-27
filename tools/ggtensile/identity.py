@@ -81,12 +81,12 @@ def canonical_text(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
-def canonical_sha256(value: object) -> str:
+def _canonical_digest(value: object) -> str:
     return hashlib.sha256(canonical_text(value).encode("utf-8")).hexdigest()
 
 
 def exact_key_hash(value: object, *, prefix: str = "ggsol") -> str:
-    return f"{prefix}_{canonical_sha256(value)[:16]}"
+    return f"{prefix}_{_canonical_digest(value)[:16]}"
 
 
 _FAMILY_QUANT_TYPES: dict[KernelFamily, frozenset[str]] = {

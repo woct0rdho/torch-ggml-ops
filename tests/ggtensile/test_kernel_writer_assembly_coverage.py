@@ -1,6 +1,5 @@
 """Targeted branch and complete executable-line coverage for shared assembly support."""
 
-import hashlib
 from pathlib import Path
 
 import pytest
@@ -9,6 +8,7 @@ from tests.ggtensile.support import (
     SHARED_WRITER_SOURCE_PATH,
     assert_writer_methods_have_complete_line_coverage,
 )
+from tools.ggtensile.digest import sha256_hex
 from tools.ggtensile.kernel_abi import (
     ORDINARY_FORWARD_ABI,
     KernelAbi,
@@ -47,7 +47,7 @@ def test_shared_assembly_primitives_and_source_write(tmp_path: Path) -> None:
     output = tmp_path / "shared.s"
     digest = write_assembly_source(output, source)
     assert output.read_text(encoding="utf-8") == source
-    assert digest == hashlib.sha256(source.encode("utf-8")).hexdigest()
+    assert digest == sha256_hex(source.encode("utf-8"))
     assert "v_lshlrev_b32 v0, 3, v1" in source
     assert "v_mul_lo_u32 v2, 3, v4" in source
 

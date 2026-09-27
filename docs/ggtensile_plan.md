@@ -38,7 +38,7 @@ Generation accepts immutable typed records:
 - exact problems define positive operation-specific dimensions.
 - kernel specifications define every active mechanism choice.
 - derived states compute geometry, strides, loop counts, ownership, and resources.
-- exact solution keys combine contract, problem, and specification and own stable hashes and symbols.
+- exact solution keys combine contract, problem, and specification and own the single stable identity hash and symbol.
 
 Every canonical exact key contains `KernelFamily`, `Target`, `ProblemType`, `Problem`, and `KernelSpec`. `ProblemType` carries operation, data types, arithmetic, and transpose identity; `Problem` carries exact mathematical and family axes. Parameter-only candidates omit the exact problem.
 
@@ -66,7 +66,7 @@ Parsing is strict:
 - inactive policy fields reject instead of being ignored.
 - accepted fields must affect canonical identity and either validation or lowering.
 
-Candidate identity is parameter-only so one candidate can be tested on another formula-compatible problem. Exact-key identity includes the exact problem. Generated source and code-object digests are artifact evidence, not candidate parameters. Exact-key identity is hashed from its canonical mapping; a parameter-only candidate is identified by its canonical mapping and typed equality, without a document-kind or compatibility projection.
+Candidate identity is parameter-only so one candidate can be tested on another formula-compatible problem. Exact-key identity includes the exact problem and is the only kernel identity hash; a parameter-only candidate is identified by its canonical mapping and typed equality. Generated source and code-object `*Digest` values are artifact evidence, not identities or candidate parameters, and no document-kind or compatibility projection exists.
 
 Serialized schema changes are one-time migrations: replace the old schema and update all checked-in catalogs, manifests, tests, and artifact references together. There is no compatibility translation or dual parser; old documents are rejected at the current loader boundary. A migration must preserve or deliberately requalify source, executable, ABI, resource, correctness, and timing identity rather than silently accepting two shapes.
 

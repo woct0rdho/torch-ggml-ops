@@ -65,7 +65,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "79b1e423ec34e40b7c1828e71f443b96c6a45cd6309943169f9cf6bd5837c4f0",
+    "NormalizedSourceDigest": "79b1e423ec34e40b7c1828e71f443b96c6a45cd6309943169f9cf6bd5837c4f0",
     "Ownership": "FixedGroupZ",
     "Problem": {
       "GroupCount": 8,
@@ -77,7 +77,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "16cda0fd4be8f56e978bfa1f29e13cee832e8830413837fa8ee81873cf31d441",
     "StaticGroupSegmentBytes": 18432,
     "Symbol": "fixed_grouped_mmq_bwd_q8_0_t2048_n4096_k1024_b6978ce5fe3e26e4",
     "TotalSGPRs": 17,
@@ -154,7 +153,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "79b1e423ec34e40b7c1828e71f443b96c6a45cd6309943169f9cf6bd5837c4f0",
+    "NormalizedSourceDigest": "79b1e423ec34e40b7c1828e71f443b96c6a45cd6309943169f9cf6bd5837c4f0",
     "Ownership": "FixedGroupZ",
     "Problem": {
       "GroupCount": 8,
@@ -166,7 +165,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "09c6eee111cfabcc5aa37f0dcbccd5e72a489a746a5e3abeb650ef069f02a676",
     "StaticGroupSegmentBytes": 18432,
     "Symbol": "fixed_grouped_mmq_bwd_q8_0_t32768_n4096_k1024_41e9701bff12cf4f",
     "TotalSGPRs": 17,
@@ -243,7 +241,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "79b1e423ec34e40b7c1828e71f443b96c6a45cd6309943169f9cf6bd5837c4f0",
+    "NormalizedSourceDigest": "79b1e423ec34e40b7c1828e71f443b96c6a45cd6309943169f9cf6bd5837c4f0",
     "Ownership": "FixedGroupZ",
     "Problem": {
       "GroupCount": 8,
@@ -255,7 +253,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "0f4331bbbaa8fa9048fce28012ea80a21ddd067f3ad8a1baebe3a05d640bfddc",
     "StaticGroupSegmentBytes": 18432,
     "Symbol": "fixed_grouped_mmq_bwd_q8_0_t8192_n4096_k1024_81a42231db569ec8",
     "TotalSGPRs": 17,
@@ -332,7 +329,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "24e560487d68eb8e3c862e29c60ba6bc284ebc4323cd8069e22503a6a7ce32e5",
+    "NormalizedSourceDigest": "24e560487d68eb8e3c862e29c60ba6bc284ebc4323cd8069e22503a6a7ce32e5",
     "Ownership": "FixedGroupZ",
     "Problem": {
       "GroupCount": 8,
@@ -344,7 +341,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "82343eb442eb48888c6e142da95e0f070730ba9823e612671057bde34656c2e1",
     "StaticGroupSegmentBytes": 18432,
     "Symbol": "fixed_grouped_mmq_fwd_q8_0_t2048_n1024_k4096_80d2a010f2ca3571",
     "TotalSGPRs": 16,
@@ -421,7 +417,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "24e560487d68eb8e3c862e29c60ba6bc284ebc4323cd8069e22503a6a7ce32e5",
+    "NormalizedSourceDigest": "24e560487d68eb8e3c862e29c60ba6bc284ebc4323cd8069e22503a6a7ce32e5",
     "Ownership": "FixedGroupZ",
     "Problem": {
       "GroupCount": 8,
@@ -433,7 +429,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "ccd1da377867dec981596e2e5399f06a3767133925afd8f063af307b7d6f99c7",
     "StaticGroupSegmentBytes": 18432,
     "Symbol": "fixed_grouped_mmq_fwd_q8_0_t32768_n1024_k4096_716bf2d5468c5672",
     "TotalSGPRs": 16,
@@ -510,7 +505,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "24e560487d68eb8e3c862e29c60ba6bc284ebc4323cd8069e22503a6a7ce32e5",
+    "NormalizedSourceDigest": "24e560487d68eb8e3c862e29c60ba6bc284ebc4323cd8069e22503a6a7ce32e5",
     "Ownership": "FixedGroupZ",
     "Problem": {
       "GroupCount": 8,
@@ -522,7 +517,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "9862fa2b77c334a9227226183ef179138da82343e9630a1a53faa52bad9bae4c",
     "StaticGroupSegmentBytes": 18432,
     "Symbol": "fixed_grouped_mmq_fwd_q8_0_t8192_n1024_k4096_da8fb61dcac7e099",
     "TotalSGPRs": 16,
@@ -613,7 +607,7 @@
       "Wmma": 24
     },
     "KernargSegmentSize": 56,
-    "NormalizedSourceSHA256": "cb14a73bb285ac94a31ed8187cf4b0af2c1fe97eee51a0139c9c1ab041a635cd",
+    "NormalizedSourceDigest": "cb14a73bb285ac94a31ed8187cf4b0af2c1fe97eee51a0139c9c1ab041a635cd",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 2048,
@@ -626,7 +620,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "20917ee5c7db6763002f27cc8b3d69da8d320f9ab2cb8655eddef4e0d7fc6cc5",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "grouped_mmq_bwd_q5_k_m16384_n512_k2048_ecd542a746c378f6",
     "TotalSGPRs": 35,
@@ -717,7 +710,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 56,
-    "NormalizedSourceSHA256": "f2acd6150316cbf8f16a0480de256898365d36e860aed9316f7680ca6333e925",
+    "NormalizedSourceDigest": "f2acd6150316cbf8f16a0480de256898365d36e860aed9316f7680ca6333e925",
     "Ownership": "SplitRoutes16",
     "Problem": {
       "K": 2048,
@@ -730,7 +723,6 @@
     "RouteSplitFactor": 16,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "13375a1c48850515f4a079497986a73cefef8b54191ec30c2034e65b82fb3255",
     "StaticGroupSegmentBytes": 10240,
     "Symbol": "grouped_mmq_bwd_q5_k_m262144_n512_k2048_926aaeede680ecdd",
     "TotalSGPRs": 35,
@@ -821,7 +813,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 56,
-    "NormalizedSourceSHA256": "688aa58e0aaa5334a3dd42825cad58d061d6e1f1afa181841800e12a3ab10ac9",
+    "NormalizedSourceDigest": "688aa58e0aaa5334a3dd42825cad58d061d6e1f1afa181841800e12a3ab10ac9",
     "Ownership": "SplitRoutes16",
     "Problem": {
       "K": 2048,
@@ -834,7 +826,6 @@
     "RouteSplitFactor": 16,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "2d6224bac76b37466a13212bdb048abfca054d9e475ff8f9aed94f2e4aaf0fe0",
     "StaticGroupSegmentBytes": 10240,
     "Symbol": "grouped_mmq_bwd_q5_k_m65536_n512_k2048_5345680bd57a2a28",
     "TotalSGPRs": 35,
@@ -925,7 +916,7 @@
       "Wmma": 8
     },
     "KernargSegmentSize": 56,
-    "NormalizedSourceSHA256": "42c8163c4e6329e486827cb1217bf0f381f91f4f508d08591ac88bfc5b303eb1",
+    "NormalizedSourceDigest": "42c8163c4e6329e486827cb1217bf0f381f91f4f508d08591ac88bfc5b303eb1",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 4096,
@@ -938,7 +929,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "4587257e06dece69f6974860992f6549cb96c4b0c6f5b6c944dbd3f3221f3e98",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "grouped_mmq_bwd_q2_k_m12288_n2048_k4096_0ae13568c33c9af8",
     "TotalSGPRs": 35,
@@ -1029,7 +1019,7 @@
       "Wmma": 24
     },
     "KernargSegmentSize": 56,
-    "NormalizedSourceSHA256": "6fb935f7f44ade4d839e34cd5b1b315b54b4ed11952ec1cc5ed3e7491f15cdfd",
+    "NormalizedSourceDigest": "6fb935f7f44ade4d839e34cd5b1b315b54b4ed11952ec1cc5ed3e7491f15cdfd",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 2048,
@@ -1042,7 +1032,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "71a25794f94003d90888b1115f3f85d226b0e6e2ae218c0dd6b2503228ce723b",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "grouped_mmq_bwd_q4_k_m16384_n512_k2048_1099d95f3abb2771",
     "TotalSGPRs": 35,
@@ -1133,7 +1122,7 @@
       "Wmma": 24
     },
     "KernargSegmentSize": 56,
-    "NormalizedSourceSHA256": "149463371959b55daf358403897095b950729520e741c2fdc0e6b9161af96a52",
+    "NormalizedSourceDigest": "149463371959b55daf358403897095b950729520e741c2fdc0e6b9161af96a52",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 4096,
@@ -1146,7 +1135,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "5fc7ad51ce71b9a2b229180207e78e0663f5db300440b48143a90473a3f8825e",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "grouped_mmq_bwd_q2_k_m49152_n2048_k4096_643404897e0cc140",
     "TotalSGPRs": 35,
@@ -1237,7 +1225,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 56,
-    "NormalizedSourceSHA256": "9695b7cbb85dc369d3215cffb8c0b676a505713c91dc74785c3379b4a7392563",
+    "NormalizedSourceDigest": "9695b7cbb85dc369d3215cffb8c0b676a505713c91dc74785c3379b4a7392563",
     "Ownership": "SplitRoutes32",
     "Problem": {
       "K": 4096,
@@ -1250,7 +1238,6 @@
     "RouteSplitFactor": 32,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "4f4a47716aef9bb5e8d220f8363f0f232fe082855779ccc1caf65314765d1f5d",
     "StaticGroupSegmentBytes": 10240,
     "Symbol": "grouped_mmq_bwd_q2_k_m196608_n2048_k4096_6923db8022074e24",
     "TotalSGPRs": 35,
@@ -1341,7 +1328,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 56,
-    "NormalizedSourceSHA256": "f7f1fa7844f99423e7c38232287233c19bda088e476877b0c79743eea80c7220",
+    "NormalizedSourceDigest": "f7f1fa7844f99423e7c38232287233c19bda088e476877b0c79743eea80c7220",
     "Ownership": "SplitRoutes4",
     "Problem": {
       "K": 2048,
@@ -1354,7 +1341,6 @@
     "RouteSplitFactor": 4,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "ff8680997d2e578324f1f9e53c44e77737a06027739a1b377274b5a59c76a398",
     "StaticGroupSegmentBytes": 10240,
     "Symbol": "grouped_mmq_bwd_q4_k_m65536_n512_k2048_2d3c28ed2a2c4862",
     "TotalSGPRs": 35,
@@ -1445,7 +1431,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 56,
-    "NormalizedSourceSHA256": "0b65b7174824704810b89f1012816d67eaafaa782f65cc1330e49911d9444313",
+    "NormalizedSourceDigest": "0b65b7174824704810b89f1012816d67eaafaa782f65cc1330e49911d9444313",
     "Ownership": "SplitRoutes8",
     "Problem": {
       "K": 2048,
@@ -1458,7 +1444,6 @@
     "RouteSplitFactor": 8,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "a9496692381f0446868f0e87ce4ae1d490143a005b7c14e9851d4e1a9ccb421c",
     "StaticGroupSegmentBytes": 10240,
     "Symbol": "grouped_mmq_bwd_q4_k_m262144_n512_k2048_727917854673fa94",
     "TotalSGPRs": 35,
@@ -1549,7 +1534,7 @@
       "Wmma": 24
     },
     "KernargSegmentSize": 56,
-    "NormalizedSourceSHA256": "475528a2bb25210e0734de3fe40bee7ea43d49836eeb5537daf108fc8afb2bd0",
+    "NormalizedSourceDigest": "475528a2bb25210e0734de3fe40bee7ea43d49836eeb5537daf108fc8afb2bd0",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 2048,
@@ -1562,7 +1547,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "9a6bc4a0e8f182f013e197da4fc8b67d5e6ab065a47324d6e80ca2960f0d84f8",
     "StaticGroupSegmentBytes": 13312,
     "Symbol": "grouped_mmq_bwd_iq2_s_m16384_n512_k2048_a2e787e8d932dd73",
     "TotalSGPRs": 38,
@@ -1653,7 +1637,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 56,
-    "NormalizedSourceSHA256": "a09dd89c9504ac0d3bff0ef96ef171ee00aef3a20bccb9ceb7423817b30b2f53",
+    "NormalizedSourceDigest": "a09dd89c9504ac0d3bff0ef96ef171ee00aef3a20bccb9ceb7423817b30b2f53",
     "Ownership": "SplitRoutes64",
     "Problem": {
       "K": 2048,
@@ -1666,7 +1650,6 @@
     "RouteSplitFactor": 64,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "0b6695f81fa52cba755e7b9ff078db632aa82fd768dcb7009ba334dca28ee9c7",
     "StaticGroupSegmentBytes": 18432,
     "Symbol": "grouped_mmq_bwd_iq2_s_m262144_n512_k2048_a2c1123ed7c956e4",
     "TotalSGPRs": 38,
@@ -1757,7 +1740,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 56,
-    "NormalizedSourceSHA256": "cf262e654d63663c693238ac9e553354a425dd2cbb571f3aa458a706eea223c9",
+    "NormalizedSourceDigest": "cf262e654d63663c693238ac9e553354a425dd2cbb571f3aa458a706eea223c9",
     "Ownership": "SplitRoutes64",
     "Problem": {
       "K": 2048,
@@ -1770,7 +1753,6 @@
     "RouteSplitFactor": 64,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "efdd3a46655b0387d9b35b5b3b7dfb4299102e75065547d126ffd8c8ca314622",
     "StaticGroupSegmentBytes": 18432,
     "Symbol": "grouped_mmq_bwd_iq2_s_m65536_n512_k2048_2718bf51d7d29c00",
     "TotalSGPRs": 38,
@@ -1875,7 +1857,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 72,
-    "NormalizedSourceSHA256": "6a1c0029690e3dd3c80ea03499d021d7f01ae9237fe038ebfe0346a9a40acdc9",
+    "NormalizedSourceDigest": "6a1c0029690e3dd3c80ea03499d021d7f01ae9237fe038ebfe0346a9a40acdc9",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 512,
@@ -1889,7 +1871,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "d35627fd66bf9e190b5c37765097be873f5854d066f74a15b5c27157020d778e",
     "StaticGroupSegmentBytes": 10240,
     "Symbol": "grouped_mmq_bwd_pair_q3_k_r16384_n2048_k512_c70dfa5dbe1b0a77",
     "TotalSGPRs": 41,
@@ -1994,7 +1975,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 72,
-    "NormalizedSourceSHA256": "bc9670ba3fc43c211b082960ebddd3d82eadc5ac0f09e74002471093671f695d",
+    "NormalizedSourceDigest": "bc9670ba3fc43c211b082960ebddd3d82eadc5ac0f09e74002471093671f695d",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 512,
@@ -2008,7 +1989,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "1fe54a1d28cea24d4787034c881cbc0e6d55d55ade3985f9e073e0ece643780e",
     "StaticGroupSegmentBytes": 10240,
     "Symbol": "grouped_mmq_bwd_pair_q3_k_r262144_n2048_k512_dcd35a5a31332cee",
     "TotalSGPRs": 41,
@@ -2113,7 +2093,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 72,
-    "NormalizedSourceSHA256": "b65ac0b306325b88fc95f3a2a4afc1f940920fedb8aa301b0629b54706e8de79",
+    "NormalizedSourceDigest": "b65ac0b306325b88fc95f3a2a4afc1f940920fedb8aa301b0629b54706e8de79",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 512,
@@ -2127,7 +2107,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "64280d9bfbdcd9c5bb916a045b7c246c681a2abb1d19e465a85f9f1c812d448a",
     "StaticGroupSegmentBytes": 10240,
     "Symbol": "grouped_mmq_bwd_pair_q3_k_r65536_n2048_k512_e9bb949ba6e40097",
     "TotalSGPRs": 41,
@@ -2232,7 +2211,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 72,
-    "NormalizedSourceSHA256": "8b6b7cfb4d9daed1685ef16ec4787be866ed2e1d1f247fdb2a9693e98e538550",
+    "NormalizedSourceDigest": "8b6b7cfb4d9daed1685ef16ec4787be866ed2e1d1f247fdb2a9693e98e538550",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 2048,
@@ -2246,7 +2225,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "8721eed2b669905bf916f7c50199a19aa747958f5627ce9cd3449064e0e4e411",
     "StaticGroupSegmentBytes": 10240,
     "Symbol": "grouped_mmq_bwd_pair_iq2_xxs_r12288_n4096_k2048_e6991168230debad",
     "TotalSGPRs": 41,
@@ -2351,7 +2329,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 72,
-    "NormalizedSourceSHA256": "e39e3d093692b9a38fc773819faf93743ed839d2e2d242d9492689af34350afc",
+    "NormalizedSourceDigest": "e39e3d093692b9a38fc773819faf93743ed839d2e2d242d9492689af34350afc",
     "Ownership": "PackedSplitRoutes8",
     "Problem": {
       "K": 512,
@@ -2365,7 +2343,6 @@
     "RouteSplitFactor": 8,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "32b4cfd03f54a7f21b3a29875d8db886769d27a75613735e586aa2fa3b973fab",
     "StaticGroupSegmentBytes": 8192,
     "Symbol": "grouped_mmq_bwd_pair_iq2_s_r16384_n2048_k512_491941b123eced9b",
     "TotalSGPRs": 41,
@@ -2470,7 +2447,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 72,
-    "NormalizedSourceSHA256": "e1f6f11d3a42300af6e70e6c2b7a6399e42ac530cb4993c3af6649d9d6ed96f1",
+    "NormalizedSourceDigest": "e1f6f11d3a42300af6e70e6c2b7a6399e42ac530cb4993c3af6649d9d6ed96f1",
     "Ownership": "PackedSplitRoutes8",
     "Problem": {
       "K": 512,
@@ -2484,7 +2461,6 @@
     "RouteSplitFactor": 8,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "68c5318413d7f9202ad6ba2c9e344dab9aafded9074846644e8d40d7b044482c",
     "StaticGroupSegmentBytes": 8192,
     "Symbol": "grouped_mmq_bwd_pair_iq2_s_r262144_n2048_k512_16ebfd6d48d96af7",
     "TotalSGPRs": 41,
@@ -2589,7 +2565,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 72,
-    "NormalizedSourceSHA256": "c867262a5972e00384a229cf622573729df4bed68d0d7a0937d7ed87b8142301",
+    "NormalizedSourceDigest": "c867262a5972e00384a229cf622573729df4bed68d0d7a0937d7ed87b8142301",
     "Ownership": "PackedSplitRoutes8",
     "Problem": {
       "K": 512,
@@ -2603,7 +2579,6 @@
     "RouteSplitFactor": 8,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "fcf89d66d357354c9e77881a8eb641eb6e4f46cd56afc08ffb0966aa1e6d08d3",
     "StaticGroupSegmentBytes": 8192,
     "Symbol": "grouped_mmq_bwd_pair_iq2_s_r65536_n2048_k512_3baa490c89e72c25",
     "TotalSGPRs": 41,
@@ -2627,8 +2602,7 @@
     },
     "ExactHash": "ggbpair_648e385637702ea7",
     "Symbol": "grouped_mmq_bwd_pair_iq2_xxs_r196608_n4096_k2048_648e385637702ea7",
-    "SourceSHA256": "1a2ea109410d289d4a824f954206f817cf1eaefc4c6dd9ff07372c9dd00c891f",
-    "NormalizedSourceSHA256": "9c44d6755e647b62998052c9a4143e71fa93c7e1f9e0526e232a59d297f90f63",
+    "NormalizedSourceDigest": "9c44d6755e647b62998052c9a4143e71fa93c7e1f9e0526e232a59d297f90f63",
     "ABIName": "GroupedBackwardPair",
     "KernargSegmentSize": 72,
     "ABIArguments": [
@@ -2827,7 +2801,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 72,
-    "NormalizedSourceSHA256": "c8e10a87a60ae0c31b33ee73e9aef1f1582addc205d73f14797cdf9a869607e4",
+    "NormalizedSourceDigest": "c8e10a87a60ae0c31b33ee73e9aef1f1582addc205d73f14797cdf9a869607e4",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 2048,
@@ -2841,7 +2815,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "8dd1a7996189bb1f0c72c5d03e1212a2814c84c23a49e8b4aa148ae1c1a26d39",
     "StaticGroupSegmentBytes": 10240,
     "Symbol": "grouped_mmq_bwd_pair_iq2_xxs_r49152_n4096_k2048_ec626eff77b6060d",
     "TotalSGPRs": 41,
@@ -2946,7 +2919,7 @@
       "Wmma": 60
     },
     "KernargSegmentSize": 64,
-    "NormalizedSourceSHA256": "0c425556f743be8d5ef1423b0ecb162d20a09a89118db1ffeadd1b677c153d56",
+    "NormalizedSourceDigest": "0c425556f743be8d5ef1423b0ecb162d20a09a89118db1ffeadd1b677c153d56",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 2048,
@@ -2959,7 +2932,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "c0335ae485b4b12c767cb72bbd18aa9ecaade9dfd66a0d14e02e2e4437c1c32f",
     "StaticGroupSegmentBytes": 25600,
     "Symbol": "grouped_mmq_fwd_q2_k_r12288_n4096_k2048_f32cc7d2292b1282",
     "TotalSGPRs": 40,
@@ -3064,7 +3036,7 @@
       "Wmma": 60
     },
     "KernargSegmentSize": 64,
-    "NormalizedSourceSHA256": "6c733681150aeb019b33287a1b61dec058f4d1252215fd77301dba1672d24af9",
+    "NormalizedSourceDigest": "6c733681150aeb019b33287a1b61dec058f4d1252215fd77301dba1672d24af9",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 2048,
@@ -3077,7 +3049,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "3d6812a1df53b6c7e07ba59d1d4f8803377400fd084158693c933de5c359aa52",
     "StaticGroupSegmentBytes": 25600,
     "Symbol": "grouped_mmq_fwd_q2_k_r49152_n4096_k2048_686731e4c99c1ffd",
     "TotalSGPRs": 40,
@@ -3182,7 +3153,7 @@
       "Wmma": 80
     },
     "KernargSegmentSize": 64,
-    "NormalizedSourceSHA256": "de6ef27ca2c36d9cb297a13308063aecaf092bafee16888ffdfbc954d97dd5b8",
+    "NormalizedSourceDigest": "de6ef27ca2c36d9cb297a13308063aecaf092bafee16888ffdfbc954d97dd5b8",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 2048,
@@ -3195,7 +3166,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "376c464e354ac1b2dbc6bea795f6244bebc2bfc0a5b7ab0bd8ce570d6fed08e9",
     "StaticGroupSegmentBytes": 30208,
     "Symbol": "grouped_mmq_fwd_q2_k_r196608_n4096_k2048_37ce03e143353b9d",
     "TotalSGPRs": 40,
@@ -3300,7 +3270,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 64,
-    "NormalizedSourceSHA256": "e21b08b3f6b1603491008c48c48404bde39ca28f5077a3a1553e12ab69c478e3",
+    "NormalizedSourceDigest": "e21b08b3f6b1603491008c48c48404bde39ca28f5077a3a1553e12ab69c478e3",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 512,
@@ -3313,7 +3283,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "2532e3eba6991adf31c3bfca0e0d4ccc9667f87c1820b2bc97594a696f2a7501",
     "StaticGroupSegmentBytes": 30720,
     "Symbol": "grouped_mmq_fwd_iq2_s_r16384_n2048_k512_bacad5f35e7d3cb5",
     "TotalSGPRs": 40,
@@ -3418,7 +3387,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 64,
-    "NormalizedSourceSHA256": "ef99239325e23ba38c0ea566f038237a127e6ee6147e1e9170afeb68e92f2641",
+    "NormalizedSourceDigest": "ef99239325e23ba38c0ea566f038237a127e6ee6147e1e9170afeb68e92f2641",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 512,
@@ -3431,7 +3400,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "f410b716dcb1331ca33e78cb4e5cdaf7837239bffc89bacd941f13c204204e5c",
     "StaticGroupSegmentBytes": 30720,
     "Symbol": "grouped_mmq_fwd_iq2_s_r262144_n2048_k512_da1baae36eda6c5f",
     "TotalSGPRs": 40,
@@ -3536,7 +3504,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 64,
-    "NormalizedSourceSHA256": "38f4c301da2c1a955c452a2a843c76fe79864eac878bd2dcffbfcfd75aa6a5a4",
+    "NormalizedSourceDigest": "38f4c301da2c1a955c452a2a843c76fe79864eac878bd2dcffbfcfd75aa6a5a4",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 512,
@@ -3549,7 +3517,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "de5242bb997da823afea81d8824641604323259c1083182a82560a2fb8ea08d5",
     "StaticGroupSegmentBytes": 30720,
     "Symbol": "grouped_mmq_fwd_iq2_s_r65536_n2048_k512_ab0d8e160e3e389a",
     "TotalSGPRs": 40,
@@ -3654,7 +3621,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 64,
-    "NormalizedSourceSHA256": "db1db03660aadfcacf0d927fff76b91f606acbe2a12c0525b5c99b26fcfd1585",
+    "NormalizedSourceDigest": "db1db03660aadfcacf0d927fff76b91f606acbe2a12c0525b5c99b26fcfd1585",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 512,
@@ -3667,7 +3634,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "452c5c61b1c813151b456c2fc8cd2f27cb42dc1232fbb032954afaa2bf934d5b",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "grouped_mmq_fwd_q4_k_r262144_n2048_k512_c6a7f10afcf493b2",
     "TotalSGPRs": 40,
@@ -3772,7 +3738,7 @@
       "Wmma": 24
     },
     "KernargSegmentSize": 64,
-    "NormalizedSourceSHA256": "293f2ca72c9c7141c53d87aa1674ecc2cf612677d69eccd59ae40a0b230cfae8",
+    "NormalizedSourceDigest": "293f2ca72c9c7141c53d87aa1674ecc2cf612677d69eccd59ae40a0b230cfae8",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 512,
@@ -3785,7 +3751,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "011e41176458ea2d5d3418f06414a4a3c42c4bf03f3d010f57a7cbef566df0c3",
     "StaticGroupSegmentBytes": 29184,
     "Symbol": "grouped_mmq_fwd_q4_k_r16384_n2048_k512_c95d0acee91c7c55",
     "TotalSGPRs": 40,
@@ -3890,7 +3855,7 @@
       "Wmma": 24
     },
     "KernargSegmentSize": 64,
-    "NormalizedSourceSHA256": "89f51c9e950821bea7df3c391a56e65498595c7bfd1f0e7f37fbfba1dfb5802f",
+    "NormalizedSourceDigest": "89f51c9e950821bea7df3c391a56e65498595c7bfd1f0e7f37fbfba1dfb5802f",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 512,
@@ -3903,7 +3868,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "2ec7020a86e9eaad8aaf7ea81017f778fd5a7b17bf26961c50439e0f01441fde",
     "StaticGroupSegmentBytes": 29184,
     "Symbol": "grouped_mmq_fwd_q5_k_r16384_n2048_k512_03954bfadeddff04",
     "TotalSGPRs": 40,
@@ -4008,7 +3972,7 @@
       "Wmma": 24
     },
     "KernargSegmentSize": 64,
-    "NormalizedSourceSHA256": "f25e425e24f60435d55884213524bc1b709f50c947aa87b8b3def16b14b7e98e",
+    "NormalizedSourceDigest": "f25e425e24f60435d55884213524bc1b709f50c947aa87b8b3def16b14b7e98e",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 512,
@@ -4021,7 +3985,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "88083440bd79ef5f1de6aa5f14c226161f9240a3073b285495fed6fb5b46471a",
     "StaticGroupSegmentBytes": 29184,
     "Symbol": "grouped_mmq_fwd_q4_k_r65536_n2048_k512_61ba675510b0ed6f",
     "TotalSGPRs": 40,
@@ -4126,7 +4089,7 @@
       "Wmma": 56
     },
     "KernargSegmentSize": 64,
-    "NormalizedSourceSHA256": "26d402fbf7fd1363068ddfb36b8dbca12eb6a3909ea599d291166579e29c2f42",
+    "NormalizedSourceDigest": "26d402fbf7fd1363068ddfb36b8dbca12eb6a3909ea599d291166579e29c2f42",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 512,
@@ -4139,7 +4102,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "54c9daf8bbfbbe155621f2519121db174d9af2500aa1c4f838db318ff2e43aaa",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "grouped_mmq_fwd_q5_k_r262144_n2048_k512_05410d219cb70dc0",
     "TotalSGPRs": 40,
@@ -4244,7 +4206,7 @@
       "Wmma": 56
     },
     "KernargSegmentSize": 64,
-    "NormalizedSourceSHA256": "3d2838e2190e4df3c36c5f8428b0be5fba263e505b5a48345569efc3e12df020",
+    "NormalizedSourceDigest": "3d2838e2190e4df3c36c5f8428b0be5fba263e505b5a48345569efc3e12df020",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 512,
@@ -4257,7 +4219,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "42cb3d840ea1513a6559095d9427689fed124f181612a64d8a2a738e4560bbe1",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "grouped_mmq_fwd_q5_k_r65536_n2048_k512_ff24d8b5206a10b6",
     "TotalSGPRs": 40,
@@ -4376,7 +4337,7 @@
       "Wmma": 128
     },
     "KernargSegmentSize": 80,
-    "NormalizedSourceSHA256": "7b80f7445196d4b10dfcbc732af75b31cb8dbc2e8c4a202372c34a9bfa103958",
+    "NormalizedSourceDigest": "7b80f7445196d4b10dfcbc732af75b31cb8dbc2e8c4a202372c34a9bfa103958",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 4096,
@@ -4390,7 +4351,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "11e203d6d0293fb9d6da844d49d22f739428e80ebeb517c1d2700d9d50681a65",
     "StaticGroupSegmentBytes": 19456,
     "Symbol": "grouped_mmq_fwd_pair_iq2_xxs_r12288_n2048_k4096_3d464d989430091a",
     "TotalSGPRs": 44,
@@ -4509,7 +4469,7 @@
       "Wmma": 128
     },
     "KernargSegmentSize": 80,
-    "NormalizedSourceSHA256": "4f0d39178473a9ae67196f452161404df36021669b6690466170d31043b6beeb",
+    "NormalizedSourceDigest": "4f0d39178473a9ae67196f452161404df36021669b6690466170d31043b6beeb",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 4096,
@@ -4523,7 +4483,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "834f2af9f22a9f313279b1991e0f782a3389be765558f1ef749cc1c1fd5b13d8",
     "StaticGroupSegmentBytes": 19456,
     "Symbol": "grouped_mmq_fwd_pair_iq2_xxs_r49152_n2048_k4096_1906eee569a25cf5",
     "TotalSGPRs": 44,
@@ -4642,7 +4601,7 @@
       "Wmma": 160
     },
     "KernargSegmentSize": 80,
-    "NormalizedSourceSHA256": "cee2520c756b73227e2623e5704cab03b56fcd5801e60bec82b5be0e9055c373",
+    "NormalizedSourceDigest": "cee2520c756b73227e2623e5704cab03b56fcd5801e60bec82b5be0e9055c373",
     "Ownership": "SerialRoutes",
     "Problem": {
       "K": 4096,
@@ -4656,7 +4615,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "4d35657ead3788c3ee0470041b6e35737ef8217aeb80bb01641989025a4fee7d",
     "StaticGroupSegmentBytes": 21760,
     "Symbol": "grouped_mmq_fwd_pair_iq2_xxs_r196608_n2048_k4096_8468144fc20a1e49",
     "TotalSGPRs": 44,
@@ -4789,7 +4747,7 @@
       "Wmma": 128
     },
     "KernargSegmentSize": 96,
-    "NormalizedSourceSHA256": "5683a1d38b38177749f5a540a6697cc4a9664d21271b20a84fde5081b5a435be",
+    "NormalizedSourceDigest": "5683a1d38b38177749f5a540a6697cc4a9664d21271b20a84fde5081b5a435be",
     "Ownership": "DeviceRowTasks",
     "Problem": {
       "K": 2048,
@@ -4803,7 +4761,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": 512,
     "RowTaskRows": 64,
-    "SourceSHA256": "0fa4af9f9602c053db8139845fe6ad64ff116355fd2fa3fc1f79d74368a3668e",
     "StaticGroupSegmentBytes": 19456,
     "Symbol": "grouped_mmq_fwd_pair_iq2_s_r16384_n512_k2048_0d821a0c4f9dafa0",
     "TotalSGPRs": 44,
@@ -4936,7 +4893,7 @@
       "Wmma": 128
     },
     "KernargSegmentSize": 96,
-    "NormalizedSourceSHA256": "9f7c41e6bc345f89d5c2d7d517df297b5c80ccf66028775e88a1caf95fe77c19",
+    "NormalizedSourceDigest": "9f7c41e6bc345f89d5c2d7d517df297b5c80ccf66028775e88a1caf95fe77c19",
     "Ownership": "DeviceRowTasks",
     "Problem": {
       "K": 2048,
@@ -4950,7 +4907,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": 4352,
     "RowTaskRows": 64,
-    "SourceSHA256": "e1112a72945468f00c1432451abe30755c48b65064c854f8e31dde6daafe7ec3",
     "StaticGroupSegmentBytes": 19456,
     "Symbol": "grouped_mmq_fwd_pair_iq2_s_r262144_n512_k2048_d161b5a8be7347b4",
     "TotalSGPRs": 44,
@@ -5083,7 +5039,7 @@
       "Wmma": 128
     },
     "KernargSegmentSize": 96,
-    "NormalizedSourceSHA256": "38921c18ea6c1453ec2d437cdf9b56555f490cf8b72a1788369bd2aaf6690682",
+    "NormalizedSourceDigest": "38921c18ea6c1453ec2d437cdf9b56555f490cf8b72a1788369bd2aaf6690682",
     "Ownership": "DeviceRowTasks",
     "Problem": {
       "K": 2048,
@@ -5097,7 +5053,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": 1280,
     "RowTaskRows": 64,
-    "SourceSHA256": "8e00b76babfaa4f9c4d366512ef26ec6537460cbd60f89cae8e027665a5c4451",
     "StaticGroupSegmentBytes": 19456,
     "Symbol": "grouped_mmq_fwd_pair_iq2_s_r65536_n512_k2048_7bc3e427ffbd0b3a",
     "TotalSGPRs": 44,
@@ -5230,7 +5185,7 @@
       "Wmma": 128
     },
     "KernargSegmentSize": 96,
-    "NormalizedSourceSHA256": "d5f73f6f9a18550411b8379c91ff8454343a5050353eed264d96059c12e4bd0c",
+    "NormalizedSourceDigest": "d5f73f6f9a18550411b8379c91ff8454343a5050353eed264d96059c12e4bd0c",
     "Ownership": "DeviceRowTasks",
     "Problem": {
       "K": 2048,
@@ -5244,7 +5199,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": 512,
     "RowTaskRows": 64,
-    "SourceSHA256": "afa31c86abb5a24e8c03929134bcff9219608935ca06f97ab90808ba96e829e2",
     "StaticGroupSegmentBytes": 19456,
     "Symbol": "grouped_mmq_fwd_pair_q3_k_r16384_n512_k2048_f6a68bb6041cf068",
     "TotalSGPRs": 44,
@@ -5377,7 +5331,7 @@
       "Wmma": 128
     },
     "KernargSegmentSize": 96,
-    "NormalizedSourceSHA256": "552e55782e71d259808a9ed8c6f45281d1e691edebb37f08689c8eb308c1312a",
+    "NormalizedSourceDigest": "552e55782e71d259808a9ed8c6f45281d1e691edebb37f08689c8eb308c1312a",
     "Ownership": "DeviceRowTasks",
     "Problem": {
       "K": 2048,
@@ -5391,7 +5345,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": 4352,
     "RowTaskRows": 64,
-    "SourceSHA256": "8d4803ea07d5dbae00f96b4927510e283d4cc115a5e24096e216aa400f84e390",
     "StaticGroupSegmentBytes": 19456,
     "Symbol": "grouped_mmq_fwd_pair_q3_k_r262144_n512_k2048_7c4a8883db4338d8",
     "TotalSGPRs": 44,
@@ -5524,7 +5477,7 @@
       "Wmma": 128
     },
     "KernargSegmentSize": 96,
-    "NormalizedSourceSHA256": "1739c12edb32da2f1a80a1e25e68ee0d0de702ba255cb235fa25641d048f845c",
+    "NormalizedSourceDigest": "1739c12edb32da2f1a80a1e25e68ee0d0de702ba255cb235fa25641d048f845c",
     "Ownership": "DeviceRowTasks",
     "Problem": {
       "K": 2048,
@@ -5538,7 +5491,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": 1280,
     "RowTaskRows": 64,
-    "SourceSHA256": "adedba796f2b1486a0f58b55c8c45ca98c48609c80d183de61769af3dcdba897",
     "StaticGroupSegmentBytes": 19456,
     "Symbol": "grouped_mmq_fwd_pair_q3_k_r65536_n512_k2048_bbb4021253bf5093",
     "TotalSGPRs": 44,
@@ -5622,7 +5574,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "699025e117631684dd84fcde13a388b66c39b654914f9bbdddbbbdb8c60a7bb9",
+    "NormalizedSourceDigest": "699025e117631684dd84fcde13a388b66c39b654914f9bbdddbbbdb8c60a7bb9",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -5633,7 +5585,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "8529e270355ea29271efe78c345dc415c9127212d968852f31403eafcc8c31a3",
     "StaticGroupSegmentBytes": 16384,
     "Symbol": "mmq_bwd_q5_k_m2048_n512_k2048_44b19e571fc6fb31",
     "TotalSGPRs": 16,
@@ -5717,7 +5668,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "699025e117631684dd84fcde13a388b66c39b654914f9bbdddbbbdb8c60a7bb9",
+    "NormalizedSourceDigest": "699025e117631684dd84fcde13a388b66c39b654914f9bbdddbbbdb8c60a7bb9",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -5728,7 +5679,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "00fa10bf093eb4e0ce6f592ece3336a1ca3c4d00bc4c5f6e6092dcf35f63e961",
     "StaticGroupSegmentBytes": 16384,
     "Symbol": "mmq_bwd_q5_k_m32768_n512_k2048_cf28142433ab61f5",
     "TotalSGPRs": 16,
@@ -5812,7 +5762,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "e93a824039c051b5e1616fd7d308c9a903c34dec6342e95b8bc52f75bb1f7709",
+    "NormalizedSourceDigest": "e93a824039c051b5e1616fd7d308c9a903c34dec6342e95b8bc52f75bb1f7709",
     "Ownership": "Dense",
     "Problem": {
       "K": 512,
@@ -5823,7 +5773,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "f7240d371b637c19e5c622be3e12c0c8f3b1a3b21397a2f850c45239b343b003",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q5_k_m32768_n2048_k512_455ad6f1b34fb108",
     "TotalSGPRs": 16,
@@ -5907,7 +5856,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "e93a824039c051b5e1616fd7d308c9a903c34dec6342e95b8bc52f75bb1f7709",
+    "NormalizedSourceDigest": "e93a824039c051b5e1616fd7d308c9a903c34dec6342e95b8bc52f75bb1f7709",
     "Ownership": "Dense",
     "Problem": {
       "K": 512,
@@ -5918,7 +5867,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "06356c67e966680c985db47f68a1b73ddb5195708849be0207d156ce706a1f5d",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q5_k_m8192_n2048_k512_60125cd8f8d220c6",
     "TotalSGPRs": 16,
@@ -6002,7 +5950,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "3df4b789f2f441ed604af8a935789db30f37212ce258de47332cbb7f80243d1f",
+    "NormalizedSourceDigest": "3df4b789f2f441ed604af8a935789db30f37212ce258de47332cbb7f80243d1f",
     "Ownership": "Dense",
     "Problem": {
       "K": 512,
@@ -6013,7 +5961,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "eef122bd3976dc5651bb2a6c972381e779efec4659610bf8c2d14788c689ed42",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q5_k_m2048_n2048_k512_4b4c3b8c85dc07e8",
     "TotalSGPRs": 16,
@@ -6097,7 +6044,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "cbfa8759d8f6fb9bd535467217d138894708f13650b5a7f66f97c0b259729010",
+    "NormalizedSourceDigest": "cbfa8759d8f6fb9bd535467217d138894708f13650b5a7f66f97c0b259729010",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -6108,7 +6055,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "e5367474e95b76e9e479efcfa95c4a3eca1a25f2674bfb6f8c3cea6688de4a7a",
     "StaticGroupSegmentBytes": 16384,
     "Symbol": "mmq_bwd_q5_k_m8192_n512_k2048_d631cd9051ca2d0e",
     "TotalSGPRs": 16,
@@ -6192,7 +6138,7 @@
       "Wmma": 16
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "f132c033ef32931914f382468168ad0696902bb67489ee3d25ef01682dda7fa0",
+    "NormalizedSourceDigest": "f132c033ef32931914f382468168ad0696902bb67489ee3d25ef01682dda7fa0",
     "Ownership": "Dense",
     "Problem": {
       "K": 8192,
@@ -6203,7 +6149,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "7df466482c578a5fdfcb61a876f2c464fdc853283c38899f6416f75c1af4d899",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q3_k_m2048_n2048_k8192_af7a6bf38c07ca9b",
     "TotalSGPRs": 16,
@@ -6287,7 +6232,7 @@
       "Wmma": 16
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "f132c033ef32931914f382468168ad0696902bb67489ee3d25ef01682dda7fa0",
+    "NormalizedSourceDigest": "f132c033ef32931914f382468168ad0696902bb67489ee3d25ef01682dda7fa0",
     "Ownership": "Dense",
     "Problem": {
       "K": 8192,
@@ -6298,7 +6243,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "95b7ac7ba7af202546b4524bb04bfb59ee0bd14d0934d60f8809f532a43403b2",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q3_k_m8192_n2048_k8192_dc9a2b99d0581346",
     "TotalSGPRs": 16,
@@ -6382,7 +6326,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "399f827b901ca678af20734d7d123e1cad821220010e85e8421363cf85461bf0",
+    "NormalizedSourceDigest": "399f827b901ca678af20734d7d123e1cad821220010e85e8421363cf85461bf0",
     "Ownership": "Dense",
     "Problem": {
       "K": 8192,
@@ -6393,7 +6337,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "7bac1f7a29788b29c6a077b6d73fa7ce201b4be4b45f2d6065daa90e4bcbdceb",
     "StaticGroupSegmentBytes": 10240,
     "Symbol": "mmq_bwd_q3_k_m32768_n2048_k8192_c8e82906bf4e0680",
     "TotalSGPRs": 16,
@@ -6477,7 +6420,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "395621e99995e6c70bbb51a07f511ab281c90d934c9b1ac15b818fc214a0b81f",
+    "NormalizedSourceDigest": "395621e99995e6c70bbb51a07f511ab281c90d934c9b1ac15b818fc214a0b81f",
     "Ownership": "Dense",
     "Problem": {
       "K": 512,
@@ -6488,7 +6431,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "0d41340092fada46df7184b4bdffc6f6f5ceb329151a66504262682514751521",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q3_k_m32768_n2048_k512_91146b440f4ab12d",
     "TotalSGPRs": 16,
@@ -6572,7 +6514,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "9d2788c46c9eeca9122623a51cac2fa442ef93b469f2582915d499d32d0a31c6",
+    "NormalizedSourceDigest": "9d2788c46c9eeca9122623a51cac2fa442ef93b469f2582915d499d32d0a31c6",
     "Ownership": "Dense",
     "Problem": {
       "K": 512,
@@ -6583,7 +6525,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "bea3c73efcf699532c3b00f12d8ab967ab3164e18a9c2cb097344ebb4d078bbb",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q3_k_m2048_n2048_k512_3cc3143bce6a2987",
     "TotalSGPRs": 16,
@@ -6667,7 +6608,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "eed1b4b4fc4252feec16bd6fa36cb73b0029b8521a46063e9734ef3cf8d41067",
+    "NormalizedSourceDigest": "eed1b4b4fc4252feec16bd6fa36cb73b0029b8521a46063e9734ef3cf8d41067",
     "Ownership": "Dense",
     "Problem": {
       "K": 512,
@@ -6678,7 +6619,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "65ba3250e1572f765dc93b94431bd153b8ca1c22cde1a693cd38292193c2b77b",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q3_k_m8192_n2048_k512_8ce1befe635f7860",
     "TotalSGPRs": 16,
@@ -6762,7 +6702,7 @@
       "Wmma": 16
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "f41c211c7c38b6e9623029bd97b13c8f21d10dcd0d1f71e7ab3f3a48c316383f",
+    "NormalizedSourceDigest": "f41c211c7c38b6e9623029bd97b13c8f21d10dcd0d1f71e7ab3f3a48c316383f",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -6773,7 +6713,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "a59438d652935cd55539dfac131edf40761921d2fb219a85b17d8e83c86a6744",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q8_0_m32768_n4096_k2048_c34883a1d6cdfa4d",
     "TotalSGPRs": 16,
@@ -6857,7 +6796,7 @@
       "Wmma": 16
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "f41c211c7c38b6e9623029bd97b13c8f21d10dcd0d1f71e7ab3f3a48c316383f",
+    "NormalizedSourceDigest": "f41c211c7c38b6e9623029bd97b13c8f21d10dcd0d1f71e7ab3f3a48c316383f",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -6868,7 +6807,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "47434878f27941dd09bc96281e4d02a79eaa6fdb18099d9cad989a185f01f143",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q8_0_m8192_n4096_k2048_497b16a21524fd35",
     "TotalSGPRs": 16,
@@ -6952,7 +6890,7 @@
       "Wmma": 16
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "4929b5c30c8c4d3b3d4c0f8d030d27a642775b2ecf64440de282a558dc5f9c14",
+    "NormalizedSourceDigest": "4929b5c30c8c4d3b3d4c0f8d030d27a642775b2ecf64440de282a558dc5f9c14",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -6963,7 +6901,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "c1c663cc04a24670690e5bbf36017cc5220993da7445c4d654372b3d59fc3939",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q8_0_m32768_n2048_k4096_3ed17a6b54e2e995",
     "TotalSGPRs": 16,
@@ -7047,7 +6984,7 @@
       "Wmma": 16
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "4929b5c30c8c4d3b3d4c0f8d030d27a642775b2ecf64440de282a558dc5f9c14",
+    "NormalizedSourceDigest": "4929b5c30c8c4d3b3d4c0f8d030d27a642775b2ecf64440de282a558dc5f9c14",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -7058,7 +6995,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "38abae2a5388bb62ae959121ca5ac7ef711d83fda45b8d57a1ac355e16e4ca1a",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q8_0_m8192_n2048_k4096_8fdc9c95311213b6",
     "TotalSGPRs": 16,
@@ -7142,7 +7078,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "6e79f4ad7b59a6880815ce02a70f8584f92ba246a73179226a4fa6e0f7844eb4",
+    "NormalizedSourceDigest": "6e79f4ad7b59a6880815ce02a70f8584f92ba246a73179226a4fa6e0f7844eb4",
     "Ownership": "Dense",
     "Problem": {
       "K": 32768,
@@ -7153,7 +7089,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "34d4379c5d2a6ff5aac72083ea61d2f16f3ce36235ca1f964e88cfbd2de39faa",
     "StaticGroupSegmentBytes": 10240,
     "Symbol": "mmq_bwd_q8_0_m32768_n1024_k32768_b0d446542d5be3dd",
     "TotalSGPRs": 16,
@@ -7237,7 +7172,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "410e2fef364a35f4407bf0cd62242100dc1fb397317583e41f2f107f121db2ab",
+    "NormalizedSourceDigest": "410e2fef364a35f4407bf0cd62242100dc1fb397317583e41f2f107f121db2ab",
     "Ownership": "Dense",
     "Problem": {
       "K": 129280,
@@ -7248,7 +7183,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "145211a8187fdfc7d5b2bc4d43edab5aa0a5d8feeb5464936083b571cebd90d2",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q8_0_m512_n4096_k129280_8ef0a3439f56bcda",
     "TotalSGPRs": 16,
@@ -7332,7 +7266,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "565e6bb42c9ba2ba73bffe30dcc0ad3b0a14b55e60e825c1bb22c0efaa041cce",
+    "NormalizedSourceDigest": "565e6bb42c9ba2ba73bffe30dcc0ad3b0a14b55e60e825c1bb22c0efaa041cce",
     "Ownership": "Dense",
     "Problem": {
       "K": 1024,
@@ -7343,7 +7277,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "697642c5f6d178699ed217e92d2cf9fa2c7db38cf7c9515ab3eeaf36d061d110",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q8_0_m2048_n4096_k1024_5d99198f5a5b1531",
     "TotalSGPRs": 16,
@@ -7427,7 +7360,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "565e6bb42c9ba2ba73bffe30dcc0ad3b0a14b55e60e825c1bb22c0efaa041cce",
+    "NormalizedSourceDigest": "565e6bb42c9ba2ba73bffe30dcc0ad3b0a14b55e60e825c1bb22c0efaa041cce",
     "Ownership": "Dense",
     "Problem": {
       "K": 1024,
@@ -7438,7 +7371,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "663d99e2e8e7a2a923fe2b0e0115f0ef6d14633cbb42c2af6c42e2e858d8e84a",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q8_0_m32768_n4096_k1024_1f803f9e9f2e2943",
     "TotalSGPRs": 16,
@@ -7522,7 +7454,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "565e6bb42c9ba2ba73bffe30dcc0ad3b0a14b55e60e825c1bb22c0efaa041cce",
+    "NormalizedSourceDigest": "565e6bb42c9ba2ba73bffe30dcc0ad3b0a14b55e60e825c1bb22c0efaa041cce",
     "Ownership": "Dense",
     "Problem": {
       "K": 1024,
@@ -7533,7 +7465,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "9d6232a51cb2da3e4636a060f744a86578a523b8c14eb219164a5437cebad9b9",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q8_0_m8192_n4096_k1024_2b0fbcdba62f88ea",
     "TotalSGPRs": 16,
@@ -7617,7 +7548,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "d8568d9230cf9b6c55c29bc76f67bee4d5d553687e1b70c46466661cb47cad92",
+    "NormalizedSourceDigest": "d8568d9230cf9b6c55c29bc76f67bee4d5d553687e1b70c46466661cb47cad92",
     "Ownership": "Dense",
     "Problem": {
       "K": 129280,
@@ -7628,7 +7559,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "15362c28a9aacde4c480ab75018d5356667332d2e7a47a1051baf9444276e116",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q8_0_m256_n4096_k129280_94d472bf4644b5c2",
     "TotalSGPRs": 16,
@@ -7712,7 +7642,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "4ed3427dfd5ba5109868d3ba77e5b32ef52cd62152e5d1f0d2d323eeafc17cb6",
+    "NormalizedSourceDigest": "4ed3427dfd5ba5109868d3ba77e5b32ef52cd62152e5d1f0d2d323eeafc17cb6",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -7723,7 +7653,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "3a27412685fa9e2444c20c6eef296652d4a96bb2be80927bfe7d1eed217bffdc",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q8_0_m2048_n4096_k2048_f668b8070bf0b672",
     "TotalSGPRs": 16,
@@ -7807,7 +7736,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "eaeebbd4339e1c780e62b581089474d42f6a16d03939c3fc931ddfbc7529cffc",
+    "NormalizedSourceDigest": "eaeebbd4339e1c780e62b581089474d42f6a16d03939c3fc931ddfbc7529cffc",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -7818,7 +7747,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "441121a1aa6a08f72dc5dbba3066e3529d46fe30048eb0d16708b562fe0ddb83",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q8_0_m2048_n2048_k4096_ba37265667a0332a",
     "TotalSGPRs": 16,
@@ -7902,7 +7830,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "b22f19d9b5626297b58be9b16369096a5ef5cf79ec5dcd7e8bb2f961be51c432",
+    "NormalizedSourceDigest": "b22f19d9b5626297b58be9b16369096a5ef5cf79ec5dcd7e8bb2f961be51c432",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -7913,7 +7841,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "0d1b81f8af907e968e832c959f9dedea176bda8482eeff97744e5549a182a56f",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q8_0_m2048_n8192_k4096_55ae41807fbd0868",
     "TotalSGPRs": 16,
@@ -7997,7 +7924,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "b22f19d9b5626297b58be9b16369096a5ef5cf79ec5dcd7e8bb2f961be51c432",
+    "NormalizedSourceDigest": "b22f19d9b5626297b58be9b16369096a5ef5cf79ec5dcd7e8bb2f961be51c432",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -8008,7 +7935,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "31c7b6b68d94375ab1dcba520a86c0534fb99bc978cc8cc13d16c13d970de9fa",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q8_0_m32768_n8192_k4096_5f37e19fffe72524",
     "TotalSGPRs": 16,
@@ -8092,7 +8018,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "b22f19d9b5626297b58be9b16369096a5ef5cf79ec5dcd7e8bb2f961be51c432",
+    "NormalizedSourceDigest": "b22f19d9b5626297b58be9b16369096a5ef5cf79ec5dcd7e8bb2f961be51c432",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -8103,7 +8029,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "b7635ab625ef06bd7f94e7c3f12a79646e566e6ff2b3db14e25e25b9693ab6c9",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q8_0_m8192_n8192_k4096_fc26b587879c3242",
     "TotalSGPRs": 16,
@@ -8187,7 +8112,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "5030e3e6a12ae51e00a34c6855fe496d349c9f10d7e3dd8ea071a3c69b0129e7",
+    "NormalizedSourceDigest": "5030e3e6a12ae51e00a34c6855fe496d349c9f10d7e3dd8ea071a3c69b0129e7",
     "Ownership": "Dense",
     "Problem": {
       "K": 512,
@@ -8198,7 +8123,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "5ace36127efc3b81f04a584ed9446a000a1f8896b8a42e0c83a85ca62a868cb0",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q8_0_m2048_n4096_k512_3a5738c0aa9c1e29",
     "TotalSGPRs": 16,
@@ -8282,7 +8206,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "5030e3e6a12ae51e00a34c6855fe496d349c9f10d7e3dd8ea071a3c69b0129e7",
+    "NormalizedSourceDigest": "5030e3e6a12ae51e00a34c6855fe496d349c9f10d7e3dd8ea071a3c69b0129e7",
     "Ownership": "Dense",
     "Problem": {
       "K": 512,
@@ -8293,7 +8217,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "74dd024999604c683163816164620b7e22387487eabca68d1bca3316cc9c4354",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q8_0_m32768_n4096_k512_681a5edf8b824c29",
     "TotalSGPRs": 16,
@@ -8377,7 +8300,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "5030e3e6a12ae51e00a34c6855fe496d349c9f10d7e3dd8ea071a3c69b0129e7",
+    "NormalizedSourceDigest": "5030e3e6a12ae51e00a34c6855fe496d349c9f10d7e3dd8ea071a3c69b0129e7",
     "Ownership": "Dense",
     "Problem": {
       "K": 512,
@@ -8388,7 +8311,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "c8f6865af08fa7db6fe64e20878cef3b0d7713e8a6a023c47aa5fe4de32a2de1",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q8_0_m8192_n4096_k512_f93b7a54f677aa30",
     "TotalSGPRs": 16,
@@ -8472,7 +8394,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "e7b6644ae58aafad20835c18deb3074e6f47712f99f506f5600471171075d734",
+    "NormalizedSourceDigest": "e7b6644ae58aafad20835c18deb3074e6f47712f99f506f5600471171075d734",
     "Ownership": "Dense",
     "Problem": {
       "K": 32768,
@@ -8483,7 +8405,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "892a224518eca1a4fdafadce2a8b808e8c6ed717691c5d88f4208ccae99840fb",
     "StaticGroupSegmentBytes": 16384,
     "Symbol": "mmq_bwd_q8_0_m8192_n1024_k32768_d99de81b4c72bbf7",
     "TotalSGPRs": 16,
@@ -8567,7 +8488,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "e28a463e42d0faea30e99c078ba3c807285a4929cf8b9926c8571879136fd785",
+    "NormalizedSourceDigest": "e28a463e42d0faea30e99c078ba3c807285a4929cf8b9926c8571879136fd785",
     "Ownership": "Dense",
     "Problem": {
       "K": 248320,
@@ -8578,7 +8499,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "815b98c508895e47bf9606f38ac05ac7a2bfdb4bdadb6f48f2ce40f7483d2378",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q6_k_m256_n2048_k248320_ed1076244ec57d3d",
     "TotalSGPRs": 16,
@@ -8662,7 +8582,7 @@
       "Wmma": 8
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "89b476a97adec5052cf6d4161107ada84980f22d619cc65d2f05755bc98d98bb",
+    "NormalizedSourceDigest": "89b476a97adec5052cf6d4161107ada84980f22d619cc65d2f05755bc98d98bb",
     "Ownership": "Dense",
     "Problem": {
       "K": 248320,
@@ -8673,7 +8593,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "206a9fc84e774a51479c8bb1a2cd47b133adee9bb128df62952f8172ab91c287",
     "StaticGroupSegmentBytes": 4608,
     "Symbol": "mmq_bwd_q6_k_m64_n2048_k248320_76fa1a4855676e9c",
     "TotalSGPRs": 16,
@@ -8757,7 +8676,7 @@
       "Wmma": 16
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "24e3e2671f683233c18e057f1f608d5a1a2f486b752c3ea2827b281b4b88c21c",
+    "NormalizedSourceDigest": "24e3e2671f683233c18e057f1f608d5a1a2f486b752c3ea2827b281b4b88c21c",
     "Ownership": "Dense",
     "Problem": {
       "K": 129280,
@@ -8768,7 +8687,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "9ecb9049c8ccaa6cd912ff12eaea1673cae32cdd65d74600ca1ca5ba8ee72e2a",
     "StaticGroupSegmentBytes": 9216,
     "Symbol": "mmq_bwd_q8_0_m32_n4096_k129280_29a74eb9e61887ed",
     "TotalSGPRs": 16,
@@ -8852,7 +8770,7 @@
       "Wmma": 16
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "6839b379cadd80fad5810d83d7fc87c08088b2d5226edf3044ebc19382b410b9",
+    "NormalizedSourceDigest": "6839b379cadd80fad5810d83d7fc87c08088b2d5226edf3044ebc19382b410b9",
     "Ownership": "Dense",
     "Problem": {
       "K": 129280,
@@ -8863,7 +8781,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "693492c07af320d1d26fa16bc0f871bc3feb5ce5b0244b14af5acd74ddcc73c3",
     "StaticGroupSegmentBytes": 9216,
     "Symbol": "mmq_bwd_q8_0_m64_n4096_k129280_e406d4a997a19be1",
     "TotalSGPRs": 16,
@@ -8947,7 +8864,7 @@
       "Wmma": 16
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "298e51b0ac9c25f0850edf3833f8ed457620a5882f2889b143e89f33f0aee202",
+    "NormalizedSourceDigest": "298e51b0ac9c25f0850edf3833f8ed457620a5882f2889b143e89f33f0aee202",
     "Ownership": "Dense",
     "Problem": {
       "K": 248320,
@@ -8958,7 +8875,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "0cd5acca7dce7756835fd972a820989c85bdda5a2134a07579d6df4aa930e872",
     "StaticGroupSegmentBytes": 4608,
     "Symbol": "mmq_bwd_q6_k_m128_n2048_k248320_6538f0b3cb2e22e1",
     "TotalSGPRs": 16,
@@ -9042,7 +8958,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "108b407175838133e3de90feabd0646fb077f3ea5da445729be991dc0f85d9a8",
+    "NormalizedSourceDigest": "108b407175838133e3de90feabd0646fb077f3ea5da445729be991dc0f85d9a8",
     "Ownership": "Dense",
     "Problem": {
       "K": 129280,
@@ -9053,7 +8969,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "2c02d5f66816d577c58cc02b2f031cacc6f3a433246d28e39e609cbbd1b18c57",
     "StaticGroupSegmentBytes": 9216,
     "Symbol": "mmq_bwd_q8_0_m128_n4096_k129280_cc9c423da8db42f9",
     "TotalSGPRs": 16,
@@ -9137,7 +9052,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "54abf3d2af472734a8f097a7091f982a38ca1fc7682002d52fa75096ea850e49",
+    "NormalizedSourceDigest": "54abf3d2af472734a8f097a7091f982a38ca1fc7682002d52fa75096ea850e49",
     "Ownership": "Dense",
     "Problem": {
       "K": 32768,
@@ -9148,7 +9063,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "bfbfa354fe98ec79234f2b65cfd989be9acdfbb4917face90a6cf1870e9e0591",
     "StaticGroupSegmentBytes": 10240,
     "Symbol": "mmq_bwd_q8_0_m2048_n1024_k32768_411e043d82a04f16",
     "TotalSGPRs": 16,
@@ -9232,7 +9146,7 @@
       "Wmma": 16
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "7101a9d597340b507ca514a799ebda0ff66ce012cfc5236991e18b022d48b9a8",
+    "NormalizedSourceDigest": "7101a9d597340b507ca514a799ebda0ff66ce012cfc5236991e18b022d48b9a8",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -9243,7 +9157,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "297821269121bff031f6d1edeb64a7916ab4466d015894e2db725e21be1827b9",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q4_k_m32768_n4096_k2048_554a1ee0cbb2a3fe",
     "TotalSGPRs": 16,
@@ -9327,7 +9240,7 @@
       "Wmma": 16
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "7101a9d597340b507ca514a799ebda0ff66ce012cfc5236991e18b022d48b9a8",
+    "NormalizedSourceDigest": "7101a9d597340b507ca514a799ebda0ff66ce012cfc5236991e18b022d48b9a8",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -9338,7 +9251,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "61ef824ad07dfc573ca05033b683cc3556436d39ac9c90f0ee95df99f070cff1",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q4_k_m8192_n4096_k2048_196b5482b29aaf64",
     "TotalSGPRs": 16,
@@ -9422,7 +9334,7 @@
       "Wmma": 16
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "a661fab36cd4ed3c7c2078c8ab4c79e78bd2a60591190819b110dc12723d0838",
+    "NormalizedSourceDigest": "a661fab36cd4ed3c7c2078c8ab4c79e78bd2a60591190819b110dc12723d0838",
     "Ownership": "Dense",
     "Problem": {
       "K": 8192,
@@ -9433,7 +9345,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "ee6707902366b7dfed7b14db089549f71cc210605e7778656945b5bb74a28758",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q4_k_m8192_n2048_k8192_e1bb6e35c73c2a15",
     "TotalSGPRs": 16,
@@ -9517,7 +9428,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "090989ec2126da1f8b129b6f63b50ce2990120677159318d6413b8fda3d019ef",
+    "NormalizedSourceDigest": "090989ec2126da1f8b129b6f63b50ce2990120677159318d6413b8fda3d019ef",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -9528,7 +9439,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "4313a0de204c469ecbe190f59279bcdbacf1ac5167eb54a78b1cf0c9982c1fd5",
     "StaticGroupSegmentBytes": 16384,
     "Symbol": "mmq_bwd_q4_k_m2048_n512_k2048_f2ae729b0b3d54ba",
     "TotalSGPRs": 16,
@@ -9612,7 +9522,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "090989ec2126da1f8b129b6f63b50ce2990120677159318d6413b8fda3d019ef",
+    "NormalizedSourceDigest": "090989ec2126da1f8b129b6f63b50ce2990120677159318d6413b8fda3d019ef",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -9623,7 +9533,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "d77ab7a1a73312c5600c61d70dbc527dbdc316759440d857e699ab3513e4aab0",
     "StaticGroupSegmentBytes": 16384,
     "Symbol": "mmq_bwd_q4_k_m32768_n512_k2048_4fd4e2ab584ba308",
     "TotalSGPRs": 16,
@@ -9707,7 +9616,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "090989ec2126da1f8b129b6f63b50ce2990120677159318d6413b8fda3d019ef",
+    "NormalizedSourceDigest": "090989ec2126da1f8b129b6f63b50ce2990120677159318d6413b8fda3d019ef",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -9718,7 +9627,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "cd824fafcb6084200aded8e86bb5be4e114d02046bde6dc577890b990a2935cc",
     "StaticGroupSegmentBytes": 16384,
     "Symbol": "mmq_bwd_q4_k_m8192_n512_k2048_283a88d55d119a89",
     "TotalSGPRs": 16,
@@ -9802,7 +9710,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "4702045ab2bb3cd6305dc8f04f53cfdce83dc9180761e3a1eafd25ac190d89b6",
+    "NormalizedSourceDigest": "4702045ab2bb3cd6305dc8f04f53cfdce83dc9180761e3a1eafd25ac190d89b6",
     "Ownership": "Dense",
     "Problem": {
       "K": 8192,
@@ -9813,7 +9721,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "1bc1b25bfa0eca2245721aee8e06722be0298ca2ed340f22f2144c093b2a0998",
     "StaticGroupSegmentBytes": 16384,
     "Symbol": "mmq_bwd_q4_k_m2048_n2048_k8192_aa1f0fec231c7a19",
     "TotalSGPRs": 16,
@@ -9897,7 +9804,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "7ff1069b531220709c41d677ff616a57e6b7ad97129ce13ed247465409bf267e",
+    "NormalizedSourceDigest": "7ff1069b531220709c41d677ff616a57e6b7ad97129ce13ed247465409bf267e",
     "Ownership": "Dense",
     "Problem": {
       "K": 8192,
@@ -9908,7 +9815,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "a97eb7e31c64035632c19ab8d60ba1a8217735c724b6eea98b1ed4ea22b567b8",
     "StaticGroupSegmentBytes": 16384,
     "Symbol": "mmq_bwd_q4_k_m32768_n2048_k8192_7cb50a7c50a4b278",
     "TotalSGPRs": 16,
@@ -9992,7 +9898,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "d35ee9aae3e3ec68156845d43cbb1251c641f425e894d17412d22ce7bc6fa7b6",
+    "NormalizedSourceDigest": "d35ee9aae3e3ec68156845d43cbb1251c641f425e894d17412d22ce7bc6fa7b6",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -10003,7 +9909,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "61be9bc0b76b535aba28d45a1fc54d1e0175dc6ae5cee8fabbbc374817d9ee56",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q4_k_m2048_n4096_k2048_ce0506ff376281f4",
     "TotalSGPRs": 16,
@@ -10087,7 +9992,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "ac5de9059dbbb9afcd04e170e16ae1a9046d7be4114a55f7f1793eba6d3f6605",
+    "NormalizedSourceDigest": "ac5de9059dbbb9afcd04e170e16ae1a9046d7be4114a55f7f1793eba6d3f6605",
     "Ownership": "Dense",
     "Problem": {
       "K": 512,
@@ -10098,7 +10003,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "2bbd73aa3aa2e47dce1241754fb8fbd0da8eacfd5219a7523564abd4321ffa51",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q4_k_m32768_n2048_k512_a1288e5bd8984359",
     "TotalSGPRs": 16,
@@ -10182,7 +10086,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "9a59f5eab2dce065936b5b8b853fc0384905a67fc36152ed4a76532e892ce999",
+    "NormalizedSourceDigest": "9a59f5eab2dce065936b5b8b853fc0384905a67fc36152ed4a76532e892ce999",
     "Ownership": "Dense",
     "Problem": {
       "K": 512,
@@ -10193,7 +10097,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "02e11f4a3579fb1f818a3cdfc656373f5e1268081fbc95b931233aea9327faa8",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q4_k_m8192_n2048_k512_ea25b77ecc82d61d",
     "TotalSGPRs": 16,
@@ -10277,7 +10180,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "17a4338f06a2cc17c023829805be9fd51bfad609ff88a8cc04e69f33622bf5e8",
+    "NormalizedSourceDigest": "17a4338f06a2cc17c023829805be9fd51bfad609ff88a8cc04e69f33622bf5e8",
     "Ownership": "Dense",
     "Problem": {
       "K": 512,
@@ -10288,7 +10191,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "f811890b391aab81b2829c8e9d1ab9ef48d8b74d177b041ca359dbab04c8449b",
     "StaticGroupSegmentBytes": 5120,
     "Symbol": "mmq_bwd_q4_k_m2048_n2048_k512_f8ae4100f87d6dac",
     "TotalSGPRs": 16,
@@ -10372,7 +10274,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "c8566b7db7a8a95cc962f2c303e9a05e8265196e3436b627e911e06935b6985e",
+    "NormalizedSourceDigest": "c8566b7db7a8a95cc962f2c303e9a05e8265196e3436b627e911e06935b6985e",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -10383,7 +10285,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "ba6c19c816d35237e46e53fb526888da5881c4cc6583de82e82f204ec35c25c0",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "mmq_fwd_q4_k_m2048_n512_k2048_753ef81fa5bc326a",
     "TotalSGPRs": 16,
@@ -10467,7 +10368,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "89270cc035c6236f88060c44331c1f99bbb16e842c75474e6c0ee5774fd84387",
+    "NormalizedSourceDigest": "89270cc035c6236f88060c44331c1f99bbb16e842c75474e6c0ee5774fd84387",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -10478,7 +10379,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "9c00c4c0091f27f37505da013ccc211d5cb8bef8c12f681af1b3a227aad111a8",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "mmq_fwd_q4_k_m8192_n512_k2048_edf26f8be572c69d",
     "TotalSGPRs": 16,
@@ -10562,7 +10462,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "a0c1c6764560749aecde8688e87db61006da48846dc2ae159db055cd59e47974",
+    "NormalizedSourceDigest": "a0c1c6764560749aecde8688e87db61006da48846dc2ae159db055cd59e47974",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -10573,7 +10473,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "b489f4ef8f25db317252d69d05604e3f2aa9643a9af0b61e5cda59284c61cf02",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "mmq_fwd_q5_k_m8192_n512_k2048_bf5eff47585aa8d6",
     "TotalSGPRs": 16,
@@ -10657,7 +10556,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "4d703fe5bc3c426ac465552b7e57b7ca0261baca73473edf2fa19c7259c19d24",
+    "NormalizedSourceDigest": "4d703fe5bc3c426ac465552b7e57b7ca0261baca73473edf2fa19c7259c19d24",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -10668,7 +10567,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "1d2442ef377f6a56fa4c76bfec127491f25b2fff85c01fd9957c997b85e8f398",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "mmq_fwd_q4_k_m2048_n2048_k4096_665eb7995f7cde3c",
     "TotalSGPRs": 16,
@@ -10752,7 +10650,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "2e5d674ce425a823ebe135b3cd58a2279dace0d9f1f2a106e3482759d7fb0216",
+    "NormalizedSourceDigest": "2e5d674ce425a823ebe135b3cd58a2279dace0d9f1f2a106e3482759d7fb0216",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -10763,7 +10661,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "4a5637443ffe1f319274c67ebacb4522c5f59d0f44e02898a0540a69d4d8a8d6",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "mmq_fwd_q4_k_m32768_n2048_k4096_382a91e3812e7fb3",
     "TotalSGPRs": 16,
@@ -10847,7 +10744,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "f11da28695782b9bf8735d91e1954b29e9c9ce61f9d4729d8e041a93516b318f",
+    "NormalizedSourceDigest": "f11da28695782b9bf8735d91e1954b29e9c9ce61f9d4729d8e041a93516b318f",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -10858,7 +10755,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "ed1f9e57924f5baa7ddd44990b95e32dfa861031d58044533d64e6a839faf341",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "mmq_fwd_q4_k_m8192_n2048_k4096_041b661cf32a27b8",
     "TotalSGPRs": 16,
@@ -10942,7 +10838,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "4f72867846cd7bb8b1cae24e7040a1dfbab98c034417ce17fef271ad99b7ef4a",
+    "NormalizedSourceDigest": "4f72867846cd7bb8b1cae24e7040a1dfbab98c034417ce17fef271ad99b7ef4a",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -10953,7 +10849,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "eddbd5590219b9e2152cfd83048980f96a2fd97ff4a89637c1dc869932e43571",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "mmq_fwd_q4_k_m2048_n8192_k2048_5f6c7838510c76b4",
     "TotalSGPRs": 16,
@@ -11037,7 +10932,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "389184dbbba5151905560d5d06294bf19e90b40722f96552c00f87276db69c34",
+    "NormalizedSourceDigest": "389184dbbba5151905560d5d06294bf19e90b40722f96552c00f87276db69c34",
     "Ownership": "Dense",
     "Problem": {
       "K": 512,
@@ -11048,7 +10943,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "4198950149f765ff7e0276661d792b6980da362105c728750649ecdc8a9054fa",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "mmq_fwd_q4_k_m2048_n2048_k512_4b5e4be66d47912c",
     "TotalSGPRs": 16,
@@ -11132,7 +11026,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "36031643a4ee0a081b27616459d62c3528f702075fb48e4b6dcfcacd3bf8998a",
+    "NormalizedSourceDigest": "36031643a4ee0a081b27616459d62c3528f702075fb48e4b6dcfcacd3bf8998a",
     "Ownership": "Dense",
     "Problem": {
       "K": 512,
@@ -11143,7 +11037,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "a6d90e2d2d40dfdc405d381bf47a2d7b8f295943c2599ad19f3d54ea10ab525b",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "mmq_fwd_q5_k_m2048_n2048_k512_d252a5127fdc4149",
     "TotalSGPRs": 16,
@@ -11227,7 +11120,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "9454e99ff84da80788fe239f775933542949a8f7c78f32de0ad0d0a36b924fae",
+    "NormalizedSourceDigest": "9454e99ff84da80788fe239f775933542949a8f7c78f32de0ad0d0a36b924fae",
     "Ownership": "Dense",
     "Problem": {
       "K": 512,
@@ -11238,7 +11131,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "095bf2f11678ab0a9c3722078aedfe7edc6b96dcd35b81b9139e2d689f32d3f1",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "mmq_fwd_q4_k_m32768_n2048_k512_ea97ae0eb9b4b154",
     "TotalSGPRs": 16,
@@ -11322,7 +11214,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "17e0620660eb08c394375770ee28cc27e39bb3833f0e3541c23d862ad78bc6c5",
+    "NormalizedSourceDigest": "17e0620660eb08c394375770ee28cc27e39bb3833f0e3541c23d862ad78bc6c5",
     "Ownership": "Dense",
     "Problem": {
       "K": 512,
@@ -11333,7 +11225,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "4d991f28eaae4c38d867d00fe191cdef6dda7c8d88a3cba9b65f1e6f2fdfc88b",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "mmq_fwd_q5_k_m32768_n2048_k512_47871d72c8de59e5",
     "TotalSGPRs": 16,
@@ -11417,7 +11308,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "023746e3c971e07934e0a058eeb91346b80a4cbf60ed1104c29a924507e7979a",
+    "NormalizedSourceDigest": "023746e3c971e07934e0a058eeb91346b80a4cbf60ed1104c29a924507e7979a",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -11428,7 +11319,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "94ae97893d8255a5c5745eaf834b824de8d5ea4e12e9123f538bc19a3d8c22cc",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "mmq_fwd_q4_k_m32768_n8192_k2048_d3c137a521e71c57",
     "TotalSGPRs": 16,
@@ -11512,7 +11402,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "71eba77c0113370299ac604eebe2d83154bdbe41e5519cea595d011d8d24820b",
+    "NormalizedSourceDigest": "71eba77c0113370299ac604eebe2d83154bdbe41e5519cea595d011d8d24820b",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -11523,7 +11413,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "29c32ef0d55e966fa6b31fc98d56a1c87911ccf2130d7285c8a3151e8987cbcb",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "mmq_fwd_q5_k_m32768_n512_k2048_cb8efc54e9727b09",
     "TotalSGPRs": 16,
@@ -11607,7 +11496,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "4765681f4357edecbdbd66d3142ec1e747f4e9bf9adc8f49be67f0e2cdbb8aef",
+    "NormalizedSourceDigest": "4765681f4357edecbdbd66d3142ec1e747f4e9bf9adc8f49be67f0e2cdbb8aef",
     "Ownership": "Dense",
     "Problem": {
       "K": 512,
@@ -11618,7 +11507,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "27e23a7063360bf63f7f3f55618da8a2fd12e6b015e785032ef53ff6d01d318d",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "mmq_fwd_q4_k_m8192_n2048_k512_7b2f9b5e15d65249",
     "TotalSGPRs": 16,
@@ -11702,7 +11590,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "975bfd6a22c015c54ae8b0726447fe4f262e59d16075c54bdb826050a1159976",
+    "NormalizedSourceDigest": "975bfd6a22c015c54ae8b0726447fe4f262e59d16075c54bdb826050a1159976",
     "Ownership": "Dense",
     "Problem": {
       "K": 512,
@@ -11713,7 +11601,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "14b03ede92b5659aa720ac28b1265ce260e9eec116597790dddbcc14832490ef",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "mmq_fwd_q5_k_m8192_n2048_k512_16caf42949a38b26",
     "TotalSGPRs": 16,
@@ -11797,7 +11684,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "eb0f1855b6db176d23a367be5fc57e665c20aa197d4bf599124630fe0e0ce10d",
+    "NormalizedSourceDigest": "eb0f1855b6db176d23a367be5fc57e665c20aa197d4bf599124630fe0e0ce10d",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -11808,7 +11695,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "40d433c5303f12474955a2df09d60fd6061e93cbea63121384c7f419c6d0ebdb",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "mmq_fwd_q4_k_m32768_n512_k2048_917314a3cf93ca5a",
     "TotalSGPRs": 16,
@@ -11892,7 +11778,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "462b6bb6a44ce4c5306176d103759325c18ffac77c2236da5f7a0ca7356986ba",
+    "NormalizedSourceDigest": "462b6bb6a44ce4c5306176d103759325c18ffac77c2236da5f7a0ca7356986ba",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -11903,7 +11789,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "3d42e0d055f3eebbec8b9e46487b9c102baf4f62cf841fc07b76bbb781459c19",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "mmq_fwd_q4_k_m8192_n8192_k2048_0659f7a435c29a87",
     "TotalSGPRs": 16,
@@ -11987,7 +11872,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "e80cfc1dc9dc4ed5819f6da57733bbb7e7e731ac5eca692c476f0d53e4b4a359",
+    "NormalizedSourceDigest": "e80cfc1dc9dc4ed5819f6da57733bbb7e7e731ac5eca692c476f0d53e4b4a359",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -11998,7 +11883,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "64a195cc36b6bcf54c58184f1669dc11075e88115c937c2a1624f32094a1a02f",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "mmq_fwd_q5_k_m2048_n512_k2048_1b9a9abd77c5e8b6",
     "TotalSGPRs": 16,
@@ -12082,7 +11966,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "4bfad0ac8d4c9f45a15397eb36de48e77f119a6018fbb8725c06225df4e4cb97",
+    "NormalizedSourceDigest": "4bfad0ac8d4c9f45a15397eb36de48e77f119a6018fbb8725c06225df4e4cb97",
     "Ownership": "Dense",
     "Problem": {
       "K": 1024,
@@ -12093,7 +11977,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "a8c1927f6a13ae6220833e3c5701d075e2523d67e01ed3c84a2106309aabe3f0",
     "StaticGroupSegmentBytes": 27648,
     "Symbol": "mmq_fwd_q8_0_m2048_n32768_k1024_f7c942492cb08af8",
     "TotalSGPRs": 16,
@@ -12177,7 +12060,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "d05e46ef91ac4fd12138dc589f69de913fe776d4e9f42ef3490e4752668c7988",
+    "NormalizedSourceDigest": "d05e46ef91ac4fd12138dc589f69de913fe776d4e9f42ef3490e4752668c7988",
     "Ownership": "Dense",
     "Problem": {
       "K": 1024,
@@ -12188,7 +12071,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "8312a0213e03f772f3ffdc3d353f150b276809bac6a27d3a476e291daff02536",
     "StaticGroupSegmentBytes": 27648,
     "Symbol": "mmq_fwd_q8_0_m32768_n32768_k1024_54fd9c6683513603",
     "TotalSGPRs": 16,
@@ -12272,7 +12154,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "96758cc6ab886bd87253d3f2b393ed7c7eae8779a9ee09465f26543e3f25ec94",
+    "NormalizedSourceDigest": "96758cc6ab886bd87253d3f2b393ed7c7eae8779a9ee09465f26543e3f25ec94",
     "Ownership": "Dense",
     "Problem": {
       "K": 1024,
@@ -12283,7 +12165,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "0ff95fca501c85d6d3ca6346531cc018d700541a3755f2519daae089ffa9815c",
     "StaticGroupSegmentBytes": 27648,
     "Symbol": "mmq_fwd_q8_0_m8192_n32768_k1024_399bb3eba1cde513",
     "TotalSGPRs": 16,
@@ -12367,7 +12248,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "25302ef5062c6dd4a698867c0fc9c26892949537e5807c5b6383023f9cec60ec",
+    "NormalizedSourceDigest": "25302ef5062c6dd4a698867c0fc9c26892949537e5807c5b6383023f9cec60ec",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -12378,7 +12259,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "ba515de2d43795de3075b763797dd5c6401e9621a568ecc5dd412088439634ed",
     "StaticGroupSegmentBytes": 27648,
     "Symbol": "mmq_fwd_q8_0_m2048_n4096_k2048_17fcf11967cf2c59",
     "TotalSGPRs": 16,
@@ -12462,7 +12342,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "7a0603dcc116ecaa124308c3b36c637f0bb6276a596373c6a9cb847e20385185",
+    "NormalizedSourceDigest": "7a0603dcc116ecaa124308c3b36c637f0bb6276a596373c6a9cb847e20385185",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -12473,7 +12353,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "d83eb5b8d1b04aee9ad08442c4486a8c025756df72705440df63c836a72a2074",
     "StaticGroupSegmentBytes": 27648,
     "Symbol": "mmq_fwd_q8_0_m32768_n4096_k2048_ae2a7e90efb21145",
     "TotalSGPRs": 16,
@@ -12557,7 +12436,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "bb046ccd9fa8ae724eaf14c557752a3d484ed7ab6967317a2357f1cc2f674128",
+    "NormalizedSourceDigest": "bb046ccd9fa8ae724eaf14c557752a3d484ed7ab6967317a2357f1cc2f674128",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -12568,7 +12447,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "8c39464468fdca89641e18d0d48db8d4e84dca19d124fb21995026b30173fc9f",
     "StaticGroupSegmentBytes": 27648,
     "Symbol": "mmq_fwd_q8_0_m8192_n4096_k2048_38dc14e5687d64fc",
     "TotalSGPRs": 16,
@@ -12652,7 +12530,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "b362f0605df844c91c4fdde0293e1c5b57efbcc518543a1815243e61832b69d9",
+    "NormalizedSourceDigest": "b362f0605df844c91c4fdde0293e1c5b57efbcc518543a1815243e61832b69d9",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -12663,7 +12541,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "794c2f1a55a3ff328fdf74fd4ef72bec1159066b1cf197d646073be831606b26",
     "StaticGroupSegmentBytes": 27648,
     "Symbol": "mmq_fwd_q8_0_m128_n129280_k4096_b1e120938911d11d",
     "TotalSGPRs": 16,
@@ -12747,7 +12624,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "fbdf05d11f670143a8320877b12fd5aed254fcb07fd1efa817a7f4c131095a49",
+    "NormalizedSourceDigest": "fbdf05d11f670143a8320877b12fd5aed254fcb07fd1efa817a7f4c131095a49",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -12758,7 +12635,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "1fd39e370386c49bdf249953c135c0cb7e1ae82604b68635cb3a88b8d40e5f3a",
     "StaticGroupSegmentBytes": 27648,
     "Symbol": "mmq_fwd_q8_0_m2048_n2048_k4096_4a9dab3b39257cb6",
     "TotalSGPRs": 16,
@@ -12842,7 +12718,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "d4e989db4c0ac842869f075d32593e4a8240447141adba784b6d53fd06b181a4",
+    "NormalizedSourceDigest": "d4e989db4c0ac842869f075d32593e4a8240447141adba784b6d53fd06b181a4",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -12853,7 +12729,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "40704b53be8f1b72fe5ff074fb7d7e2e11dfaf103464099f0fe23984ddd12903",
     "StaticGroupSegmentBytes": 27648,
     "Symbol": "mmq_fwd_q8_0_m2048_n512_k4096_749eaab54e3b1379",
     "TotalSGPRs": 16,
@@ -12937,7 +12812,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "cd88ea6570ce4da823bbe123ad040f77ef9e45c16da5b5e277caf3f55277bbe6",
+    "NormalizedSourceDigest": "cd88ea6570ce4da823bbe123ad040f77ef9e45c16da5b5e277caf3f55277bbe6",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -12948,7 +12823,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "479d258432ed177150b4e9d11d3300c99d07a01ea4cd8970550b163369a80692",
     "StaticGroupSegmentBytes": 27648,
     "Symbol": "mmq_fwd_q8_0_m256_n129280_k4096_242054725717ca9a",
     "TotalSGPRs": 16,
@@ -13032,7 +12906,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "64077215b4ca8dcc6ff5680ce771e9d6cb5859934059d948e29fab516b31a903",
+    "NormalizedSourceDigest": "64077215b4ca8dcc6ff5680ce771e9d6cb5859934059d948e29fab516b31a903",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -13043,7 +12917,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "891d438688eea0bde2a1f341be622f2fbd61737092be280c7421d861d8dd23d2",
     "StaticGroupSegmentBytes": 27648,
     "Symbol": "mmq_fwd_q8_0_m32768_n1024_k4096_7204a17cfb45ad4a",
     "TotalSGPRs": 16,
@@ -13127,7 +13000,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "bc6299d30deb6faac8c4f87db70c9238e11c97b1fe39764257b6640cc59f02ac",
+    "NormalizedSourceDigest": "bc6299d30deb6faac8c4f87db70c9238e11c97b1fe39764257b6640cc59f02ac",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -13138,7 +13011,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "9f06f64198d4d7615466c64dd0d2a2d68eae4023647e131400a28ff5d15219b9",
     "StaticGroupSegmentBytes": 27648,
     "Symbol": "mmq_fwd_q8_0_m32768_n2048_k4096_20568015e2e2c57a",
     "TotalSGPRs": 16,
@@ -13222,7 +13094,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "5c1b903b2cb064724bceefeb4b628c717d15e128bf046a978f6bcda1a65c04b7",
+    "NormalizedSourceDigest": "5c1b903b2cb064724bceefeb4b628c717d15e128bf046a978f6bcda1a65c04b7",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -13233,7 +13105,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "534ec68367287a7ec36225be18ec0fd2815eeb87457ce25136b039c2243ec804",
     "StaticGroupSegmentBytes": 27648,
     "Symbol": "mmq_fwd_q8_0_m32768_n512_k4096_793eb166548cd497",
     "TotalSGPRs": 16,
@@ -13317,7 +13188,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "98e9de95decad48d9b1a4a5fca84b4be84f1310189fec28064d46bbfc0e4236e",
+    "NormalizedSourceDigest": "98e9de95decad48d9b1a4a5fca84b4be84f1310189fec28064d46bbfc0e4236e",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -13328,7 +13199,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "fa884af41d9d1be2ce184328b9163d4f8edc2121c90132b9f36086c0b03926d5",
     "StaticGroupSegmentBytes": 27648,
     "Symbol": "mmq_fwd_q8_0_m512_n129280_k4096_be542889b65a26ca",
     "TotalSGPRs": 16,
@@ -13412,7 +13282,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "318f03df15bcad32a1206884119a00c18fbb0e5bbe3f5a90edbeb0469fb83caa",
+    "NormalizedSourceDigest": "318f03df15bcad32a1206884119a00c18fbb0e5bbe3f5a90edbeb0469fb83caa",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -13423,7 +13293,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "ed30f0508a8eedba316a313a1afc0421369ad18153bb9cb2f71c3bba7bbaa0a5",
     "StaticGroupSegmentBytes": 27648,
     "Symbol": "mmq_fwd_q8_0_m8192_n1024_k4096_c3b72b29ea9cdb96",
     "TotalSGPRs": 16,
@@ -13507,7 +13376,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "6a8ea88b4ac4ab1961dd0801948d37d3ede9349d26858e0ca06ca1538e469870",
+    "NormalizedSourceDigest": "6a8ea88b4ac4ab1961dd0801948d37d3ede9349d26858e0ca06ca1538e469870",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -13518,7 +13387,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "82e6ef1760a9165ef08b80410c29023fe294fbabdd60e6e224421f3ff4e1f50b",
     "StaticGroupSegmentBytes": 27648,
     "Symbol": "mmq_fwd_q8_0_m8192_n2048_k4096_d964370550753fe6",
     "TotalSGPRs": 16,
@@ -13602,7 +13470,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "eba3be6761eea719e0a859a73108608692a692e95bd67b8654158ef41e4a9390",
+    "NormalizedSourceDigest": "eba3be6761eea719e0a859a73108608692a692e95bd67b8654158ef41e4a9390",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -13613,7 +13481,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "b5145b3b753a9ad2ef2c33893db9d948a3c1b6874ee251920ee3b8976a63a35b",
     "StaticGroupSegmentBytes": 27648,
     "Symbol": "mmq_fwd_q8_0_m8192_n512_k4096_e82d066d8f538884",
     "TotalSGPRs": 16,
@@ -13697,7 +13564,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "fba3db711ddf3b55c54ab2a788255188ddb31462a01fe5df6c35e474b8453562",
+    "NormalizedSourceDigest": "fba3db711ddf3b55c54ab2a788255188ddb31462a01fe5df6c35e474b8453562",
     "Ownership": "Dense",
     "Problem": {
       "K": 8192,
@@ -13708,7 +13575,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "84effcd34afdac23089bdf0c160e1950229485c88d12e575e949758070b9ddeb",
     "StaticGroupSegmentBytes": 27648,
     "Symbol": "mmq_fwd_q8_0_m2048_n4096_k8192_842d264ebf9533e3",
     "TotalSGPRs": 16,
@@ -13792,7 +13658,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "57454cfa0f4d90f9aa022d306269e8c8a7a339debe51cd8e7b87b224a6ab62a7",
+    "NormalizedSourceDigest": "57454cfa0f4d90f9aa022d306269e8c8a7a339debe51cd8e7b87b224a6ab62a7",
     "Ownership": "Dense",
     "Problem": {
       "K": 8192,
@@ -13803,7 +13669,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "3710a189c81ba51fff4e378e8886ee40d28ff663438b7a9d8f8b559c9093b19e",
     "StaticGroupSegmentBytes": 27648,
     "Symbol": "mmq_fwd_q8_0_m32768_n4096_k8192_8ae04c3a600a30c6",
     "TotalSGPRs": 16,
@@ -13887,7 +13752,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "7b89f824ec5b8ff736f5147d9ec7d2f9342110f50c9c296d65abdc7c9aa358e7",
+    "NormalizedSourceDigest": "7b89f824ec5b8ff736f5147d9ec7d2f9342110f50c9c296d65abdc7c9aa358e7",
     "Ownership": "Dense",
     "Problem": {
       "K": 8192,
@@ -13898,7 +13763,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "0792dd3b091ef8b443ab8db165114f771eba595427f2214b78eaad8ebcf8e360",
     "StaticGroupSegmentBytes": 27648,
     "Symbol": "mmq_fwd_q8_0_m8192_n4096_k8192_43ecfa00ae6cb264",
     "TotalSGPRs": 16,
@@ -13982,7 +13846,7 @@
       "Wmma": 64
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "3770a8c3fe142c1f89f38b920bfe4aba482e9e8e3ec220967b9e5654cfd511a7",
+    "NormalizedSourceDigest": "3770a8c3fe142c1f89f38b920bfe4aba482e9e8e3ec220967b9e5654cfd511a7",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -13993,7 +13857,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "2b43302acb0763316cc8b5fb58c31c51b89f1c4c73d72900f2d661ffd530d671",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "mmq_fwd_q8_0_m2048_n1024_k4096_ac9f6ba25864f335",
     "TotalSGPRs": 16,
@@ -14077,7 +13940,7 @@
       "Wmma": 16
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "001c3f056f220938a0422b830e90f9a70d74a3a5ddb72194a982912d7e9bb4ef",
+    "NormalizedSourceDigest": "001c3f056f220938a0422b830e90f9a70d74a3a5ddb72194a982912d7e9bb4ef",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -14088,7 +13951,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "893aae6f864f77a37779fbb688cb1fc2b8749b098ce8350843419af154a20043",
     "StaticGroupSegmentBytes": 24064,
     "Symbol": "mmq_fwd_q8_0_m32_n129280_k4096_2ecfddcfa3d28f81",
     "TotalSGPRs": 16,
@@ -14172,7 +14034,7 @@
       "Wmma": 32
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "3e4482ca951ade690894a124e17358aff4d97a295eb219ea478431bd77da30da",
+    "NormalizedSourceDigest": "3e4482ca951ade690894a124e17358aff4d97a295eb219ea478431bd77da30da",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -14183,7 +14045,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "11b86bda45eff0e2658d38d93aa92a8426204b9d4404dad783e5e8694bd69767",
     "StaticGroupSegmentBytes": 28672,
     "Symbol": "mmq_fwd_q8_0_m64_n129280_k4096_18ea51a79693a48d",
     "TotalSGPRs": 16,
@@ -14267,7 +14128,7 @@
       "Wmma": 128
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "aa90ee61442b31ec774940de4d763a528664717d011133f8dd8ddef27d0dbabe",
+    "NormalizedSourceDigest": "aa90ee61442b31ec774940de4d763a528664717d011133f8dd8ddef27d0dbabe",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -14278,7 +14139,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "6d0f0d9c2b35a3d49b8018e187e720135cb02182c708ed1da786deae80bf47a7",
     "StaticGroupSegmentBytes": 39936,
     "Symbol": "mmq_fwd_q3_k_m2048_n4096_k2048_e2af3edb5403b2ae",
     "TotalSGPRs": 16,
@@ -14362,7 +14222,7 @@
       "Wmma": 128
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "f85fc3fd9e2c8a1efccfa21b9d6e1fd9e248bd0ff8707e86ac50124372aa13d2",
+    "NormalizedSourceDigest": "f85fc3fd9e2c8a1efccfa21b9d6e1fd9e248bd0ff8707e86ac50124372aa13d2",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -14373,7 +14233,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "e1dd4c2a00ccbe623064409c93bb5837de271958e5bfb5c123d964ca4c557289",
     "StaticGroupSegmentBytes": 39936,
     "Symbol": "mmq_fwd_q3_k_m2048_n512_k2048_a92c014d131faecb",
     "TotalSGPRs": 16,
@@ -14457,7 +14316,7 @@
       "Wmma": 128
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "4972cc4f22012dd52d6dd9b6f817e8200987da9d39ea471ed716b16f8424d9db",
+    "NormalizedSourceDigest": "4972cc4f22012dd52d6dd9b6f817e8200987da9d39ea471ed716b16f8424d9db",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -14468,7 +14327,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "3f7cde0d10f4403ad45d41f50718723fec50d45e4aca4eb1c034628c98c62bf0",
     "StaticGroupSegmentBytes": 39936,
     "Symbol": "mmq_fwd_q3_k_m2048_n8192_k2048_a117996848638902",
     "TotalSGPRs": 16,
@@ -14552,7 +14410,7 @@
       "Wmma": 128
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "e375d0ced35841b50c131d2ab11899e8766071e025d3cb0d072495244e2c7eed",
+    "NormalizedSourceDigest": "e375d0ced35841b50c131d2ab11899e8766071e025d3cb0d072495244e2c7eed",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -14563,7 +14421,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "5cc956de6a01c4a9f6565014dec2622de49c6de6b324491dd7bb5ddd3c3cf74c",
     "StaticGroupSegmentBytes": 39936,
     "Symbol": "mmq_fwd_q3_k_m32768_n4096_k2048_16f70556dc1c01be",
     "TotalSGPRs": 16,
@@ -14647,7 +14504,7 @@
       "Wmma": 128
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "a37f52cb5e07c3f219a33f2a64a0701c0c4a67e8570a390098c7f093914f6bc4",
+    "NormalizedSourceDigest": "a37f52cb5e07c3f219a33f2a64a0701c0c4a67e8570a390098c7f093914f6bc4",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -14658,7 +14515,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "2bfce4e3e1b9b8e48e03695583d32c7ab7cde202eaa6bcbe5f9aede2180c96aa",
     "StaticGroupSegmentBytes": 39936,
     "Symbol": "mmq_fwd_q3_k_m32768_n512_k2048_569ed02d69052a73",
     "TotalSGPRs": 16,
@@ -14742,7 +14598,7 @@
       "Wmma": 128
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "16dd24f372af9b3d82491e420c5e6184c87e4354b6b48d72ed7adfd0ef9b9ad7",
+    "NormalizedSourceDigest": "16dd24f372af9b3d82491e420c5e6184c87e4354b6b48d72ed7adfd0ef9b9ad7",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -14753,7 +14609,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "20c79edf47e0d0e04f26447246c217249400720d361de1bd6b06dca3eaa9beb3",
     "StaticGroupSegmentBytes": 39936,
     "Symbol": "mmq_fwd_q3_k_m32768_n8192_k2048_cff119fa7866705c",
     "TotalSGPRs": 16,
@@ -14837,7 +14692,7 @@
       "Wmma": 128
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "5ebf1bba285c60124f2d80f501f57b70632caafccead2c0ba2650fc9e4c3bc7c",
+    "NormalizedSourceDigest": "5ebf1bba285c60124f2d80f501f57b70632caafccead2c0ba2650fc9e4c3bc7c",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -14848,7 +14703,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "abf73da70cff52f3a126f25797c7edc688aa116691f4784fda6161eb85c9b08d",
     "StaticGroupSegmentBytes": 39936,
     "Symbol": "mmq_fwd_q3_k_m8192_n4096_k2048_746177dec73866b4",
     "TotalSGPRs": 16,
@@ -14932,7 +14786,7 @@
       "Wmma": 128
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "dc0173dfb5bebf280cbc3de7f84587bd0ece31beaa09c2cbb851ff221ad58871",
+    "NormalizedSourceDigest": "dc0173dfb5bebf280cbc3de7f84587bd0ece31beaa09c2cbb851ff221ad58871",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -14943,7 +14797,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "ba4abc407bafba0d3293811d2180f04f838089ecb31d4d14a8f42b8f333693d4",
     "StaticGroupSegmentBytes": 39936,
     "Symbol": "mmq_fwd_q3_k_m8192_n512_k2048_4afaa0c59f10f76d",
     "TotalSGPRs": 16,
@@ -15027,7 +14880,7 @@
       "Wmma": 128
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "2c7bd23247944d206127f1a13d9f506ebfba3f2dc49414aa17f82edb28ec625c",
+    "NormalizedSourceDigest": "2c7bd23247944d206127f1a13d9f506ebfba3f2dc49414aa17f82edb28ec625c",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -15038,7 +14891,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "9ad432204445314bb8ef97c494941689257a916ba5c0edceeef3602fb0efe54b",
     "StaticGroupSegmentBytes": 39936,
     "Symbol": "mmq_fwd_q3_k_m8192_n8192_k2048_18350ff526b6b121",
     "TotalSGPRs": 16,
@@ -15122,7 +14974,7 @@
       "Wmma": 128
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "5ea06883605348c4c1ed24c00065ec845be6326bcc378a996f88258f30b1238c",
+    "NormalizedSourceDigest": "5ea06883605348c4c1ed24c00065ec845be6326bcc378a996f88258f30b1238c",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -15133,7 +14985,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "9602657ce11c72ed02a2a1664f7d283700b3bdb772de0b63a5767f26127dd4a5",
     "StaticGroupSegmentBytes": 39936,
     "Symbol": "mmq_fwd_q3_k_m2048_n2048_k4096_1686ccf0c8d9eab3",
     "TotalSGPRs": 16,
@@ -15217,7 +15068,7 @@
       "Wmma": 128
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "a7e824e690d9ab269364d3d1e62849a541e74d598e07260df5ef34143b864424",
+    "NormalizedSourceDigest": "a7e824e690d9ab269364d3d1e62849a541e74d598e07260df5ef34143b864424",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -15228,7 +15079,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "f5360917ac200c027f1be2e3c0f64ce4f2bf6d25eb8c8da0b2dda9e355b3761c",
     "StaticGroupSegmentBytes": 39936,
     "Symbol": "mmq_fwd_q3_k_m32768_n2048_k4096_2603ca827f815de2",
     "TotalSGPRs": 16,
@@ -15312,7 +15162,7 @@
       "Wmma": 128
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "8350d1a294d09b5b8834214a0176e457737c701b533bfcc4dee40512cfddfaf5",
+    "NormalizedSourceDigest": "8350d1a294d09b5b8834214a0176e457737c701b533bfcc4dee40512cfddfaf5",
     "Ownership": "Dense",
     "Problem": {
       "K": 4096,
@@ -15323,7 +15173,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "094e220e9deeac7f7693f9dbbf8b963862bc4e0fc5224749cebbf02e4f52e4bd",
     "StaticGroupSegmentBytes": 39936,
     "Symbol": "mmq_fwd_q3_k_m8192_n2048_k4096_e98fcc76fe436027",
     "TotalSGPRs": 16,
@@ -15407,7 +15256,7 @@
       "Wmma": 16
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "7e19d72a4f355c19cc18071d6951faa7e35065c89277fa84b5835c44b6abf4f8",
+    "NormalizedSourceDigest": "7e19d72a4f355c19cc18071d6951faa7e35065c89277fa84b5835c44b6abf4f8",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -15418,7 +15267,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "256922207c6dbc87516b0185ad878996dfece1e661e477b960ee85fc0020d147",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "mmq_fwd_q6_k_m128_n248320_k2048_7f187e39bc287c24",
     "TotalSGPRs": 27,
@@ -15502,7 +15350,7 @@
       "Wmma": 16
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "7e19d72a4f355c19cc18071d6951faa7e35065c89277fa84b5835c44b6abf4f8",
+    "NormalizedSourceDigest": "7e19d72a4f355c19cc18071d6951faa7e35065c89277fa84b5835c44b6abf4f8",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -15513,7 +15361,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "f25bd39927d847d9295a4bad74d73ac58cf770f1cfd050041da056bffef2ff88",
     "StaticGroupSegmentBytes": 38400,
     "Symbol": "mmq_fwd_q6_k_m256_n248320_k2048_91905def3e2625cc",
     "TotalSGPRs": 27,
@@ -15597,7 +15444,7 @@
       "Wmma": 8
     },
     "KernargSegmentSize": 40,
-    "NormalizedSourceSHA256": "a097bed2c8d964eb6b0b35deb84a6fd4477670ad4b119bc9e4bdd012db6b9b62",
+    "NormalizedSourceDigest": "a097bed2c8d964eb6b0b35deb84a6fd4477670ad4b119bc9e4bdd012db6b9b62",
     "Ownership": "Dense",
     "Problem": {
       "K": 2048,
@@ -15608,7 +15455,6 @@
     "RouteSplitFactor": 1,
     "RowTaskCapacity": null,
     "RowTaskRows": null,
-    "SourceSHA256": "6f70247f30f7e3b5003bd3d1bbdd8b2d571cb53bc81c8350a6f9021d881d135b",
     "StaticGroupSegmentBytes": 28928,
     "Symbol": "mmq_fwd_q6_k_m64_n248320_k2048_ef5c904640b7f2fe",
     "TotalSGPRs": 27,

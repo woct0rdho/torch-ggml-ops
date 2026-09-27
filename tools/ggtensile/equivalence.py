@@ -1,10 +1,8 @@
 """Reusable structural evidence for exact GGTensile kernels."""
 
-import hashlib
-import re
 from dataclasses import dataclass
-from pathlib import Path
 
+from .digest import sha256_hex
 from .family_registry import (
     abi_for_instance,
     family_for_instance,
@@ -39,8 +37,7 @@ class StructuralEvidence:
     problem: dict[str, object]
     exact_hash: str
     symbol: str
-    source_sha256: str
-    normalized_source_sha256: str
+    normalized_source_digest: str
     abi_name: str
     kernarg_segment_size: int
     abi_arguments: tuple[tuple[str, int, int, str, str], ...]
@@ -63,8 +60,7 @@ class StructuralEvidence:
             "Problem": self.problem,
             "ExactHash": self.exact_hash,
             "Symbol": self.symbol,
-            "SourceSHA256": self.source_sha256,
-            "NormalizedSourceSHA256": self.normalized_source_sha256,
+            "NormalizedSourceDigest": self.normalized_source_digest,
             "ABIName": self.abi_name,
             "KernargSegmentSize": self.kernarg_segment_size,
             "ABIArguments": self.abi_arguments,
@@ -151,8 +147,7 @@ def capture_structural_evidence(
         problem=problem,
         exact_hash=instance_hash(instance),
         symbol=kernel_name,
-        source_sha256=hashlib.sha256(source.encode()).hexdigest(),
-        normalized_source_sha256=hashlib.sha256(normalized.encode()).hexdigest(),
+        normalized_source_digest=sha256_hex(normalized.encode()),
         abi_name=abi_name.value,
         kernarg_segment_size=abi.segment_size,
         abi_arguments=abi.metadata_arguments,
@@ -167,24 +162,3 @@ def capture_structural_evidence(
         total_sgprs=plan.total_sgprs,
         instruction_counts=static_instruction_counts(source),
     )
-
-
-def normalized_executable_text(disassembly: str, symbol: str) -> str:
-    """Remove addresses and symbol identity from an llvm-objdump function body."""
-    text = disassembly.replace(symbol, "<KERNEL_SYMBOL>")
-    lines = []
-    for line in text.splitlines():
-        line = re.sub(r"^\s*[0-9a-f]+:\s+(?:[0-9a-f]{2}\s+)+", "", line)
-        if line and not line.startswith(("Disassembly of section", "file format")):
-            lines.append(line.rstrip())
-    return "\n".join(lines) + "\n"
-
-
-def executable_text_sha256(
-    code_object: Path, instance: KernelInstance, toolchain: Toolchain
-) -> str:
-    kernel_name = instance_name(instance)
-    text = normalized_executable_text(
-        toolchain.disassembly_output(code_object), kernel_name
-    )
-    return hashlib.sha256(text.encode()).hexdigest()

@@ -248,7 +248,7 @@ StreamK may be revisited later as an enum-backed execution mode with explicit pa
 
 ### Priority 0: compatibility and architecture foundations
 
-- Complete. The current post-migration source hashes, spec mappings, resources, exact correctness outputs, and artifact identities are covered by regression tests. Unchanged current specs regenerate byte-identical assembly.
+- Complete. The current post-migration source digests, spec mappings, resources, exact correctness outputs, and artifact identities are covered by regression tests. Unchanged current specs regenerate byte-identical assembly.
 - Complete. The typed semantic schema, canonical serialization, candidate identity, and per-operation/per-quant capability matrix are in place. The one-time migration is complete; old field names and incomplete applicable policy blocks are rejected without a second parser or silent compatibility projection.
 - Complete. The `complete typed spec -> derived state -> physical plan -> lowering -> inspection/validation -> candidate identity` flow from `ggtensile_plan.md` is implemented, including the Priority 2 codegen-effect boundary. Generation remains independent of search, catalogs, benchmark reports, and deployment policy.
 - Complete for the current forward boundary. Applicability, lowering-effect, unsupported-combination, pre-lowering, and canonical-identity tests cover the migrated schema.
@@ -323,7 +323,7 @@ Resource-increasing candidates require a stable material gain before promotion. 
 
 ## Assembly change policy
 
-No existing kernel changes assembly unless its canonical spec changes. Internal enum conversion, shared validation, and physical-plan refactoring should be guarded by source/hash regression tests.
+No existing kernel changes assembly unless its canonical spec changes. Internal enum conversion, shared validation, and physical-plan refactoring should be guarded by source-digest regression tests.
 
 New policy values and linked combinations are expected to change assembly. They must receive new candidate identities, new artifacts, and new qualification records. A changed existing default is a catalog change, not an implementation detail, and requires an explicit remeasurement and deployment review.
 

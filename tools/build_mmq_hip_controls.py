@@ -2,13 +2,13 @@
 
 import argparse
 import concurrent.futures
-import hashlib
 import os
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 
+from tools.ggtensile.digest import sha256_hex
 from tools.ggtensile.toolchain import Toolchain
 from tools.mmq_hip_control_spec import (
     HIPControlSpec,
@@ -32,22 +32,18 @@ def _hipcc(value: Path | None) -> Path:
     return selected
 
 
-def _digest(
+def _build_input_digest(
     specs: tuple[HIPControlSpec, ...], hipcc: Path, toolchain: Toolchain
 ) -> str:
-    digest = hashlib.sha256()
-    digest.update(str(hipcc).encode())
-    digest.update(
-        subprocess.run(
-            [str(hipcc), "--version"], check=True, capture_output=True
-        ).stdout
-    )
-    digest.update(str(toolchain.assembler).encode())
-    digest.update(
-        subprocess.run(
-            [str(toolchain.assembler), "--version"], check=True, capture_output=True
-        ).stdout
-    )
+    payload = bytearray()
+    payload += str(hipcc).encode()
+    payload += subprocess.run(
+        [str(hipcc), "--version"], check=True, capture_output=True
+    ).stdout
+    payload += str(toolchain.assembler).encode()
+    payload += subprocess.run(
+        [str(toolchain.assembler), "--version"], check=True, capture_output=True
+    ).stdout
     for path in (
         Path(__file__),
         ROOT / "tools/mmq_hip_control_spec.py",
@@ -56,12 +52,12 @@ def _digest(
         *sorted((ROOT / "csrc/ck").rglob("*.cuh")),
         *sorted((ROOT / "csrc/vendor/llama_cpp").rglob("*.cuh")),
     ):
-        digest.update(path.relative_to(ROOT).as_posix().encode())
-        digest.update(path.read_bytes())
+        payload += path.relative_to(ROOT).as_posix().encode()
+        payload += path.read_bytes()
     for spec in specs:
-        digest.update(spec.symbol.encode())
-        digest.update(render_control(spec).encode())
-    return digest.hexdigest()
+        payload += spec.symbol.encode()
+        payload += render_control(spec).encode()
+    return sha256_hex(bytes(payload))
 
 
 def _verify(path: Path, symbol: str, readelf: Path) -> bytes:
@@ -91,10 +87,7 @@ def _compile(
     readelf: Path,
 ) -> tuple[str, bytes]:
     source_text = render_control(spec)
-    source = (
-        SOURCE_DIR
-        / f"{spec.symbol}-{hashlib.sha256(source_text.encode()).hexdigest()[:16]}.cu"
-    )
+    source = SOURCE_DIR / f"{spec.symbol}.cu"
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text(source_text, encoding="utf-8")
     destination = staging / control_filename(spec.symbol)
@@ -117,14 +110,15 @@ def _compile(
     return spec.symbol, _verify(destination, spec.symbol, readelf)
 
 
-def _current(specs: tuple[HIPControlSpec, ...], digest: str) -> bool:
+def _current(specs: tuple[HIPControlSpec, ...], build_input_digest: str) -> bool:
     expected = {control_filename(spec.symbol) for spec in specs}
     actual = {path.name for path in OUTPUT_DIR.glob("*.hsaco")}
     return (
         OUTPUT_DIR.is_dir()
         and actual == expected
         and (OUTPUT_DIR / STAMP).is_file()
-        and (OUTPUT_DIR / STAMP).read_text(encoding="utf-8") == digest + "\n"
+        and (OUTPUT_DIR / STAMP).read_text(encoding="utf-8")
+        == build_input_digest + "\n"
     )
 
 
@@ -152,8 +146,8 @@ def _build(
             shutil.rmtree(staging, ignore_errors=True)
 
 
-def _install(staging: Path, digest: str) -> None:
-    (staging / STAMP).write_text(digest + "\n", encoding="utf-8")
+def _install(staging: Path, build_input_digest: str) -> None:
+    (staging / STAMP).write_text(build_input_digest + "\n", encoding="utf-8")
     old = OUTPUT_DIR.with_name(OUTPUT_DIR.name + ".old")
     shutil.rmtree(old, ignore_errors=True)
     if OUTPUT_DIR.exists():
@@ -175,13 +169,17 @@ def main() -> None:
     hipcc = _hipcc(args.hipcc)
     toolchain = Toolchain.discover()
     specs = hip_control_specs()
-    digest = _digest(specs, hipcc, toolchain)
+    build_input_digest = _build_input_digest(specs, hipcc, toolchain)
     if args.check:
-        if not _current(specs, digest):
+        if not _current(specs, build_input_digest):
             raise SystemExit("HIP control bundle is stale")
         print(f"HIP control bundle is current ({len(specs)} kernels)")
         return
-    if not args.force and not args.verify_reproducible and _current(specs, digest):
+    if (
+        not args.force
+        and not args.verify_reproducible
+        and _current(specs, build_input_digest)
+    ):
         return
     first, images = _build(specs, hipcc, toolchain.readelf, args.jobs)
     if args.verify_reproducible:
@@ -190,7 +188,7 @@ def main() -> None:
         if images != second_images:
             shutil.rmtree(first, ignore_errors=True)
             raise RuntimeError("non-reproducible HIP control bundle")
-    _install(first, digest)
+    _install(first, build_input_digest)
     print(f"installed {len(specs)} HIP controls in {OUTPUT_DIR}")
 
 

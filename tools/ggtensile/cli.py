@@ -1,5 +1,4 @@
 import argparse
-import hashlib
 import json
 import shutil
 import tempfile
@@ -7,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import cast
 
+from .digest import sha256_hex
 from .family_registry import (
     family_for_instance,
     instance_hash,
@@ -87,12 +87,8 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+def _file_digest(path: Path) -> str:
+    return sha256_hex(path.read_bytes())
 
 
 def _write_json_exclusive(path: Path, value: Mapping[str, object]) -> None:
@@ -184,9 +180,11 @@ def _generate(kernel_spec_key_path: Path, output_dir: Path) -> int:
             "KernelSpecKey": mapping,
             "KernelSpecHash": kernel_hash,
             "KernelName": kernel_name,
-            "KernelSpecPath": str(kernel_spec_output),
-            "AssemblyPath": str(assembly),
-            "AssemblySHA256": _sha256(assembly),
+            "Artifact": {
+                "KernelSpecPath": str(kernel_spec_output),
+                "AssemblyPath": str(assembly),
+                "AssemblyDigest": _file_digest(assembly),
+            },
         },
     )
     return 0
@@ -199,9 +197,7 @@ _GENERATE_KEYS = frozenset(
         "KernelSpecKey",
         "KernelSpecHash",
         "KernelName",
-        "KernelSpecPath",
-        "AssemblyPath",
-        "AssemblySHA256",
+        "Artifact",
     }
 )
 
@@ -222,8 +218,9 @@ def _build(generate_manifest: Path, output_dir: Path | None) -> int:
         keys=_GENERATE_KEYS,
     )
     instance = _instance_from_manifest(manifest)
-    assembly = _path(manifest, "AssemblyPath")
-    expected_assembly_hash = _string(manifest, "AssemblySHA256")
+    artifact = _field(manifest, "Artifact")
+    assembly = _path(artifact, "AssemblyPath")
+    expected_assembly_digest = _string(artifact, "AssemblyDigest")
     destination = output_dir or generate_manifest.parent
     destination.mkdir(parents=True, exist_ok=True)
     build_manifest = destination / "build.json"
@@ -232,7 +229,7 @@ def _build(generate_manifest: Path, output_dir: Path | None) -> int:
     for path in (build_manifest, object_path, code_object):
         if path.exists():
             raise ManifestError(f"refusing to overwrite {path}")
-    assert _sha256(assembly) == expected_assembly_hash
+    assert _file_digest(assembly) == expected_assembly_digest
 
     toolchain = Toolchain.discover()
     with tempfile.TemporaryDirectory(prefix="ggtensile-build-") as temporary:
@@ -253,10 +250,12 @@ def _build(generate_manifest: Path, output_dir: Path | None) -> int:
             "KernelSpecHash": instance_hash(instance),
             "KernelName": instance_name(instance),
             "GenerateManifestPath": str(generate_manifest.resolve()),
-            "AssemblyPath": str(assembly.resolve()),
-            "AssemblySHA256": expected_assembly_hash,
-            "ObjectPath": str(object_path),
-            "CodeObjectPath": str(code_object),
+            "Artifact": {
+                "AssemblyPath": str(assembly.resolve()),
+                "AssemblyDigest": expected_assembly_digest,
+                "ObjectPath": str(object_path),
+                "CodeObjectPath": str(code_object),
+            },
         },
     )
     return 0
@@ -270,10 +269,7 @@ _BUILD_KEYS = frozenset(
         "KernelSpecHash",
         "KernelName",
         "GenerateManifestPath",
-        "AssemblyPath",
-        "AssemblySHA256",
-        "ObjectPath",
-        "CodeObjectPath",
+        "Artifact",
     }
 )
 
@@ -329,7 +325,8 @@ def _inspect(build_manifest: Path, output: Path | None) -> int:
         keys=_BUILD_KEYS,
     )
     instance = _instance_from_manifest(manifest)
-    code_object = _path(manifest, "CodeObjectPath")
+    artifact = _field(manifest, "Artifact")
+    code_object = _path(artifact, "CodeObjectPath")
     inspection_manifest = output or build_manifest.with_name("inspect.json")
     if inspection_manifest.exists():
         raise ManifestError(f"refusing to overwrite {inspection_manifest}")
