@@ -6,22 +6,29 @@ from aiter.ops.triton.gmm import gmm
 from bench.benchmark_common import Implementation
 from bench.benchmark_data import RouteSelection
 from tools.aiter_gmm_heuristics import gmm_config
-from tools.mmq_correctness import PreparedCase, RouteData
+from tools.mmq_correctness import PreparedCase
 
 
-def _selected_weights(
-    prepared: PreparedCase, routes: tuple[RouteData, ...], forward: bool
-) -> tuple[tuple[torch.Tensor, ...], ...]:
+def _padded_group_sizes(
+    prepared: PreparedCase, selection: RouteSelection
+) -> tuple[torch.Tensor, ...]:
+    """Return full-expert group sizes with zero rows for inactive experts.
+
+    The dense BF16 expert weights are consumed directly, so no per-route gather
+    of the selected experts is materialized. This is the production caller's
+    convention: every expert group is present and inactive experts have zero
+    rows.
+    """
+
     if not prepared.logical_weights:
         raise ValueError("the baseline requires materialized BF16 weights")
-    result = []
-    for route in routes:
-        values = []
-        for weight in prepared.logical_weights:
-            selected = weight.index_select(0, route.expert_indices).contiguous()
-            values.append(selected.transpose(1, 2) if forward else selected)
-        result.append(tuple(values))
-    return tuple(result)
+    num_experts = int(prepared.logical_weights[0].shape[0])
+    return tuple(
+        torch.zeros(num_experts, device="cuda", dtype=torch.int32).index_copy_(
+            0, route.expert_indices, route.group_sizes
+        )
+        for route in selection.routes
+    )
 
 
 def _gmm_config(prepared: PreparedCase, prior: str) -> dict[str, int]:
@@ -72,11 +79,12 @@ def prepare_baseline(
     elif case.operation in {"GroupedForward", "GroupedBackward"}:
         forward = case.operation == "GroupedForward"
         assert prior is not None
-        routes = selection.routes
-        route_weights = _selected_weights(prepared, routes, forward)
+        group_sizes = _padded_group_sizes(prepared, selection)
         config = _gmm_config(prepared, prior)
         lhs = input_tensor if forward else prepared.grad_outputs[0]
         assert lhs is not None
+        weight = prepared.logical_weights[0]
+        rhs = weight.transpose(1, 2) if forward else weight
         output = torch.empty(
             case.rows,
             case.out_features if forward else case.in_features,
@@ -85,12 +93,10 @@ def prepare_baseline(
         )
 
         def launch() -> torch.Tensor:
-            route = selection.current
-            rhs = route_weights[selection.index][0]
             return gmm(
                 lhs,
                 rhs,
-                route.group_sizes,
+                group_sizes[selection.index],
                 preferred_element_type=lhs.dtype,
                 existing_out=output,
                 config=config,
@@ -99,8 +105,11 @@ def prepare_baseline(
     elif case.operation == "GroupedForwardPair":
         assert prior is not None and input_tensor is not None
         lhs: torch.Tensor = input_tensor
-        route_weights = _selected_weights(prepared, selection.routes, True)
+        group_sizes = _padded_group_sizes(prepared, selection)
         config = _gmm_config(prepared, prior)
+        rhs_values = tuple(
+            weight.transpose(1, 2) for weight in prepared.logical_weights
+        )
         outputs = tuple(
             torch.empty(
                 case.rows, case.out_features, device="cuda", dtype=torch.bfloat16
@@ -109,25 +118,23 @@ def prepare_baseline(
         )
 
         def launch(lhs: torch.Tensor = lhs) -> tuple[torch.Tensor, ...]:
-            route = selection.current
             return tuple(
                 gmm(
                     lhs,
                     rhs,
-                    route.group_sizes,
+                    group_sizes[selection.index],
                     preferred_element_type=lhs.dtype,
                     existing_out=output,
                     config=config,
                 )
-                for rhs, output in zip(
-                    route_weights[selection.index], outputs, strict=True
-                )
+                for rhs, output in zip(rhs_values, outputs, strict=True)
             )
 
     elif case.operation == "GroupedBackwardPair":
         assert prior is not None
-        route_weights = _selected_weights(prepared, selection.routes, False)
+        group_sizes = _padded_group_sizes(prepared, selection)
         config = _gmm_config(prepared, prior)
+        rhs_values = tuple(prepared.logical_weights)
         outputs = tuple(
             torch.empty(
                 case.rows, case.in_features, device="cuda", dtype=torch.bfloat16
@@ -137,19 +144,18 @@ def prepare_baseline(
         result = torch.empty_like(outputs[0])
 
         def launch() -> torch.Tensor:
-            route = selection.current
             values = tuple(
                 gmm(
                     grad_output,
                     rhs,
-                    route.group_sizes,
+                    group_sizes[selection.index],
                     preferred_element_type=grad_output.dtype,
                     existing_out=output,
                     config=config,
                 )
                 for grad_output, rhs, output in zip(
                     prepared.grad_outputs,
-                    route_weights[selection.index],
+                    rhs_values,
                     outputs,
                     strict=True,
                 )

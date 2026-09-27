@@ -64,6 +64,33 @@ def _random_bf16(shape: tuple[int, ...], seed: int) -> torch.Tensor:
     return torch.randn(shape, generator=generator, device="cuda", dtype=torch.bfloat16)
 
 
+_DEQUANT_CHUNK_ROWS = 8
+
+
+def _dequantize_logical(
+    packed: torch.Tensor,
+    quant_type: gguf.GGMLQuantizationType | int,
+    logical_shape: tuple[int, ...],
+) -> torch.Tensor:
+    """Dequantize a packed payload into one preallocated BF16 logical weight.
+
+    The shared dequantizer allocates fp32 temporaries proportional to its whole
+    input, peaking at several times the final weight for the routed payloads.
+    Chunking the payload's leading axis bounds every temporary while producing
+    identical values, because a chunk boundary never splits a GGML block along
+    the last axis.
+    """
+
+    logical = torch.empty(logical_shape, dtype=torch.bfloat16, device="cuda")
+    for start in range(0, packed.shape[0], _DEQUANT_CHUNK_ROWS):
+        stop = min(start + _DEQUANT_CHUNK_ROWS, packed.shape[0])
+        piece = dequantize_gguf_tensor(
+            packed[start:stop], quant_type, dtype=torch.bfloat16, device="cuda"
+        )
+        logical[start:stop] = piece.reshape(logical[start:stop].shape)
+    return logical
+
+
 def _route_metadata(distributions) -> dict[str, object]:
     def offsets_for(distribution) -> list[int]:
         total = 0
@@ -164,11 +191,7 @@ def prepare_input(
             else:
                 logical_shape = (case.out_features, case.in_features)
             logical_weights.append(
-                dequantize_gguf_tensor(
-                    packed, tensor_type, dtype=torch.bfloat16, device="cuda"
-                )
-                .reshape(logical_shape)
-                .contiguous()
+                _dequantize_logical(packed, tensor_type, logical_shape)
             )
 
     case_seed = (seed ^ int(case.identity[-8:], 16)) & 0xFFFFFFFF
