@@ -33,9 +33,9 @@ These are the fastest qualified kernels found across the complete fixed-group ex
 
 | Matrix shape `(M,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
 | --- | --- | ---: | ---: |
-| `(2048,1024,4096)` | `ggsol_65ea830f809a878c` | `35.771` | `2.6401x` |
-| `(8192,1024,4096)` | `ggsol_03c6517b032619d5` | `32.947` | `2.4001x` |
-| `(32768,1024,4096)` | `ggsol_e80f2d214da77367` | `32.231` | `2.3379x` |
+| `(2048,1024,4096)` | `ggsol_80d2a010f2ca3571` | `35.771` | `2.6401x` |
+| `(8192,1024,4096)` | `ggsol_da8fb61dcac7e099` | `32.947` | `2.4001x` |
+| `(32768,1024,4096)` | `ggsol_716bf2d5468c5672` | `32.231` | `2.3379x` |
 
 The two independent confirmation runs preserved the same result direction at all three token counts. No alternative identity was faster than the final `ReductionLoopAndWeightStage` kernels.
 
@@ -43,9 +43,9 @@ The two independent confirmation runs preserved the same result direction at all
 
 | Kernel hash | Lowering identity | Workgroup | Macro tile | DepthU | VGPR / SGPR | LDS bytes | WMMAs | Barriers |
 | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| `ggsol_65ea830f809a878c` | `ReductionLoopAndWeightStage` | `32x4x1` | `64x64` | 32 | `144 / 16` | `18,432` | 32 | 2 |
-| `ggsol_03c6517b032619d5` | `ReductionLoopAndWeightStage` | `32x4x1` | `64x64` | 32 | `144 / 16` | `18,432` | 32 | 2 |
-| `ggsol_e80f2d214da77367` | `ReductionLoopAndWeightStage` | `32x4x1` | `64x64` | 32 | `144 / 16` | `18,432` | 32 | 2 |
+| `ggsol_80d2a010f2ca3571` | `ReductionLoopAndWeightStage` | `32x4x1` | `64x64` | 32 | `144 / 16` | `18,432` | 32 | 2 |
+| `ggsol_da8fb61dcac7e099` | `ReductionLoopAndWeightStage` | `32x4x1` | `64x64` | 32 | `144 / 16` | `18,432` | 32 | 2 |
+| `ggsol_716bf2d5468c5672` | `ReductionLoopAndWeightStage` | `32x4x1` | `64x64` | 32 | `144 / 16` | `18,432` | 32 | 2 |
 
 All final artifacts use the 40-byte ABI, have zero private storage and zero VGPR/SGPR spills, and contain no scratch instructions, calls, or dynamic stack. The final layout uses compact 144-byte LDS rows, paired weight-scale reads, a hoisted activation-plane stride, and fixed-group address ownership.
 

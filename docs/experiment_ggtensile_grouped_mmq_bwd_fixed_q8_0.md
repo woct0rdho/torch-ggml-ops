@@ -35,9 +35,9 @@ The table contains the fastest qualified kernels found across the complete exper
 
 | Matrix shape `(M,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
 | --- | --- | ---: | ---: |
-| `(2048,4096,1024)` | `ggsol_e3f23cb5c4ad7aae` | `29.459` | `1.3148x` |
-| `(8192,4096,1024)` | `ggsol_8fb858b844ca8109` | `30.059` | `1.3462x` |
-| `(32768,4096,1024)` | `ggsol_d0bc5b94d26fe2b3` | `30.072` | `1.2616x` |
+| `(2048,4096,1024)` | `ggsol_b6978ce5fe3e26e4` | `29.459` | `1.3148x` |
+| `(8192,4096,1024)` | `ggsol_81a42231db569ec8` | `30.059` | `1.3462x` |
+| `(32768,4096,1024)` | `ggsol_41e9701bff12cf4f` | `30.072` | `1.2616x` |
 
 The three hashes are the same selected E6-derived identities at the three token counts. All remained bitwise exact and faster than HIP in the latest direct-kernel run.
 
@@ -45,9 +45,9 @@ The three hashes are the same selected E6-derived identities at the three token 
 
 | Kernel hash | Geometry and pipeline | Workgroup | VGPR / SGPR | LDS bytes | WMMAs | Barriers |
 | --- | --- | --- | ---: | ---: | ---: | ---: |
-| `ggsol_e3f23cb5c4ad7aae` | N-major M128/N128, DepthU64, PGR2/PLR1/SIA4 | `32x4x1` | `216 / 17` | `18,432` | 64 | 2 |
-| `ggsol_8fb858b844ca8109` | N-major M128/N128, DepthU64, PGR2/PLR1/SIA4 | `32x4x1` | `216 / 17` | `18,432` | 64 | 2 |
-| `ggsol_d0bc5b94d26fe2b3` | N-major M128/N128, DepthU64, PGR2/PLR1/SIA4 | `32x4x1` | `216 / 17` | `18,432` | 64 | 2 |
+| `ggsol_b6978ce5fe3e26e4` | N-major M128/N128, DepthU64, PGR2/PLR1/SIA4 | `32x4x1` | `216 / 17` | `18,432` | 64 | 2 |
+| `ggsol_81a42231db569ec8` | N-major M128/N128, DepthU64, PGR2/PLR1/SIA4 | `32x4x1` | `216 / 17` | `18,432` | 64 | 2 |
+| `ggsol_41e9701bff12cf4f` | N-major M128/N128, DepthU64, PGR2/PLR1/SIA4 | `32x4x1` | `216 / 17` | `18,432` | 64 | 2 |
 
 The final identity uses the pad-8 single-buffer LDS layout, ordinary packed Q8 extraction, raised-priority element-serial stores, and fixed group-Z address ownership. The artifacts have a 40-byte kernarg segment, no private segment, no spills, no scratch, and no undeclared register use.
 

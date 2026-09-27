@@ -18,9 +18,9 @@ The table shows the fastest qualified kernel found for each measured aggregate-r
 
 | Matrix shape `(R,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
 | --- | --- | ---: | ---: |
-| `(16384,2048,512)` | `ggbpair_72eedb6708bbbe0c` | `13.179` | `1.0461x` |
-| `(65536,2048,512)` | `ggbpair_d6b74a04787d53ff` | `22.774` | `1.1409x` |
-| `(262144,2048,512)` | `ggbpair_ac794f796fe331a9` | `24.281` | `1.0683x` |
+| `(16384,2048,512)` | `ggbpair_c70dfa5dbe1b0a77` | `13.179` | `1.0461x` |
+| `(65536,2048,512)` | `ggbpair_e9bb949ba6e40097` | `22.774` | `1.1409x` |
+| `(262144,2048,512)` | `ggbpair_dcd35a5a31332cee` | `24.281` | `1.0683x` |
 
 The B1 row uses the M64 serial-prefetch body; B4 uses the M128 serial-prefetch body; B16 uses the M128 second-read/A-overlap body. All route, malformed-route, mutation, and finite-output checks were exact.
 
@@ -28,9 +28,9 @@ The B1 row uses the M64 serial-prefetch body; B4 uses the M128 serial-prefetch b
 
 | Kernel hash | Geometry and ownership | Decode and schedule | VGPR / SGPR | LDS bytes | WMMAs / barriers |
 | --- | --- | --- | ---: | ---: | ---: |
-| `ggbpair_72eedb6708bbbe0c` | M64 serial routes | dual padded LDS, PGR2/SIA4 activation prefetch | `95 / 41` | `10,240` | `32 / 4` |
-| `ggbpair_d6b74a04787d53ff` | M128 serial routes | dual padded LDS, PGR2/SIA4 activation prefetch, direct pointers | `143 / 41` | `10,240` | `64 / 4` |
-| `ggbpair_ac794f796fe331a9` | M128 serial routes | dual padded LDS, second-bank read overlapped with first activation prefetch | `143 / 41` | `10,240` | `64 / 4` |
+| `ggbpair_c70dfa5dbe1b0a77` | M64 serial routes | dual padded LDS, PGR2/SIA4 activation prefetch | `95 / 41` | `10,240` | `32 / 4` |
+| `ggbpair_e9bb949ba6e40097` | M128 serial routes | dual padded LDS, PGR2/SIA4 activation prefetch, direct pointers | `143 / 41` | `10,240` | `64 / 4` |
+| `ggbpair_dcd35a5a31332cee` | M128 serial routes | dual padded LDS, second-bank read overlapped with first activation prefetch | `143 / 41` | `10,240` | `64 / 4` |
 
 All selected artifacts are gfx1151 code-object-v5 wave32 kernels with exact 72-byte metadata and zero private storage, spills, scratch, calls, and dynamic stack.
 

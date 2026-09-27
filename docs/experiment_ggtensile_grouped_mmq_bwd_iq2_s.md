@@ -27,9 +27,9 @@ The table shows the fastest qualified identity found for each measured aggregate
 
 | Matrix shape `(R,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
 | --- | --- | ---: | ---: |
-| `(16384,512,2048)` | `ggsol_67d58c3f849e005f` | `12.613` | `1.5746x` |
-| `(65536,512,2048)` | `ggsol_d82241ad1072e2f0` | `17.994` | `1.3060x` |
-| `(262144,512,2048)` | `ggsol_8684bd239b31ec32` | `23.122` | `1.4412x` |
+| `(16384,512,2048)` | `ggsol_a2e787e8d932dd73` | `12.613` | `1.5746x` |
+| `(65536,512,2048)` | `ggsol_2718bf51d7d29c00` | `17.994` | `1.3060x` |
+| `(262144,512,2048)` | `ggsol_a2c1123ed7c956e4` | `23.122` | `1.4412x` |
 
 All three final identities were bitwise exact and faster than HIP under the final qualification and confirmation protocol.
 
@@ -37,9 +37,9 @@ All three final identities were bitwise exact and faster than HIP under the fina
 
 | Kernel hash | Geometry and ownership | LDS and schedule | VGPR / SGPR | WMMAs | Barriers |
 | --- | --- | --- | ---: | ---: | ---: |
-| `ggsol_67d58c3f849e005f` | M128/N64, serial routes, `Mixed128_64` tail | SIA5/PGR2, pad8 single LDS, local codebook | `137 / 38` | 24 | 5 |
-| `ggsol_d82241ad1072e2f0` | M128/N128, split64, full M128 tail | SIA5/PGR2, pad8 single LDS, local codebook | `210 / 38` | 32 | 3 |
-| `ggsol_8684bd239b31ec32` | M128/N128, split64, full M128 tail | SIA5/PGR2, pad8 single LDS, local codebook | `210 / 38` | 32 | 3 |
+| `ggsol_a2e787e8d932dd73` | M128/N64, serial routes, `Mixed128_64` tail | SIA5/PGR2, pad8 single LDS, local codebook | `137 / 38` | 24 | 5 |
+| `ggsol_2718bf51d7d29c00` | M128/N128, split64, full M128 tail | SIA5/PGR2, pad8 single LDS, local codebook | `210 / 38` | 32 | 3 |
+| `ggsol_a2c1123ed7c956e4` | M128/N128, split64, full M128 tail | SIA5/PGR2, pad8 single LDS, local codebook | `210 / 38` | 32 | 3 |
 
 The B1 profile uses 13,312 LDS bytes and 745 static VALU issues. B4 and B16 use 18,432 LDS bytes and 763 static VALU issues. All final artifacts are gfx1151 code-object-v5 wave32 kernels with zero private bytes, spills, scratch, calls, and dynamic stack.
 

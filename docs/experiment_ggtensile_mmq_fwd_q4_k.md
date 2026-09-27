@@ -18,18 +18,18 @@ The table reports prequantized multiply-only timing. HIP and GGTensile consume t
 
 | Family | Matrix shape `(M,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
 | --- | ---: | --- | ---: | ---: |
-| Narrow | `(2048,512,2048)` | `ggsol_3ff59047beab3eaa` | `24.225` | `1.0136x` |
-| Narrow | `(8192,512,2048)` | `ggsol_197fb1d1dcba435c` | `28.621` | `1.0241x` |
-| Narrow | `(32768,512,2048)` | `ggsol_0631196a836a3532` | `28.974` | `1.0280x` |
-| Shared down | `(2048,2048,512)` | `ggsol_3d508299e01b6d3f` | `25.144` | `1.0257x` |
-| Shared down | `(8192,2048,512)` | `ggsol_ebf8da198b49dad6` | `27.879` | `1.0327x` |
-| Shared down | `(32768,2048,512)` | `ggsol_a32bcac489fa119f` | `28.104` | `1.0363x` |
-| Attention output | `(2048,2048,4096)` | `ggsol_4f3ca224b7440378` | `29.050` | `1.0325x` |
-| Attention output | `(8192,2048,4096)` | `ggsol_01a4e41ee6ae6723` | `29.121` | `1.0280x` |
-| Attention output | `(32768,2048,4096)` | `ggsol_31ea775de2173388` | `29.224` | `1.0252x` |
-| Query | `(2048,8192,2048)` | `ggsol_04db9854941608d0` | `29.104` | `1.0362x` |
-| Query | `(8192,8192,2048)` | `ggsol_cb4214664a51f7e7` | `29.287` | `1.0366x` |
-| Query | `(32768,8192,2048)` | `ggsol_a9b75ae588052cf8` | `29.185` | `1.0326x` |
+| Narrow | `(2048,512,2048)` | `ggsol_753ef81fa5bc326a` | `24.225` | `1.0136x` |
+| Narrow | `(8192,512,2048)` | `ggsol_edf26f8be572c69d` | `28.621` | `1.0241x` |
+| Narrow | `(32768,512,2048)` | `ggsol_917314a3cf93ca5a` | `28.974` | `1.0280x` |
+| Shared down | `(2048,2048,512)` | `ggsol_4b5e4be66d47912c` | `25.144` | `1.0257x` |
+| Shared down | `(8192,2048,512)` | `ggsol_7b2f9b5e15d65249` | `27.879` | `1.0327x` |
+| Shared down | `(32768,2048,512)` | `ggsol_ea97ae0eb9b4b154` | `28.104` | `1.0363x` |
+| Attention output | `(2048,2048,4096)` | `ggsol_665eb7995f7cde3c` | `29.050` | `1.0325x` |
+| Attention output | `(8192,2048,4096)` | `ggsol_041b661cf32a27b8` | `29.121` | `1.0280x` |
+| Attention output | `(32768,2048,4096)` | `ggsol_382a91e3812e7fb3` | `29.224` | `1.0252x` |
+| Query | `(2048,8192,2048)` | `ggsol_5f6c7838510c76b4` | `29.104` | `1.0362x` |
+| Query | `(8192,8192,2048)` | `ggsol_0659f7a435c29a87` | `29.287` | `1.0366x` |
+| Query | `(32768,8192,2048)` | `ggsol_d3c137a521e71c57` | `29.185` | `1.0326x` |
 
 The final multiply values combine two independent rotating 25-repeat confirmations. The largest per-key A/B median difference was `0.65` percentage points. A separate complete-call audit timed the fixed producer and multiply together; it is diagnostic and does not replace the table. Shared-down M2048 was materially inconsistent in that audit, measuring `1.0296x/0.9685x` and later `0.9855x/0.9745x`, so it is treated as complete-call parity with unresolved direction.
 

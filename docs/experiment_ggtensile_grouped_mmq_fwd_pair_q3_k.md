@@ -19,9 +19,9 @@ The table shows the fastest qualified kernel found for each measured aggregate-r
 
 | Matrix shape `(R,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
 | --- | --- | ---: | ---: |
-| `(16384,512,2048)` | `ggpair_0aed3be2b92c0f07` | `15.525` | `1.2120x` |
-| `(65536,512,2048)` | `ggpair_5a0b32e2a6c0ec93` | `20.987` | `1.1120x` |
-| `(262144,512,2048)` | `ggpair_6d9aa5f305a16663` | `22.874` | `1.0833x` |
+| `(16384,512,2048)` | `ggpair_f6a68bb6041cf068` | `15.525` | `1.2120x` |
+| `(65536,512,2048)` | `ggpair_bbb4021253bf5093` | `20.987` | `1.1120x` |
+| `(262144,512,2048)` | `ggpair_7c4a8883db4338d8` | `22.874` | `1.0833x` |
 
 The retained identity is `q3_k_k128_interleaved_row_tasks_variable_bfe()`. All route, malformed-route, mutation, and finite-output checks were exact.
 
@@ -29,9 +29,9 @@ The retained identity is `q3_k_k128_interleaved_row_tasks_variable_bfe()`. All r
 
 | Kernel hash | Geometry and ownership | Decode and schedule | VGPR / SGPR | LDS bytes | WMMAs / barriers |
 | --- | --- | --- | ---: | ---: | ---: |
-| `ggpair_0aed3be2b92c0f07` | 64-row task, 64-column, two accumulator banks | selected-half K128, variable-offset BFE scales | `148 / 44` | `19,456` | `128 / 8` |
-| `ggpair_5a0b32e2a6c0ec93` | 64-row task, 64-column, two accumulator banks | selected-half K128, variable-offset BFE scales | `148 / 44` | `19,456` | `128 / 8` |
-| `ggpair_6d9aa5f305a16663` | 64-row task, 64-column, two accumulator banks | selected-half K128, variable-offset BFE scales | `148 / 44` | `19,456` | `128 / 8` |
+| `ggpair_f6a68bb6041cf068` | 64-row task, 64-column, two accumulator banks | selected-half K128, variable-offset BFE scales | `148 / 44` | `19,456` | `128 / 8` |
+| `ggpair_bbb4021253bf5093` | 64-row task, 64-column, two accumulator banks | selected-half K128, variable-offset BFE scales | `148 / 44` | `19,456` | `128 / 8` |
+| `ggpair_7c4a8883db4338d8` | 64-row task, 64-column, two accumulator banks | selected-half K128, variable-offset BFE scales | `148 / 44` | `19,456` | `128 / 8` |
 
 The final artifacts use 2,968 VALU issue instructions, 128 static WMMAs, and eight barriers. They are gfx1151 code-object-v5 wave32 kernels with zero private storage, spills, scratch, calls, and dynamic stack. The row-task ABI is 96 bytes and the serial-route ABI is 80 bytes.
 

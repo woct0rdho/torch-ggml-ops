@@ -20,9 +20,9 @@ The table shows the fastest qualified kernel found for each aggregate-row shape 
 
 | Matrix shape `(R,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
 | --- | --- | ---: | ---: |
-| `(16384,512,2048)` | `ggsol_98b9ce678d4cb09f` | `12.187` | `1.4027x` |
-| `(65536,512,2048)` | `ggsol_a45127a1814ae728` | `18.054` | `1.2208x` |
-| `(262144,512,2048)` | `ggsol_c518830e3a59d061` | `22.185` | `1.2822x` |
+| `(16384,512,2048)` | `ggsol_ecd542a746c378f6` | `12.187` | `1.4027x` |
+| `(65536,512,2048)` | `ggsol_5345680bd57a2a28` | `18.054` | `1.2208x` |
+| `(262144,512,2048)` | `ggsol_926aaeede680ecdd` | `22.185` | `1.2822x` |
 
 The final rows use the fastest established HIP-normalized baseline. Later inactive-M comparisons are retained below as parent-versus-candidate evidence because they did not replace the three-shape bracket.
 
@@ -30,9 +30,9 @@ The final rows use the fastest established HIP-normalized baseline. Later inacti
 
 | Kernel hash | Geometry and ownership | Decode and memory policy | VGPR / SGPR | LDS bytes | WMMAs / barriers |
 | --- | --- | --- | ---: | ---: | ---: |
-| `ggsol_98b9ce678d4cb09f` | M128/N64, serial, `Mixed128_64` tail | SIA5/PGR2/PLR1, padded single LDS, packed extraction, hoisted nibble shift, scalar metadata | `140 / 35` | `5,120` | `24 / 4` |
-| `ggsol_a45127a1814ae728` | M128/N128, `SplitRoutes16` | SIA5/PGR2/PLR1, padded single LDS, packed extraction, hoisted nibble shift, scalar metadata | `216 / 35` | `10,240` | `32 / 2` |
-| `ggsol_c518830e3a59d061` | M128/N128, `SplitRoutes16` | SIA5/PGR2/PLR1, padded single LDS, packed extraction, hoisted nibble shift, scalar metadata | `216 / 35` | `10,240` | `32 / 2` |
+| `ggsol_ecd542a746c378f6` | M128/N64, serial, `Mixed128_64` tail | SIA5/PGR2/PLR1, padded single LDS, packed extraction, hoisted nibble shift, scalar metadata | `140 / 35` | `5,120` | `24 / 4` |
+| `ggsol_5345680bd57a2a28` | M128/N128, `SplitRoutes16` | SIA5/PGR2/PLR1, padded single LDS, packed extraction, hoisted nibble shift, scalar metadata | `216 / 35` | `10,240` | `32 / 2` |
+| `ggsol_926aaeede680ecdd` | M128/N128, `SplitRoutes16` | SIA5/PGR2/PLR1, padded single LDS, packed extraction, hoisted nibble shift, scalar metadata | `216 / 35` | `10,240` | `32 / 2` |
 
 All selected artifacts target gfx1151 wave32 code object v5 with zero private storage and zero VGPR/SGPR spills. The B1 profile uses an M64 body only for the restricted short-row tail; B4 and B16 retain the M128/N128 split16 body.
 

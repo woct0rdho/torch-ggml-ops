@@ -19,12 +19,12 @@ The table reports the fastest retained kernel found for each exact matrix across
 
 | Matrix shape `(M,N,K)` | Kernel hash | Speed (TFLOPS) | Speedup vs HIP |
 | --- | --- | ---: | ---: |
-| `(2048,2048,512)` | `ggsol_47d5421dfdac5c2d` | 26.877 | 1.1383x |
-| `(8192,2048,512)` | `ggsol_74ab47fc6de41c02` | 29.156 | 1.2727x |
-| `(32768,2048,512)` | `ggsol_66ffd967978c0ef1` | 30.049 | 1.2393x |
-| `(2048,2048,8192)` | `ggsol_3f90cc6f487aad42` | 24.840 | 1.2667x |
-| `(8192,2048,8192)` | `ggsol_ccb5384f18e397cd` | 26.703 | 1.2472x |
-| `(32768,2048,8192)` | `ggsol_0e05cc1a23ff2d3e` | 27.162 | 1.2062x |
+| `(2048,2048,512)` | `ggsol_3cc3143bce6a2987` | 26.877 | 1.1383x |
+| `(8192,2048,512)` | `ggsol_8ce1befe635f7860` | 29.156 | 1.2727x |
+| `(32768,2048,512)` | `ggsol_91146b440f4ab12d` | 30.049 | 1.2393x |
+| `(2048,2048,8192)` | `ggsol_af7a6bf38c07ca9b` | 24.840 | 1.2667x |
+| `(8192,2048,8192)` | `ggsol_dc9a2b99d0581346` | 26.703 | 1.2472x |
+| `(32768,2048,8192)` | `ggsol_c8e82906bf4e0680` | 27.162 | 1.2062x |
 
 The six-key call-weighted speedup is `1.2184x`. The selected kernels use the same direct packed Q3_K contract and remain faster than HIP on every exact matrix.
 

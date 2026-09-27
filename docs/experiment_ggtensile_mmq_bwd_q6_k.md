@@ -14,9 +14,9 @@ The table shows the fastest retained kernel found for each production matrix sha
 
 | Matrix shape | Kernel hash | Speed (TFLOPS) | Speedup vs HIP |
 | --- | --- | ---: | ---: |
-| `(64,2048,248320)` | `ggsol_47dc5792dc6a3094` | 12.677 | 1.0628x |
-| `(128,2048,248320)` | `ggsol_322cef48a5fa0b12` | 19.845 | 1.4049x |
-| `(256,2048,248320)` | `ggsol_83942eadf7602aa1` | 26.641 | 1.2165x |
+| `(64,2048,248320)` | `ggsol_76fa1a4855676e9c` | 12.677 | 1.0628x |
+| `(128,2048,248320)` | `ggsol_6538f0b3cb2e22e1` | 19.845 | 1.4049x |
+| `(256,2048,248320)` | `ggsol_ed1076244ec57d3d` | 26.641 | 1.2165x |
 
 The latest robust 95% speedup intervals were `1.0521x..1.0737x` for M64, `1.3888x..1.4213x` for M128, and `1.2058x..1.2274x` for M256. All three retained kernels are faster than HIP under the same direct benchmark.
 

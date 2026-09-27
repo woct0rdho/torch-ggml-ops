@@ -18,9 +18,9 @@ The table shows the fastest qualified kernel found for each measured aggregate-r
 
 | Matrix shape `(R,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
 | --- | --- | ---: | ---: |
-| `(16384,2048,512)` | `ggsol_a35d42962fcb240d` | `15.283` | `0.9987x` |
-| `(65536,2048,512)` | `ggsol_38e2fe81d0ce5aea` | `22.691` | `1.0770x` |
-| `(262144,2048,512)` | `ggsol_a9d33673184bf5ae` | `25.776` | `1.0039x` |
+| `(16384,2048,512)` | `ggsol_03954bfadeddff04` | `15.283` | `0.9987x` |
+| `(65536,2048,512)` | `ggsol_ff24d8b5206a10b6` | `22.691` | `1.0770x` |
+| `(262144,2048,512)` | `ggsol_05410d219cb70dc0` | `25.776` | `1.0039x` |
 
 The selected entries passed the retained route-correctness, resource, and deterministic-build checks.
 
@@ -28,9 +28,9 @@ The selected entries passed the retained route-correctness, resource, and determ
 
 | Kernel hash | Geometry and ownership | Decode and epilogue | VGPR / SGPR | LDS bytes | WMMAs / barriers |
 | --- | --- | --- | ---: | ---: | ---: |
-| `ggsol_a35d42962fcb240d` | M128/N64 serial routes, 64-row parent plus 32-row residual | `a1d4-p2` epilogue, qh high-bit merge | `159 / 40` | `29,184` | `24 / 4` |
-| `ggsol_38e2fe81d0ce5aea` | M128/N128 serial routes, three-way 128/64/32 final-tile body | `a1d4-p2` epilogue, qh high-bit merge | `239 / 40` | `38,400` | `56 / 4` |
-| `ggsol_a9d33673184bf5ae` | M128/N128 serial routes, three-way 128/64/32 final-tile body | `a1d4-p2` epilogue, qh high-bit merge | `239 / 40` | `38,400` | `56 / 4` |
+| `ggsol_03954bfadeddff04` | M128/N64 serial routes, 64-row parent plus 32-row residual | `a1d4-p2` epilogue, qh high-bit merge | `159 / 40` | `29,184` | `24 / 4` |
+| `ggsol_ff24d8b5206a10b6` | M128/N128 serial routes, three-way 128/64/32 final-tile body | `a1d4-p2` epilogue, qh high-bit merge | `239 / 40` | `38,400` | `56 / 4` |
+| `ggsol_05410d219cb70dc0` | M128/N128 serial routes, three-way 128/64/32 final-tile body | `a1d4-p2` epilogue, qh high-bit merge | `239 / 40` | `38,400` | `56 / 4` |
 
 The 56 static WMMAs represent mutually exclusive 128-, 64-, and 32-row bodies. All selected artifacts target gfx1151 code-object version 5 and wave32 with zero private storage, spills, scratch, calls, and dynamic stack.
 

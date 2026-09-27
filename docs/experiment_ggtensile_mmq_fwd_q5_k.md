@@ -17,12 +17,12 @@ Speed is logical matrix throughput: `2*M*N*K/(median_ms*1e9)`. The workspace was
 
 | Family | Matrix shape `(M,N,K)` | Kernel hash | HIP TFLOPS | GGTensile TFLOPS | Speedup vs HIP |
 | --- | ---: | --- | ---: | ---: | ---: |
-| Narrow | `(2048,512,2048)` | `ggsol_2eb856fb8c8259f2` | `24.322` | `24.273` | `0.9980x` |
-| Narrow | `(8192,512,2048)` | `ggsol_18c2734df625101c` | `27.223` | `28.131` | `1.0334x` |
-| Narrow | `(32768,512,2048)` | `ggsol_128ff520303246ca` | `27.992` | `27.979` | `0.9996x` |
-| Shared down | `(2048,2048,512)` | `ggsol_0bd6c5a01aebb61c` | `24.223` | `24.871` | `1.0268x` |
-| Shared down | `(8192,2048,512)` | `ggsol_0fe2ab74242c5143` | `26.924` | `27.315` | `1.0145x` |
-| Shared down | `(32768,2048,512)` | `ggsol_cc423175d914dfe1` | `27.092` | `27.560` | `1.0173x` |
+| Narrow | `(2048,512,2048)` | `ggsol_1b9a9abd77c5e8b6` | `24.322` | `24.273` | `0.9980x` |
+| Narrow | `(8192,512,2048)` | `ggsol_bf5eff47585aa8d6` | `27.223` | `28.131` | `1.0334x` |
+| Narrow | `(32768,512,2048)` | `ggsol_cb8efc54e9727b09` | `27.992` | `27.979` | `0.9996x` |
+| Shared down | `(2048,2048,512)` | `ggsol_d252a5127fdc4149` | `24.223` | `24.871` | `1.0268x` |
+| Shared down | `(8192,2048,512)` | `ggsol_16caf42949a38b26` | `26.924` | `27.315` | `1.0145x` |
+| Shared down | `(32768,2048,512)` | `ggsol_47871d72c8de59e5` | `27.092` | `27.560` | `1.0173x` |
 
 The narrow M2048 and M32768 rows are within measurement parity with HIP under their paired confirmations. Narrow M8192 and every shared-down row are faster than HIP in both confirmation medians. M2048 was the most context-sensitive during retuning, so those keys received the final dedicated confirmations rather than being selected from a short screen.
 

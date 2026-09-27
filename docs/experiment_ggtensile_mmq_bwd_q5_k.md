@@ -25,12 +25,12 @@ The table reports the fastest final-qualified kernel found for each exact matrix
 
 | Matrix shape `(M,N,K)` | Kernel hash | Speed (TFLOPS) | Speedup vs HIP |
 | --- | --- | ---: | ---: |
-| `(2048,2048,512)` | `ggsol_0581c5eaea62c710` | 28.037 | 1.4032x |
-| `(8192,2048,512)` | `ggsol_2df9140465728c7b` | 29.387 | 1.4108x |
-| `(32768,2048,512)` | `ggsol_3ac1ebb6845e1cbd` | 31.913 | 1.4406x |
-| `(2048,512,2048)` | `ggsol_989c15a1f268e54c` | 20.679 | 1.2193x |
-| `(8192,512,2048)` | `ggsol_4d8fcfa4c4f8ec9d` | 15.779 | 1.3437x |
-| `(32768,512,2048)` | `ggsol_d953a19ba8487f78` | 19.794 | 1.6026x |
+| `(2048,2048,512)` | `ggsol_4b4c3b8c85dc07e8` | 28.037 | 1.4032x |
+| `(8192,2048,512)` | `ggsol_60125cd8f8d220c6` | 29.387 | 1.4108x |
+| `(32768,2048,512)` | `ggsol_455ad6f1b34fb108` | 31.913 | 1.4406x |
+| `(2048,512,2048)` | `ggsol_44b19e571fc6fb31` | 20.679 | 1.2193x |
+| `(8192,512,2048)` | `ggsol_d631cd9051ca2d0e` | 15.779 | 1.3437x |
+| `(32768,512,2048)` | `ggsol_cf28142433ab61f5` | 19.794 | 1.6026x |
 
 The six-key call-weighted speedup is `1.4740x`. Every exact matrix has a Q5-specific kernel that is faster than HIP under the final comparison protocol.
 

@@ -27,9 +27,9 @@ The table shows the fastest qualified HIP-normalized kernel found for each aggre
 
 | Matrix shape `(R,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
 | --- | --- | ---: | ---: |
-| `(12288,2048,4096)` | `ggsol_f90ec6b01eaaa1c0` | `15.749` | `1.6930x` |
-| `(49152,2048,4096)` | `ggsol_49e0749ea2ff3aa7` | `23.604` | `1.4648x` |
-| `(196608,2048,4096)` | `ggsol_8356a591b014fc2c` | `27.289` | `1.5847x` |
+| `(12288,2048,4096)` | `ggsol_0ae13568c33c9af8` | `15.749` | `1.6930x` |
+| `(49152,2048,4096)` | `ggsol_643404897e0cc140` | `23.604` | `1.4648x` |
+| `(196608,2048,4096)` | `ggsol_6923db8022074e24` | `27.289` | `1.5847x` |
 
 These identities remained bitwise exact on the final full-row checks. The later inactive-M confirmations improved the selected GGTensile parents, but were parent-to-candidate measurements rather than a replacement three-shape HIP bracket.
 
@@ -37,9 +37,9 @@ These identities remained bitwise exact on the final full-row checks. The later 
 
 | Kernel hash | Geometry and ownership | Decode schedule | VGPR / SGPR | LDS bytes |
 | --- | --- | --- | ---: | ---: |
-| `ggsol_f90ec6b01eaaa1c0` | M64/N64, masked M tail | DependencyBatch4 | `87 / 35` | `5,120` |
-| `ggsol_49e0749ea2ff3aa7` | M128/N64, `Mixed128_64` tail | DependencyBatch4 | `135 / 35` | `5,120` |
-| `ggsol_8356a591b014fc2c` | M128/N128, SplitRoutes32 | Serial | `206 / 35` | `10,240` |
+| `ggsol_0ae13568c33c9af8` | M64/N64, masked M tail | DependencyBatch4 | `87 / 35` | `5,120` |
+| `ggsol_643404897e0cc140` | M128/N64, `Mixed128_64` tail | DependencyBatch4 | `135 / 35` | `5,120` |
+| `ggsol_6923db8022074e24` | M128/N128, SplitRoutes32 | Serial | `206 / 35` | `10,240` |
 
 All final artifacts are gfx1151 code-object-v5 wave32 kernels with zero private bytes, spills, scratch, calls, and dynamic stack. The final LDS layouts use eight-byte row padding. The selected B1, B4, and B16 identities have 8, 16, and 32 static WMMAs respectively, with two barriers and no undeclared register use.
 

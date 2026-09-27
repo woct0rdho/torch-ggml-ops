@@ -19,9 +19,9 @@ The table shows the fastest qualified kernel found for each measured aggregate-r
 
 | Matrix shape `(R,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
 | --- | --- | ---: | ---: |
-| `(16384,512,2048)` | `ggpair_a04b4d0379080838` | `13.786` | `1.2072x` |
-| `(65536,512,2048)` | `ggpair_52d8b2d6a398c27a` | `18.511` | `1.1616x` |
-| `(262144,512,2048)` | `ggpair_59e04f7993fc9621` | `20.347` | `1.1442x` |
+| `(16384,512,2048)` | `ggpair_0d821a0c4f9dafa0` | `13.786` | `1.2072x` |
+| `(65536,512,2048)` | `ggpair_7bc3e427ffbd0b3a` | `18.511` | `1.1616x` |
+| `(262144,512,2048)` | `ggpair_d161b5a8be7347b4` | `20.347` | `1.1442x` |
 
 The minimum per-medoid HIP/candidate ratios were `1.1275x`, `1.1198x`, and `1.1242x`. The retained identity is `iq2_s_k128_interleaved_row_tasks()`.
 
@@ -29,9 +29,9 @@ The minimum per-medoid HIP/candidate ratios were `1.1275x`, `1.1198x`, and `1.12
 
 | Kernel hash | Geometry and ownership | Decode and schedule | VGPR / SGPR | LDS bytes | WMMAs / barriers |
 | --- | --- | --- | ---: | ---: | ---: |
-| `ggpair_a04b4d0379080838` | 64-row task, 64-column, two accumulator banks | K128 interleaved half-weight LDS, device row tasks | `148 / 44` | `19,456` | `128 / 8` |
-| `ggpair_52d8b2d6a398c27a` | 64-row task, 64-column, two accumulator banks | K128 interleaved half-weight LDS, device row tasks | `148 / 44` | `19,456` | `128 / 8` |
-| `ggpair_59e04f7993fc9621` | 64-row task, 64-column, two accumulator banks | K128 interleaved half-weight LDS, device row tasks | `148 / 44` | `19,456` | `128 / 8` |
+| `ggpair_0d821a0c4f9dafa0` | 64-row task, 64-column, two accumulator banks | K128 interleaved half-weight LDS, device row tasks | `148 / 44` | `19,456` | `128 / 8` |
+| `ggpair_7bc3e427ffbd0b3a` | 64-row task, 64-column, two accumulator banks | K128 interleaved half-weight LDS, device row tasks | `148 / 44` | `19,456` | `128 / 8` |
+| `ggpair_d161b5a8be7347b4` | 64-row task, 64-column, two accumulator banks | K128 interleaved half-weight LDS, device row tasks | `148 / 44` | `19,456` | `128 / 8` |
 
 All three artifacts are gfx1151 code-object-v5 wave32 kernels with zero private storage, spills, scratch, calls, and dynamic stack. The row-task ABI is 96 bytes.
 

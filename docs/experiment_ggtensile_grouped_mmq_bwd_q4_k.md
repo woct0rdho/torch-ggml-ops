@@ -22,9 +22,9 @@ The table shows the fastest qualified HIP-normalized kernel found for each measu
 
 | Matrix shape `(R,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
 | --- | --- | ---: | ---: |
-| `(16384,512,2048)` | `ggsol_356ef05b9c33365d` | `13.698` | `1.8458x` |
-| `(65536,512,2048)` | `ggsol_9950e632db681be3` | `18.655` | `1.3146x` |
-| `(262144,512,2048)` | `ggsol_14b7c7089cdc2480` | `23.089` | `1.3565x` |
+| `(16384,512,2048)` | `ggsol_1099d95f3abb2771` | `13.698` | `1.8458x` |
+| `(65536,512,2048)` | `ggsol_2d3c28ed2a2c4862` | `18.655` | `1.3146x` |
+| `(262144,512,2048)` | `ggsol_727917854673fa94` | `23.089` | `1.3565x` |
 
 The final table uses the fastest established HIP-normalized values. The later inactive-M confirmations are recorded below as parent-to-candidate evidence because they did not constitute a replacement three-shape HIP bracket.
 
@@ -32,9 +32,9 @@ The final table uses the fastest established HIP-normalized values. The later in
 
 | Kernel hash | Geometry and ownership | Decode and LDS policy | VGPR / SGPR | LDS bytes | WMMAs / barriers |
 | --- | --- | --- | ---: | ---: | ---: |
-| `ggsol_356ef05b9c33365d` | M128/N64, serial, `Mixed128_64` tail | SIA5/PGR2/PLR1, padded single LDS, DependencyBatch4 | `136 / 35` | `5,120` | `24 / 4` |
-| `ggsol_9950e632db681be3` | M128/N128, SplitRoutes4 | SIA5/PGR2/PLR1, padded single LDS, DependencyBatch4 | `208 / 35` | `10,240` | `32 / 4` |
-| `ggsol_14b7c7089cdc2480` | M128/N128, SplitRoutes8 | SIA5/PGR2/PLR1, padded single LDS, DependencyBatch4 | `208 / 35` | `10,240` | `32 / 4` |
+| `ggsol_1099d95f3abb2771` | M128/N64, serial, `Mixed128_64` tail | SIA5/PGR2/PLR1, padded single LDS, DependencyBatch4 | `136 / 35` | `5,120` | `24 / 4` |
+| `ggsol_2d3c28ed2a2c4862` | M128/N128, SplitRoutes4 | SIA5/PGR2/PLR1, padded single LDS, DependencyBatch4 | `208 / 35` | `10,240` | `32 / 2` |
+| `ggsol_727917854673fa94` | M128/N128, SplitRoutes8 | SIA5/PGR2/PLR1, padded single LDS, DependencyBatch4 | `208 / 35` | `10,240` | `32 / 2` |
 
 All final artifacts are gfx1151 code-object-v5 wave32 kernels with zero private storage, spills, scratch, calls, and dynamic stack. Eight-byte LDS row padding and the selected route ownership are part of the kernel identities.
 

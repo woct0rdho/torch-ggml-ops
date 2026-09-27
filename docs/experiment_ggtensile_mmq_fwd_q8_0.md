@@ -14,29 +14,29 @@ The final exact-key set contains 23 matrix shapes. The selected kernel identitie
 
 | Family | Matrix shape `(M,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
 | --- | --- | --- | ---: | ---: |
-| Attention Q-A | `(2048,1024,4096)` | `ggsol_620516f662da29f3` | `34.245` | `1.1034x` |
-| Attention Q-A | `(8192,1024,4096)` | `ggsol_f78e834f7bb82a2e` | `36.074` | `1.1704x` |
-| Attention Q-A | `(32768,1024,4096)` | `ggsol_1389b8104bc29061` | `36.974` | `1.1511x` |
-| Attention Q-B | `(2048,32768,1024)` | `ggsol_505d33dd36cd5790` | `34.092` | `1.1918x` |
-| Attention Q-B | `(8192,32768,1024)` | `ggsol_323c022d43fb2435` | `34.641` | `1.1995x` |
-| Attention Q-B | `(32768,32768,1024)` | `ggsol_f15bc6c956ce7c52` | `35.059` | `1.2077x` |
-| Attention K/V | `(2048,512,4096)` | `ggsol_b40f08e30ff5bc83` | `30.285` | `1.0584x` |
-| Attention K/V | `(8192,512,4096)` | `ggsol_de612ce7a470579d` | `34.944` | `1.1411x` |
-| Attention K/V | `(32768,512,4096)` | `ggsol_0898037fe8783040` | `36.766` | `1.1630x` |
-| Attention output B | `(2048,4096,8192)` | `ggsol_eac11aed4c3b4229` | `36.512` | `1.2463x` |
-| Attention output B | `(8192,4096,8192)` | `ggsol_6525bb03932d9c84` | `37.513` | `1.2348x` |
-| Attention output B | `(32768,4096,8192)` | `ggsol_da2d79e7129cd5d7` | `37.938` | `1.2344x` |
-| Shared gate/up | `(2048,2048,4096)` | `ggsol_abdcb1bf8cb8e28d` | `35.066` | `1.1287x` |
-| Shared gate/up | `(8192,2048,4096)` | `ggsol_b4500bc7bd68b338` | `36.748` | `1.1502x` |
-| Shared gate/up | `(32768,2048,4096)` | `ggsol_64f2005dfe00adb8` | `37.628` | `1.1585x` |
-| Shared down | `(2048,4096,2048)` | `ggsol_e9250a27a783dd49` | `34.968` | `1.1462x` |
-| Shared down | `(8192,4096,2048)` | `ggsol_253f1a95ce85cd9e` | `36.326` | `1.1417x` |
-| Shared down | `(32768,4096,2048)` | `ggsol_f3d23f4df3973903` | `37.049` | `1.1495x` |
-| LM head | `(32,129280,4096)` | `ggsol_b9b1167f6cbe898a` | `12.922` | `1.0455x` |
-| LM head | `(64,129280,4096)` | `ggsol_ba13b32d0f3ff9ec` | `24.540` | `1.0197x` |
-| LM head | `(128,129280,4096)` | `ggsol_796295ce34f4992d` | `36.335` | `1.2370x` |
-| LM head | `(256,129280,4096)` | `ggsol_0da11f24c6cb2f0c` | `36.587` | `1.2341x` |
-| LM head | `(512,129280,4096)` | `ggsol_ee38be695060a665` | `37.203` | `1.2419x` |
+| Attention Q-A | `(2048,1024,4096)` | `ggsol_ac9f6ba25864f335` | `34.245` | `1.1034x` |
+| Attention Q-A | `(8192,1024,4096)` | `ggsol_c3b72b29ea9cdb96` | `36.074` | `1.1704x` |
+| Attention Q-A | `(32768,1024,4096)` | `ggsol_7204a17cfb45ad4a` | `36.974` | `1.1511x` |
+| Attention Q-B | `(2048,32768,1024)` | `ggsol_f7c942492cb08af8` | `34.092` | `1.1918x` |
+| Attention Q-B | `(8192,32768,1024)` | `ggsol_399bb3eba1cde513` | `34.641` | `1.1995x` |
+| Attention Q-B | `(32768,32768,1024)` | `ggsol_54fd9c6683513603` | `35.059` | `1.2077x` |
+| Attention K/V | `(2048,512,4096)` | `ggsol_749eaab54e3b1379` | `30.285` | `1.0584x` |
+| Attention K/V | `(8192,512,4096)` | `ggsol_e82d066d8f538884` | `34.944` | `1.1411x` |
+| Attention K/V | `(32768,512,4096)` | `ggsol_793eb166548cd497` | `36.766` | `1.1630x` |
+| Attention output B | `(2048,4096,8192)` | `ggsol_842d264ebf9533e3` | `36.512` | `1.2463x` |
+| Attention output B | `(8192,4096,8192)` | `ggsol_43ecfa00ae6cb264` | `37.513` | `1.2348x` |
+| Attention output B | `(32768,4096,8192)` | `ggsol_8ae04c3a600a30c6` | `37.938` | `1.2344x` |
+| Shared gate/up | `(2048,2048,4096)` | `ggsol_4a9dab3b39257cb6` | `35.066` | `1.1287x` |
+| Shared gate/up | `(8192,2048,4096)` | `ggsol_d964370550753fe6` | `36.748` | `1.1502x` |
+| Shared gate/up | `(32768,2048,4096)` | `ggsol_20568015e2e2c57a` | `37.628` | `1.1585x` |
+| Shared down | `(2048,4096,2048)` | `ggsol_17fcf11967cf2c59` | `34.968` | `1.1462x` |
+| Shared down | `(8192,4096,2048)` | `ggsol_38dc14e5687d64fc` | `36.326` | `1.1417x` |
+| Shared down | `(32768,4096,2048)` | `ggsol_ae2a7e90efb21145` | `37.049` | `1.1495x` |
+| LM head | `(32,129280,4096)` | `ggsol_2ecfddcfa3d28f81` | `12.922` | `1.0455x` |
+| LM head | `(64,129280,4096)` | `ggsol_18ea51a79693a48d` | `24.540` | `1.0197x` |
+| LM head | `(128,129280,4096)` | `ggsol_b1e120938911d11d` | `36.335` | `1.2370x` |
+| LM head | `(256,129280,4096)` | `ggsol_242054725717ca9a` | `36.587` | `1.2341x` |
+| LM head | `(512,129280,4096)` | `ggsol_be542889b65a26ca` | `37.203` | `1.2419x` |
 
 ## Final Kernel Profiles
 

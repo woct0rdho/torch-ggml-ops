@@ -19,9 +19,9 @@ The table shows the fastest qualified kernel found for each measured aggregate-r
 
 | Matrix shape `(R,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
 | --- | --- | ---: | ---: |
-| `(12288,2048,4096)` | `ggpair_f12ae9a800bd5ecb` | `13.741` | `1.1594x` |
-| `(49152,2048,4096)` | `ggpair_6a7d51c21e083af7` | `20.329` | `1.1303x` |
-| `(196608,2048,4096)` | `ggpair_c87599a2a8d4b1f3` | `23.329` | `1.0578x` |
+| `(12288,2048,4096)` | `ggpair_3d464d989430091a` | `13.741` | `1.1594x` |
+| `(49152,2048,4096)` | `ggpair_1906eee569a25cf5` | `20.329` | `1.1303x` |
+| `(196608,2048,4096)` | `ggpair_8468144fc20a1e49` | `23.329` | `1.0578x` |
 
 The B1 and B4 rows use the retained J64 fused-selector body; B16 uses the retained J80 body. All timed retained outputs were bitwise exact.
 
@@ -29,9 +29,9 @@ The B1 and B4 rows use the retained J64 fused-selector body; B16 uses the retain
 
 | Kernel hash | Geometry and ownership | Decode and schedule | VGPR / SGPR | LDS bytes | WMMAs / barriers |
 | --- | --- | --- | ---: | ---: | ---: |
-| `ggpair_f12ae9a800bd5ecb` | J64/N64, serial routes, fused selector | K128 interleaved half-weight LDS, SIA4-era schedule | `148 / 44` | `19,456` | `128 / 8` |
-| `ggpair_6a7d51c21e083af7` | J64/N64, serial routes, fused selector | K128 interleaved half-weight LDS | `148 / 44` | `19,456` | `128 / 8` |
-| `ggpair_c87599a2a8d4b1f3` | J80/N64, serial routes, fused selector | K128 interleaved half-weight LDS | `180 / 44` | `21,760` | `160 / 8` |
+| `ggpair_3d464d989430091a` | J64/N64, serial routes, fused selector | K128 interleaved half-weight LDS, SIA4-era schedule | `148 / 44` | `19,456` | `128 / 8` |
+| `ggpair_1906eee569a25cf5` | J64/N64, serial routes, fused selector | K128 interleaved half-weight LDS | `148 / 44` | `19,456` | `128 / 8` |
+| `ggpair_8468144fc20a1e49` | J80/N64, serial routes, fused selector | K128 interleaved half-weight LDS | `180 / 44` | `21,760` | `160 / 8` |
 
 All retained artifacts are gfx1151 code-object-v5 wave32 kernels with zero private storage, spills, scratch, calls, and dynamic stack.
 

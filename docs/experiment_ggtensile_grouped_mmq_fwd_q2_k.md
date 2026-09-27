@@ -25,9 +25,9 @@ The table shows the fastest qualified kernel found for each measured aggregate-r
 
 | Matrix shape `(R,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
 | --- | --- | ---: | ---: |
-| `(12288,4096,2048)` | `ggsol_62ec879a99f034cd` | `13.027` | `1.2283x` |
-| `(49152,4096,2048)` | `ggsol_adafacf7e19b4e5b` | `14.688` | `1.1972x` |
-| `(196608,4096,2048)` | `ggsol_e54fb3708d4cacc4` | `15.964` | `1.2834x` |
+| `(12288,4096,2048)` | `ggsol_f32cc7d2292b1282` | `13.027` | `1.2283x` |
+| `(49152,4096,2048)` | `ggsol_686731e4c99c1ffd` | `14.688` | `1.1972x` |
+| `(196608,4096,2048)` | `ggsol_37ce03e143353b9d` | `15.964` | `1.2834x` |
 
 The selected entries passed the retained correctness, resource, and deterministic-build checks.
 
@@ -35,9 +35,9 @@ The selected entries passed the retained correctness, resource, and deterministi
 
 | Kernel hash | Geometry and ownership | Decode and epilogue | VGPR / SGPR | LDS bytes | WMMAs / barriers |
 | --- | --- | --- | ---: | ---: | ---: |
-| `ggsol_62ec879a99f034cd` | distributed J32/J16 ownership | static group lowering, eight-wide correction, one-tile-ahead epilogue | `135 / 40` | `25,600` | `60 / 4` |
-| `ggsol_adafacf7e19b4e5b` | distributed J32/J16 ownership | static group lowering, eight-wide correction, one-tile-ahead epilogue | `135 / 40` | `25,600` | `60 / 4` |
-| `ggsol_e54fb3708d4cacc4` | distributed J64 ownership | static group lowering, eight-wide correction, four-tile epilogue | `159 / 40` | `30,208` | `80 / 4` |
+| `ggsol_f32cc7d2292b1282` | distributed J32/J16 ownership | static group lowering, eight-wide correction, one-tile-ahead epilogue | `135 / 40` | `25,600` | `60 / 4` |
+| `ggsol_686731e4c99c1ffd` | distributed J32/J16 ownership | static group lowering, eight-wide correction, one-tile-ahead epilogue | `135 / 40` | `25,600` | `60 / 4` |
+| `ggsol_37ce03e143353b9d` | distributed J64 ownership | static group lowering, eight-wide correction, four-tile epilogue | `159 / 40` | `30,208` | `80 / 4` |
 
 All selected artifacts target gfx1151 code-object version 5 and wave32 with zero private storage, spills, scratch, calls, and dynamic stack. The decoded-weight layout uses compact 320-byte rows.
 

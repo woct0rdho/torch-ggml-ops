@@ -20,9 +20,9 @@ The table shows the fastest qualified kernel found for each measured aggregate-r
 
 | Matrix shape `(R,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
 | --- | --- | ---: | ---: |
-| `(12288,4096,2048)` | `ggbpair_648838e6b6e5e97b` | `12.984` | `1.1984x` |
-| `(49152,4096,2048)` | `ggbpair_dd16a88d7a365ea0` | `23.513` | `1.3953x` |
-| `(196608,4096,2048)` | `ggbpair_13f676c087b0a7f7` | `24.641` | `1.4240x` |
+| `(12288,4096,2048)` | `ggbpair_e6991168230debad` | `12.984` | `1.1984x` |
+| `(49152,4096,2048)` | `ggbpair_ec626eff77b6060d` | `23.513` | `1.3953x` |
+| `(196608,4096,2048)` | `ggbpair_648e385637702ea7` | `24.641` | `1.4240x` |
 
 The B1 row uses the retained M64 SIA5 K pipeline; B4 uses the retained M128 direct-pointer/swizzle8 body; B16 uses the retained M192 body. All timed retained outputs were bitwise exact.
 
@@ -30,9 +30,9 @@ The B1 row uses the retained M64 SIA5 K pipeline; B4 uses the retained M128 dire
 
 | Kernel hash | Geometry and ownership | Decode and schedule | VGPR / SGPR | LDS bytes | WMMAs / barriers |
 | --- | --- | --- | ---: | ---: | ---: |
-| `ggbpair_648838e6b6e5e97b` | M64/N64 serial routes | dual-LDS full/tail split, SIA5 K pipeline, swizzle8, codebook overlap | `101 / 41` | `10,240` | `32 / 7` |
-| `ggbpair_dd16a88d7a365ea0` | M128/N64 serial routes | dual-LDS full/tail split, direct pointers, activation prefetch, swizzle8 | `149 / 41` | `10,240` | `64 / 5` |
-| `ggbpair_13f676c087b0a7f7` | M192/N64 serial routes | dual-LDS full/tail split, direct pointers, second-read/A overlap, swizzle8 | `188 / 41` | `10,240` | `96 / 5` |
+| `ggbpair_e6991168230debad` | M64/N64 serial routes | dual-LDS full/tail split, SIA5 K pipeline, swizzle8, codebook overlap | `101 / 41` | `10,240` | `32 / 7` |
+| `ggbpair_ec626eff77b6060d` | M128/N64 serial routes | dual-LDS full/tail split, direct pointers, activation prefetch, swizzle8 | `149 / 41` | `10,240` | `64 / 5` |
+| `ggbpair_648e385637702ea7` | M192/N64 serial routes | dual-LDS full/tail split, direct pointers, second-read/A overlap, swizzle8 | `188 / 41` | `10,240` | `96 / 5` |
 
 All retained artifacts are gfx1151 code-object-v5 wave32 kernels with zero private storage, zero spills, and no scratch, calls, or dynamic stack.
 

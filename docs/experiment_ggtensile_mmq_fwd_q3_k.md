@@ -25,12 +25,12 @@ A ratio above `1.0x` favors GGTensile. The final table contains the six exact ma
 
 | Matrix shape `(M,N,K)` | Kernel hash | GGTensile TFLOPS | HIP/GGTensile |
 | --- | --- | ---: | ---: |
-| `(2048,512,2048)` | `ggsol_7d2eaa3a36b44b3a` | `22.704` | `1.1350x` |
-| `(8192,512,2048)` | `ggsol_b24a95504e619789` | `24.918` | `1.1392x` |
-| `(32768,512,2048)` | `ggsol_2cf291d183897bc1` | `25.460` | `1.1366x` |
-| `(2048,8192,2048)` | `ggsol_a6f505f60a259b51` | `25.057` | `1.1326x` |
-| `(8192,8192,2048)` | `ggsol_06b967e9e7315b01` | `25.416` | `1.1377x` |
-| `(32768,8192,2048)` | `ggsol_d71bb5adc3c332b2` | `25.517` | `1.1425x` |
+| `(2048,512,2048)` | `ggsol_a92c014d131faecb` | `22.704` | `1.1350x` |
+| `(8192,512,2048)` | `ggsol_4afaa0c59f10f76d` | `24.918` | `1.1392x` |
+| `(32768,512,2048)` | `ggsol_569ed02d69052a73` | `25.460` | `1.1366x` |
+| `(2048,8192,2048)` | `ggsol_a117996848638902` | `25.057` | `1.1326x` |
+| `(8192,8192,2048)` | `ggsol_18350ff526b6b121` | `25.416` | `1.1377x` |
+| `(32768,8192,2048)` | `ggsol_cff119fa7866705c` | `25.517` | `1.1425x` |
 
 The aggregate HIP/GGTensile ratio across these six matrix entries is `1.1408x`. The common final code-object profile is gfx1151, code-object-v5, wave32, a 40-byte kernarg segment, 200 VGPRs, 16 SGPRs, 39,936 bytes of LDS, zero private bytes, zero spills, 128 WMMAs, four barriers, 90 VMEM operations, 274 LDS operations, 134 waits, and eight clauses.
 

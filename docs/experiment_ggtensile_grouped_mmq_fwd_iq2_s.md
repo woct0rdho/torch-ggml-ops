@@ -25,9 +25,9 @@ The table shows the fastest qualified kernel found for each measured aggregate-r
 
 | Matrix shape `(R,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
 | --- | --- | ---: | ---: |
-| `(16384,2048,512)` | `ggsol_66d82050f3292c36` | `13.869` | `1.2728x` |
-| `(65536,2048,512)` | `ggsol_544c7685f9e404a1` | `18.347` | `1.1310x` |
-| `(262144,2048,512)` | `ggsol_22cf9191b894b45e` | `20.306` | `0.9951x` |
+| `(16384,2048,512)` | `ggsol_bacad5f35e7d3cb5` | `13.869` | `1.2728x` |
+| `(65536,2048,512)` | `ggsol_ab0d8e160e3e389a` | `18.347` | `1.1310x` |
+| `(262144,2048,512)` | `ggsol_da1baae36eda6c5f` | `20.306` | `0.9951x` |
 
 All retained entries passed the fitted-prior qualification and the independent-reference and mutation checks. The retained identity is `iq2_s_serial_full_weight_lds_64_linear_payload_prefetch()`.
 
@@ -35,9 +35,9 @@ All retained entries passed the fitted-prior qualification and the independent-r
 
 | Kernel hash | Geometry and ownership | Decode and schedule | VGPR / SGPR | LDS bytes | WMMAs / barriers |
 | --- | --- | --- | ---: | ---: | ---: |
-| `ggsol_66d82050f3292c36` | J64 serial full-weight LDS | BFE decode, combined selector, quarter-scale, payload prefetch | `116 / 40` | `30,720` | `64 / 4` |
-| `ggsol_544c7685f9e404a1` | J64 serial full-weight LDS | BFE decode, combined selector, quarter-scale, payload prefetch | `116 / 40` | `30,720` | `64 / 4` |
-| `ggsol_22cf9191b894b45e` | J64 serial full-weight LDS | BFE decode, combined selector, quarter-scale, payload prefetch | `116 / 40` | `30,720` | `64 / 4` |
+| `ggsol_bacad5f35e7d3cb5` | J64 serial full-weight LDS | BFE decode, combined selector, quarter-scale, payload prefetch | `116 / 40` | `30,720` | `64 / 4` |
+| `ggsol_ab0d8e160e3e389a` | J64 serial full-weight LDS | BFE decode, combined selector, quarter-scale, payload prefetch | `116 / 40` | `30,720` | `64 / 4` |
+| `ggsol_da1baae36eda6c5f` | J64 serial full-weight LDS | BFE decode, combined selector, quarter-scale, payload prefetch | `116 / 40` | `30,720` | `64 / 4` |
 
 All three artifacts are gfx1151 code-object-v5 wave32 kernels with zero private storage, spills, scratch, calls, and dynamic stack.
 

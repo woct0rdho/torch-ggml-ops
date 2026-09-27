@@ -26,9 +26,9 @@ The table shows the fastest qualified kernel found for each measured aggregate-r
 
 | Matrix shape `(R,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
 | --- | --- | ---: | ---: |
-| `(16384,2048,512)` | `ggsol_9c98efab3bdeda2b` | `16.042` | `1.1684x` |
-| `(65536,2048,512)` | `ggsol_110dda8ec3bcfc8d` | `22.633` | `1.0213x` |
-| `(262144,2048,512)` | `ggsol_2aee91a9195cc10a` | `25.270` | `1.0031x` |
+| `(16384,2048,512)` | `ggsol_c95d0acee91c7c55` | `16.042` | `1.1684x` |
+| `(65536,2048,512)` | `ggsol_61ba675510b0ed6f` | `22.633` | `1.0213x` |
+| `(262144,2048,512)` | `ggsol_c6a7f10afcf493b2` | `25.270` | `1.0031x` |
 
 The selected entries passed the retained route-correctness, resource, and deterministic-build checks.
 
@@ -36,9 +36,9 @@ The selected entries passed the retained route-correctness, resource, and determ
 
 | Kernel hash | Geometry and ownership | Decode and LDS policy | VGPR / SGPR | LDS bytes | WMMAs / barriers |
 | --- | --- | --- | ---: | ---: | ---: |
-| `ggsol_9c98efab3bdeda2b` | M128/N64 serial, mixed 64/32 tail | `a1d4-p2` epilogue, padded single LDS | `159 / 40` | `29,184` | `24 / 4` |
-| `ggsol_110dda8ec3bcfc8d` | M128/N64 serial, mixed 64/32 tail | `a1d4-p2` epilogue, padded single LDS | `159 / 40` | `29,184` | `24 / 4` |
-| `ggsol_2aee91a9195cc10a` | M128/N64 serial, 128-row body | `a1d2-p2` epilogue, padded single LDS | `239 / 40` | `38,400` | `32 / 4` |
+| `ggsol_c95d0acee91c7c55` | M128/N64 serial, mixed 64/32 tail | `a1d4-p2` epilogue, padded single LDS | `159 / 40` | `29,184` | `24 / 4` |
+| `ggsol_61ba675510b0ed6f` | M128/N64 serial, mixed 64/32 tail | `a1d4-p2` epilogue, padded single LDS | `159 / 40` | `29,184` | `24 / 4` |
+| `ggsol_c6a7f10afcf493b2` | M128/N64 serial, 128-row body | `a1d2-p2` epilogue, padded single LDS | `239 / 40` | `38,400` | `32 / 4` |
 
 The 24 static WMMAs in the mixed-tail identities represent mutually exclusive 64-row and 32-row bodies. All selected artifacts target gfx1151 code-object version 5 and wave32 with zero private storage, spills, scratch, calls, and dynamic stack.
 

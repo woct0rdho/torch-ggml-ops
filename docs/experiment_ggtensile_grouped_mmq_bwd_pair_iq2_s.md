@@ -20,9 +20,9 @@ The table shows the fastest qualified kernel found for each measured aggregate-r
 
 | Matrix shape `(R,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
 | --- | --- | ---: | ---: |
-| `(16384,2048,512)` | `ggbpair_6fc121781141a30e` | `14.548` | `1.2387x` |
-| `(65536,2048,512)` | `ggbpair_64ba6a8b68b4c2c6` | `22.126` | `1.1036x` |
-| `(262144,2048,512)` | `ggbpair_b63deec8280c235f` | `23.290` | `1.0130x` |
+| `(16384,2048,512)` | `ggbpair_491941b123eced9b` | `14.548` | `1.2387x` |
+| `(65536,2048,512)` | `ggbpair_3baa490c89e72c25` | `22.126` | `1.1036x` |
+| `(262144,2048,512)` | `ggbpair_16ebfd6d48d96af7` | `23.290` | `1.0130x` |
 
 The candidate is independently and paired-confirmed faster than HIP at all three keys. Independent 95% confidence intervals for candidate-minus-HIP latency are `-21.34..-17.17%`, `-10.05..-8.70%`, and `-2.13..-0.39%` at B1/B4/B16.
 
@@ -30,9 +30,9 @@ The candidate is independently and paired-confirmed faster than HIP at all three
 
 | Kernel hash | Geometry and ownership | Decode and schedule | VGPR / SGPR | LDS bytes | WMMAs / barriers |
 | --- | --- | --- | ---: | ---: | ---: |
-| `ggbpair_6fc121781141a30e` | M128/N64, split 8 | two-LDS full/tail K pipeline, SIA5, batch4 decode, packed-8 routes | `149 / 41` | `8,192` | `64 / 6` |
-| `ggbpair_64ba6a8b68b4c2c6` | M128/N64, split 8 | two-LDS full/tail K pipeline, SIA5, batch4 decode, packed-8 routes | `149 / 41` | `8,192` | `64 / 6` |
-| `ggbpair_b63deec8280c235f` | M128/N64, split 8 | two-LDS full/tail K pipeline, SIA5, batch4 decode, packed-8 routes | `149 / 41` | `8,192` | `64 / 6` |
+| `ggbpair_491941b123eced9b` | M128/N64, split 8 | two-LDS full/tail K pipeline, SIA5, batch4 decode, packed-8 routes | `149 / 41` | `8,192` | `64 / 6` |
+| `ggbpair_3baa490c89e72c25` | M128/N64, split 8 | two-LDS full/tail K pipeline, SIA5, batch4 decode, packed-8 routes | `149 / 41` | `8,192` | `64 / 6` |
+| `ggbpair_16ebfd6d48d96af7` | M128/N64, split 8 | two-LDS full/tail K pipeline, SIA5, batch4 decode, packed-8 routes | `149 / 41` | `8,192` | `64 / 6` |
 
 All production artifacts are gfx1151 code-object-v5 wave32 kernels with 128 threads, zero private storage, zero spills, and no scratch, calls, or dynamic stack. The final stream contains `1,598` static VALU issues, `232` VMEM operations, `192` LDS operations, and `60` waits.
 
