@@ -115,6 +115,54 @@
       "Ownership": {
         "Kind": "Serial"
       }
+    },
+    {
+      "Compute": {
+        "Geometry": {
+          "WorkGroup": [
+            32,
+            4,
+            1
+          ],
+          "MIWaveTile": [
+            3,
+            4
+          ],
+          "DepthU": 32,
+          "WorkGroupMapping": 1
+        },
+        "Memory": {
+          "LdsLayout": {
+            "Kind": "Swizzled",
+            "LdsSwizzleChunkB": 8
+          }
+        },
+        "Pipeline": {
+          "PrefetchGlobalRead": 2,
+          "PrefetchLocalRead": 1,
+          "LdsBuffering": "Single",
+          "PrefetchActivation": true,
+          "InterleaveWmmaWaits": false,
+          "PrefetchPackedWeight": true,
+          "PrefetchNextPackedWeight": false,
+          "PackedLoadGrouping": "PerLane"
+        },
+        "Store": {
+          "Priority": "Raised"
+        }
+      },
+      "Projection": {
+        "DualLds": true,
+        "CodebookStorage": "Lds",
+        "SplitFullTiles": true,
+        "PointerMode": "Direct",
+        "ReadConcurrency": "OverlapSecond",
+        "ActivationPrefetch": true,
+        "PipelineK": false
+      },
+      "Ownership": {
+        "Kind": "Serial"
+      }
     }
   ],
   "ExactLogic": [
@@ -149,7 +197,7 @@
         "PhysicalExpertCount": 256,
         "MaxRouteEntries": 256
       },
-      "KernelSpecIndex": 1
+      "KernelSpecIndex": 2
     }
   ]
 }

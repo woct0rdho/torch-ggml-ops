@@ -143,7 +143,7 @@ inline constexpr std::array<const char *, 152> kMMQKernelSymbols{{
     "grouped_mmq_bwd_pair_iq2_s_r262144_n2048_k512_16ebfd6d48d96af7",
     "grouped_mmq_bwd_pair_iq2_xxs_r12288_n4096_k2048_e6991168230debad",
     "grouped_mmq_bwd_pair_iq2_xxs_r49152_n4096_k2048_ec626eff77b6060d",
-    "grouped_mmq_bwd_pair_iq2_xxs_r196608_n4096_k2048_c41643f0f4630430",
+    "grouped_mmq_bwd_pair_iq2_xxs_r196608_n4096_k2048_648e385637702ea7",
     "grouped_mmq_bwd_pair_q3_k_r16384_n2048_k512_c70dfa5dbe1b0a77",
     "grouped_mmq_bwd_pair_q3_k_r65536_n2048_k512_e9bb949ba6e40097",
     "grouped_mmq_bwd_pair_q3_k_r262144_n2048_k512_dcd35a5a31332cee",

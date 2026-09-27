@@ -2615,6 +2615,22 @@
     ]
   },
   {
+    "KernelFamily": "GroupedBackwardPair",
+    "QuantDataType": "IQ2_XXS",
+    "Problem": {
+      "M": 196608,
+      "N": 4096,
+      "K": 2048,
+      "PhysicalExpertCount": 256,
+      "MaxRouteEntries": 256,
+      "ProjectionCount": 2
+    },
+    "ExactHash": "ggbpair_648e385637702ea7",
+    "Symbol": "grouped_mmq_bwd_pair_iq2_xxs_r196608_n4096_k2048_648e385637702ea7",
+    "SourceSHA256": "1a2ea109410d289d4a824f954206f817cf1eaefc4c6dd9ff07372c9dd00c891f",
+    "NormalizedSourceSHA256": "9c44d6755e647b62998052c9a4143e71fa93c7e1f9e0526e232a59d297f90f63",
+    "ABIName": "GroupedBackwardPair",
+    "KernargSegmentSize": 72,
     "ABIArguments": [
       [
         "first_grad_output",
@@ -2687,51 +2703,35 @@
         "i64"
       ]
     ],
-    "ABIName": "GroupedBackwardPair",
-    "ExactHash": "ggbpair_c41643f0f4630430",
-    "KernelFamily": "GroupedBackwardPair",
+    "WorkGroup": [
+      32,
+      4,
+      1
+    ],
     "Grid": [
       64,
       256,
       1
     ],
-    "InstructionCounts": {
-      "Barriers": 5,
-      "Clauses": 0,
-      "Instructions": 1790,
-      "Lds": 137,
-      "ValuIssues": 1164,
-      "ValuOperations": 1240,
-      "Vmem": 169,
-      "Vopd": 76,
-      "Waits": 32,
-      "Wmma": 64
-    },
-    "KernargSegmentSize": 72,
-    "NormalizedSourceSHA256": "68a2c5c8d819d568559d0e5ed1106f67af8c474962c625e775090179e99a90da",
-    "Ownership": "SerialRoutes",
-    "Problem": {
-      "K": 2048,
-      "M": 196608,
-      "MaxRouteEntries": 256,
-      "N": 4096,
-      "PhysicalExpertCount": 256,
-      "ProjectionCount": 2
-    },
-    "QuantDataType": "IQ2_XXS",
-    "RouteSplitFactor": 1,
-    "RowTaskCapacity": null,
-    "RowTaskRows": null,
-    "SourceSHA256": "9a463801d118ba254483e5398b41cd58d240c56882a7a6a48a1b411da1ad73e9",
     "StaticGroupSegmentBytes": 10240,
-    "Symbol": "grouped_mmq_bwd_pair_iq2_xxs_r196608_n4096_k2048_c41643f0f4630430",
+    "Ownership": "SerialRoutes",
+    "RowTaskRows": null,
+    "RowTaskCapacity": null,
+    "RouteSplitFactor": 1,
+    "TotalVGPRs": 188,
     "TotalSGPRs": 41,
-    "TotalVGPRs": 149,
-    "WorkGroup": [
-      32,
-      4,
-      1
-    ]
+    "InstructionCounts": {
+      "Instructions": 2248,
+      "Wmma": 96,
+      "Barriers": 5,
+      "ValuIssues": 1454,
+      "ValuOperations": 1532,
+      "Vopd": 78,
+      "Vmem": 249,
+      "Lds": 137,
+      "Waits": 32,
+      "Clauses": 0
+    }
   },
   {
     "ABIArguments": [

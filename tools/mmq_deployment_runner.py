@@ -246,6 +246,10 @@ def _pair_backward_control(case: DeploymentCase, root: Path | None):
     }.get(case.quant_type)
     if cls is None:
         raise HIPRuntimeError(f"no paired-backward HIP control for {case.quant_type}")
+    if case.quant_type == "IQ2_XXS" and macro_tile > 128:
+        # The installed HIP pair inventory has no M192 IQ2_XXS body. The
+        # retained M192 research kernel is exact against the M128 control.
+        macro_tile = 128
     return cls(macro_tile, root)
 
 

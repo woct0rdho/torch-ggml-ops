@@ -40,7 +40,9 @@ _CATALOGS = {
 }
 
 (_IQ2_S_SELECTED,) = _specs(_CATALOGS["IQ2_S"])
-_IQ2_XXS_M64_SELECTED, _IQ2_XXS_M128_SELECTED = _specs(_CATALOGS["IQ2_XXS"])
+_IQ2_XXS_M64_SELECTED, _IQ2_XXS_M128_SELECTED, _IQ2_XXS_M192_SELECTED = _specs(
+    _CATALOGS["IQ2_XXS"]
+)
 _Q3_M64_SELECTED, _Q3_M128_SELECTED, _Q3_M128_OVERLAP_SELECTED = _specs(
     _CATALOGS["Q3_K"]
 )
@@ -308,18 +310,4 @@ class GroupedBackwardPairTestSolutions:
     def iq2_xxs_m192_n64_dual_lds_full_tile_split_direct_pointers_overlap_second_read_prefetch_a() -> (
         GroupedBackwardPairKernelSpec
     ):
-        parent = _IQ2_XXS_M128_SELECTED
-        return replace(
-            _compute(
-                parent,
-                geometry=replace(
-                    parent.compute.geometry,
-                    matrix_instruction=(16, 16, 16, 1, 1, 3, 4, 4, 1),
-                    macro_tile0=192,
-                ),
-            ),
-            projection_policy=replace(
-                parent.projection_policy,
-                read_concurrency=PairReadConcurrency.OverlapSecond,
-            ),
-        )
+        return _IQ2_XXS_M192_SELECTED
