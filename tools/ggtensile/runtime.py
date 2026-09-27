@@ -1076,10 +1076,17 @@ class FixedGroupedQ8BackwardModule(_HIPModule):
 
 
 class InstalledFixedGroupedQ8BackwardModule(FixedGroupedQ8BackwardModule):
-    """Direct launcher for the installed fixed Q8_0 production control."""
+    """Direct launcher for the installed fixed Q8_0 research control.
+
+    The tuned M192/N64 body and the M256/N64 body are both built and produce
+    bitwise-identical output, but M192/N64 is faster at every deployed token
+    count (2,048 / 8,192 / 32,768), so it is the single installed control. This
+    control exists to compare against GGTensile; it is not the public API.
+    """
 
     M256_SYMBOL = "grouped_bwd_fixed_q8_0_g8_k4096_mt256_nt64"
     M192_SYMBOL = "grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64"
+    M_TILE = 192
 
     def __init__(
         self,
@@ -1088,20 +1095,18 @@ class InstalledFixedGroupedQ8BackwardModule(FixedGroupedQ8BackwardModule):
         code_object: Path | None = None,
         hip_library: Path | None = None,
     ) -> None:
-        symbol = self.M192_SYMBOL if problem.tokens == 32768 else self.M256_SYMBOL
         super().__init__(
             problem,
             kernel_spec,
-            code_object or _find_installed_kernel(symbol),
-            symbol,
+            code_object or _find_installed_kernel(self.M192_SYMBOL),
+            self.M192_SYMBOL,
             hip_library,
         )
 
     def _launch_configuration(self) -> tuple[int, int, int, int, int, int, int]:
-        m_tile = 192 if self.state.problem.tokens == 32768 else 256
         return (
             self.state.problem.input_features // 64,
-            (self.state.problem.tokens + m_tile - 1) // m_tile,
+            (self.state.problem.tokens + self.M_TILE - 1) // self.M_TILE,
             self.state.problem.groups,
             128,
             1,
