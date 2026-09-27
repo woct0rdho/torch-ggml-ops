@@ -1,5 +1,7 @@
 """Benchmark two prepared implementations of one MMQ operation."""
 
+import statistics
+import sys
 from contextlib import ExitStack
 from typing import cast
 
@@ -15,6 +17,7 @@ from bench.benchmark_common import (
     parse_args,
     release_cuda,
     select_cases,
+    stability_warnings,
     write_report,
 )
 from bench.benchmark_data import RouteSelection, input_mapping, prepare_input
@@ -91,14 +94,39 @@ def run() -> None:
                 timing, timing_protocol = measure(
                     {name: implementations[name].launch for name in names},
                     warmup=args.warmup,
+                    warmup_seconds=args.warmup_seconds,
                     repeats=args.repeats,
                     launches=args.launches_per_sample,
                     flops=logical_flops(case, spec),
+                    blocks=args.blocks,
                     select_sample=selection.select if spec.routed else None,
                 )
             first, second = names
             ratio = cast(float, timing[second]["median_tflops"]) / cast(
                 float, timing[first]["median_tflops"]
+            )
+            first_samples = cast(list[float], timing[first]["samples_ms"])
+            second_samples = cast(list[float], timing[second]["samples_ms"])
+            paired_ratio = statistics.median(
+                [
+                    left / right
+                    for left, right in zip(first_samples, second_samples, strict=True)
+                ]
+            )
+            block_medians = cast(
+                list[dict[str, object]], timing_protocol["block_medians"]
+            )
+            block_ratios = [
+                cast(dict[str, float], block["median_ms"])[first]
+                / cast(dict[str, float], block["median_ms"])[second]
+                for block in block_medians
+            ]
+            block_spread_pct = (
+                (max(block_ratios) - min(block_ratios))
+                / statistics.median(block_ratios)
+                * 100.0
+                if len(block_ratios) > 1
+                else None
             )
             result = {
                 **case.to_mapping(),
@@ -119,6 +147,16 @@ def run() -> None:
                     "correctness_in_benchmark": False,
                     **timing_protocol,
                 },
+                "stability": {
+                    "paired_ratio": paired_ratio,
+                    "block_ratios": block_ratios,
+                    "block_spread_pct": block_spread_pct,
+                    "position_gap_pct": timing_protocol["position_gap_pct"],
+                    "position_counts": timing_protocol["position_counts"],
+                    "host_launch_us": timing_protocol["host_launch_us"],
+                    "device_over_host_ratio": timing_protocol["device_over_host_ratio"],
+                    "host_bound": timing_protocol["host_bound"],
+                },
                 "implementations": {
                     name: implementations[name].metadata for name in names
                 },
@@ -127,9 +165,14 @@ def run() -> None:
                     "numerator": second,
                     "denominator": first,
                     "value": ratio,
+                    "paired": paired_ratio,
                 },
                 "speedup": ratio,
             }
+            for warning in stability_warnings(names, timing_protocol, block_spread_pct):
+                print(
+                    f"WARNING {case.identity}: {warning}", file=sys.stderr, flush=True
+                )
             report["results"].append(result)
             print(
                 f"{case.quant_type:<8} M={case.rows:>7} "
