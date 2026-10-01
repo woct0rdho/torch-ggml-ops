@@ -755,8 +755,8 @@ def run_implementation(
 ) -> Any:
     """Run one implementation and return detached BF16 output(s).
 
-    ``public`` is the registered PyTorch operator, ``ggtensile`` is the exact
-    selected HSACO, and ``hip`` is the historical standalone control. The
+    `public` is the registered PyTorch operator, `ggtensile` is the exact
+    selected HSACO, and `hip` is the historical standalone control. The
     latter two are deliberately launched through their native ABIs rather than
     through another project implementation.
     """
@@ -779,19 +779,3 @@ def run_implementation(
     if isinstance(result, tuple):
         return tuple(value.detach().contiguous() for value in result)
     return result.detach().contiguous()
-
-
-def implementation_available(
-    case: DeploymentCase, implementation: str, *, hip_root: Path | None = None
-) -> tuple[bool, str | None]:
-    if implementation == "ggtensile":
-        artifact = public_artifact_path(case)
-        return (
-            artifact.is_file(),
-            None if artifact.is_file() else f"missing GGTensile artifact: {artifact}",
-        )
-    if implementation == "hip":
-        if hip_root is None:
-            return False, "historical HIP-control root is unavailable"
-        return True, None
-    return True, None

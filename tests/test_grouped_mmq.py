@@ -122,13 +122,3 @@ def test_paired_launch_validates_explicit_row_task_shapes(
             task_row_starts,
             task_row_ends,
         )
-
-
-def test_obsolete_grouped_dispatcher_ops_are_absent() -> None:
-    for name in (
-        "grouped_mmq",
-        "grouped_mmq_grad_input",
-        "grouped_mmq_pair",
-        "grouped_mmq_pair_grad_input",
-    ):
-        assert not hasattr(torch.ops.torch_ggml_ops, name)

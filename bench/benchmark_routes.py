@@ -20,7 +20,7 @@ from bench.workload_prior import (
 class RouteDistribution:
     """One complete expert-route vector in the production call contract.
 
-    ``group_sizes_cpu`` covers every physical expert. ``active_expert_indices_cpu``
+    `group_sizes_cpu` covers every physical expert. `active_expert_indices_cpu`
     is the active support, which is report provenance rather than dispatch input.
     """
 

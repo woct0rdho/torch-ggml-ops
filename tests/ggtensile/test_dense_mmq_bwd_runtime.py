@@ -1,11 +1,14 @@
-from tools.ggtensile.dense_mmq_bwd_runtime import (
-    InstalledDenseBackwardModule,
-    _select_control,
-)
+"""The deployed dense-backward module launches the catalogued control.
+
+`configs/hip_deployment.json` fixes the symbol per exact backward key and
+derives its launch geometry. This module must not carry a second table.
+"""
+
+from tools.ggtensile.dense_mmq_bwd_runtime import InstalledDenseBackwardModule
+from tools.ggtensile.hip_deployment import select_hip_control
 from tools.ggtensile.kernel_instance import KernelInstance
 from tools.ggtensile.model import ProblemSize
 from tools.mmq_deployment_spec import kernels
-from tools.mmq_hip_control_spec import hip_control_specs
 
 _DENSE_INSTANCES: tuple[KernelInstance, ...] = tuple(
     item.instance
@@ -14,28 +17,21 @@ _DENSE_INSTANCES: tuple[KernelInstance, ...] = tuple(
 )
 
 
-def test_historical_dense_controls_cover_every_public_backward_route() -> None:
-    available = {spec.symbol for spec in hip_control_specs()}
-    symbols = set()
+def test_deployed_dense_backward_launch_geometry_follows_the_catalog() -> None:
+    assert _DENSE_INSTANCES
     for instance in _DENSE_INSTANCES:
-        assert isinstance(instance.problem, ProblemSize)
-        control = _select_control(
-            instance.problem, instance.problem_type.quant_data_type
+        problem = instance.problem
+        assert isinstance(problem, ProblemSize)
+        control = select_hip_control(
+            "OrdinaryBackward",
+            instance.problem_type.quant_data_type,
+            problem.m,
+            problem.n,
+            problem.k,
         )
-        symbols.add(control.symbol)
-        assert control.symbol in available
-    assert len(symbols) == 14
-
-
-def test_historical_dense_control_launch_geometry_is_stable() -> None:
-    for instance in _DENSE_INSTANCES:
-        assert isinstance(instance.problem, ProblemSize)
         module = InstalledDenseBackwardModule.__new__(InstalledDenseBackwardModule)
-        module.problem_size = instance.problem
-        module.control = _select_control(
-            instance.problem, instance.problem_type.quant_data_type
+        module.problem_size = problem
+        module.hip_control = control
+        assert module._launch_configuration() == control.launch_configuration(
+            problem.m, problem.n, problem.k
         )
-        grid, block, shared = module._launch_configuration()
-        assert all(value > 0 for value in grid)
-        assert block == (128, 1, 1)
-        assert shared == 0

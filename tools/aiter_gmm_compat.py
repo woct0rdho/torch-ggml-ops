@@ -79,7 +79,7 @@ def gmm_config(
     *,
     quant_type: object | None = None,
 ) -> dict[str, int]:
-    """Return a GMM config without exposing ``expert_prior``."""
+    """Return a GMM config without exposing `expert_prior`."""
 
     prior = infer_expert_prior(
         m,
@@ -98,7 +98,7 @@ def ptgmm_config(
     *,
     quant_type: object | None = None,
 ) -> dict[str, int]:
-    """Return a PTGMM config without exposing ``expert_prior``."""
+    """Return a PTGMM config without exposing `expert_prior`."""
 
     prior = infer_expert_prior(
         m,

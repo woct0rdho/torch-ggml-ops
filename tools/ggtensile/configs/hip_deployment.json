@@ -1,0 +1,714 @@
+{
+  "schema": "hip-control-deployment-v1",
+  "evidence": "~/tmp/torch-ggml-ops/hip_selection/ (per-key candidate campaign, 2026-09-28)",
+  "families": [
+    {
+      "operation": "FixedGroupedBackward",
+      "quant_type": "Q8_0",
+      "controls": [
+        {
+          "m": 2048,
+          "n": 1024,
+          "k": 4096,
+          "symbol": "grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64"
+        },
+        {
+          "m": 8192,
+          "n": 1024,
+          "k": 4096,
+          "symbol": "grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64"
+        },
+        {
+          "m": 32768,
+          "n": 1024,
+          "k": 4096,
+          "symbol": "grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64"
+        }
+      ]
+    },
+    {
+      "operation": "FixedGroupedForward",
+      "quant_type": "Q8_0",
+      "controls": [
+        {
+          "m": 2048,
+          "n": 1024,
+          "k": 4096,
+          "symbol": "grouped_fwd_fixed_q8_0_g8_k4096_j64_full"
+        },
+        {
+          "m": 8192,
+          "n": 1024,
+          "k": 4096,
+          "symbol": "grouped_fwd_fixed_q8_0_g8_k4096_j64_full"
+        },
+        {
+          "m": 32768,
+          "n": 1024,
+          "k": 4096,
+          "symbol": "grouped_fwd_fixed_q8_0_g8_k4096_j64_full"
+        }
+      ]
+    },
+    {
+      "operation": "OrdinaryBackward",
+      "quant_type": "Q3_K",
+      "controls": [
+        {
+          "m": 2048,
+          "n": 2048,
+          "k": 512,
+          "symbol": "dense_bwd_q3_k_mt128_nt128_ki32_full_narrow"
+        },
+        {
+          "m": 2048,
+          "n": 2048,
+          "k": 8192,
+          "symbol": "dense_bwd_q3_k_mt128_nt128_ki32_full_narrow"
+        },
+        {
+          "m": 8192,
+          "n": 2048,
+          "k": 512,
+          "symbol": "dense_bwd_q3_k_mt128_nt128_ki32_full_narrow"
+        },
+        {
+          "m": 8192,
+          "n": 2048,
+          "k": 8192,
+          "symbol": "dense_bwd_q3_k_mt128_nt128_ki32_full_narrow"
+        },
+        {
+          "m": 32768,
+          "n": 2048,
+          "k": 512,
+          "symbol": "dense_bwd_q3_k_mt128_nt128_ki32_full_narrow"
+        },
+        {
+          "m": 32768,
+          "n": 2048,
+          "k": 8192,
+          "symbol": "dense_bwd_q3_k_mt128_nt128_ki32_full_narrow"
+        }
+      ]
+    },
+    {
+      "operation": "OrdinaryBackward",
+      "quant_type": "Q4_K",
+      "controls": [
+        {
+          "m": 2048,
+          "n": 512,
+          "k": 2048,
+          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096"
+        },
+        {
+          "m": 2048,
+          "n": 2048,
+          "k": 512,
+          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096"
+        },
+        {
+          "m": 2048,
+          "n": 2048,
+          "k": 8192,
+          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096"
+        },
+        {
+          "m": 2048,
+          "n": 4096,
+          "k": 2048,
+          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096"
+        },
+        {
+          "m": 8192,
+          "n": 512,
+          "k": 2048,
+          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096"
+        },
+        {
+          "m": 8192,
+          "n": 2048,
+          "k": 512,
+          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096"
+        },
+        {
+          "m": 8192,
+          "n": 2048,
+          "k": 8192,
+          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k2048"
+        },
+        {
+          "m": 8192,
+          "n": 4096,
+          "k": 2048,
+          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096"
+        },
+        {
+          "m": 32768,
+          "n": 512,
+          "k": 2048,
+          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k512"
+        },
+        {
+          "m": 32768,
+          "n": 2048,
+          "k": 512,
+          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096"
+        },
+        {
+          "m": 32768,
+          "n": 2048,
+          "k": 8192,
+          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k2048"
+        },
+        {
+          "m": 32768,
+          "n": 4096,
+          "k": 2048,
+          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096"
+        }
+      ]
+    },
+    {
+      "operation": "OrdinaryBackward",
+      "quant_type": "Q5_K",
+      "controls": [
+        {
+          "m": 2048,
+          "n": 512,
+          "k": 2048,
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+        },
+        {
+          "m": 2048,
+          "n": 2048,
+          "k": 512,
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k512"
+        },
+        {
+          "m": 8192,
+          "n": 512,
+          "k": 2048,
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k512"
+        },
+        {
+          "m": 8192,
+          "n": 2048,
+          "k": 512,
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+        },
+        {
+          "m": 32768,
+          "n": 512,
+          "k": 2048,
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+        },
+        {
+          "m": 32768,
+          "n": 2048,
+          "k": 512,
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+        }
+      ]
+    },
+    {
+      "operation": "OrdinaryBackward",
+      "quant_type": "Q6_K",
+      "controls": [
+        {
+          "m": 64,
+          "n": 2048,
+          "k": 248320,
+          "symbol": "dense_bwd_q6_k_m64_nt32_ki64_full"
+        },
+        {
+          "m": 128,
+          "n": 2048,
+          "k": 248320,
+          "symbol": "dense_bwd_q6_k_m128_nt64_ki32_full"
+        },
+        {
+          "m": 256,
+          "n": 2048,
+          "k": 248320,
+          "symbol": "dense_bwd_q6_k_m256_nt64_ki32_full"
+        }
+      ]
+    },
+    {
+      "operation": "OrdinaryBackward",
+      "quant_type": "Q8_0",
+      "controls": [
+        {
+          "m": 32,
+          "n": 4096,
+          "k": 129280,
+          "symbol": "dense_bwd_q8_0_exact_lm_head_bounded"
+        },
+        {
+          "m": 64,
+          "n": 4096,
+          "k": 129280,
+          "symbol": "dense_bwd_q8_0_exact_lm_head_full"
+        },
+        {
+          "m": 128,
+          "n": 4096,
+          "k": 129280,
+          "symbol": "dense_bwd_q8_0_exact_lm_head_g1"
+        },
+        {
+          "m": 256,
+          "n": 4096,
+          "k": 129280,
+          "symbol": "dense_bwd_q8_0_exact_lm_head_g3"
+        },
+        {
+          "m": 512,
+          "n": 4096,
+          "k": 129280,
+          "symbol": "dense_bwd_q8_0_exact_lm_head_g3"
+        },
+        {
+          "m": 2048,
+          "n": 1024,
+          "k": 32768,
+          "symbol": "dense_bwd_q8_0_exact_n32768k1024_g2_group_m1_padding8"
+        },
+        {
+          "m": 2048,
+          "n": 2048,
+          "k": 4096,
+          "symbol": "dense_bwd_q8_0_exact_n4096k2048_g2_padding8"
+        },
+        {
+          "m": 2048,
+          "n": 4096,
+          "k": 512,
+          "symbol": "dense_bwd_q8_0_exact_n512k4096_g2_group_m2_padding8"
+        },
+        {
+          "m": 2048,
+          "n": 4096,
+          "k": 1024,
+          "symbol": "dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8"
+        },
+        {
+          "m": 2048,
+          "n": 4096,
+          "k": 2048,
+          "symbol": "dense_bwd_q8_0_exact_n2048k4096_g2_group_m2_padding8"
+        },
+        {
+          "m": 2048,
+          "n": 8192,
+          "k": 4096,
+          "symbol": "dense_bwd_q8_0_exact_n4096k8192_g2_padding8"
+        },
+        {
+          "m": 8192,
+          "n": 1024,
+          "k": 32768,
+          "symbol": "dense_bwd_q8_0_exact_n32768k1024_g2_group_m1_padding8"
+        },
+        {
+          "m": 8192,
+          "n": 2048,
+          "k": 4096,
+          "symbol": "dense_bwd_q8_0_exact_n4096k2048_g2_group_m2"
+        },
+        {
+          "m": 8192,
+          "n": 4096,
+          "k": 512,
+          "symbol": "dense_bwd_q8_0_exact_n512k4096_g2_group_m2_padding8"
+        },
+        {
+          "m": 8192,
+          "n": 4096,
+          "k": 1024,
+          "symbol": "dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8"
+        },
+        {
+          "m": 8192,
+          "n": 4096,
+          "k": 2048,
+          "symbol": "dense_bwd_q8_0_exact_n2048k4096_g2_group_m2_padding8"
+        },
+        {
+          "m": 8192,
+          "n": 8192,
+          "k": 4096,
+          "symbol": "dense_bwd_q8_0_exact_n4096k8192_g2_group_m2"
+        },
+        {
+          "m": 32768,
+          "n": 1024,
+          "k": 32768,
+          "symbol": "dense_bwd_q8_0_exact_n32768k1024_g2_group_m1_padding8"
+        },
+        {
+          "m": 32768,
+          "n": 2048,
+          "k": 4096,
+          "symbol": "dense_bwd_q8_0_exact_n4096k2048_g2_group_m2"
+        },
+        {
+          "m": 32768,
+          "n": 4096,
+          "k": 512,
+          "symbol": "dense_bwd_q8_0_exact_n512k4096_g2_group_m2_padding8"
+        },
+        {
+          "m": 32768,
+          "n": 4096,
+          "k": 1024,
+          "symbol": "dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8"
+        },
+        {
+          "m": 32768,
+          "n": 4096,
+          "k": 2048,
+          "symbol": "dense_bwd_q8_0_exact_n2048k4096_g2_group_m2_padding8"
+        },
+        {
+          "m": 32768,
+          "n": 8192,
+          "k": 4096,
+          "symbol": "dense_bwd_q8_0_exact_n4096k8192_g2_group_m2"
+        }
+      ]
+    },
+    {
+      "operation": "OrdinaryForward",
+      "quant_type": "Q3_K",
+      "controls": [
+        {
+          "m": 2048,
+          "n": 512,
+          "k": 2048,
+          "symbol": "dense_fwd_q3_k_k2048_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 8192,
+          "k": 2048,
+          "symbol": "dense_fwd_q3_k_k2048_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 512,
+          "k": 2048,
+          "symbol": "dense_fwd_q3_k_k2048_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 8192,
+          "k": 2048,
+          "symbol": "dense_fwd_q3_k_k2048_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 512,
+          "k": 2048,
+          "symbol": "dense_fwd_q3_k_k2048_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 8192,
+          "k": 2048,
+          "symbol": "dense_fwd_q3_k_k2048_j128_full"
+        }
+      ]
+    },
+    {
+      "operation": "OrdinaryForward",
+      "quant_type": "Q4_K",
+      "controls": [
+        {
+          "m": 2048,
+          "n": 512,
+          "k": 2048,
+          "symbol": "dense_fwd_q4_k_k2048_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 2048,
+          "k": 512,
+          "symbol": "dense_fwd_q4_k_k512_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 2048,
+          "k": 4096,
+          "symbol": "dense_fwd_q4_k_k4096_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 8192,
+          "k": 2048,
+          "symbol": "dense_fwd_q4_k_k2048_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 512,
+          "k": 2048,
+          "symbol": "dense_fwd_q4_k_k2048_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 2048,
+          "k": 512,
+          "symbol": "dense_fwd_q4_k_k512_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 2048,
+          "k": 4096,
+          "symbol": "dense_fwd_q4_k_k4096_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 8192,
+          "k": 2048,
+          "symbol": "dense_fwd_q4_k_k2048_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 512,
+          "k": 2048,
+          "symbol": "dense_fwd_q4_k_k2048_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 2048,
+          "k": 512,
+          "symbol": "dense_fwd_q4_k_k512_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 2048,
+          "k": 4096,
+          "symbol": "dense_fwd_q4_k_k4096_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 8192,
+          "k": 2048,
+          "symbol": "dense_fwd_q4_k_k2048_j128_full"
+        }
+      ]
+    },
+    {
+      "operation": "OrdinaryForward",
+      "quant_type": "Q5_K",
+      "controls": [
+        {
+          "m": 2048,
+          "n": 512,
+          "k": 2048,
+          "symbol": "dense_fwd_q5_k_k2048_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 2048,
+          "k": 512,
+          "symbol": "dense_fwd_q5_k_k512_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 512,
+          "k": 2048,
+          "symbol": "dense_fwd_q5_k_k2048_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 2048,
+          "k": 512,
+          "symbol": "dense_fwd_q5_k_k512_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 512,
+          "k": 2048,
+          "symbol": "dense_fwd_q5_k_k2048_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 2048,
+          "k": 512,
+          "symbol": "dense_fwd_q5_k_k512_j128_full"
+        }
+      ]
+    },
+    {
+      "operation": "OrdinaryForward",
+      "quant_type": "Q6_K",
+      "controls": [
+        {
+          "m": 64,
+          "n": 248320,
+          "k": 2048,
+          "symbol": "dense_fwd_q6_k_k2048_j64_full"
+        },
+        {
+          "m": 128,
+          "n": 248320,
+          "k": 2048,
+          "symbol": "dense_fwd_q6_k_k2048_j128_full"
+        },
+        {
+          "m": 256,
+          "n": 248320,
+          "k": 2048,
+          "symbol": "dense_fwd_q6_k_k2048_j128_full"
+        }
+      ]
+    },
+    {
+      "operation": "OrdinaryForward",
+      "quant_type": "Q8_0",
+      "controls": [
+        {
+          "m": 32,
+          "n": 129280,
+          "k": 4096,
+          "symbol": "dense_fwd_q8_0_k4096_j64_bounded"
+        },
+        {
+          "m": 64,
+          "n": 129280,
+          "k": 4096,
+          "symbol": "dense_fwd_q8_0_k4096_j64_full"
+        },
+        {
+          "m": 128,
+          "n": 129280,
+          "k": 4096,
+          "symbol": "dense_fwd_q8_0_k4096_j128_full"
+        },
+        {
+          "m": 256,
+          "n": 129280,
+          "k": 4096,
+          "symbol": "dense_fwd_q8_0_k4096_j128_full"
+        },
+        {
+          "m": 512,
+          "n": 129280,
+          "k": 4096,
+          "symbol": "dense_fwd_q8_0_k4096_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 512,
+          "k": 4096,
+          "symbol": "dense_fwd_q8_0_k4096_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 1024,
+          "k": 4096,
+          "symbol": "dense_fwd_q8_0_k4096_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 2048,
+          "k": 4096,
+          "symbol": "dense_fwd_q8_0_k4096_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 4096,
+          "k": 2048,
+          "symbol": "dense_fwd_q8_0_k2048_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 4096,
+          "k": 8192,
+          "symbol": "dense_fwd_q8_0_k8192_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 32768,
+          "k": 1024,
+          "symbol": "dense_fwd_q8_0_k1024_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 512,
+          "k": 4096,
+          "symbol": "dense_fwd_q8_0_k4096_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 1024,
+          "k": 4096,
+          "symbol": "dense_fwd_q8_0_k4096_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 2048,
+          "k": 4096,
+          "symbol": "dense_fwd_q8_0_k4096_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 4096,
+          "k": 2048,
+          "symbol": "dense_fwd_q8_0_k2048_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 4096,
+          "k": 8192,
+          "symbol": "dense_fwd_q8_0_k8192_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 32768,
+          "k": 1024,
+          "symbol": "dense_fwd_q8_0_k1024_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 512,
+          "k": 4096,
+          "symbol": "dense_fwd_q8_0_k4096_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 1024,
+          "k": 4096,
+          "symbol": "dense_fwd_q8_0_k4096_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 2048,
+          "k": 4096,
+          "symbol": "dense_fwd_q8_0_k4096_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 4096,
+          "k": 2048,
+          "symbol": "dense_fwd_q8_0_k2048_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 4096,
+          "k": 8192,
+          "symbol": "dense_fwd_q8_0_k8192_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 32768,
+          "k": 1024,
+          "symbol": "dense_fwd_q8_0_k1024_j128_full"
+        }
+      ]
+    }
+  ]
+}

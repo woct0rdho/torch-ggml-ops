@@ -87,7 +87,7 @@ def parse_args() -> argparse.Namespace:
         "--repeats",
         type=int,
         default=10,
-        help="samples per implementation per block; must be even",
+        help="samples per implementation per block, must be even",
     )
     parser.add_argument(
         "--blocks",
@@ -152,7 +152,7 @@ def _alternating_order(names: list[str], index: int) -> list[str]:
 
 
 def _event_time(function: Callable[[], object], launches: int) -> float:
-    """Return the mean device time of ``launches`` calls of one implementation.
+    """Return the mean device time of `launches` calls of one implementation.
 
     One unmeasured launch runs first, so the device is still busy while the
     measured window is enqueued. Without it the host-side cost of dispatching the
@@ -178,7 +178,7 @@ def _warm_up(
     launches: int,
     seconds_min: float,
 ) -> tuple[int, float]:
-    """Warm up until ``iterations_min`` iterations and ``seconds_min`` device time.
+    """Warm up until `iterations_min` iterations and `seconds_min` device time.
 
     The budget is device time, not host time: a fast launcher would otherwise
     submit many seconds of queued work while the elapsed host clock is still
@@ -232,7 +232,7 @@ def _host_launch_us(function: Callable[[], object], device_ms: float) -> float:
     """Return the host-side cost of one launch closure call.
 
     Submitted work keeps the device busy, so this is the enqueue rate rather than
-    device execution time. The call count is capped by ``_HOST_PROBE_SECONDS`` of
+    device execution time. The call count is capped by `_HOST_PROBE_SECONDS` of
     device work so the probe stays cheap on large kernels.
     """
 
@@ -281,7 +281,7 @@ def measure(
 
     Each block runs the same sample indices with the starting order flipped, so
     every implementation occupies the first and second alternation position
-    equally often. Samples stay balanced only when ``repeats`` is even.
+    equally often. Samples stay balanced only when `repeats` is even.
     """
 
     names = list(functions)

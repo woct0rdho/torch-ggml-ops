@@ -1,6 +1,6 @@
 """Neutral metadata for exact MMQ deployment correctness cases.
 
-This module intentionally has no dependency on ``bench``. The selected keys
+This module intentionally has no dependency on `bench`. The selected keys
 come from the checked-in catalogs and deployment inventory. Tensor names are
 the stable checkpoint representatives used to materialize those exact shapes.
 """
@@ -41,7 +41,7 @@ class DeploymentCase:
     instance: KernelInstance
 
     def to_mapping(self) -> dict[str, object]:
-        """Return report-safe route metadata without importing ``bench``."""
+        """Return report-safe route metadata without importing `bench`."""
         return {
             "KernelFamily": self.operation,
             "IdentityHash": self.identity,

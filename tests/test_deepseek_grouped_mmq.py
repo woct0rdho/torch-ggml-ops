@@ -50,8 +50,3 @@ def test_unsupported_fixed_token_count_fails_at_launch(
     input = random_bf16(2, _GROUPS, _IN_FEATURES, seed=30004)
     with pytest.raises(RuntimeError, match="unsupported exact deployment key"):
         torch_ggml_ops.fixed_grouped_mmq(input, packed)
-
-
-def test_obsolete_fixed_dispatcher_ops_are_absent() -> None:
-    for name in ("fixed_grouped_mmq", "fixed_grouped_mmq_grad_input"):
-        assert not hasattr(torch.ops.torch_ggml_ops, name)

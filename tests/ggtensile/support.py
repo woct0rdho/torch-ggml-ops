@@ -3,7 +3,7 @@ import dis
 from dataclasses import dataclass
 from pathlib import Path
 from types import CodeType, FrameType
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 import pytest
 
@@ -56,7 +56,7 @@ def record_writer_line(
     frame: FrameType,
     event: str,
     argument: object,
-) -> object:
+) -> Any:
     del argument
     lines = _WRITER_LINES_BY_FILENAME.get(frame.f_code.co_filename)
     if lines is None:

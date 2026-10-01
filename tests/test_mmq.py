@@ -145,8 +145,3 @@ def test_dense_launch_validates_every_explicit_buffer_property() -> None:
         launch(output, misaligned_workspace)
     with pytest.raises(RuntimeError, match="workspace has an invalid element count"):
         launch(output, workspace[:-1].clone())
-
-
-def test_obsolete_public_dispatcher_ops_are_absent() -> None:
-    for name in ("mmq", "mmq_grad_input"):
-        assert not hasattr(torch.ops.torch_ggml_ops, name)

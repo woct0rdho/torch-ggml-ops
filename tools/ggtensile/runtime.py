@@ -24,6 +24,7 @@ from .grouped_mmq_bwd_spec import DerivedGroupedBackwardState, GroupedBackwardKe
 from .grouped_mmq_fwd_model import GroupedForwardProblem
 from .grouped_mmq_fwd_spec import DerivedGroupedForwardState, GroupedForwardKernelSpec
 from .grouped_mmq_fwd_validation import validate_grouped_forward_solution
+from .hip_deployment import select_hip_control
 from .kernel_abi import (
     FIXED_GROUPED_BACKWARD_ABI,
     FIXED_GROUPED_FORWARD_ABI,
@@ -928,7 +929,7 @@ class FixedQ81F16D2S6QuantizerModule(_HIPModule):
 
 
 class FixedHipForwardModule(ForwardModule):
-    """Direct prequantized launcher for an installed exact HIP multiply."""
+    """Direct prequantized launcher for the deployed dense forward control."""
 
     def __init__(
         self,
@@ -938,40 +939,19 @@ class FixedHipForwardModule(ForwardModule):
         code_object: Path | None = None,
         hip_library: Path | None = None,
     ) -> None:
-        k = problem_size.k
-        allowed_k = {
-            "Q3_K": (2048, 4096),
-            "Q4_K": (512, 2048, 4096),
-            "Q5_K": (512, 2048),
-            "Q6_K": (2048,),
-            "Q8_0": (1024, 2048, 4096, 8192),
-        }.get(quant_type)
-        if allowed_k is None or k not in allowed_k:
-            raise HIPRuntimeError(
-                f"installed {quant_type} control does not support K={k}"
-            )
-        symbol_quant = quant_type.lower()
-        # The installed bundle ABI explicitly contrasts ordinary (`dense_fwd`) and
-        # grouped entry points, so preserve its external symbol spelling here.
-        m = problem_size.m
-        j = 64 if quant_type == "Q6_K" and m == 64 else 128
-        suffix = f"k{k}_j{j}_full"
-        if quant_type == "Q3_K" and k == 4096:
-            suffix = "j128"
-        elif quant_type == "Q8_0" and m in (32, 64):
-            if k != 4096:
-                raise HIPRuntimeError(
-                    f"installed Q8_0 J64 control does not support K={k}"
-                )
-            j = 64
-            suffix = f"k4096_j64_{'bounded' if m == 32 else 'full'}"
-        symbol = f"dense_fwd_{symbol_quant}_{suffix}"
+        self.hip_control = select_hip_control(
+            "OrdinaryForward",
+            quant_type,
+            problem_size.m,
+            problem_size.n,
+            problem_size.k,
+        )
         super().__init__(
             problem_size,
             quant_type,
             kernel_spec,
-            code_object or _find_installed_kernel(symbol),
-            symbol,
+            code_object or _find_installed_kernel(self.hip_control.symbol),
+            self.hip_control.symbol,
             hip_library,
         )
 
@@ -979,19 +959,7 @@ class FixedHipForwardModule(ForwardModule):
         self,
     ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
         size = self.problem_size
-        quant_type = self.quant_type
-        j = 64 if quant_type in ("Q6_K", "Q8_0") and size.m in (32, 64) else 128
-        if quant_type == "Q3_K":
-            # Match mmq_bundle.cpp: Q3 uses a 36-dword activation tile and
-            # the 84-dword packed Q3 row stride.
-            lds_bytes = 40_448
-        else:
-            lds_bytes = 28_928 if j == 64 else 38_400
-        return (
-            (size.n // 64, (size.m + j - 1) // j, 1),
-            (32, 4, 1),
-            lds_bytes,
-        )
+        return self.hip_control.launch_configuration(size.m, size.n, size.k)
 
 
 class FixedGroupedQ8BackwardModule(_HIPModule):
@@ -1076,17 +1044,13 @@ class FixedGroupedQ8BackwardModule(_HIPModule):
 
 
 class InstalledFixedGroupedQ8BackwardModule(FixedGroupedQ8BackwardModule):
-    """Direct launcher for the installed fixed Q8_0 research control.
+    """Direct launcher for the deployed fixed Q8_0 research control.
 
-    The tuned M192/N64 body and the M256/N64 body are both built and produce
-    bitwise-identical output, but M192/N64 is faster at every deployed token
-    count (2,048 / 8,192 / 32,768), so it is the single installed control. This
-    control exists to compare against GGTensile; it is not the public API.
+    The catalog selects the tuned M192/N64 body at every deployed token count.
+    The M256/N64 body is built with the same arithmetic and bitwise-identical
+    output but is slower. This control exists for comparison against GGTensile
+    and is not part of the public API.
     """
-
-    M256_SYMBOL = "grouped_bwd_fixed_q8_0_g8_k4096_mt256_nt64"
-    M192_SYMBOL = "grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64"
-    M_TILE = 192
 
     def __init__(
         self,
@@ -1095,19 +1059,28 @@ class InstalledFixedGroupedQ8BackwardModule(FixedGroupedQ8BackwardModule):
         code_object: Path | None = None,
         hip_library: Path | None = None,
     ) -> None:
+        self.hip_control = select_hip_control(
+            "FixedGroupedBackward",
+            "Q8_0",
+            problem.tokens,
+            problem.output_features,
+            problem.input_features,
+        )
+        self.m_tile = self.hip_control.fixed_m_tile()
         super().__init__(
             problem,
             kernel_spec,
-            code_object or _find_installed_kernel(self.M192_SYMBOL),
-            self.M192_SYMBOL,
+            code_object or _find_installed_kernel(self.hip_control.symbol),
+            self.hip_control.symbol,
             hip_library,
         )
 
     def _launch_configuration(self) -> tuple[int, int, int, int, int, int, int]:
+        problem = self.state.problem
         return (
-            self.state.problem.input_features // 64,
-            (self.state.problem.tokens + self.M_TILE - 1) // self.M_TILE,
-            self.state.problem.groups,
+            problem.input_features // 64,
+            (problem.tokens + self.m_tile - 1) // self.m_tile,
+            problem.groups,
             128,
             1,
             1,
@@ -1194,10 +1167,9 @@ class FixedGroupedQ8ForwardModule(_HIPModule):
 
 
 class InstalledFixedGroupedQ8ForwardModule(FixedGroupedQ8ForwardModule):
-    """Direct launcher for the installed authoritative fixed-group HIP multiply."""
+    """Direct launcher for the deployed fixed-group HIP multiply."""
 
-    FULL_SYMBOL = "grouped_fwd_fixed_q8_0_g8_k4096_j64_full"
-    BOUNDED_SYMBOL = "grouped_fwd_fixed_q8_0_g8_k4096_j64_bounded"
+    SYMBOL = "grouped_fwd_fixed_q8_0_g8_k4096_j64_full"
 
     def __init__(
         self,
@@ -1206,15 +1178,18 @@ class InstalledFixedGroupedQ8ForwardModule(FixedGroupedQ8ForwardModule):
         code_object: Path | None = None,
         hip_library: Path | None = None,
     ) -> None:
-        if problem.output_features % 64:
-            symbol = self.BOUNDED_SYMBOL
-        else:
-            symbol = self.FULL_SYMBOL
+        self.hip_control = select_hip_control(
+            "FixedGroupedForward",
+            "Q8_0",
+            problem.tokens,
+            problem.output_features,
+            problem.input_features,
+        )
         super().__init__(
             problem,
             kernel_spec,
-            code_object or _find_installed_kernel(symbol),
-            symbol,
+            code_object or _find_installed_kernel(self.hip_control.symbol),
+            self.hip_control.symbol,
             hip_library,
         )
 
@@ -1405,11 +1380,7 @@ def _find_installed_kernel(symbol: str) -> Path:
         else "GGTENSILE_Q8_1_F32_D4_CODE_OBJECT"
         if symbol == FixedQ81F32D4QuantizerModule.SYMBOL
         else "GGTENSILE_FIXED_GROUPED_Q8_CODE_OBJECT"
-        if symbol
-        in (
-            InstalledFixedGroupedQ8ForwardModule.FULL_SYMBOL,
-            InstalledFixedGroupedQ8ForwardModule.BOUNDED_SYMBOL,
-        )
+        if symbol == InstalledFixedGroupedQ8ForwardModule.SYMBOL
         else "GGTENSILE_HIP_FORWARD_CODE_OBJECT"
     )
     override = os.environ.get(override_name)
