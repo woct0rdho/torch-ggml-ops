@@ -2,18 +2,11 @@
 
 ## Scope
 
-This record covers the fused routed IQ2_XXS gate/up input-gradient kernel for DeepSeek:
+This record covers the fused routed IQ2_XXS gate/up input-gradient kernel for DeepSeek.
 
-```text
-dX0[R,4096] = dY0[R,2048] @ W0[2048,4096]
-dX1[R,4096] = dY1[R,2048] @ W1[2048,4096]
-```
-
-Aggregate routed rows are `R=12288,49152,196608`. The two packed IQ2_XXS banks are decoded directly, accumulated in one FP32 pair dataflow, and written to BF16 gradients.
+Aggregate routed rows are `R=12288,49152,196608`.
 
 ## Final kernel result
-
-Pair throughput counts both matrices as `4*R*N*K/time`. `HIP/AITER GMM` compares the packed pair with two BF16 AITER GMM calls. Values above `1.00x` favor HIP.
 
 | Batch | Logical shape | HIP TFLOPS | HIP/AITER GMM |
 | ---: | --- | ---: | ---: |
@@ -25,7 +18,7 @@ The B16 loss remains a packed two-weight decode and pair-accumulator cost relati
 
 ## Kernel implementation
 
-The retained pair uses four wave32 waves, M64/N64 at small rows, a qualified M128/N64 geometry at larger routed rows, cooperative width-16 IQ2_XXS lookup/sign/scale decode, two weight LDS tiles, swizzle4, and inactive-M consumer suppression. It preserves one FP32 accumulation and one BF16 rounding for each fused pair output.
+The retained pair uses four wave32 waves, M64/N64 at small rows, a qualified M128/N64 geometry at larger routed rows, cooperative width-16 IQ2_XXS lookup/sign/scale decode, two weight LDS tiles, swizzle4, and inactive-M consumer suppression.
 
 ## Optimization log
 
@@ -41,15 +34,9 @@ Width32 decode had mixed route movement and no legal shape-only separator, so wi
 
 The coefficient-only campaign promoted M128/N64 only at exact aggregate rows `R=49152` and `R=196608`. The repaired lower-state body confirmed approximately `1.1678x` at B4 and `1.1644x` at B16 against the retained parent, with every learned, hash, and mandatory control above `1.05x` in the final qualification.
 
-## Correctness and resources
+## Resources
 
-### Shared backward arithmetic controls
-
-The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE; even without its scale scan it was 33.3% slower. IQ2_XXS therefore retains exact FP32 WMMA accumulation.
-
-## Correctness and resources
-
-The retained M64/N64 and M128/N64 bodies use 209/54/8192 B LDS and 239/54/8192 B LDS respectively, with zero private bytes, zero spills, no scratch, calls, or dynamic stack. Validation covers IQ2_XXS codebook/sign selectors, paired-output isolation, active and inactive weight mutations, malformed routes, non-aligned rows, independent BF16 reference error, finite output, and deterministic reruns.
+The retained M64/N64 and M128/N64 bodies use 209/54/8192 B LDS and 239/54/8192 B LDS respectively.
 
 ## Evidence
 

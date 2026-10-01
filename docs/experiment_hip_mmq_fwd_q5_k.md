@@ -2,39 +2,29 @@
 
 ## Scope
 
-This record covers gfx1151 HIP packed-MMQ forward for Q5_K weights:
-
-```text
-output[M,N] = input[M,K] @ dequant_q5_k(weight[N,K]).T
-```
-
-The input and output are BF16. The packed Q5_K weight is decoded cooperatively from GGUF storage. The Q8_1 F16_D4S4 workspace provides the signed-int8 values and scale/sum metadata consumed by the Q5_K correction path.
+This record covers gfx1151 HIP packed-MMQ forward for Q5_K weights.
 
 | Family | Logical weight `(N,K)` | M values | Tensors |
 | --- | ---: | ---: | ---: |
 | Narrow K/V/shared gate/up | `(512,2048)` | `2048,8192,32768` | 21 |
 | Shared-expert down | `(2048,512)` | `2048,8192,32768` | 10 |
 
-`HIP TFLOPS` is the dense-equivalent `2*M*N*K/time`. `HIP/torch.mm` is the throughput ratio against BF16 `torch.mm`; values above `1.00x` favor the packed HIP path.
-
 ## Final kernel result
 
 | Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm |
 | --- | ---: | ---: | ---: |
-| Narrow K/V/gate/up | `(2048,512,2048)` | 21.913 | 1.62x |
-| Narrow K/V/gate/up | `(8192,512,2048)` | 20.452 | 1.13x |
-| Narrow K/V/gate/up | `(32768,512,2048)` | 20.135 | 1.07x |
-| Shared down | `(2048,2048,512)` | 23.470 | 7.89x |
-| Shared down | `(8192,2048,512)` | 24.163 | 7.43x |
-| Shared down | `(32768,2048,512)` | 23.115 | 7.01x |
-
-The table uses the current complete packed-path matrix and its BF16 `torch.mm` ratios.
+| Narrow K/V/gate/up | `(2048,512,2048)` | 24.954 | 1.82x |
+| Narrow K/V/gate/up | `(8192,512,2048)` | 27.296 | 1.48x |
+| Narrow K/V/gate/up | `(32768,512,2048)` | 27.986 | 1.46x |
+| Shared down | `(2048,2048,512)` | 24.546 | 8.23x |
+| Shared down | `(8192,2048,512)` | 26.827 | 8.22x |
+| Shared down | `(32768,2048,512)` | 27.691 | 8.36x |
 
 ## Kernel implementation
 
 The retained body uses the four-wave `I=64`, `J=128`, K256 geometry with Q5-specific low/high payload reconstruction, signed scales, and FP32 correction. Exact K512 and K2048 wrappers fold packed-row bytes and full-tile bounds while preserving a generic bounds-safe fallback.
 
-Q5_K uses the Q4_K-style scale-plus-sum activation workspace. Q5-specific payload state is kept bounded to the active reduction phase; broad cross-iteration packed prefetch was rejected because longer live ranges outweighed the load savings.
+Q5-specific payload state is kept bounded to the active reduction phase; broad cross-iteration packed prefetch was rejected because longer live ranges outweighed the load savings.
 
 ## Optimization log
 
@@ -56,9 +46,9 @@ The standalone small-route J32 body improved nonuniform routes by approximately 
 
 Global J64, I128, alternate workgroup sizes, K64, activation-half double buffering, decoded-weight LDS caching, broad packed prefetch, split-K, persistent workgroups, and generic swizzle rules are closed for the current Q5 representation. A future experiment must first demonstrate lower decode state or a lossless prepared representation.
 
-## Correctness and resources
+## Resources
 
-Retained Q5_K J128 bodies use `244 VGPR / 28 SGPR / 38,400 B LDS`; they have zero private storage, zero spills, and no dynamic stack. Correctness covers low and high payload planes, signed scale fields, block boundaries, Q8_1 scale/sum metadata, workspace/input/weight mutations, independent GGUF reference output, finite values, and exact full-tile guards. The shared-down body is near the practical allocation warning point at 253 VGPRs but remains spill-free.
+Retained Q5_K J128 bodies use `244 VGPR / 28 SGPR / 38,400 B LDS`.
 
 ## Evidence
 

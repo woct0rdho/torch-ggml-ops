@@ -2,39 +2,33 @@
 
 ## Scope
 
-This record covers gfx1151 HIP packed-MMQ input-gradient kernels for Q3_K weights:
+This record covers gfx1151 HIP packed-MMQ input-gradient kernels for Q3_K weights.
 
-```text
-grad_input[M,N] = grad_output[M,K] @ dequant_q3_k(weight[N,K])
-```
-
-The cotangent and gradient are BF16. The packed Q3_K weight remains in forward layout and is decoded cooperatively with FP32 WMMA accumulation. The measured families are the Qwen query and narrow projections.
+The measured families are the Qwen query and narrow projections.
 
 | Family | Forward weight `(N,K)` | Backward shape `(M,N,K)` | M values |
 | --- | ---: | ---: | ---: |
 | Query/query gate | `(8192,2048)` | `(M,2048,8192)` | `2048,8192,32768` |
 | Narrow attention key | `(512,2048)` | `(M,2048,512)` | `2048,8192,32768` |
 
-`HIP TFLOPS` is `2*M*N*K/time`. `HIP/torch.mm` is the packed-throughput ratio against BF16 `torch.mm`; values above `1.00x` favor the HIP kernel.
+Backward shapes are written `(M, in_features, out_features)`, matching the weight's `(N,K) = (out_features, in_features)`.
 
 ## Final kernel result
 
-| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm |
-| --- | ---: | ---: | ---: |
-| Query/query gate | `(2048,2048,8192)` | 20.141 | 1.230x |
-| Query/query gate | `(8192,2048,8192)` | 21.745 | 1.278x |
-| Query/query gate | `(32768,2048,8192)` | 22.212 | 1.241x |
-| Narrow key | `(2048,2048,512)` | 24.403 | 1.079x |
-| Narrow key | `(8192,2048,512)` | 23.828 | 1.059x |
-| Narrow key | `(32768,2048,512)` | 24.257 | 1.059x |
+| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm | Kernel |
+| --- | ---: | ---: | ---: | --- |
+| Query/query gate | `(2048,2048,8192)` | 22.570 | 1.324x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| Query/query gate | `(8192,2048,8192)` | 22.601 | 1.266x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| Query/query gate | `(32768,2048,8192)` | 22.831 | 1.243x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| Narrow key | `(2048,2048,512)` | 23.738 | 1.034x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| Narrow key | `(8192,2048,512)` | 23.951 | 0.996x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| Narrow key | `(32768,2048,512)` | 25.107 | 1.033x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
 
-The values use the current packed/BF16 matrix and report the complete packed-gradient path represented there.
+The values use the current packed/BF16 matrix and report the complete packed-gradient path represented there. The `Kernel` column names the deployed body for each exact key; it is the fastest built body whose output is bitwise equal to the reference body in the per-key candidate campaign.
 
 ## Kernel implementation
 
-The retained body uses four wave32 waves, a 128x128/K32 ordinary tile, cooperative Q3_K extraction, decoded-weight LDS staging, FP32 WMMA accumulation, and BF16 stores. The Q3_K decoder reconstructs packed payload and signed scale state during each K block while keeping the forward-layout packed weight authoritative.
-
-Exact shape and row-count specialization removes runtime bounds and address state from the common production shapes. Generic bounds-safe bodies remain available for unmatched shapes. Cotangents are not quantized and no dense transposed weight is materialized.
+The build carries two tuned `mt128_nt128_ki32_full` variants: `..._full_narrow` (8-value LDS row padding, vector local loads) and `..._full_wide` (swizzle chunk 8, no LDS padding). Both were timed on both shapes; `full_narrow` won the query and narrow rows and is the deployed body for all six keys. Exact shape and row-count specialization removes runtime bounds and address state from the common production shapes. Generic bounds-safe bodies remain available for unmatched shapes and are not competitive on these keys.
 
 ## Optimization log
 
@@ -54,11 +48,21 @@ K-loop unrolling, activation-half double buffering, generic padding, decoded-wei
 
 The source-built HSACO conversion produced a `+0.56%` initial geometric movement and a `+1.12%` embedded/bundle bracket movement, while embedded controls themselves drifted by `+1.04%`. Q3 query showed `2.9-7.0%` placement-sensitive movement without a device semantic change. Warm standalone modules, normalized ISA, and sequential controls are required before treating a timing change as a kernel result.
 
-## Correctness and resources
+## Resources
 
-The retained Q3_K query body uses `237 VGPR / 27 SGPR / 8 KiB LDS`; it has zero private storage, zero VGPR/SGPR spills, and no dynamic stack. Validation includes independent GGUF dequantization, one-hot and block-boundary decode, input-gradient comparison, autograd, input/weight/cotangent mutation, exact-tile guards, and row-boundary coverage.
+The retained Q3_K query body uses `237 VGPR / 27 SGPR / 8 KiB LDS`.
 
 ## Evidence
+
+Current measurement evidence for the table above:
+
+```text
+~/tmp/torch-ggml-ops/hip_vs_baseline/pass11_ordbwd_qwen.json
+~/tmp/torch-ggml-ops/hip_selection/           (per-key candidate campaign)
+tools/ggtensile/configs/hip_deployment.json   (deployed body per key)
+```
+
+The original campaign evidence is:
 
 ```text
 ~/tmp/torch-ggml-ops/mmq_bwd_qwen_qb1_final_narrow_q5_25.json

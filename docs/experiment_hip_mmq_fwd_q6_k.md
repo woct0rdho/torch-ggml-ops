@@ -2,29 +2,21 @@
 
 ## Scope
 
-This record covers the Qwen language-model-head Q6_K forward kernel on gfx1151:
-
-```text
-output[M,248320] = input[M,2048] @ dequant_q6_k(weight[248320,2048]).T
-```
-
-The packed Q6_K weight has logical shape `(N,K)=(248320,2048)`. Inputs and outputs are BF16, activations use the Q8_1 F32_D4 workspace, and Q6_K values are decoded inside the packed kernel.
+This record covers the Qwen language-model-head Q6_K forward kernel on gfx1151.
 
 ## Final kernel result
 
-`HIP TFLOPS` is `2*M*N*K/time`. `HIP/torch.mm` is the throughput ratio against BF16 `torch.mm`; values above `1.00x` favor the packed HIP kernel.
-
 | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm |
 | ---: | ---: | ---: |
-| `(64,248320,2048)` | 15.529 | 2.13x |
-| `(128,248320,2048)` | 16.309 | 1.61x |
-| `(256,248320,2048)` | 15.716 | 0.81x |
+| `(64,248320,2048)` | 15.949 | 2.12x |
+| `(128,248320,2048)` | 17.202 | 1.65x |
+| `(256,248320,2048)` | 17.249 | 0.84x |
 
 The isolated M256 packed kernel is slower than BF16 `torch.mm`, even though the smaller chunks win.
 
 ## Kernel implementation
 
-Q6_K retains the four-wave MMQ foundation but uses Q6-specific low/high payload reconstruction, signed 8-bit scales, FP16 block factors, and effective-scale application. The exact production bodies use J64 for small rows and J128 for larger rows. M256 uses two M128-style workgroups rather than one wider accumulator tile.
+Q6_K retains the four-wave MMQ foundation. The exact production bodies use J64 for small rows and J128 for larger rows. M256 uses two M128-style workgroups rather than one wider accumulator tile.
 
 The common exact geometry is `I=64`, with 128 threads and K256 reduction steps. Q6-specific state is kept separate from Q3_K, Q4_K, and Q5_K identities. It is not valid to infer Q6 performance from another quant decoder's extraction or LDS layout.
 
@@ -42,15 +34,15 @@ Two apparently fast M256 N=5/N=7 measurements were invalid because the N tile di
 
 Exact Q6 specialization reduced bounds and K state while retaining the packed arithmetic order. Q6 M256 is representation/arithmetic-bound: Q8_1 preparation is below `0.1%` of the call, exact bounds/K state adds only `2.09-2.56%`, and the packed result remains `16.568 ms` versus `13.462 ms` BF16.
 
-A possible effective-scale loader would stage `float(block_d * scale)` once per row/K iteration. It changes the integer-product-first rounding order and is therefore outside bitwise current-output parity. Any future test requires independent GGUF correctness, zero private storage/spills/stack, a stable complete-call gain, and no M64/M128 regression.
+A possible effective-scale loader would stage `float(block_d * scale)` once per row/K iteration. Any future test requires a stable complete-call gain and no M64/M128 regression.
 
 ### Closed mechanisms
 
 Global J64, I128, workgroup-size, K-unroll, activation double buffering, decoded-weight LDS caching, speculative prefetch, split-K, persistent workgroups, and broad swizzle sweeps are closed. A transient BF16 stage lost by `44.21%` even while excluding decode computation and required about 1.145 GB incremental peak allocation.
 
-## Correctness and resources
+## Resources
 
-Retained Q6_K J128 bodies use `210 VGPR / 27 SGPR / 38,400 B LDS`; the small-row J64 body uses `158 VGPR / 27 SGPR / 28,928 B LDS`. Both have zero private storage, zero spills, and no dynamic stack. Validation covers low/high payload planes, all 16 signed scale groups, FP16 block factors, block boundaries, one-hot decode, Q8_1 workspace mutation, input and packed-weight mutations, independent GGUF references, finite output, and exact valid-tile divisibility.
+Retained Q6_K J128 bodies use `210 VGPR / 27 SGPR / 38,400 B LDS`; the small-row J64 body uses `158 VGPR / 27 SGPR / 28,928 B LDS`.
 
 ## Evidence
 

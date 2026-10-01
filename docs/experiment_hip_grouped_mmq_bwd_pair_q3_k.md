@@ -2,18 +2,11 @@
 
 ## Scope
 
-This record covers the fused routed Q3_K gate/up input-gradient kernel for Qwen on gfx1151:
+This record covers the fused routed Q3_K gate/up input-gradient kernel for Qwen on gfx1151.
 
-```text
-dX0[R,2048] = dY0[R,512] @ W0[512,2048]
-dX1[R,2048] = dY1[R,512] @ W1[512,2048]
-```
-
-The two projections use one fused kernel, one FP32 accumulator contract, and two BF16 gradient outputs. Packed Q3_K weights remain in forward layout. Aggregate routed rows are `R=16384,65536,262144`.
+Aggregate routed rows are `R=16384,65536,262144`.
 
 ## Final kernel result
-
-Pair throughput counts both input-gradient matrices: `4*R*N*K/time`. `HIP/AITER GMM` is the packed HIP throughput ratio against two BF16 AITER GMM calls. Values above `1.00x` favor HIP.
 
 | Batch | Logical shape | HIP TFLOPS | HIP/AITER GMM |
 | ---: | --- | ---: | ---: |
@@ -25,9 +18,9 @@ The rows are the final uniform-route packed-kernel matrix.
 
 ## Kernel implementation
 
-The retained pair body uses four wave32 waves, exact `(N,K)=(512,2048)` geometry, M64/M128 ownership variants, separate Q3_K decoded-weight LDS tiles, cooperative width-16 decode, and one fused FP32 accumulation path. It rounds each output to BF16 after accumulation and preserves projection isolation.
+The retained pair body uses four wave32 waves, exact `(N,K)=(512,2048)` geometry, M64/M128 ownership variants, separate Q3_K decoded-weight LDS tiles, cooperative width-16 decode, and one fused FP32 accumulation path.
 
-Device-resident route indices and offsets identify active experts. Invalid routes, inactive experts, and partial row tiles remain inert without host descriptor construction. Cotangents are consumed directly in BF16 and are not quantized.
+Device-resident route indices and offsets identify active experts. Invalid routes, inactive experts, and partial row tiles remain inert without host descriptor construction.
 
 ## Optimization log
 
@@ -49,7 +42,7 @@ Width-16 decode shares packed payload and scale work. Width-8 duplicated metadat
 
 ### Cross-family accumulation controls
 
-The grouped backward campaign kept exact FP32 accumulation as the kernel contract. The reduced-precision controls were:
+The reduced-precision controls were:
 
 | Candidate | Resources | Result | Decision |
 | --- | --- | --- | --- |
@@ -58,15 +51,13 @@ The grouped backward campaign kept exact FP32 accumulation as the kernel contrac
 | Pair-serial K32/K64 slabs | 215/212 VGPR | `0.01343/0.00959` NRMSE; 35.0%/82.9% slower | reject |
 | Row-normalized paired FP16-C | 156 VGPR, 5120 B LDS | `0.00723-0.00727` NRMSE; no-scan floor 33.3% slower | reject |
 
-The Q3 pair and every other grouped backward family therefore retain FP32 WMMA accumulation, one fused pair rounding contract where applicable, and no approximate accumulator shortcut.
-
 ### Shared backward arithmetic controls
 
 The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE; even without its scale scan it was 33.3% slower. The fused Q3_K pair therefore retains one FP32 accumulation and one BF16 rounding per output.
 
-## Correctness and resources
+## Resources
 
-The retained Q3 pair bodies use 183 VGPR/26 SGPR/10240 B LDS for M64/N64 and 206 VGPR/26 SGPR/10240 B LDS for M128/N64. They have zero private bytes, zero spills, no scratch, calls, or dynamic stack. Validation covers paired-output isolation, active/inactive weight mutation, input-gradient mutation, malformed routes, non-aligned tails, independent BF16 reference error, finite output, and deterministic reruns.
+The retained Q3 pair bodies use 183 VGPR/26 SGPR/10240 B LDS for M64/N64 and 206 VGPR/26 SGPR/10240 B LDS for M128/N64.
 
 ## Evidence
 

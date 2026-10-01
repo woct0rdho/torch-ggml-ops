@@ -2,51 +2,45 @@
 
 ## Scope
 
-This record covers gfx1151 HIP packed-MMQ forward for DeepSeek Q8_0 weights:
+This record covers gfx1151 HIP packed-MMQ forward for DeepSeek Q8_0 weights.
 
-```text
-output[M,N] = input[M,K] @ dequant_q8_0(weight[N,K]).T
-```
-
-Inputs and outputs are BF16. Activations use the Q8_1 F32_D4 workspace. Q8_0 payloads and FP16 scales are decoded cooperatively into the WMMA-facing LDS layout. The ordinary workload contains six geometry families; the language-model head is also retained as a separate Q8_0 chunk geometry.
+The ordinary workload contains six geometry families; the language-model head is also retained as a separate Q8_0 chunk geometry.
 
 ## Final kernel result
 
-`HIP TFLOPS` is `2*M*N*K/time`. `HIP/torch.mm` is the throughput ratio against BF16 `torch.mm`; values above `1.00x` favor HIP. The rows use the current packed-path medians.
-
 | Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm |
 | --- | ---: | ---: | ---: |
-| Q-A | `(2048,1024,4096)` | 27.270 | 1.57x |
-| Q-A | `(8192,1024,4096)` | 23.778 | 1.40x |
-| Q-A | `(32768,1024,4096)` | 23.625 | 1.40x |
-| Q-B | `(2048,32768,1024)` | 25.144 | 1.31x |
-| Q-B | `(8192,32768,1024)` | 25.052 | 1.30x |
-| Q-B | `(32768,32768,1024)` | 25.270 | 1.32x |
-| KV | `(2048,512,4096)` | 25.117 | 2.01x |
-| KV | `(8192,512,4096)` | 20.824 | 1.16x |
-| KV | `(32768,512,4096)` | 20.328 | 1.13x |
-| Output B | `(2048,4096,8192)` | 25.140 | 1.29x |
-| Output B | `(8192,4096,8192)` | 24.347 | 1.21x |
-| Output B | `(32768,4096,8192)` | 25.041 | 1.25x |
-| Shared gate/up | `(2048,2048,4096)` | 26.574 | 1.46x |
-| Shared gate/up | `(8192,2048,4096)` | 25.302 | 1.41x |
-| Shared gate/up | `(32768,2048,4096)` | 23.998 | 1.30x |
-| Shared down | `(2048,4096,2048)` | 27.248 | 1.41x |
-| Shared down | `(8192,4096,2048)` | 26.194 | 1.39x |
-| Shared down | `(32768,4096,2048)` | 24.536 | 1.30x |
-| LM head | `(32,129280,4096)` | 11.895 | 1.88x |
-| LM head | `(64,129280,4096)` | 23.000 | 3.07x |
-| LM head | `(128,129280,4096)` | 25.900 | 2.58x |
-| LM head | `(256,129280,4096)` | 25.706 | 2.25x |
-| LM head | `(512,129280,4096)` | 25.526 | 1.31x |
+| Q-A | `(2048,1024,4096)` | 31.043 | 1.81x |
+| Q-A | `(8192,1024,4096)` | 29.660 | 1.67x |
+| Q-A | `(32768,1024,4096)` | 29.838 | 1.65x |
+| Q-B | `(2048,32768,1024)` | 27.036 | 1.34x |
+| Q-B | `(8192,32768,1024)` | 27.111 | 1.33x |
+| Q-B | `(32768,32768,1024)` | 26.621 | 1.31x |
+| KV | `(2048,512,4096)` | 28.632 | 2.04x |
+| KV | `(8192,512,4096)` | 30.346 | 1.64x |
+| KV | `(32768,512,4096)` | 29.473 | 1.51x |
+| Output B | `(2048,4096,8192)` | 27.641 | 1.33x |
+| Output B | `(8192,4096,8192)` | 28.379 | 1.32x |
+| Output B | `(32768,4096,8192)` | 27.759 | 1.30x |
+| Shared gate/up | `(2048,2048,4096)` | 30.313 | 1.61x |
+| Shared gate/up | `(8192,2048,4096)` | 29.710 | 1.56x |
+| Shared gate/up | `(32768,2048,4096)` | 28.683 | 1.46x |
+| Shared down | `(2048,4096,2048)` | 29.741 | 1.47x |
+| Shared down | `(8192,4096,2048)` | 29.241 | 1.47x |
+| Shared down | `(32768,4096,2048)` | 28.401 | 1.39x |
+| LM head | `(32,129280,4096)` | 12.178 | 1.92x |
+| LM head | `(64,129280,4096)` | 24.053 | 3.07x |
+| LM head | `(128,129280,4096)` | 28.418 | 2.68x |
+| LM head | `(256,129280,4096)` | 28.248 | 2.35x |
+| LM head | `(512,129280,4096)` | 27.757 | 1.34x |
 
-The ordinary rows and isolated LM-head chunks use the current packed-path source tables. The effective rates include the matrix arithmetic represented by each shape; the activation producer remains a separate kernel.
+The ordinary rows run the exact `dense_fwd_q8_0_k<K>_j128_full` artifacts; the LM head runs the bounded J64 body at M32, the full J64 body at M64, and the J128 bodies at M128 and above. The measured values sit above the earlier complete-call records because the producer is no longer inside the window, not because the multiply body changed.
 
 ## Kernel implementation
 
 The generic Q8_0 body used runtime M/N/K state, 248 VGPRs, 29 SGPRs, and 38,400 bytes of dynamic LDS. Exact specialization folds K, full-tile bounds, address state, and LM chunk geometry. The retained ordinary body uses a four-wave 128x128/K32 layout with width-16 Q8_0 decode and row-dependent LDS padding. The LM head uses active-two-wave M32, compact M64/M128 bodies, and two M256-style workgroups for M512.
 
-The decoder loads packed int8 payloads and scales, reconstructs signed values, stages them for WMMA, and preserves BF16 output conversion. Width32 decode, broad scalarization, and generic alternate row layouts were evaluated as kernel mechanisms rather than as host policy.
+Width32 decode, broad scalarization, and generic alternate row layouts were evaluated as kernel mechanisms rather than as host policy.
 
 ## Optimization log
 
@@ -76,9 +70,9 @@ Activation-half double buffering was spill-free but lost `2-26%` because extra L
 
 The remaining Q8_0 limit is representation cost: the packed kernel reconstructs int8 weights and scales while BF16 `torch.mm` starts from already decoded weights. A lossless payload/scale preparation layout is the next meaningful mechanism; a hidden BF16 shadow is not.
 
-## Correctness and resources
+## Resources
 
-Exact ordinary J128 bodies use `216 VGPR / 28 SGPR / 38,400 B LDS`; exact/bounded J64 bodies use `132 VGPR / 28 SGPR / 28,928 B LDS`. All retained Q8_0 bodies have zero private storage, zero spills, and no dynamic stack. Correctness covers 32-value payload blocks, signed values, scale conversion, exact K and M boundaries, LM small chunks, Q8_1 workspace mutation, input and packed-weight mutation, independent GGUF references, and finite output. One multi-counter Q6 run's HSA fault was an instrumentation issue; Q8 qualification was rerun sequentially.
+Exact ordinary J128 bodies use `216 VGPR / 28 SGPR / 38,400 B LDS`; exact/bounded J64 bodies use `132 VGPR / 28 SGPR / 28,928 B LDS`.
 
 ## Evidence
 

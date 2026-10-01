@@ -2,17 +2,13 @@
 
 ## Scope
 
-This record covers the routed Q5_K down input-gradient kernel for Qwen:
+This record covers the routed Q5_K down input-gradient kernel for Qwen.
 
-```text
-dX[R,512] = dY[R,2048] @ W[2048,512]
-```
-
-The packed Q5_K weight is decoded in the kernel from forward layout. BF16 cotangents and gradients use FP32 WMMA accumulation. Aggregate rows are `R=16384,65536,262144`.
+Aggregate rows are `R=16384,65536,262144`.
 
 ## Final kernel result
 
-`HIP TFLOPS` is `2*R*N*K/time`. `HIP/AITER GMM` is the packed HIP throughput ratio against BF16 AITER GMM. Values above `1.00x` favor HIP.
+`HIP/AITER GMM` is the packed HIP throughput ratio against BF16 AITER GMM.
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM |
 | ---: | ---: | ---: | ---: |
@@ -26,7 +22,7 @@ The remaining loss is Q5 high-bit reconstruction and packed metadata cost relati
 
 The retained body uses four wave32 waves, M64/N64 for small groups, M128/N128 M-major row tasks for large groups, width-16 low/high decode, Q5 scale/minimum reconstruction, and BF16 stores. Q5 row-task decode uses swizzle8 while the smaller serial body uses swizzle4.
 
-Wholly inactive 16-row M minitiles skip cotangent loads, WMMA, and stores while decode and barriers remain uniform. The packed Q5 decoder and LDS state are distinct from Q4_K.
+Wholly inactive 16-row M minitiles skip cotangent loads, WMMA, and stores while decode and barriers remain uniform. Q5 row-task decode uses swizzle8 while the smaller serial body uses swizzle4, and its LDS state is distinct from Q4_K.
 
 ## Optimization log
 
@@ -44,11 +40,11 @@ Inactive-M suppression was retained for Q5 row tasks. The row-task body fell fro
 
 ### Shared backward arithmetic controls
 
-The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE; even without its scale scan it was 33.3% slower. Q5_K therefore retains exact FP32 WMMA accumulation.
+The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE; even without its scale scan it was 33.3% slower.
 
-## Correctness and resources
+## Resources
 
-Retained Q5_K bodies use 115 VGPR/22 SGPR/4096 B LDS for M64/N64 and 234/26/8192 for row-task M128/N128. They have zero private bytes, zero spills, no scratch, calls, or dynamic stack. Validation covers low/high payloads, scale/minimum fields, inactive experts, sparse/repeated IDs, malformed offsets, non-aligned tails, input/weight mutation, independent BF16 reference error, finite output, and deterministic reruns.
+Retained Q5_K bodies use 115 VGPR/22 SGPR/4096 B LDS for M64/N64 and 234/26/8192 for row-task M128/N128.
 
 ## Evidence
 

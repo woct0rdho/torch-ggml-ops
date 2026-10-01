@@ -2,13 +2,7 @@
 
 ## Scope
 
-This record covers gfx1151 HIP packed-MMQ input-gradient kernels for Q4_K weights:
-
-```text
-grad_input[M,N] = grad_output[M,K] @ dequant_q4_k(weight[N,K])
-```
-
-The cotangent and gradient are BF16. Q4_K weights are decoded directly from packed GGUF storage, staged for WMMA, accumulated in FP32, and rounded to BF16 on store.
+This record covers gfx1151 HIP packed-MMQ input-gradient kernels for Q4_K weights.
 
 | Family | Forward weight `(N,K)` | Backward shape `(M,N,K)` | M values |
 | --- | ---: | ---: | ---: |
@@ -17,32 +11,32 @@ The cotangent and gradient are BF16. Q4_K weights are decoded directly from pack
 | Attention output | `(2048,4096)` | `(M,4096,2048)` | `2048,8192,32768` |
 | Shared-expert down | `(2048,512)` | `(M,512,2048)` | `2048,8192,32768` |
 
-`HIP TFLOPS` is `2*M*N*K/time`. `HIP/torch.mm` is the throughput ratio against BF16 `torch.mm`; values above `1.00x` favor HIP.
+Backward shapes are written `(M, in_features, out_features)`, matching the weight's `(N,K) = (out_features, in_features)`.
 
 ## Final kernel result
 
-| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm |
-| --- | ---: | ---: | ---: |
-| Query/query gate | `(2048,2048,8192)` | 20.355 | 1.245x |
-| Query/query gate | `(8192,2048,8192)` | 21.873 | 1.268x |
-| Query/query gate | `(32768,2048,8192)` | 22.618 | 1.264x |
-| Narrow K/V/gate/up | `(2048,2048,512)` | 18.674 | 0.824x |
-| Narrow K/V/gate/up | `(8192,2048,512)` | 22.168 | 0.958x |
-| Narrow K/V/gate/up | `(32768,2048,512)` | 22.998 | 0.988x |
-| Attention output | `(2048,4096,2048)` | 25.661 | 1.110x |
-| Attention output | `(8192,4096,2048)` | 23.247 | 1.009x |
-| Attention output | `(32768,4096,2048)` | 23.096 | 0.990x |
-| Shared down | `(2048,512,2048)` | 16.456 | 1.295x |
-| Shared down | `(8192,512,2048)` | 11.178 | 0.737x |
-| Shared down | `(32768,512,2048)` | 13.050 | 0.802x |
+| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm | Kernel |
+| --- | ---: | ---: | ---: | --- |
+| Query/query gate | `(2048,2048,8192)` | 20.822 | 1.225x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
+| Query/query gate | `(8192,2048,8192)` | 22.511 | 1.257x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k2048` |
+| Query/query gate | `(32768,2048,8192)` | 22.785 | 1.255x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k2048` |
+| Narrow K/V/gate/up | `(2048,2048,512)` | 20.112 | 0.868x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
+| Narrow K/V/gate/up | `(8192,2048,512)` | 22.624 | 0.930x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
+| Narrow K/V/gate/up | `(32768,2048,512)` | 24.090 | 0.987x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
+| Attention output | `(2048,4096,2048)` | 26.198 | 1.125x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
+| Attention output | `(8192,4096,2048)` | 24.098 | 1.010x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
+| Attention output | `(32768,4096,2048)` | 23.961 | 0.998x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
+| Shared down | `(2048,512,2048)` | 18.441 | 1.434x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
+| Shared down | `(8192,512,2048)` | 11.047 | 0.725x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
+| Shared down | `(32768,512,2048)` | 13.272 | 0.797x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k512` |
 
-The current source matrix is the complete packed-gradient path. The ratios compare that HIP path with BF16 `torch.mm`.
+The current source matrix is the complete packed-gradient path. The `Kernel` column names the deployed body for each exact key; it is the fastest built body whose output is bitwise equal to the reference body in the per-key candidate campaign.
 
 ## Kernel implementation
 
-The retained Q4_K body is a four-wave 128x128/K32 tiled decoder with packed nibble and scale/minimum reconstruction, decoded-weight LDS staging, FP32 WMMA, and BF16 RNE stores. Exact N coverage includes 512, 2048, and 4096 output features with K-specific packed-row accounting.
+The retained Q4_K bodies are a four-wave 128x128/K32 tiled decoder with decoded-weight LDS staging. The build carries three tuned `mt128_nt128_ki32_full` variants (`_k512`, `_k2048`, `_k4096`) plus five legacy generic bodies; all three tuned variants were timed on every deployment key. The deployed body per key is the fastest one, which does not follow the variant suffix: `_k4096` covers the query, narrow, and attention-output rows, `_k2048` the two longer query rows, and `_k512` the B16 shared-down row.
 
-The backward cotangent is consumed directly in BF16. The kernel computes `dY @ W` from forward-layout packed weights without materializing a transposed or dense weight. Bounds-safe tails and generic fallbacks remain outside the exact tiled bodies.
+Bounds-safe tails and generic fallbacks remain outside the exact tiled bodies and are not competitive on these keys.
 
 ## Optimization log
 
@@ -71,11 +65,21 @@ The true two-buffer decoded-weight pipeline reduced aggregate wave cycles and wa
 
 Exact-shape simplifications removed dead dimension loads, shortened address state, strength-reduced power-of-two strides, removed a fixed final `s_nop 7`, and normalized packed Q4 nibbles once per dword. These changes are resource-neutral or reducing and preserve the 40-byte ABI and output order.
 
-## Correctness and resources
+## Resources
 
-Retained Q4_K bodies use `226 VGPR / 17 SGPR / 8 KiB LDS` for query/narrow, `222 VGPR / 20 SGPR / 10 KiB LDS` for attention output, and `222 VGPR / 16 SGPR / 8 KiB LDS` for shared down. They have zero private storage, zero spills, no scratch or calls, and no dynamic stack. Validation covers Q4_K nibbles, scale/minimum fields, block boundaries, K tails, input-gradient and packed-weight mutation, independent BF16 references, producer handoff, autograd, finite output, and deterministic rebuilds.
+Retained Q4_K bodies use `226 VGPR / 17 SGPR / 8 KiB LDS` for query/narrow, `222 VGPR / 20 SGPR / 10 KiB LDS` for attention output, and `222 VGPR / 16 SGPR / 8 KiB LDS` for shared down.
 
 ## Evidence
+
+Current measurement evidence for the table above:
+
+```text
+~/tmp/torch-ggml-ops/hip_vs_baseline/pass11_ordbwd_qwen.json
+~/tmp/torch-ggml-ops/hip_selection/           (per-key candidate campaign)
+tools/ggtensile/configs/hip_deployment.json   (deployed body per key)
+```
+
+The original campaign evidence is:
 
 ```text
 ~/tmp/torch-ggml-ops/mmq_bwd_qwen_qb1_final_narrow_q5_25.json

@@ -2,26 +2,23 @@
 
 ## Scope
 
-This record covers the fused routed IQ2_XXS gate/up forward kernel for DeepSeek:
+This record covers the fused routed IQ2_XXS gate/up forward kernel for DeepSeek.
 
-```text
-Y0[R,2048] = X[R,4096] @ W0[2048,4096].T
-Y1[R,2048] = X[R,4096] @ W1[2048,4096].T
-```
+There are 256 routed experts and aggregate rows `R=12288,49152,196608`.
 
-There are 256 routed experts and aggregate rows `R=12288,49152,196608`. The kernel decodes packed IQ2_XXS codebook/sign/scale state, accumulates both projections, and writes BF16 outputs.
+The benchmark samples the `blk.3` expert tensors; `blk.0`-`blk.2` are hash-routed in this model, so the learned prior that the benchmark infers by default matches the sampled layers.
 
 ## Final kernel result
 
-Pair throughput counts both projections as `4*R*N*K/time`. `HIP/AITER GMM` compares the packed pair with two BF16 AITER GMM calls. Values above `1.00x` favor HIP.
+| Batch | Logical shape | HIP TFLOPS | HIP/AITER GMM | Kernel |
+| ---: | ---: | ---: | ---: | --- |
+| 1 | `2 x (12288,2048,4096)` | 12.11 | 2.635x | `grouped_fwd_serial_iq2_xxs_n2048_k4096_j64` |
+| 4 | `2 x (49152,2048,4096)` | 18.29 | 1.600x | `grouped_fwd_serial_iq2_xxs_n2048_k4096_j64` |
+| 16 | `2 x (196608,2048,4096)` | 21.98 | 1.796x | `grouped_fwd_serial_iq2_xxs_n2048_k4096_j80` |
 
-| Batch | Logical shape | HIP TFLOPS | HIP/AITER GMM |
-| ---: | --- | ---: | ---: |
-| 1 | `2 x (12288,2048,4096)` | 12.44 | 1.637x |
-| 4 | `2 x (49152,2048,4096)` | 20.99 | 1.492x |
-| 16 | `2 x (196608,2048,4096)` | 22.32 | 1.024x |
+The serial body is level at B1 and B16 (`1%`/`2%` against the uniform-route control) and trails by `15%` at B4, where the residual is the repeated two-weight IQ2_XXS decode and pair accumulator pressure. Flagged prior-sensitive at B4: the J64/J80 shape split may need a learned-route retune.
 
-The final result is close to parity at B16; the residual is the repeated two-weight IQ2_XXS decode and pair accumulator pressure against predecoded BF16 weights.
+The table kernel is the deployed HIP body for these shapes and rebuilds byte-identically from the current sources; the retained choice was measured on other route distributions, so a learned-route candidate sweep is the follow-up for the flagged batches.
 
 ## Kernel implementation
 
@@ -43,17 +40,22 @@ The repaired J80 result completed the previously faulting B16 profile and was ap
 
 ### Coefficient-only campaign
 
-The final typed search retained serial J64 at B1/B4 and the repaired J80 geometry for the large B16 workload. J16 and J64 at B16 were slower. The production body uses 208 VGPRs and 54 SGPRs for the J80 point, with zero private bytes, spills, scratch, calls, and dynamic stack.
+The final typed search retained serial J64 at B1/B4 and the repaired J80 geometry for the large B16 workload. J16 and J64 at B16 were slower. The production body uses 208 VGPRs and 54 SGPRs for the J80 point.
 
 The corresponding J64 artifact uses `229 VGPR / 77 SGPR / 8192 B LDS`; the repaired J80 artifact uses `208 VGPR / 54 SGPR / 8192 B LDS`. Both are resource-clean. The failed historical M192 body had 32 private bytes, seven VGPR spills, and scratch instructions, so its rejection does not transfer to the later lower-state J80 result.
 
 The remaining bottleneck is two independent IQ2_XXS lookup/sign/scale decoders feeding one pair accumulation. A prepared weight layout or decode reuse is a representation change, not another broad J sweep.
 
-## Correctness and resources
-
-Validation covers codebook/sign selectors, non-divisible activation loads, inactive experts, malformed offsets, sparse and boundary routes, paired-output isolation, input and packed-bank mutations, independent BF16 reference error, finite output, and deterministic rebuilds. Retained kernel variants are wave32 and resource-clean.
-
 ## Evidence
+
+Current measurement evidence for the table above:
+
+```text
+~/tmp/torch-ggml-ops/grouped_fwd_current/pass13_pair_deepseek_default_small.json
+~/tmp/torch-ggml-ops/grouped_fwd_current/pass13_pair_deepseek_default_b16.json
+```
+
+The original campaign evidence is:
 
 ```text
 ~/tmp/torch-ggml-ops/grouped_mmq_fwd_deepseek_prior_retuned_final_9.json
@@ -62,7 +64,7 @@ Validation covers codebook/sign selectors, non-divisible activation loads, inact
 ~/tmp/torch-ggml-ops/grouped-fwd-all-confirm/production-finalist-correctness.json
 ```
 
-The non-divisible-load repair is part of the kernel correctness record. No further width or J sweep is justified without a new decode-state premise.
+No further width or J sweep is justified without a new decode-state premise.
 
 The final route campaign and repair qualification are additionally recorded in:
 

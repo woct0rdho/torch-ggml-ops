@@ -2,32 +2,25 @@
 
 ## Scope
 
-This record covers the fused routed Q3_K gate/up forward kernel on gfx1151. For each route group it computes two packed projections with logical weight shape `(N,K)=(512,2048)`:
-
-```text
-Y0[R,512] = X[R,2048] @ W0[512,2048].T
-Y1[R,512] = X[R,2048] @ W1[512,2048].T
-```
-
-The activation is BF16 and the two outputs are BF16. Packed Q3_K weights remain authoritative; the kernel consumes device-resident route indices and offsets and handles inactive experts and partial row tiles.
+This record covers the fused routed Q3_K gate/up forward kernel on gfx1151.
 
 ## Final kernel result
 
-Pair throughput counts both matrices: `4*R*N*K/time`. `HIP/AITER GMM` is the packed HIP throughput ratio against two BF16 AITER GMM calls. Values above `1.00x` favor HIP.
+| Batch | Logical shape | HIP TFLOPS | HIP/AITER GMM | Kernel |
+| ---: | ---: | ---: | ---: | --- |
+| 1 | `2 x (16384,512,2048)` | 14.31 | 2.078x | `grouped_fwd_row_task_q3_k_n512_k2048_j64` |
+| 4 | `2 x (65536,512,2048)` | 19.13 | 1.693x | `grouped_fwd_row_task_q3_k_n512_k2048_j64` |
+| 16 | `2 x (262144,512,2048)` | 20.07 | 1.077x | `grouped_fwd_row_task_q3_k_n512_k2048_j64` |
 
-| Batch | Logical shape | HIP TFLOPS | HIP/AITER GMM |
-| ---: | --- | ---: | ---: |
-| 1 | `2 x (16384,512,2048)` | 18.04 | 2.212x |
-| 4 | `2 x (65536,512,2048)` | 19.14 | 1.501x |
-| 16 | `2 x (262144,512,2048)` | 19.24 | 1.042x |
+The deployed row-task body trails its uniform-route control by `36%` at B1 and `13%` at B4, and is level at B16 (`1%`). The earlier B1 screen preferred serial ownership on other route distributions, so the B1/B4 rows need a learned-route serial-versus-row-task re-screen. Flagged prior-sensitive at B1/B4.
 
-These are the current uniform-route complete packed-path results.
+The table kernel is the deployed HIP body for these shapes and rebuilds byte-identically from the current sources; the retained choice was measured on other route distributions, so a learned-route candidate sweep is the follow-up for the flagged batches.
 
 ## Kernel implementation
 
-The retained pair body uses 128 threads, four wave32 waves, exact Q3_K N/K geometry, cooperative width-16 payload decode, separate decoded-weight LDS tiles, and one activation workspace shared by both projections. Each projection keeps its own accumulation and output state; the pair does not replace packed decode with a dense weight.
+The retained pair body uses 128 threads, four wave32 waves, exact Q3_K N/K geometry, cooperative width-16 payload decode, separate decoded-weight LDS tiles, and one activation workspace shared by both projections. The pair does not replace packed decode with a dense weight.
 
-Q3_K scale and high-mask reconstruction are performed cooperatively. Activation data is staged once for the pair, while packed weight tiles are decoded for each projection. Partial and nonuniform routed groups use masked row accesses without host-side route inspection.
+Activation data is staged once for the pair, while packed weight tiles are decoded for each projection. Partial and nonuniform routed groups use masked row accesses without host-side route inspection.
 
 ## Optimization log
 
@@ -47,15 +40,15 @@ The coefficient-only campaign retained exact Q3_K pair geometry and rejected alt
 
 Width-8 decode duplicated metadata work and lost to width16. Larger N ownership increased pair accumulator pressure. Broad M256/N64, universal inactive-M suppression, generic swizzles, two-LDS decoded-weight caches, split-K, persistent workgroups, and compiler-managed prefetch arrays did not provide a valid timing/resource improvement under this packed contract.
 
-## Correctness and resources
-
-The pair kernel preserves independent projection outputs, route isolation, inactive-expert inertness, malformed-route sentinels, non-aligned row tails, input mutation, and independent packed-weight mutation for each projection. The retained artifacts are wave32, zero-private, zero-spill, scratch-free, call-free, and stack-free.
-
-The early grouped redesign moved representative Q3 pair B4/B16 points by roughly `8-14x` over the generic body. Compile-time J64 and exact N/K specialization removed the original row-decomposition cost; a later exact full-row/bounded-tail split moved a representative Q3 point from `6.170 ms` to `3.735 ms`. These historical points explain the retained ownership and are not substitutes for the final table above.
-
-Pair correctness must not be judged by two separately rounded single-projection outputs: the packed pair's accumulation and output ownership are tested as one fused kernel contract.
-
 ## Evidence
+
+Current measurement evidence for the table above:
+
+```text
+~/tmp/torch-ggml-ops/grouped_fwd_current/pass12_pair_qwen_learned.json
+```
+
+The original campaign evidence is:
 
 ```text
 ~/tmp/torch-ggml-ops/grouped_mmq_fwd_qwen_prior_retuned_final_9.json

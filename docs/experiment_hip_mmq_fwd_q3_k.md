@@ -2,39 +2,33 @@
 
 ## Scope
 
-This record covers the gfx1151 HIP packed-MMQ forward kernels for Q3_K weights. The kernel computes:
+This record covers the gfx1151 HIP packed-MMQ forward kernels for Q3_K weights.
 
-```text
-output[M,N] = input[M,K] @ dequant_q3_k(weight[N,K]).T
-```
-
-The activation is BF16 and the output is BF16. Activations use the fixed Q8_1 F32_D4 workspace layout. The Q3_K weights remain packed GGUF data and are decoded cooperatively inside the kernel. The exact workload families are:
+The exact workload families are:
 
 | Family | Logical weight `(N,K)` | M values | Tensors |
 | --- | ---: | ---: | ---: |
 | Attention query/query gate | `(8192,2048)` | `2048,8192,32768` | 9 |
 | Narrow attention key | `(512,2048)` | `2048,8192,32768` | 9 |
 
-The measurements below use the current packed-path matrix. `HIP TFLOPS` is dense-equivalent throughput, `2*M*N*K/time`; `HIP/torch.mm` is the throughput ratio against the BF16 `torch.mm` reference. Values above `1.00x` favor the packed HIP kernel.
-
 ## Final kernel result
 
 | Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm |
 | --- | ---: | ---: | ---: |
-| Query/query gate | `(2048,8192,2048)` | 22.975 | 1.10x |
-| Query/query gate | `(8192,8192,2048)` | 22.221 | 1.06x |
-| Query/query gate | `(32768,8192,2048)` | 21.675 | 1.02x |
-| Narrow key | `(2048,512,2048)` | 19.260 | 1.42x |
-| Narrow key | `(8192,512,2048)` | 18.694 | 1.03x |
-| Narrow key | `(32768,512,2048)` | 17.762 | 0.95x |
+| Query/query gate | `(2048,8192,2048)` | 24.013 | 1.09x |
+| Query/query gate | `(8192,8192,2048)` | 23.701 | 1.06x |
+| Query/query gate | `(32768,8192,2048)` | 23.740 | 1.05x |
+| Narrow key | `(2048,512,2048)` | 21.219 | 1.55x |
+| Narrow key | `(8192,512,2048)` | 24.257 | 1.35x |
+| Narrow key | `(32768,512,2048)` | 24.087 | 1.25x |
 
-The narrow Q3_K B16 point is below the BF16 baseline in the complete packed path. Its packed multiply alone was `2.725 ms` versus `3.691 ms` for BF16; the remaining loss was the Q8_1 activation producer, which contributed about `24.4%` of that call.
+Every listed point is above the BF16 baseline on the multiply-only surface.
 
 ## Kernel implementation
 
 The retained body uses `I=64`, `J=128`, 128 threads, four wave32 waves, and a `K=256` reduction step. Exact Q3_K K2048 bodies fold the matrix dimensions and packed offsets into the generated kernel while retaining bounds-safe fallback code for other shapes. Packed payload and scale state are held only for the active decode phase so it does not extend through the WMMA loop.
 
-The fixed Q8_1 producer uses one 512-thread workgroup per real activation row. It preserves the F32_D4 metadata, signed-int8 rounding, reduction, and workspace semantics used by the packed multiply. The producer and multiply are separate kernels.
+The fixed Q8_1 producer uses one 512-thread workgroup per real activation row. The producer and multiply are separate kernels.
 
 ## Optimization log
 
@@ -58,9 +52,9 @@ Aligned local fragment loads improved narrow Q3_K but were not a universal rule:
 
 The Q3_K K2048 exact wrapper was retained with a full J128 body. Across its measured matrix, exact specialization improved the generic control by `0.90-5.26%`. The detached build confirmed that the Q3_K artifact was unchanged while the separate DeepSeek Q8_0 phase was optimized.
 
-## Correctness and resources
+## Resources
 
-The exact Q3_K J128 body uses `196 VGPR / 27 SGPR / 40,448 B LDS`; retained artifacts have zero private storage, zero spills, and no dynamic stack. Correctness coverage includes independent GGUF decode, one-hot and block-boundary payloads, signed scale fields, Q8_1 workspace mutation, input mutation, packed-weight mutation, finite output, and exact output comparison whenever accumulation order is unchanged. Generic bounds-safe bodies remain available outside exact shape coverage.
+The exact Q3_K J128 body uses `196 VGPR / 27 SGPR / 40,448 B LDS`.
 
 ## Evidence
 

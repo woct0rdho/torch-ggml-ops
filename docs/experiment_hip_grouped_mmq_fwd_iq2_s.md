@@ -2,31 +2,27 @@
 
 ## Scope
 
-This record covers the routed single-projection IQ2_S down kernel for Qwen on gfx1151:
+This record covers the routed single-projection IQ2_S down kernel for Qwen on gfx1151.
 
-```text
-Y[R,2048] = X[R,512] @ W[2048,512].T
-```
-
-Inputs and outputs are BF16. The packed IQ2_S weight is decoded in the kernel, while routed row metadata remains device-resident. The exact aggregate rows are `R=16384,65536,262144`.
+The exact aggregate rows are `R=16384,65536,262144`.
 
 ## Final kernel result
 
-`HIP TFLOPS` uses `2*R*N*K/time`. `HIP/AITER GMM` compares the packed kernel with the exact BF16 AITER GMM baseline. Values above `1.00x` favor HIP.
+| Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
+| ---: | ---: | ---: | ---: | --- |
+| 1 | `(16384,2048,512)` | 12.94 | 1.185x | `grouped_fwd_serial_iq2_s_n2048_k512_j64_j32` |
+| 4 | `(65536,2048,512)` | 17.86 | 0.936x | `grouped_fwd_serial_iq2_s_n2048_k512_j64_j32` |
+| 16 | `(262144,2048,512)` | 20.09 | 0.869x | `grouped_fwd_serial_iq2_s_n2048_k512_j64` |
 
-| Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM |
-| ---: | ---: | ---: | ---: |
-| 1 | `(16384,2048,512)` | 15.32 | 1.279x |
-| 4 | `(65536,2048,512)` | 19.80 | 0.862x |
-| 16 | `(262144,2048,512)` | 20.44 | 0.801x |
+Under the current learned routes the B1/B4 batches trail their uniform-route control by `24%`/`14%` while B16 is level (`4%`). The B4/B16 loss remains repeated IQ2_S lookup, sign, scale, and packed-weight staging against predecoded BF16 weights. Flagged prior-sensitive at B1/B4: the selected J32/J64 split needs a learned-route retune.
 
-The B4/B16 loss is attributed to repeated IQ2_S lookup, sign, scale, and packed-weight staging relative to predecoded BF16 weights.
+The table kernel is the deployed HIP body for these shapes and rebuilds byte-identically from the current sources; the retained choice was measured on other route distributions, so a learned-route candidate sweep is the follow-up for the flagged batches.
 
 ## Kernel implementation
 
 The retained single-down body uses exact `(N,K)=(2048,512)` geometry, J64 main ownership with a bounded J32 tail variant, cooperative width-16 IQ2_S decode, and a single-projection LDS layout. The kernel masks inactive or partial rows without moving route data to the host.
 
-The paired IQ2_S kernel uses a different LDS swizzle and is not a valid replacement for this single-down body. The decoder reconstructs two grid entries, sign bytes, a shared scale nibble, and the `d` factor for aligned value groups.
+The paired IQ2_S kernel uses a different LDS swizzle and is not a valid replacement for this single-down body.
 
 ## Optimization log
 
@@ -59,11 +55,15 @@ The selected-region source-of-record traces are:
 ~/tmp/torch-ggml-ops/profile-grouped-fwd-20260812/qwen_iq2s_down_b16_aiter/trace_results.db
 ```
 
-## Correctness and resources
-
-Validation covers codebook/sign/scale decoding, partial and inactive experts, malformed offsets, non-tile-aligned rows, input and packed-weight mutations, finite output, and independent BF16 references. Retained bodies are wave32, zero-private, zero-spill, scratch-free, call-free, and stack-free.
-
 ## Evidence
+
+Current measurement evidence for the table above:
+
+```text
+~/tmp/torch-ggml-ops/grouped_fwd_current/pass13_fwd_qwen_default.json
+```
+
+The original campaign evidence is:
 
 ```text
 ~/tmp/torch-ggml-ops/grouped_mmq_fwd_qwen_prior_retuned_final_9.json

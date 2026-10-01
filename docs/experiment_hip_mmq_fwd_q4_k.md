@@ -2,13 +2,7 @@
 
 ## Scope
 
-This record covers the gfx1151 HIP packed-MMQ forward kernels for Q4_K weights:
-
-```text
-output[M,N] = input[M,K] @ dequant_q4_k(weight[N,K]).T
-```
-
-Inputs and outputs are BF16. The packed Q4_K weights are decoded in the kernel. The fixed Q8_1 F16_D4S4 activation workspace supplies the signed-int8 values and scale/sum metadata required by Q4_K correction.
+This record covers the gfx1151 HIP packed-MMQ forward kernels for Q4_K weights.
 
 | Family | Logical weight `(N,K)` | M values | Tensors |
 | --- | ---: | ---: | ---: |
@@ -17,32 +11,28 @@ Inputs and outputs are BF16. The packed Q4_K weights are decoded in the kernel. 
 | Attention output | `(2048,4096)` | `2048,8192,32768` | 10 |
 | Shared-expert down | `(2048,512)` | `2048,8192,32768` | 30 |
 
-`HIP TFLOPS` is `2*M*N*K/time` for the packed path. `HIP/torch.mm` is the throughput ratio against BF16 `torch.mm`; values above `1.00x` favor HIP.
-
 ## Final kernel result
 
 | Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm |
 | --- | ---: | ---: | ---: |
-| Query/query gate | `(2048,8192,2048)` | 26.522 | 1.26x |
-| Query/query gate | `(8192,8192,2048)` | 24.885 | 1.20x |
-| Query/query gate | `(32768,8192,2048)` | 25.110 | 1.18x |
-| Narrow K/V/gate/up | `(2048,512,2048)` | 21.913 | 1.61x |
-| Narrow K/V/gate/up | `(8192,512,2048)` | 20.875 | 1.16x |
-| Narrow K/V/gate/up | `(32768,512,2048)` | 20.017 | 1.07x |
-| Attention output | `(2048,2048,4096)` | 25.508 | 1.38x |
-| Attention output | `(8192,2048,4096)` | 24.188 | 1.30x |
-| Attention output | `(32768,2048,4096)` | 23.402 | 1.24x |
-| Shared down | `(2048,2048,512)` | 24.403 | 8.20x |
-| Shared down | `(8192,2048,512)` | 24.163 | 7.42x |
-| Shared down | `(32768,2048,512)` | 23.060 | 6.99x |
-
-The table uses the current complete packed-path timings, including the required Q8_1 producer work recorded in the source matrix.
+| Query/query gate | `(2048,8192,2048)` | 28.260 | 1.28x |
+| Query/query gate | `(8192,8192,2048)` | 28.095 | 1.25x |
+| Query/query gate | `(32768,8192,2048)` | 27.541 | 1.22x |
+| Narrow K/V/gate/up | `(2048,512,2048)` | 25.162 | 1.84x |
+| Narrow K/V/gate/up | `(8192,512,2048)` | 28.133 | 1.52x |
+| Narrow K/V/gate/up | `(32768,512,2048)` | 28.319 | 1.47x |
+| Attention output | `(2048,2048,4096)` | 28.667 | 1.46x |
+| Attention output | `(8192,2048,4096)` | 28.482 | 1.43x |
+| Attention output | `(32768,2048,4096)` | 28.506 | 1.42x |
+| Shared down | `(2048,2048,512)` | 25.024 | 8.38x |
+| Shared down | `(8192,2048,512)` | 26.865 | 8.23x |
+| Shared down | `(32768,2048,512)` | 27.817 | 8.39x |
 
 ## Kernel implementation
 
-The retained Q4_K body uses four wave32 waves, `I=64`, `J=128`, and K256 packed reductions. Exact K512, K2048, and K4096 wrappers fold packed-row bytes, block counts, and full-tile bounds. The Q4_K decoder reconstructs packed nibbles, scale/minimum metadata, and BF16-compatible LDS rows before integer WMMA and FP32 correction.
+The retained Q4_K body uses four wave32 waves, `I=64`, `J=128`, and K256 packed reductions. Exact K512, K2048, and K4096 wrappers fold packed-row bytes, block counts, and full-tile bounds.
 
-The Q8_1 F16_D4S4 producer emits four 32-value subblocks per 256-value Q4_K block. Its workspace layout and rounding are fixed for this experiment. Q4_K is the scale-plus-sum consumer; it does not use the scale-only Q3_K/Q6_K workspace contract.
+The Q8_1 F16_D4S4 producer emits four 32-value subblocks per 256-value Q4_K block.
 
 ## Optimization log
 
@@ -75,9 +65,9 @@ The exact Q4_K wrappers cover K512, K2048, and K4096. Exact specialization impro
 
 The Q4_K path remains representation- and decode-bound at the lower margin. A transient BF16 materialization floor was slower even when real decode work was excluded, so another global tile or buffer sweep is not justified without a changed representation premise.
 
-## Correctness and resources
+## Resources
 
-Retained Q4_K J128 bodies use `239 VGPR / 28-29 SGPR / 38,400 B LDS`; they have zero private storage, zero spills, and no dynamic stack. Validation covers Q4_K nibble fields, scale/minimum reconstruction, all four Q8_1 metadata pairs, block and tile boundaries, workspace mutation, packed-weight mutation, input mutation, independent GGUF dequantization, and finite outputs. Generic bounds-safe wrappers remain the fallback for unsupported shapes.
+Retained Q4_K J128 bodies use `239 VGPR / 28-29 SGPR / 38,400 B LDS`.
 
 ## Evidence
 

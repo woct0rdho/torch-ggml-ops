@@ -2,45 +2,21 @@
 
 ## Scope
 
-This record covers the Qwen language-model-head Q6_K packed input-gradient kernel on gfx1151:
-
-```text
-grad_input[M,2048] = grad_output[M,248320] @ dequant_q6_k(weight[248320,2048])
-```
-
-The packed Q6_K weight has logical shape `(248320,2048)`. Cotangents and gradients are BF16, accumulation is FP32 WMMA, and Q6_K blocks are decoded directly from packed GGUF storage.
+This record covers the Qwen language-model-head Q6_K packed input-gradient kernel on gfx1151.
 
 ## Final kernel result
 
-`HIP TFLOPS` is `2*M*N*K/time`. `HIP/torch.mm` is the throughput ratio against BF16 `torch.mm`; values above `1.00x` favor the packed HIP kernel.
+| `(M,N,K)` | HIP TFLOPS | HIP/torch.mm | Kernel |
+| ---: | ---: | ---: | --- |
+| `(64,2048,248320)` | 12.111 | 1.841x | `dense_bwd_q6_k_m64_nt32_ki64_full` |
+| `(128,2048,248320)` | 13.757 | 1.533x | `dense_bwd_q6_k_m128_nt64_ki32_full` |
+| `(256,2048,248320)` | 21.449 | 1.564x | `dense_bwd_q6_k_m256_nt64_ki32_full` |
 
-| `(M,N,K)` | HIP TFLOPS | HIP/torch.mm |
-| ---: | ---: | ---: |
-| `(64,2048,248320)` | 12.152 | 1.84x |
-| `(128,2048,248320)` | 14.332 | 1.59x |
-| `(256,2048,248320)` | 22.206 | 1.62x |
-
-The values use the current Q6_K packed/BF16 kernel matrix. M256 is the primary large chunk, with M64 and M128 as smaller exact geometries.
+The values use the current Q6_K packed/BF16 kernel matrix. M256 is the primary large chunk, with M64 and M128 as smaller exact geometries. The `Kernel` column names the deployed body for each chunk; it is the fastest built body whose output is bitwise equal to the reference body in the per-key candidate campaign, and the `_full_*` bodies are the unbounded exact variants (`_bounded` builds exist for shapes outside the exact-tile contract).
 
 ## Kernel implementation
 
-Q6_K uses its own 210-byte block decoder:
-
-```text
-ql[128]      low four bits
-qh[64]       high two bits
-scales[16]   signed int8 scale per 16 values
-d             FP16 block multiplier
-```
-
-For value `i`, the kernel preserves:
-
-```text
-q = low4(i) | (high2(i) << 4)
-value = fp16(d) * float(int8(scale[i/16])) * float(q - 32)
-```
-
-The retained exact bodies use M64/N32/K64 for M64, M128/N64/K32 for M128, and two M128-style workgroups for M256. The decoded-weight LDS layout, packed extraction, and register lifetime are Q6-specific.
+The exact bodies are `dense_bwd_q6_k_m64_nt32_ki64_full`, `dense_bwd_q6_k_m128_nt64_ki32_full`, and `dense_bwd_q6_k_m256_nt64_ki32_full`: M64/N32/K64 for M64, M128/N64/K32 for M128, and two M128-style workgroups for M256. The decoded-weight LDS layout, packed extraction, and register lifetime are Q6-specific. The `_bounded` twins and the `nt128_ki16_g2`/`nt256_ki16_g2` generic bodies are built but are not competitive on the three deployment chunks.
 
 ## Optimization log
 
@@ -66,15 +42,25 @@ Packed extraction remained selected for M256; scalar extraction regressed `2.14%
 
 ### Arithmetic boundary
 
-An effective-scale loader could stage `float(block_d * scale)` once per decoded row/K iteration. That changes the current integer-product-first rounding order, so it is outside bitwise current-output parity. A future approximate-order experiment must pass independent GGUF correctness, zero private storage/spills/stack, and stable complete-kernel timing across all three chunks.
+An effective-scale loader could stage `float(block_d * scale)` once per decoded row/K iteration. A future approximate-order experiment must show stable complete-kernel timing across all three chunks.
 
 Global J64, I128, broad K64, activation double buffering, decoded-weight caching, speculative prefetch, split-K, persistent workgroups, and broad swizzle sweeps are closed for the present arithmetic contract.
 
-## Correctness and resources
+## Resources
 
-Retained Q6_K bodies use `87/138/137 VGPR` for M64/M128/M256, `15/16/15 SGPR`, and 4 KiB LDS. They have zero private storage, zero spills, no dynamic stack, and no scratch or calls. Validation covers low/high payloads, signed scale extremes, FP16 `d`, all scale groups, block boundaries, one-hot decode, input-gradient and packed-weight mutation, independent GGUF references, finite output, and exact valid-tile divisibility.
+Retained Q6_K bodies use `87/138/137 VGPR` for M64/M128/M256, `15/16/15 SGPR`, and 4 KiB LDS.
 
 ## Evidence
+
+Current measurement evidence for the table above:
+
+```text
+~/tmp/torch-ggml-ops/hip_vs_baseline/pass11_ordbwd_qwen.json
+~/tmp/torch-ggml-ops/hip_selection/           (per-key candidate campaign)
+tools/ggtensile/configs/hip_deployment.json   (deployed body per chunk)
+```
+
+The original campaign evidence is:
 
 ```text
 ~/tmp/torch-ggml-ops/mmq_bwd_qwen_qb1_q6_m256_packed_before_25.json
@@ -91,5 +77,3 @@ The Q6-specific shape and arithmetic controls are:
 ~/tmp/torch-ggml-ops/mmq_bwd_qwen_qb1_q6_m256_packed_after_25.json
 ~/tmp/torch-ggml-ops/mmq_bwd_qwen_post_ds4_p3_control_9.json
 ```
-
-The invalid N5/N7 result remains a permanent warning: exact tile divisibility is part of the Q6_K kernel contract.

@@ -2,17 +2,11 @@
 
 ## Scope
 
-This record covers the routed Q2_K down input-gradient kernel for DeepSeek:
+This record covers the routed Q2_K down input-gradient kernel for DeepSeek.
 
-```text
-dX[R,2048] = dY[R,4096] @ W[4096,2048]
-```
-
-Aggregate routed rows are `R=12288,49152,196608`. The kernel consumes forward-layout packed Q2_K weights, reconstructs scale/minimum state, accumulates with FP32 WMMA, and stores BF16 gradients.
+Aggregate routed rows are `R=12288,49152,196608`.
 
 ## Final kernel result
-
-`HIP TFLOPS` is `2*R*N*K/time`. `HIP/AITER GMM` compares the packed HIP kernel with BF16 AITER GMM. Values above `1.00x` favor HIP.
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM |
 | ---: | ---: | ---: | ---: |
@@ -58,11 +52,11 @@ The packed kernel fetches fewer bytes but executes a much larger decode/instruct
 
 ### Shared backward arithmetic controls
 
-The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE; even without its scale scan it was 33.3% slower. Q2_K therefore retains exact FP32 WMMA accumulation.
+The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE; even without its scale scan it was 33.3% slower.
 
-## Correctness and resources
+## Resources
 
-Retained Q2_K bodies use 102 VGPR/30 SGPR/4096 B LDS for M64/N64/U1, 146/31/4096 for M128/N64/U1, and 160/31/4096 for U2. All have zero private bytes, zero spills, no scratch, calls, or dynamic stack. Validation covers 2-bit values, scale/minimum fields, inactive M tiles, malformed routes, non-aligned tails, input/weight mutation, independent BF16 references, finite output, and deterministic reruns.
+Retained Q2_K bodies use 102 VGPR/30 SGPR/4096 B LDS for M64/N64/U1, 146/31/4096 for M128/N64/U1, and 160/31/4096 for U2.
 
 ## Evidence
 

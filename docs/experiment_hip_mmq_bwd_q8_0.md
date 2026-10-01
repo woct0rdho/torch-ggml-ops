@@ -2,60 +2,52 @@
 
 ## Scope
 
-This record covers gfx1151 HIP packed-MMQ input-gradient kernels for DeepSeek Q8_0 weights:
+This record covers gfx1151 HIP packed-MMQ input-gradient kernels for DeepSeek Q8_0 weights.
 
-```text
-grad_input[M,N] = grad_output[M,K] @ dequant_q8_0(weight[N,K])
-```
-
-BF16 cotangents and gradients use FP32 WMMA accumulation. The Q8_0 weight remains packed in forward layout; the kernel decodes signed int8 payloads and scales into the reduction LDS image.
-
-The final ordinary matrix contains six families at `M=2048,8192,32768`. The separate LM-head chunk experiment uses `M=32,64,128,256,512`, but the current dense-backward source does not record a matching BF16 `torch.mm` timing for those five isolated chunk shapes. Those chunk timings are retained in the optimization log rather than presented with an invented baseline ratio.
+The final ordinary matrix contains six families at `M=2048,8192,32768`, and the separate LM-head chunk matrix uses `M=32,64,128,256,512`. Shapes are written `(M, in_features, out_features)`, matching the weight's `(N,K) = (out_features, in_features)`.
 
 ## Final ordinary-kernel result
 
-`HIP TFLOPS` is `2*M*N*K/time`. `HIP/torch.mm` is the packed-throughput ratio against BF16 `torch.mm`; values above `1.00x` favor HIP.
+| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm | Kernel |
+| --- | ---: | ---: | ---: | --- |
+| Q-A | `(2048,4096,1024)` | 26.090 | 1.082x | `dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8` |
+| Q-A | `(8192,4096,1024)` | 26.358 | 1.059x | `dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8` |
+| Q-A | `(32768,4096,1024)` | 27.368 | 1.104x | `dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8` |
+| Q-B | `(2048,1024,32768)` | 19.765 | 0.874x | `dense_bwd_q8_0_exact_n32768k1024_g2_group_m1_padding8` |
+| Q-B | `(8192,1024,32768)` | 19.530 | 0.870x | `dense_bwd_q8_0_exact_n32768k1024_g2_group_m1_padding8` |
+| Q-B | `(32768,1024,32768)` | 22.473 | 0.987x | `dense_bwd_q8_0_exact_n32768k1024_g2_group_m1_padding8` |
+| KV | `(2048,4096,512)` | 24.655 | 1.110x | `dense_bwd_q8_0_exact_n512k4096_g2_group_m2_padding8` |
+| KV | `(8192,4096,512)` | 25.659 | 1.036x | `dense_bwd_q8_0_exact_n512k4096_g2_group_m2_padding8` |
+| KV | `(32768,4096,512)` | 27.608 | 1.131x | `dense_bwd_q8_0_exact_n512k4096_g2_group_m2_padding8` |
+| Output B | `(2048,8192,4096)` | 26.284 | 1.067x | `dense_bwd_q8_0_exact_n4096k8192_g2_padding8` |
+| Output B | `(8192,8192,4096)` | 21.445 | 0.834x | `dense_bwd_q8_0_exact_n4096k8192_g2_group_m2` |
+| Output B | `(32768,8192,4096)` | 20.806 | 0.837x | `dense_bwd_q8_0_exact_n4096k8192_g2_group_m2` |
+| Shared gate/up | `(2048,4096,2048)` | 26.452 | 1.112x | `dense_bwd_q8_0_exact_n2048k4096_g2_group_m2_padding8` |
+| Shared gate/up | `(8192,4096,2048)` | 24.662 | 1.029x | `dense_bwd_q8_0_exact_n2048k4096_g2_group_m2_padding8` |
+| Shared gate/up | `(32768,4096,2048)` | 24.688 | 1.024x | `dense_bwd_q8_0_exact_n2048k4096_g2_group_m2_padding8` |
+| Shared down | `(2048,2048,4096)` | 21.604 | 1.262x | `dense_bwd_q8_0_exact_n4096k2048_g2_padding8` |
+| Shared down | `(8192,2048,4096)` | 19.533 | 1.076x | `dense_bwd_q8_0_exact_n4096k2048_g2_group_m2` |
+| Shared down | `(32768,2048,4096)` | 20.255 | 1.110x | `dense_bwd_q8_0_exact_n4096k2048_g2_group_m2` |
 
-| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm |
-| --- | ---: | ---: | ---: |
-| Q-A | `(2048,4096,1024)` | 20.774 | 0.887x |
-| Q-A | `(8192,4096,1024)` | 26.461 | 1.168x |
-| Q-A | `(32768,4096,1024)` | 20.703 | 0.908x |
-| Q-B | `(2048,1024,32768)` | 19.390 | 0.889x |
-| Q-B | `(8192,1024,32768)` | 17.150 | 0.787x |
-| Q-B | `(32768,1024,32768)` | 19.083 | 0.851x |
-| KV | `(2048,4096,512)` | 24.826 | 1.146x |
-| KV | `(8192,4096,512)` | 26.010 | 1.133x |
-| KV | `(32768,4096,512)` | 26.324 | 1.108x |
-| Output B | `(2048,8192,4096)` | 25.358 | 1.066x |
-| Output B | `(8192,8192,4096)` | 20.729 | 0.845x |
-| Output B | `(32768,8192,4096)` | 20.544 | 0.833x |
-| Shared gate/up | `(2048,4096,2048)` | 22.710 | 0.983x |
-| Shared gate/up | `(8192,4096,2048)` | 24.308 | 1.034x |
-| Shared gate/up | `(32768,4096,2048)` | 19.900 | 0.866x |
-| Shared down | `(2048,2048,4096)` | 22.225 | 1.318x |
-| Shared down | `(8192,2048,4096)` | 19.567 | 1.106x |
-| Shared down | `(32768,2048,4096)` | 19.941 | 1.129x |
+The `Kernel` column names the deployed body for each exact key; every one of them is the fastest built body whose output is bitwise equal to the reference body in the per-key candidate campaign.
 
-The ratios are direct HIP-versus-`torch.mm` kernel evidence.
-
-The current source log also retains the isolated LM-head backward shapes. It records HIP timing and therefore HIP TFLOPS, but no matching BF16 `torch.mm` timing; the unavailable ratio is shown explicitly rather than borrowed from another measurement.
-
-| `(M,N,K)` | HIP time (ms) | HIP TFLOPS | HIP/torch.mm |
-| ---: | ---: | ---: | ---: |
-| `(32,4096,129280)` | 8.297 | 4.085 | unavailable in source log |
-| `(64,4096,129280)` | 7.459 | 9.087 | unavailable in source log |
-| `(128,4096,129280)` | 7.569 | 17.910 | unavailable in source log |
-| `(256,4096,129280)` | 10.386 | 26.104 | unavailable in source log |
-| `(512,4096,129280)` | 23.206 | 23.366 | unavailable in source log |
+| `(M,N,K)` | HIP time (ms) | HIP TFLOPS | HIP/torch.mm | Kernel |
+| ---: | ---: | ---: | ---: | --- |
+| `(32,4096,129280)` | 8.321 | 4.073 | 0.556x | `dense_bwd_q8_0_exact_lm_head_bounded` |
+| `(64,4096,129280)` | 7.068 | 9.590 | 0.667x | `dense_bwd_q8_0_exact_lm_head_full` |
+| `(128,4096,129280)` | 7.393 | 18.335 | 1.143x | `dense_bwd_q8_0_exact_lm_head_g1` |
+| `(256,4096,129280)` | 10.020 | 27.059 | 1.750x | `dense_bwd_q8_0_exact_lm_head_g3` |
+| `(512,4096,129280)` | 21.338 | 25.412 | 1.536x | `dense_bwd_q8_0_exact_lm_head_g3` |
 
 ## Kernel implementation
 
-The initial generic body used 64x64/reduction-16 ownership, 92 VGPRs, 17 SGPRs, and 2 KiB LDS. The retained ordinary body uses exact Q8_0 shapes with a four-wave 128x128/K32 geometry, width-16 decode, and row-dependent LDS padding. M1/M2 traversal is measured per shape and row count.
+The initial generic body used 64x64/reduction-16 ownership, 92 VGPRs, 17 SGPRs, and 2 KiB LDS. The ordinary bodies use exact Q8_0 shapes with a four-wave 128x128/K32 geometry, width-16 decode, and row-dependent LDS padding. M1/M2 traversal is measured per shape and row count.
 
-The LM head uses active-two-wave M32, G0 M64, G1 M128, and G3 M256/M512 bodies. M512 launches two exact M256-style tiles. All retained bodies decode packed Q8_0 values directly and store BF16 gradients.
+The build carries four ordinary variant generations: the plain `exact_n{N}k{K}` wrappers, the `_g1`/`_g2`/`_g3` geometry screen winners, and the `_g2_padding8`/`_g2_group_m{1,2}`/`_g2_group_m2_padding8` traversal variants. The deployed ordinary bodies are all G2-family (`n_tiles=8`, `k_iteration=32`, `decoder_width=16`, `active_waves=4`) with `lds_padding=8` and/or `group_m` set per key; `K` in the variant name is the reduction length, and no single variant wins every shape. The plain `exact_n{N}k{K}` wrappers are the pre-G generation that the `_g*` screen superseded and are not part of the deployment campaign.
 
-The ordinary G2 body is `192 VGPR / 14 SGPR / 8 KiB LDS`; the isolated LM bodies use 91-194 VGPR and 2-4 KiB LDS. The selected artifacts remain zero-private, zero-spill, and stack-free.
+The LM head uses active-two-wave M32, G0 M64, G1 M128, and G3 M256/M512 bodies. M512 launches two exact M256-style tiles. The campaign timed the built chunk bodies per `M` and deploys the fastest valid one: `_bounded` at M32, `_full` at M64, `_g1` at M128, and `_g3` at M256/M512. `_g2` lost at M128/M256/M512, `_full` lost at M128 and above, `_bounded` lost at M64 and above, `_m32_active2` tied with the deployed `_bounded` body inside `0.2%` at M32, and `_g3` faults at M128, which `_g1` covers.
+
+The ordinary G2 body is `192 VGPR / 14 SGPR / 8 KiB LDS`; the isolated LM bodies use 91-194 VGPR and 2-4 KiB LDS.
 
 ## Optimization log
 
@@ -91,11 +83,17 @@ The DB8 screen retained M2 for Q-A, KV, shared gate/up, and shared down at the l
 
 Activation-half double buffering, K-loop unrolling, width32 decode, stride77 padding, decoded-weight LDS caching, split-K, GSU, Stream-K, persistent workgroups, and direct-to-LDS/direct-to-VGPR rewrites are closed for the current packed representation. The remaining ordinary deficit is repeated packed decode versus a BF16 baseline that starts from decoded weights.
 
-## Correctness and resources
-
-Retained Q8_0 bodies have zero private storage, zero spills, no dynamic stack, no scratch, and no calls. Validation covers signed 32-value blocks, scales, exact K/M boundaries, LM small chunks, input-gradient and packed-weight mutation, independent GGUF references, finite output, autograd, and a 65-row launch boundary.
-
 ## Evidence
+
+Current measurement evidence for both tables:
+
+```text
+~/tmp/torch-ggml-ops/hip_vs_baseline/pass11_ordbwd_deepseek.json
+~/tmp/torch-ggml-ops/hip_selection/           (per-key candidate campaign)
+tools/ggtensile/configs/hip_deployment.json   (deployed body per key)
+```
+
+The original campaign evidence is:
 
 ```text
 ~/tmp/torch-ggml-ops/mmq_bwd_ds4_db8_final_25.json
