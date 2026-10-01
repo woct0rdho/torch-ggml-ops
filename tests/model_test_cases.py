@@ -88,9 +88,9 @@ ROUTED_MMQ_TEST_CASES = (
     RoutedMMQTestCase(QWEN_MODEL, "q6_k", "output.weight", "Q6_K"),
     RoutedMMQTestCase(QWEN_MODEL, "iq2_s", "blk.10.ffn_gate_exps.weight", "IQ2_S"),
     RoutedMMQTestCase(
-        DEEPSEEK_MODEL, "iq2_xxs", "blk.0.ffn_gate_exps.weight", "IQ2_XXS"
+        DEEPSEEK_MODEL, "iq2_xxs", "blk.3.ffn_gate_exps.weight", "IQ2_XXS"
     ),
-    RoutedMMQTestCase(DEEPSEEK_MODEL, "q2_k", "blk.0.ffn_down_exps.weight", "Q2_K"),
+    RoutedMMQTestCase(DEEPSEEK_MODEL, "q2_k", "blk.3.ffn_down_exps.weight", "Q2_K"),
 )
 ROUTED_MMQ_TEST_CASE_IDS = tuple(case.id for case in ROUTED_MMQ_TEST_CASES)
 
@@ -141,8 +141,8 @@ PAIRED_MMQ_TEST_CASES = (
     PairedMMQTestCase(
         DEEPSEEK_MODEL,
         "iq2_xxs",
-        "blk.0.ffn_gate_exps.weight",
-        "blk.0.ffn_up_exps.weight",
+        "blk.3.ffn_gate_exps.weight",
+        "blk.3.ffn_up_exps.weight",
         "IQ2_XXS",
     ),
 )

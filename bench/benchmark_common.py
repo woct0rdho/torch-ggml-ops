@@ -105,9 +105,11 @@ def parse_args() -> argparse.Namespace:
         )
     if not args.model.is_file():
         parser.error(f"GGUF model not found: {args.model}")
-    if spec.routed and args.expert_prior is None:
-        parser.error("--expert-prior is required for grouped operations")
-    if spec.routed and not args.expert_prior.startswith(f"{args.model_family}-"):
+    if (
+        spec.routed
+        and args.expert_prior is not None
+        and not args.expert_prior.startswith(f"{args.model_family}-")
+    ):
         parser.error("--expert-prior must match --model-family")
     if args.warmup < 0 or args.warmup_seconds < 0 or args.launches_per_sample <= 0:
         parser.error(

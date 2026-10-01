@@ -85,7 +85,10 @@ _GROUPED_TENSORS = {
         "qwen", ("blk.10.ffn_down_exps.weight",)
     ),
     ("single", "Q2_K", 4096, 2048): TensorSource(
-        "deepseek", ("blk.0.ffn_down_exps.weight",)
+        # blk.0-2 are hash-routed layers. The benchmark samples a learned layer
+        # so the inferred learned prior matches the weights being measured.
+        "deepseek",
+        ("blk.3.ffn_down_exps.weight",),
     ),
     ("pair", "Q3_K", 512, 2048): TensorSource(
         "qwen", ("blk.0.ffn_gate_exps.weight", "blk.0.ffn_up_exps.weight")
@@ -94,7 +97,7 @@ _GROUPED_TENSORS = {
         "qwen", ("blk.10.ffn_gate_exps.weight", "blk.10.ffn_up_exps.weight")
     ),
     ("pair", "IQ2_XXS", 2048, 4096): TensorSource(
-        "deepseek", ("blk.0.ffn_gate_exps.weight", "blk.0.ffn_up_exps.weight")
+        "deepseek", ("blk.3.ffn_gate_exps.weight", "blk.3.ffn_up_exps.weight")
     ),
     ("fixed", "Q8_0", 1024, 4096): TensorSource(
         "deepseek", ("blk.0.attn_output_a.weight",)

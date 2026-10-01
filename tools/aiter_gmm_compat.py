@@ -3,6 +3,11 @@
 The copied AITER inventory remains explicit-prior keyed. This module is the
 small boundary for consumers whose current inputs identify the tuned family by
 quantization type and matrix geometry but do not expose an expert prior.
+
+The inferred law is always a learned one. The public routed deployment cannot
+tell learned routing from hash routing in its inputs, so DeepSeek shapes assume
+the learned router. Hash-tuned kernels stay benchmark-opt-in and are never
+inferred here.
 """
 
 from tools.aiter_gmm_heuristics import (
@@ -18,7 +23,7 @@ from tools.aiter_gmm_heuristics import (
 
 _QWEN_QUANT_TYPES = frozenset({"Q3_K", "Q4_K", "Q5_K", "Q6_K", "IQ2_S"})
 _DEEPSEEK_QUANT_TYPES = frozenset({"Q2_K", "IQ2_XXS"})
-_PRIORS = ("qwen-learned", "deepseek-learned", "deepseek-hash")
+_LEARNED_PRIORS = ("qwen-learned", "deepseek-learned")
 
 
 def _quant_type_name(quant_type: object | None) -> str | None:
@@ -30,6 +35,12 @@ def _quant_type_name(quant_type: object | None) -> str | None:
     return name if isinstance(name, str) else str(quant_type)
 
 
+def _has_entry(prior: str, m: int, k: int, n: int, transposed_rhs: bool | None) -> bool:
+    if transposed_rhs is None:
+        return (prior, m, k, n) in _PTGMM_CONFIGS
+    return (prior, m, k, n, transposed_rhs) in _GMM_CONFIGS
+
+
 def infer_expert_prior(
     m: int,
     k: int,
@@ -38,37 +49,45 @@ def infer_expert_prior(
     quant_type: object | None = None,
     transposed_rhs: bool | None,
 ) -> str:
-    """Infer the current public representative prior for one matrix key."""
+    """Infer the benchmark default prior for one matrix key.
 
-    def has_entry(prior: str) -> bool:
-        if transposed_rhs is None:
-            return (prior, m, k, n) in _PTGMM_CONFIGS
-        return (prior, m, k, n, transposed_rhs) in _GMM_CONFIGS
+    The quant type selects the routed family. Without one the learned inventory
+    has to be unambiguous. The result is validated against the tuned inventory,
+    so an unmeasured key fails instead of borrowing another family's law.
+    """
 
-    candidates = tuple(prior for prior in _PRIORS if has_entry(prior))
-    families = {
-        "qwen" if prior == "qwen-learned" else "deepseek" for prior in candidates
-    }
     quant_name = _quant_type_name(quant_type)
     if quant_name in _QWEN_QUANT_TYPES:
-        preferred = "qwen-learned"
+        family = "qwen"
     elif quant_name in _DEEPSEEK_QUANT_TYPES:
-        # The current public DeepSeek tensors are blk.0 representatives.
-        preferred = "deepseek-hash"
-    elif len(families) == 1:
-        preferred = "qwen-learned" if "qwen" in families else "deepseek-hash"
-    elif not families:
+        family = "deepseek"
+    elif quant_name is not None:
         raise ValueError(
-            f"No tuned AITER config for M={m}, K={k}, N={n}, quant_type={quant_name}."
+            f"quant_type={quant_name} has no public routed expert-prior family."
         )
     else:
-        raise ValueError(
-            "quant_type is required to distinguish the current AITER "
-            f"configs for M={m}, K={k}, N={n}."
+        candidates = tuple(
+            prior
+            for prior in _LEARNED_PRIORS
+            if _has_entry(prior, m, k, n, transposed_rhs)
         )
-    if preferred not in candidates:
-        raise ValueError(f"quant_type={quant_name} does not match M={m}, K={k}, N={n}.")
-    return preferred
+        families = {prior.split("-")[0] for prior in candidates}
+        if not families:
+            raise ValueError(
+                f"quant_type is required. No tuned learned config exists for "
+                f"M={m}, K={k}, N={n}."
+            )
+        if len(families) > 1:
+            raise ValueError(
+                "quant_type is required to distinguish the learned configs for "
+                f"M={m}, K={k}, N={n}."
+            )
+        family = families.pop()
+
+    prior = f"{family}-learned"
+    if not _has_entry(prior, m, k, n, transposed_rhs):
+        raise ValueError(f"No tuned {prior} AITER config for M={m}, K={k}, N={n}.")
+    return prior
 
 
 def gmm_config(

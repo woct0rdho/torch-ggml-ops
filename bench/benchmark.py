@@ -22,7 +22,39 @@ from bench.benchmark_common import (
 )
 from bench.benchmark_data import RouteSelection, input_mapping, prepare_input
 from bench.benchmark_kernels import prepare_direct_implementations
+from tools.aiter_gmm_compat import infer_expert_prior
 from tools.mmq_deployment_cases import hip_control_root
+
+
+def _inferred_expert_prior(case) -> str:
+    """Infer the default routed law from the case's matrix key and quant type."""
+
+    forward = "Forward" in case.operation
+    return infer_expert_prior(
+        case.rows,
+        case.in_features if forward else case.out_features,
+        case.out_features if forward else case.in_features,
+        quant_type=case.quant_type,
+        transposed_rhs=forward,
+    )
+
+
+def _resolve_expert_prior(args, spec, cases) -> None:
+    """Fill in the benchmark's default routed prior so no caller has to."""
+
+    if not spec.routed:
+        args.prior_source = "explicit" if args.expert_prior else None
+        return
+    if args.expert_prior is not None:
+        args.prior_source = "explicit"
+        return
+    inferred = {_inferred_expert_prior(case) for case in cases}
+    if len(inferred) != 1:
+        raise ValueError(
+            f"cannot infer one expert prior for this run: {sorted(inferred)}"
+        )
+    args.expert_prior = inferred.pop()
+    args.prior_source = "inferred"
 
 
 def run() -> None:
@@ -31,6 +63,7 @@ def run() -> None:
     cases = select_cases(args.operation, args.model_family, args.case)
     if not cases:
         raise ValueError(f"no {args.operation} cases exist for {args.model_family}")
+    _resolve_expert_prior(args, spec, cases)
     names = tuple(args.implementations)
     hip_root = args.hip_root
     if "hip" in names:
@@ -46,6 +79,7 @@ def run() -> None:
         "implementations": list(names),
         "configuration": {
             "expert_prior": args.expert_prior,
+            "prior_source": args.prior_source,
             "case_selectors": args.case,
             "seed": args.seed,
             "warmup": args.warmup,
