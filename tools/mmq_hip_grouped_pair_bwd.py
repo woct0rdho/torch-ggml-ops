@@ -10,7 +10,11 @@ from typing import ClassVar
 
 import torch
 
-from tools.mmq_abi import GROUPED_BACKWARD_PAIR_ABI
+from tools.mmq_abi import (
+    GROUPED_BACKWARD_PAIR_ABI,
+    GROUPED_BACKWARD_PAIR_ROW_TASK_ABI,
+)
+from tools.mmq_hip_row_task import RowTaskWorkspace
 from tools.mmq_runtime import (
     HIPRuntimeError,
     _find_installed_kernel,
@@ -25,6 +29,7 @@ class InstalledGroupedBackwardPairQ3KControl(_HIPModule):
         "grouped_bwd_pair_q3_k_n512_k2048_mt64_nt64",
         "grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64",
         "grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64_s2_skip",
+        "grouped_bwd_pair_task_q3_k_n512_k2048_mt128_nt64_s2_skip",
     )
     PHYSICAL_EXPERTS = 256
     OUT_FEATURES = 512
@@ -156,6 +161,7 @@ class InstalledGroupedBackwardPairIQ2SControl(_HIPModule):
         "grouped_bwd_pair_iq2_s_n512_k2048_mt128_nt64",
         "grouped_bwd_pair_iq2_s_n512_k2048_mt128_nt64_s2",
         "grouped_bwd_pair_iq2_s_n512_k2048_mt256_nt64_s3_skip",
+        "grouped_bwd_pair_task_iq2_s_n512_k2048_mt128_nt64_s2_skip",
     )
     PHYSICAL_EXPERTS = 256
     OUT_FEATURES = 512
@@ -287,6 +293,7 @@ class InstalledGroupedBackwardPairIQ2XXSControl(_HIPModule):
         "grouped_bwd_tuned_pair_iq2_xxs_n2048_k4096_mt128_nt64",
         "grouped_bwd_pair_iq2_xxs_n2048_k4096_mt128_nt64_s2",
         "grouped_bwd_pair_iq2_xxs_n2048_k4096_mt128_nt64_s2_skip",
+        "grouped_bwd_pair_task_iq2_xxs_n2048_k4096_mt128_nt64_s2_skip",
     )
     PHYSICAL_EXPERTS = 256
     OUT_FEATURES = 2048
@@ -395,6 +402,147 @@ class InstalledGroupedBackwardPairIQ2XXSControl(_HIPModule):
                 self._function,
                 self.IN_FEATURES // 64,
                 route_entries,
+                1,
+                128,
+                1,
+                1,
+                0,
+                ctypes.c_void_p(stream),
+                arguments.parameters,
+                None,
+            ),
+            "hipModuleLaunchKernel",
+        )
+
+
+PAIR_ROW_TASK_PREFIX = "grouped_bwd_pair_task_"
+
+
+def is_pair_row_task_body(symbol: str) -> bool:
+    """Return whether a catalogued pair symbol names a row-task body."""
+
+    return symbol.startswith(PAIR_ROW_TASK_PREFIX)
+
+
+class InstalledGroupedBackwardPairRowTaskControl(_HIPModule):
+    """Launch one installed device row-task paired-backward body.
+
+    The body consumes the task descriptor bank built by
+    `grouped_row_task_setup`: one task per 128-row tile of each active expert.
+    Its grid is `(output columns / 64, task capacity, 1)`. Workgroups whose task
+    index is past the decoded task count return without touching memory.
+    """
+
+    _SYMBOLS: ClassVar[tuple[str, ...]] = (
+        "grouped_bwd_pair_task_q3_k_n512_k2048_mt128_nt64_s2_skip",
+        "grouped_bwd_pair_task_iq2_s_n512_k2048_mt128_nt64_s2_skip",
+        "grouped_bwd_pair_task_iq2_xxs_n2048_k4096_mt128_nt64_s2_skip",
+    )
+    PHYSICAL_EXPERTS = 256
+    OUT_FEATURES: ClassVar[dict[str, int]] = {
+        "q3_k": 512,
+        "iq2_s": 512,
+        "iq2_xxs": 2048,
+    }
+    IN_FEATURES: ClassVar[dict[str, int]] = {
+        "q3_k": 2048,
+        "iq2_s": 2048,
+        "iq2_xxs": 4096,
+    }
+    ROW_TASK_ROWS = 128
+
+    def __init__(
+        self,
+        symbol: str,
+        code_object: Path | None = None,
+        hip_library: Path | None = None,
+    ) -> None:
+        if symbol not in self._SYMBOLS:
+            raise HIPRuntimeError(
+                f"no installed paired row-task control for symbol {symbol!r}"
+            )
+        self.symbol = symbol
+        family = next(
+            (name for name in self.OUT_FEATURES if f"_{name}_" in symbol), None
+        )
+        if family is None:
+            raise HIPRuntimeError(
+                f"paired row-task symbol {symbol!r} has no family geometry"
+            )
+        self.family = family
+        super().__init__(
+            code_object or _find_installed_kernel(symbol),
+            hip_library,
+            symbol,
+        )
+
+    BYTES_PER_EXPERT: ClassVar[dict[str, int]] = {
+        "q3_k": 450_560,
+        "iq2_s": 335_872,
+        "iq2_xxs": 2_162_688,
+    }
+
+    def launch(
+        self,
+        first_grad_output: torch.Tensor,
+        second_grad_output: torch.Tensor,
+        first_packed_weight: torch.Tensor,
+        second_packed_weight: torch.Tensor,
+        grad_input: torch.Tensor,
+        tasks: RowTaskWorkspace,
+        *,
+        stream: int,
+    ) -> None:
+        if not self._module or not self._function:
+            raise HIPRuntimeError("HIP module is closed")
+        tensors = (
+            first_grad_output,
+            second_grad_output,
+            first_packed_weight,
+            second_packed_weight,
+            grad_input,
+            tasks.storage,
+            tasks.task_count,
+            tasks.task_experts,
+            tasks.task_row_starts,
+            tasks.task_row_ends,
+        )
+        if any(not tensor.is_cuda or not tensor.is_contiguous() for tensor in tensors):
+            raise HIPRuntimeError(
+                "paired row-task control requires contiguous HIP tensors"
+            )
+        out_features = self.OUT_FEATURES[self.family]
+        in_features = self.IN_FEATURES[self.family]
+        rows = int(first_grad_output.shape[0])
+        if tuple(first_grad_output.shape) != (rows, out_features):
+            raise HIPRuntimeError("paired row-task gradient shape is invalid")
+        if tuple(second_grad_output.shape) != (rows, out_features):
+            raise HIPRuntimeError("paired row-task gradient shape is invalid")
+        if tuple(grad_input.shape) != (rows, in_features):
+            raise HIPRuntimeError("paired row-task output shape is invalid")
+        if int(tasks.row_task_rows) != self.ROW_TASK_ROWS:
+            raise HIPRuntimeError("paired row-task tile does not match the body")
+        arguments = GROUPED_BACKWARD_PAIR_ROW_TASK_ABI.pack(
+            {
+                "first_grad_output": first_grad_output.data_ptr(),
+                "second_grad_output": second_grad_output.data_ptr(),
+                "first_packed_weight": first_packed_weight.data_ptr(),
+                "second_packed_weight": second_packed_weight.data_ptr(),
+                "grad_input": grad_input.data_ptr(),
+                "task_count": tasks.task_count.data_ptr(),
+                "task_experts": tasks.task_experts.data_ptr(),
+                "task_row_starts": tasks.task_row_starts.data_ptr(),
+                "task_row_ends": tasks.task_row_ends.data_ptr(),
+                "num_experts": self.PHYSICAL_EXPERTS,
+                "rows": rows,
+                "bytes_per_expert": self.BYTES_PER_EXPERT[self.family],
+            }
+        )
+        self._check(
+            self._lib.hipModuleLaunchKernel(
+                self._function,
+                in_features // 64,
+                tasks.capacity,
                 1,
                 128,
                 1,

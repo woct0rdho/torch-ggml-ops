@@ -14,6 +14,25 @@ import torch
 from tools.mmq_abi import GROUPED_FORWARD_ABI, GROUPED_FORWARD_ROW_TASK_ABI
 from tools.mmq_hip_row_task import GroupedForwardPairRowTaskWorkspace
 from tools.mmq_runtime import HIPRuntimeError, _find_installed_kernel, _HIPModule
+from torch_ggml_ops.runtime_contract import QUANT_WORKSPACE_BLOCK_BYTES
+
+
+def paired_forward_rows(activations: torch.Tensor) -> int:
+    """Return the routed row count of a paired-forward activation workspace.
+
+    Every forward quantizer produces `(K / 128, rows, block_bytes)` uint8
+    workspace, so the routed row count is its middle axis. Controls derive the
+    value here instead of taking it from the caller, and validate their output
+    against it.
+    """
+
+    if activations.ndim != 3 or activations.dtype != torch.uint8:
+        raise HIPRuntimeError("paired-forward activation workspace must be 3-D uint8")
+    if activations.shape[2] != QUANT_WORKSPACE_BLOCK_BYTES:
+        raise HIPRuntimeError(
+            "paired-forward activation workspace block size is invalid"
+        )
+    return int(activations.shape[1])
 
 
 class InstalledGroupedForwardPairRowTaskControl(_HIPModule):
@@ -21,6 +40,7 @@ class InstalledGroupedForwardPairRowTaskControl(_HIPModule):
 
     SYMBOL = "grouped_fwd_row_task_iq2_s_n512_k2048_j64"
     BYTES_PER_EXPERT = 335_872
+    OUT_FEATURES = 512
     DYNAMIC_LDS_BYTES = 30_976
 
     def __init__(
@@ -41,7 +61,6 @@ class InstalledGroupedForwardPairRowTaskControl(_HIPModule):
         output: torch.Tensor,
         tasks: GroupedForwardPairRowTaskWorkspace,
         *,
-        aggregate_rows: int,
         stream: int,
     ) -> None:
         tensors = (packed_weight, activations, output, tasks.storage)
@@ -58,6 +77,9 @@ class InstalledGroupedForwardPairRowTaskControl(_HIPModule):
             raise HIPRuntimeError(
                 "installed row-task control tensor dtypes are invalid"
             )
+        aggregate_rows = paired_forward_rows(activations)
+        if tuple(output.shape) != (aggregate_rows, self.OUT_FEATURES):
+            raise HIPRuntimeError("installed row-task control output shape is invalid")
         packed_arguments = GROUPED_FORWARD_ROW_TASK_ABI.pack(
             {
                 "weights": packed_weight.data_ptr(),
@@ -94,6 +116,7 @@ class InstalledGroupedForwardPairSerialControl(_HIPModule):
 
     SYMBOL = "grouped_fwd_serial_iq2_s_n512_k2048_j64"
     BYTES_PER_EXPERT = 335_872
+    OUT_FEATURES = 512
     DYNAMIC_LDS_BYTES = 30_976
 
     def __init__(
@@ -115,7 +138,6 @@ class InstalledGroupedForwardPairSerialControl(_HIPModule):
         expert_indices: torch.Tensor,
         expert_offsets: torch.Tensor,
         *,
-        aggregate_rows: int,
         stream: int,
     ) -> None:
         tensors = (packed_weight, activations, output, expert_indices, expert_offsets)
@@ -132,6 +154,9 @@ class InstalledGroupedForwardPairSerialControl(_HIPModule):
         route_entries = expert_indices.numel()
         if expert_indices.dtype != torch.int64 or expert_offsets.dtype != torch.int32:
             raise HIPRuntimeError("installed paired control route dtypes are invalid")
+        aggregate_rows = paired_forward_rows(activations)
+        if tuple(output.shape) != (aggregate_rows, self.OUT_FEATURES):
+            raise HIPRuntimeError("installed paired control output shape is invalid")
         packed_arguments = GROUPED_FORWARD_ABI.pack(
             {
                 "weights": packed_weight.data_ptr(),
@@ -178,6 +203,7 @@ class InstalledGroupedForwardPairIQ2XXSSerialControl(_HIPModule):
         ),
     }
     BYTES_PER_EXPERT = 2_162_688
+    OUT_FEATURES = 2048
 
     def __init__(
         self,
@@ -205,7 +231,6 @@ class InstalledGroupedForwardPairIQ2XXSSerialControl(_HIPModule):
         expert_indices: torch.Tensor,
         expert_offsets: torch.Tensor,
         *,
-        aggregate_rows: int,
         stream: int,
     ) -> None:
         tensors = (packed_weight, activations, output, expert_indices, expert_offsets)
@@ -228,9 +253,8 @@ class InstalledGroupedForwardPairIQ2XXSSerialControl(_HIPModule):
             raise HIPRuntimeError("installed IQ2_XXS route metadata lengths differ")
         if tuple(packed_weight.shape) != (256, 2048, 1056):
             raise HIPRuntimeError("installed IQ2_XXS packed shape is invalid")
-        if tuple(activations.shape) != (32, aggregate_rows, 144):
-            raise HIPRuntimeError("installed IQ2_XXS activation shape is invalid")
-        if tuple(output.shape) != (aggregate_rows, 2048):
+        aggregate_rows = paired_forward_rows(activations)
+        if tuple(output.shape) != (aggregate_rows, self.OUT_FEATURES):
             raise HIPRuntimeError("installed IQ2_XXS output shape is invalid")
         if len({tensor.device for tensor in tensors}) != 1:
             raise HIPRuntimeError("installed IQ2_XXS tensors must share one device")

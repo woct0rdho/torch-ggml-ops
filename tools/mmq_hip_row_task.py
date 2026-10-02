@@ -16,6 +16,7 @@ from typing_extensions import Self
 
 from tools.mmq_abi import GROUPED_ROW_TASK_SETUP_ABI
 from tools.mmq_runtime import HIPRuntimeError, _find_installed_kernel, _HIPModule
+from torch_ggml_ops.runtime_contract import paired_row_task_capacity
 
 
 @dataclass(frozen=True)
@@ -30,16 +31,24 @@ class RowTaskWorkspace:
     capacity: int
     route_entries: int
     row_task_rows: int
+    aggregate_rows: int
 
     @classmethod
     def allocate(
         cls,
         reference: torch.Tensor,
         *,
-        aggregate_rows: int,
         route_entries: int,
         row_tile: int = 64,
     ) -> Self:
+        """Size a task bank for the routed rows of `reference`.
+
+        The reference is the routed activation or gradient tensor, so its row
+        count is the aggregate row count the consumer bodies and the setup
+        kernel both report.
+        """
+
+        aggregate_rows = int(reference.shape[0])
         if route_entries <= 0 or route_entries > 256:
             raise HIPRuntimeError("row-task route entry count is outside the contract")
         if aggregate_rows <= 0 or not 0 < row_tile <= 128:
@@ -47,7 +56,7 @@ class RowTaskWorkspace:
                 "row-task workspace requires positive rows and at most M128 tiles"
             )
         # One task per tile of each active group plus one per active group.
-        capacity = (aggregate_rows + row_tile - 1) // row_tile + route_entries
+        capacity = paired_row_task_capacity(aggregate_rows, route_entries, row_tile)
         storage = torch.empty(
             1 + 3 * capacity,
             device=reference.device,
@@ -62,6 +71,7 @@ class RowTaskWorkspace:
             capacity,
             route_entries,
             row_tile,
+            aggregate_rows,
         )
 
 
@@ -87,7 +97,6 @@ class InstalledGroupedRowTaskSetup(_HIPModule):
         expert_offsets: torch.Tensor,
         workspace: RowTaskWorkspace,
         *,
-        aggregate_rows: int,
         stream: int,
     ) -> None:
         tensors = (
@@ -110,9 +119,9 @@ class InstalledGroupedRowTaskSetup(_HIPModule):
             raise HIPRuntimeError("row-task workspace route count does not match")
         if int(expert_offsets.numel()) != route_entries:
             raise HIPRuntimeError("row-task route metadata lengths must match")
-        expected_capacity = (
-            aggregate_rows + workspace.row_task_rows - 1
-        ) // workspace.row_task_rows + route_entries
+        expected_capacity = paired_row_task_capacity(
+            workspace.aggregate_rows, route_entries, workspace.row_task_rows
+        )
         if workspace.capacity != expected_capacity:
             raise HIPRuntimeError("row-task workspace capacity does not match")
         if len({tensor.device for tensor in tensors}) != 1:
@@ -127,7 +136,7 @@ class InstalledGroupedRowTaskSetup(_HIPModule):
                 "task_row_ends": workspace.task_row_ends.data_ptr(),
                 "num_experts": 256,
                 "num_groups": route_entries,
-                "nrows_activation": aggregate_rows,
+                "nrows_activation": workspace.aggregate_rows,
                 "row_tile": workspace.row_task_rows,
             }
         )
@@ -157,7 +166,6 @@ class GroupedForwardPairRowTaskWorkspace(RowTaskWorkspace):
         cls,
         reference: torch.Tensor,
         *,
-        aggregate_rows: int,
         route_entries: int,
         row_tile: int = 64,
     ) -> Self:
@@ -166,10 +174,7 @@ class GroupedForwardPairRowTaskWorkspace(RowTaskWorkspace):
                 "paired row-task workspace requires positive rows and at most J64"
             )
         return super().allocate(
-            reference,
-            aggregate_rows=aggregate_rows,
-            route_entries=route_entries,
-            row_tile=row_tile,
+            reference, route_entries=route_entries, row_tile=row_tile
         )
 
 

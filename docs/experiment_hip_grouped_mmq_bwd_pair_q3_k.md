@@ -10,15 +10,17 @@ Aggregate routed rows are `R=16384,65536,262144`.
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | --- | --- | --- | --- |
-| 1 | `2 x (16384,512,2048)` | 14.40 | 1.727x | `grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64_s2_skip` |
-| 4 | `2 x (65536,512,2048)` | 22.67 | 1.819x | `grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64_s2_skip` |
-| 16 | `2 x (262144,512,2048)` | 24.79 | 1.580x | `grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64_s2_skip` |
+| 1 | `2 x (16384,512,2048)` | 15.68 | 1.895x | `grouped_bwd_pair_task_q3_k_n512_k2048_mt128_nt64_s2_skip` |
+| 4 | `2 x (65536,512,2048)` | 25.08 | 2.018x | `grouped_bwd_pair_task_q3_k_n512_k2048_mt128_nt64_s2_skip` |
+| 16 | `2 x (262144,512,2048)` | 29.48 | 1.882x | `grouped_bwd_pair_task_q3_k_n512_k2048_mt128_nt64_s2_skip` |
 
-The pair body beats the AITER GMM baseline at all three shapes, by `58%` to `82%`.
+Every shape uses the same device row-task body, so one workgroup owns one 128-row tile of one expert instead of walking a whole expert's rows. The pair body beats the AITER GMM baseline at all three shapes, by `88%` to `102%`.
 
 The pair body beats the AITER GMM baseline at all three shapes, by `57%` to `83%`.
 
 ## Kernel implementation
+
+The retained pair body consumes a device row-task bank with an N64 x M128 tile, a 32-wide contraction stage, two projection weight tiles per stage, two LDS stages and one plain barrier per stage, with vectorised payload and mask loads feeding the Q3_K decode. Four waves own 32 rows each, activation rows are clamped so no load is predicated, and waves whose first row is past the task end skip their activation loads, matrix work and stores while still taking part in the shared decode.
 
 The retained pair bodies use an N64 x M128 tile, a 32-wide contraction stage, two projection weight tiles per stage, two LDS stages and one plain barrier per stage, with vectorised payload and mask loads feeding the Q3_K decode. Four waves own 32 rows each, activation rows are clamped so no load is predicated, and waves whose first row is past the task end skip their activation loads, matrix work and stores while still taking part in the shared decode.
 
@@ -65,7 +67,13 @@ The reduced-precision controls were:
 
 The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE; even without its scale scan it was 33.3% slower. The fused Q3_K pair therefore retains one FP32 accumulation and one BF16 rounding per output.
 
+### Balanced row-task ownership
+
+Learned route banks carry a large `max/mean` expert row spread, so the serial pair bodies kept column tiles of small experts idle while tall experts still walked rows. The deployed body now consumes a device row-task bank built once per route by `grouped_row_task_setup`: one task per 128-row tile of each active expert, so a small expert keeps one task and a tall expert splits into many, and each workgroup runs exactly one tile. Measured against the serial M128/N64 body on identical prepared inputs, kernel-only gains were `1.066x/1.074x/1.126x` at B1/B4/B16, and the official protocol moved `14.40/22.67/24.79` to `15.68/25.08/29.48` TFLOPS. The task body carries inactive-wave suppression because the last task of every expert is partial. Wide-M task bodies were rejected (`m4n4` tasks reached only `0.46-0.54x` of the serial body since a 128-row task cannot fill an M256 body), as were a third LDS stage and the projection-split decode. Reduction and projection splits were not pursued: the fused output is `rows x 512`, so a global f32 partial round trip costs more than the whole multiply.
+
 ## Resources
+
+The deployed row-task pair body uses 233 VGPR / 26 SGPR / 20480 B LDS and runs one 128-row task per workgroup.
 
 The deployed staged pair body uses 233 VGPR / 26 SGPR / 16384 B LDS; the retired M128/N64 body used 206 / 26 / 10240.
 

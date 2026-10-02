@@ -32,6 +32,31 @@ The pure J32 B4 typed probe was resource-clean but reached only `0.8970x` weight
 
 The coefficient-only campaign screened exact J values, row-task alternatives, linked tail fields, decoder width, LDS layout, and bounded prefetch. Q4_K retained J64 with the measured J32 tails; broad row-task geometry and inactive-M policies were not promoted for this forward body. The retained Q4 path uses width-16 decode and a Q4-specific LDS arrangement.
 
+### Balance and decomposition screen
+
+The routed down shapes keep a fixed grid of `(out_features/64, route_entries)` workgroups that walk each expert's rows serially, so the largest expert sets each launch's length. A device row-task body (one task per expert tile from the same `grouped_row_task_setup` bank the backward families use) was built for `n2048_k512_j32` and `j64` and exercised through the deployed launch path on identical prepared inputs. Two results close the mechanism for this direction:
+- Against the external oracle, all twelve grouped-forward deployment cases failed with the row-task bodies. The bodies were removed from the control inventory rather than deployed.
+- Timings were mixed at best: `+3-4%` at B16 for Q4_K/Q5_K (`24.42 -> 25.32` TFLOPS for Q4_K), and `3-45%` slower at B1 and B4, with Q2_K collapsing to `0.55x` at B4/B16. A correct body would do no less work than the measured one, so the balance mechanism has no headroom here.
+
+Reduction and column splits were not pursued. The forward output is `rows x 2048` bf16, so an f32 partial round trip costs 3.2-6.4 GB per pass against a 22 ms multiply at B16, and the packed weight decode dominates per-block work rather than parallelism.
+
+### Loop-invariant weight decode
+
+The row-tile inner loop (`ggml_cuda_mmq_vec_dot_q8_1_q8_1_mma`) re-reads and converts the weight scale/minimum pair `x_dm[i*sram_stride + k0/QI8_1]` for every one of the J row tiles, although the pair depends only on the mini tile element and the contraction block. Two ways of decoding it once per block were built and measured against the deployed body on identical prepared inputs (same packed banks, same Q8_1 activation workspace, same route bank), with the external oracle for correctness and `VALUInsts` plus `LDSBankConflict` from `rocprofv3` for attribution. Both are numerically identical to the deployed body on every shape, so neither changes the arithmetic.
+
+| build | VALUInsts per launch | LDS bank conflicts | B16 time |
+| --- | ---: | ---: | ---: |
+| deployed | 1,358,520 | 13.5% | 21.36 ms |
+| decoded pairs hoisted into registers | 1,358,520 | 13.5% | 21.34 ms |
+| decoded pairs staged in LDS | 1,424,550 | 38.9% | 91.7 ms |
+
+- Registers: the pairs cannot stay live. The first build without loop pinning spilled instead of hoisting (`256` VGPR, `1515` spills, 4124 byte private segment, `5814 -> 17698` static instructions) and ran `4.4x` slower; pinning the contraction loop with `#pragma unroll 1` restored `237` VGPR and no spills, and the `VALUInsts` count is then identical to the deployed body, i.e. LLVM rematerialises the decode per use rather than keeping it live. The kernel already owns `237` of the `256` VGPRs a thread can own and the accumulators alone are 64 floats, so there is no room for a per-lane copy; forcing it would need an opaque register barrier, which is the spilling case measured above.
+- LDS: staging decoded pairs per half wave (all 16 lanes of a half wave need the same pairs, so the staging area is only 512 bytes) removes the conversions but adds a staged read per use and cannot use a 64 bit read while the staging is volatile, which the compiler requires to stop it from promoting the values into registers again. The result is `+4.9%` more VALU instructions and `13.5% -> 38.9%` bank conflicts, and `4.3x` slower at every shape.
+- The unroll pin alone is within run-to-run noise across all twelve grouped-forward shapes (largest movement `+3.1%` at Q5_K B16, others `+-1.5%`), so it was not deployed either.
+- J64 beats J32 on every down shape and quant (`25.7` against `24.1` TFLOPS at B16 for Q4_K), so the tile size is not the lever.
+
+Conclusion: the packed weight decode of this body is closed for the current tile shape, with dynamic evidence rather than inference. Any further decode work needs a structure whose accumulators cost less than 64 f32 per lane, which means splitting the contraction across workgroups and paying the partial round trip that the earlier split-K screen already rejected for these shapes.
+
 The measured Q4 residual is repeated packed scale/minimum reconstruction rather than cache misses or high LDS stalls. Wider ownership, broad swizzles, two-LDS decoded-weight caches, split-K, Stream-K, persistent groups, and direct-to-LDS forms are closed.
 
 The early Q4 redesign moved a representative B1 point from `6.874 ms` to `2.842 ms`; exact full-row and bounded-tail specialization later moved it to `1.599 ms`. The retained Q4 row-task body is `242 VGPR / 46 SGPR`. These measurements explain the accepted tiled/tail mechanism without replacing the final matrix above.

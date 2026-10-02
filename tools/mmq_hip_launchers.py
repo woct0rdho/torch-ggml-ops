@@ -93,6 +93,12 @@ def build_backward_control(choice: RoutedControl, root: Path | None):
 def build_backward_pair_control(choice: RoutedControl, root: Path | None):
     """Build the paired grouped-backward control named by one catalog choice."""
 
+    if choice.symbol.startswith("grouped_bwd_pair_task_"):
+        from tools.mmq_hip_grouped_pair_bwd import (
+            InstalledGroupedBackwardPairRowTaskControl,
+        )
+
+        return InstalledGroupedBackwardPairRowTaskControl(choice.symbol, root)
     control = _PAIR_BACKWARD_CONTROLS.get(choice.quant_type)
     if control is None:
         raise ValueError(

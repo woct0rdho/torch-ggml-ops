@@ -328,4 +328,60 @@ static __device__ __forceinline__ void grouped_mmq_pair_grad_input_staged_body(
     }
 }
 
+
+// Device row-task body for the paired backward. One workgroup owns one
+// (column tile, task) pair, where the task list is built by
+// `grouped_row_task_setup` from the same route offsets the serial bodies
+// consume: one task per 128-row tile of each active expert. A workgroup
+// therefore never walks a whole expert's rows, so a route bank with a large
+// max/mean row spread no longer leaves column tiles idle behind the tallest
+// expert. The task list is prepared outside the timed multiply region.
+template <typename Decoder, int M_TILES, int STAGES, bool SKIP_INACTIVE_M>
+static __device__ __forceinline__ void grouped_mmq_pair_grad_input_task_body(
+        const __hip_bfloat16 * __restrict__ first_grad_output,
+        const __hip_bfloat16 * __restrict__ second_grad_output,
+        const char * __restrict__ first_packed_weight,
+        const char * __restrict__ second_packed_weight,
+        __hip_bfloat16 * __restrict__ grad_input,
+        const int32_t * __restrict__ task_count,
+        const int32_t * __restrict__ task_experts,
+        const int32_t * __restrict__ task_row_starts,
+        const int32_t * __restrict__ task_row_ends,
+        int num_experts,
+        int rows,
+        int64_t bytes_per_expert) {
+    using tile_type = backward_shared_b_tile<
+        GROUPED_BACKWARD_PAIR_STAGED_N,
+        GROUPED_BACKWARD_TILED_K,
+        Decoder::padding,
+        Decoder::swizzle>;
+    const int task = blockIdx.y;
+    if (task >= task_count[0]) {
+        return;
+    }
+    const int expert = task_experts[task];
+    const int row_start = task_row_starts[task];
+    const int row_end = task_row_ends[task];
+    if (expert < 0 || expert >= num_experts || row_start < 0 ||
+        row_end <= row_start || row_end > rows) {
+        return;
+    }
+    const int input_column_start = blockIdx.x * GROUPED_BACKWARD_PAIR_STAGED_N;
+    __shared__ tile_type tiles[STAGES][2];
+    grouped_mmq_pair_grad_input_staged_tile<
+        Decoder,
+        M_TILES,
+        STAGES,
+        SKIP_INACTIVE_M>(
+        first_grad_output,
+        second_grad_output,
+        first_packed_weight + expert * bytes_per_expert,
+        second_packed_weight + expert * bytes_per_expert,
+        grad_input,
+        tiles,
+        row_start,
+        row_end,
+        input_column_start);
+}
+
 } // namespace torch_ggml_ops::ck

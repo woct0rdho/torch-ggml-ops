@@ -235,6 +235,23 @@ GROUPED_BACKWARD_PAIR_ABI = KernelAbi(
     )
 )
 
+GROUPED_BACKWARD_PAIR_ROW_TASK_ABI = KernelAbi(
+    (
+        _pointer("first_grad_output", KernelValueType.BFloat16),
+        _pointer("second_grad_output", KernelValueType.BFloat16),
+        _pointer("first_packed_weight", KernelValueType.Struct),
+        _pointer("second_packed_weight", KernelValueType.Struct),
+        _pointer("grad_input", KernelValueType.BFloat16),
+        _pointer("task_count", KernelValueType.Int32),
+        _pointer("task_experts", KernelValueType.Int32),
+        _pointer("task_row_starts", KernelValueType.Int32),
+        _pointer("task_row_ends", KernelValueType.Int32),
+        _pointer("num_experts", KernelValueType.Int32),
+        _pointer("rows", KernelValueType.Int32),
+        _pointer("bytes_per_expert", KernelValueType.Int64),
+    )
+)
+
 GROUPED_FORWARD_ABI = KernelAbi(
     (
         _pointer("weights", KernelValueType.Struct),
