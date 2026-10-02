@@ -708,6 +708,26 @@ def _grouped_backward_controls() -> list[HIPControlSpec]:
                 "grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3",
                 GroupedBackwardKind.Q2_K_ROW_TASK_N64_S3,
             ),
+            _grouped_backward(
+                "grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64_s2_skip",
+                GroupedBackwardKind.Q3_PAIR_STAGED_M128,
+            ),
+            _grouped_backward(
+                "grouped_bwd_pair_iq2_s_n512_k2048_mt128_nt64_s2",
+                GroupedBackwardKind.IQ2_S_PAIR_STAGED_M128,
+            ),
+            _grouped_backward(
+                "grouped_bwd_pair_iq2_s_n512_k2048_mt256_nt64_s3_skip",
+                GroupedBackwardKind.IQ2_S_PAIR_STAGED_M256,
+            ),
+            _grouped_backward(
+                "grouped_bwd_pair_iq2_xxs_n2048_k4096_mt128_nt64_s2",
+                GroupedBackwardKind.IQ2_XXS_PAIR_STAGED_M128,
+            ),
+            _grouped_backward(
+                "grouped_bwd_pair_iq2_xxs_n2048_k4096_mt128_nt64_s2_skip",
+                GroupedBackwardKind.IQ2_XXS_PAIR_STAGED_M128_SKIP,
+            ),
         ]
     )
     specs.extend(
@@ -740,7 +760,7 @@ def hip_control_specs() -> tuple[HIPControlSpec, ...]:
         + _grouped_backward_controls()
     )
     symbols = [spec.symbol for spec in specs]
-    if len(specs) != 186:
+    if len(specs) != 191:
         raise ValueError(f"historical HIP control inventory has {len(specs)} entries")
     if len(symbols) != len(set(symbols)):
         raise ValueError("HIP control symbols must be unique")

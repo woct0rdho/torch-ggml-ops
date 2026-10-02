@@ -21,10 +21,11 @@ from tools.mmq_runtime import (
 class InstalledGroupedBackwardPairQ3KControl(_HIPModule):
     """Launch one installed specialized Qwen Q3_K backward-pair body."""
 
-    _CONFIGS: ClassVar[dict[int, str]] = {
-        64: ("grouped_bwd_pair_q3_k_n512_k2048_mt64_nt64"),
-        128: ("grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64"),
-    }
+    _SYMBOLS: ClassVar[tuple[str, ...]] = (
+        "grouped_bwd_pair_q3_k_n512_k2048_mt64_nt64",
+        "grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64",
+        "grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64_s2_skip",
+    )
     PHYSICAL_EXPERTS = 256
     OUT_FEATURES = 512
     IN_FEATURES = 2048
@@ -33,14 +34,15 @@ class InstalledGroupedBackwardPairQ3KControl(_HIPModule):
 
     def __init__(
         self,
-        macro_tile0: int,
+        symbol: str,
         code_object: Path | None = None,
         hip_library: Path | None = None,
     ) -> None:
-        symbol = self._CONFIGS.get(macro_tile0)
-        if symbol is None:
-            raise HIPRuntimeError("installed Q3_K pair control requires M64 or M128")
-        self.macro_tile0 = macro_tile0
+        if symbol not in self._SYMBOLS:
+            raise HIPRuntimeError(
+                f"no installed Q3_K pair control for symbol {symbol!r}"
+            )
+        self.symbol = symbol
         super().__init__(
             code_object or _find_installed_kernel(symbol),
             hip_library,
@@ -149,10 +151,12 @@ class InstalledGroupedBackwardPairQ3KControl(_HIPModule):
 class InstalledGroupedBackwardPairIQ2SControl(_HIPModule):
     """Launch one installed specialized Qwen IQ2_S backward-pair body."""
 
-    _CONFIGS: ClassVar[dict[int, str]] = {
-        64: ("grouped_bwd_pair_iq2_s_n512_k2048_mt64_nt64"),
-        128: ("grouped_bwd_pair_iq2_s_n512_k2048_mt128_nt64"),
-    }
+    _SYMBOLS: ClassVar[tuple[str, ...]] = (
+        "grouped_bwd_pair_iq2_s_n512_k2048_mt64_nt64",
+        "grouped_bwd_pair_iq2_s_n512_k2048_mt128_nt64",
+        "grouped_bwd_pair_iq2_s_n512_k2048_mt128_nt64_s2",
+        "grouped_bwd_pair_iq2_s_n512_k2048_mt256_nt64_s3_skip",
+    )
     PHYSICAL_EXPERTS = 256
     OUT_FEATURES = 512
     IN_FEATURES = 2048
@@ -161,14 +165,15 @@ class InstalledGroupedBackwardPairIQ2SControl(_HIPModule):
 
     def __init__(
         self,
-        macro_tile0: int,
+        symbol: str,
         code_object: Path | None = None,
         hip_library: Path | None = None,
     ) -> None:
-        symbol = self._CONFIGS.get(macro_tile0)
-        if symbol is None:
-            raise HIPRuntimeError("installed IQ2_S pair control requires M64 or M128")
-        self.macro_tile0 = macro_tile0
+        if symbol not in self._SYMBOLS:
+            raise HIPRuntimeError(
+                f"no installed IQ2_S pair control for symbol {symbol!r}"
+            )
+        self.symbol = symbol
         super().__init__(
             code_object or _find_installed_kernel(symbol),
             hip_library,
@@ -277,10 +282,12 @@ class InstalledGroupedBackwardPairIQ2SControl(_HIPModule):
 class InstalledGroupedBackwardPairIQ2XXSControl(_HIPModule):
     """Launch one installed specialized DeepSeek IQ2_XXS backward pair."""
 
-    _CONFIGS: ClassVar[dict[int, str]] = {
-        64: ("grouped_bwd_pair_iq2_xxs_n2048_k4096_mt64_nt64"),
-        128: ("grouped_bwd_tuned_pair_iq2_xxs_n2048_k4096_mt128_nt64"),
-    }
+    _SYMBOLS: ClassVar[tuple[str, ...]] = (
+        "grouped_bwd_pair_iq2_xxs_n2048_k4096_mt64_nt64",
+        "grouped_bwd_tuned_pair_iq2_xxs_n2048_k4096_mt128_nt64",
+        "grouped_bwd_pair_iq2_xxs_n2048_k4096_mt128_nt64_s2",
+        "grouped_bwd_pair_iq2_xxs_n2048_k4096_mt128_nt64_s2_skip",
+    )
     PHYSICAL_EXPERTS = 256
     OUT_FEATURES = 2048
     IN_FEATURES = 4096
@@ -289,16 +296,19 @@ class InstalledGroupedBackwardPairIQ2XXSControl(_HIPModule):
 
     def __init__(
         self,
-        macro_tile0: int,
+        symbol: str,
         code_object: Path | None = None,
         hip_library: Path | None = None,
     ) -> None:
-        symbol = self._CONFIGS.get(macro_tile0)
-        if symbol is None:
-            raise HIPRuntimeError("installed IQ2_XXS pair control requires M64 or M128")
-        self.macro_tile0 = macro_tile0
+        if symbol not in self._SYMBOLS:
+            raise HIPRuntimeError(
+                f"no installed IQ2_XXS pair control for symbol {symbol!r}"
+            )
+        self.symbol = symbol
         super().__init__(
-            code_object or _find_installed_kernel(symbol), hip_library, symbol
+            code_object or _find_installed_kernel(symbol),
+            hip_library,
+            symbol,
         )
 
     def launch(

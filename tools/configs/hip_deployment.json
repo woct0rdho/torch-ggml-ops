@@ -901,26 +901,14 @@
       "rules": [
         {
           "when": "rows_eq",
-          "value": 16384,
-          "symbol": "grouped_bwd_pair_iq2_s_n512_k2048_mt64_nt64",
-          "tile": 64
-        },
-        {
-          "when": "rows_eq",
-          "value": 65536,
-          "symbol": "grouped_bwd_pair_iq2_s_n512_k2048_mt128_nt64",
-          "tile": 128
-        },
-        {
-          "when": "rows_eq",
           "value": 262144,
-          "symbol": "grouped_bwd_pair_iq2_s_n512_k2048_mt128_nt64",
+          "symbol": "grouped_bwd_pair_iq2_s_n512_k2048_mt256_nt64_s3_skip",
           "tile": 128
         },
         {
           "when": "always",
           "value": null,
-          "symbol": "grouped_bwd_pair_iq2_s_n512_k2048_mt128_nt64",
+          "symbol": "grouped_bwd_pair_iq2_s_n512_k2048_mt128_nt64_s2",
           "tile": 128
         }
       ]
@@ -933,26 +921,14 @@
       "rules": [
         {
           "when": "rows_eq",
-          "value": 12288,
-          "symbol": "grouped_bwd_pair_iq2_xxs_n2048_k4096_mt64_nt64",
-          "tile": 64
-        },
-        {
-          "when": "rows_eq",
-          "value": 49152,
-          "symbol": "grouped_bwd_tuned_pair_iq2_xxs_n2048_k4096_mt128_nt64",
-          "tile": 128
-        },
-        {
-          "when": "rows_eq",
           "value": 196608,
-          "symbol": "grouped_bwd_tuned_pair_iq2_xxs_n2048_k4096_mt128_nt64",
+          "symbol": "grouped_bwd_pair_iq2_xxs_n2048_k4096_mt128_nt64_s2_skip",
           "tile": 128
         },
         {
           "when": "always",
           "value": null,
-          "symbol": "grouped_bwd_tuned_pair_iq2_xxs_n2048_k4096_mt128_nt64",
+          "symbol": "grouped_bwd_pair_iq2_xxs_n2048_k4096_mt128_nt64_s2",
           "tile": 128
         }
       ]
@@ -964,27 +940,9 @@
       "k": 2048,
       "rules": [
         {
-          "when": "rows_eq",
-          "value": 16384,
-          "symbol": "grouped_bwd_pair_q3_k_n512_k2048_mt64_nt64",
-          "tile": 64
-        },
-        {
-          "when": "rows_eq",
-          "value": 65536,
-          "symbol": "grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64",
-          "tile": 128
-        },
-        {
-          "when": "rows_eq",
-          "value": 262144,
-          "symbol": "grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64",
-          "tile": 128
-        },
-        {
           "when": "always",
           "value": null,
-          "symbol": "grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64",
+          "symbol": "grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64_s2_skip",
           "tile": 128
         }
       ]

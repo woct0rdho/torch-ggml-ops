@@ -10,21 +10,29 @@ Aggregate routed rows are `R=16384,65536,262144`.
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | --- | --- | --- | --- |
-| 1 | `2 x (16384,512,2048)` | 12.37 | 1.481x | `grouped_bwd_pair_q3_k_n512_k2048_mt64_nt64` * |
-| 4 | `2 x (65536,512,2048)` | 19.12 | 1.538x | `grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64` * |
-| 16 | `2 x (262144,512,2048)` | 20.98 | 1.335x | `grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64` * |
+| 1 | `2 x (16384,512,2048)` | 14.40 | 1.727x | `grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64_s2_skip` |
+| 4 | `2 x (65536,512,2048)` | 22.67 | 1.819x | `grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64_s2_skip` |
+| 16 | `2 x (262144,512,2048)` | 24.79 | 1.580x | `grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64_s2_skip` |
 
-Rows marked `*` look prior-sensitive: the current learned-route result is more than 10% below the same body measured on a single uniform partition, so the deployed body may need retuning for the current route distribution.
+The pair body beats the AITER GMM baseline at all three shapes, by `58%` to `82%`.
 
-The pair body beats the AITER GMM baseline at all three shapes.
+The pair body beats the AITER GMM baseline at all three shapes, by `57%` to `83%`.
 
 ## Kernel implementation
 
-The retained pair body uses four wave32 waves, exact `(N,K)=(512,2048)` geometry, M64/M128 ownership variants, separate Q3_K decoded-weight LDS tiles, cooperative width-16 decode, and one fused FP32 accumulation path.
+The retained pair bodies use an N64 x M128 tile, a 32-wide contraction stage, two projection weight tiles per stage, two LDS stages and one plain barrier per stage, with vectorised payload and mask loads feeding the Q3_K decode. Four waves own 32 rows each, activation rows are clamped so no load is predicated, and waves whose first row is past the task end skip their activation loads, matrix work and stores while still taking part in the shared decode.
 
 Device-resident route indices and offsets identify active experts. Invalid routes, inactive experts, and partial row tiles remain inert without host descriptor construction.
 
 ## Optimization log
+
+### Staged pair redesign
+
+The deployed pair body used the generic per-value Q3_K decode, two `__syncthreads()` fences per contraction stage, predicated activation loads, and 206 VGPR / 26 SGPR at M128/N64.
+
+The staged redesign keeps the exact `(N,K)=(512,2048)` geometry, the padded LDS rows and the single fused FP32 accumulation, and changes the skeleton: two projection tiles per stage, two LDS stages, one plain barrier per stage, clamped activation rows, one vectorised payload/mask load per thread and projection, and inactive-wave suppression. The vectorised decode alone is worth `22%` at B4 over the same body with the generic decoder, so the payload and mask reads are a first-order cost for this format.
+
+A sweep over M64/M128/M256 x two/three stages x suppression measured M128/N64 with two stages and suppression best at all three shapes. The staged body is `233` VGPR / `26` SGPR / `16` KB LDS and is bitwise identical to the deployed M128/N64 body. Its bench result is `14.40/22.67/24.79` TFLOPS at B1/B4/B16 against `12.37/19.12/20.98` for the previous selection. The wider M256 body loses `14%` at B16 for this decoder, so every shape keeps the M128/N64 two-stage body.
 
 ### Generic-to-tiled redesign
 
@@ -59,11 +67,14 @@ The grouped backward campaign tested reduced-precision accumulation as a separat
 
 ## Resources
 
-The retained Q3 pair bodies use 183 VGPR/26 SGPR/10240 B LDS for M64/N64 and 206 VGPR/26 SGPR/10240 B LDS for M128/N64.
+The deployed staged pair body uses 233 VGPR / 26 SGPR / 16384 B LDS; the retired M128/N64 body used 206 / 26 / 10240.
 
 ## Evidence
 
 ```text
+~/tmp/torch-ggml-ops/retune_pairs/official/pair_qwen.json
+~/tmp/torch-ggml-ops/retune_pairs/official/pair_qwen_final.json
+~/tmp/torch-ggml-ops/retune_pairs/sweep.py
 ~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_prior_retuned_final_9.json
 ~/tmp/torch-ggml-ops/grouped_mmq_bwd_step2_q3_pair_matrix.json
 ~/tmp/torch-ggml-ops/grouped_mmq_bwd_step7_q3_pair_n64.json

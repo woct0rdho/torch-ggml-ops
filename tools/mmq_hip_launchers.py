@@ -98,8 +98,4 @@ def build_backward_pair_control(choice: RoutedControl, root: Path | None):
         raise ValueError(
             f"no paired grouped-backward HIP control for {choice.quant_type}"
         )
-    if choice.tile is None:
-        raise ValueError(
-            f"paired grouped-backward control {choice.symbol!r} needs an M tile"
-        )
-    return control(choice.tile, root)
+    return control(choice.symbol, root)

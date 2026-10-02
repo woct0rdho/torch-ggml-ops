@@ -50,6 +50,12 @@ class GroupedBackwardKind(str, Enum):
     Q2_K_SINGLE_M128_U2 = "q2_k_single_m128_u2"
     FIXED_Q8_0_M256 = "fixed_q8_0_m256"
     TUNED_DEEPSEEK_PAIR = "tuned_deepseek_pair"
+    Q3_PAIR_STAGED_M128 = "q3_pair_staged_m128"
+    IQ2_S_PAIR_STAGED_M128 = "iq2_s_pair_staged_m128"
+    IQ2_S_PAIR_STAGED_M256 = "iq2_s_pair_staged_m256"
+    IQ2_XXS_PAIR_STAGED_M128 = "iq2_xxs_pair_staged_m128"
+    IQ2_XXS_PAIR_STAGED_M128_SKIP = "iq2_xxs_pair_staged_m128_skip"
+
     TUNED_FIXED_Q8_0 = "tuned_fixed_q8_0"
 
 
@@ -494,6 +500,21 @@ _SPECIAL_GROUPED_CALLS = {
     GroupedBackwardKind.Q2_K_ROW_TASK_N64_S3: "torch_ggml_ops::ck::"
     "grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::"
     "grouped_backward_row_task_decoder_q2_k, 3, true>",
+    GroupedBackwardKind.Q3_PAIR_STAGED_M128: "torch_ggml_ops::ck::"
+    "grouped_mmq_pair_grad_input_staged_body<torch_ggml_ops::ck::"
+    "grouped_backward_pair_decoder_q3_k, 2, 2, true>",
+    GroupedBackwardKind.IQ2_S_PAIR_STAGED_M128: "torch_ggml_ops::ck::"
+    "grouped_mmq_pair_grad_input_staged_body<torch_ggml_ops::ck::"
+    "grouped_backward_pair_decoder_iq2_s, 2, 2, false>",
+    GroupedBackwardKind.IQ2_S_PAIR_STAGED_M256: "torch_ggml_ops::ck::"
+    "grouped_mmq_pair_grad_input_staged_body<torch_ggml_ops::ck::"
+    "grouped_backward_pair_decoder_iq2_s, 4, 3, true>",
+    GroupedBackwardKind.IQ2_XXS_PAIR_STAGED_M128: "torch_ggml_ops::ck::"
+    "grouped_mmq_pair_grad_input_staged_body<torch_ggml_ops::ck::"
+    "grouped_backward_pair_decoder_iq2_xxs, 2, 2, false>",
+    GroupedBackwardKind.IQ2_XXS_PAIR_STAGED_M128_SKIP: "torch_ggml_ops::ck::"
+    "grouped_mmq_pair_grad_input_staged_body<torch_ggml_ops::ck::"
+    "grouped_backward_pair_decoder_iq2_xxs, 2, 2, true>",
     GroupedBackwardKind.Q2_K_SINGLE_M64_U1: "torch_ggml_ops::ck::grouped_mmq_grad_input_deepseek_body<"
     "GGML_TYPE_Q2_K, 4096, 2048, 8, 1, 1, true>",
     GroupedBackwardKind.Q2_K_SINGLE_M128_U1: "torch_ggml_ops::ck::grouped_mmq_grad_input_deepseek_body<"
@@ -510,6 +531,11 @@ _PAIR_KINDS = {
     GroupedBackwardKind.IQ2_S_PAIR_M64,
     GroupedBackwardKind.IQ2_S_PAIR_M128,
     GroupedBackwardKind.IQ2_XXS_PAIR_M64,
+    GroupedBackwardKind.Q3_PAIR_STAGED_M128,
+    GroupedBackwardKind.IQ2_S_PAIR_STAGED_M128,
+    GroupedBackwardKind.IQ2_S_PAIR_STAGED_M256,
+    GroupedBackwardKind.IQ2_XXS_PAIR_STAGED_M128,
+    GroupedBackwardKind.IQ2_XXS_PAIR_STAGED_M128_SKIP,
 }
 
 _ROW_TASK_KINDS = {

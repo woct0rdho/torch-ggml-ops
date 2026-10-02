@@ -8,3 +8,4 @@
 #include "grouped_mmq_backward_tiled_q5.cuh"
 #include "grouped_mmq_backward_tiled_iq2.cuh"
 #include "grouped_mmq_backward_tiled_row_task_staged.cuh"
+#include "grouped_mmq_backward_pair_staged.cuh"
