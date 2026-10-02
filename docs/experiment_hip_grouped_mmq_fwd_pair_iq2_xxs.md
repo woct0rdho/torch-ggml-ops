@@ -12,9 +12,9 @@ The benchmark samples the `blk.3` expert tensors; `blk.0`-`blk.2` are hash-route
 
 | Batch | Logical shape | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | ---: | ---: | ---: | --- |
-| 1 | `2 x (12288,2048,4096)` | 12.11 | 2.635x | `grouped_fwd_serial_iq2_xxs_n2048_k4096_j64` |
-| 4 | `2 x (49152,2048,4096)` | 18.29 | 1.600x | `grouped_fwd_serial_iq2_xxs_n2048_k4096_j64` |
-| 16 | `2 x (196608,2048,4096)` | 21.98 | 1.796x | `grouped_fwd_serial_iq2_xxs_n2048_k4096_j80` |
+| 1 | `2 x (12288,2048,4096)` | 11.29 | 2.444x | `grouped_fwd_serial_iq2_xxs_n2048_k4096_j64` |
+| 4 | `2 x (49152,2048,4096)` | 17.88 | 1.569x | `grouped_fwd_serial_iq2_xxs_n2048_k4096_j64` |
+| 16 | `2 x (196608,2048,4096)` | 22.18 | 1.797x | `grouped_fwd_serial_iq2_xxs_n2048_k4096_j80` |
 
 The serial body is level at B1 and B16 (`1%`/`2%` against the uniform-route control) and trails by `15%` at B4, where the residual is the repeated two-weight IQ2_XXS decode and pair accumulator pressure. Flagged prior-sensitive at B4: the J64/J80 shape split may need a learned-route retune.
 
@@ -25,6 +25,14 @@ The table kernel is the deployed HIP body for these shapes and rebuilds byte-ide
 The retained body uses exact N2048/K4096 pair geometry, four wave32 waves, cooperative width-16 IQ2_XXS decode, separate weight LDS tiles, swizzle4 staging, and device-side inactive-M consumer suppression. J64/J80 ownership is measured as a kernel geometry, not a host route label.
 
 ## Optimization log
+
+### Sign-mask table
+
+IQ2_XXS expanded each sign byte with the parity trick plus two `__vcmpne4` emulations per value group, which is the most expensive sign path of the grouped forward family. The byte passed to `unpack_ksigns` is the only input of both masks, so a `256`-entry `int2` table now supplies them and the loader is bitwise identical.
+
+Paired in-process A/B: `1.1%` at B1, `0.3%` at B4 (inside noise) and `2.6%` at B16 on the J80 body. Under the benchmark protocol all three batches improve (`1.3%`, `1.6%`, `2.9%`), with B16 at `1.797x` against AITER GMM. The DeepSeek J64 body and the dense IQ2_XXS controls share the table.
+
+The J64/J80 split was re-checked against the learned route with the existing bodies: J80 is `8.2%` slower at B1, level at B4 and `4.0%` faster at B16, which matches the deployed split.
 
 ### Initial exact decoder
 
@@ -45,6 +53,8 @@ The final typed search retained serial J64 at B1/B4 and the repaired J80 geometr
 The corresponding J64 artifact uses `229 VGPR / 77 SGPR / 8192 B LDS`; the repaired J80 artifact uses `208 VGPR / 54 SGPR / 8192 B LDS`. Both are resource-clean. The failed historical M192 body had 32 private bytes, seven VGPR spills, and scratch instructions, so its rejection does not transfer to the later lower-state J80 result.
 
 The remaining bottleneck is two independent IQ2_XXS lookup/sign/scale decoders feeding one pair accumulation. A prepared weight layout or decode reuse is a representation change, not another broad J sweep.
+
+Still open for this pair: the grid lookup and the IQ2_XXS grid selector remain the decode cost after the sign table, and a fused two-projection body that stages the activation tile once is the remaining structural idea.
 
 ## Evidence
 

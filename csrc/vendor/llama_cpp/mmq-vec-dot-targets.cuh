@@ -1,6 +1,3 @@
-// Vendored from ggml-org/llama.cpp (ggml/src/ggml-cuda/mmq-vec-dot.cuh) and maintained in-tree.
-// Local modifications apply, so do not overwrite this file from upstream.
-
 #pragma once
 
 using namespace ggml_cuda_mma;

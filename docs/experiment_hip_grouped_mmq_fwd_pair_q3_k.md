@@ -8,13 +8,13 @@ This record covers the fused routed Q3_K gate/up forward kernel on gfx1151.
 
 | Batch | Logical shape | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | ---: | ---: | ---: | --- |
-| 1 | `2 x (16384,512,2048)` | 14.31 | 2.078x | `grouped_fwd_row_task_q3_k_n512_k2048_j64` |
-| 4 | `2 x (65536,512,2048)` | 19.13 | 1.693x | `grouped_fwd_row_task_q3_k_n512_k2048_j64` |
-| 16 | `2 x (262144,512,2048)` | 20.07 | 1.077x | `grouped_fwd_row_task_q3_k_n512_k2048_j64` |
+| 1 | `2 x (16384,512,2048)` | 14.01 | 2.080x | `grouped_fwd_row_task_q3_k_n512_k2048_j64` |
+| 4 | `2 x (65536,512,2048)` | 18.92 | 1.657x | `grouped_fwd_row_task_q3_k_n512_k2048_j64` |
+| 16 | `2 x (262144,512,2048)` | 19.51 | 1.004x | `grouped_fwd_row_task_q3_k_n512_k2048_j64` |
 
 The deployed row-task body trails its uniform-route control by `36%` at B1 and `13%` at B4, and is level at B16 (`1%`). The earlier B1 screen preferred serial ownership on other route distributions, so the B1/B4 rows need a learned-route serial-versus-row-task re-screen. Flagged prior-sensitive at B1/B4.
 
-The table kernel is the deployed HIP body for these shapes and rebuilds byte-identically from the current sources; the retained choice was measured on other route distributions, so a learned-route candidate sweep is the follow-up for the flagged batches.
+The Q3_K pair code object was not changed by the IQ2_S/IQ2_XXS sign-table work; these numbers come from the same run as the sibling pair records, and the `1-2%` movement against earlier runs of the identical artifact is benchmark drift between sessions. The table kernel is the deployed HIP body for these shapes and rebuilds byte-identically from the current sources; the retained choice was measured on other route distributions, so a learned-route candidate sweep is the follow-up for the flagged batches.
 
 ## Kernel implementation
 
@@ -39,6 +39,8 @@ The coefficient-only campaign retained exact Q3_K pair geometry and rejected alt
 ### Closed mechanisms
 
 Width-8 decode duplicated metadata work and lost to width16. Larger N ownership increased pair accumulator pressure. Broad M256/N64, universal inactive-M suppression, generic swizzles, two-LDS decoded-weight caches, split-K, persistent workgroups, and compiler-managed prefetch arrays did not provide a valid timing/resource improvement under this packed contract.
+
+Re-checked against the learned route with the existing bodies: the device row-task body wins at every batch (`0.966x`, `0.848x`, `0.915x` of the serial body's time), so the deployed ownership is confirmed. Its payload decode is the largest decode item (`13.2%` of the kernel when ablated) but has no cheap reformulation: the bitfield extraction is already two shifts, two masks and one saturating subtract per value group. Still open: a fused two-projection body that stages the activation tile once, and the grid-lookup latency shared with the IQ2_S family.
 
 ## Evidence
 

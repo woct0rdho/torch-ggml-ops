@@ -1,6 +1,3 @@
-// Vendored from ggml-org/llama.cpp (ggml/src/ggml-common.h) and maintained in-tree.
-// Local modifications apply, so do not overwrite this file from upstream.
-
 #pragma once
 
 static const __device__ uint64_t iq2s_grid[1024] = {

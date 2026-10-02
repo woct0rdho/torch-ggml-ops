@@ -205,4 +205,6 @@ static __device__ __forceinline__ uint32_t unpack_ksigns(const uint8_t value) {
 }
 
 #include "iq2_s_grid.cuh"
+#include "iq2_s_sign_masks.cuh"
 #include "iq2_xxs_grid.cuh"
+#include "iq2_xxs_sign_masks.cuh"

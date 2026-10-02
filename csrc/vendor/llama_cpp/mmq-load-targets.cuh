@@ -1,6 +1,3 @@
-// Vendored from ggml-org/llama.cpp (ggml/src/ggml-cuda/mmq-load-tiles.cuh) and maintained in-tree.
-// Local modifications apply, so do not overwrite this file from upstream.
-
 #pragma once
 
 template <ggml_type type, int J, bool fallback> static __device__ __forceinline__ void ggml_cuda_mmq_load_tiles_q8_0(
@@ -527,12 +524,15 @@ template <ggml_type type, int J, bool fallback> static __device__ __forceinline_
 #pragma unroll
         for (int l = 0; l < QR2_XXS; ++l) {
             const uint2 grid_pos = ((const uint2*)iq2xxs_grid)[aux8[l]];
-            const uint32_t signs = unpack_ksigns(aux32 >> (7 * l));
+            // Sign masks are a pure function of the byte, so take both from
+            // the table instead of rebuilding them per value group.
+            const int2 sign_masks =
+                iq2xxs_sign_masks[(uint8_t)(aux32 >> (7 * l))];
 
-            const int signs0 = __vcmpne4(signs & 0x08040201, 0);
+            const int signs0 = sign_masks.x;
             const int grid0 = __vsub4(grid_pos.x ^ signs0, signs0);
 
-            const int signs1 = __vcmpne4(signs & 0x80402010, 0);
+            const int signs1 = sign_masks.y;
             const int grid1 = __vsub4(grid_pos.y ^ signs1, signs1);
 
             x_qs[i*sram_stride + 8*kqsx + (2*l + 0)] = grid0;
@@ -580,8 +580,11 @@ template <ggml_type type, int J, bool fallback> static __device__ __forceinline_
         for (int l = 0; l < QR2_S; ++l) {
             const int * grid_pos = (const int *)(iq2s_grid + (qs[l] | ((qh << (8-2*l)) & 0x300)));
 
-            const int signs0 = __vcmpne4(((signs_packed_8[l] & 0x03) << 7) | ((signs_packed_8[l] & 0x0C) << 21), 0x00000000);
-            const int signs1 = __vcmpne4(((signs_packed_8[l] & 0x30) << 3) | ((signs_packed_8[l] & 0xC0) << 17), 0x00000000);
+            // Both masks are a pure function of the sign byte, so take them
+            // from the table instead of rebuilding them with shifts and compares.
+            const int2 sign_masks = iq2s_sign_masks[signs_packed_8[l]];
+            const int signs0 = sign_masks.x;
+            const int signs1 = sign_masks.y;
 
             const int grid_l = __vsub4(grid_pos[0] ^ signs0, signs0);
             const int grid_h = __vsub4(grid_pos[1] ^ signs1, signs1);

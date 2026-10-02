@@ -1,6 +1,3 @@
-// Vendored from ggml-org/llama.cpp (ggml/src/ggml-cuda/mma.cuh) and maintained in-tree.
-// Local modifications apply, so do not overwrite this file from upstream.
-//
 // Only the int8 WMMA paths used by the gfx1151 MMQ forward kernels are kept. The
 // fp16/bf16/fp4 variants and every non-ROCm architecture were removed; the
 // remaining code is exercised by the HIP control bundle.
