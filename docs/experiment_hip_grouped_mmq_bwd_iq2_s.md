@@ -8,15 +8,17 @@ This record covers the routed single-projection IQ2_S down input-gradient kernel
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | --- | --- | --- | --- |
-| 1 | `(16384,512,2048)` | 9.12 | 0.824x | `grouped_bwd_single_iq2_s_n2048_k512_mt128_nt64` |
-| 4 | `(65536,512,2048)` | 13.95 | 0.738x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt128` |
-| 16 | `(262144,512,2048)` | 16.55 | 0.742x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt128` |
+| 1 | `(16384,512,2048)` | 8.54 | 0.796x | `grouped_bwd_single_iq2_s_n2048_k512_mt128_nt64` * |
+| 4 | `(65536,512,2048)` | 13.02 | 0.805x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt128` * |
+| 16 | `(262144,512,2048)` | 16.28 | 0.787x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt128` |
+
+Rows marked `*` look prior-sensitive: the current learned-route result is more than 10% below the same body measured on a single uniform partition, so the deployed body may need retuning for the current route distribution.
 
 The single-down IQ2_S body remains slower than predecoded BF16 AITER on all three final shapes.
 
 ## Kernel implementation
 
-The retained body uses four wave32 waves, M64/N64 for small groups, M128/N64 for intermediate ownership, and M128/N128 device row-task geometry for large groups.
+The retained IQ2_S family keeps M64/N64, M128/N64, and M128/N128 device row-task bodies; the table names the deployed one per shape.
 
 The row-task path suppresses inactive consumer M minitiles only where measured.
 
@@ -32,7 +34,7 @@ N-major ordering nearly doubled B16 latency. A fixed 1,024-program traversal was
 
 Width-8 IQ2_S decode duplicated scale work and loader groups. M256/N64 doubled N workgroups and regressed B4/B16. The pair/down swizzle comparison showed opposite timing preferences, so the down layout remains independent. Inactive-M suppression was tested for the IQ2_S row-task body but produced mixed route movement and two regressions; it was rejected.
 
-A learned B1 ownership screen promoted the existing row-task body only for the exact B1 single-down geometry. Other route sizes retain their measured ownership bodies; no broad new J geometry passed the coefficient-only campaign.
+A learned B1 ownership screen compared the row-task body with the serial body for the exact B1 single-down geometry. Other route sizes retain their measured ownership bodies; no broad new J geometry passed the coefficient-only campaign.
 
 ### Bottleneck attribution
 

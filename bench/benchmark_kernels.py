@@ -376,6 +376,7 @@ def _prepare_grouped_backward(
         if is_row_task_body(choice.symbol):
             control = stack.enter_context(build_backward_control(choice, hip_root))
             setup = stack.enter_context(InstalledGroupedRowTaskSetup())
+            hip_modules.append(control)
             hip_modules.append(setup)
             for index, route in enumerate(selection.routes):
                 entries = route.expert_indices.numel()

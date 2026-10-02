@@ -10,11 +10,13 @@ Aggregate routed rows are `R=12288,49152,196608`.
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | --- | --- | --- | --- |
-| 1 | `2 x (12288,2048,4096)` | 13.99 | 1.513x | `grouped_bwd_pair_iq2_xxs_n2048_k4096_mt64_nt64` |
-| 4 | `2 x (49152,2048,4096)` | 17.59 | 1.172x | `grouped_bwd_tuned_pair_iq2_xxs_n2048_k4096_mt128_nt64` |
-| 16 | `2 x (196608,2048,4096)` | 18.15 | 0.698x | `grouped_bwd_tuned_pair_iq2_xxs_n2048_k4096_mt128_nt64` |
+| 1 | `2 x (12288,2048,4096)` | 10.59 | 1.261x | `grouped_bwd_pair_iq2_xxs_n2048_k4096_mt64_nt64` * |
+| 4 | `2 x (49152,2048,4096)` | 15.71 | 1.154x | `grouped_bwd_tuned_pair_iq2_xxs_n2048_k4096_mt128_nt64` |
+| 16 | `2 x (196608,2048,4096)` | 17.24 | 1.156x | `grouped_bwd_tuned_pair_iq2_xxs_n2048_k4096_mt128_nt64` |
 
-The B16 loss remains a packed two-weight decode and pair-accumulator cost relative to predecoded BF16 AITER.
+Rows marked `*` look prior-sensitive: the current learned-route result is more than 10% below the same body measured on a single uniform partition, so the deployed body may need retuning for the current route distribution.
+
+The B16 residual is a packed two-weight decode and pair-accumulator cost; the current result still beats predecoded BF16 AITER.
 
 ## Kernel implementation
 

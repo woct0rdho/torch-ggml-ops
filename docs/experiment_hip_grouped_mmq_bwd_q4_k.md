@@ -10,15 +10,17 @@ Aggregate rows are `R=16384,65536,262144`.
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | --- | --- | --- | --- |
-| 1 | `(16384,512,2048)` | 9.70 | 0.869x | `grouped_bwd_single_q4_k_n2048_k512_mt128_nt64` |
-| 4 | `(65536,512,2048)` | 13.56 | 0.808x | `grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt128` |
-| 16 | `(262144,512,2048)` | 17.19 | 0.758x | `grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt128` |
+| 1 | `(16384,512,2048)` | 7.65 | 0.723x | `grouped_bwd_single_q4_k_n2048_k512_mt128_nt64` * |
+| 4 | `(65536,512,2048)` | 13.02 | 0.775x | `grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt128` |
+| 16 | `(262144,512,2048)` | 16.23 | 0.783x | `grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt128` |
 
-The large-route deficit remains after exact geometry, row tasks, and inactive-M controls. AITER starts from predecoded BF16 weights.
+Rows marked `*` look prior-sensitive: the current learned-route result is more than 10% below the same body measured on a single uniform partition, so the deployed body may need retuning for the current route distribution.
+
+The deficit remains at all three shapes after exact geometry, row tasks, and inactive-M controls. AITER starts from predecoded BF16 weights.
 
 ## Kernel implementation
 
-The retained Q4_K body uses four wave32 waves, M64/N64 for small groups, M128/N64 for intermediate groups, and M128/N128 M-major row tasks for large groups.
+The retained Q4_K family keeps M64/N64, M128/N64, and M128/N128 M-major row-task bodies; the table names the deployed one per shape.
 
 Q4_K row tasks suppress wholly inactive 16-row M minitiles while leaving decode and barriers uniform. The row-task descriptor setup is device-resident and atomics-free.
 

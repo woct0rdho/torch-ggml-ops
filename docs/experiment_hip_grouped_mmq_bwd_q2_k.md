@@ -10,11 +10,13 @@ Aggregate routed rows are `R=12288,49152,196608`.
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | --- | --- | --- | --- |
-| 1 | `(12288,2048,4096)` | 11.43 | 1.162x | `grouped_bwd_single_q2_k_n4096_k2048_mt64_nt64` |
-| 4 | `(49152,2048,4096)` | 17.19 | 0.849x | `grouped_bwd_single_q2_k_n4096_k2048_mt128_nt64_u2` |
-| 16 | `(196608,2048,4096)` | 19.20 | 0.712x | `grouped_bwd_single_q2_k_n4096_k2048_mt128_nt64` |
+| 1 | `(12288,2048,4096)` | 9.34 | 1.005x | `grouped_bwd_single_q2_k_n4096_k2048_mt64_nt64` * |
+| 4 | `(49152,2048,4096)` | 15.95 | 1.005x | `grouped_bwd_single_q2_k_n4096_k2048_mt128_nt64_u2` |
+| 16 | `(196608,2048,4096)` | 16.96 | 0.943x | `grouped_bwd_single_q2_k_n4096_k2048_mt128_nt64` * |
 
-B4/B16 remain slower than the predecoded BF16 baseline because packed scale/minimum reconstruction and limited N64 reuse dominate.
+Rows marked `*` look prior-sensitive: the current learned-route result is more than 10% below the same body measured on a single uniform partition, so the deployed body may need retuning for the current route distribution.
+
+B16 remains slightly slower than the predecoded BF16 baseline because packed scale/minimum reconstruction and limited N64 reuse dominate.
 
 ## Kernel implementation
 

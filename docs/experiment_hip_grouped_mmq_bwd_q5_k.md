@@ -12,15 +12,17 @@ Aggregate rows are `R=16384,65536,262144`.
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | --- | --- | --- | --- |
-| 1 | `(16384,512,2048)` | 9.38 | 0.849x | `grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt128` |
-| 4 | `(65536,512,2048)` | 14.54 | 0.789x | `grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt128` |
-| 16 | `(262144,512,2048)` | 17.37 | 0.761x | `grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt128` |
+| 1 | `(16384,512,2048)` | 8.97 | 0.825x | `grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt128` * |
+| 4 | `(65536,512,2048)` | 13.95 | 0.836x | `grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt128` |
+| 16 | `(262144,512,2048)` | 16.80 | 0.802x | `grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt128` |
+
+Rows marked `*` look prior-sensitive: the current learned-route result is more than 10% below the same body measured on a single uniform partition, so the deployed body may need retuning for the current route distribution.
 
 The remaining loss is Q5 high-bit reconstruction and packed metadata cost relative to predecoded BF16 weights.
 
 ## Kernel implementation
 
-The retained body uses four wave32 waves, M64/N64 for small groups, M128/N128 M-major row tasks for large groups, width-16 low/high decode, Q5 scale/minimum reconstruction, and BF16 stores. Q5 row-task decode uses swizzle8 while the smaller serial body uses swizzle4.
+The retained Q5_K family keeps an M64/N64 serial body and an M128/N128 M-major row-task body; the table names the deployed one per shape. The bodies share width-16 low/high decode, Q5 scale/minimum reconstruction, and BF16 stores. Q5 row-task decode uses swizzle8 while the smaller serial body uses swizzle4.
 
 Wholly inactive 16-row M minitiles skip cotangent loads, WMMA, and stores while decode and barriers remain uniform. Q5 row-task decode uses swizzle8 while the smaller serial body uses swizzle4, and its LDS state is distinct from Q4_K.
 

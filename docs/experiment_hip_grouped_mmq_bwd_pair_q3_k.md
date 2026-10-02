@@ -10,11 +10,13 @@ Aggregate routed rows are `R=16384,65536,262144`.
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | --- | --- | --- | --- |
-| 1 | `2 x (16384,512,2048)` | 19.09 | 2.392x | `grouped_bwd_pair_q3_k_n512_k2048_mt64_nt64` |
-| 4 | `2 x (65536,512,2048)` | 26.09 | 1.922x | `grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64` |
-| 16 | `2 x (262144,512,2048)` | 24.54 | 1.501x | `grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64` |
+| 1 | `2 x (16384,512,2048)` | 12.37 | 1.481x | `grouped_bwd_pair_q3_k_n512_k2048_mt64_nt64` * |
+| 4 | `2 x (65536,512,2048)` | 19.12 | 1.538x | `grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64` * |
+| 16 | `2 x (262144,512,2048)` | 20.98 | 1.335x | `grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64` * |
 
-The rows are the final uniform-route packed-kernel matrix.
+Rows marked `*` look prior-sensitive: the current learned-route result is more than 10% below the same body measured on a single uniform partition, so the deployed body may need retuning for the current route distribution.
+
+The pair body beats the AITER GMM baseline at all three shapes.
 
 ## Kernel implementation
 
@@ -34,7 +36,7 @@ Universal M128 ownership was rejected because uniform 64-row groups became half-
 
 Large Q3_K pair controls use M-major row-task ownership where measured. N64 reduced pair accumulator pressure and improved representative points by `1-7%` over larger N ownership. N-major ordering nearly doubled B16 latency and was rejected.
 
-The learned-route B1 ownership retune compared serial and row-task bodies. The fitted prior gain was `1.1074x`, but captured-route gain was only `1.0179x`; B1 therefore retains serial ownership while the existing row-task J64 body remains the measured large-route choice. The typed campaign found no alternate J geometry that passed the full route controls.
+The learned-route B1 ownership retune compared serial and row-task bodies. The fitted prior gain was `1.1074x`, but captured-route gain was only `1.0179x`; B1 therefore retains serial ownership while the M128 body serves the larger routed rows in the current deployment. The typed campaign found no alternate J geometry that passed the full route controls.
 
 ### Decode and layout controls
 
