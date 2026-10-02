@@ -65,6 +65,7 @@ class ForwardConfig:
     full_i: bool = False
     full_j: bool = False
     prefetch_activation: bool = False
+    compact_tile: bool = False
 
     def __post_init__(self) -> None:
         rows_a, rows_b = self.mixed_j32_rows
@@ -214,6 +215,12 @@ void {symbol}(
 
     if config.kind == ForwardKind.GROUPED_SERIAL:
         quant_type = _cpp_quant(config.quant_type)
+        if config.compact_tile:
+            prefix = prefix.replace(
+                '#include "mmq_core.cuh"',
+                '#define MMQ_COMPACT_TILE 1\n#include "mmq_core.cuh"',
+                1,
+            )
         if config.prefetch_activation:
             prefix = prefix.replace(
                 '#include "mmq_core.cuh"',

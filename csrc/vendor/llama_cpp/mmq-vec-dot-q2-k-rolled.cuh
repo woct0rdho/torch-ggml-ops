@@ -22,7 +22,11 @@ template <ggml_type type, int J, bool fallback> static __device__ __forceinline_
     y += (threadIdx.y % ntx) * (tile_C::J*MMQ_TILE_Y_K);
 
     const int   * x_qs = (const int   *) x;
+#if defined(MMQ_COMPACT_TILE)
+    const half2 * x_dm = (const half2 *) x_qs + MMQ_COMPACT_QUANT_INTS;
+#else
     const half2 * x_dm = (const half2 *) x_qs + MMQ_TILE_NE_K*2;
+#endif
     const int   * y_qs = (const int   *) y + 4;
     const half2 * y_ds = (const half2 *) y;
 
@@ -93,7 +97,11 @@ template <ggml_type type, int J, bool fallback> static __device__ __forceinline_
     y += (threadIdx.y % ntx) * (tile_C::J*MMQ_TILE_Y_K);
 
     const int   * x_qs = (const int   *) x;
+#if defined(MMQ_COMPACT_TILE)
+    const half2 * x_dm = (const half2 *) x_qs + MMQ_COMPACT_QUANT_INTS;
+#else
     const half2 * x_dm = (const half2 *) x_qs + MMQ_TILE_NE_K*2;
+#endif
     const int   * y_qs = (const int   *) y + 4;
     const half2 * y_ds = (const half2 *) y;
 

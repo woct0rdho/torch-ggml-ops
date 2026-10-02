@@ -12,9 +12,9 @@ The benchmark samples the `blk.3` expert tensors; `blk.0`-`blk.2` are hash-route
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | ---: | ---: | ---: | --- |
-| 1 | `(12288,4096,2048)` | 10.65 | 1.683x | `grouped_fwd_serial_q2_k_n4096_k2048_j32_j16` |
-| 4 | `(49152,4096,2048)` | 11.85 | 0.868x | `grouped_fwd_serial_q2_k_n4096_k2048_j32_j16` |
-| 16 | `(196608,4096,2048)` | 12.04 | 0.781x | `grouped_fwd_serial_q2_k_n4096_k2048_j32` |
+| 1 | `(12288,4096,2048)` | 11.12 | 1.767x | `grouped_fwd_serial_q2_k_n4096_k2048_j32_j16` |
+| 4 | `(49152,4096,2048)` | 12.41 | 0.905x | `grouped_fwd_serial_q2_k_n4096_k2048_j32_j16` |
+| 16 | `(196608,4096,2048)` | 12.54 | 0.793x | `grouped_fwd_serial_q2_k_n4096_k2048_j32` |
 
 The B1/B4 bodies are the mixed J32/J16 and J32 variants; they trail their uniform-route control by `9%`/`4%`, and B16 is level (`0%`). The B4/B16 gap remains repeated Q2_K scale/minimum reconstruction and limited N64 reuse against predecoded BF16 weights. Flagged prior-sensitive at B1: the J32/J16 routing threshold may need a learned-route retune.
 
@@ -41,6 +41,12 @@ The retained Q2_K bodies use `208 VGPR / 38 SGPR / 4096 B LDS` for the regular J
 The existing J32/J16 body was measured at exact B4 aggregate rows `R=49152`. The longer confirmation improved the selected body by `1.0247x`; minimum learned/hash prior gains were `1.0169x/1.0173x`, and minimum mandatory controls were `0.9998x/0.9996x`. Outputs remained bitwise identical.
 
 The coefficient-only campaign found no benefit from row tasks: Q2_K already exposes 32 N workgroups per expert and thousands of total workgroups, while row tasks would not remove rounded tail arithmetic.
+
+### Compact single-stage weight tile
+
+The weight tile now holds one 128-value stage per row - 32 quant ints plus that stage's eight 16-value scale/minimum pairs - instead of a whole 256-value block, so the two stages of a k block share one footprint and the per-row stride drops from `100` to `40` ints. The dynamic LDS of the J32 body falls from `30,336` to `14,976` bytes, which lifts the resident workgroups per WGP from four to eight. Everything else (decode width, tail bodies, activation staging) is unchanged, and the new body is bitwise identical to the old one.
+
+Under the benchmark protocol the three batches gain `4.0-4.5%` (`11.12`/`12.41`/`12.54` TFLOPS against `10.65`/`11.85`/`12.04`), and the within-tree A/B is `5-8%`. A narrower row stride alone (`80` ints, the minimum the plain layout allows) is neutral, so the gain is not simply occupancy: this family is instruction-bound, which is also why the activation prefetch and row-task ownership were rejected here.
 
 ### Bottleneck attribution
 
@@ -69,7 +75,7 @@ What the measurements show for this kernel family:
 - Masked rows of a large J tile cost much less than the per-tile weight decode: adaptive cascades, J16 and J128/J80 bodies all lose to the plain J32 (small routes) and J64 (large routes) bodies.
 - The compact single-stage weight tile is bitwise-identical and fits half the LDS, but the extra per-stage loader calls cancel the occupancy gain at the same J.
 
-Still open after this round, in measured-payoff order: a swizzled activation tile and matching dot addressing to remove the `14%` LDS bank-conflict share (every 16-byte-aligned row stride this layout allows still conflicts, so this needs a layout change rather than padding), a permute-based nibble expansion for the decode-bound Q2_K bodies, and the I=32 tile that trades activation reuse for a smaller LDS footprint and a higher resident-workgroup count. The activation tile copy is closed: its 128-bit vectorised form is neutral, and the register prefetch above already covers the load latency.
+Still open after this round: the same compact single-stage tile for the IQ2_S bodies (their 84-int stride would fall to 40 and fit six resident workgroups instead of four), a permute-based nibble expansion for this decode-bound decoder, and a swizzled activation tile with matching dot addressing for the `14%` LDS bank-conflict share.
 
 ### Activation prefetch
 

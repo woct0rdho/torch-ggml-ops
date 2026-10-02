@@ -279,6 +279,7 @@ def _forward_controls() -> list[HIPControlSpec]:
                 nrows_weight=4096,
                 blocks_per_weight_row=8,
                 rolled_q2=True,
+                compact_tile=True,
             ),
             _forward(
                 "grouped_fwd_serial_q2_k_n4096_k2048_j32_j16",
@@ -289,6 +290,7 @@ def _forward_controls() -> list[HIPControlSpec]:
                 blocks_per_weight_row=8,
                 rolled_q2=True,
                 mixed_q2_k=True,
+                compact_tile=True,
             ),
             _forward(
                 "grouped_fwd_serial_q5_k_n2048_k512_j32",

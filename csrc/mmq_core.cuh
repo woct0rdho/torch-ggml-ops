@@ -19,6 +19,18 @@ static constexpr int MMQ_J_TINY = 32;
 static constexpr int MMQ_J_MIN = 16;
 static constexpr int MMQ_NTHREADS = 128;
 static constexpr int MMQ_NWARPS = MMQ_NTHREADS / WARP_SIZE;
+// Compact single-stage weight tile: 32 quant ints for 128 values plus that
+// stage's scale/min pairs, so the two stages of a k block share one footprint.
+// Only the controls that measured a gain enable it.
+#ifndef MMQ_COMPACT_QUANT_INTS
+#define MMQ_COMPACT_QUANT_INTS 32
+#endif
+#ifndef MMQ_COMPACT_STRIDE
+#define MMQ_COMPACT_STRIDE 36
+#endif
+#ifndef MMQ_COMPACT_STRIDE_Q2_K
+#define MMQ_COMPACT_STRIDE_Q2_K 40
+#endif
 
 struct block_q8_1_mmq {
     union {
@@ -54,6 +66,21 @@ static constexpr __host__ __device__ ggml_cuda_mmq_sram_layout mmq_sram_layout(g
 }
 
 static constexpr __host__ __device__ int mmq_sram_stride(ggml_type type) {
+#if defined(MMQ_COMPACT_TILE)
+    return type == GGML_TYPE_Q2_K
+        ? MMQ_COMPACT_STRIDE_Q2_K
+        : (type == GGML_TYPE_Q4_K || type == GGML_TYPE_Q5_K)
+        ? MMQ_COMPACT_STRIDE
+        : mmq_sram_layout(type) == GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0
+            ? 2 * MMQ_TILE_NE_K + 2 * MMQ_TILE_NE_K / QI8_0 + 4
+            : mmq_sram_layout(type) == GGML_CUDA_MMQ_SRAM_LAYOUT_Q2_K
+                ? 2 * MMQ_TILE_NE_K + MMQ_TILE_NE_K + 4
+                : mmq_sram_layout(type) == GGML_CUDA_MMQ_SRAM_LAYOUT_Q3_K
+                    ? 2 * MMQ_TILE_NE_K + MMQ_TILE_NE_K / 2 + 4
+                    : mmq_sram_layout(type) == GGML_CUDA_MMQ_SRAM_LAYOUT_Q6_K
+                        ? 2 * MMQ_TILE_NE_K + MMQ_TILE_NE_K / QI6_K + MMQ_TILE_NE_K / 8 + 7
+                        : 2 * MMQ_TILE_NE_K + 2 * MMQ_TILE_NE_K / QI8_1 + 4;
+#else
     switch (mmq_sram_layout(type)) {
         case GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0:
             return 2 * MMQ_TILE_NE_K + 2 * MMQ_TILE_NE_K / QI8_0 + 4;
@@ -67,6 +94,7 @@ static constexpr __host__ __device__ int mmq_sram_stride(ggml_type type) {
             return 2 * MMQ_TILE_NE_K + MMQ_TILE_NE_K / QI6_K + MMQ_TILE_NE_K / 8 + 7;
     }
     return -1;
+#endif
 }
 
 template <ggml_type type, int J, bool fallback>
@@ -119,7 +147,17 @@ enum mmq_q8_1_metadata_layout {
 
 template <ggml_type type, int J, bool fallback = true>
 static __device__ __forceinline__ void mmq_load_target(
-        const char * x, int * tile, int block_offset, int i_max, int row_stride) {
+        const char * x, int * tile, int block_offset, int i_max, int row_stride,
+        int stage = 0) {
+#if defined(MMQ_COMPACT_TILE)
+    if constexpr (type == GGML_TYPE_Q4_K || type == GGML_TYPE_Q5_K) {
+        ggml_cuda_mmq_load_tiles_q45_K_compact<type, J, fallback>(
+            x, tile, block_offset, i_max, row_stride, stage);
+    } else if constexpr (type == GGML_TYPE_Q2_K) {
+        ggml_cuda_mmq_load_tiles_q2_K_compact<type, J, fallback>(
+            x, tile, block_offset, i_max, row_stride, stage);
+    } else
+#endif
     if constexpr (type == GGML_TYPE_Q8_0) {
         constexpr int blocks_per_iteration = MMQ_ITER_K / QK8_0;
         ggml_cuda_mmq_load_tiles_q8_0<type, J, fallback>(
@@ -512,12 +550,14 @@ static __device__ __forceinline__ void grouped_mmq_k_block(
         + ((2 * kb) * nrows_activation + row_start) * q8_block_ints;
     const int weight_block_offset =
         tile_i * MMQ_I * kernel_blocks_per_weight_row + kb;
+#if !defined(MMQ_COMPACT_TILE)
     mmq_load_target<type, J, !fixed_shape>(
         expert_weights,
         tile_x,
         weight_block_offset,
         i_max,
         kernel_blocks_per_weight_row);
+#endif
 #if defined(MMQ_PREFETCH_ACT)
     constexpr int plane_regs = grouped_activation_plane_regs<J>();
     int plane_buffer[plane_regs];
@@ -546,6 +586,11 @@ static __device__ __forceinline__ void grouped_mmq_k_block(
             }
         }
     }
+#if defined(MMQ_COMPACT_TILE)
+    mmq_load_target<type, J, !fixed_shape>(
+        expert_weights, tile_x, weight_block_offset, i_max,
+        kernel_blocks_per_weight_row, 0);
+#endif
     __syncthreads();
     mmq_vec_dot_target<type, J, !fixed_shape>(tile_x, tile_y, sum, 0);
     __syncthreads();
@@ -573,9 +618,20 @@ static __device__ __forceinline__ void grouped_mmq_k_block(
         }
     }
 #endif
+#if defined(MMQ_COMPACT_TILE)
+    // the staged tile must be visible to every wave before the second dot
+    mmq_load_target<type, J, !fixed_shape>(
+        expert_weights, tile_x, weight_block_offset, i_max,
+        kernel_blocks_per_weight_row, 1);
     __syncthreads();
+#endif
+    __syncthreads();
+#if defined(MMQ_COMPACT_TILE)
+    mmq_vec_dot_target<type, J, !fixed_shape>(tile_x, tile_y, sum, 0);
+#else
     mmq_vec_dot_target<type, J, !fixed_shape>(
         tile_x, tile_y, sum, MMQ_TILE_NE_K);
+#endif
     __syncthreads();
 }
 
@@ -645,7 +701,12 @@ static __device__ __forceinline__ void grouped_mmq_row_tile(
                 tile_x,
                 weight_block_offset,
                 i_max,
-                kernel_blocks_per_weight_row);
+                kernel_blocks_per_weight_row
+#if defined(MMQ_COMPACT_TILE)
+                ,
+                0
+#endif
+            );
 
             if constexpr (full_j && J * MMQ_TILE_Y_K % MMQ_NTHREADS != 0) {
                 load_grouped_nonaligned_full_activation_tile<J>(
@@ -695,9 +756,25 @@ static __device__ __forceinline__ void grouped_mmq_row_tile(
                     }
                 }
             }
+#if defined(MMQ_COMPACT_TILE)
+            // the staged tile must be visible to every wave before the second dot
+            mmq_load_target<type, J, !fixed_shape>(
+                expert_weights,
+                tile_x,
+                weight_block_offset,
+                i_max,
+                kernel_blocks_per_weight_row,
+                1);
             __syncthreads();
+#endif
+            __syncthreads();
+#if defined(MMQ_COMPACT_TILE)
+            mmq_vec_dot_target<type, J, !fixed_shape, rolled_q2_k>(
+                tile_x, tile_y, sum, 0);
+#else
             mmq_vec_dot_target<type, J, !fixed_shape, rolled_q2_k>(
                 tile_x, tile_y, sum, MMQ_TILE_NE_K);
+#endif
             __syncthreads();
 
             ++weight_block_offset;

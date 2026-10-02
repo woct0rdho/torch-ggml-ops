@@ -244,6 +244,124 @@ static __device__ __forceinline__ int unpack_scales_q45_K(const int * scales, co
            ((scales[ksc/2]              >> (2 * (ksc % 2)))       & 0x30303030);  // upper 2 bits
 }
 
+
+// Compact single-stage loader for the K-quant family whose per-row tile is
+// [32 quant ints for 128 values][four sub-block scale/min pairs]. A stage is one
+// half of a MMQ_ITER_K block, so the two stages share one tile footprint.
+template <ggml_type type, int J, bool fallback>
+static __device__ __forceinline__ void ggml_cuda_mmq_load_tiles_q45_K_compact(
+        const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0,
+        const int i_max, const int stride, const int stage) {
+    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int nwarps = MMQ_NTHREADS / warp_size;
+    constexpr int I = MMQ_I;
+    constexpr int sram_stride = MMQ_COMPACT_STRIDE;
+    constexpr int threads_per_row = 16;
+    constexpr int nrows = warp_size / threads_per_row;
+
+    int * x_qs = x_tile;
+    half2 * x_dm = (half2 *) (x_qs + MMQ_COMPACT_QUANT_INTS);
+
+#pragma unroll
+    for (int i0 = 0; i0 < I; i0 += nrows * nwarps) {
+        int i = i0 + threadIdx.y * nrows + threadIdx.x / threads_per_row;
+        if (fallback) {
+            i = min(i, i_max);
+        }
+        const int txi = threadIdx.x % threads_per_row;
+        const int kglobal = txi + threads_per_row * stage;
+        if constexpr (type == GGML_TYPE_Q4_K) {
+            const block_q4_K * bxi = (const block_q4_K *) x + kbx0 + i * stride;
+            const int qs0 = get_int_b4(bxi->qs, kglobal);
+            x_qs[i * sram_stride + threads_per_row * (txi / 8) + txi % 8 + 0] =
+                (qs0 >> 0) & 0x0F0F0F0F;
+            x_qs[i * sram_stride + threads_per_row * (txi / 8) + txi % 8 + 8] =
+                (qs0 >> 4) & 0x0F0F0F0F;
+        } else {
+            const block_q5_K * bxi = (const block_q5_K *) x + kbx0 + i * stride;
+            const int ql = get_int_b4(bxi->qs, kglobal);
+            const int ql0 = (ql >> 0) & 0x0F0F0F0F;
+            const int ql1 = (ql >> 4) & 0x0F0F0F0F;
+            const int qh = get_int_b4(bxi->qh, kglobal % (QI5_K / 4));
+            const int qh0 = ((qh >> (2 * (kglobal / (QI5_K / 4)) + 0)) << 4) & 0x10101010;
+            const int qh1 = ((qh >> (2 * (kglobal / (QI5_K / 4)) + 1)) << 4) & 0x10101010;
+            const int ky = QR5_K * txi;
+            const int kq0 = ky - ky % (QI5_K / 2) + txi % (QI5_K / 4) + 0;
+            const int kq1 = kq0 + QI5_K / 4;
+            x_qs[i * sram_stride + kq0] = ql0 | qh0;
+            x_qs[i * sram_stride + kq1] = ql1 | qh1;
+        }
+    }
+
+    constexpr int rows_per_warp = warp_size / 2;
+#pragma unroll
+    for (int i0 = 0; i0 < I; i0 += nwarps * rows_per_warp) {
+        int i = i0 + threadIdx.y * rows_per_warp + threadIdx.x / 2;
+        if (i < I && threadIdx.x % 2 == 0) {
+            if (fallback) {
+                i = min(i, i_max);
+            }
+            const int * scales;
+            half2 dm;
+            if constexpr (type == GGML_TYPE_Q4_K) {
+                const block_q4_K * bxi = (const block_q4_K *) x + kbx0 + i * stride;
+                scales = (const int *) bxi->scales;
+                dm = bxi->dm * make_half2(1.0f, -1.0f);
+            } else {
+                const block_q5_K * bxi = (const block_q5_K *) x + kbx0 + i * stride;
+                scales = (const int *) bxi->scales;
+                dm = bxi->dm * make_half2(1.0f, -1.0f);
+            }
+            const int sc32 = unpack_scales_q45_K(scales, stage + 0);
+            const int m32 = unpack_scales_q45_K(scales, stage + 2);
+            const uint8_t * sc8 = (const uint8_t *) &sc32;
+            const uint8_t * m8 = (const uint8_t *) &m32;
+#pragma unroll
+            for (int l = 0; l < sizeof(int); ++l) {
+                x_dm[i * sram_stride + l] = dm * make_half2(sc8[l], m8[l]);
+            }
+        }
+    }
+}
+
+// Compact single-stage loader for Q2_K: 32 quant ints for 128 values plus the
+// eight 16-value sub-block scale/min pairs of that stage.
+template <ggml_type type, int J, bool fallback>
+static __device__ __forceinline__ void ggml_cuda_mmq_load_tiles_q2_K_compact(
+        const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0,
+        const int i_max, const int stride, const int stage) {
+    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int nwarps = MMQ_NTHREADS / warp_size;
+    constexpr int I = MMQ_I;
+    constexpr int sram_stride = MMQ_COMPACT_STRIDE_Q2_K;
+    constexpr int threads_per_row = MMQ_ITER_K / (4 * QR2_K) / 2;
+    constexpr int nrows = warp_size / threads_per_row;
+    const int kqsx = threadIdx.x % threads_per_row;
+
+    int * x_qs = x_tile;
+    half2 * x_dm = (half2 *) (x_qs + MMQ_COMPACT_QUANT_INTS);
+
+#pragma unroll
+    for (int i0 = 0; i0 < I; i0 += nrows * nwarps) {
+        int i = i0 + threadIdx.y * nrows + threadIdx.x / threads_per_row;
+        if (fallback) {
+            i = min(i, i_max);
+        }
+        const block_q2_K * bxi = (const block_q2_K *) x + kbx0 + i * stride;
+        const int x_ql_0 = get_int_b2(bxi->qs, kqsx + threads_per_row * stage);
+
+#pragma unroll
+        for (int l = 0; l < QR2_K; ++l) {
+            const int k = l * threads_per_row + kqsx;
+            x_qs[i * sram_stride + k] = (x_ql_0 >> (2 * l)) & 0x03030303;
+        }
+
+        const int sc_m = bxi->scales[kqsx + threads_per_row * stage];
+        const half2 x_dm_ik = __hmul2(bxi->dm, make_half2(sc_m & 0x0F, sc_m >> 4));
+        x_dm[i * sram_stride + kqsx] = x_dm_ik;
+    }
+}
+
 template <ggml_type type, int J, bool fallback> static __device__ __forceinline__ void ggml_cuda_mmq_load_tiles_q4_K(
         const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0, const int i_max, const int stride) {
     constexpr int warp_size   = ggml_cuda_get_physical_warp_size();
