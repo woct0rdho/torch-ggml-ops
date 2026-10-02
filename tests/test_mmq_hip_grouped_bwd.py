@@ -23,7 +23,7 @@ from tools.mmq_runtime import HIPRuntimeError, _resolve_code_object, find_contro
             2048,
             12_288,
             256,
-            "grouped_bwd_single_q2_k_n4096_k2048_mt64_nt64",
+            "grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3",
         ),
         (
             "Q2_K",
@@ -31,7 +31,7 @@ from tools.mmq_runtime import HIPRuntimeError, _resolve_code_object, find_contro
             2048,
             12_288,
             8,
-            "grouped_bwd_single_q2_k_n4096_k2048_mt128_nt64",
+            "grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3",
         ),
         (
             "Q2_K",
@@ -39,7 +39,7 @@ from tools.mmq_runtime import HIPRuntimeError, _resolve_code_object, find_contro
             2048,
             49_152,
             256,
-            "grouped_bwd_single_q2_k_n4096_k2048_mt128_nt64_u2",
+            "grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3",
         ),
         (
             "Q2_K",
@@ -47,16 +47,23 @@ from tools.mmq_runtime import HIPRuntimeError, _resolve_code_object, find_contro
             2048,
             196_608,
             8,
-            "grouped_bwd_single_q2_k_n4096_k2048_mt128_nt64",
+            "grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3",
         ),
-        ("Q4_K", 2048, 512, 16_384, 8, "grouped_bwd_single_q4_k_n2048_k512_mt128_nt64"),
+        (
+            "Q4_K",
+            2048,
+            512,
+            16_384,
+            8,
+            "grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt64_s3",
+        ),
         (
             "Q4_K",
             2048,
             512,
             16_384,
             256,
-            "grouped_bwd_single_q4_k_n2048_k512_mt128_nt64",
+            "grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt64_s3",
         ),
         (
             "Q4_K",
@@ -64,7 +71,7 @@ from tools.mmq_runtime import HIPRuntimeError, _resolve_code_object, find_contro
             512,
             65_536,
             8,
-            "grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt128",
+            "grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt64_s3",
         ),
         (
             "Q4_K",
@@ -72,7 +79,7 @@ from tools.mmq_runtime import HIPRuntimeError, _resolve_code_object, find_contro
             512,
             262_144,
             8,
-            "grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt128",
+            "grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt64_s3",
         ),
         (
             "Q5_K",
@@ -80,7 +87,7 @@ from tools.mmq_runtime import HIPRuntimeError, _resolve_code_object, find_contro
             512,
             16_384,
             8,
-            "grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt128",
+            "grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt64_s2",
         ),
         (
             "Q5_K",
@@ -88,7 +95,7 @@ from tools.mmq_runtime import HIPRuntimeError, _resolve_code_object, find_contro
             512,
             262_144,
             8,
-            "grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt128",
+            "grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt64_s2",
         ),
         (
             "IQ2_S",
@@ -96,7 +103,7 @@ from tools.mmq_runtime import HIPRuntimeError, _resolve_code_object, find_contro
             512,
             16_384,
             8,
-            "grouped_bwd_single_iq2_s_n2048_k512_mt128_nt64",
+            "grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2",
         ),
         (
             "IQ2_S",
@@ -104,7 +111,7 @@ from tools.mmq_runtime import HIPRuntimeError, _resolve_code_object, find_contro
             512,
             16_384,
             256,
-            "grouped_bwd_single_iq2_s_n2048_k512_mt128_nt64",
+            "grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2",
         ),
         (
             "IQ2_S",
@@ -112,7 +119,7 @@ from tools.mmq_runtime import HIPRuntimeError, _resolve_code_object, find_contro
             512,
             65_536,
             8,
-            "grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt128",
+            "grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2",
         ),
         (
             "IQ2_S",
@@ -120,7 +127,7 @@ from tools.mmq_runtime import HIPRuntimeError, _resolve_code_object, find_contro
             512,
             262_144,
             8,
-            "grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt128",
+            "grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2",
         ),
     ),
 )
@@ -191,7 +198,7 @@ def test_standalone_backward_control_resolves_directory_and_file(
 
 def test_hip_control_spec_is_separate_and_complete() -> None:
     specs = hip_control_specs()
-    assert len(specs) == 182
+    assert len(specs) == 186
     assert len({spec.symbol for spec in specs}) == len(specs)
 
 

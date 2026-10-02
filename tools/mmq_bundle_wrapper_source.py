@@ -39,6 +39,10 @@ class GroupedBackwardKind(str, Enum):
     Q4_ROW_TASK = "q4_row_task"
     Q5_ROW_TASK = "q5_row_task"
     IQ2_S_ROW_TASK = "iq2_s_row_task"
+    Q4_ROW_TASK_N64_S3 = "q4_row_task_n64_s3"
+    Q5_ROW_TASK_N64_S2 = "q5_row_task_n64_s2"
+    IQ2_S_ROW_TASK_N64_S2 = "iq2_s_row_task_n64_s2"
+    Q2_K_ROW_TASK_N64_S3 = "q2_k_row_task_n64_s3"
     FIXED_Q8_0_GENERIC = "fixed_q8_0_generic"
     Q2_K_SINGLE_M64_U1 = "q2_k_single_m64_u1"
     Q2_K_SINGLE_M128_U1 = "q2_k_single_m128_u1"
@@ -478,6 +482,18 @@ _SPECIAL_GROUPED_CALLS = {
     GroupedBackwardKind.Q4_ROW_TASK: "torch_ggml_ops::ck::grouped_mmq_grad_input_q4_row_task_body",
     GroupedBackwardKind.Q5_ROW_TASK: "torch_ggml_ops::ck::grouped_mmq_grad_input_q5_row_task_body",
     GroupedBackwardKind.IQ2_S_ROW_TASK: "torch_ggml_ops::ck::grouped_mmq_grad_input_iq2_row_task_body",
+    GroupedBackwardKind.Q4_ROW_TASK_N64_S3: "torch_ggml_ops::ck::"
+    "grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::"
+    "grouped_backward_row_task_decoder_q4_k, 3, false>",
+    GroupedBackwardKind.Q5_ROW_TASK_N64_S2: "torch_ggml_ops::ck::"
+    "grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::"
+    "grouped_backward_row_task_decoder_q5_k, 2, false>",
+    GroupedBackwardKind.IQ2_S_ROW_TASK_N64_S2: "torch_ggml_ops::ck::"
+    "grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::"
+    "grouped_backward_row_task_decoder_iq2_s, 2, true>",
+    GroupedBackwardKind.Q2_K_ROW_TASK_N64_S3: "torch_ggml_ops::ck::"
+    "grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::"
+    "grouped_backward_row_task_decoder_q2_k, 3, true>",
     GroupedBackwardKind.Q2_K_SINGLE_M64_U1: "torch_ggml_ops::ck::grouped_mmq_grad_input_deepseek_body<"
     "GGML_TYPE_Q2_K, 4096, 2048, 8, 1, 1, true>",
     GroupedBackwardKind.Q2_K_SINGLE_M128_U1: "torch_ggml_ops::ck::grouped_mmq_grad_input_deepseek_body<"
@@ -500,6 +516,10 @@ _ROW_TASK_KINDS = {
     GroupedBackwardKind.Q4_ROW_TASK,
     GroupedBackwardKind.Q5_ROW_TASK,
     GroupedBackwardKind.IQ2_S_ROW_TASK,
+    GroupedBackwardKind.Q4_ROW_TASK_N64_S3,
+    GroupedBackwardKind.Q5_ROW_TASK_N64_S2,
+    GroupedBackwardKind.IQ2_S_ROW_TASK_N64_S2,
+    GroupedBackwardKind.Q2_K_ROW_TASK_N64_S3,
 }
 
 

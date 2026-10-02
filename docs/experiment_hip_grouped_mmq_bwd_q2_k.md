@@ -10,19 +10,23 @@ Aggregate routed rows are `R=12288,49152,196608`.
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | --- | --- | --- | --- |
-| 1 | `(12288,2048,4096)` | 9.34 | 1.005x | `grouped_bwd_single_q2_k_n4096_k2048_mt64_nt64` * |
-| 4 | `(49152,2048,4096)` | 15.95 | 1.005x | `grouped_bwd_single_q2_k_n4096_k2048_mt128_nt64_u2` |
-| 16 | `(196608,2048,4096)` | 16.96 | 0.943x | `grouped_bwd_single_q2_k_n4096_k2048_mt128_nt64` * |
+| 1 | `(12288,2048,4096)` | 11.97 | 1.304x | `grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3` |
+| 4 | `(49152,2048,4096)` | 19.67 | 1.234x | `grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3` |
+| 16 | `(196608,2048,4096)` | 22.57 | 1.336x | `grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3` |
 
-Rows marked `*` look prior-sensitive: the current learned-route result is more than 10% below the same body measured on a single uniform partition, so the deployed body may need retuning for the current route distribution.
-
-B16 remains slightly slower than the predecoded BF16 baseline because packed scale/minimum reconstruction and limited N64 reuse dominate.
+All three shapes are now ahead of predecoded BF16 AITER, including the smallest groups once inactive waves skip their consumer work.
 
 ## Kernel implementation
 
-The retained Q2_K body uses four wave32 waves, M64/N64 U1 and M128/N64 U1/U2 geometries, width-16 decode, shared scale/minimum and packed-shift work, inactive-M consumer suppression, and serial route ownership. A bounded J16 tail is used only in measured small-route/exact-row bodies.
+The retained Q2_K single-projection body uses an M128/N64 tile, a 32-wide contraction stage, three LDS buffers and one plain barrier per stage, with the packed two-bit segment loaded as one vector per thread and stage. Waves whose first row is past the task end skip their activation loads, matrix work and stores while still taking part in the shared decode, which is what lets one body serve every route size.
 
 ## Optimization log
+
+### Staged row-task redesign
+
+The DeepSeek body kept its M128/N64 geometry but adopted the staged skeleton: a 32-wide contraction stage, three LDS buffers, one plain barrier per stage, a vectorised two-bit packed segment per thread, clamped activation rows, and inactive-wave suppression. Suppression is worth `29%` at B1 and `4%` at B16 here, because the learned prior leaves most experts with fewer rows than one tile; it also retires the separate M64 body that used to serve the smallest groups.
+
+The deployed body is `149` VGPR / `24` SGPR / `4` KB LDS per stage. Its bench result is `11.97/19.67/22.57` TFLOPS at B1/B4/B16 against `9.34/15.95/16.96` for the previous selection, and it now leads predecoded BF16 AITER by `30%`, `23%` and `34%`.
 
 ### Exact body and reduction unroll
 
@@ -58,11 +62,14 @@ The grouped backward campaign tested reduced-precision accumulation as a separat
 
 ## Resources
 
-Retained Q2_K bodies use 102 VGPR/30 SGPR/4096 B LDS for M64/N64/U1, 146/31/4096 for M128/N64/U1, and 160/31/4096 for U2.
+Retained Q2_K bodies use 102 VGPR/30 SGPR/4096 B LDS for M64/N64/U1, 146/31/4096 for M128/N64/U1, 160/31/4096 for U2, and 149/24/4096 per stage for the deployed row-task M128/N64.
 
 ## Evidence
 
 ```text
+~/tmp/torch-ggml-ops/retune/official/GroupedBackward_deepseek.json
+~/tmp/torch-ggml-ops/retune/official/GroupedBackward_deepseek_q2k.json
+~/tmp/torch-ggml-ops/retune/run_final.py
 ~/tmp/torch-ggml-ops/grouped_mmq_bwd_deepseek_prior_retuned_final_9.json
 ~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q2k_u2_dispatch_control_25.json
 ~/tmp/torch-ggml-ops/grouped_mmq_bwd_ds4_q2k_u1_dispatch_control_25.json

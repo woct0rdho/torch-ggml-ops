@@ -20,6 +20,7 @@ class _ControlSpec:
     out_features: int
     in_features: int
     packed_row_bytes: int
+    tiled_n: int = 128
 
     @property
     def bytes_per_expert(self) -> int:
@@ -47,6 +48,34 @@ _SYMBOL_SPECS: dict[str, _ControlSpec] = {
         ),
         _ControlSpec(
             "grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt128", 2048, 512, 164
+        ),
+        _ControlSpec(
+            "grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt64_s3",
+            2048,
+            512,
+            288,
+            tiled_n=64,
+        ),
+        _ControlSpec(
+            "grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt64_s2",
+            2048,
+            512,
+            352,
+            tiled_n=64,
+        ),
+        _ControlSpec(
+            "grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2",
+            2048,
+            512,
+            164,
+            tiled_n=64,
+        ),
+        _ControlSpec(
+            "grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3",
+            4096,
+            2048,
+            672,
+            tiled_n=64,
         ),
     )
 }
@@ -238,7 +267,7 @@ class InstalledGroupedBackwardRowTaskControl(_HIPModule):
         self._check(
             self._lib.hipModuleLaunchKernel(
                 self._function,
-                (spec.in_features + self.TILED_N - 1) // self.TILED_N,
+                (spec.in_features + spec.tiled_n - 1) // spec.tiled_n,
                 tasks.capacity,
                 1,
                 128,

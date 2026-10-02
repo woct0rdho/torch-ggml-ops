@@ -12,21 +12,23 @@ Aggregate rows are `R=16384,65536,262144`.
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | --- | --- | --- | --- |
-| 1 | `(16384,512,2048)` | 8.97 | 0.825x | `grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt128` * |
-| 4 | `(65536,512,2048)` | 13.95 | 0.836x | `grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt128` |
-| 16 | `(262144,512,2048)` | 16.80 | 0.802x | `grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt128` |
+| 1 | `(16384,512,2048)` | 10.22 | 0.934x | `grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt64_s2` |
+| 4 | `(65536,512,2048)` | 16.36 | 0.994x | `grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt64_s2` |
+| 16 | `(262144,512,2048)` | 20.73 | 1.001x | `grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt64_s2` |
 
-Rows marked `*` look prior-sensitive: the current learned-route result is more than 10% below the same body measured on a single uniform partition, so the deployed body may need retuning for the current route distribution.
-
-The remaining loss is Q5 high-bit reconstruction and packed metadata cost relative to predecoded BF16 weights.
+The remaining loss is Q5 high-bit reconstruction and packed metadata cost relative to predecoded BF16 weights, and it is now visible only at B1.
 
 ## Kernel implementation
 
-The retained Q5_K family keeps an M64/N64 serial body and an M128/N128 M-major row-task body; the table names the deployed one per shape. The bodies share width-16 low/high decode, Q5 scale/minimum reconstruction, and BF16 stores. Q5 row-task decode uses swizzle8 while the smaller serial body uses swizzle4.
-
-Wholly inactive 16-row M minitiles skip cotangent loads, WMMA, and stores while decode and barriers remain uniform. Q5 row-task decode uses swizzle8 while the smaller serial body uses swizzle4, and its LDS state is distinct from Q4_K.
+The retained Q5_K bodies use an M128/N64 tile, a 32-wide contraction stage, two LDS buffers and one plain barrier per stage: four waves own 32 rows each, every thread decodes one 16-value low/high segment per stage, and the accumulator budget is half the previous M128/N128 body. Activation rows are clamped so no load is predicated.
 
 ## Optimization log
+
+### Staged row-task redesign
+
+PC sampling of the first-generation row-task body attributed most stalls to ALU dependencies, barrier waits and memory waits, with only about four resident waves per SIMD. The staged redesign keeps the same decode primitives and changes the skeleton: an M128/N64 tile with a 32-wide contraction stage, two LDS buffers, one plain barrier per stage, and clamped activation rows. The smaller column tile halves the accumulator budget and roughly doubles the resident wave count; the extra column blocks only add L2-resident activation traffic. Two buffers measure better than three for this decoder, so the deployed body keeps two.
+
+The deployed body is `147` VGPR / `24` SGPR / `4` KB LDS per stage. Its bench result is `10.22/16.36/20.73` TFLOPS at B1/B4/B16 against `8.97/13.95/16.80` for the previous selection.
 
 ### Tiled body and task ownership
 
@@ -46,11 +48,13 @@ The grouped backward campaign tested reduced-precision accumulation as a separat
 
 ## Resources
 
-Retained Q5_K bodies use 115 VGPR/22 SGPR/4096 B LDS for M64/N64 and 234/26/8192 for row-task M128/N128.
+Retained Q5_K bodies use 115 VGPR/22 SGPR/4096 B LDS for M64/N64, 234/26/8192 for the retired row-task M128/N128, and 147/24/4096 per stage for the deployed row-task M128/N64.
 
 ## Evidence
 
 ```text
+~/tmp/torch-ggml-ops/retune/official/GroupedBackward_qwen.json
+~/tmp/torch-ggml-ops/retune/run_final.py
 ~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_prior_retuned_final_9.json
 ~/tmp/torch-ggml-ops/grouped_mmq_bwd_step5_q5_prefetch.json
 ~/tmp/torch-ggml-ops/grouped_mmq_bwd_q5_sparse_s2_25.json

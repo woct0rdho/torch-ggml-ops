@@ -8,21 +8,25 @@ This record covers the routed single-projection IQ2_S down input-gradient kernel
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | --- | --- | --- | --- |
-| 1 | `(16384,512,2048)` | 8.54 | 0.796x | `grouped_bwd_single_iq2_s_n2048_k512_mt128_nt64` * |
-| 4 | `(65536,512,2048)` | 13.02 | 0.805x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt128` * |
-| 16 | `(262144,512,2048)` | 16.28 | 0.787x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt128` |
+| 1 | `(16384,512,2048)` | 11.21 | 1.052x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2` |
+| 4 | `(65536,512,2048)` | 17.49 | 1.054x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2` |
+| 16 | `(262144,512,2048)` | 21.05 | 1.014x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2` |
 
-Rows marked `*` look prior-sensitive: the current learned-route result is more than 10% below the same body measured on a single uniform partition, so the deployed body may need retuning for the current route distribution.
-
-The single-down IQ2_S body remains slower than predecoded BF16 AITER on all three final shapes.
+The single-down IQ2_S body is ahead of predecoded BF16 AITER at all three shapes; the residual is grid lookup and sign reconstruction in the packed decode.
 
 ## Kernel implementation
 
-The retained IQ2_S family keeps M64/N64, M128/N64, and M128/N128 device row-task bodies; the table names the deployed one per shape.
-
-The row-task path suppresses inactive consumer M minitiles only where measured.
+The retained IQ2_S single-projection bodies use an M128/N64 tile, a 32-wide contraction stage, two LDS buffers and one plain barrier per stage: four waves own 32 rows each, every thread decodes one 16-value grid segment per stage, and the accumulator budget is half the previous M128/N128 body. Activation rows are clamped so no load is predicated, and waves whose first row is past the task end skip their activation loads, matrix work and stores.
 
 ## Optimization log
+
+### Staged row-task redesign
+
+PC sampling of the first-generation row-task body attributed most stalls to ALU dependencies, barrier waits and memory waits, with only about four resident waves per SIMD. The staged redesign keeps the same grid decode and changes the skeleton: an M128/N64 tile with a 32-wide contraction stage, two LDS buffers, one plain barrier per stage, and clamped activation rows. The smaller column tile halves the accumulator budget and roughly doubles the resident wave count; the extra column blocks only add L2-resident activation traffic. Two buffers measure better than three for this decoder, so the deployed body keeps two.
+
+Waves whose first row is already past the task end skip their activation loads, matrix work and stores while still taking part in the shared decode; for this decoder that is worth `19%` at B1, `9%` at B4 and `7%` at B16, so the deployed body keeps the suppression. The same switch costs `3-5%` on the Q4_K and Q5_K decoders, which therefore keep it off.
+
+The deployed body is `155` VGPR / `26` SGPR / `4` KB LDS per stage. Its bench result is `11.21/17.49/21.05` TFLOPS at B1/B4/B16 against `8.54/13.02/16.28` for the previous selection.
 
 ### Generic-to-tiled redesign
 
@@ -46,11 +50,14 @@ The grouped backward campaign tested reduced-precision accumulation as a separat
 
 ## Resources
 
-Retained IQ2_S down bodies use 90 VGPR/22 SGPR/4096 B LDS for M64/N64, 161/30/4096 for M128/N64, and 238/24/8192 for row-task M128/N128.
+Retained IQ2_S down bodies use 90 VGPR/22 SGPR/4096 B LDS for M64/N64, 161/30/4096 for M128/N64, 238/24/8192 for the retired row-task M128/N128, and 155/26/4096 per stage for the deployed row-task M128/N64.
 
 ## Evidence
 
 ```text
+~/tmp/torch-ggml-ops/retune/official/GroupedBackward_qwen.json
+~/tmp/torch-ggml-ops/retune/official/GroupedBackward_qwen_iq2s.json
+~/tmp/torch-ggml-ops/retune/run_final.py
 ~/tmp/torch-ggml-ops/grouped_mmq_bwd_qwen_prior_retuned_final_9.json
 ~/tmp/torch-ggml-ops/grouped_mmq_bwd_step4_row_tasks_mmajor.json
 ~/tmp/torch-ggml-ops/grouped_mmq_bwd_step4_row_tasks_nmajor.json
