@@ -933,151 +933,151 @@ static __device__ __forceinline__ void dense_mmq_grad_input_body(
 
         if (ACTIVE_WAVES == BACKWARD_WAVES || wave < ACTIVE_WAVES) {
 #pragma unroll
-          for (int k_tile = 0; k_tile < K_ITERATION; k_tile += 16) {
-            bf16_fragment a_fragments[M_TILES_PER_WAVE];
+            for (int k_tile = 0; k_tile < K_ITERATION; k_tile += 16) {
+                bf16_fragment a_fragments[M_TILES_PER_WAVE];
 #pragma unroll
-            for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
-              __hip_bfloat16 *a = fragment_data(a_fragments[m_tile]);
-              const int a_row =
-                  wave_row_start + m_tile * BACKWARD_M_PER_TILE + c_row(lane);
+                for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
+                    __hip_bfloat16 *a = fragment_data(a_fragments[m_tile]);
+                    const int a_row =
+                        wave_row_start + m_tile * BACKWARD_M_PER_TILE + c_row(lane);
 #pragma unroll
-              for (int k = 0; k < 16; ++k) {
-                const int output_column = output_start + k_tile + k;
-                if constexpr (FULL_TILES) {
-                  a[k] = grad_output[static_cast<int64_t>(a_row) *
-                                         kernel_out_features +
-                                     output_column];
-                } else {
-                  a[k] = a_row < rows && output_column < kernel_out_features
-                             ? grad_output[static_cast<int64_t>(a_row) *
-                                               kernel_out_features +
-                                           output_column]
-                             : __float2bfloat16(0.0f);
+                    for (int k = 0; k < 16; ++k) {
+                        const int output_column = output_start + k_tile + k;
+                        if constexpr (FULL_TILES) {
+                            a[k] = grad_output[static_cast<int64_t>(a_row) *
+                                                   kernel_out_features +
+                                               output_column];
+                        } else {
+                            a[k] = a_row < rows && output_column < kernel_out_features
+                                       ? grad_output[static_cast<int64_t>(a_row) *
+                                                         kernel_out_features +
+                                                     output_column]
+                                       : __float2bfloat16(0.0f);
+                        }
+                    }
                 }
-              }
-            }
 
-            if constexpr (PREFETCH_LOCAL) {
+                if constexpr (PREFETCH_LOCAL) {
 #pragma unroll
-              for (int n_tile = 0; n_tile < N_TILES - 1; n_tile += 2) {
-                bf16_fragment b_first{};
-                bf16_fragment b_second{};
-                if constexpr (VECTOR_LOCAL_LOAD) {
-                  shared_b.load_fragment_vector(
-                      b_first, n_tile * BACKWARD_N_PER_TILE + c_row(lane),
-                      k_tile);
-                  shared_b.load_fragment_vector(
-                      b_second,
-                      (n_tile + 1) * BACKWARD_N_PER_TILE + c_row(lane), k_tile);
+                    for (int n_tile = 0; n_tile < N_TILES - 1; n_tile += 2) {
+                        bf16_fragment b_first{};
+                        bf16_fragment b_second{};
+                        if constexpr (VECTOR_LOCAL_LOAD) {
+                            shared_b.load_fragment_vector(
+                                b_first, n_tile * BACKWARD_N_PER_TILE + c_row(lane),
+                                k_tile);
+                            shared_b.load_fragment_vector(
+                                b_second,
+                                (n_tile + 1) * BACKWARD_N_PER_TILE + c_row(lane), k_tile);
+                        } else {
+                            __hip_bfloat16 *first = fragment_data(b_first);
+                            __hip_bfloat16 *second = fragment_data(b_second);
+#pragma unroll
+                            for (int k = 0; k < 16; ++k) {
+                                first[k] =
+                                    shared_b[(n_tile * BACKWARD_N_PER_TILE + c_row(lane)) *
+                                                 K_ITERATION +
+                                             k_tile + k];
+                                second[k] = shared_b[((n_tile + 1) * BACKWARD_N_PER_TILE +
+                                                      c_row(lane)) *
+                                                         K_ITERATION +
+                                                     k_tile + k];
+                            }
+                        }
+#pragma unroll
+                        for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
+                            wmma_f32_16x16x16_bf16(accumulators[m_tile][n_tile],
+                                                   a_fragments[m_tile], b_first);
+                        }
+#pragma unroll
+                        for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
+                            wmma_f32_16x16x16_bf16(accumulators[m_tile][n_tile + 1],
+                                                   a_fragments[m_tile], b_second);
+                        }
+                    }
+                    if constexpr (N_TILES % 2 != 0) {
+                        constexpr int n_tile = N_TILES - 1;
+                        bf16_fragment b_fragment{};
+                        if constexpr (VECTOR_LOCAL_LOAD) {
+                            shared_b.load_fragment_vector(
+                                b_fragment, n_tile * BACKWARD_N_PER_TILE + c_row(lane),
+                                k_tile);
+                        } else {
+                            __hip_bfloat16 *b = fragment_data(b_fragment);
+#pragma unroll
+                            for (int k = 0; k < 16; ++k) {
+                                b[k] =
+                                    shared_b[(n_tile * BACKWARD_N_PER_TILE + c_row(lane)) *
+                                                 K_ITERATION +
+                                             k_tile + k];
+                            }
+                        }
+#pragma unroll
+                        for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
+                            wmma_f32_16x16x16_bf16(accumulators[m_tile][n_tile],
+                                                   a_fragments[m_tile], b_fragment);
+                        }
+                    }
                 } else {
-                  __hip_bfloat16 *first = fragment_data(b_first);
-                  __hip_bfloat16 *second = fragment_data(b_second);
 #pragma unroll
-                  for (int k = 0; k < 16; ++k) {
-                    first[k] =
-                        shared_b[(n_tile * BACKWARD_N_PER_TILE + c_row(lane)) *
-                                     K_ITERATION +
-                                 k_tile + k];
-                    second[k] = shared_b[((n_tile + 1) * BACKWARD_N_PER_TILE +
-                                          c_row(lane)) *
-                                             K_ITERATION +
-                                         k_tile + k];
-                  }
+                    for (int n_tile = 0; n_tile < N_TILES; ++n_tile) {
+                        bf16_fragment b_fragment{};
+                        if constexpr (VECTOR_LOCAL_LOAD) {
+                            shared_b.load_fragment_vector(
+                                b_fragment, n_tile * BACKWARD_N_PER_TILE + c_row(lane),
+                                k_tile);
+                        } else {
+                            __hip_bfloat16 *b = fragment_data(b_fragment);
+#pragma unroll
+                            for (int k = 0; k < 16; ++k) {
+                                b[k] =
+                                    shared_b[(n_tile * BACKWARD_N_PER_TILE + c_row(lane)) *
+                                                 K_ITERATION +
+                                             k_tile + k];
+                            }
+                        }
+#pragma unroll
+                        for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
+                            wmma_f32_16x16x16_bf16(accumulators[m_tile][n_tile],
+                                                   a_fragments[m_tile], b_fragment);
+                        }
+                    }
                 }
-#pragma unroll
-                for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
-                  wmma_f32_16x16x16_bf16(accumulators[m_tile][n_tile],
-                                         a_fragments[m_tile], b_first);
-                }
-#pragma unroll
-                for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
-                  wmma_f32_16x16x16_bf16(accumulators[m_tile][n_tile + 1],
-                                         a_fragments[m_tile], b_second);
-                }
-              }
-              if constexpr (N_TILES % 2 != 0) {
-                constexpr int n_tile = N_TILES - 1;
-                bf16_fragment b_fragment{};
-                if constexpr (VECTOR_LOCAL_LOAD) {
-                  shared_b.load_fragment_vector(
-                      b_fragment, n_tile * BACKWARD_N_PER_TILE + c_row(lane),
-                      k_tile);
-                } else {
-                  __hip_bfloat16 *b = fragment_data(b_fragment);
-#pragma unroll
-                  for (int k = 0; k < 16; ++k) {
-                    b[k] =
-                        shared_b[(n_tile * BACKWARD_N_PER_TILE + c_row(lane)) *
-                                     K_ITERATION +
-                                 k_tile + k];
-                  }
-                }
-#pragma unroll
-                for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
-                  wmma_f32_16x16x16_bf16(accumulators[m_tile][n_tile],
-                                         a_fragments[m_tile], b_fragment);
-                }
-              }
-            } else {
-#pragma unroll
-              for (int n_tile = 0; n_tile < N_TILES; ++n_tile) {
-                bf16_fragment b_fragment{};
-                if constexpr (VECTOR_LOCAL_LOAD) {
-                  shared_b.load_fragment_vector(
-                      b_fragment, n_tile * BACKWARD_N_PER_TILE + c_row(lane),
-                      k_tile);
-                } else {
-                  __hip_bfloat16 *b = fragment_data(b_fragment);
-#pragma unroll
-                  for (int k = 0; k < 16; ++k) {
-                    b[k] =
-                        shared_b[(n_tile * BACKWARD_N_PER_TILE + c_row(lane)) *
-                                     K_ITERATION +
-                                 k_tile + k];
-                  }
-                }
-#pragma unroll
-                for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
-                  wmma_f32_16x16x16_bf16(accumulators[m_tile][n_tile],
-                                         a_fragments[m_tile], b_fragment);
-                }
-              }
             }
-          }
         }
         __syncthreads();
     }
 
     if (ACTIVE_WAVES == BACKWARD_WAVES || wave < ACTIVE_WAVES) {
 #pragma unroll
-      for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
+        for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
 #pragma unroll
-        for (int n_tile = 0; n_tile < N_TILES; ++n_tile) {
+            for (int n_tile = 0; n_tile < N_TILES; ++n_tile) {
 #pragma unroll
-          for (int element = 0; element < 8; ++element) {
-            // gfx11's physical C fragment is J-major for this A/B layout: the
-            // I-major lane coordinates are transposed when written to row-major
-            // C.
-            const int output_row = wave_row_start +
-                                   m_tile * BACKWARD_M_PER_TILE +
-                                   c_column(lane, element);
-            const int output_column =
-                input_column_start + n_tile * BACKWARD_N_PER_TILE + c_row(lane);
-            if constexpr (FULL_TILES) {
-              grad_input[static_cast<int64_t>(output_row) * kernel_in_features +
-                         output_column] =
-                  __float2bfloat16(
-                      accumulators[m_tile][n_tile].values[element]);
-            } else if (output_row < rows &&
-                       output_column < kernel_in_features) {
-              grad_input[static_cast<int64_t>(output_row) * kernel_in_features +
-                         output_column] =
-                  __float2bfloat16(
-                      accumulators[m_tile][n_tile].values[element]);
+                for (int element = 0; element < 8; ++element) {
+                    // gfx11's physical C fragment is J-major for this A/B layout:
+                    // the I-major lane coordinates are transposed when written to
+                    // row-major C.
+                    const int output_row = wave_row_start +
+                                           m_tile * BACKWARD_M_PER_TILE +
+                                           c_column(lane, element);
+                    const int output_column =
+                        input_column_start + n_tile * BACKWARD_N_PER_TILE + c_row(lane);
+                    if constexpr (FULL_TILES) {
+                        grad_input[static_cast<int64_t>(output_row) * kernel_in_features +
+                                   output_column] =
+                            __float2bfloat16(
+                                accumulators[m_tile][n_tile].values[element]);
+                    } else if (output_row < rows &&
+                               output_column < kernel_in_features) {
+                        grad_input[static_cast<int64_t>(output_row) * kernel_in_features +
+                                   output_column] =
+                            __float2bfloat16(
+                                accumulators[m_tile][n_tile].values[element]);
+                    }
+                }
             }
-          }
         }
-      }
     }
 }
 
