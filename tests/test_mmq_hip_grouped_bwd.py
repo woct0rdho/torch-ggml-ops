@@ -1,8 +1,10 @@
+import re
 from pathlib import Path
 
 import pytest
 import torch
 
+from tools.mmq_bundle_wrapper_source import render_wrapper
 from tools.mmq_hip_control_spec import hip_control_specs
 from tools.mmq_hip_deployment import select_routed_control
 from tools.mmq_hip_grouped_bwd import (
@@ -218,3 +220,37 @@ def test_standalone_backward_control_rejects_cpu_launch() -> None:
 
     with pytest.raises(HIPRuntimeError, match="contiguous HIP"):
         control.launch(*tensors, stream=0)
+
+
+def _body_definitions() -> dict[str, set[str]]:
+    root = Path(__file__).resolve().parents[1] / "csrc"
+    headers = [*(root / "ck").glob("*.cuh"), root / "mmq_core.cuh"]
+    return {
+        header.name: set(re.findall(r"\b(\w+)\s*[(<]", header.read_text()))
+        for header in sorted(headers)
+    }
+
+
+def test_generated_controls_include_the_header_that_defines_their_body() -> None:
+    definitions = _body_definitions()
+    for spec in hip_control_specs():
+        source = render_wrapper(spec.symbol, spec.config)
+        headers = re.findall(r'#include "([^"]+)"', source)
+        if not headers:
+            continue
+        bodies = set(
+            re.findall(
+                r"(?:torch_ggml_ops::ck::)?"
+                r"((?:grouped_mmq_|fixed_grouped_|dense_mmq_|quantize_)\w*_body)\s*[(<]",
+                source,
+            )
+        )
+        assert bodies, spec.symbol
+        assert len(headers) == 1, (spec.symbol, headers)
+        header = Path(headers[0]).name
+        assert header in definitions, (spec.symbol, header)
+        assert bodies <= definitions[header], (
+            spec.symbol,
+            header,
+            bodies - definitions[header],
+        )

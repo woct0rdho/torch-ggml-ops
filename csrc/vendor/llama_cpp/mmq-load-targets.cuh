@@ -1,5 +1,14 @@
 #pragma once
 
+// Configuration fragment: this file is included from mmq_core.cuh after the
+// MMQ_* macros (for example MMQ_I) and the ggml_cuda_mmq_* helpers it uses are
+// defined, so it cannot be compiled as a standalone translation unit.
+
+#include "iq2_s_grid.cuh"
+#include "iq2_s_sign_masks.cuh"
+#include "iq2_xxs_grid.cuh"
+#include "iq2_xxs_sign_masks.cuh"
+
 template <ggml_type type, int J, bool fallback> static __device__ __forceinline__ void ggml_cuda_mmq_load_tiles_q8_0(
         const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0, const int i_max, const int stride) {
     constexpr int warp_size   = ggml_cuda_get_physical_warp_size();

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mmq_backward.cuh"
+#include "grouped_mmq_backward_tiled_common.cuh"
 
 namespace torch_ggml_ops::ck {
 
@@ -11,7 +11,6 @@ static constexpr int GROUPED_BACKWARD_TILED_IQ2_PAIR_OUT_FEATURES = 512;
 static constexpr int GROUPED_BACKWARD_TILED_IQ2_PAIR_IN_FEATURES = 2048;
 static constexpr int GROUPED_BACKWARD_TILED_IQ2_PAIR_BLOCKS_PER_ROW = 8;
 static constexpr int GROUPED_BACKWARD_TILED_IQ2_DOWN_SWIZZLE = 16;
-static constexpr int GROUPED_BACKWARD_TILED_IQ2_PAIR_SWIZZLE = 4;
 
 using grouped_backward_iq2_down_shared_tile = backward_shared_b_tile<
     GROUPED_BACKWARD_TILED_N,

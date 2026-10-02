@@ -1,3 +1,12 @@
+#pragma once
+
+#include "mmq_bundle.h"
+#include "mmq_tensor_validation.cuh"
+
+#include <limits>
+
+namespace {
+
 struct GroupedMMQShape {
     int rows;
     int in_features;
@@ -224,3 +233,4 @@ GroupedMMQShape validate_grouped_mmq_grad_input(
     };
 }
 
+} // namespace

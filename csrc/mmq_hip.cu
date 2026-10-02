@@ -8,6 +8,13 @@
 #endif
 
 #include "mmq_bundle.h"
+#include "mmq_dense_fixed_routes.cuh"
+#include "mmq_dense_validation.cuh"
+#include "mmq_fixed_validation.cuh"
+#include "mmq_grouped_pair_routes.cuh"
+#include "mmq_grouped_routes.cuh"
+#include "mmq_grouped_validation.cuh"
+#include "mmq_tensor_validation.cuh"
 #include "vendor/llama_cpp/common.cuh"
 
 #include <hip/hip_runtime.h>
@@ -20,25 +27,8 @@
 #include <torch/headeronly/core/ScalarType.h>
 #include <torch/headeronly/macros/Macros.h>
 
-#include <array>
 #include <cstdint>
-#include <limits>
-#include <string>
-#include <tuple>
-#include <type_traits>
-#include <utility>
-#include <vector>
 
-namespace {
-
-#include "mmq_dense_validation.cuh"
-#include "mmq_grouped_validation.cuh"
-#include "mmq_fixed_validation.cuh"
-#include "mmq_dense_fixed_routes.cuh"
-#include "mmq_grouped_routes.cuh"
-#include "mmq_grouped_pair_routes.cuh"
-
-} // namespace
 
 STABLE_TORCH_LIBRARY(torch_ggml_ops, m) {
     m.def("_mmq_launch(Tensor input, Tensor packed_weight, int quant_type, int out_features, "

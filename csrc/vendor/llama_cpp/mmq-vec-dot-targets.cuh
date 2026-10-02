@@ -1,5 +1,9 @@
 #pragma once
 
+// Configuration fragment: this file is included from mmq_core.cuh after the
+// MMQ_* macros (for example MMQ_I) and the ggml_cuda_mmq_* helpers it uses are
+// defined, so it cannot be compiled as a standalone translation unit.
+
 using namespace ggml_cuda_mma;
 
 template <ggml_type type, int J, bool fallback, mmq_q8_1_metadata_layout metadata_layout>

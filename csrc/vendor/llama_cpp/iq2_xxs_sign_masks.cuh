@@ -1,5 +1,7 @@
 #pragma once
 
+#include <hip/hip_runtime.h>
+
 static const __device__ int2 iq2xxs_sign_masks[256] = {
     {0x00000000, 0x00000000},
     {0x000000FF, 0xFF000000},

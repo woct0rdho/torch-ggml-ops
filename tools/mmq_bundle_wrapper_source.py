@@ -549,6 +549,62 @@ _ROW_TASK_KINDS = {
 }
 
 
+# The control that wraps a body includes only the header that defines it, so the
+# generated translation units stay independent of each other.
+_GROUPED_HEADERS = {
+    GroupedBackwardKind.GENERIC_SINGLE: "ck/grouped_mmq_backward.cuh",
+    GroupedBackwardKind.GENERIC_PAIR: "ck/grouped_mmq_backward.cuh",
+    GroupedBackwardKind.FIXED_Q8_0_GENERIC: "ck/grouped_mmq_backward.cuh",
+    GroupedBackwardKind.Q4_SINGLE_M64: "ck/grouped_mmq_backward_tiled_q4.cuh",
+    GroupedBackwardKind.Q4_SINGLE_M128: "ck/grouped_mmq_backward_tiled_q4.cuh",
+    GroupedBackwardKind.Q4_ROW_TASK: "ck/grouped_mmq_backward_tiled_q4.cuh",
+    GroupedBackwardKind.Q3_PAIR_M64: "ck/grouped_mmq_backward_tiled_q3.cuh",
+    GroupedBackwardKind.Q3_PAIR_M128: "ck/grouped_mmq_backward_tiled_q3.cuh",
+    GroupedBackwardKind.Q5_SINGLE_M64: "ck/grouped_mmq_backward_tiled_q5.cuh",
+    GroupedBackwardKind.Q5_ROW_TASK: "ck/grouped_mmq_backward_tiled_q5.cuh",
+    GroupedBackwardKind.IQ2_S_SINGLE_M64: "ck/grouped_mmq_backward_tiled_iq2.cuh",
+    GroupedBackwardKind.IQ2_S_SINGLE_M128: "ck/grouped_mmq_backward_tiled_iq2.cuh",
+    GroupedBackwardKind.IQ2_S_PAIR_M64: "ck/grouped_mmq_backward_tiled_iq2.cuh",
+    GroupedBackwardKind.IQ2_S_PAIR_M128: "ck/grouped_mmq_backward_tiled_iq2.cuh",
+    GroupedBackwardKind.IQ2_S_ROW_TASK: "ck/grouped_mmq_backward_tiled_iq2.cuh",
+    GroupedBackwardKind.FIXED_Q8_0_M256: "ck/grouped_mmq_backward_tiled_fixed.cuh",
+    GroupedBackwardKind.TUNED_FIXED_Q8_0: "ck/grouped_mmq_backward_tiled_fixed.cuh",
+    GroupedBackwardKind.TUNED_DEEPSEEK_PAIR: "ck/grouped_mmq_backward_tiled_deepseek.cuh",
+    GroupedBackwardKind.Q2_K_SINGLE_M64_U1: "ck/grouped_mmq_backward_tiled_deepseek.cuh",
+    GroupedBackwardKind.Q2_K_SINGLE_M128_U1: "ck/grouped_mmq_backward_tiled_deepseek.cuh",
+    GroupedBackwardKind.Q2_K_SINGLE_M128_U2: "ck/grouped_mmq_backward_tiled_deepseek.cuh",
+    GroupedBackwardKind.IQ2_XXS_PAIR_M64: "ck/grouped_mmq_backward_tiled_deepseek.cuh",
+    GroupedBackwardKind.Q4_ROW_TASK_N64_S3: (
+        "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
+    ),
+    GroupedBackwardKind.Q5_ROW_TASK_N64_S2: (
+        "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
+    ),
+    GroupedBackwardKind.IQ2_S_ROW_TASK_N64_S2: (
+        "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
+    ),
+    GroupedBackwardKind.Q2_K_ROW_TASK_N64_S3: (
+        "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
+    ),
+    GroupedBackwardKind.Q3_PAIR_STAGED_M128: "ck/grouped_mmq_backward_pair_staged.cuh",
+    GroupedBackwardKind.IQ2_S_PAIR_STAGED_M128: "ck/grouped_mmq_backward_pair_staged.cuh",
+    GroupedBackwardKind.IQ2_S_PAIR_STAGED_M256: "ck/grouped_mmq_backward_pair_staged.cuh",
+    GroupedBackwardKind.IQ2_XXS_PAIR_STAGED_M128: (
+        "ck/grouped_mmq_backward_pair_staged.cuh"
+    ),
+    GroupedBackwardKind.IQ2_XXS_PAIR_STAGED_M128_SKIP: (
+        "ck/grouped_mmq_backward_pair_staged.cuh"
+    ),
+}
+
+
+def _grouped_header(kind: GroupedBackwardKind) -> str:
+    header = _GROUPED_HEADERS.get(kind)
+    if header is None:
+        raise ValueError(f"grouped backward kind {kind} has no header")
+    return header
+
+
 def _grouped_entry(symbol: str, arguments: str, values: str, call: str) -> str:
     return f"""extern "C" __launch_bounds__(torch_ggml_ops::ck::BACKWARD_THREADS, 2) __global__
 void {symbol}(
@@ -560,8 +616,8 @@ void {symbol}(
 
 
 def _render_grouped_backward(symbol: str, config: GroupedBackwardConfig) -> str:
-    prefix = _PREAMBLE + '#include "ck/grouped_mmq_backward.cuh"\n\n'
     kind = config.kind
+    prefix = _PREAMBLE + f'#include "{_grouped_header(kind)}"\n\n'
     if kind == GroupedBackwardKind.GENERIC_SINGLE:
         quant_type = _cpp_quant(config.quant_type)
         return (

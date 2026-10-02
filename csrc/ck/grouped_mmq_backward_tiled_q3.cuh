@@ -1,13 +1,12 @@
 #pragma once
 
-#include "mmq_backward.cuh"
+#include "grouped_mmq_backward_tiled_common.cuh"
 
 namespace torch_ggml_ops::ck {
 
 static constexpr int GROUPED_BACKWARD_TILED_Q3_OUT_FEATURES = 512;
 static constexpr int GROUPED_BACKWARD_TILED_Q3_IN_FEATURES = 2048;
 static constexpr int GROUPED_BACKWARD_TILED_Q3_BLOCKS_PER_ROW = 8;
-static constexpr int GROUPED_BACKWARD_TILED_Q3_PADDING = 8;
 
 using grouped_backward_q3_small_shared_tile = backward_shared_b_tile<
     GROUPED_BACKWARD_SMALL_N,

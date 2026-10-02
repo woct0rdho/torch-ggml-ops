@@ -1,3 +1,12 @@
+#pragma once
+
+#include "mmq_bundle.h"
+#include "mmq_grouped_validation.cuh"
+
+#include <torch/csrc/stable/accelerator.h>
+
+namespace {
+
 void grouped_mmq_pair_launch_cuda(
         const Tensor & input,
         const Tensor & first_packed_weight,
@@ -200,3 +209,4 @@ void grouped_mmq_pair_grad_input_launch_cuda(
         current_stream(first_grad_output));
 }
 
+} // namespace

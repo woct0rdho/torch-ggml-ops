@@ -1,6 +1,7 @@
 #pragma once
 
 #include "grouped_mmq_backward_tiled_common.cuh"
+#include "../vendor/llama_cpp/iq2_xxs_grid.cuh"
 
 namespace torch_ggml_ops::ck {
 

@@ -2,6 +2,7 @@
 
 #include "bf16_wmma.cuh"
 #include "gguf_decode.cuh"
+#include "../vendor/llama_cpp/iq2_xxs_grid.cuh"
 
 #include <hip/hip_bf16.h>
 #include <hip/hip_runtime.h>

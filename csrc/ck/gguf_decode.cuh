@@ -1,6 +1,8 @@
 #pragma once
 
 #include "../vendor/llama_cpp/common.cuh"
+#include "../vendor/llama_cpp/iq2_s_grid.cuh"
+#include "../vendor/llama_cpp/iq2_xxs_grid.cuh"
 
 #include <cstdint>
 

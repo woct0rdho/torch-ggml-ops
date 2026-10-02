@@ -148,6 +148,8 @@ python -m tools.build_mmq_hip_controls --verify-reproducible --jobs 16
 
 The builder requires `hipcc` (or `--hipcc /path/to/hipcc`) and the matching `amdclang++`, `llvm-readelf`, `llvm-objdump`, and `llvm-objcopy` tools. `amdclang++` may be selected with `GGTENSILE_AMDCLANGXX`; the LLVM tools are normally found beside it or on `PATH`. The checked-in `csrc/mmq_core.cuh`, `csrc/ck/`, and `csrc/vendor/llama_cpp/` headers are the source inputs; no GPU is required to compile, although the device tests still require a compatible gfx1151 system and runtime.
 
+Every header under `csrc/` is self-contained, so include order never matters and a translation unit includes exactly what it uses. `python -m tools.check_mmq_headers` compiles each header as its own translation unit and fails on a missing include, a missing include guard, or an unresolvable quoted include. Each historical control includes only the family header that defines its body, so the generated translation units stay independent of each other. The three vendored `csrc/vendor/llama_cpp/mmq-*.cuh` templates are configuration fragments rather than headers: they expand against the `MMQ_*` settings and helpers that `mmq_core.cuh` defines before including them, and that header is their only include site.
+
 A successful build atomically installs one bare-symbol file per historical control under `build/mmq_hip_controls/gfx1151/` and writes a freshness stamp there. The current launchers expect names such as `grouped_fwd_serial_q2_k_n4096_k2048_j32.hsaco`; older prefixed files such as `torch_ggml_ops_mmq_gfx1151_v1_<symbol>.hsaco` do not satisfy lookup and are replaced by a current rebuild. `--check` exits nonzero when the inventory, stamp, compiler, or source inputs are stale.
 
 Direct-kernel benchmark runners accept `--hip-root` for the directory containing the historical-control set. Tests and runners otherwise use `GGTENSILE_HIP_CONTROL_ROOT` when set, followed by `build/mmq_hip_controls/gfx1151` when it is available. These controls are comparison artifacts only; their presence does not change the 148-route public inventory.
@@ -243,6 +245,7 @@ The bundle does not provide runtime compilation, architecture substitution, onli
 
 Changes to selected keys, bundle generation, launch packing, or public wrappers require:
 - strict catalog and deployment-inventory tests.
+- a self-contained header layout (`python -m tools.check_mmq_headers`).
 - typed launch-metadata derivation checks.
 - exact artifact-count and unique-symbol checks.
 - one complete regeneration of the selected bundle from the typed inventory.

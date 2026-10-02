@@ -1,3 +1,12 @@
+#pragma once
+
+#include "mmq_bundle.h"
+#include "mmq_tensor_validation.cuh"
+
+#include <limits>
+
+namespace {
+
 struct FixedMMQShape {
     int tokens;
     int total_rows;
@@ -67,3 +76,4 @@ FixedMMQShape validate_fixed_mmq(
     };
 }
 
+} // namespace

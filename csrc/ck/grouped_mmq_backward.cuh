@@ -2,7 +2,6 @@
 
 #include "bf16_wmma.cuh"
 #include "gguf_decode.cuh"
-#include "grouped_mmq_backward_tiled.cuh"
 
 #include <hip/hip_bf16.h>
 #include <hip/hip_runtime.h>

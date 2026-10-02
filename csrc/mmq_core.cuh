@@ -141,6 +141,9 @@ enum mmq_q8_1_metadata_layout {
     MMQ_Q8_1_METADATA_F16_D2S6,
 };
 
+// Vendored llama.cpp templates. These three files are fragments rather than
+// headers: they expand against the configuration and helpers defined above,
+// so they are included here and nowhere else.
 #include "vendor/llama_cpp/mmq-load-targets.cuh"
 #include "vendor/llama_cpp/mmq-vec-dot-targets.cuh"
 #include "vendor/llama_cpp/mmq-vec-dot-q2-k-rolled.cuh"

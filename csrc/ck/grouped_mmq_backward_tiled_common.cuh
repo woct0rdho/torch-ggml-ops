@@ -4,6 +4,10 @@
 
 namespace torch_ggml_ops::ck {
 
+// Packed weight layout shared by the single-projection and paired kernels of
+// the same quantization type.
+static constexpr int GROUPED_BACKWARD_TILED_Q3_PADDING = 8;
+static constexpr int GROUPED_BACKWARD_TILED_IQ2_PAIR_SWIZZLE = 4;
 static constexpr int GROUPED_BACKWARD_TILED_N_TILES = 8;
 static constexpr int GROUPED_BACKWARD_TILED_M_TILES_PER_WAVE = 2;
 static constexpr int GROUPED_BACKWARD_TILED_K = 32;

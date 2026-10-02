@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mmq_backward.cuh"
+#include "grouped_mmq_backward_tiled_common.cuh"
 
 namespace torch_ggml_ops::ck {
 
