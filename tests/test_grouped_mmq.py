@@ -27,7 +27,7 @@ def q4_down() -> tuple[torch.Tensor, gguf.GGMLQuantizationType, int]:
     packed, quant_type, in_features = load_expert_weight(
         model_reader(QWEN_MODEL),
         "blk.2.ffn_down_exps.weight",
-        num_experts=_EXPERTS,
+        num_experts=8,
         out_features=2048,
     )
     return packed, quant_type, in_features

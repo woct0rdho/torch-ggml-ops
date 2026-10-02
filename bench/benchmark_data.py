@@ -12,7 +12,7 @@ from bench.benchmark_routes import (
     make_route_tensors,
 )
 from tools.ggtensile.quant_formats import BACKWARD_QUANT_FORMATS
-from tools.gguf_dequant_compat import dequantize_gguf_tensor
+from tools.gguf_dequant_compat import dequantize_logical
 from tools.mmq_correctness import PreparedCase, RouteData
 from tools.mmq_deployment_cases import DeploymentCase
 
@@ -63,33 +63,6 @@ def _find_tensor(reader: gguf.GGUFReader, name: str) -> gguf.ReaderTensor:
 def _random_bf16(shape: tuple[int, ...], seed: int) -> torch.Tensor:
     generator = torch.Generator(device="cuda").manual_seed(seed)
     return torch.randn(shape, generator=generator, device="cuda", dtype=torch.bfloat16)
-
-
-_DEQUANT_CHUNK_ROWS = 8
-
-
-def _dequantize_logical(
-    packed: torch.Tensor,
-    quant_type: gguf.GGMLQuantizationType | int,
-    logical_shape: tuple[int, ...],
-) -> torch.Tensor:
-    """Dequantize a packed payload into one preallocated BF16 logical weight.
-
-    The shared dequantizer allocates fp32 temporaries proportional to its whole
-    input, peaking at several times the final weight for the routed payloads.
-    Chunking the payload's leading axis bounds every temporary while producing
-    identical values, because a chunk boundary never splits a GGML block along
-    the last axis.
-    """
-
-    logical = torch.empty(logical_shape, dtype=torch.bfloat16, device="cuda")
-    for start in range(0, packed.shape[0], _DEQUANT_CHUNK_ROWS):
-        stop = min(start + _DEQUANT_CHUNK_ROWS, packed.shape[0])
-        piece = dequantize_gguf_tensor(
-            packed[start:stop], quant_type, dtype=torch.bfloat16, device="cuda"
-        )
-        logical[start:stop] = piece.reshape(logical[start:stop].shape)
-    return logical
 
 
 def _route_metadata(distributions) -> dict[str, object]:
@@ -195,7 +168,7 @@ def prepare_input(
             else:
                 logical_shape = (case.out_features, case.in_features)
             logical_weights.append(
-                _dequantize_logical(packed, tensor_type, logical_shape)
+                dequantize_logical(packed, tensor_type, logical_shape)
             )
 
     input_shape = (

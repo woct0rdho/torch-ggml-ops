@@ -12,9 +12,9 @@ The benchmark samples the `blk.3` expert tensors; `blk.0`-`blk.2` are hash-route
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | ---: | ---: | ---: | --- |
-| 1 | `(12288,4096,2048)` | 11.12 | 1.767x | `grouped_fwd_serial_q2_k_n4096_k2048_j32_j16` |
-| 4 | `(49152,4096,2048)` | 12.41 | 0.905x | `grouped_fwd_serial_q2_k_n4096_k2048_j32_j16` |
-| 16 | `(196608,4096,2048)` | 12.54 | 0.793x | `grouped_fwd_serial_q2_k_n4096_k2048_j32` |
+| 1 | `(12288,4096,2048)` | 11.12 | 1.763x | `grouped_fwd_serial_q2_k_n4096_k2048_j32_j16` |
+| 4 | `(49152,4096,2048)` | 12.41 | 0.908x | `grouped_fwd_serial_q2_k_n4096_k2048_j32_j16` |
+| 16 | `(196608,4096,2048)` | 12.54 | 0.782x | `grouped_fwd_serial_q2_k_n4096_k2048_j32` |
 
 The B1/B4 bodies are the mixed J32/J16 and J32 variants; they trail their uniform-route control by `9%`/`4%`, and B16 is level (`0%`). The B4/B16 gap remains repeated Q2_K scale/minimum reconstruction and limited N64 reuse against predecoded BF16 weights. Flagged prior-sensitive at B1: the J32/J16 routing threshold may need a learned-route retune.
 
@@ -50,19 +50,15 @@ Under the benchmark protocol the three batches gain `4.0-4.5%` (`11.12`/`12.41`/
 
 ### Bottleneck attribution
 
-The selected B16 counter review found:
+Stochastic PC sampling of the deployed J32 body at B16 puts `64%` of samples on vector ALU work (`24.9%` epilogue math, `19.6%` other VALU, `14.7%` half-to-float conversion, `4.0%` shifts), against `11.5%` LDS loads, `10.4%` barriers and `4.5%` WMMA, with `ARBITER_NOT_WIN` (`37.5%`), `ALU_DEPENDENCY` (`22.8%`) and `ARBITER_WIN_EX_STALL` (`19.3%`) as the leading stalls. The body is issue-bound on vector ALU, not limited by the matrix unit or by LDS capacity.
 
-| Metric | HIP/AITER result |
-| --- | ---: |
-| Total instructions | `10.88x` |
-| VALU instructions | `24.27x` |
-| VALU issue cycles | `22.39x` |
-| Instruction-fetch waits | `10.36x` |
-| Mean occupancy per active CU | `6.25 / 10.67` waves |
-| Video-memory fetch | `0.585x` AITER bytes |
-| ALU stalled by LDS | `0.088% / 33.78%` |
+A static census of one k-block dot region (`637` instructions) confirms the shape of the cost: `224` fused multiply-adds, `96` int-to-float conversions, `133` register moves, `33` selects, `34` LDS accesses and `12` WMMA instructions. The twelve WMMA instructions carry all of the arithmetic; everything else is epilogue and glue. Removing the accumulator setup and scale application would therefore matter far more than any change to the tile geometry.
 
-HIP fetches less data but executes a much larger decode/instruction stream with lower residency. The limit is not total DRAM traffic or an LDS-bank bottleneck.
+Measured against that model and rejected: hoisting the round-trip metadata decode out of the `j0` loop is neutral (`-0.2%` to `-0.8%`, the compiler already keeps the decode in registers), full unrolling of the `k01` loop is much worse (`-47%`, register pressure; the bounded `#pragma unroll 4` is required), and the redundant barrier that the compact tile had placed in front of the second weight stage was removed as a cleanup with no measurable change.
+
+The remaining leads are all in the epilogue: keeping all eight sub-block activation sums so the `Cm` correction path disappears, and the accumulator register-group shuffles that account for most of the register moves.
+
+LDS bank conflicts were probed directly by padding the compact weight tile: the stride of `40` ints rotates over four bank groups for the sixteen rows a warp reads, `44` and `52` rotate over eight, and `48` collapses to two. The measured order follows the model (`48` loses `10%`, `44`/`52` gain `1.4-1.6%` at B1) but the gain is inside the run-to-run spread at B4/B16, so no stride change was kept. Bank conflicts are real but they are not the lever: the same census shows the twelve WMMA instructions of a k-block dot region carrying all of the arithmetic.
 
 ### Learned-route retune
 
@@ -75,7 +71,7 @@ What the measurements show for this kernel family:
 - Masked rows of a large J tile cost much less than the per-tile weight decode: adaptive cascades, J16 and J128/J80 bodies all lose to the plain J32 (small routes) and J64 (large routes) bodies.
 - The compact single-stage weight tile is bitwise-identical and fits half the LDS, but the extra per-stage loader calls cancel the occupancy gain at the same J.
 
-Still open after this round: the same compact single-stage tile for the IQ2_S bodies (their 84-int stride would fall to 40 and fit six resident workgroups instead of four), a permute-based nibble expansion for this decode-bound decoder, and a swizzled activation tile with matching dot addressing for the `14%` LDS bank-conflict share.
+Still open after this round: keeping all eight sub-block activation sums in the tile so the `Cm` correction path and its selects disappear, the accumulator register-group shuffles that dominate the register-move count, a compact single-stage tile for the IQ2_S bodies (measured and rejected here), and a swizzled activation tile with matching dot addressing for the `14%` LDS bank-conflict share.
 
 ### Activation prefetch
 

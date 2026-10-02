@@ -1,3 +1,5 @@
+import warnings
+
 import gguf
 import numpy as np
 import torch
@@ -14,10 +16,12 @@ def find_tensor(reader: gguf.GGUFReader, name: str) -> gguf.ReaderTensor:
 
 
 def _to_cuda_uint8(data: np.ndarray) -> torch.Tensor:
-    host = np.array(data, dtype=np.uint8, copy=True, order="C")
-    packed = torch.from_numpy(host).to("cuda")
-    del host
-    return packed
+    # GGUF payloads are read-only memmap views. Share the host buffer and let
+    # the device copy own the data instead of duplicating it on the host first.
+    host = np.ascontiguousarray(data, dtype=np.uint8)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        return torch.from_numpy(host).to("cuda")
 
 
 def load_packed_tensor(

@@ -619,11 +619,9 @@ static __device__ __forceinline__ void grouped_mmq_k_block(
     }
 #endif
 #if defined(MMQ_COMPACT_TILE)
-    // the staged tile must be visible to every wave before the second dot
     mmq_load_target<type, J, !fixed_shape>(
         expert_weights, tile_x, weight_block_offset, i_max,
         kernel_blocks_per_weight_row, 1);
-    __syncthreads();
 #endif
     __syncthreads();
 #if defined(MMQ_COMPACT_TILE)
@@ -757,7 +755,6 @@ static __device__ __forceinline__ void grouped_mmq_row_tile(
                 }
             }
 #if defined(MMQ_COMPACT_TILE)
-            // the staged tile must be visible to every wave before the second dot
             mmq_load_target<type, J, !fixed_shape>(
                 expert_weights,
                 tile_x,
@@ -765,7 +762,6 @@ static __device__ __forceinline__ void grouped_mmq_row_tile(
                 i_max,
                 kernel_blocks_per_weight_row,
                 1);
-            __syncthreads();
 #endif
             __syncthreads();
 #if defined(MMQ_COMPACT_TILE)

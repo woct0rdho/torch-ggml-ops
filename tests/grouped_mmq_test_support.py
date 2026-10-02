@@ -3,7 +3,7 @@ import torch
 from transformers.integrations.moe import _grouped_linear
 
 from tests.mmq_test_support import find_tensor, load_packed_experts
-from tools.gguf_dequant_compat import dequantize_gguf_tensor
+from tools.gguf_dequant_compat import dequantize_logical
 
 
 def small_route() -> tuple[torch.Tensor, torch.Tensor]:
@@ -39,12 +39,13 @@ def dequantize_experts(
     *,
     dtype: torch.dtype = torch.bfloat16,
 ) -> torch.Tensor:
-    return dequantize_gguf_tensor(
+    return dequantize_logical(
         packed.index_select(0, experts),
         quant_type,
+        (experts.numel(), out_features, in_features),
         dtype=dtype,
         device=packed.device,
-    ).reshape(experts.numel(), out_features, in_features)
+    )
 
 
 def grouped_forward_reference(

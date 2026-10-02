@@ -1,5 +1,6 @@
 """Shared numerical correctness primitives for MMQ tests and benchmarks."""
 
+import math
 import os
 import struct
 from collections.abc import Sequence
@@ -14,7 +15,7 @@ import torch
 from tools.aiter_gmm_compat import gmm_config
 from tools.ggtensile.grouped_mmq_bwd_pair_spec import GroupedBackwardPairKernelSpec
 from tools.ggtensile.quant_formats import BACKWARD_QUANT_FORMATS
-from tools.gguf_dequant_compat import dequantize_gguf_tensor
+from tools.gguf_dequant_compat import dequantize_logical
 from tools.mmq_deployment_cases import DeploymentCase, model_path
 
 CONTROL_NRMSE_LIMIT = 5e-4
@@ -57,20 +58,53 @@ class PreparedCase:
     route: RouteData | None
 
 
-def error_metrics(actual: torch.Tensor, expected: torch.Tensor) -> dict[str, object]:
+_METRIC_CHUNK_VALUES = 1 << 22
+
+
+def error_metrics(
+    actual: torch.Tensor,
+    expected: torch.Tensor,
+    *,
+    count_different_elements: bool = False,
+) -> dict[str, object]:
     if tuple(actual.shape) != tuple(expected.shape):
         raise AssertionError(
             f"shape mismatch: actual={tuple(actual.shape)} "
             f"expected={tuple(expected.shape)}"
         )
-    actual_value = actual.detach().float()
-    expected_value = expected.detach().float()
-    difference = actual_value - expected_value
-    finite = bool(
-        torch.isfinite(actual_value).all() and torch.isfinite(expected_value).all()
+    actual_flat = actual.detach().reshape(-1)
+    expected_flat = expected.detach().reshape(-1)
+    elements = actual_flat.numel()
+    finite = True
+    expected_square_sum = 0.0
+    error_square_sum = 0.0
+    max_absolute_error = 0.0
+    different_bf16_elements = 0 if count_different_elements else None
+    # Reduce in bounded chunks: materializing fp32 copies of the whole output
+    # peaks at several times its size for the largest deployment cases.
+    for start in range(0, elements, _METRIC_CHUNK_VALUES):
+        stop = min(start + _METRIC_CHUNK_VALUES, elements)
+        actual_value = actual_flat[start:stop].float()
+        expected_value = expected_flat[start:stop].float()
+        difference = actual_value - expected_value
+        if finite and not bool(
+            torch.isfinite(actual_value).all() and torch.isfinite(expected_value).all()
+        ):
+            finite = False
+        if finite:
+            max_absolute_error = max(max_absolute_error, float(difference.abs().max()))
+        expected_square_sum += float(expected_value.square().sum())
+        error_square_sum += float(difference.square().sum())
+        if different_bf16_elements is not None:
+            different_bf16_elements += int(
+                torch.count_nonzero(
+                    actual_flat[start:stop] != expected_flat[start:stop]
+                )
+            )
+    reference_rms = (
+        math.sqrt(expected_square_sum / elements) if elements else float("nan")
     )
-    reference_rms = float(expected_value.square().mean().sqrt())
-    error_rms = float(difference.square().mean().sqrt()) if finite else None
+    error_rms = math.sqrt(error_square_sum / elements) if finite and elements else None
     normalized = None
     if error_rms is not None:
         normalized = (
@@ -79,12 +113,10 @@ def error_metrics(actual: torch.Tensor, expected: torch.Tensor) -> dict[str, obj
             else (error_rms / reference_rms if reference_rms else float("inf"))
         )
     return {
-        "different_bf16_elements": int(
-            torch.count_nonzero(actual.detach() != expected.detach())
-        ),
-        "elements": actual.numel(),
+        "different_bf16_elements": different_bf16_elements,
+        "elements": elements,
         "finite": finite,
-        "max_absolute_error": float(difference.abs().max()) if finite else None,
+        "max_absolute_error": max_absolute_error if finite else None,
         "error_rms": error_rms,
         "reference_rms": reference_rms,
         "normalized_rmse": normalized,
@@ -237,12 +269,23 @@ def _synthetic_block(quant_type: str, variant: int) -> np.ndarray:
     return np.frombuffer(bytes(block), dtype=np.uint8)
 
 
+def _identity_seed(case: DeploymentCase, salt: int = 0) -> int:
+    """Identity-derived seed, kept inside int32.
+
+    pytest-xdist serializes every test report through execnet, which encodes
+    integers with a signed 32-bit format. A seed above 2**31 therefore kills the
+    reporting worker instead of failing the test, so mask the value here.
+    """
+
+    return (int(case.identity[-8:], 16) ^ salt) & 0x7FFFFFFF
+
+
 def _synthetic_packed(case: DeploymentCase, name: str) -> np.ndarray:
     shape = _packed_shape(case)
     fmt = BACKWARD_QUANT_FORMATS[case.quant_type]
     row_bytes = shape[-1]
     blocks_per_row = row_bytes // fmt.block_bytes
-    salt = (int(case.identity[-8:], 16) + sum(map(ord, name))) & 1
+    salt = (_identity_seed(case) + sum(map(ord, name))) & 1
     patterns = tuple(
         np.tile(_synthetic_block(case.quant_type, salt ^ variant), blocks_per_row)
         for variant in (0, 1)
@@ -349,19 +392,17 @@ def prepare_case(
     # Routed references only consume active banks. Dequantizing all 256 experts
     # needlessly pins several GiB of temporary and cached TTM allocations.
     logical = tuple(
-        dequantize_gguf_tensor(
+        dequantize_logical(
             weight.index_select(0, route.expert_indices)
             if grouped and route is not None
             else weight,
             tensor_type,
-            dtype=torch.bfloat16,
+            logical_shape,
             device=device,
         )
-        .reshape(logical_shape)
-        .contiguous()
         for weight, tensor_type in zip(packed, types, strict=True)
     )
-    seed = (int(case.identity[-8:], 16) ^ 0x4D4D5100) & 0xFFFFFFFF
+    seed = _identity_seed(case, 0x4D4D5100)
     if case.operation in {
         "OrdinaryForward",
         "GroupedForward",
@@ -413,16 +454,11 @@ def dequantize_active_routed_weight(
     in_features: int,
 ) -> torch.Tensor:
     """Dequantize only the expert banks consumed by a routed reference."""
-    selected = packed_weight.index_select(0, expert_indices)
-    return (
-        dequantize_gguf_tensor(
-            selected,
-            tensor_type,
-            dtype=torch.bfloat16,
-            device=packed_weight.device,
-        )
-        .reshape(expert_indices.numel(), out_features, in_features)
-        .contiguous()
+    return dequantize_logical(
+        packed_weight.index_select(0, expert_indices),
+        tensor_type,
+        (expert_indices.numel(), out_features, in_features),
+        device=packed_weight.device,
     )
 
 

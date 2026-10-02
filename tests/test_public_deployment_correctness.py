@@ -27,26 +27,35 @@ CASES = public_deployment_cases()
 CASE_IDS = tuple(
     f"{case.operation}-{case.identity}-{case.quant_type}-M{case.rows}" for case in CASES
 )
+ROUTES = ("public", "ggtensile", "hip", "repeat")
+_REFERENCE = torch.Tensor | tuple[torch.Tensor, ...]
+_CASE_STATE: dict[str, tuple[PreparedCase, _REFERENCE]] = {}
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(scope="module", autouse=True)
 def release_deployment_cuda_memory() -> Iterator[None]:
     yield
-    torch.cuda.synchronize()
+    _CASE_STATE.clear()
     gc.collect()
+    torch.cuda.synchronize()
     torch.cuda.empty_cache()
 
 
-def _prepare(case: DeploymentCase, *, require_artifact: bool = False) -> PreparedCase:
-    if require_artifact:
-        artifact = public_artifact_path(case)
-        if not artifact.is_file():
-            pytest.skip(f"selected GGTensile artifact is unavailable: {artifact}")
-    return prepare_case(case, device=torch.device("cuda"))
+def _case_state(case: DeploymentCase) -> tuple[PreparedCase, _REFERENCE]:
+    """Prepare one case and its external reference, shared by every route.
 
+    The route items are collected case-major, so only the case in flight is
+    kept. The previous case is released when the next one is prepared.
+    """
 
-def _reference(prepared: PreparedCase):
-    return external_reference(prepared)
+    state = _CASE_STATE.get(case.identity)
+    if state is None:
+        _CASE_STATE.clear()
+        torch.cuda.empty_cache()
+        prepared = prepare_case(case, device=torch.device("cuda"))
+        state = (prepared, external_reference(prepared))
+        _CASE_STATE[case.identity] = state
+    return state
 
 
 def _assert_reference(actual, expected, label: str) -> None:
@@ -69,55 +78,11 @@ def _run(case: DeploymentCase, implementation: str, prepared: PreparedCase):
     )
 
 
-def _run_hip(case: DeploymentCase, prepared: PreparedCase):
-    root = hip_control_root()
-    if root is None:
-        pytest.skip("historical HIP-control artifacts are unavailable")
-    return run_implementation(case, prepared, "hip", hip_root=root)
-
-
-def test_public_inventory_has_the_complete_numerical_matrix() -> None:
-    assert len(CASES) == 148
-    assert operation_counts() == {
-        "FixedGroupedBackward": 3,
-        "FixedGroupedForward": 3,
-        "GroupedBackward": 12,
-        "GroupedBackwardPair": 9,
-        "GroupedForward": 12,
-        "GroupedForwardPair": 9,
-        "OrdinaryBackward": 50,
-        "OrdinaryForward": 50,
-    }
-
-
-@pytest.mark.parametrize("case", CASES, ids=CASE_IDS)
-def test_public_api_route_matches_external_oracle(case: DeploymentCase) -> None:
-    prepared = _prepare(case)
-    expected = _reference(prepared)
-    actual = _run(case, "public", prepared)
-    _assert_reference(actual, expected, f"public/{case.identity}")
-
-
-@pytest.mark.parametrize("case", CASES, ids=CASE_IDS)
-def test_direct_ggtensile_route_matches_external_oracle(case: DeploymentCase) -> None:
-    prepared = _prepare(case, require_artifact=True)
-    expected = _reference(prepared)
-    actual = _run(case, "ggtensile", prepared)
-    _assert_reference(actual, expected, f"ggtensile/{case.identity}")
-
-
-@pytest.mark.parametrize("case", CASES, ids=CASE_IDS)
-def test_historical_hip_route_matches_external_oracle(case: DeploymentCase) -> None:
-    prepared = _prepare(case)
-    expected = _reference(prepared)
-    actual = _run_hip(case, prepared)
-    _assert_reference(actual, expected, f"hip/{case.identity}")
-
-
-@pytest.mark.parametrize("case", CASES, ids=CASE_IDS)
-def test_route_repeatability_and_dependency(case: DeploymentCase) -> None:
-    prepared = _prepare(case)
-    expected = _reference(prepared)
+def _assert_repeatability(
+    case: DeploymentCase,
+    prepared: PreparedCase,
+    expected: _REFERENCE,
+) -> None:
     actual = _run(case, "public", prepared)
     repeated = _run(case, "public", prepared)
     if isinstance(actual, tuple):
@@ -147,3 +112,43 @@ def test_route_repeatability_and_dependency(case: DeploymentCase) -> None:
         assert_changed(actual, mutated, f"public/{case.identity}")
         prepared.grad_outputs = saved_grad
     _assert_reference(actual, expected, f"public/{case.identity}/repeat")
+
+
+def test_public_inventory_has_the_complete_numerical_matrix() -> None:
+    assert len(CASES) == 148
+    assert operation_counts() == {
+        "FixedGroupedBackward": 3,
+        "FixedGroupedForward": 3,
+        "GroupedBackward": 12,
+        "GroupedBackwardPair": 9,
+        "GroupedForward": 12,
+        "GroupedForwardPair": 9,
+        "OrdinaryBackward": 50,
+        "OrdinaryForward": 50,
+    }
+
+
+@pytest.mark.parametrize("route", ROUTES)
+@pytest.mark.parametrize(
+    "case",
+    [
+        pytest.param(case, id=case_id, marks=pytest.mark.xdist_group(case.identity))
+        for case, case_id in zip(CASES, CASE_IDS, strict=True)
+    ],
+)
+def test_deployment_route_matches_external_oracle(
+    case: DeploymentCase, route: str
+) -> None:
+    if route == "ggtensile":
+        artifact = public_artifact_path(case)
+        if not artifact.is_file():
+            pytest.skip(f"selected GGTensile artifact is unavailable: {artifact}")
+    if route == "hip" and hip_control_root() is None:
+        pytest.skip("HIP control artifacts are unavailable")
+
+    prepared, expected = _case_state(case)
+    if route == "repeat":
+        _assert_repeatability(case, prepared, expected)
+        return
+    actual = _run(case, route, prepared)
+    _assert_reference(actual, expected, f"{route}/{case.identity}")

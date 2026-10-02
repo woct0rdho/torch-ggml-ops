@@ -16,11 +16,7 @@ The backward kernels are implemented with CK Tile, and it should be straightforw
 
 The C++ extension uses Python 3.10 ABI3 and libtorch 2.10 stable ABI. It requires PyTorch >= 2.10 .
 
-Extract source code from the llama.cpp repo:
-
-```bash
-python3 tools/generate_vendor.py --llama-cpp=/path/to/llama.cpp/
-```
+The llama.cpp sources used by the forward kernels are vendored under `csrc/vendor/llama_cpp/` and maintained in-tree, so no extraction step is needed.
 
 Build the package with ROCm and PyTorch in the current environment, and install in place:
 

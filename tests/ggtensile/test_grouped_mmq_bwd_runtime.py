@@ -61,7 +61,7 @@ def test_standalone_backward_control_resolves_directory_and_file(
         _resolve_code_object(tmp_path, "missing_symbol")
 
 
-def test_historical_hip_control_spec_is_separate_and_complete() -> None:
+def test_hip_control_spec_is_separate_and_complete() -> None:
     specs = hip_control_specs()
     assert len(specs) == 182
     assert len({spec.symbol for spec in specs}) == len(specs)

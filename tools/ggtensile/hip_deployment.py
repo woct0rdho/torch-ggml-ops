@@ -271,7 +271,7 @@ def select_grouped_forward_control(
 ) -> GroupedForwardControl:
     """Return the deployed HIP control for one routed single-projection key.
 
-    The key is the quant type and output shape; the tile choice then follows the
+    The key is the quant type and output shape. The tile choice then follows the
     ordered rules for that key, which depend on the aggregate rows and on the
     number of route entries in the bank. Unknown keys and unbuilt symbols fail
     closed.

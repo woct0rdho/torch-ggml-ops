@@ -1,42 +1,24 @@
-#pragma once
-
-// Minimal llama.cpp compatibility surface for the gfx1151 dense MMQ operator.
+// Minimal llama.cpp compatibility surface for the gfx1151 MMQ operators.
 // Derived from ggml/src/ggml-common.h, ggml/src/ggml-cuda/common.cuh, and ggml/src/ggml-cuda/vendors/hip.h.
+// Only what ROCm on RDNA3.5 needs is kept: the quant block layouts, the index helpers used by the
+// tile loaders, and the warp/shuffle surface they rely on. The architecture switches, the CUDA
+// compatibility aliases and the unused helper functions were removed.
+
+#pragma once
 
 #include <hip/hip_bf16.h>
 #include <hip/hip_fp16.h>
 #include <hip/hip_runtime.h>
 
 #include <cstdint>
-#include <type_traits>
 
-#define GGML_USE_HIP 1
-#define RDNA 1
-#define RDNA3 1
-#define RDNA3_5 1
-#define AMD_WMMA_AVAILABLE 1
 #define WARP_SIZE 32
-#define GGML_CUDA_CC_AMPERE 800
-
-#ifndef CUDART_VERSION
-#define CUDART_VERSION 12000
-#endif
 
 #define __shfl_sync(mask, var, lane, width) __shfl((var), (lane), (width))
-#define __shfl_up_sync(mask, var, delta, width) __shfl_up((var), (delta), (width))
 #define __shfl_xor_sync(mask, var, lane_mask, width) __shfl_xor((var), (lane_mask), (width))
 
-#define GGML_UNUSED(x) (void)(x)
-template <typename... Args>
-__host__ __device__ constexpr inline void ggml_unused_vars_impl(Args &&...) noexcept {}
-#define GGML_UNUSED_VARS(...) ggml_unused_vars_impl(__VA_ARGS__)
 #define NO_DEVICE_CODE __builtin_trap()
 #define GGML_PAD(x, n) (((x) + (n) - 1) & ~((n) - 1))
-
-using ggml_half = half;
-using ggml_half2 = half2;
-using nv_bfloat16 = __hip_bfloat16;
-using nv_bfloat162 = __hip_bfloat162;
 
 // GGML quantization identifiers used by the checkpoint.
 enum ggml_type : int32_t {
@@ -48,7 +30,6 @@ enum ggml_type : int32_t {
     GGML_TYPE_Q6_K = 14,
     GGML_TYPE_IQ2_XXS = 16,
     GGML_TYPE_IQ2_S = 22,
-    GGML_TYPE_COUNT = 40,
 };
 
 #define QK_K 256
@@ -61,19 +42,15 @@ enum ggml_type : int32_t {
 #define QR8_1 1
 #define QI8_1 (QK8_1 / (4 * QR8_1))
 #define QR2_K 4
-#define QI2_K (QK_K / (4 * QR2_K))
 #define QR3_K 4
 #define QI3_K (QK_K / (4 * QR3_K))
 #define QR4_K 2
-#define QI4_K (QK_K / (4 * QR4_K))
 #define QR5_K 2
 #define QI5_K (QK_K / (4 * QR5_K))
 #define QR6_K 2
 #define QI6_K (QK_K / (4 * QR6_K))
 #define QR2_XXS 4
-#define QI2_XXS (QK_K / (4 * QR2_XXS))
 #define QR2_S 4
-#define QI2_S (QK_K / (4 * QR2_S))
 
 struct block_q8_0 {
     half d;
@@ -161,10 +138,6 @@ static constexpr __host__ __device__ int ggml_cuda_get_physical_warp_size() {
     return 32;
 }
 
-static constexpr __host__ __device__ int ggml_cuda_get_max_cpy_bytes() {
-    return 16;
-}
-
 template <int nbytes, int alignment = 0>
 static __device__ __forceinline__ void ggml_cuda_memcpy_1(
         void * __restrict__ dst, const void * __restrict__ src) {
@@ -230,11 +203,6 @@ static __device__ __forceinline__ uint32_t unpack_ksigns(const uint8_t value) {
     const uint32_t signs = value ^ (parity << 7);
     return signs * 0x01010101U;
 }
-
-template <ggml_type type>
-struct ggml_cuda_type_traits {
-    static constexpr int qk = QK_K;
-};
 
 #include "iq2_s_grid.cuh"
 #include "iq2_xxs_grid.cuh"
