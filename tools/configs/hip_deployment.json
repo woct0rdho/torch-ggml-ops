@@ -848,9 +848,14 @@
       "k": 512,
       "rules": [
         {
-          "when": "rows_lt_per_entry",
-          "value": 80,
-          "symbol": "grouped_bwd_single_iq2_s_n2048_k512_mt64_nt64"
+          "when": "rows_eq",
+          "value": 65536,
+          "symbol": "grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt128"
+        },
+        {
+          "when": "rows_eq",
+          "value": 262144,
+          "symbol": "grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt128"
         },
         {
           "when": "always",
@@ -889,9 +894,14 @@
       "k": 512,
       "rules": [
         {
-          "when": "rows_lt_per_entry",
-          "value": 80,
-          "symbol": "grouped_bwd_single_q4_k_n2048_k512_mt64_nt64"
+          "when": "rows_eq",
+          "value": 65536,
+          "symbol": "grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt128"
+        },
+        {
+          "when": "rows_eq",
+          "value": 262144,
+          "symbol": "grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt128"
         },
         {
           "when": "always",
@@ -909,7 +919,7 @@
         {
           "when": "always",
           "value": null,
-          "symbol": "grouped_bwd_single_q5_k_n2048_k512_mt64_nt64"
+          "symbol": "grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt128"
         }
       ]
     },

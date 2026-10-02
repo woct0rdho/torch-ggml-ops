@@ -8,8 +8,8 @@ This record covers the routed single-projection IQ2_S down input-gradient kernel
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | --- | --- | --- | --- |
-| 1 | `(16384,512,2048)` | 9.12 | 0.824x | `grouped_bwd_single_iq2_s_n2048_k512_mt64_nt64` |
-| 4 | `(65536,512,2048)` | 13.95 | 0.738x | `grouped_bwd_single_iq2_s_n2048_k512_mt128_nt64` |
+| 1 | `(16384,512,2048)` | 9.12 | 0.824x | `grouped_bwd_single_iq2_s_n2048_k512_mt128_nt64` |
+| 4 | `(65536,512,2048)` | 13.95 | 0.738x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt128` |
 | 16 | `(262144,512,2048)` | 16.55 | 0.742x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt128` |
 
 The single-down IQ2_S body remains slower than predecoded BF16 AITER on all three final shapes.

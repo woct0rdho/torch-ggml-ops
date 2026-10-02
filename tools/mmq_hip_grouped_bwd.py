@@ -162,10 +162,17 @@ class InstalledGroupedBackwardControl(_HIPModule):
 
 
 class InstalledGroupedBackwardRowTaskControl(_HIPModule):
-    """Launch one M128/N128 row-task grouped-backward body."""
+    """Launch one M128/N128 row-task grouped-backward body.
+
+    The body indexes lanes with `threadIdx.x` only and expects the 128-thread
+    backward block, so it launches as `(128, 1, 1)`. Its task descriptors must
+    cover the full 128-row M tile. Callers size the workspace with
+    `ROW_TASK_ROWS`.
+    """
 
     PHYSICAL_EXPERTS = 256
     TILED_N = 128
+    ROW_TASK_ROWS = 128
 
     def __init__(
         self,
@@ -234,8 +241,8 @@ class InstalledGroupedBackwardRowTaskControl(_HIPModule):
                 (spec.in_features + self.TILED_N - 1) // self.TILED_N,
                 tasks.capacity,
                 1,
-                32,
-                4,
+                128,
+                1,
                 1,
                 0,
                 ctypes.c_void_p(stream),

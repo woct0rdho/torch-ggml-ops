@@ -683,6 +683,7 @@ def _hip_backward(
                     prepared.grad_outputs[0],
                     aggregate_rows=case.rows,
                     route_entries=_route_entry_count(prepared),
+                    row_tile=module.ROW_TASK_ROWS,
                 )
                 setup = stack.enter_context(InstalledGroupedRowTaskSetup())
                 setup.launch(

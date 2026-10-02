@@ -374,6 +374,7 @@ def _prepare_grouped_backward(
             entries,
         )
         if is_row_task_body(choice.symbol):
+            control = stack.enter_context(build_backward_control(choice, hip_root))
             setup = stack.enter_context(InstalledGroupedRowTaskSetup())
             hip_modules.append(setup)
             for index, route in enumerate(selection.routes):
@@ -382,6 +383,7 @@ def _prepare_grouped_backward(
                     prepared.grad_outputs[0],
                     aggregate_rows=case.rows,
                     route_entries=entries,
+                    row_tile=control.ROW_TASK_ROWS,
                 )
                 setup.launch(
                     route.expert_indices,
@@ -390,10 +392,7 @@ def _prepare_grouped_backward(
                     aggregate_rows=case.rows,
                     stream=stream,
                 )
-                row_task_controls[index] = (
-                    stack.enter_context(build_backward_control(choice, hip_root)),
-                    workspace,
-                )
+                row_task_controls[index] = (control, workspace)
         else:
             key = (case.quant_type, case.rows, entries)
             if key not in hip_by_entries:
