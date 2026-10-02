@@ -64,6 +64,7 @@ class ForwardConfig:
     mixed_j32_rows: tuple[int, int] = (0, 0)
     full_i: bool = False
     full_j: bool = False
+    prefetch_activation: bool = False
 
     def __post_init__(self) -> None:
         rows_a, rows_b = self.mixed_j32_rows
@@ -213,6 +214,12 @@ void {symbol}(
 
     if config.kind == ForwardKind.GROUPED_SERIAL:
         quant_type = _cpp_quant(config.quant_type)
+        if config.prefetch_activation:
+            prefix = prefix.replace(
+                '#include "mmq_core.cuh"',
+                '#define MMQ_PREFETCH_ACT 1\n#include "mmq_core.cuh"',
+                1,
+            )
         return (
             prefix
             + f"""extern "C" __launch_bounds__(MMQ_NTHREADS, 2) __global__

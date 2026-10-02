@@ -69,7 +69,11 @@ What the measurements show for this kernel family:
 - Masked rows of a large J tile cost much less than the per-tile weight decode: adaptive cascades, J16 and J128/J80 bodies all lose to the plain J32 (small routes) and J64 (large routes) bodies.
 - The compact single-stage weight tile is bitwise-identical and fits half the LDS, but the extra per-stage loader calls cancel the occupancy gain at the same J.
 
-Still open after this round, in measured-payoff order: a 128-bit activation tile load/store path (the activation stream is worth about a fifth of the time and sits on the critical path), an I=32 tile that trades activation reuse for a much smaller LDS footprint and a higher resident-workgroup count, and combining the compact weight tile with a four-wave workgroup so the extra resident workgroups are actually used.
+Still open after this round, in measured-payoff order: a swizzled activation tile and matching dot addressing to remove the `14%` LDS bank-conflict share (every 16-byte-aligned row stride this layout allows still conflicts, so this needs a layout change rather than padding), a permute-based nibble expansion for the decode-bound Q2_K bodies, and the I=32 tile that trades activation reuse for a smaller LDS footprint and a higher resident-workgroup count. The activation tile copy is closed: its 128-bit vectorised form is neutral, and the register prefetch above already covers the load latency.
+
+### Activation prefetch
+
+The activation stream was the next target: staging the second activation plane in registers before the first dot and storing it afterwards costs `1-2%` on this family, so the Q2_K controls keep the `prefetch_activation` knob off. Their decode-bound instruction stream leaves no slack for the staging registers to fill, unlike the three Qwen families where the same change is worth `1.6-3.2%` at B1/B4. Row-task ownership of the `n4096k2048` shapes was not pursued further because the single-projection row-task bodies already lose on the Qwen shapes that share the tiling.
 
 Measured instructions are `34%` of issue slots and WMMA is about `8%` of sampled stalls (VALU `52%`, barriers `14%`, LDS `10%`), so the remaining limit is the tile load, decode and LDS-store stream rather than the matrix unit.
 

@@ -8,9 +8,9 @@ This record covers the routed Q4_K down kernel for Qwen on gfx1151.
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | ---: | ---: | ---: | --- |
-| 1 | `(16384,2048,512)` | 17.85 | 1.575x | `grouped_fwd_serial_q4_k_n2048_k512_j32` |
-| 4 | `(65536,2048,512)` | 22.78 | 1.191x | `grouped_fwd_serial_q4_k_n2048_k512_j64` |
-| 16 | `(262144,2048,512)` | 24.51 | 1.062x | `grouped_fwd_serial_q4_k_n2048_k512_j64` |
+| 1 | `(16384,2048,512)` | 18.30 | 1.595x | `grouped_fwd_serial_q4_k_n2048_k512_j32` |
+| 4 | `(65536,2048,512)` | 23.30 | 1.230x | `grouped_fwd_serial_q4_k_n2048_k512_j64` |
+| 16 | `(262144,2048,512)` | 24.42 | 1.077x | `grouped_fwd_serial_q4_k_n2048_k512_j64` |
 
 The small-route batch now uses the pure J32 body: it removes masked rows and fits a fifth workgroup per WGP, which is worth `5-10%` at B1. B4/B16 keep the J64 mixed-tail body, which is level with the uniform-route control at B16 (`4%`). The B4/B16 residual remains packed scale/minimum reconstruction against predecoded BF16 weights. Flagged prior-sensitive at B1/B4.
 
@@ -47,7 +47,15 @@ What the measurements show for this kernel family:
 - Masked rows of a large J tile cost much less than the per-tile weight decode: adaptive cascades, J16 and J128/J80 bodies all lose to the plain J32 (small routes) and J64 (large routes) bodies.
 - The compact single-stage weight tile is bitwise-identical and fits half the LDS, but the extra per-stage loader calls cancel the occupancy gain at the same J.
 
-Still open after this round, in measured-payoff order: a 128-bit activation tile load/store path (the activation stream is worth about a fifth of the time and sits on the critical path), an I=32 tile that trades activation reuse for a much smaller LDS footprint and a higher resident-workgroup count, and combining the compact weight tile with a four-wave workgroup so the extra resident workgroups are actually used.
+Still open after this round, in measured-payoff order: a swizzled activation tile and matching dot addressing to remove the `14%` LDS bank-conflict share (every 16-byte-aligned row stride this layout allows still conflicts, so this needs a layout change rather than padding), a permute-based nibble expansion for the decode-bound Q2_K bodies, and the I=32 tile that trades activation reuse for a smaller LDS footprint and a higher resident-workgroup count. The activation tile copy is closed: its 128-bit vectorised form is neutral, and the register prefetch above already covers the load latency.
+
+### Activation prefetch
+
+The ablation that removed the activation global reads (keeping the LDS stores) was worth about a fifth of the runtime, so the next retune overlapped that latency instead of shrinking the copy: the second activation plane of each k block is now loaded into registers before the first dot and only stored to LDS after it. The switch is the `prefetch_activation` build knob, so it is a property of the control rather than of the kernel family.
+
+Within one build tree the staged body is `1.9%` faster at the largest batch and `2-3.5%` faster at the smaller ones; under the benchmark protocol the three Qwen families gain `1.6-3.2%` at B1/B4 and are neutral at B16, where the groups are large enough that the serial row-tile loop already covers the load latency. The DeepSeek Q2_K bodies keep the knob off: their decode-bound instruction stream has no slack to fill, and the staging registers cost `1-2%`.
+
+Two neighbouring ideas were measured and rejected on the same route banks: a 128-bit vectorised activation copy is neutral (so it is the load latency, not the copy instruction count, that matters), and row-task ownership of the `n2048k512` shapes loses at B16 (`+2.2%` for Q4_K, `-2.4%` for Q5_K, `-8.9%` for IQ2_S) because one workgroup per J tile pays the per-workgroup setup that the serial row loop amortises.
 
 Measured instructions are `34%` of issue slots and WMMA is about `8%` of sampled stalls (VALU `52%`, barriers `14%`, LDS `10%`), so the remaining limit is the tile load, decode and LDS-store stream rather than the matrix unit.
 

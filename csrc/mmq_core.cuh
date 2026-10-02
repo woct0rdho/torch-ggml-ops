@@ -432,6 +432,46 @@ static __device__ __forceinline__ void fixed_grouped_q8_0_mmq_bf16_body(
         j_max);
 }
 
+#if defined(MMQ_PREFETCH_ACT)
+// Register staging for the second activation plane: the global loads are issued
+// before the first dot and only stored to LDS after it, which overlaps their
+// latency with the WMMA work of the same k block.
+template <int J>
+static constexpr int grouped_activation_plane_regs() {
+    return (J * MMQ_TILE_Y_K + MMQ_NTHREADS - 1) / MMQ_NTHREADS;
+}
+
+template <int J, int N>
+static __device__ __forceinline__ void load_grouped_activation_plane_regs(
+        const int * __restrict__ activation,
+        int (&regs)[N],
+        const int lane,
+        const int valid_ints) {
+    constexpr int tile_ints = J * MMQ_TILE_Y_K;
+#pragma unroll
+    for (int index = 0; index < N; ++index) {
+        const int l = lane + index * MMQ_NTHREADS;
+        // never read past the quantized rows of the bank
+        regs[index] = l < tile_ints && l < valid_ints ? activation[l] : 0;
+    }
+}
+
+template <int J, int N>
+static __device__ __forceinline__ void store_grouped_activation_plane_regs(
+        int * __restrict__ tile_y,
+        const int (&regs)[N],
+        const int lane) {
+    constexpr int tile_ints = J * MMQ_TILE_Y_K;
+#pragma unroll
+    for (int index = 0; index < N; ++index) {
+        const int l = lane + index * MMQ_NTHREADS;
+        if (l < tile_ints) {
+            tile_y[l] = regs[index];
+        }
+    }
+}
+#endif // MMQ_PREFETCH_ACT
+
 template <int J>
 static __device__ __forceinline__ void
 load_grouped_nonaligned_full_activation_tile(
@@ -478,6 +518,18 @@ static __device__ __forceinline__ void grouped_mmq_k_block(
         weight_block_offset,
         i_max,
         kernel_blocks_per_weight_row);
+#if defined(MMQ_PREFETCH_ACT)
+    constexpr int plane_regs = grouped_activation_plane_regs<J>();
+    int plane_buffer[plane_regs];
+    {
+        const int lane = threadIdx.y * WARP_SIZE + threadIdx.x;
+        load_grouped_activation_plane_regs<J>(
+            activation_k + activation_plane_stride,
+            plane_buffer,
+            lane,
+            valid_activation_ints);
+    }
+#endif
 
     if constexpr (full_j && J * MMQ_TILE_Y_K % MMQ_NTHREADS != 0) {
         load_grouped_nonaligned_full_activation_tile<J>(activation_k, tile_y);
@@ -498,6 +550,12 @@ static __device__ __forceinline__ void grouped_mmq_k_block(
     mmq_vec_dot_target<type, J, !fixed_shape>(tile_x, tile_y, sum, 0);
     __syncthreads();
 
+#if defined(MMQ_PREFETCH_ACT)
+    {
+        const int lane = threadIdx.y * WARP_SIZE + threadIdx.x;
+        store_grouped_activation_plane_regs<J>(tile_y, plane_buffer, lane);
+    }
+#else
     if constexpr (full_j && J * MMQ_TILE_Y_K % MMQ_NTHREADS != 0) {
         load_grouped_nonaligned_full_activation_tile<J>(
             activation_k + activation_plane_stride, tile_y);
@@ -514,6 +572,7 @@ static __device__ __forceinline__ void grouped_mmq_k_block(
             }
         }
     }
+#endif
     __syncthreads();
     mmq_vec_dot_target<type, J, !fixed_shape>(
         tile_x, tile_y, sum, MMQ_TILE_NE_K);

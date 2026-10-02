@@ -228,6 +228,8 @@ def _forward_controls() -> list[HIPControlSpec]:
                 blocks_per_weight_row=2,
                 mixed_j32_tails=quant is QuantType.Q4_K,
                 mixed_j32_rows=(16384, 65536) if quant is QuantType.Q4_K else (0, 0),
+                prefetch_activation=quant
+                in {QuantType.Q4_K, QuantType.Q5_K, QuantType.IQ2_S},
             )
         )
     for quant in ROW_TASK_TYPES:
@@ -251,6 +253,7 @@ def _forward_controls() -> list[HIPControlSpec]:
                 nrows_weight=2048,
                 blocks_per_weight_row=2,
                 mixed_j32_tails=True,
+                prefetch_activation=True,
             ),
             _forward(
                 "grouped_fwd_serial_iq2_xxs_n2048_k4096_j64",
@@ -294,6 +297,7 @@ def _forward_controls() -> list[HIPControlSpec]:
                 j=32,
                 nrows_weight=2048,
                 blocks_per_weight_row=2,
+                prefetch_activation=True,
             ),
             _forward(
                 "grouped_fwd_serial_q4_k_n2048_k512_j32",
@@ -302,6 +306,7 @@ def _forward_controls() -> list[HIPControlSpec]:
                 j=32,
                 nrows_weight=2048,
                 blocks_per_weight_row=2,
+                prefetch_activation=True,
             ),
         ]
     )
