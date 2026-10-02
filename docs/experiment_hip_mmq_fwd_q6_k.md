@@ -6,11 +6,11 @@ This record covers the Qwen language-model-head Q6_K forward kernel on gfx1151.
 
 ## Final kernel result
 
-| `(M,N,K)` | HIP TFLOPS | HIP/torch.mm |
-| ---: | ---: | ---: |
-| `(64,248320,2048)` | 15.949 | 2.12x |
-| `(128,248320,2048)` | 17.202 | 1.65x |
-| `(256,248320,2048)` | 17.249 | 0.84x |
+| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm | Kernel |
+| ---: | --- | --- | --- | --- |
+| Language model head | `(64,248320,2048)` | 15.949 | 2.12x | `dense_fwd_q6_k_k2048_j64_full` |
+| Language model head | `(128,248320,2048)` | 17.202 | 1.65x | `dense_fwd_q6_k_k2048_j128_full` |
+| Language model head | `(256,248320,2048)` | 17.249 | 0.84x | `dense_fwd_q6_k_k2048_j128_full` |
 
 The isolated M256 packed kernel is slower than BF16 `torch.mm`, even though the smaller chunks win.
 

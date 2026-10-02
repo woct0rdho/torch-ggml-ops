@@ -15,6 +15,15 @@ from .family_registry import (
     parse_instance,
     writer_for_instance,
 )
+from .grouped_mmq_bwd_pair_inspection import inspect_grouped_backward_pair_artifact
+from .grouped_mmq_bwd_pair_model import GroupedBackwardPairProblem
+from .grouped_mmq_bwd_pair_spec import GroupedBackwardPairKernelSpec
+from .grouped_mmq_fwd_inspection import inspect_grouped_forward_artifact
+from .grouped_mmq_fwd_model import GroupedForwardProblem
+from .grouped_mmq_fwd_pair_inspection import inspect_grouped_forward_pair_artifact
+from .grouped_mmq_fwd_pair_model import GroupedForwardPairProblem
+from .grouped_mmq_fwd_pair_spec import GroupedForwardPairKernelSpec
+from .grouped_mmq_fwd_spec import GroupedForwardKernelSpec
 from .identity import KernelFamily
 from .inspection import ArtifactInspection, inspect_artifact
 from .kernel_instance import KernelInstance
@@ -282,34 +291,18 @@ def _inspect_instance_artifact(
     spec = instance.kernel_spec
     kernel_name = instance_name(instance)
     if family is KernelFamily.GroupedForward:
-        from .grouped_mmq_fwd_inspection import inspect_grouped_forward_artifact
-        from .grouped_mmq_fwd_model import GroupedForwardProblem
-        from .grouped_mmq_fwd_spec import GroupedForwardKernelSpec
-
         assert isinstance(problem, GroupedForwardProblem)
         assert isinstance(spec, GroupedForwardKernelSpec)
         return inspect_grouped_forward_artifact(
             problem, spec, kernel_name, code_object, toolchain
         )
     if family is KernelFamily.GroupedForwardPair:
-        from .grouped_mmq_fwd_pair_inspection import (
-            inspect_grouped_forward_pair_artifact,
-        )
-        from .grouped_mmq_fwd_pair_model import GroupedForwardPairProblem
-        from .grouped_mmq_fwd_pair_spec import GroupedForwardPairKernelSpec
-
         assert isinstance(problem, GroupedForwardPairProblem)
         assert isinstance(spec, GroupedForwardPairKernelSpec)
         return inspect_grouped_forward_pair_artifact(
             problem, spec, kernel_name, code_object, toolchain
         )
     if family is KernelFamily.GroupedBackwardPair:
-        from .grouped_mmq_bwd_pair_inspection import (
-            inspect_grouped_backward_pair_artifact,
-        )
-        from .grouped_mmq_bwd_pair_model import GroupedBackwardPairProblem
-        from .grouped_mmq_bwd_pair_spec import GroupedBackwardPairKernelSpec
-
         assert isinstance(problem, GroupedBackwardPairProblem)
         assert isinstance(spec, GroupedBackwardPairKernelSpec)
         return inspect_grouped_backward_pair_artifact(

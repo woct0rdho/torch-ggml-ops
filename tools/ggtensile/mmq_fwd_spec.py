@@ -5,6 +5,13 @@ from enum import Enum
 from types import MappingProxyType
 from typing import TYPE_CHECKING, ClassVar, Literal, cast
 
+from tools.mmq_quant_formats import (
+    Q8_1_D4_BLOCK_VALUES,
+    Q8_1_F16_D4S4_BLOCK_BYTES,
+    Q8_1_F32_D4_BLOCK_BYTES,
+    QUANT_FORMATS,
+)
+
 from .identity import (
     GFX1151_TARGET,
     KernelFamily,
@@ -16,12 +23,6 @@ from .model import ProblemSize
 from .physical_resources import (
     GFX1151_RESOURCE_CAPACITY,
     PhysicalResourceUsage,
-)
-from .quant_formats import (
-    Q8_1_D4_BLOCK_VALUES,
-    Q8_1_F16_D4S4_BLOCK_BYTES,
-    Q8_1_F32_D4_BLOCK_BYTES,
-    QUANT_FORMATS,
 )
 from .schema import SchemaError
 from .schema import boolean as _boolean
@@ -1145,6 +1146,7 @@ class EpilogueSpec:
 
 
 def derive_forward_resource_usage(spec: "ForwardKernelSpec") -> PhysicalResourceUsage:
+    # Local import: .mmq_fwd_physical imports this spec module at module scope.
     from .mmq_fwd_physical import derive_forward_physical_plan
 
     return derive_forward_physical_plan(spec).resources
@@ -2322,6 +2324,7 @@ class Q6ForwardSchedule:
 
     @property
     def resource_usage(self) -> PhysicalResourceUsage:
+        # Local import: .mmq_fwd_physical imports this spec module at module scope.
         from .mmq_fwd_physical import q6_structured_physical_plan
 
         return q6_structured_physical_plan(
@@ -2463,6 +2466,9 @@ class DerivedForwardState:
         *,
         activation_rows: int | None = None,
     ) -> "DerivedForwardState":
+        # Local import: .mmq_fwd_physical imports this spec module at module scope.
+        from .mmq_fwd_physical import derive_forward_physical_plan
+
         semantics = QuantForwardSemantics.for_quant_type(contract.quant_type)
         payload_bytes = max(
             plane.byte_offset + plane.byte_count for plane in semantics.payload_planes
@@ -2470,7 +2476,6 @@ class DerivedForwardState:
         assert payload_bytes == contract.packed_weight_block_bytes
         mechanism = forward_mechanism_contract(kernel_spec.global_memory.weight_staging)
         mechanism.validate(contract)
-        from .mmq_fwd_physical import derive_forward_physical_plan
 
         physical_plan = derive_forward_physical_plan(kernel_spec)
         resources = physical_plan.resources

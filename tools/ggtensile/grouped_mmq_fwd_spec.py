@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from tools.mmq_quant_formats import GROUPED_QUANT_FORMATS, Q8_1_D4_BLOCK_VALUES
+
 from .grouped_mmq_fwd_model import (
     GroupedActivationStaging,
     GroupedDecodedPolicy,
@@ -23,7 +25,6 @@ from .grouped_mmq_fwd_physical import (
 from .mmq_fwd_spec import QuantForwardSemantics
 from .model import ProblemSize
 from .physical_resources import GFX1151_RESOURCE_CAPACITY
-from .quant_formats import GROUPED_QUANT_FORMATS, Q8_1_D4_BLOCK_VALUES
 from .schema import SchemaError
 from .schema import boolean as _boolean
 from .schema import enum_value as _enum

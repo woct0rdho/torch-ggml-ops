@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Literal, Protocol, TypeAlias
 
+from tools.mmq_quant_formats import Q8_1_F32_D4_BLOCK_BYTES
+
 from .kernel_writer_assembly import (
     DeterministicRegisterPlan,
     DeterministicRegisterPool,
@@ -26,7 +28,6 @@ from .mmq_fwd_spec import (
     forward_mechanism_contract,
 )
 from .physical_resources import PhysicalResourceUsage
-from .quant_formats import Q8_1_F32_D4_BLOCK_BYTES
 
 
 @dataclass(frozen=True)

@@ -3,6 +3,8 @@
 from dataclasses import dataclass, replace
 from enum import Enum
 
+from tools.mmq_quant_formats import BACKWARD_QUANT_FORMATS, QuantFormat
+
 from .mmq_bwd_spec import (
     BackwardKernelSpec,
     BackwardProblemContract,
@@ -10,7 +12,6 @@ from .mmq_bwd_spec import (
     backward_mechanism_contract,
 )
 from .model import ProblemSize
-from .quant_formats import BACKWARD_QUANT_FORMATS, QuantFormat
 from .schema import SchemaError
 from .schema import enum_value as _enum
 from .schema import integer as _integer

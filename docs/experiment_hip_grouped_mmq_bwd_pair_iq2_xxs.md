@@ -8,11 +8,11 @@ Aggregate routed rows are `R=12288,49152,196608`.
 
 ## Final kernel result
 
-| Batch | Logical shape | HIP TFLOPS | HIP/AITER GMM |
-| ---: | --- | ---: | ---: |
-| 1 | `2 x (12288,2048,4096)` | 13.99 | 1.513x |
-| 4 | `2 x (49152,2048,4096)` | 17.59 | 1.172x |
-| 16 | `2 x (196608,2048,4096)` | 18.15 | 0.698x |
+| Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
+| ---: | --- | --- | --- | --- |
+| 1 | `2 x (12288,2048,4096)` | 13.99 | 1.513x | `grouped_bwd_pair_iq2_xxs_n2048_k4096_mt64_nt64` |
+| 4 | `2 x (49152,2048,4096)` | 17.59 | 1.172x | `grouped_bwd_tuned_pair_iq2_xxs_n2048_k4096_mt128_nt64` |
+| 16 | `2 x (196608,2048,4096)` | 18.15 | 0.698x | `grouped_bwd_tuned_pair_iq2_xxs_n2048_k4096_mt128_nt64` |
 
 The B16 loss remains a packed two-weight decode and pair-accumulator cost relative to predecoded BF16 AITER.
 

@@ -2,7 +2,7 @@ import ctypes
 
 import pytest
 
-from tools.ggtensile.kernel_abi import (
+from tools.mmq_abi import (
     FIXED_GROUPED_BACKWARD_ABI,
     FIXED_GROUPED_FORWARD_ABI,
     GROUPED_FORWARD_ABI,

@@ -4,7 +4,8 @@ from dataclasses import dataclass
 
 from rocisa import code  # ty: ignore[unresolved-import]
 
-from .kernel_abi import ORDINARY_FORWARD_ABI
+from tools.mmq_abi import ORDINARY_FORWARD_ABI
+
 from .kernel_writer_assembly import (
     Assembly,
     DeterministicRegisterPlan,

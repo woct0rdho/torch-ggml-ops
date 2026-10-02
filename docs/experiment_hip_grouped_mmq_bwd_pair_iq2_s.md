@@ -8,11 +8,11 @@ Aggregate rows are `R=16384,65536,262144`.
 
 ## Final kernel result
 
-| Batch | Logical shape | HIP TFLOPS | HIP/AITER GMM |
-| ---: | --- | ---: | ---: |
-| 1 | `2 x (16384,512,2048)` | 17.26 | 2.158x |
-| 4 | `2 x (65536,512,2048)` | 26.02 | 1.899x |
-| 16 | `2 x (262144,512,2048)` | 24.17 | 1.479x |
+| Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
+| ---: | --- | --- | --- | --- |
+| 1 | `2 x (16384,512,2048)` | 17.26 | 2.158x | `grouped_bwd_pair_iq2_s_n512_k2048_mt64_nt64` |
+| 4 | `2 x (65536,512,2048)` | 26.02 | 1.899x | `grouped_bwd_pair_iq2_s_n512_k2048_mt128_nt64` |
+| 16 | `2 x (262144,512,2048)` | 24.17 | 1.479x | `grouped_bwd_pair_iq2_s_n512_k2048_mt128_nt64` |
 
 All three final shapes beat the AITER GMM baseline in the current uniform-route matrix.
 

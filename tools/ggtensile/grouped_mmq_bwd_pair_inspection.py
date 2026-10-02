@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from tools.mmq_abi import GROUPED_BACKWARD_PAIR_ABI
+
 from .grouped_mmq_bwd_pair_model import GroupedBackwardPairProblem
 from .grouped_mmq_bwd_pair_physical import (
     derive_grouped_backward_pair_physical_plan,
@@ -23,7 +25,6 @@ from .inspection import (
     _metadata,
     _metadata_arguments,
 )
-from .kernel_abi import GROUPED_BACKWARD_PAIR_ABI
 from .toolchain import Toolchain
 
 

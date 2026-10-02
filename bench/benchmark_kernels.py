@@ -9,74 +9,64 @@ import torch
 
 from bench.benchmark_common import Implementation
 from bench.benchmark_data import RouteSelection
-from tools.ggtensile.dense_mmq_bwd_runtime import InstalledDenseBackwardModule
 from tools.ggtensile.family_registry import instance_name
 from tools.ggtensile.fixed_grouped_mmq_bwd_model import FixedBackwardProblem
 from tools.ggtensile.fixed_grouped_mmq_bwd_spec import FixedBackwardKernelSpec
 from tools.ggtensile.fixed_grouped_mmq_fwd_model import FixedForwardProblem
 from tools.ggtensile.fixed_grouped_mmq_fwd_spec import FixedForwardKernelSpec
 from tools.ggtensile.grouped_mmq_bwd_pair_model import GroupedBackwardPairProblem
-from tools.ggtensile.grouped_mmq_bwd_pair_runtime import (
-    GroupedBackwardPairModule,
-    InstalledGroupedBackwardPairIQ2SControl,
-    InstalledGroupedBackwardPairIQ2XXSControl,
-    InstalledGroupedBackwardPairQ3KControl,
-)
 from tools.ggtensile.grouped_mmq_bwd_pair_spec import GroupedBackwardPairKernelSpec
-from tools.ggtensile.grouped_mmq_bwd_runtime import InstalledGroupedBackwardControl
 from tools.ggtensile.grouped_mmq_bwd_spec import GroupedBackwardKernelSpec
 from tools.ggtensile.grouped_mmq_fwd_model import GroupedForwardProblem
 from tools.ggtensile.grouped_mmq_fwd_pair_model import (
     GroupedForwardPairProblem,
     GroupedPairRouteOwnership,
 )
-from tools.ggtensile.grouped_mmq_fwd_pair_runtime import (
-    GroupedForwardPairModule,
-    GroupedForwardPairRowTaskModule,
-    GroupedForwardPairRowTaskWorkspace,
-    InstalledGroupedForwardPairIQ2XXSSerialControl,
-    InstalledGroupedForwardPairQ3RowTaskControl,
-    InstalledGroupedForwardPairQ3SerialControl,
-    InstalledGroupedForwardPairRowTaskControl,
-    InstalledGroupedForwardPairSerialControl,
-    InstalledGroupedForwardRowTaskSetup,
-)
 from tools.ggtensile.grouped_mmq_fwd_pair_spec import (
     DerivedGroupedForwardPairState,
     GroupedForwardPairKernelSpec,
 )
 from tools.ggtensile.grouped_mmq_fwd_spec import GroupedForwardKernelSpec
-from tools.ggtensile.hip_deployment import select_grouped_forward_control
 from tools.ggtensile.mmq_bwd_spec import BackwardKernelSpec
 from tools.ggtensile.mmq_fwd_spec import ForwardKernelSpec
 from tools.ggtensile.model import ProblemSize
-from tools.ggtensile.runtime import (
+from tools.mmq_correctness import PreparedCase
+from tools.mmq_deployment_cases import DeploymentCase, public_artifact_path
+from tools.mmq_hip_dense import InstalledDenseBackwardModule
+from tools.mmq_hip_deployment import (
+    select_grouped_forward_control,
+    select_routed_control,
+)
+from tools.mmq_hip_launchers import (
+    build_backward_control,
+    build_backward_pair_control,
+    build_forward_pair_control,
+    is_row_task_body,
+    quantizer_module,
+)
+from tools.mmq_hip_row_task import (
+    GroupedForwardPairRowTaskWorkspace,
+    InstalledGroupedForwardRowTaskSetup,
+    InstalledGroupedRowTaskSetup,
+    RowTaskWorkspace,
+)
+from tools.mmq_pair_runtime import (
+    GroupedBackwardPairModule,
+    GroupedForwardPairModule,
+    GroupedForwardPairRowTaskModule,
+)
+from tools.mmq_runtime import (
     BackwardModule,
     FixedGroupedQ8BackwardModule,
     FixedGroupedQ8ForwardModule,
     FixedHipForwardModule,
-    FixedQ81F16D2S6QuantizerModule,
-    FixedQ81F16D4S4QuantizerModule,
-    FixedQ81F32D4QuantizerModule,
     ForwardModule,
     GroupedBackwardModule,
     GroupedForwardModule,
     InstalledFixedGroupedQ8BackwardModule,
     InstalledFixedGroupedQ8ForwardModule,
+    InstalledGroupedForwardModule,
 )
-from tools.mmq_correctness import PreparedCase
-from tools.mmq_deployment_cases import DeploymentCase, public_artifact_path
-
-
-def _quantizer(case: DeploymentCase):
-    if case.quant_type == "Q2_K":
-        return FixedQ81F16D2S6QuantizerModule
-    if case.quant_type in {"Q4_K", "Q5_K"} and case.operation in {
-        "OrdinaryForward",
-        "GroupedForward",
-    }:
-        return FixedQ81F16D4S4QuantizerModule
-    return FixedQ81F32D4QuantizerModule
 
 
 def _grouped_forward_control(case: DeploymentCase, route_entries: int, hip_root: Path):
@@ -86,7 +76,6 @@ def _grouped_forward_control(case: DeploymentCase, route_entries: int, hip_root:
     spec = case.instance.kernel_spec
     assert isinstance(problem, GroupedForwardProblem)
     assert isinstance(spec, GroupedForwardKernelSpec)
-    from tools.ggtensile.runtime import InstalledGroupedForwardModule
 
     control = select_grouped_forward_control(
         case.quant_type,
@@ -98,49 +87,38 @@ def _grouped_forward_control(case: DeploymentCase, route_entries: int, hip_root:
     return InstalledGroupedForwardModule(problem, spec, control, hip_root)
 
 
-def _pair_forward_control(
-    problem: GroupedForwardPairProblem,
-    spec: GroupedForwardPairKernelSpec,
-    row_tasks: bool,
-    hip_root: Path,
+def _pair_forward_controls(
+    case: DeploymentCase, selection: RouteSelection, hip_root: Path
 ):
-    if problem.quant_data_type == "IQ2_S":
-        cls = (
-            InstalledGroupedForwardPairRowTaskControl
-            if row_tasks
-            else InstalledGroupedForwardPairSerialControl
-        )
-        return cls(hip_root)
-    if problem.quant_data_type == "Q3_K":
-        cls = (
-            InstalledGroupedForwardPairQ3RowTaskControl
-            if row_tasks
-            else InstalledGroupedForwardPairQ3SerialControl
-        )
-        return cls(hip_root)
-    if problem.quant_data_type == "IQ2_XXS" and not row_tasks:
-        return InstalledGroupedForwardPairIQ2XXSSerialControl(
-            spec.geometry.macro_tile[0], hip_root
-        )
-    raise ValueError("no paired-forward HIP control for the selected specification")
+    """Build both projection controls for one deployed paired-forward body."""
+
+    entries = max(route.expert_indices.numel() for route in selection.routes)
+    choice = select_routed_control(
+        "GroupedForwardPair",
+        case.quant_type,
+        case.out_features,
+        case.in_features,
+        case.rows,
+        entries,
+    )
+    return choice, [build_forward_pair_control(choice, hip_root) for _ in range(2)]
 
 
 def _pair_backward_control(
-    problem: GroupedBackwardPairProblem,
-    spec: GroupedBackwardPairKernelSpec,
-    hip_root: Path,
+    case: DeploymentCase, selection: RouteSelection, hip_root: Path
 ):
-    controls = {
-        "Q3_K": InstalledGroupedBackwardPairQ3KControl,
-        "IQ2_S": InstalledGroupedBackwardPairIQ2SControl,
-        "IQ2_XXS": InstalledGroupedBackwardPairIQ2XXSControl,
-    }
-    control = controls.get(problem.quant_data_type)
-    if control is None:
-        raise ValueError(
-            f"no paired-backward HIP control for {problem.quant_data_type}"
-        )
-    return control(spec.compute.geometry.macro_tile0, hip_root)
+    """Build the deployed paired-backward control for one route bank."""
+
+    entries = max(route.expert_indices.numel() for route in selection.routes)
+    choice = select_routed_control(
+        "GroupedBackwardPair",
+        case.quant_type,
+        case.out_features,
+        case.in_features,
+        case.rows,
+        entries,
+    )
+    return build_backward_pair_control(choice, hip_root)
 
 
 def _metadata(
@@ -167,7 +145,7 @@ def _forward_resources(
         if case.operation.startswith("Fixed")
         else input_tensor
     )
-    quantizer = stack.enter_context(_quantizer(case)())
+    quantizer = stack.enter_context(quantizer_module(case.operation, case.quant_type)())
     workspace = quantizer.allocate(source)
     stream = torch.cuda.current_stream().cuda_stream
     quantizer.launch(source, workspace, stream=stream)
@@ -380,28 +358,50 @@ def _prepare_grouped_backward(
             )
         )
     hip_by_entries = {}
-    hip_by_route_entries = {}
+    hip_modules: list[Any] = []
+    hip_control = None
+    row_task_controls = {}
     if "hip" in names:
         if hip_root is None:
             raise ValueError("HIP root is missing")
-        for route in selection.routes:
-            entries = route.expert_indices.numel()
-            control_spec = InstalledGroupedBackwardControl.select_spec(
-                case.quant_type, case.rows, entries
-            )
-            key = (
-                control_spec.symbol,
-                control_spec.out_features,
-                control_spec.in_features,
-                control_spec.packed_row_bytes,
-            )
+        entries = max(route.expert_indices.numel() for route in selection.routes)
+        choice = select_routed_control(
+            "GroupedBackward",
+            case.quant_type,
+            case.out_features,
+            case.in_features,
+            case.rows,
+            entries,
+        )
+        if is_row_task_body(choice.symbol):
+            setup = stack.enter_context(InstalledGroupedRowTaskSetup())
+            hip_modules.append(setup)
+            for index, route in enumerate(selection.routes):
+                entries = route.expert_indices.numel()
+                workspace = RowTaskWorkspace.allocate(
+                    prepared.grad_outputs[0],
+                    aggregate_rows=case.rows,
+                    route_entries=entries,
+                )
+                setup.launch(
+                    route.expert_indices,
+                    route.expert_offsets,
+                    workspace,
+                    aggregate_rows=case.rows,
+                    stream=stream,
+                )
+                row_task_controls[index] = (
+                    stack.enter_context(build_backward_control(choice, hip_root)),
+                    workspace,
+                )
+        else:
+            key = (case.quant_type, case.rows, entries)
             if key not in hip_by_entries:
                 hip_by_entries[key] = stack.enter_context(
-                    InstalledGroupedBackwardControl(
-                        case.quant_type, case.rows, entries, hip_root
-                    )
+                    build_backward_control(choice, hip_root)
                 )
-            hip_by_route_entries[entries] = hip_by_entries[key]
+                hip_modules.append(hip_by_entries[key])
+            hip_control = hip_by_entries[key]
     for name in names:
         output = torch.empty(
             case.rows, case.in_features, device="cuda", dtype=torch.bfloat16
@@ -427,7 +427,18 @@ def _prepare_grouped_backward(
 
             def launch(output=output) -> torch.Tensor:
                 route = selection.current
-                hip_by_route_entries[route.expert_indices.numel()].launch(
+                if row_task_controls:
+                    control, workspace = row_task_controls[selection.index]
+                    control.launch(
+                        prepared.grad_outputs[0],
+                        prepared.packed_weights[0],
+                        output,
+                        workspace,
+                        stream=stream,
+                    )
+                    return output
+                assert hip_control is not None
+                hip_control.launch(
                     prepared.grad_outputs[0],
                     prepared.packed_weights[0],
                     output,
@@ -437,7 +448,7 @@ def _prepare_grouped_backward(
                 )
                 return output
 
-            module_values = tuple(hip_by_entries.values())
+            module_values = tuple(hip_modules)
         implementations[name] = Implementation(
             name,
             launch,
@@ -462,8 +473,15 @@ def _prepare_grouped_pair_forward(
     assert prepared.input is not None
     workspace, stream = _forward_resources(stack, case, prepared)
     row_tasks = spec.route_ownership is GroupedPairRouteOwnership.DeviceRowTasks
+    hip_choice = None
+    hip_row_tasks = False
+    if "hip" in names:
+        if hip_root is None:
+            raise ValueError("HIP root is missing")
+        hip_choice, hip_controls = _pair_forward_controls(case, selection, hip_root)
+        hip_row_tasks = is_row_task_body(hip_choice.symbol)
     tasks_bank = []
-    if row_tasks:
+    if row_tasks or hip_row_tasks:
         state = DerivedGroupedForwardPairState.from_problem_spec(problem, spec)
         if state.kernel_spec.row_task_rows is None:
             raise ValueError("row-task specification is missing its task row count")
@@ -499,14 +517,7 @@ def _prepare_grouped_pair_forward(
 
     hip_modules = []
     if "hip" in names:
-        if hip_root is None:
-            raise ValueError("HIP root is missing")
-        for _ in range(2):
-            hip_modules.append(
-                stack.enter_context(
-                    _pair_forward_control(problem, spec, row_tasks, hip_root)
-                )
-            )
+        hip_modules.extend(stack.enter_context(control) for control in hip_controls)
 
     implementations = {}
     for name in names:
@@ -557,7 +568,7 @@ def _prepare_grouped_pair_forward(
                 for module, weight, output in zip(
                     hip_modules, prepared.packed_weights, outputs, strict=True
                 ):
-                    if row_tasks:
+                    if hip_row_tasks:
                         module.launch(
                             weight,
                             workspace,
@@ -758,7 +769,7 @@ def _prepare_grouped_pair_backward(
     if "hip" in names:
         if hip_root is None:
             raise ValueError("HIP root is missing")
-        hip = stack.enter_context(_pair_backward_control(problem, spec, hip_root))
+        hip = stack.enter_context(_pair_backward_control(case, selection, hip_root))
     implementations = {}
     for name in names:
         output = torch.empty(

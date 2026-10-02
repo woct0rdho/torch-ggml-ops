@@ -6,8 +6,8 @@ This record covers the fused routed Q3_K gate/up forward kernel on gfx1151.
 
 ## Final kernel result
 
-| Batch | Logical shape | HIP TFLOPS | HIP/AITER GMM | Kernel |
-| ---: | ---: | ---: | ---: | --- |
+| Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
+| ---: | --- | --- | --- | --- |
 | 1 | `2 x (16384,512,2048)` | 14.01 | 2.080x | `grouped_fwd_row_task_q3_k_n512_k2048_j64` |
 | 4 | `2 x (65536,512,2048)` | 18.92 | 1.657x | `grouped_fwd_row_task_q3_k_n512_k2048_j64` |
 | 16 | `2 x (262144,512,2048)` | 19.51 | 1.004x | `grouped_fwd_row_task_q3_k_n512_k2048_j64` |

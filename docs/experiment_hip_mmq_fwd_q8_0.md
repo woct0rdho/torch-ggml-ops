@@ -8,31 +8,31 @@ The ordinary workload contains six geometry families; the language-model head is
 
 ## Final kernel result
 
-| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm |
-| --- | ---: | ---: | ---: |
-| Q-A | `(2048,1024,4096)` | 31.043 | 1.81x |
-| Q-A | `(8192,1024,4096)` | 29.660 | 1.67x |
-| Q-A | `(32768,1024,4096)` | 29.838 | 1.65x |
-| Q-B | `(2048,32768,1024)` | 27.036 | 1.34x |
-| Q-B | `(8192,32768,1024)` | 27.111 | 1.33x |
-| Q-B | `(32768,32768,1024)` | 26.621 | 1.31x |
-| KV | `(2048,512,4096)` | 28.632 | 2.04x |
-| KV | `(8192,512,4096)` | 30.346 | 1.64x |
-| KV | `(32768,512,4096)` | 29.473 | 1.51x |
-| Output B | `(2048,4096,8192)` | 27.641 | 1.33x |
-| Output B | `(8192,4096,8192)` | 28.379 | 1.32x |
-| Output B | `(32768,4096,8192)` | 27.759 | 1.30x |
-| Shared gate/up | `(2048,2048,4096)` | 30.313 | 1.61x |
-| Shared gate/up | `(8192,2048,4096)` | 29.710 | 1.56x |
-| Shared gate/up | `(32768,2048,4096)` | 28.683 | 1.46x |
-| Shared down | `(2048,4096,2048)` | 29.741 | 1.47x |
-| Shared down | `(8192,4096,2048)` | 29.241 | 1.47x |
-| Shared down | `(32768,4096,2048)` | 28.401 | 1.39x |
-| LM head | `(32,129280,4096)` | 12.178 | 1.92x |
-| LM head | `(64,129280,4096)` | 24.053 | 3.07x |
-| LM head | `(128,129280,4096)` | 28.418 | 2.68x |
-| LM head | `(256,129280,4096)` | 28.248 | 2.35x |
-| LM head | `(512,129280,4096)` | 27.757 | 1.34x |
+| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm | Kernel |
+| ---: | --- | --- | --- | --- |
+| Q-A | `(2048,1024,4096)` | 31.043 | 1.81x | `dense_fwd_q8_0_k4096_j128_full` |
+| Q-A | `(8192,1024,4096)` | 29.660 | 1.67x | `dense_fwd_q8_0_k4096_j128_full` |
+| Q-A | `(32768,1024,4096)` | 29.838 | 1.65x | `dense_fwd_q8_0_k4096_j128_full` |
+| Q-B | `(2048,32768,1024)` | 27.036 | 1.34x | `dense_fwd_q8_0_k1024_j128_full` |
+| Q-B | `(8192,32768,1024)` | 27.111 | 1.33x | `dense_fwd_q8_0_k1024_j128_full` |
+| Q-B | `(32768,32768,1024)` | 26.621 | 1.31x | `dense_fwd_q8_0_k1024_j128_full` |
+| KV | `(2048,512,4096)` | 28.632 | 2.04x | `dense_fwd_q8_0_k4096_j128_full` |
+| KV | `(8192,512,4096)` | 30.346 | 1.64x | `dense_fwd_q8_0_k4096_j128_full` |
+| KV | `(32768,512,4096)` | 29.473 | 1.51x | `dense_fwd_q8_0_k4096_j128_full` |
+| Output B | `(2048,4096,8192)` | 27.641 | 1.33x | `dense_fwd_q8_0_k8192_j128_full` |
+| Output B | `(8192,4096,8192)` | 28.379 | 1.32x | `dense_fwd_q8_0_k8192_j128_full` |
+| Output B | `(32768,4096,8192)` | 27.759 | 1.30x | `dense_fwd_q8_0_k8192_j128_full` |
+| Shared gate/up | `(2048,2048,4096)` | 30.313 | 1.61x | `dense_fwd_q8_0_k4096_j128_full` |
+| Shared gate/up | `(8192,2048,4096)` | 29.710 | 1.56x | `dense_fwd_q8_0_k4096_j128_full` |
+| Shared gate/up | `(32768,2048,4096)` | 28.683 | 1.46x | `dense_fwd_q8_0_k4096_j128_full` |
+| Shared down | `(2048,4096,2048)` | 29.741 | 1.47x | `dense_fwd_q8_0_k2048_j128_full` |
+| Shared down | `(8192,4096,2048)` | 29.241 | 1.47x | `dense_fwd_q8_0_k2048_j128_full` |
+| Shared down | `(32768,4096,2048)` | 28.401 | 1.39x | `dense_fwd_q8_0_k2048_j128_full` |
+| LM head | `(32,129280,4096)` | 12.178 | 1.92x | `dense_fwd_q8_0_k4096_j64_bounded` |
+| LM head | `(64,129280,4096)` | 24.053 | 3.07x | `dense_fwd_q8_0_k4096_j64_full` |
+| LM head | `(128,129280,4096)` | 28.418 | 2.68x | `dense_fwd_q8_0_k4096_j128_full` |
+| LM head | `(256,129280,4096)` | 28.248 | 2.35x | `dense_fwd_q8_0_k4096_j128_full` |
+| LM head | `(512,129280,4096)` | 27.757 | 1.34x | `dense_fwd_q8_0_k4096_j128_full` |
 
 The ordinary rows run the exact `dense_fwd_q8_0_k<K>_j128_full` artifacts; the LM head runs the bounded J64 body at M32, the full J64 body at M64, and the J128 bodies at M128 and above. The measured values sit above the earlier complete-call records because the producer is no longer inside the window, not because the multiply body changed.
 

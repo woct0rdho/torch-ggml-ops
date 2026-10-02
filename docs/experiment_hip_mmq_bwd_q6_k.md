@@ -6,11 +6,11 @@ This record covers the Qwen language-model-head Q6_K packed input-gradient kerne
 
 ## Final kernel result
 
-| `(M,N,K)` | HIP TFLOPS | HIP/torch.mm | Kernel |
-| ---: | ---: | ---: | --- |
-| `(64,2048,248320)` | 12.111 | 1.841x | `dense_bwd_q6_k_m64_nt32_ki64_full` |
-| `(128,2048,248320)` | 13.757 | 1.533x | `dense_bwd_q6_k_m128_nt64_ki32_full` |
-| `(256,2048,248320)` | 21.449 | 1.564x | `dense_bwd_q6_k_m256_nt64_ki32_full` |
+| Family | `(M,K,N)` | HIP TFLOPS | HIP/torch.mm | Kernel |
+| --- | ---: | ---: | ---: | ---: |
+| Language model head | `(64,2048,248320)` | 12.111 | 1.841x | `dense_bwd_q6_k_m64_nt32_ki64_full` |
+| Language model head | `(128,2048,248320)` | 13.757 | 1.533x | `dense_bwd_q6_k_m128_nt64_ki32_full` |
+| Language model head | `(256,2048,248320)` | 21.449 | 1.564x | `dense_bwd_q6_k_m256_nt64_ki32_full` |
 
 The values use the current Q6_K packed/BF16 kernel matrix. M256 is the primary large chunk, with M64 and M128 as smaller exact geometries. The `Kernel` column names the deployed body for each chunk; it is the fastest built body whose output is bitwise equal to the reference body in the per-key candidate campaign, and the `_full_*` bodies are the unbounded exact variants (`_bounded` builds exist for shapes outside the exact-tile contract).
 

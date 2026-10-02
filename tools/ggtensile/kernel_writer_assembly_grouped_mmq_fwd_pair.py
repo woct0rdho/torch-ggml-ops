@@ -1,5 +1,10 @@
 """Assembly writer facade for paired grouped forward research kernels."""
 
+from tools.mmq_abi import (
+    GROUPED_FORWARD_PAIR_ABI,
+    GROUPED_FORWARD_PAIR_ROW_TASK_ABI,
+)
+
 from .grouped_mmq_fwd_pair_lowering_common import GroupedForwardPairLoweringContext
 from .grouped_mmq_fwd_pair_lowering_iq2_s import GroupedIQ2SPairedK128Lowering
 from .grouped_mmq_fwd_pair_lowering_iq2_xxs import (
@@ -16,10 +21,6 @@ from .grouped_mmq_fwd_pair_spec import (
     GroupedForwardPairKernelSpec,
 )
 from .grouped_mmq_fwd_pair_validation import validate_grouped_forward_pair_solution
-from .kernel_abi import (
-    GROUPED_FORWARD_PAIR_ABI,
-    GROUPED_FORWARD_PAIR_ROW_TASK_ABI,
-)
 from .kernel_writer_assembly import AssemblyKernelWriter, KernelEmissionPlan
 from .mmq_fwd_lowering import ForwardKernelWriterError
 from .toolchain import Toolchain

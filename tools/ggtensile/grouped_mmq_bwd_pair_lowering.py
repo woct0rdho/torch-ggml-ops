@@ -1,5 +1,8 @@
 """Fused two-projection lowering for grouped MMQ backward."""
 
+from tools.mmq_abi import GROUPED_BACKWARD_PAIR_ABI
+from tools.mmq_work_group_mapping import mapped_route_stride, work_group_mapping_shift
+
 from .grouped_mmq_bwd_lowering import (
     GroupedBackwardTileAccess,
     GroupedBackwardTileComputeEmitter,
@@ -9,7 +12,6 @@ from .grouped_mmq_bwd_pair_physical import (
     GroupedBackwardPairScalarPlan,
 )
 from .grouped_mmq_bwd_pair_spec import DerivedGroupedBackwardPairState
-from .kernel_abi import GROUPED_BACKWARD_PAIR_ABI
 from .kernel_writer_assembly import (
     LoweringResult,
     emit_kernel_trailer,
@@ -17,7 +19,6 @@ from .kernel_writer_assembly import (
 )
 from .mmq_bwd_emission import _Assembly
 from .mmq_bwd_lowering_quant import UnboundedBackwardTileAccess
-from .work_group_mapping import mapped_route_stride, work_group_mapping_shift
 
 
 class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):

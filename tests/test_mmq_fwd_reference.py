@@ -3,7 +3,7 @@ import struct
 
 import pytest
 
-from tools.ggtensile.mmq_fwd_reference import (
+from tools.mmq_fwd_reference import (
     decode_q3_k_block,
     decode_q3_k_rows,
     decode_q8_0_block,

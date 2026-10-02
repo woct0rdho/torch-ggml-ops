@@ -3,8 +3,9 @@
 from dataclasses import dataclass
 from typing import ClassVar, Protocol
 
+from tools.mmq_abi import GROUPED_FORWARD_ABI
+
 from .grouped_mmq_fwd_spec import GroupedRouteState
-from .kernel_abi import GROUPED_FORWARD_ABI
 from .kernel_writer_assembly import Assembly, RegisterAssignment
 
 

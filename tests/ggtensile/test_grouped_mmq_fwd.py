@@ -15,9 +15,7 @@ from tools.ggtensile.family_registry import (
     problem_type_for_family,
     writer_for_instance,
 )
-from tools.ggtensile.grouped_mmq_fwd_inspection import (
-    inspect_grouped_forward_artifact,
-)
+from tools.ggtensile.grouped_mmq_fwd_inspection import inspect_grouped_forward_artifact
 from tools.ggtensile.grouped_mmq_fwd_model import (
     GroupedActivationStaging,
     GroupedForwardProblem,
@@ -31,22 +29,15 @@ from tools.ggtensile.grouped_mmq_fwd_spec import (
     GroupedForwardKernelSpec,
     GroupedRowTileDispatchPolicy,
 )
-from tools.ggtensile.grouped_mmq_fwd_validation import (
-    validate_grouped_forward_solution,
-)
-from tools.ggtensile.hip_deployment import (
-    control_inventory,
-    routed_grouped_forward_rules,
-    select_grouped_forward_control,
-)
+from tools.ggtensile.grouped_mmq_fwd_validation import validate_grouped_forward_solution
 from tools.ggtensile.identity import KernelFamily
 from tools.ggtensile.kernel_instance import KernelInstance
 from tools.ggtensile.model import SchemaError
-from tools.ggtensile.runtime import (
-    GroupedForwardModule,
-    InstalledGroupedForwardModule,
-)
 from tools.ggtensile.toolchain import Toolchain
+from tools.mmq_hip_deployment import (
+    select_grouped_forward_control,
+)
+from tools.mmq_runtime import GroupedForwardModule, InstalledGroupedForwardModule
 
 
 def _instance(
@@ -313,70 +304,6 @@ def test_grouped_iq2_s_rebuild_is_deterministic(tmp_path: Path) -> None:
         code_objects.append(code_object.read_bytes())
     assert sources[0] == sources[1]
     assert code_objects[0] == code_objects[1]
-
-
-def test_grouped_forward_rules_select_only_built_controls() -> None:
-    inventory = control_inventory()
-    families = {}
-    for (
-        quant_type,
-        out_features,
-        in_features,
-        value,
-        symbol,
-    ) in routed_grouped_forward_rules():
-        assert symbol in inventory, f"{quant_type} selects unbuilt control {symbol}"
-        families.setdefault((quant_type, out_features, in_features), []).append(
-            (value, symbol)
-        )
-    for key, rules in families.items():
-        assert rules[-1][0] == 0, f"{key} has no unconditional default rule"
-        defaults = {symbol for value, symbol in rules if value == 0}
-        assert len(defaults) == 1
-        assert defaults.isdisjoint({symbol for value, symbol in rules if value != 0}), (
-            f"{key} reuses its default body in a conditional rule"
-        )
-
-
-@pytest.mark.parametrize(
-    ("quant_type", "out_features", "in_features", "rows", "expected"),
-    (
-        ("Q4_K", 2048, 512, 16_384, "grouped_fwd_serial_q4_k_n2048_k512_j32"),
-        ("Q4_K", 2048, 512, 65_536, "grouped_fwd_serial_q4_k_n2048_k512_j64"),
-        ("Q4_K", 2048, 512, 262_144, "grouped_fwd_serial_q4_k_n2048_k512_j64"),
-        ("Q5_K", 2048, 512, 16_384, "grouped_fwd_serial_q5_k_n2048_k512_j32"),
-        ("Q5_K", 2048, 512, 65_536, "grouped_fwd_serial_q5_k_n2048_k512_j64"),
-        ("IQ2_S", 2048, 512, 16_384, "grouped_fwd_serial_iq2_s_n2048_k512_j64_j32"),
-        ("IQ2_S", 2048, 512, 65_536, "grouped_fwd_serial_iq2_s_n2048_k512_j64_j32"),
-        ("IQ2_S", 2048, 512, 262_144, "grouped_fwd_serial_iq2_s_n2048_k512_j64"),
-        ("Q2_K", 4096, 2048, 12_288, "grouped_fwd_serial_q2_k_n4096_k2048_j32_j16"),
-        ("Q2_K", 4096, 2048, 49_152, "grouped_fwd_serial_q2_k_n4096_k2048_j32_j16"),
-        ("Q2_K", 4096, 2048, 196_608, "grouped_fwd_serial_q2_k_n4096_k2048_j32"),
-    ),
-)
-def test_grouped_forward_policy_matches_the_deployed_bodies(
-    quant_type: str, out_features: int, in_features: int, rows: int, expected: str
-) -> None:
-    control = select_grouped_forward_control(
-        quant_type, out_features, in_features, rows, 256
-    )
-    assert control.symbol == expected
-    grid, block, shared = control.launch_configuration(out_features, 256)
-    assert grid == (out_features // 64, 256, 1)
-    assert block == (32, 4, 1)
-    assert shared == control.lds_bytes
-
-
-def test_grouped_forward_policy_fails_closed() -> None:
-    with pytest.raises(ValueError, match="no deployed HIP grouped-forward control"):
-        select_grouped_forward_control("Q6_K", 2048, 512, 16_384, 256)
-    with pytest.raises(ValueError, match="no deployed HIP grouped-forward control"):
-        select_grouped_forward_control("Q4_K", 1024, 512, 16_384, 256)
-    with pytest.raises(ValueError, match="at least one route entry"):
-        select_grouped_forward_control("Q4_K", 2048, 512, 16_384, 0)
-    control = select_grouped_forward_control("Q4_K", 2048, 512, 16_384, 256)
-    with pytest.raises(ValueError, match="at least one route entry"):
-        control.launch_configuration(2048, 0)
 
 
 @pytest.mark.parametrize("aggregate_rows", (16384, 65536, 262144))

@@ -23,7 +23,6 @@ from tools.ggtensile.grouped_mmq_bwd_spec import (
 )
 from tools.ggtensile.identity import KernelFamily
 from tools.ggtensile.inspection import inspect_artifact
-from tools.ggtensile.kernel_abi import GROUPED_BACKWARD_ABI
 from tools.ggtensile.kernel_instance import KernelInstance
 from tools.ggtensile.mmq_bwd_spec import (
     BackwardBitfieldShiftPlacement,
@@ -31,9 +30,10 @@ from tools.ggtensile.mmq_bwd_spec import (
     BackwardMetadataLoad,
 )
 from tools.ggtensile.model import ProblemSize, ProblemType, SchemaError
-from tools.ggtensile.runtime import GroupedBackwardModule
 from tools.ggtensile.toolchain import Toolchain
 from tools.ggtensile.validation import validate_grouped_backward_solution
+from tools.mmq_abi import GROUPED_BACKWARD_ABI
+from tools.mmq_runtime import GroupedBackwardModule
 
 _CONFIG = Path(__file__).resolve().parents[2] / "tools/ggtensile/configs"
 _CATALOG_INSTANCE = (

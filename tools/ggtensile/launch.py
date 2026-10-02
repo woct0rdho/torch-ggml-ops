@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from tools.mmq_work_group_mapping import mapped_grid_extent
+
 from .family_registry import KernelAbiName, abi_for_instance
 from .fixed_grouped_mmq_bwd_model import FixedBackwardProblem
 from .fixed_grouped_mmq_bwd_spec import (
@@ -37,7 +39,6 @@ from .mmq_bwd_physical import derive_backward_physical_plan
 from .mmq_bwd_spec import BackwardKernelSpec, DerivedBackwardState
 from .mmq_fwd_spec import DerivedForwardState, ForwardKernelSpec
 from .model import ProblemSize
-from .work_group_mapping import mapped_grid_extent
 
 
 @dataclass(frozen=True)

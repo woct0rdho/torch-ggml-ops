@@ -4,6 +4,12 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from tools.mmq_quant_formats import (
+    BACKWARD_QUANT_FORMATS,
+    GROUPED_QUANT_FORMATS,
+    QUANT_FORMATS,
+)
+
 from .family_registry import (
     family_for_instance,
     mapping_for_instance,
@@ -22,7 +28,6 @@ from .kernel_instance import KernelInstance
 from .mmq_bwd_spec import BackwardKernelSpec
 from .mmq_fwd_spec import ForwardKernelSpec
 from .model import ProblemSize, ProblemType
-from .quant_formats import BACKWARD_QUANT_FORMATS, GROUPED_QUANT_FORMATS, QUANT_FORMATS
 from .schema import integer, strict_mapping
 
 

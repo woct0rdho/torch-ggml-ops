@@ -11,12 +11,13 @@ from pathlib import Path
 import gguf
 import numpy as np
 import torch
+from aiter.ops.triton.gmm import gmm
 
 from tools.aiter_gmm_compat import gmm_config
 from tools.ggtensile.grouped_mmq_bwd_pair_spec import GroupedBackwardPairKernelSpec
-from tools.ggtensile.quant_formats import BACKWARD_QUANT_FORMATS
 from tools.gguf_dequant_compat import dequantize_logical
 from tools.mmq_deployment_cases import DeploymentCase, model_path
+from tools.mmq_quant_formats import BACKWARD_QUANT_FORMATS
 
 CONTROL_NRMSE_LIMIT = 5e-4
 REFERENCE_NRMSE_LIMIT = 0.04
@@ -435,8 +436,6 @@ def prepare_case(
 def _gmm(
     lhs: torch.Tensor, rhs: torch.Tensor, groups: torch.Tensor, config: dict[str, int]
 ) -> torch.Tensor:
-    from aiter.ops.triton.gmm import gmm
-
     return gmm(
         lhs,
         rhs,

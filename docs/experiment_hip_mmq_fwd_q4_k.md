@@ -13,20 +13,20 @@ This record covers the gfx1151 HIP packed-MMQ forward kernels for Q4_K weights.
 
 ## Final kernel result
 
-| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm |
-| --- | ---: | ---: | ---: |
-| Query/query gate | `(2048,8192,2048)` | 28.260 | 1.28x |
-| Query/query gate | `(8192,8192,2048)` | 28.095 | 1.25x |
-| Query/query gate | `(32768,8192,2048)` | 27.541 | 1.22x |
-| Narrow K/V/gate/up | `(2048,512,2048)` | 25.162 | 1.84x |
-| Narrow K/V/gate/up | `(8192,512,2048)` | 28.133 | 1.52x |
-| Narrow K/V/gate/up | `(32768,512,2048)` | 28.319 | 1.47x |
-| Attention output | `(2048,2048,4096)` | 28.667 | 1.46x |
-| Attention output | `(8192,2048,4096)` | 28.482 | 1.43x |
-| Attention output | `(32768,2048,4096)` | 28.506 | 1.42x |
-| Shared down | `(2048,2048,512)` | 25.024 | 8.38x |
-| Shared down | `(8192,2048,512)` | 26.865 | 8.23x |
-| Shared down | `(32768,2048,512)` | 27.817 | 8.39x |
+| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm | Kernel |
+| ---: | --- | --- | --- | --- |
+| Query/query gate | `(2048,8192,2048)` | 28.260 | 1.28x | `dense_fwd_q4_k_k2048_j128_full` |
+| Query/query gate | `(8192,8192,2048)` | 28.095 | 1.25x | `dense_fwd_q4_k_k2048_j128_full` |
+| Query/query gate | `(32768,8192,2048)` | 27.541 | 1.22x | `dense_fwd_q4_k_k2048_j128_full` |
+| Narrow K/V/gate/up | `(2048,512,2048)` | 25.162 | 1.84x | `dense_fwd_q4_k_k2048_j128_full` |
+| Narrow K/V/gate/up | `(8192,512,2048)` | 28.133 | 1.52x | `dense_fwd_q4_k_k2048_j128_full` |
+| Narrow K/V/gate/up | `(32768,512,2048)` | 28.319 | 1.47x | `dense_fwd_q4_k_k2048_j128_full` |
+| Attention output | `(2048,2048,4096)` | 28.667 | 1.46x | `dense_fwd_q4_k_k4096_j128_full` |
+| Attention output | `(8192,2048,4096)` | 28.482 | 1.43x | `dense_fwd_q4_k_k4096_j128_full` |
+| Attention output | `(32768,2048,4096)` | 28.506 | 1.42x | `dense_fwd_q4_k_k4096_j128_full` |
+| Shared down | `(2048,2048,512)` | 25.024 | 8.38x | `dense_fwd_q4_k_k512_j128_full` |
+| Shared down | `(8192,2048,512)` | 26.865 | 8.23x | `dense_fwd_q4_k_k512_j128_full` |
+| Shared down | `(32768,2048,512)` | 27.817 | 8.39x | `dense_fwd_q4_k_k512_j128_full` |
 
 ## Kernel implementation
 

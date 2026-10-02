@@ -2,7 +2,8 @@
 
 from collections.abc import Callable
 
-from .kernel_abi import ORDINARY_BACKWARD_ABI
+from tools.mmq_abi import ORDINARY_BACKWARD_ABI
+
 from .kernel_writer_assembly import (
     LoweringResult,
     emit_add_pointer,

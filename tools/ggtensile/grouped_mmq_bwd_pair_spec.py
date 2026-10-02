@@ -2,6 +2,12 @@
 
 from dataclasses import dataclass
 
+from tools.mmq_quant_formats import BACKWARD_QUANT_FORMATS
+from tools.mmq_work_group_mapping import (
+    mapped_grid_extent,
+    mapped_route_stride,
+)
+
 from .grouped_mmq_bwd_pair_model import (
     GroupedBackwardPairProblem,
     GroupedBackwardPairProjectionPolicy,
@@ -18,7 +24,6 @@ from .mmq_bwd_spec import (
 )
 from .model import ProblemSize
 from .physical_resources import GFX1151_RESOURCE_CAPACITY
-from .quant_formats import BACKWARD_QUANT_FORMATS
 from .schema import SchemaError
 from .schema import boolean as _boolean
 from .schema import enum_value as _enum
@@ -26,10 +31,6 @@ from .schema import integer as _integer
 from .schema import strict_mapping as _mapping
 from .schema import strict_mapping_optional as _mapping_optional
 from .schema import string as _string
-from .work_group_mapping import (
-    mapped_grid_extent,
-    mapped_route_stride,
-)
 
 _U32_MAX = 0xFFFFFFFF
 
@@ -230,6 +231,11 @@ def validate_grouped_backward_pair_capability(
     problem: GroupedBackwardPairProblem,
     kernel_spec: GroupedBackwardPairKernelSpec,
 ) -> None:
+    # Local import: it imports this spec module at module scope.
+    from .grouped_mmq_bwd_pair_physical import (
+        derive_grouped_backward_pair_physical_plan,
+    )
+
     contract = GroupedBackwardPairContract.for_problem(problem)
     compute = kernel_spec.compute
     ordinary_contract = contract.ordinary(problem.aggregate_rows)
@@ -249,10 +255,6 @@ def validate_grouped_backward_pair_capability(
     assert effective_split * compute.geometry.macro_tile0 <= _U32_MAX
 
     state = DerivedGroupedBackwardPairState.from_problem_spec(problem, kernel_spec)
-    from .grouped_mmq_bwd_pair_physical import (
-        derive_grouped_backward_pair_physical_plan,
-    )
-
     physical = derive_grouped_backward_pair_physical_plan(state)
     for plan in (physical.ordinary, physical.second_projection):
         if plan is not None:

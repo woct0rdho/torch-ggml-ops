@@ -16,12 +16,12 @@ from tools.mmq_correctness import (
 )
 from tools.mmq_deployment_cases import (
     DeploymentCase,
-    hip_control_root,
     operation_counts,
     public_artifact_path,
     public_deployment_cases,
 )
 from tools.mmq_deployment_runner import run_implementation
+from tools.mmq_hip_paths import control_root
 
 CASES = public_deployment_cases()
 CASE_IDS = tuple(
@@ -74,7 +74,7 @@ def _run(case: DeploymentCase, implementation: str, prepared: PreparedCase):
         case,
         prepared,
         implementation,
-        hip_root=hip_control_root(),
+        hip_root=control_root(),
     )
 
 
@@ -143,7 +143,7 @@ def test_deployment_route_matches_external_oracle(
         artifact = public_artifact_path(case)
         if not artifact.is_file():
             pytest.skip(f"selected GGTensile artifact is unavailable: {artifact}")
-    if route == "hip" and hip_control_root() is None:
+    if route == "hip" and control_root() is None:
         pytest.skip("HIP control artifacts are unavailable")
 
     prepared, expected = _case_state(case)

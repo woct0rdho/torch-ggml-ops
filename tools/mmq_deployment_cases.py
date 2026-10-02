@@ -6,7 +6,6 @@ the stable checkpoint representatives used to materialize those exact shapes.
 """
 
 import os
-import sysconfig
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
@@ -204,15 +203,3 @@ def operation_counts() -> dict[str, int]:
         )
         for operation in sorted({case.operation for case in public_deployment_cases()})
     }
-
-
-def hip_control_root() -> Path | None:
-    configured = os.environ.get("GGTENSILE_HIP_CONTROL_ROOT")
-    if configured:
-        return Path(configured)
-    root = ROOT / "build/mmq_hip_controls/gfx1151"
-    if root.is_dir():
-        return root
-    purelib = Path(sysconfig.get_paths()["purelib"])
-    installed = purelib / "torch_ggml_ops/kernels/gfx1151"
-    return installed if installed.is_dir() else None

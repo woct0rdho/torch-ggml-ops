@@ -1,4 +1,8 @@
-"""Research-only launchers for paired grouped MMQ backward artifacts."""
+"""Launchers for the deployed paired grouped-backward HIP controls.
+
+Every body is chosen by `tools.mmq_hip_deployment`. This module only binds a
+symbol to its launch geometry and validation.
+"""
 
 import ctypes
 from pathlib import Path
@@ -6,132 +10,12 @@ from typing import ClassVar
 
 import torch
 
-from .grouped_mmq_bwd_pair_model import GroupedBackwardPairProblem
-from .grouped_mmq_bwd_pair_spec import (
-    DerivedGroupedBackwardPairState,
-    GroupedBackwardPairKernelSpec,
+from tools.mmq_abi import GROUPED_BACKWARD_PAIR_ABI
+from tools.mmq_runtime import (
+    HIPRuntimeError,
+    _find_installed_kernel,
+    _HIPModule,
 )
-from .grouped_mmq_bwd_pair_validation import validate_grouped_backward_pair_solution
-from .kernel_abi import GROUPED_BACKWARD_PAIR_ABI
-from .runtime import HIPRuntimeError, _find_installed_kernel, _HIPModule
-from .work_group_mapping import mapped_grid_extent
-
-
-class GroupedBackwardPairModule(_HIPModule):
-    """Launch one exact fused grouped backward-pair code object."""
-
-    def __init__(
-        self,
-        problem: GroupedBackwardPairProblem,
-        kernel_spec: GroupedBackwardPairKernelSpec,
-        code_object: Path,
-        kernel_name: str,
-        hip_library: Path | None = None,
-    ) -> None:
-        validate_grouped_backward_pair_solution(problem, kernel_spec)
-        self.problem = problem
-        self.kernel_spec = kernel_spec
-        self.state = DerivedGroupedBackwardPairState.from_problem_spec(
-            problem, kernel_spec
-        )
-        super().__init__(code_object, hip_library, kernel_name)
-
-    def launch(
-        self,
-        first_grad_output: torch.Tensor,
-        second_grad_output: torch.Tensor,
-        first_packed_weight: torch.Tensor,
-        second_packed_weight: torch.Tensor,
-        grad_input: torch.Tensor,
-        expert_indices: torch.Tensor,
-        expert_offsets: torch.Tensor,
-        *,
-        stream: int,
-    ) -> None:
-        if not self._module or not self._function:
-            raise HIPRuntimeError("HIP module is closed")
-        state = self.state
-        problem = self.problem
-        tensors = (
-            first_grad_output,
-            second_grad_output,
-            first_packed_weight,
-            second_packed_weight,
-            grad_input,
-            expert_indices,
-            expert_offsets,
-        )
-        if any(not tensor.is_cuda or not tensor.is_contiguous() for tensor in tensors):
-            raise HIPRuntimeError(
-                "backward-pair launch requires contiguous HIP tensors"
-            )
-        if any(tensor.storage_offset() != 0 for tensor in tensors):
-            raise HIPRuntimeError("backward-pair tensors require zero storage offsets")
-        if (
-            first_grad_output.dtype != torch.bfloat16
-            or second_grad_output.dtype != torch.bfloat16
-            or first_packed_weight.dtype != torch.uint8
-            or second_packed_weight.dtype != torch.uint8
-            or grad_input.dtype != torch.bfloat16
-            or expert_indices.dtype != torch.int64
-            or expert_offsets.dtype != torch.int32
-        ):
-            raise HIPRuntimeError("backward-pair tensor dtypes are invalid")
-        expected_grad = (problem.aggregate_rows, problem.out_features)
-        if tuple(first_grad_output.shape) != expected_grad:
-            raise HIPRuntimeError("first backward-pair gradient shape is invalid")
-        if tuple(second_grad_output.shape) != expected_grad:
-            raise HIPRuntimeError("second backward-pair gradient shape is invalid")
-        if tuple(first_packed_weight.shape) != state.expected_packed_weight_shape:
-            raise HIPRuntimeError("first backward-pair weight shape is invalid")
-        if tuple(second_packed_weight.shape) != state.expected_packed_weight_shape:
-            raise HIPRuntimeError("second backward-pair weight shape is invalid")
-        if tuple(grad_input.shape) != (problem.aggregate_rows, problem.in_features):
-            raise HIPRuntimeError("backward-pair destination shape is invalid")
-        if expert_indices.ndim != 1 or expert_offsets.ndim != 1:
-            raise HIPRuntimeError(
-                "backward-pair route metadata must be one-dimensional"
-            )
-        route_entries = expert_indices.numel()
-        if route_entries <= 0 or route_entries > problem.max_route_entries:
-            raise HIPRuntimeError("backward-pair route count is invalid")
-        if expert_offsets.numel() != route_entries:
-            raise HIPRuntimeError("backward-pair route metadata lengths differ")
-        if len({tensor.device for tensor in tensors}) != 1:
-            raise HIPRuntimeError("backward-pair tensors must share one device")
-
-        arguments = GROUPED_BACKWARD_PAIR_ABI.pack(
-            {
-                "first_grad_output": first_grad_output.data_ptr(),
-                "second_grad_output": second_grad_output.data_ptr(),
-                "first_packed_weight": first_packed_weight.data_ptr(),
-                "second_packed_weight": second_packed_weight.data_ptr(),
-                "grad_input": grad_input.data_ptr(),
-                "expert_indices": expert_indices.data_ptr(),
-                "expert_offsets": expert_offsets.data_ptr(),
-                "num_experts": problem.physical_experts,
-                "rows": problem.aggregate_rows,
-                "bytes_per_expert": state.bytes_per_expert,
-            }
-        )
-        compute = self.kernel_spec.compute
-        self._check(
-            self._lib.hipModuleLaunchKernel(
-                self._function,
-                mapped_grid_extent(
-                    problem.in_features // compute.geometry.macro_tile1,
-                    compute.geometry.work_group_mapping,
-                ),
-                route_entries * self.kernel_spec.route_ownership.split_factor,
-                1,
-                *compute.geometry.work_group,
-                0,
-                ctypes.c_void_p(stream),
-                arguments.parameters,
-                None,
-            ),
-            "hipModuleLaunchKernel",
-        )
 
 
 class InstalledGroupedBackwardPairQ3KControl(_HIPModule):

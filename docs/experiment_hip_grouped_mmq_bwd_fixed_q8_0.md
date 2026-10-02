@@ -6,11 +6,11 @@ This record covers the fixed eight-group DeepSeek Q8_0 input-gradient kernel.
 
 ## Final kernel result
 
-| Batch | Logical shape | HIP TFLOPS | HIP/torch.bmm |
-| ---: | --- | ---: | ---: |
-| 1 | `8 x (2048,1024,4096)` | 22.989 | 1.036x |
-| 4 | `8 x (8192,1024,4096)` | 23.837 | 1.011x |
-| 16 | `8 x (32768,1024,4096)` | 25.054 | 1.057x |
+| Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/torch.bmm | Kernel |
+| ---: | --- | --- | --- | --- |
+| 1 | `8 x (2048,1024,4096)` | 22.989 | 1.036x | `grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64` |
+| 4 | `8 x (8192,1024,4096)` | 23.837 | 1.011x | `grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64` |
+| 16 | `8 x (32768,1024,4096)` | 25.054 | 1.057x | `grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64` |
 
 The multiply-only result is above the BF16 BMM baseline at all three token counts: a clear win at 2,048 and 32,768 tokens, and parity within measurement noise at 8,192 tokens (`throughput_ratio.paired` `1.0335/1.0096/1.0521`, pass-to-pass ratio spread `0.14%/0.22%/0.93%`). The earlier claim of an advantage at all three counts was not reproducible with the M256/N64 control: HIP now runs the tuned M192/N64 body at every size (see the kernel implementation section).
 

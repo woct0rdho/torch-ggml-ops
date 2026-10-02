@@ -1,5 +1,7 @@
 """Assembly writer facade for isolated grouped MMQ forward kernels."""
 
+from tools.mmq_abi import GROUPED_FORWARD_ABI
+
 from .grouped_mmq_fwd_lowering import (
     GroupedForwardLoweringContext,
     GroupedPackedScaleMinimumDirectLowering,
@@ -14,7 +16,6 @@ from .grouped_mmq_fwd_model import (
 )
 from .grouped_mmq_fwd_spec import DerivedGroupedForwardState, GroupedForwardKernelSpec
 from .grouped_mmq_fwd_validation import validate_grouped_forward_solution
-from .kernel_abi import GROUPED_FORWARD_ABI
 from .kernel_writer_assembly import AssemblyKernelWriter, KernelEmissionPlan
 from .toolchain import Toolchain
 

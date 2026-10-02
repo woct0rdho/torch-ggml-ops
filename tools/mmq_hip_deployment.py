@@ -1,9 +1,9 @@
 """Deployed HIP control selection for the exact deployment keys.
 
 `tools/configs/hip_deployment.json` is the single source of truth for which
-installed HIP control serves each exact key. The control's build configuration
-in `tools.mmq_hip_control_spec` remains the authority for its geometry, so
-a deployment entry only names a symbol and the launch configuration is derived
+installed HIP control serves each problem. The control's build configuration in
+`tools.mmq_hip_control_spec` remains the authority for its geometry, so a
+deployment entry only names a symbol and the launch configuration is derived
 from the same record that built the artifact. The GGTensile catalogs under the
 same `configs/` directory play the same role for the public bundle.
 
@@ -14,11 +14,12 @@ Keys use the module problem axes:
 - `FixedGroupedForward` / `FixedGroupedBackward`: `(tokens,
   output_features, input_features)` of the fixed problem.
 
-The non-routed families are keyed by their exact `(operation, quant, m, n, k)`
-in the catalog. The routed single-projection grouped-forward controls cannot be
-keyed that way because their tile selection also depends on the number of route
-entries in the bank, so their rule table lives here as well and every caller
-resolves them through `select_grouped_forward_control`.
+The `families` table keys the non-routed families by their exact
+`(operation, quant, m, n, k)`. The routed families cannot be keyed that way
+because the deployed body also depends on the aggregate routed rows and, for
+the grouped-forward tile choice, on the route entries in the bank. Their
+ordered rules live in the `routed` table of the same catalog, and every caller
+resolves them through `select_routed_control`.
 """
 
 import json
@@ -34,7 +35,7 @@ from tools.mmq_bundle_wrapper_source import (
 )
 from tools.mmq_hip_control_spec import HIPControlSpec, hip_control_specs
 
-CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "hip_deployment.json"
+CONFIG_PATH = Path(__file__).resolve().parent / "configs" / "hip_deployment.json"
 _DENSE_FORWARD_BLOCK = (32, 4, 1)
 _DENSE_BACKWARD_BLOCK = (128, 1, 1)
 _Q3_K_LDS_BYTES = 40_448
@@ -199,12 +200,28 @@ class GroupedForwardControl:
 
 
 @dataclass(frozen=True)
-class _RoutedRule:
-    """One ordered choice of the routed rule table."""
+class RoutedControl:
+    """One deployed routed control choice for a family.
 
+    The routed families cannot be keyed by an exact `(m, n, k)` because the
+    body also depends on the aggregate routed rows and, for the routed
+    grouped-forward tile choice, on the route entries in the bank. Their
+    ordered rules live in the same catalog as the exact families and every
+    caller resolves them through `select_routed_control`.
+    """
+
+    operation: str
+    quant_type: str
+    out_features: int
+    in_features: int
     when: str
-    value: int
+    value: int | None
     symbol: str
+    tile: int | None = None
+
+    @property
+    def key(self) -> tuple[str, str, int, int]:
+        return (self.operation, self.quant_type, self.out_features, self.in_features)
 
 
 def _rows_equal(rows: int, route_entries: int, value: int) -> bool:
@@ -225,40 +242,75 @@ _ROUTED_PREDICATES = {
     "always": _always,
 }
 
-# First match wins, and every family ends with the unconditional default.
-_GROUPED_FORWARD_RULES: dict[tuple[str, int, int], tuple[_RoutedRule, ...]] = {
-    ("Q4_K", 2048, 512): (
-        _RoutedRule("rows_lt_per_entry", 128, "grouped_fwd_serial_q4_k_n2048_k512_j32"),
-        _RoutedRule("always", 0, "grouped_fwd_serial_q4_k_n2048_k512_j64"),
-    ),
-    ("Q5_K", 2048, 512): (
-        _RoutedRule("rows_lt_per_entry", 128, "grouped_fwd_serial_q5_k_n2048_k512_j32"),
-        _RoutedRule("always", 0, "grouped_fwd_serial_q5_k_n2048_k512_j64"),
-    ),
-    ("Q2_K", 4096, 2048): (
-        _RoutedRule("rows_eq", 49_152, "grouped_fwd_serial_q2_k_n4096_k2048_j32_j16"),
-        _RoutedRule(
-            "rows_lt_per_entry", 64, "grouped_fwd_serial_q2_k_n4096_k2048_j32_j16"
-        ),
-        _RoutedRule("always", 0, "grouped_fwd_serial_q2_k_n4096_k2048_j32"),
-    ),
-    ("IQ2_S", 2048, 512): (
-        _RoutedRule("rows_eq", 65_536, "grouped_fwd_serial_iq2_s_n2048_k512_j64_j32"),
-        _RoutedRule(
-            "rows_lt_per_entry", 128, "grouped_fwd_serial_iq2_s_n2048_k512_j64_j32"
-        ),
-        _RoutedRule("always", 0, "grouped_fwd_serial_iq2_s_n2048_k512_j64"),
-    ),
-}
+
+@lru_cache(maxsize=1)
+def routed_table() -> tuple[RoutedControl, ...]:
+    """Return every catalogued routed rule in evaluation order."""
+
+    payload = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    controls: list[RoutedControl] = []
+    for family in payload.get("routed", []):
+        operation = family["operation"]
+        quant_type = family["quant_type"]
+        out_features = int(family["n"])
+        in_features = int(family["k"])
+        for rule in family["rules"]:
+            when = rule["when"]
+            if when not in _ROUTED_PREDICATES:
+                raise ValueError(f"unknown routed predicate {when!r}")
+            value = rule.get("value")
+            controls.append(
+                RoutedControl(
+                    operation=operation,
+                    quant_type=quant_type,
+                    out_features=out_features,
+                    in_features=in_features,
+                    when=when,
+                    value=None if value is None else int(value),
+                    symbol=rule["symbol"],
+                    tile=None if rule.get("tile") is None else int(rule["tile"]),
+                )
+            )
+    return tuple(controls)
 
 
-def routed_grouped_forward_rules() -> tuple[tuple[str, int, int, int, str], ...]:
-    """Return the routed rule table as flat `(quant, n, k, value, symbol)` rows."""
+def select_routed_control(
+    operation: str,
+    quant_type: str,
+    out_features: int,
+    in_features: int,
+    rows: int,
+    route_entries: int,
+) -> RoutedControl:
+    """Return the deployed routed control for one family key and route bank.
 
-    return tuple(
-        (quant_type, n, k, rule.value, rule.symbol)
-        for (quant_type, n, k), rules in sorted(_GROUPED_FORWARD_RULES.items())
-        for rule in rules
+    The key is the operation, quant type, and output shape. The body then
+    follows the ordered rules for that key, which depend on the aggregate rows
+    and, for the routed grouped-forward tile choice, on the route entries in
+    the bank. Unknown keys, unmatched shapes, and unbuilt symbols fail closed.
+    """
+
+    key = (operation, quant_type, out_features, in_features)
+    rules = [control for control in routed_table() if control.key == key]
+    if not rules:
+        raise ValueError(
+            f"no deployed HIP routed control for {operation} {quant_type} "
+            f"N={out_features}, K={in_features}"
+        )
+    inventory = control_inventory()
+    for rule in rules:
+        predicate = _ROUTED_PREDICATES[rule.when]
+        if not predicate(rows, route_entries, rule.value or 0):
+            continue
+        if rule.symbol not in inventory:
+            raise ValueError(
+                f"deployed HIP control {rule.symbol!r} is not a built control. "
+                f"Rebuild the HIP control bundle or fix {CONFIG_PATH.name}"
+            )
+        return rule
+    raise ValueError(
+        f"no deployed HIP routed control for {operation} {quant_type} "
+        f"N={out_features}, K={in_features} at rows={rows}"
     )
 
 
@@ -269,38 +321,14 @@ def select_grouped_forward_control(
     rows: int,
     route_entries: int,
 ) -> GroupedForwardControl:
-    """Return the deployed HIP control for one routed single-projection key.
+    """Return the deployed HIP control for one routed single-projection key."""
 
-    The key is the quant type and output shape. The tile choice then follows the
-    ordered rules for that key, which depend on the aggregate rows and on the
-    number of route entries in the bank. Unknown keys and unbuilt symbols fail
-    closed.
-    """
-
-    rules = _GROUPED_FORWARD_RULES.get((quant_type, out_features, in_features))
-    if rules is None:
-        raise ValueError(
-            "no deployed HIP grouped-forward control for "
-            f"{quant_type} N={out_features}, K={in_features}"
-        )
     if route_entries <= 0:
         raise ValueError(
             "routed grouped-forward selection needs at least one route entry"
         )
-    inventory = control_inventory()
-    for rule in rules:
-        if rule.when not in _ROUTED_PREDICATES:
-            raise ValueError(f"unknown routed predicate {rule.when!r}")
-        if not _ROUTED_PREDICATES[rule.when](rows, route_entries, rule.value):
-            continue
-        spec = inventory.get(rule.symbol)
-        if spec is None:
-            raise ValueError(
-                f"deployed HIP control {rule.symbol!r} is not a built control. "
-                "Rebuild the HIP control bundle or fix the routed rule table"
-            )
-        return GroupedForwardControl(spec.symbol, spec)
-    raise ValueError(
-        f"routed grouped-forward rule table for {quant_type} N={out_features}, "
-        f"K={in_features} has no matching entry for M={rows}"
+    choice = select_routed_control(
+        "GroupedForward", quant_type, out_features, in_features, rows, route_entries
     )
+    spec = control_inventory()[choice.symbol]
+    return GroupedForwardControl(choice.symbol, spec)

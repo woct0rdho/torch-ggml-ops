@@ -3,8 +3,9 @@
 from dataclasses import dataclass
 from typing import ClassVar
 
+from tools.mmq_abi import FIXED_GROUPED_FORWARD_ABI
+
 from .fixed_grouped_mmq_fwd_spec import DerivedFixedForwardState
-from .kernel_abi import FIXED_GROUPED_FORWARD_ABI
 from .kernel_writer_assembly import (
     Assembly,
     emit_bf16_rne,

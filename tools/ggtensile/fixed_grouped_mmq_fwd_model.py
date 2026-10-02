@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .quant_formats import QUANT_FORMATS
+from tools.mmq_quant_formats import QUANT_FORMATS
 
 
 @dataclass(frozen=True)

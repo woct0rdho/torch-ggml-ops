@@ -13,7 +13,7 @@ Backward shapes are written `(M, in_features, out_features)`, matching the weigh
 
 ## Final kernel result
 
-| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm | Kernel |
+| Family | `(M,K,N)` | HIP TFLOPS | HIP/torch.mm | Kernel |
 | --- | ---: | ---: | ---: | --- |
 | Narrow K/V/gate/up | `(2048,2048,512)` | 20.034 | 0.895x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k512` |
 | Narrow K/V/gate/up | `(8192,2048,512)` | 21.898 | 0.918x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |

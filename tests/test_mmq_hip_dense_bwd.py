@@ -4,11 +4,11 @@
 derives its launch geometry. This module must not carry a second table.
 """
 
-from tools.ggtensile.dense_mmq_bwd_runtime import InstalledDenseBackwardModule
-from tools.ggtensile.hip_deployment import select_hip_control
 from tools.ggtensile.kernel_instance import KernelInstance
 from tools.ggtensile.model import ProblemSize
 from tools.mmq_deployment_spec import kernels
+from tools.mmq_hip_dense import InstalledDenseBackwardModule
+from tools.mmq_hip_deployment import select_hip_control
 
 _DENSE_INSTANCES: tuple[KernelInstance, ...] = tuple(
     item.instance

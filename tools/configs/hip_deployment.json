@@ -709,5 +709,305 @@
         }
       ]
     }
+  ],
+  "routed": [
+    {
+      "operation": "GroupedForward",
+      "quant_type": "IQ2_S",
+      "n": 2048,
+      "k": 512,
+      "rules": [
+        {
+          "when": "rows_eq",
+          "value": 65536,
+          "symbol": "grouped_fwd_serial_iq2_s_n2048_k512_j64_j32"
+        },
+        {
+          "when": "rows_lt_per_entry",
+          "value": 128,
+          "symbol": "grouped_fwd_serial_iq2_s_n2048_k512_j64_j32"
+        },
+        {
+          "when": "always",
+          "value": null,
+          "symbol": "grouped_fwd_serial_iq2_s_n2048_k512_j64"
+        }
+      ]
+    },
+    {
+      "operation": "GroupedForward",
+      "quant_type": "Q2_K",
+      "n": 4096,
+      "k": 2048,
+      "rules": [
+        {
+          "when": "rows_eq",
+          "value": 49152,
+          "symbol": "grouped_fwd_serial_q2_k_n4096_k2048_j32_j16"
+        },
+        {
+          "when": "rows_lt_per_entry",
+          "value": 64,
+          "symbol": "grouped_fwd_serial_q2_k_n4096_k2048_j32_j16"
+        },
+        {
+          "when": "always",
+          "value": null,
+          "symbol": "grouped_fwd_serial_q2_k_n4096_k2048_j32"
+        }
+      ]
+    },
+    {
+      "operation": "GroupedForward",
+      "quant_type": "Q4_K",
+      "n": 2048,
+      "k": 512,
+      "rules": [
+        {
+          "when": "rows_lt_per_entry",
+          "value": 128,
+          "symbol": "grouped_fwd_serial_q4_k_n2048_k512_j32"
+        },
+        {
+          "when": "always",
+          "value": null,
+          "symbol": "grouped_fwd_serial_q4_k_n2048_k512_j64"
+        }
+      ]
+    },
+    {
+      "operation": "GroupedForward",
+      "quant_type": "Q5_K",
+      "n": 2048,
+      "k": 512,
+      "rules": [
+        {
+          "when": "rows_lt_per_entry",
+          "value": 128,
+          "symbol": "grouped_fwd_serial_q5_k_n2048_k512_j32"
+        },
+        {
+          "when": "always",
+          "value": null,
+          "symbol": "grouped_fwd_serial_q5_k_n2048_k512_j64"
+        }
+      ]
+    },
+    {
+      "operation": "GroupedForwardPair",
+      "quant_type": "IQ2_S",
+      "n": 512,
+      "k": 2048,
+      "rules": [
+        {
+          "when": "always",
+          "value": null,
+          "symbol": "grouped_fwd_row_task_iq2_s_n512_k2048_j64",
+          "tile": 64
+        }
+      ]
+    },
+    {
+      "operation": "GroupedForwardPair",
+      "quant_type": "IQ2_XXS",
+      "n": 2048,
+      "k": 4096,
+      "rules": [
+        {
+          "when": "rows_eq",
+          "value": 196608,
+          "symbol": "grouped_fwd_serial_iq2_xxs_n2048_k4096_j80",
+          "tile": 80
+        },
+        {
+          "when": "always",
+          "value": null,
+          "symbol": "grouped_fwd_serial_iq2_xxs_n2048_k4096_j64",
+          "tile": 64
+        }
+      ]
+    },
+    {
+      "operation": "GroupedForwardPair",
+      "quant_type": "Q3_K",
+      "n": 512,
+      "k": 2048,
+      "rules": [
+        {
+          "when": "always",
+          "value": null,
+          "symbol": "grouped_fwd_row_task_q3_k_n512_k2048_j64",
+          "tile": 64
+        }
+      ]
+    },
+    {
+      "operation": "GroupedBackward",
+      "quant_type": "IQ2_S",
+      "n": 2048,
+      "k": 512,
+      "rules": [
+        {
+          "when": "rows_lt_per_entry",
+          "value": 80,
+          "symbol": "grouped_bwd_single_iq2_s_n2048_k512_mt64_nt64"
+        },
+        {
+          "when": "always",
+          "value": null,
+          "symbol": "grouped_bwd_single_iq2_s_n2048_k512_mt128_nt64"
+        }
+      ]
+    },
+    {
+      "operation": "GroupedBackward",
+      "quant_type": "Q2_K",
+      "n": 4096,
+      "k": 2048,
+      "rules": [
+        {
+          "when": "rows_lt_per_entry",
+          "value": 128,
+          "symbol": "grouped_bwd_single_q2_k_n4096_k2048_mt64_nt64"
+        },
+        {
+          "when": "rows_lt_per_entry",
+          "value": 512,
+          "symbol": "grouped_bwd_single_q2_k_n4096_k2048_mt128_nt64_u2"
+        },
+        {
+          "when": "always",
+          "value": null,
+          "symbol": "grouped_bwd_single_q2_k_n4096_k2048_mt128_nt64"
+        }
+      ]
+    },
+    {
+      "operation": "GroupedBackward",
+      "quant_type": "Q4_K",
+      "n": 2048,
+      "k": 512,
+      "rules": [
+        {
+          "when": "rows_lt_per_entry",
+          "value": 80,
+          "symbol": "grouped_bwd_single_q4_k_n2048_k512_mt64_nt64"
+        },
+        {
+          "when": "always",
+          "value": null,
+          "symbol": "grouped_bwd_single_q4_k_n2048_k512_mt128_nt64"
+        }
+      ]
+    },
+    {
+      "operation": "GroupedBackward",
+      "quant_type": "Q5_K",
+      "n": 2048,
+      "k": 512,
+      "rules": [
+        {
+          "when": "always",
+          "value": null,
+          "symbol": "grouped_bwd_single_q5_k_n2048_k512_mt64_nt64"
+        }
+      ]
+    },
+    {
+      "operation": "GroupedBackwardPair",
+      "quant_type": "IQ2_S",
+      "n": 512,
+      "k": 2048,
+      "rules": [
+        {
+          "when": "rows_eq",
+          "value": 16384,
+          "symbol": "grouped_bwd_pair_iq2_s_n512_k2048_mt64_nt64",
+          "tile": 64
+        },
+        {
+          "when": "rows_eq",
+          "value": 65536,
+          "symbol": "grouped_bwd_pair_iq2_s_n512_k2048_mt128_nt64",
+          "tile": 128
+        },
+        {
+          "when": "rows_eq",
+          "value": 262144,
+          "symbol": "grouped_bwd_pair_iq2_s_n512_k2048_mt128_nt64",
+          "tile": 128
+        },
+        {
+          "when": "always",
+          "value": null,
+          "symbol": "grouped_bwd_pair_iq2_s_n512_k2048_mt128_nt64",
+          "tile": 128
+        }
+      ]
+    },
+    {
+      "operation": "GroupedBackwardPair",
+      "quant_type": "IQ2_XXS",
+      "n": 2048,
+      "k": 4096,
+      "rules": [
+        {
+          "when": "rows_eq",
+          "value": 12288,
+          "symbol": "grouped_bwd_pair_iq2_xxs_n2048_k4096_mt64_nt64",
+          "tile": 64
+        },
+        {
+          "when": "rows_eq",
+          "value": 49152,
+          "symbol": "grouped_bwd_tuned_pair_iq2_xxs_n2048_k4096_mt128_nt64",
+          "tile": 128
+        },
+        {
+          "when": "rows_eq",
+          "value": 196608,
+          "symbol": "grouped_bwd_tuned_pair_iq2_xxs_n2048_k4096_mt128_nt64",
+          "tile": 128
+        },
+        {
+          "when": "always",
+          "value": null,
+          "symbol": "grouped_bwd_tuned_pair_iq2_xxs_n2048_k4096_mt128_nt64",
+          "tile": 128
+        }
+      ]
+    },
+    {
+      "operation": "GroupedBackwardPair",
+      "quant_type": "Q3_K",
+      "n": 512,
+      "k": 2048,
+      "rules": [
+        {
+          "when": "rows_eq",
+          "value": 16384,
+          "symbol": "grouped_bwd_pair_q3_k_n512_k2048_mt64_nt64",
+          "tile": 64
+        },
+        {
+          "when": "rows_eq",
+          "value": 65536,
+          "symbol": "grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64",
+          "tile": 128
+        },
+        {
+          "when": "rows_eq",
+          "value": 262144,
+          "symbol": "grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64",
+          "tile": 128
+        },
+        {
+          "when": "always",
+          "value": null,
+          "symbol": "grouped_bwd_pair_q3_k_n512_k2048_mt128_nt64",
+          "tile": 128
+        }
+      ]
+    }
   ]
 }

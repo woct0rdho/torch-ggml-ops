@@ -6,8 +6,10 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TypeVar, cast
 
+from tools.mmq_quant_formats import BACKWARD_QUANT_FORMATS, QuantFormat
+from tools.mmq_work_group_mapping import work_group_mapping_shift
+
 from .model import ProblemSize
-from .quant_formats import BACKWARD_QUANT_FORMATS, QuantFormat
 from .schema import SchemaError
 from .schema import boolean as _boolean
 from .schema import integer as _integer
@@ -16,7 +18,6 @@ from .schema import strict_mapping as _strict_mapping
 from .schema import strict_mapping_optional as _strict_mapping_optional
 from .schema import string as _string
 from .tuning_policy import LdsBuffering
-from .work_group_mapping import work_group_mapping_shift
 
 EnumT = TypeVar("EnumT", bound=Enum)
 

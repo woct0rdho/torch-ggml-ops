@@ -8,7 +8,7 @@ The final ordinary matrix contains six families at `M=2048,8192,32768`, and the 
 
 ## Final ordinary-kernel result
 
-| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm | Kernel |
+| Family | `(M,K,N)` | HIP TFLOPS | HIP/torch.mm | Kernel |
 | --- | ---: | ---: | ---: | --- |
 | Q-A | `(2048,4096,1024)` | 26.090 | 1.082x | `dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8` |
 | Q-A | `(8192,4096,1024)` | 26.358 | 1.059x | `dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8` |

@@ -1,5 +1,7 @@
 """Assembly writer facade for the fixed-group Q8_0 forward ABI."""
 
+from tools.mmq_abi import FIXED_GROUPED_FORWARD_ABI
+
 from .fixed_grouped_mmq_fwd_lowering import (
     FixedForwardLoweringContext,
     FixedGroupedQ8ForwardLowering,
@@ -10,7 +12,6 @@ from .fixed_grouped_mmq_fwd_spec import (
     FixedForwardKernelSpec,
 )
 from .fixed_grouped_mmq_fwd_validation import validate_fixed_forward_solution
-from .kernel_abi import FIXED_GROUPED_FORWARD_ABI
 from .kernel_writer_assembly import (
     AssemblyKernelWriter,
     KernelEmissionPlan,

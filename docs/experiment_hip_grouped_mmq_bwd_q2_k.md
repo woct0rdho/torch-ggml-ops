@@ -8,11 +8,11 @@ Aggregate routed rows are `R=12288,49152,196608`.
 
 ## Final kernel result
 
-| Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM |
-| ---: | ---: | ---: | ---: |
-| 1 | `(12288,2048,4096)` | 11.43 | 1.162x |
-| 4 | `(49152,2048,4096)` | 17.19 | 0.849x |
-| 16 | `(196608,2048,4096)` | 19.20 | 0.712x |
+| Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
+| ---: | --- | --- | --- | --- |
+| 1 | `(12288,2048,4096)` | 11.43 | 1.162x | `grouped_bwd_single_q2_k_n4096_k2048_mt64_nt64` |
+| 4 | `(49152,2048,4096)` | 17.19 | 0.849x | `grouped_bwd_single_q2_k_n4096_k2048_mt128_nt64_u2` |
+| 16 | `(196608,2048,4096)` | 19.20 | 0.712x | `grouped_bwd_single_q2_k_n4096_k2048_mt128_nt64` |
 
 B4/B16 remain slower than the predecoded BF16 baseline because packed scale/minimum reconstruction and limited N64 reuse dominate.
 

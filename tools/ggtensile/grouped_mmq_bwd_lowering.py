@@ -2,6 +2,9 @@
 
 from dataclasses import dataclass
 
+from tools.mmq_abi import GROUPED_BACKWARD_ABI
+from tools.mmq_work_group_mapping import mapped_route_stride, work_group_mapping_shift
+
 from .grouped_mmq_bwd_physical import (
     GroupedBackwardPhysicalPlan,
     GroupedBackwardScalarPlan,
@@ -10,7 +13,6 @@ from .grouped_mmq_bwd_spec import (
     DerivedGroupedBackwardState,
     GroupedBackwardEmptyTilePolicy,
 )
-from .kernel_abi import GROUPED_BACKWARD_ABI
 from .kernel_writer_assembly import (
     LoweringResult,
     emit_kernel_trailer,
@@ -21,7 +23,6 @@ from .mmq_bwd_emission import BackwardTileAccess, _Assembly
 from .mmq_bwd_lowering import BackwardTileComputeEmitter
 from .mmq_bwd_lowering_quant import emit_unbounded_a_global_loads
 from .mmq_bwd_physical import BackwardRegisterPlan
-from .work_group_mapping import mapped_route_stride, work_group_mapping_shift
 
 
 @dataclass(frozen=True)

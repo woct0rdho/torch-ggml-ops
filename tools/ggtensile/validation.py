@@ -1,8 +1,29 @@
+from tools.mmq_quant_formats import BACKWARD_QUANT_FORMATS, QUANT_FORMATS
+from tools.mmq_work_group_mapping import (
+    mapped_grid_extent,
+    mapped_m_tile_count,
+    mapped_route_stride,
+)
+
+from .fixed_grouped_mmq_bwd_model import FixedBackwardProblem
+from .fixed_grouped_mmq_bwd_spec import FixedBackwardKernelSpec
+from .fixed_grouped_mmq_fwd_model import FixedForwardProblem
+from .fixed_grouped_mmq_fwd_spec import FixedForwardKernelSpec
+from .fixed_grouped_mmq_fwd_validation import validate_fixed_forward_solution
+from .grouped_mmq_bwd_pair_model import GroupedBackwardPairProblem
+from .grouped_mmq_bwd_pair_spec import GroupedBackwardPairKernelSpec
+from .grouped_mmq_bwd_pair_validation import validate_grouped_backward_pair_solution
 from .grouped_mmq_bwd_spec import (
     DerivedGroupedBackwardState,
     GroupedBackwardKernelSpec,
     GroupedBackwardProblemContract,
 )
+from .grouped_mmq_fwd_model import GroupedForwardProblem
+from .grouped_mmq_fwd_pair_model import GroupedForwardPairProblem
+from .grouped_mmq_fwd_pair_spec import GroupedForwardPairKernelSpec
+from .grouped_mmq_fwd_pair_validation import validate_grouped_forward_pair_solution
+from .grouped_mmq_fwd_spec import GroupedForwardKernelSpec
+from .grouped_mmq_fwd_validation import validate_grouped_forward_solution
 from .identity import KernelFamily
 from .kernel_instance import KernelInstance
 from .mmq_bwd_physical import derive_backward_physical_plan
@@ -19,12 +40,6 @@ from .mmq_fwd_spec import (
 )
 from .model import ProblemSize, ProblemType
 from .physical_resources import GFX1151_RESOURCE_CAPACITY
-from .quant_formats import BACKWARD_QUANT_FORMATS, QUANT_FORMATS
-from .work_group_mapping import (
-    mapped_grid_extent,
-    mapped_m_tile_count,
-    mapped_route_stride,
-)
 
 
 def _validate_backward_problem_type(problem_type: ProblemType) -> None:
@@ -187,23 +202,8 @@ def validate_grouped_backward_solution(
 
 
 def validate_instance(instance: KernelInstance) -> None:
-    from .fixed_grouped_mmq_bwd_model import FixedBackwardProblem
-    from .fixed_grouped_mmq_bwd_spec import FixedBackwardKernelSpec
+    # Local import: it imports this module at module scope.
     from .fixed_grouped_mmq_bwd_validation import validate_fixed_backward_solution
-    from .fixed_grouped_mmq_fwd_model import FixedForwardProblem
-    from .fixed_grouped_mmq_fwd_spec import FixedForwardKernelSpec
-    from .fixed_grouped_mmq_fwd_validation import validate_fixed_forward_solution
-    from .grouped_mmq_bwd_pair_model import GroupedBackwardPairProblem
-    from .grouped_mmq_bwd_pair_spec import GroupedBackwardPairKernelSpec
-    from .grouped_mmq_bwd_pair_validation import (
-        validate_grouped_backward_pair_solution,
-    )
-    from .grouped_mmq_fwd_model import GroupedForwardProblem
-    from .grouped_mmq_fwd_pair_model import GroupedForwardPairProblem
-    from .grouped_mmq_fwd_pair_spec import GroupedForwardPairKernelSpec
-    from .grouped_mmq_fwd_pair_validation import validate_grouped_forward_pair_solution
-    from .grouped_mmq_fwd_spec import GroupedForwardKernelSpec
-    from .grouped_mmq_fwd_validation import validate_grouped_forward_solution
 
     family = instance.family
     problem = instance.problem

@@ -1,5 +1,7 @@
 """Assembly writer facade for fixed-group Q8_0 backward."""
 
+from tools.mmq_abi import FIXED_GROUPED_BACKWARD_ABI
+
 from .fixed_grouped_mmq_bwd_lowering import FixedGroupedQ8BackwardLowering
 from .fixed_grouped_mmq_bwd_model import FixedBackwardProblem
 from .fixed_grouped_mmq_bwd_spec import (
@@ -9,7 +11,6 @@ from .fixed_grouped_mmq_bwd_spec import (
 from .fixed_grouped_mmq_bwd_validation import (
     validate_fixed_backward_solution,
 )
-from .kernel_abi import FIXED_GROUPED_BACKWARD_ABI
 from .kernel_writer_assembly import AssemblyKernelWriter, KernelEmissionPlan
 from .toolchain import Toolchain
 

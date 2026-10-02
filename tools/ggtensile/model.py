@@ -115,6 +115,7 @@ class KernelArtifact:
     lds_num_bytes: int
 
     def to_mapping(self) -> dict[str, object]:
+        # Local import: .family_registry imports this module at module scope.
         from .family_registry import instance_hash, instance_name, mapping_for_instance
 
         return {

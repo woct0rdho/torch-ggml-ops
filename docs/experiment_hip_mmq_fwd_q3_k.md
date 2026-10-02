@@ -13,14 +13,14 @@ The exact workload families are:
 
 ## Final kernel result
 
-| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm |
-| --- | ---: | ---: | ---: |
-| Query/query gate | `(2048,8192,2048)` | 24.013 | 1.09x |
-| Query/query gate | `(8192,8192,2048)` | 23.701 | 1.06x |
-| Query/query gate | `(32768,8192,2048)` | 23.740 | 1.05x |
-| Narrow key | `(2048,512,2048)` | 21.219 | 1.55x |
-| Narrow key | `(8192,512,2048)` | 24.257 | 1.35x |
-| Narrow key | `(32768,512,2048)` | 24.087 | 1.25x |
+| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm | Kernel |
+| ---: | --- | --- | --- | --- |
+| Query/query gate | `(2048,8192,2048)` | 24.013 | 1.09x | `dense_fwd_q3_k_k2048_j128_full` |
+| Query/query gate | `(8192,8192,2048)` | 23.701 | 1.06x | `dense_fwd_q3_k_k2048_j128_full` |
+| Query/query gate | `(32768,8192,2048)` | 23.740 | 1.05x | `dense_fwd_q3_k_k2048_j128_full` |
+| Narrow key | `(2048,512,2048)` | 21.219 | 1.55x | `dense_fwd_q3_k_k2048_j128_full` |
+| Narrow key | `(8192,512,2048)` | 24.257 | 1.35x | `dense_fwd_q3_k_k2048_j128_full` |
+| Narrow key | `(32768,512,2048)` | 24.087 | 1.25x | `dense_fwd_q3_k_k2048_j128_full` |
 
 Every listed point is above the BF16 baseline on the multiply-only surface.
 

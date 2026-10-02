@@ -2,6 +2,12 @@
 
 from dataclasses import dataclass
 
+from tools.mmq_quant_formats import BACKWARD_QUANT_FORMATS
+from tools.mmq_work_group_mapping import (
+    mapped_grid_extent,
+    mapped_m_tile_count,
+)
+
 from .fixed_grouped_mmq_bwd_model import FixedBackwardProblem
 from .fixed_grouped_mmq_bwd_physical import (
     FixedBackwardPhysicalPlan,
@@ -15,13 +21,8 @@ from .mmq_bwd_spec import (
     backward_mechanism_contract,
 )
 from .model import ProblemSize
-from .quant_formats import BACKWARD_QUANT_FORMATS
 from .schema import strict_mapping as _mapping
 from .schema import string as _string
-from .work_group_mapping import (
-    mapped_grid_extent,
-    mapped_m_tile_count,
-)
 
 _U32_MAX = 0xFFFFFFFF
 
@@ -149,9 +150,8 @@ class DerivedFixedBackwardState:
         problem: FixedBackwardProblem,
         spec: FixedBackwardKernelSpec,
     ) -> "DerivedFixedBackwardState":
-        from .fixed_grouped_mmq_bwd_validation import (
-            validate_fixed_backward_solution,
-        )
+        # Local import: it imports this spec module at module scope.
+        from .fixed_grouped_mmq_bwd_validation import validate_fixed_backward_solution
 
         validate_fixed_backward_solution(problem, spec)
         contract = FixedBackwardProblemContract.for_problem(problem)

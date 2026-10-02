@@ -1,12 +1,13 @@
 """Assembly writer facade for isolated grouped MMQ backward kernels."""
 
+from tools.mmq_abi import GROUPED_BACKWARD_ABI
+
 from .grouped_mmq_bwd_lowering import GroupedBackwardKernelLowering
 from .grouped_mmq_bwd_physical import derive_grouped_backward_physical_plan
 from .grouped_mmq_bwd_spec import (
     DerivedGroupedBackwardState,
     GroupedBackwardKernelSpec,
 )
-from .kernel_abi import GROUPED_BACKWARD_ABI
 from .kernel_writer_assembly import AssemblyKernelWriter, KernelEmissionPlan
 from .model import ProblemSize
 from .toolchain import Toolchain

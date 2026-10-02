@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import cast
 
+from tools.mmq_quant_formats import Q8_1_D4_BLOCK_VALUES, QUANT_FORMATS
+
 from .fixed_grouped_mmq_fwd_model import (
     FixedForwardProblem,
 )
@@ -30,7 +32,6 @@ from .mmq_fwd_spec import (
     forward_mechanism_contract,
 )
 from .model import ProblemSize
-from .quant_formats import Q8_1_D4_BLOCK_VALUES, QUANT_FORMATS
 from .schema import enum_value as _enum
 from .schema import integer as _integer
 from .schema import integer_tuple as _integer_tuple

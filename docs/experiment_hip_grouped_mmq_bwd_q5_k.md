@@ -10,11 +10,11 @@ Aggregate rows are `R=16384,65536,262144`.
 
 `HIP/AITER GMM` is the packed HIP throughput ratio against BF16 AITER GMM.
 
-| Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM |
-| ---: | ---: | ---: | ---: |
-| 1 | `(16384,512,2048)` | 9.38 | 0.849x |
-| 4 | `(65536,512,2048)` | 14.54 | 0.789x |
-| 16 | `(262144,512,2048)` | 17.37 | 0.761x |
+| Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
+| ---: | --- | --- | --- | --- |
+| 1 | `(16384,512,2048)` | 9.38 | 0.849x | `grouped_bwd_single_q5_k_n2048_k512_mt64_nt64` |
+| 4 | `(65536,512,2048)` | 14.54 | 0.789x | `grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt128` |
+| 16 | `(262144,512,2048)` | 17.37 | 0.761x | `grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt128` |
 
 The remaining loss is Q5 high-bit reconstruction and packed metadata cost relative to predecoded BF16 weights.
 

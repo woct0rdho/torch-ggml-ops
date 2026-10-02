@@ -1,5 +1,7 @@
 """Assembly writer facade for paired grouped MMQ backward kernels."""
 
+from tools.mmq_abi import GROUPED_BACKWARD_PAIR_ABI
+
 from .grouped_mmq_bwd_pair_lowering import GroupedBackwardPairKernelLowering
 from .grouped_mmq_bwd_pair_model import GroupedBackwardPairProblem
 from .grouped_mmq_bwd_pair_physical import (
@@ -12,7 +14,6 @@ from .grouped_mmq_bwd_pair_spec import (
 from .grouped_mmq_bwd_pair_validation import (
     validate_grouped_backward_pair_solution,
 )
-from .kernel_abi import GROUPED_BACKWARD_PAIR_ABI
 from .kernel_writer_assembly import AssemblyKernelWriter, KernelEmissionPlan
 from .toolchain import Toolchain
 

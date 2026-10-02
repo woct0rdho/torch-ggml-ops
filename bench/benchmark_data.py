@@ -11,10 +11,10 @@ from bench.benchmark_routes import (
     fitted_prior_distributions_for_rows,
     make_route_tensors,
 )
-from tools.ggtensile.quant_formats import BACKWARD_QUANT_FORMATS
 from tools.gguf_dequant_compat import dequantize_logical
 from tools.mmq_correctness import PreparedCase, RouteData
 from tools.mmq_deployment_cases import DeploymentCase
+from tools.mmq_quant_formats import BACKWARD_QUANT_FORMATS
 
 
 @dataclass

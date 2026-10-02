@@ -2,14 +2,25 @@
 
 from collections.abc import Callable, Mapping
 from enum import Enum
-from typing import TYPE_CHECKING, cast
+from typing import cast
+
+from tools.mmq_abi import (
+    FIXED_GROUPED_BACKWARD_ABI,
+    FIXED_GROUPED_FORWARD_ABI,
+    GROUPED_BACKWARD_ABI,
+    GROUPED_BACKWARD_PAIR_ABI,
+    GROUPED_FORWARD_ABI,
+    GROUPED_FORWARD_PAIR_ABI,
+    GROUPED_FORWARD_PAIR_ROW_TASK_ABI,
+    ORDINARY_BACKWARD_ABI,
+    ORDINARY_FORWARD_ABI,
+    KernelAbi,
+)
 
 from .fixed_grouped_mmq_bwd_model import FixedBackwardProblem
 from .fixed_grouped_mmq_bwd_spec import FixedBackwardKernelSpec
 from .fixed_grouped_mmq_fwd_model import FixedForwardProblem
-from .fixed_grouped_mmq_fwd_spec import (
-    FixedForwardKernelSpec,
-)
+from .fixed_grouped_mmq_fwd_spec import FixedForwardKernelSpec
 from .grouped_mmq_bwd_pair_model import GroupedBackwardPairProblem
 from .grouped_mmq_bwd_pair_spec import (
     GroupedBackwardPairContract,
@@ -37,15 +48,29 @@ from .identity import (
     quant_type_from_problem_type,
 )
 from .kernel_instance import KernelInstance
+from .kernel_writer_assembly import AssemblyKernelWriter
+from .kernel_writer_assembly_fixed_grouped_mmq_bwd import (
+    FixedGroupedBackwardKernelWriterAssembly,
+)
+from .kernel_writer_assembly_fixed_grouped_mmq_fwd import (
+    FixedGroupedForwardKernelWriterAssembly,
+)
+from .kernel_writer_assembly_grouped_mmq_bwd import GroupedBackwardKernelWriterAssembly
+from .kernel_writer_assembly_grouped_mmq_bwd_pair import (
+    GroupedBackwardPairKernelWriterAssembly,
+)
+from .kernel_writer_assembly_grouped_mmq_fwd import GroupedForwardKernelWriterAssembly
+from .kernel_writer_assembly_grouped_mmq_fwd_pair import (
+    GroupedForwardPairKernelWriterAssembly,
+)
+from .kernel_writer_assembly_mmq_bwd import BackwardKernelWriterAssembly
+from .kernel_writer_assembly_mmq_fwd import ForwardKernelWriterAssembly
 from .mmq_bwd_spec import BackwardKernelSpec
 from .mmq_fwd_spec import ForwardKernelSpec
 from .model import ProblemSize, ProblemType
 from .schema import SchemaError, enum_value, integer, strict_mapping
 from .toolchain import Toolchain
-
-if TYPE_CHECKING:
-    from .kernel_abi import KernelAbi
-    from .kernel_writer_assembly import AssemblyKernelWriter
+from .validation import validate_instance
 
 
 def _exact_item(value: object, name: str) -> Mapping[str, object]:
@@ -295,8 +320,6 @@ def parse_instance(value: object) -> KernelInstance:
         raise SchemaError("kernel instance must be a mapping")
     family = enum_value(value, "KernelFamily", KernelFamily)
     instance = _PARSERS[family](value)
-    from .validation import validate_instance
-
     validate_instance(instance)
     return instance
 
@@ -523,18 +546,6 @@ class KernelAbiName(str, Enum):
 
 
 def abi_for_instance(instance: KernelInstance) -> tuple[KernelAbiName, "KernelAbi"]:
-    from .kernel_abi import (
-        FIXED_GROUPED_BACKWARD_ABI,
-        FIXED_GROUPED_FORWARD_ABI,
-        GROUPED_BACKWARD_ABI,
-        GROUPED_BACKWARD_PAIR_ABI,
-        GROUPED_FORWARD_ABI,
-        GROUPED_FORWARD_PAIR_ABI,
-        GROUPED_FORWARD_PAIR_ROW_TASK_ABI,
-        ORDINARY_BACKWARD_ABI,
-        ORDINARY_FORWARD_ABI,
-    )
-
     if (
         instance.family is KernelFamily.GroupedForwardPair
         and isinstance(instance.kernel_spec, GroupedForwardPairKernelSpec)
@@ -559,6 +570,7 @@ def abi_for_instance(instance: KernelInstance) -> tuple[KernelAbiName, "KernelAb
 
 
 def launch_for_instance(instance: KernelInstance):
+    # Local import: .launch imports this module at module scope.
     from .launch import _derive_launch_metadata
 
     return _derive_launch_metadata(instance)
@@ -567,27 +579,6 @@ def launch_for_instance(instance: KernelInstance):
 def writer_for_instance(
     instance: KernelInstance, toolchain: Toolchain
 ) -> "AssemblyKernelWriter":
-    from .kernel_writer_assembly_fixed_grouped_mmq_bwd import (
-        FixedGroupedBackwardKernelWriterAssembly,
-    )
-    from .kernel_writer_assembly_fixed_grouped_mmq_fwd import (
-        FixedGroupedForwardKernelWriterAssembly,
-    )
-    from .kernel_writer_assembly_grouped_mmq_bwd import (
-        GroupedBackwardKernelWriterAssembly,
-    )
-    from .kernel_writer_assembly_grouped_mmq_bwd_pair import (
-        GroupedBackwardPairKernelWriterAssembly,
-    )
-    from .kernel_writer_assembly_grouped_mmq_fwd import (
-        GroupedForwardKernelWriterAssembly,
-    )
-    from .kernel_writer_assembly_grouped_mmq_fwd_pair import (
-        GroupedForwardPairKernelWriterAssembly,
-    )
-    from .kernel_writer_assembly_mmq_bwd import BackwardKernelWriterAssembly
-    from .kernel_writer_assembly_mmq_fwd import ForwardKernelWriterAssembly
-
     problem = instance.problem
     spec = instance.kernel_spec
     quant_type = instance.problem_type.quant_data_type

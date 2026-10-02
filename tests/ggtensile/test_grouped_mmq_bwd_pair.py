@@ -39,9 +39,9 @@ from tools.ggtensile.grouped_mmq_bwd_pair_validation import (
 )
 from tools.ggtensile.identity import KernelFamily
 from tools.ggtensile.iq2_s_grid import iq2_s_grid_values
-from tools.ggtensile.kernel_abi import GROUPED_BACKWARD_PAIR_ABI
 from tools.ggtensile.kernel_instance import KernelInstance
 from tools.ggtensile.toolchain import Toolchain
+from tools.mmq_abi import GROUPED_BACKWARD_PAIR_ABI
 
 
 def _projection_policy(

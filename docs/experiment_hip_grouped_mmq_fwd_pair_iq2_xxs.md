@@ -10,8 +10,8 @@ The benchmark samples the `blk.3` expert tensors; `blk.0`-`blk.2` are hash-route
 
 ## Final kernel result
 
-| Batch | Logical shape | HIP TFLOPS | HIP/AITER GMM | Kernel |
-| ---: | ---: | ---: | ---: | --- |
+| Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
+| ---: | --- | --- | --- | --- |
 | 1 | `2 x (12288,2048,4096)` | 11.29 | 2.444x | `grouped_fwd_serial_iq2_xxs_n2048_k4096_j64` |
 | 4 | `2 x (49152,2048,4096)` | 17.88 | 1.569x | `grouped_fwd_serial_iq2_xxs_n2048_k4096_j64` |
 | 16 | `2 x (196608,2048,4096)` | 22.18 | 1.797x | `grouped_fwd_serial_iq2_xxs_n2048_k4096_j80` |

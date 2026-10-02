@@ -1,4 +1,5 @@
-from .kernel_abi import ORDINARY_BACKWARD_ABI
+from tools.mmq_abi import ORDINARY_BACKWARD_ABI
+
 from .kernel_writer_assembly import AssemblyKernelWriter, KernelEmissionPlan
 from .mmq_bwd_emission import BackwardDiagnosticMode
 from .mmq_bwd_lowering import BackwardTileComputeEmitter

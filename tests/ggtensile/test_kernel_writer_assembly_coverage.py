@@ -9,13 +9,6 @@ from tests.ggtensile.support import (
     assert_writer_methods_have_complete_line_coverage,
 )
 from tools.ggtensile.digest import sha256_hex
-from tools.ggtensile.kernel_abi import (
-    ORDINARY_FORWARD_ABI,
-    KernelAbi,
-    KernelArgument,
-    KernelArgumentKind,
-    KernelValueType,
-)
 from tools.ggtensile.kernel_writer_assembly import (
     Assembly,
     DeterministicRegisterPlan,
@@ -29,6 +22,13 @@ from tools.ggtensile.kernel_writer_assembly import (
     emit_pointer_kernarg_loads,
     emit_scale_u32,
     write_assembly_source,
+)
+from tools.mmq_abi import (
+    ORDINARY_FORWARD_ABI,
+    KernelAbi,
+    KernelArgument,
+    KernelArgumentKind,
+    KernelValueType,
 )
 
 

@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from enum import Enum
 
+from tools.mmq_quant_formats import Q8_1_F32_D4_BLOCK_BYTES
+
 from .grouped_mmq_fwd_model import GroupedActivationStaging
 from .kernel_writer_assembly import (
     DeterministicRegisterPlan,
@@ -16,7 +18,6 @@ from .mmq_fwd_spec import (
     F16D4S4ActivationMetadata,
     PhysicalResourceUsage,
 )
-from .quant_formats import Q8_1_F32_D4_BLOCK_BYTES
 
 
 @dataclass(frozen=True)

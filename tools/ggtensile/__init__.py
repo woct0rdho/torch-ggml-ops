@@ -1,12 +1,6 @@
 from .campaign import CatalogEntry, CatalogError, DeploymentCatalog, load_catalog
-from .dense_mmq_bwd_runtime import InstalledDenseBackwardModule
 from .inspection import ArtifactInspection, InspectionError, inspect_artifact
 from .kernel_instance import KernelInstance
-from .mmq_fwd_reference import (
-    decode_q8_0_block,
-    decode_q8_0_rows,
-    q8_0_matmul_reference,
-)
 from .mmq_fwd_spec import (
     DecodedLdsLayout,
     DecodeSpec,
@@ -37,19 +31,10 @@ from .model import (
     ProblemType,
 )
 from .physical_resources import HardwareResourceCapacity, PhysicalResourceUsage
-from .runtime import (
-    BackwardModule,
-    FixedHipForwardModule,
-    FixedQ81F16D4S4QuantizerModule,
-    FixedQ81F32D4QuantizerModule,
-    ForwardModule,
-    HIPRuntimeError,
-)
 from .validation import validate_instance
 
 __all__ = [
     "ArtifactInspection",
-    "BackwardModule",
     "CatalogEntry",
     "CatalogError",
     "DecodeSpec",
@@ -58,20 +43,14 @@ __all__ = [
     "DerivedForwardState",
     "EpiloguePipelineSpec",
     "EpilogueSpec",
-    "FixedHipForwardModule",
-    "FixedQ81F16D4S4QuantizerModule",
-    "FixedQ81F32D4QuantizerModule",
     "ForwardKernelCandidate",
     "ForwardKernelSpec",
-    "ForwardModule",
     "ForwardProblemContract",
     "GeometrySpec",
     "GlobalMemorySpec",
-    "HIPRuntimeError",
     "HardwareResourceCapacity",
     "HighBitReconstructionSpec",
     "InspectionError",
-    "InstalledDenseBackwardModule",
     "InstructionPolicy",
     "KernelArtifact",
     "KernelInstance",
@@ -87,11 +66,8 @@ __all__ = [
     "Q6LdsPairRole",
     "QuantForwardSemantics",
     "SemanticSchedulePolicy",
-    "decode_q8_0_block",
-    "decode_q8_0_rows",
     "derive_forward_resource_usage",
     "inspect_artifact",
     "load_catalog",
-    "q8_0_matmul_reference",
     "validate_instance",
 ]

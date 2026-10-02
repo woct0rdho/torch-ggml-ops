@@ -14,12 +14,15 @@ from tests.ggtensile.support import (
 
 _ROOT = Path(__file__).resolve().parents[2]
 _TOOLS = _ROOT / "tools/ggtensile"
+_SHARED = _ROOT / "tools"
 _VALIDATION = _TOOLS / "validation.py"
 _INSPECTION = _TOOLS / "inspection.py"
-_KERNEL_ABI = _TOOLS / "kernel_abi.py"
-_RUNTIME_MODULES = (
-    _TOOLS / "runtime.py",
-    _TOOLS / "grouped_mmq_fwd_pair_runtime.py",
+_KERNEL_ABI = _SHARED / "mmq_abi.py"
+_SHARED_RUNTIME_MODULES = (
+    _SHARED / "mmq_runtime.py",
+    _SHARED / "mmq_pair_runtime.py",
+    _SHARED / "mmq_hip_grouped_pair_fwd.py",
+    _SHARED / "mmq_hip_grouped_pair_bwd.py",
 )
 _ALL_LOWERING_MODULES = tuple(sorted(_TOOLS.glob("*lowering*.py")))
 _ALL_PHYSICAL_MODULES = tuple(sorted(_TOOLS.glob("*physical*.py")))
@@ -188,10 +191,11 @@ def test_planners_and_lowerers_preserve_import_boundaries() -> None:
 
 
 def test_kernel_abi_definitions_and_runtime_packing_have_one_owner() -> None:
-    for path in _TOOLS.glob("*.py"):
-        if path != _KERNEL_ABI:
-            assert "KernelAbi(" not in _source(path), path
-    for path in _RUNTIME_MODULES:
+    for directory in (_TOOLS, _SHARED):
+        for path in directory.glob("*.py"):
+            if path != _KERNEL_ABI:
+                assert "KernelAbi(" not in _source(path), path
+    for path in _SHARED_RUNTIME_MODULES:
         source = _source(path)
         assert "ctypes.byref(argument)" not in source, path
         assert "ctypes.c_void_p * len(arguments)" not in source, path

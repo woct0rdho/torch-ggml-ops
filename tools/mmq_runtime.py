@@ -1,3 +1,11 @@
+"""Launch machinery for compiled MMQ kernels.
+
+Covers the GGTensile bundle artifacts and the installed HIP controls alike: the
+shared HIP module lifetime, the family launchers the benchmark and the
+deployment runner use, and the installed-control wrappers that the HIP
+deployment catalog selects. Artifact lookup goes through `tools.mmq_hip_paths`.
+"""
+
 import ctypes
 import ctypes.util
 import os
@@ -8,24 +16,41 @@ from types import TracebackType
 import torch
 from typing_extensions import Self
 
-from .fixed_grouped_mmq_bwd_model import FixedBackwardProblem
-from .fixed_grouped_mmq_bwd_spec import (
+from tools.ggtensile.fixed_grouped_mmq_bwd_model import FixedBackwardProblem
+from tools.ggtensile.fixed_grouped_mmq_bwd_spec import (
     DerivedFixedBackwardState,
     FixedBackwardKernelSpec,
 )
-from .fixed_grouped_mmq_bwd_validation import validate_fixed_backward_solution
-from .fixed_grouped_mmq_fwd_model import FixedForwardProblem
-from .fixed_grouped_mmq_fwd_spec import (
+from tools.ggtensile.fixed_grouped_mmq_bwd_validation import (
+    validate_fixed_backward_solution,
+)
+from tools.ggtensile.fixed_grouped_mmq_fwd_model import FixedForwardProblem
+from tools.ggtensile.fixed_grouped_mmq_fwd_spec import (
     DerivedFixedForwardState,
     FixedForwardKernelSpec,
 )
-from .fixed_grouped_mmq_fwd_validation import validate_fixed_forward_solution
-from .grouped_mmq_bwd_spec import DerivedGroupedBackwardState, GroupedBackwardKernelSpec
-from .grouped_mmq_fwd_model import GroupedForwardProblem
-from .grouped_mmq_fwd_spec import DerivedGroupedForwardState, GroupedForwardKernelSpec
-from .grouped_mmq_fwd_validation import validate_grouped_forward_solution
-from .hip_deployment import GroupedForwardControl, select_hip_control
-from .kernel_abi import (
+from tools.ggtensile.fixed_grouped_mmq_fwd_validation import (
+    validate_fixed_forward_solution,
+)
+from tools.ggtensile.grouped_mmq_bwd_spec import (
+    DerivedGroupedBackwardState,
+    GroupedBackwardKernelSpec,
+)
+from tools.ggtensile.grouped_mmq_fwd_model import GroupedForwardProblem
+from tools.ggtensile.grouped_mmq_fwd_spec import (
+    DerivedGroupedForwardState,
+    GroupedForwardKernelSpec,
+)
+from tools.ggtensile.grouped_mmq_fwd_validation import validate_grouped_forward_solution
+from tools.ggtensile.mmq_bwd_spec import BackwardKernelSpec
+from tools.ggtensile.mmq_fwd_spec import DerivedForwardState, ForwardKernelSpec
+from tools.ggtensile.model import ProblemSize
+from tools.ggtensile.validation import (
+    validate_backward_solution,
+    validate_forward_solution,
+    validate_grouped_backward_solution,
+)
+from tools.mmq_abi import (
     FIXED_GROUPED_BACKWARD_ABI,
     FIXED_GROUPED_FORWARD_ABI,
     GROUPED_BACKWARD_ABI,
@@ -34,21 +59,15 @@ from .kernel_abi import (
     ORDINARY_FORWARD_ABI,
     Q8_1_QUANTIZER_ABI,
 )
-from .mmq_bwd_spec import BackwardKernelSpec
-from .mmq_fwd_spec import DerivedForwardState, ForwardKernelSpec
-from .model import ProblemSize
-from .quant_formats import (
+from tools.mmq_hip_deployment import GroupedForwardControl, select_hip_control
+from tools.mmq_hip_paths import locate_control
+from tools.mmq_quant_formats import (
     Q8_1_F16_D2S6_BLOCK_BYTES,
     Q8_1_F16_D4S4_BLOCK_BYTES,
     Q8_1_F32_D4_BLOCK_BYTES,
     QUANT_FORMATS,
 )
-from .validation import (
-    validate_backward_solution,
-    validate_forward_solution,
-    validate_grouped_backward_solution,
-)
-from .work_group_mapping import mapped_grid_extent, mapped_m_tile_count
+from tools.mmq_work_group_mapping import mapped_grid_extent, mapped_m_tile_count
 
 
 class HIPRuntimeError(RuntimeError):
@@ -56,23 +75,32 @@ class HIPRuntimeError(RuntimeError):
 
 
 def _resolve_code_object(code_object: Path, kernel_name: str) -> Path:
-    if code_object.is_file():
-        return code_object
+    located = locate_control(kernel_name, code_object)
+    if located is not None:
+        return located
     if code_object.is_dir():
-        directories = (
-            code_object,
-            code_object / "hip_controls",
-            code_object / "gfx1151",
-            code_object / "gfx1151" / "hip_controls",
-        )
-        for directory in directories:
-            candidate = directory / f"{kernel_name}.hsaco"
-            if candidate.is_file():
-                return candidate
         raise HIPRuntimeError(
             f"code object directory does not contain {kernel_name}.hsaco: {code_object}"
         )
     raise HIPRuntimeError(f"code object does not exist: {code_object}")
+
+
+def find_control(symbol: str, code_object: Path | None = None) -> Path:
+    """Return the artifact path of one installed HIP control, failing closed.
+
+    An explicit `code_object` may be the artifact itself or a control
+    directory. Otherwise the shared control roots are searched.
+    """
+
+    if code_object is not None:
+        return _resolve_code_object(code_object, symbol)
+    located = locate_control(symbol)
+    if located is None:
+        raise HIPRuntimeError(
+            f"cannot find HIP control {symbol}. Pass --hip-code-object or set "
+            "GGTENSILE_HIP_CONTROL_ROOT"
+        )
+    return located
 
 
 class _HIPModule:
@@ -637,9 +665,9 @@ class GroupedForwardModule(_HIPModule):
 class InstalledGroupedForwardModule(GroupedForwardModule):
     """Direct launcher for one deployed HIP grouped-forward control.
 
-    `hip_deployment.select_grouped_forward_control` picks the body for the route
-    bank and derives the launch geometry from the control's build record, so a
-    retuned family only changes that rule table.
+    `tools.mmq_hip_deployment` picks the body for the route bank and derives
+    the launch geometry from the control's build record, so retuning a family
+    only changes the deployment catalog.
     """
 
     def __init__(
@@ -1204,20 +1232,9 @@ def _find_installed_kernel(symbol: str) -> Path:
     override = os.environ.get(override_name)
     if override:
         return _resolve_code_object(Path(override), symbol)
-    control_root = os.environ.get("GGTENSILE_HIP_CONTROL_ROOT")
-    if control_root:
-        return _resolve_code_object(Path(control_root), symbol)
-    repo_root = Path(__file__).resolve().parents[2]
-    purelib = Path(sysconfig.get_paths()["purelib"])
-    roots = (
-        repo_root / "build/mmq_hip_controls/gfx1151",
-        repo_root / "torch_ggml_ops/kernels/gfx1151",
-        repo_root / "torch_ggml_ops/kernels/gfx1151/hip_controls",
-        purelib / "torch_ggml_ops/kernels/gfx1151",
-        purelib / "torch_ggml_ops/kernels/gfx1151/hip_controls",
-    )
-    for root in roots:
-        candidate = root / f"{symbol}.hsaco"
-        if candidate.is_file():
-            return candidate
-    raise HIPRuntimeError(f"cannot find installed kernel {symbol}. Set {override_name}")
+    located = locate_control(symbol)
+    if located is None:
+        raise HIPRuntimeError(
+            f"cannot find installed kernel {symbol}. Set {override_name}"
+        )
+    return located

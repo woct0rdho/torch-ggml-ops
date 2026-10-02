@@ -23,7 +23,7 @@ from bench.benchmark_common import (
 from bench.benchmark_data import RouteSelection, input_mapping, prepare_input
 from bench.benchmark_kernels import prepare_direct_implementations
 from tools.aiter_gmm_compat import infer_expert_prior
-from tools.mmq_deployment_cases import hip_control_root
+from tools.mmq_hip_paths import control_root
 
 
 def _inferred_expert_prior(case) -> str:
@@ -67,7 +67,7 @@ def run() -> None:
     names = tuple(args.implementations)
     hip_root = args.hip_root
     if "hip" in names:
-        hip_root = hip_root or hip_control_root()
+        hip_root = hip_root or control_root()
         if hip_root is None or not hip_root.exists():
             raise FileNotFoundError("HIP controls are unavailable")
     report = {

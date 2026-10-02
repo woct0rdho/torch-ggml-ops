@@ -6,6 +6,14 @@ from typing import Any
 
 import yaml
 
+from tools.mmq_abi import (
+    FIXED_GROUPED_BACKWARD_ABI,
+    FIXED_GROUPED_FORWARD_ABI,
+    GROUPED_BACKWARD_ABI,
+    ORDINARY_BACKWARD_ABI,
+    ORDINARY_FORWARD_ABI,
+)
+
 from .family_registry import instance_name
 from .fixed_grouped_mmq_bwd_model import FixedBackwardProblem
 from .fixed_grouped_mmq_bwd_spec import (
@@ -23,13 +31,6 @@ from .grouped_mmq_bwd_spec import (
     GroupedBackwardKernelSpec,
 )
 from .identity import KernelFamily
-from .kernel_abi import (
-    FIXED_GROUPED_BACKWARD_ABI,
-    FIXED_GROUPED_FORWARD_ABI,
-    GROUPED_BACKWARD_ABI,
-    ORDINARY_BACKWARD_ABI,
-    ORDINARY_FORWARD_ABI,
-)
 from .kernel_instance import KernelInstance
 from .mmq_bwd_physical import derive_backward_physical_plan
 from .mmq_bwd_spec import BackwardKernelSpec, DerivedBackwardState

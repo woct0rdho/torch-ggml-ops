@@ -6,8 +6,8 @@ This record covers the fused routed IQ2_S gate/up forward kernel for Qwen on gfx
 
 ## Final kernel result
 
-| Batch | Logical shape | HIP TFLOPS | HIP/AITER GMM | Kernel |
-| ---: | ---: | ---: | ---: | --- |
+| Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
+| ---: | --- | --- | --- | --- |
 | 1 | `2 x (16384,512,2048)` | 12.46 | 1.936x | `grouped_fwd_row_task_iq2_s_n512_k2048_j64` |
 | 4 | `2 x (65536,512,2048)` | 17.59 | 1.546x | `grouped_fwd_row_task_iq2_s_n512_k2048_j64` |
 | 16 | `2 x (262144,512,2048)` | 18.40 | 0.975x | `grouped_fwd_row_task_iq2_s_n512_k2048_j64` |

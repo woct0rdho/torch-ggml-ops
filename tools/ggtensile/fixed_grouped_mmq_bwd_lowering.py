@@ -2,8 +2,10 @@
 
 from dataclasses import dataclass
 
+from tools.mmq_abi import FIXED_GROUPED_BACKWARD_ABI
+from tools.mmq_work_group_mapping import work_group_mapping_shift
+
 from .fixed_grouped_mmq_bwd_spec import DerivedFixedBackwardState
-from .kernel_abi import FIXED_GROUPED_BACKWARD_ABI
 from .kernel_writer_assembly import (
     LoweringResult,
     emit_kernel_trailer,
@@ -12,7 +14,6 @@ from .kernel_writer_assembly import (
 from .mmq_bwd_emission import _Assembly
 from .mmq_bwd_lowering import BackwardTileComputeEmitter
 from .mmq_bwd_lowering_quant import UnboundedBackwardTileAccess
-from .work_group_mapping import work_group_mapping_shift
 
 
 @dataclass(frozen=True)

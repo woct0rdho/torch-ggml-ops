@@ -5,7 +5,12 @@ import json
 from dataclasses import dataclass
 from enum import Enum
 
-from .quant_formats import BACKWARD_QUANT_FORMATS, GROUPED_QUANT_FORMATS, QUANT_FORMATS
+from tools.mmq_quant_formats import (
+    BACKWARD_QUANT_FORMATS,
+    GROUPED_QUANT_FORMATS,
+    QUANT_FORMATS,
+)
+
 from .schema import SchemaError, integer_tuple, strict_mapping, string
 
 

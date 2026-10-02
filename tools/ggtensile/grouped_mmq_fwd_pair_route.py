@@ -2,12 +2,13 @@
 
 from dataclasses import dataclass
 
-from .grouped_mmq_fwd_pair_physical import GroupedIQ2SPairScalarRegisterPlan
-from .grouped_mmq_fwd_pair_spec import GroupedForwardPairRouteState
-from .kernel_abi import (
+from tools.mmq_abi import (
     GROUPED_FORWARD_PAIR_ABI,
     GROUPED_FORWARD_PAIR_ROW_TASK_ABI,
 )
+
+from .grouped_mmq_fwd_pair_physical import GroupedIQ2SPairScalarRegisterPlan
+from .grouped_mmq_fwd_pair_spec import GroupedForwardPairRouteState
 from .kernel_writer_assembly import Assembly
 
 

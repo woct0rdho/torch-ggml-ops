@@ -11,14 +11,14 @@ This record covers gfx1151 HIP packed-MMQ forward for Q5_K weights.
 
 ## Final kernel result
 
-| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm |
-| --- | ---: | ---: | ---: |
-| Narrow K/V/gate/up | `(2048,512,2048)` | 24.954 | 1.82x |
-| Narrow K/V/gate/up | `(8192,512,2048)` | 27.296 | 1.48x |
-| Narrow K/V/gate/up | `(32768,512,2048)` | 27.986 | 1.46x |
-| Shared down | `(2048,2048,512)` | 24.546 | 8.23x |
-| Shared down | `(8192,2048,512)` | 26.827 | 8.22x |
-| Shared down | `(32768,2048,512)` | 27.691 | 8.36x |
+| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm | Kernel |
+| ---: | --- | --- | --- | --- |
+| Narrow K/V/gate/up | `(2048,512,2048)` | 24.954 | 1.82x | `dense_fwd_q5_k_k2048_j128_full` |
+| Narrow K/V/gate/up | `(8192,512,2048)` | 27.296 | 1.48x | `dense_fwd_q5_k_k2048_j128_full` |
+| Narrow K/V/gate/up | `(32768,512,2048)` | 27.986 | 1.46x | `dense_fwd_q5_k_k2048_j128_full` |
+| Shared down | `(2048,2048,512)` | 24.546 | 8.23x | `dense_fwd_q5_k_k512_j128_full` |
+| Shared down | `(8192,2048,512)` | 26.827 | 8.22x | `dense_fwd_q5_k_k512_j128_full` |
+| Shared down | `(32768,2048,512)` | 27.691 | 8.36x | `dense_fwd_q5_k_k512_j128_full` |
 
 ## Kernel implementation
 

@@ -1,4 +1,5 @@
-from .kernel_abi import ORDINARY_FORWARD_ABI
+from tools.mmq_abi import ORDINARY_FORWARD_ABI
+
 from .kernel_writer_assembly import (
     AssemblyKernelWriter,
     KernelEmissionPlan,

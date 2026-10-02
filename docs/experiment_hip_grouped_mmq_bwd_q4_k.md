@@ -8,11 +8,11 @@ Aggregate rows are `R=16384,65536,262144`.
 
 ## Final kernel result
 
-| Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM |
-| ---: | ---: | ---: | ---: |
-| 1 | `(16384,512,2048)` | 9.70 | 0.869x |
-| 4 | `(65536,512,2048)` | 13.56 | 0.808x |
-| 16 | `(262144,512,2048)` | 17.19 | 0.758x |
+| Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
+| ---: | --- | --- | --- | --- |
+| 1 | `(16384,512,2048)` | 9.70 | 0.869x | `grouped_bwd_single_q4_k_n2048_k512_mt64_nt64` |
+| 4 | `(65536,512,2048)` | 13.56 | 0.808x | `grouped_bwd_single_q4_k_n2048_k512_mt128_nt64` |
+| 16 | `(262144,512,2048)` | 17.19 | 0.758x | `grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt128` |
 
 The large-route deficit remains after exact geometry, row tasks, and inactive-M controls. AITER starts from predecoded BF16 weights.
 

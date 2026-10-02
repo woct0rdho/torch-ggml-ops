@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from tools.mmq_abi import GROUPED_FORWARD_ABI
+
 from .grouped_mmq_fwd_model import (
     GroupedForwardProblem,
     GroupedQ2DecodePolicy,
@@ -21,7 +23,6 @@ from .inspection import (
     _metadata,
     _metadata_arguments,
 )
-from .kernel_abi import GROUPED_FORWARD_ABI
 from .toolchain import Toolchain
 
 

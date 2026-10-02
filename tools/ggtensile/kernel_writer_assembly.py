@@ -9,8 +9,9 @@ import rocisa  # ty: ignore[unresolved-import]
 from rocisa import code  # ty: ignore[unresolved-import]
 from rocisa.enum import SignatureValueKind as SVK  # ty: ignore[unresolved-import]
 
+from tools.mmq_abi import KernelAbi, KernelArgumentKind
+
 from .digest import sha256_hex
-from .kernel_abi import KernelAbi, KernelArgumentKind
 
 
 @dataclass(frozen=True)

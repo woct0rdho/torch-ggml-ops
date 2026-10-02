@@ -1,16 +1,16 @@
 """Launchers for the deployed dense-backward HIP controls.
 
 The deployed symbol for each exact backward key and its launch geometry both
-come from `tools.ggtensile.hip_deployment`. This module only binds them to
+come from `tools.mmq_hip_deployment`. This module only binds them to
 the public backward ABI and its validation.
 """
 
 from pathlib import Path
 
-from .hip_deployment import select_hip_control
-from .mmq_bwd_spec import BackwardKernelSpec
-from .model import ProblemSize
-from .runtime import (
+from tools.ggtensile.mmq_bwd_spec import BackwardKernelSpec
+from tools.ggtensile.model import ProblemSize
+from tools.mmq_hip_deployment import select_hip_control
+from tools.mmq_runtime import (
     BackwardModule,
     _find_installed_kernel,
     _resolve_code_object,

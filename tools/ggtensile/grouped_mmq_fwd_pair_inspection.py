@@ -2,6 +2,11 @@
 
 from pathlib import Path
 
+from tools.mmq_abi import (
+    GROUPED_FORWARD_PAIR_ABI,
+    GROUPED_FORWARD_PAIR_ROW_TASK_ABI,
+)
+
 from .grouped_mmq_fwd_pair_model import (
     GroupedForwardPairProblem,
     GroupedPairRouteOwnership,
@@ -22,10 +27,6 @@ from .inspection import (
     _max_register_index,
     _metadata,
     _metadata_arguments,
-)
-from .kernel_abi import (
-    GROUPED_FORWARD_PAIR_ABI,
-    GROUPED_FORWARD_PAIR_ROW_TASK_ABI,
 )
 from .toolchain import Toolchain
 

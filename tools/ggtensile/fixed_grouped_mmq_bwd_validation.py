@@ -1,5 +1,7 @@
 """Validation gates for fixed-group Q8_0 backward."""
 
+from tools.mmq_work_group_mapping import mapped_grid_extent, mapped_m_tile_count
+
 from .fixed_grouped_mmq_bwd_model import FixedBackwardProblem
 from .fixed_grouped_mmq_bwd_physical import derive_fixed_backward_physical_plan
 from .fixed_grouped_mmq_bwd_spec import (
@@ -12,7 +14,6 @@ from .mmq_bwd_spec import DerivedBackwardState
 from .model import ProblemSize, ProblemType
 from .physical_resources import GFX1151_RESOURCE_CAPACITY
 from .validation import _validate_backward_spec_record
-from .work_group_mapping import mapped_grid_extent, mapped_m_tile_count
 
 
 def validate_fixed_backward_solution(

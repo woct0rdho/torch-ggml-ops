@@ -3,7 +3,8 @@
 from dataclasses import dataclass
 from typing import ClassVar, cast
 
-from .kernel_abi import ORDINARY_FORWARD_ABI
+from tools.mmq_abi import ORDINARY_FORWARD_ABI
+
 from .kernel_writer_assembly import (
     Assembly,
     emit_bf16_conversion,
