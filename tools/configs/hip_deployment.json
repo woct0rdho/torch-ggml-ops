@@ -1,5 +1,4 @@
 {
-  "schema": "hip-control-deployment-v1",
   "evidence": "~/tmp/torch-ggml-ops/hip_selection/ (per-key candidate campaign, 2026-09-28)",
   "families": [
     {

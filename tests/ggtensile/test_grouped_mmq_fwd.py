@@ -34,19 +34,17 @@ from tools.ggtensile.grouped_mmq_fwd_spec import (
 from tools.ggtensile.grouped_mmq_fwd_validation import (
     validate_grouped_forward_solution,
 )
+from tools.ggtensile.hip_deployment import (
+    control_inventory,
+    routed_grouped_forward_rules,
+    select_grouped_forward_control,
+)
 from tools.ggtensile.identity import KernelFamily
 from tools.ggtensile.kernel_instance import KernelInstance
 from tools.ggtensile.model import SchemaError
 from tools.ggtensile.runtime import (
     GroupedForwardModule,
-    HIPRuntimeError,
-    InstalledGroupedForwardIQ2SJ64J32Module,
-    InstalledGroupedForwardIQ2SJ64Module,
     InstalledGroupedForwardModule,
-    InstalledGroupedForwardQ2J32J16Module,
-    InstalledGroupedForwardQ2J32Module,
-    InstalledGroupedForwardQ5J32Module,
-    InstalledGroupedForwardQ5Module,
 )
 from tools.ggtensile.toolchain import Toolchain
 
@@ -317,32 +315,68 @@ def test_grouped_iq2_s_rebuild_is_deterministic(tmp_path: Path) -> None:
     assert code_objects[0] == code_objects[1]
 
 
-def test_installed_grouped_iq2_s_dispatch_preserves_b4_exception() -> None:
-    pure = InstalledGroupedForwardIQ2SJ64Module.__new__(
-        InstalledGroupedForwardIQ2SJ64Module
-    )
-    pure.problem = _problem_spec(_iq2_s_key(65_536))[0]
-    with pytest.raises(HIPRuntimeError, match="mixed"):
-        pure._launch_configuration(256)
-    pure.problem = _problem_spec(_iq2_s_key(262_144))[0]
-    assert pure._launch_configuration(256) == (
-        (32, 256, 1),
-        (32, 4, 1),
-        30_976,
-    )
+def test_grouped_forward_rules_select_only_built_controls() -> None:
+    inventory = control_inventory()
+    families = {}
+    for (
+        quant_type,
+        out_features,
+        in_features,
+        value,
+        symbol,
+    ) in routed_grouped_forward_rules():
+        assert symbol in inventory, f"{quant_type} selects unbuilt control {symbol}"
+        families.setdefault((quant_type, out_features, in_features), []).append(
+            (value, symbol)
+        )
+    for key, rules in families.items():
+        assert rules[-1][0] == 0, f"{key} has no unconditional default rule"
+        defaults = {symbol for value, symbol in rules if value == 0}
+        assert len(defaults) == 1
+        assert defaults.isdisjoint({symbol for value, symbol in rules if value != 0}), (
+            f"{key} reuses its default body in a conditional rule"
+        )
 
-    mixed = InstalledGroupedForwardIQ2SJ64J32Module.__new__(
-        InstalledGroupedForwardIQ2SJ64J32Module
+
+@pytest.mark.parametrize(
+    ("quant_type", "out_features", "in_features", "rows", "expected"),
+    (
+        ("Q4_K", 2048, 512, 16_384, "grouped_fwd_serial_q4_k_n2048_k512_j32"),
+        ("Q4_K", 2048, 512, 65_536, "grouped_fwd_serial_q4_k_n2048_k512_j64"),
+        ("Q4_K", 2048, 512, 262_144, "grouped_fwd_serial_q4_k_n2048_k512_j64"),
+        ("Q5_K", 2048, 512, 16_384, "grouped_fwd_serial_q5_k_n2048_k512_j32"),
+        ("Q5_K", 2048, 512, 65_536, "grouped_fwd_serial_q5_k_n2048_k512_j64"),
+        ("IQ2_S", 2048, 512, 16_384, "grouped_fwd_serial_iq2_s_n2048_k512_j64_j32"),
+        ("IQ2_S", 2048, 512, 65_536, "grouped_fwd_serial_iq2_s_n2048_k512_j64_j32"),
+        ("IQ2_S", 2048, 512, 262_144, "grouped_fwd_serial_iq2_s_n2048_k512_j64"),
+        ("Q2_K", 4096, 2048, 12_288, "grouped_fwd_serial_q2_k_n4096_k2048_j32_j16"),
+        ("Q2_K", 4096, 2048, 49_152, "grouped_fwd_serial_q2_k_n4096_k2048_j32_j16"),
+        ("Q2_K", 4096, 2048, 196_608, "grouped_fwd_serial_q2_k_n4096_k2048_j32"),
+    ),
+)
+def test_grouped_forward_policy_matches_the_deployed_bodies(
+    quant_type: str, out_features: int, in_features: int, rows: int, expected: str
+) -> None:
+    control = select_grouped_forward_control(
+        quant_type, out_features, in_features, rows, 256
     )
-    mixed.problem = _problem_spec(_iq2_s_key(65_536))[0]
-    assert mixed._launch_configuration(256) == (
-        (32, 256, 1),
-        (32, 4, 1),
-        30_976,
-    )
-    mixed.problem = _problem_spec(_iq2_s_key(262_144))[0]
-    with pytest.raises(HIPRuntimeError, match="pure"):
-        mixed._launch_configuration(256)
+    assert control.symbol == expected
+    grid, block, shared = control.launch_configuration(out_features, 256)
+    assert grid == (out_features // 64, 256, 1)
+    assert block == (32, 4, 1)
+    assert shared == control.lds_bytes
+
+
+def test_grouped_forward_policy_fails_closed() -> None:
+    with pytest.raises(ValueError, match="no deployed HIP grouped-forward control"):
+        select_grouped_forward_control("Q6_K", 2048, 512, 16_384, 256)
+    with pytest.raises(ValueError, match="no deployed HIP grouped-forward control"):
+        select_grouped_forward_control("Q4_K", 1024, 512, 16_384, 256)
+    with pytest.raises(ValueError, match="at least one route entry"):
+        select_grouped_forward_control("Q4_K", 2048, 512, 16_384, 0)
+    control = select_grouped_forward_control("Q4_K", 2048, 512, 16_384, 256)
+    with pytest.raises(ValueError, match="at least one route entry"):
+        control.launch_configuration(2048, 0)
 
 
 @pytest.mark.parametrize("aggregate_rows", (16384, 65536, 262144))
@@ -484,30 +518,6 @@ def test_grouped_q2_k_selected_rebuild_is_deterministic(
         code_objects.append(code_object)
     assert sources[0].read_bytes() == sources[1].read_bytes()
     assert code_objects[0].read_bytes() == code_objects[1].read_bytes()
-
-
-def test_installed_grouped_q2_k_dispatch_preserves_exact_exception() -> None:
-    pure = InstalledGroupedForwardQ2J32Module.__new__(
-        InstalledGroupedForwardQ2J32Module
-    )
-    pure.problem = _problem_spec(_q2_key(aggregate_rows=49_152))[0]
-    with pytest.raises(HIPRuntimeError, match="mixed"):
-        pure._launch_configuration(256)
-    pure.problem = _problem_spec(_q2_key(aggregate_rows=12_288))[0]
-    assert pure._launch_configuration(128) == ((64, 128, 1), (32, 4, 1), 30_336)
-
-    mixed = InstalledGroupedForwardQ2J32J16Module.__new__(
-        InstalledGroupedForwardQ2J32J16Module
-    )
-    mixed.problem = _problem_spec(_q2_key(aggregate_rows=49_152))[0]
-    assert mixed._launch_configuration(256) == (
-        (64, 256, 1),
-        (32, 4, 1),
-        30_336,
-    )
-    mixed.problem = _problem_spec(_q2_key(aggregate_rows=12_288))[0]
-    with pytest.raises(HIPRuntimeError, match="pure"):
-        mixed._launch_configuration(128)
 
 
 def test_grouped_q2_k_rejects_cross_format_solution() -> None:
@@ -655,32 +665,6 @@ def test_grouped_q5_k_accepts_shared_decoded_spec() -> None:
     assert parse_instance(mapping_for_instance(key)) == key
 
 
-def test_installed_grouped_q5_k_launch_geometries_follow_dispatch() -> None:
-    j64 = InstalledGroupedForwardQ5Module.__new__(InstalledGroupedForwardQ5Module)
-    j64.problem = _problem_spec(_q5_key(aggregate_rows=65536))[0]
-    assert j64._launch_configuration(256) == (
-        (32, 256, 1),
-        (32, 4, 1),
-        28_928,
-    )
-    small_route = InstalledGroupedForwardQ5Module.__new__(
-        InstalledGroupedForwardQ5Module
-    )
-    small_route.problem = _problem_spec(_q5_key(aggregate_rows=16384))[0]
-    with pytest.raises(HIPRuntimeError, match="dedicated module"):
-        small_route._launch_configuration(256)
-
-    j32 = InstalledGroupedForwardQ5J32Module.__new__(InstalledGroupedForwardQ5J32Module)
-    j32.problem = _problem_spec(_q5_key(aggregate_rows=16384))[0]
-    assert j32._launch_configuration(256) == (
-        (32, 256, 1),
-        (32, 4, 1),
-        24_192,
-    )
-    with pytest.raises(HIPRuntimeError, match="selects J64"):
-        j32._launch_configuration(128)
-
-
 def test_grouped_q4_k_decoded_plans_cover_row_tiles() -> None:
     cases = (
         (_Solutions.q4_k_serial_decoded_lds(), 239, 38_400, 32),
@@ -813,7 +797,10 @@ def test_grouped_q4_k_launch_geometries_match_each_mechanism() -> None:
     candidate = GroupedForwardModule.__new__(GroupedForwardModule)
     candidate.state = _state(_key(35))
     assert candidate._launch_configuration(4) == ((128, 4, 1), (32, 1, 1), 0)
+    control = select_grouped_forward_control("Q4_K", 2048, 512, 262_144, 256)
     installed = InstalledGroupedForwardModule.__new__(InstalledGroupedForwardModule)
+    installed.problem = _problem_spec(_key(35))[0]
+    installed.control = control
     assert installed._launch_configuration(4) == (
         (32, 4, 1),
         (32, 4, 1),

@@ -295,6 +295,14 @@ def _forward_controls() -> list[HIPControlSpec]:
                 nrows_weight=2048,
                 blocks_per_weight_row=2,
             ),
+            _forward(
+                "grouped_fwd_serial_q4_k_n2048_k512_j32",
+                ForwardKind.GROUPED_SERIAL,
+                QuantType.Q4_K,
+                j=32,
+                nrows_weight=2048,
+                blocks_per_weight_row=2,
+            ),
         ]
     )
     return specs
@@ -709,7 +717,7 @@ def hip_control_specs() -> tuple[HIPControlSpec, ...]:
         + _grouped_backward_controls()
     )
     symbols = [spec.symbol for spec in specs]
-    if len(specs) != 181:
+    if len(specs) != 182:
         raise ValueError(f"historical HIP control inventory has {len(specs)} entries")
     if len(symbols) != len(set(symbols)):
         raise ValueError("HIP control symbols must be unique")

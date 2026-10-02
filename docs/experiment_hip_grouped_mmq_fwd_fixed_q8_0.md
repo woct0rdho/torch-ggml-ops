@@ -46,7 +46,7 @@ Current measurement evidence for the table above:
 ~/tmp/torch-ggml-ops/hip_vs_baseline/pass11_fixedfwd_deepseek.json
 ~/tmp/torch-ggml-ops/hip_vs_baseline/quantizer_probe.json   (excluded input quantization cost)
 ~/tmp/torch-ggml-ops/hip_selection/                         (per-case candidate campaign)
-tools/ggtensile/configs/hip_deployment.json                 (deployed body per key)
+tools/configs/hip_deployment.json                           (deployed body per key)
 ```
 
 The original campaign evidence is:

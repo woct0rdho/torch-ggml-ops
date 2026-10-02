@@ -57,7 +57,7 @@ Current measurement evidence for the table above:
 ```text
 ~/tmp/torch-ggml-ops/hip_vs_baseline/pass11_ordbwd_qwen.json
 ~/tmp/torch-ggml-ops/hip_selection/           (per-key candidate campaign)
-tools/ggtensile/configs/hip_deployment.json   (deployed body per chunk)
+tools/configs/hip_deployment.json             (deployed body per chunk)
 ```
 
 The original campaign evidence is:

@@ -1,6 +1,6 @@
 """The deployed dense-backward module launches the catalogued control.
 
-`configs/hip_deployment.json` fixes the symbol per exact backward key and
+`tools/configs/hip_deployment.json` fixes the symbol per exact backward key and
 derives its launch geometry. This module must not carry a second table.
 """
 

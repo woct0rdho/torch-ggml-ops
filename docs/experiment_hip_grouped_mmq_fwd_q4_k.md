@@ -8,17 +8,17 @@ This record covers the routed Q4_K down kernel for Qwen on gfx1151.
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | ---: | ---: | ---: | --- |
-| 1 | `(16384,2048,512)` | 16.94 | 1.463x | `grouped_fwd_serial_q4_k_n2048_k512_j64` |
-| 4 | `(65536,2048,512)` | 23.00 | 1.204x | `grouped_fwd_serial_q4_k_n2048_k512_j64` |
-| 16 | `(262144,2048,512)` | 24.65 | 1.060x | `grouped_fwd_serial_q4_k_n2048_k512_j64` |
+| 1 | `(16384,2048,512)` | 17.85 | 1.575x | `grouped_fwd_serial_q4_k_n2048_k512_j32` |
+| 4 | `(65536,2048,512)` | 22.78 | 1.191x | `grouped_fwd_serial_q4_k_n2048_k512_j64` |
+| 16 | `(262144,2048,512)` | 24.51 | 1.062x | `grouped_fwd_serial_q4_k_n2048_k512_j64` |
 
-The retained J64 body trails its uniform-route control by `29%`/`13%` at B1/B4 and is level at B16 (`4%`). The B16 comparison remains a representation gap against predecoded BF16 weights. Flagged prior-sensitive at B1/B4: the retention decision was made on other route distributions and may need a learned-route retune.
+The small-route batch now uses the pure J32 body: it removes masked rows and fits a fifth workgroup per WGP, which is worth `5-10%` at B1. B4/B16 keep the J64 mixed-tail body, which is level with the uniform-route control at B16 (`4%`). The B4/B16 residual remains packed scale/minimum reconstruction against predecoded BF16 weights. Flagged prior-sensitive at B1/B4.
 
-The table kernel is the deployed HIP body for these shapes and rebuilds byte-identically from the current sources; the retained choice was measured on other route distributions, so a learned-route candidate sweep is the follow-up for the flagged batches.
+The table kernel is the deployed HIP body for these shapes and the selection rule that picks it is part of the deployed-control rule table; every candidate the retune measured was verified bitwise against the body in the table.
 
 ## Kernel implementation
 
-The retained body uses exact Q4_K N2048/K512 geometry, four wave32 waves, J64 ownership with a bounded J32 tail where measured, width-16 packed decode, Q4 scale/minimum reconstruction, and BF16 output stores. It keeps inactive route handling in the device kernel and does not build host descriptors from offsets.
+The retained bodies use exact Q4_K N2048/K512 geometry and four wave32 waves: a pure J32 body for the small-route batch and J64 ownership with a bounded J32 tail for the larger batches. Both use width-16 packed decode, Q4 scale/minimum reconstruction, and BF16 output stores. It keeps inactive route handling in the device kernel and does not build host descriptors from offsets.
 
 ## Optimization log
 
@@ -35,6 +35,23 @@ The coefficient-only campaign screened exact J values, row-task alternatives, li
 The measured Q4 residual is repeated packed scale/minimum reconstruction rather than cache misses or high LDS stalls. Wider ownership, broad swizzles, two-LDS decoded-weight caches, split-K, Stream-K, persistent groups, and direct-to-LDS forms are closed.
 
 The early Q4 redesign moved a representative B1 point from `6.874 ms` to `2.842 ms`; exact full-row and bounded-tail specialization later moved it to `1.599 ms`. The retained Q4 row-task body is `242 VGPR / 46 SGPR`. These measurements explain the accepted tiled/tail mechanism without replacing the final matrix above.
+
+### Learned-route retune
+
+The flagged prior-sensitive batches were re-swept under the learned route law: J bodies of the same geometry (J16, J32, J64, J80, J128), adaptive J cascades (64/32/16 by remaining rows), 8-wave workgroups with the J tile split across two warp groups, and a compact single-stage weight tile that halves the LDS footprint. All candidates were checked bitwise against the deployed body.
+
+What the measurements show for this kernel family:
+- The limiting resource is the number of independent workgroups resident per WGP, not the wave count. Reserving more dynamic LDS on one fixed body costs `15%` at four to three resident workgroups and `40%` at four to two, and a J32 body with a fifth workgroup gains about `11%`. Doubling the waves per workgroup (8-wave, J-split) changes nothing because the waves inside a workgroup stay phase-locked by the barriers.
+- The kernel is not barrier- or traffic-bound: removing the barriers saves `2%`, and removing the activation or weight global loads (keeping the LDS stores) saves `22%`/`4%`.
+- The scale/minimum epilogue is latency filling, not waste. Replacing its FMAs with a bare accumulate makes the body `1.8x` slower because nothing covers the WMMA and LDS latency any more.
+- Masked rows of a large J tile cost much less than the per-tile weight decode: adaptive cascades, J16 and J128/J80 bodies all lose to the plain J32 (small routes) and J64 (large routes) bodies.
+- The compact single-stage weight tile is bitwise-identical and fits half the LDS, but the extra per-stage loader calls cancel the occupancy gain at the same J.
+
+Still open after this round, in measured-payoff order: a 128-bit activation tile load/store path (the activation stream is worth about a fifth of the time and sits on the critical path), an I=32 tile that trades activation reuse for a much smaller LDS footprint and a higher resident-workgroup count, and combining the compact weight tile with a four-wave workgroup so the extra resident workgroups are actually used.
+
+Measured instructions are `34%` of issue slots and WMMA is about `8%` of sampled stalls (VALU `52%`, barriers `14%`, LDS `10%`), so the remaining limit is the tile load, decode and LDS-store stream rather than the matrix unit.
+
+The small-route batch now runs a pure J32 body (`grouped_fwd_serial_q4_k_n2048_k512_j32`, 24,192 B LDS) while the J64 mixed-tail body stays for the larger batches. J80 loses at every row count.
 
 ## Evidence
 

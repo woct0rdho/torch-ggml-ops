@@ -43,6 +43,7 @@ from tools.ggtensile.grouped_mmq_fwd_pair_spec import (
     GroupedForwardPairKernelSpec,
 )
 from tools.ggtensile.grouped_mmq_fwd_spec import GroupedForwardKernelSpec
+from tools.ggtensile.hip_deployment import select_grouped_forward_control
 from tools.ggtensile.mmq_bwd_spec import BackwardKernelSpec
 from tools.ggtensile.mmq_fwd_spec import ForwardKernelSpec
 from tools.ggtensile.model import ProblemSize
@@ -60,13 +61,7 @@ from tools.ggtensile.runtime import (
     HIPRuntimeError,
     InstalledFixedGroupedQ8BackwardModule,
     InstalledFixedGroupedQ8ForwardModule,
-    InstalledGroupedForwardIQ2SJ64J32Module,
-    InstalledGroupedForwardIQ2SJ64Module,
     InstalledGroupedForwardModule,
-    InstalledGroupedForwardQ2J32J16Module,
-    InstalledGroupedForwardQ2J32Module,
-    InstalledGroupedForwardQ5J32Module,
-    InstalledGroupedForwardQ5Module,
 )
 from tools.mmq_correctness import CorrectnessPrerequisite, PreparedCase
 from tools.mmq_deployment_cases import DeploymentCase, public_artifact_path
@@ -198,21 +193,14 @@ def _grouped_forward_control(
     spec = case.instance.kernel_spec
     assert isinstance(problem, GroupedForwardProblem)
     assert isinstance(spec, GroupedForwardKernelSpec)
-    if case.quant_type == "Q4_K":
-        return InstalledGroupedForwardModule(problem, spec, root)
-    if case.quant_type == "Q5_K":
-        if case.rows < 128 * route_entries:
-            return InstalledGroupedForwardQ5J32Module(problem, spec, root)
-        return InstalledGroupedForwardQ5Module(problem, spec, root)
-    if case.quant_type == "Q2_K":
-        if case.rows == 49152 or case.rows < 64 * route_entries:
-            return InstalledGroupedForwardQ2J32J16Module(problem, spec, root)
-        return InstalledGroupedForwardQ2J32Module(problem, spec, root)
-    if case.quant_type == "IQ2_S":
-        if case.rows == 65536 or case.rows < 128 * route_entries:
-            return InstalledGroupedForwardIQ2SJ64J32Module(problem, spec, root)
-        return InstalledGroupedForwardIQ2SJ64Module(problem, spec, root)
-    raise HIPRuntimeError(f"no grouped-forward HIP control for {case.quant_type}")
+    control = select_grouped_forward_control(
+        case.quant_type,
+        case.out_features,
+        case.in_features,
+        case.rows,
+        route_entries,
+    )
+    return InstalledGroupedForwardModule(problem, spec, control, root)
 
 
 def _pair_forward_control(case: DeploymentCase, row_tasks: bool, root: Path | None):

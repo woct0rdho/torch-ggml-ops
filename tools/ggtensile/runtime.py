@@ -24,7 +24,7 @@ from .grouped_mmq_bwd_spec import DerivedGroupedBackwardState, GroupedBackwardKe
 from .grouped_mmq_fwd_model import GroupedForwardProblem
 from .grouped_mmq_fwd_spec import DerivedGroupedForwardState, GroupedForwardKernelSpec
 from .grouped_mmq_fwd_validation import validate_grouped_forward_solution
-from .hip_deployment import select_hip_control
+from .hip_deployment import GroupedForwardControl, select_hip_control
 from .kernel_abi import (
     FIXED_GROUPED_BACKWARD_ABI,
     FIXED_GROUPED_FORWARD_ABI,
@@ -635,218 +635,36 @@ class GroupedForwardModule(_HIPModule):
 
 
 class InstalledGroupedForwardModule(GroupedForwardModule):
-    """Direct launcher for the installed HIP Q4_K grouped serial control."""
+    """Direct launcher for one deployed HIP grouped-forward control.
 
-    SYMBOL = "grouped_fwd_serial_q4_k_n2048_k512_j64"
+    `hip_deployment.select_grouped_forward_control` picks the body for the route
+    bank and derives the launch geometry from the control's build record, so a
+    retuned family only changes that rule table.
+    """
 
     def __init__(
         self,
         problem: GroupedForwardProblem,
         kernel_spec: GroupedForwardKernelSpec,
+        control: GroupedForwardControl,
         code_object: Path | None = None,
         hip_library: Path | None = None,
     ) -> None:
+        self.control = control
         super().__init__(
             problem,
             kernel_spec,
-            code_object or _find_installed_kernel(self.SYMBOL),
-            self.SYMBOL,
+            code_object or _find_installed_kernel(control.symbol),
+            control.symbol,
             hip_library,
         )
 
     def _launch_configuration(
         self, route_entries: int
     ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
-        return ((32, route_entries, 1), (32, 4, 1), 28_928)
-
-
-class InstalledGroupedForwardQ5Module(GroupedForwardModule):
-    """Direct launcher for the installed HIP Q5_K J64 grouped control."""
-
-    J64_SYMBOL = "grouped_fwd_serial_q5_k_n2048_k512_j64"
-    J32_SYMBOL = "grouped_fwd_serial_q5_k_n2048_k512_j32"
-
-    def __init__(
-        self,
-        problem: GroupedForwardProblem,
-        kernel_spec: GroupedForwardKernelSpec,
-        code_object: Path | None = None,
-        hip_library: Path | None = None,
-    ) -> None:
-        if problem.quant_data_type != "Q5_K":
-            raise HIPRuntimeError("installed Q5_K control requires a Q5_K problem")
-        super().__init__(
-            problem,
-            kernel_spec,
-            code_object or _find_installed_kernel(self.J64_SYMBOL),
-            self.J64_SYMBOL,
-            hip_library,
+        return self.control.launch_configuration(
+            self.problem.output_features, route_entries
         )
-
-    def _launch_configuration(
-        self, route_entries: int
-    ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
-        if self.problem.aggregate_rows < 128 * route_entries:
-            raise HIPRuntimeError(
-                "the installed Q5_K J32 control requires its dedicated module"
-            )
-        return ((32, route_entries, 1), (32, 4, 1), 28_928)
-
-
-class InstalledGroupedForwardQ5J32Module(GroupedForwardModule):
-    """Direct launcher for the installed HIP Q5_K small-route J32 control."""
-
-    SYMBOL = InstalledGroupedForwardQ5Module.J32_SYMBOL
-
-    def __init__(
-        self,
-        problem: GroupedForwardProblem,
-        kernel_spec: GroupedForwardKernelSpec,
-        code_object: Path | None = None,
-        hip_library: Path | None = None,
-    ) -> None:
-        if problem.quant_data_type != "Q5_K":
-            raise HIPRuntimeError("installed Q5_K J32 control requires a Q5_K problem")
-        super().__init__(
-            problem,
-            kernel_spec,
-            code_object or _find_installed_kernel(self.SYMBOL),
-            self.SYMBOL,
-            hip_library,
-        )
-
-    def _launch_configuration(
-        self, route_entries: int
-    ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
-        if self.problem.aggregate_rows >= 128 * route_entries:
-            raise HIPRuntimeError("installed Q5_K dispatch selects J64 for this route")
-        return ((32, route_entries, 1), (32, 4, 1), 24_192)
-
-
-class InstalledGroupedForwardQ2J32Module(GroupedForwardModule):
-    """Direct launcher for the installed pure Q2_K J32 control."""
-
-    SYMBOL = "grouped_fwd_serial_q2_k_n4096_k2048_j32"
-
-    def __init__(
-        self,
-        problem: GroupedForwardProblem,
-        kernel_spec: GroupedForwardKernelSpec,
-        code_object: Path | None = None,
-        hip_library: Path | None = None,
-    ) -> None:
-        if problem.quant_data_type != "Q2_K":
-            raise HIPRuntimeError("installed Q2_K J32 control requires a Q2_K problem")
-        super().__init__(
-            problem,
-            kernel_spec,
-            code_object or _find_installed_kernel(self.SYMBOL),
-            self.SYMBOL,
-            hip_library,
-        )
-
-    def _launch_configuration(
-        self, route_entries: int
-    ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
-        rows = self.problem.aggregate_rows
-        if rows == 49_152 or rows < 64 * route_entries:
-            raise HIPRuntimeError("installed Q2_K dispatch selects mixed J32/J16")
-        return ((64, route_entries, 1), (32, 4, 1), 30_336)
-
-
-class InstalledGroupedForwardQ2J32J16Module(GroupedForwardModule):
-    """Direct launcher for the installed mixed Q2_K J32/J16 control."""
-
-    SYMBOL = "grouped_fwd_serial_q2_k_n4096_k2048_j32_j16"
-
-    def __init__(
-        self,
-        problem: GroupedForwardProblem,
-        kernel_spec: GroupedForwardKernelSpec,
-        code_object: Path | None = None,
-        hip_library: Path | None = None,
-    ) -> None:
-        if problem.quant_data_type != "Q2_K":
-            raise HIPRuntimeError(
-                "installed Q2_K mixed control requires a Q2_K problem"
-            )
-        super().__init__(
-            problem,
-            kernel_spec,
-            code_object or _find_installed_kernel(self.SYMBOL),
-            self.SYMBOL,
-            hip_library,
-        )
-
-    def _launch_configuration(
-        self, route_entries: int
-    ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
-        rows = self.problem.aggregate_rows
-        if rows != 49_152 and rows >= 64 * route_entries:
-            raise HIPRuntimeError("installed Q2_K dispatch selects pure J32")
-        return ((64, route_entries, 1), (32, 4, 1), 30_336)
-
-
-class InstalledGroupedForwardIQ2SJ64Module(GroupedForwardModule):
-    """Direct launcher for the installed pure IQ2_S J64 grouped control."""
-
-    SYMBOL = "grouped_fwd_serial_iq2_s_n2048_k512_j64"
-
-    def __init__(
-        self,
-        problem: GroupedForwardProblem,
-        kernel_spec: GroupedForwardKernelSpec,
-        code_object: Path | None = None,
-        hip_library: Path | None = None,
-    ) -> None:
-        if problem.quant_data_type != "IQ2_S":
-            raise HIPRuntimeError("installed IQ2_S J64 control requires IQ2_S")
-        super().__init__(
-            problem,
-            kernel_spec,
-            code_object or _find_installed_kernel(self.SYMBOL),
-            self.SYMBOL,
-            hip_library,
-        )
-
-    def _launch_configuration(
-        self, route_entries: int
-    ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
-        rows = self.problem.aggregate_rows
-        if rows == 65_536 or rows < 128 * route_entries:
-            raise HIPRuntimeError("installed IQ2_S dispatch selects mixed J64/J32")
-        return ((32, route_entries, 1), (32, 4, 1), 30_976)
-
-
-class InstalledGroupedForwardIQ2SJ64J32Module(GroupedForwardModule):
-    """Direct launcher for the installed mixed IQ2_S J64/J32 control."""
-
-    SYMBOL = "grouped_fwd_serial_iq2_s_n2048_k512_j64_j32"
-
-    def __init__(
-        self,
-        problem: GroupedForwardProblem,
-        kernel_spec: GroupedForwardKernelSpec,
-        code_object: Path | None = None,
-        hip_library: Path | None = None,
-    ) -> None:
-        if problem.quant_data_type != "IQ2_S":
-            raise HIPRuntimeError("installed mixed IQ2_S control requires IQ2_S")
-        super().__init__(
-            problem,
-            kernel_spec,
-            code_object or _find_installed_kernel(self.SYMBOL),
-            self.SYMBOL,
-            hip_library,
-        )
-
-    def _launch_configuration(
-        self, route_entries: int
-    ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
-        rows = self.problem.aggregate_rows
-        if rows != 65_536 and rows >= 128 * route_entries:
-            raise HIPRuntimeError("installed IQ2_S dispatch selects pure J64")
-        return ((32, route_entries, 1), (32, 4, 1), 30_976)
 
 
 class FixedQ81F16D2S6QuantizerModule(_HIPModule):

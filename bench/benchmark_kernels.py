@@ -46,6 +46,7 @@ from tools.ggtensile.grouped_mmq_fwd_pair_spec import (
     GroupedForwardPairKernelSpec,
 )
 from tools.ggtensile.grouped_mmq_fwd_spec import GroupedForwardKernelSpec
+from tools.ggtensile.hip_deployment import select_grouped_forward_control
 from tools.ggtensile.mmq_bwd_spec import BackwardKernelSpec
 from tools.ggtensile.mmq_fwd_spec import ForwardKernelSpec
 from tools.ggtensile.model import ProblemSize
@@ -78,47 +79,23 @@ def _quantizer(case: DeploymentCase):
     return FixedQ81F32D4QuantizerModule
 
 
-def _grouped_forward_control_type(case: DeploymentCase, route_entries: int):
+def _grouped_forward_control(case: DeploymentCase, route_entries: int, hip_root: Path):
+    """Resolve the deployed HIP grouped-forward control for one route bank."""
+
     problem = case.instance.problem
+    spec = case.instance.kernel_spec
     assert isinstance(problem, GroupedForwardProblem)
-    if case.quant_type == "Q4_K":
-        from tools.ggtensile.runtime import InstalledGroupedForwardModule
+    assert isinstance(spec, GroupedForwardKernelSpec)
+    from tools.ggtensile.runtime import InstalledGroupedForwardModule
 
-        return InstalledGroupedForwardModule
-    if case.quant_type == "Q5_K":
-        from tools.ggtensile.runtime import (
-            InstalledGroupedForwardQ5J32Module,
-            InstalledGroupedForwardQ5Module,
-        )
-
-        return (
-            InstalledGroupedForwardQ5J32Module
-            if case.rows < 128 * route_entries
-            else InstalledGroupedForwardQ5Module
-        )
-    if case.quant_type == "Q2_K":
-        from tools.ggtensile.runtime import (
-            InstalledGroupedForwardQ2J32J16Module,
-            InstalledGroupedForwardQ2J32Module,
-        )
-
-        return (
-            InstalledGroupedForwardQ2J32J16Module
-            if case.rows == 49_152 or case.rows < 64 * route_entries
-            else InstalledGroupedForwardQ2J32Module
-        )
-    if case.quant_type == "IQ2_S":
-        from tools.ggtensile.runtime import (
-            InstalledGroupedForwardIQ2SJ64J32Module,
-            InstalledGroupedForwardIQ2SJ64Module,
-        )
-
-        return (
-            InstalledGroupedForwardIQ2SJ64J32Module
-            if case.rows == 65_536 or case.rows < 128 * route_entries
-            else InstalledGroupedForwardIQ2SJ64Module
-        )
-    raise ValueError(f"no grouped-forward HIP control for {case.quant_type}")
+    control = select_grouped_forward_control(
+        case.quant_type,
+        case.out_features,
+        case.in_features,
+        case.rows,
+        route_entries,
+    )
+    return InstalledGroupedForwardModule(problem, spec, control, hip_root)
 
 
 def _pair_forward_control(
@@ -324,10 +301,9 @@ def _prepare_grouped_forward(
             raise ValueError("HIP root is missing")
         for route in selection.routes:
             entries = route.expert_indices.numel()
-            control_type = _grouped_forward_control_type(case, entries)
-            if control_type not in hip_by_entries:
+            if entries not in hip_by_entries:
                 hip_by_entries[entries] = stack.enter_context(
-                    control_type(problem, spec, hip_root)
+                    _grouped_forward_control(case, entries, hip_root)
                 )
 
     for name in names:

@@ -1,12 +1,8 @@
 """The HIP deployment catalog is the single source of truth for selection."""
 
-import json
-
 import pytest
 
 from tools.ggtensile.hip_deployment import (
-    CONFIG_PATH,
-    SCHEMA,
     deployment_table,
     select_hip_control,
 )
@@ -48,11 +44,6 @@ def _public_keys() -> set[tuple[str, str, int, int, int]]:
                 )
             )
     return keys
-
-
-def test_catalog_declares_its_schema() -> None:
-    payload = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-    assert payload["schema"] == SCHEMA
 
 
 def test_catalog_keys_are_exactly_the_public_keys() -> None:
