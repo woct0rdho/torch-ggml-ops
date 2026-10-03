@@ -11,13 +11,22 @@ static constexpr int MMQ_ITER_K = 256;
 static constexpr int MMQ_TILE_NE_K = 32;
 static constexpr int MMQ_TILE_Y_K = MMQ_TILE_NE_K + MMQ_TILE_NE_K / QI8_1;
 
+// The row tile and the workgroup width are overridable by a control that stages
+// a wider weight tile: `I` must equal the warp count times the sixteen rows the
+// vector dot gives each warp, so a wider `I` also wants a wider workgroup. A
+// control that defines `MMQ_I` or `MMQ_NTHREADS` before including this header
+// gets that configuration, and every other control keeps the inherited one.
+#if !defined(MMQ_I)
 static constexpr int MMQ_I = 64;
+#endif
 static constexpr int MMQ_J = 128;
 static constexpr int MMQ_J_MEDIUM = 80;
 static constexpr int MMQ_J_SMALL = 64;
 static constexpr int MMQ_J_TINY = 32;
 static constexpr int MMQ_J_MIN = 16;
+#if !defined(MMQ_NTHREADS)
 static constexpr int MMQ_NTHREADS = 128;
+#endif
 static constexpr int MMQ_NWARPS = MMQ_NTHREADS / WARP_SIZE;
 // Compact single-stage weight tile: 32 quant ints for 128 values plus that
 // stage's scale/min pairs, so the two stages of a k block share one footprint.
@@ -1005,6 +1014,125 @@ static __device__ __forceinline__ void grouped_mmq_row_tile(
         constexpr int q8_block_ints = sizeof(block_q8_1_mmq) / sizeof(int);
         const int activation_half_stride = nrows_activation * q8_block_ints;
         const int * activation_k = activations + row_start * q8_block_ints;
+#if defined(MMQ_WEIGHT_PIPELINE)
+        int weight_block_offset = tile_i * MMQ_I * kernel_blocks_per_weight_row;
+        // Register pipeline over the k blocks of one row tile: the packed
+        // payload of the block `MMQ_WEIGHT_PIPELINE` ahead is read into
+        // registers while the current block's decode, shared stores, barriers
+        // and matrix work run, so that block's load latency overlaps several
+        // stages of work instead of one. The decode, the shared stores and the
+        // summation order are unchanged, and the stage index is a constant
+        // inside the unrolled inner loop, so the payload array stays in
+        // registers.
+        constexpr int pipeline_stages = MMQ_WEIGHT_PIPELINE;
+        constexpr int payload_slots = mmq_iq2_xxs_payload_slots<type, J, !fixed_shape>();
+        iq2_xxs_stage_payload payload[pipeline_stages * payload_slots];
+#pragma unroll
+        for (int stage = 0; stage < pipeline_stages; ++stage) {
+            if (stage < kernel_blocks_per_weight_row) {
+                ggml_cuda_mmq_load_payload_iq2_xxs<type, J, !fixed_shape>(
+                    expert_weights,
+                    weight_block_offset + stage,
+                    i_max,
+                    kernel_blocks_per_weight_row,
+                    payload + stage * payload_slots);
+            }
+        }
+        // The first dot needs its tile, so block zero is staged before the loop.
+        ggml_cuda_mmq_store_payload_iq2_xxs<type, J, !fixed_shape>(tile_x, payload);
+#pragma unroll 1
+        for (int kb_base = 0; kb_base < kernel_blocks_per_weight_row; kb_base += pipeline_stages) {
+#pragma unroll
+            for (int stage = 0; stage < pipeline_stages; ++stage) {
+                const int kb = kb_base + stage;
+                if (kb >= kernel_blocks_per_weight_row) {
+                    break;
+                }
+                if (kb + pipeline_stages < kernel_blocks_per_weight_row) {
+                    ggml_cuda_mmq_load_payload_iq2_xxs<type, J, !fixed_shape>(
+                        expert_weights,
+                        weight_block_offset + pipeline_stages,
+                        i_max,
+                        kernel_blocks_per_weight_row,
+                        payload + stage * payload_slots);
+                }
+
+                if constexpr (full_j && J * MMQ_TILE_Y_K % MMQ_NTHREADS != 0) {
+                    load_grouped_nonaligned_full_activation_tile<J>(
+                        activation_k, tile_y);
+                } else {
+#pragma unroll
+                    for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += MMQ_NTHREADS) {
+                        const int l = l0 + threadIdx.y * WARP_SIZE + threadIdx.x;
+                        if constexpr (full_j) {
+                            tile_y[l] = activation_k[l];
+                        } else {
+                            const int local_row = l / q8_block_ints;
+                            const int q8_int = l % q8_block_ints;
+                            if (local_row <= j_max) {
+                                tile_y[l] = activation_k[
+                                    local_row * q8_block_ints + q8_int];
+                            } else {
+                                tile_y[l] = 0;
+                            }
+                        }
+                    }
+                }
+                __syncthreads();
+                mmq_vec_dot_target<type, J, !fixed_shape, rolled_q2_k>(
+                    tile_x, tile_y, sum, 0);
+                __syncthreads();
+
+                if constexpr (full_j && J * MMQ_TILE_Y_K % MMQ_NTHREADS != 0) {
+                    load_grouped_nonaligned_full_activation_tile<J>(
+                        activation_k + activation_half_stride, tile_y);
+                } else {
+#pragma unroll
+                    for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += MMQ_NTHREADS) {
+                        const int l = l0 + threadIdx.y * WARP_SIZE + threadIdx.x;
+                        if constexpr (full_j) {
+                            tile_y[l] = activation_k[activation_half_stride + l];
+                        } else {
+                            const int local_row = l / q8_block_ints;
+                            const int q8_int = l % q8_block_ints;
+                            if (local_row <= j_max) {
+                                tile_y[l] = activation_k[
+                                    activation_half_stride +
+                                    local_row * q8_block_ints + q8_int];
+                            } else {
+                                tile_y[l] = 0;
+                            }
+                        }
+                    }
+                }
+    #if defined(MMQ_COMPACT_TILE)
+                mmq_load_target<type, J, !fixed_shape>(
+                    expert_weights,
+                    tile_x,
+                    weight_block_offset,
+                    i_max,
+                    kernel_blocks_per_weight_row,
+                    1);
+    #endif
+                __syncthreads();
+    #if defined(MMQ_COMPACT_TILE)
+                mmq_vec_dot_target<type, J, !fixed_shape, rolled_q2_k>(
+                    tile_x, tile_y, sum, 0);
+    #else
+                mmq_vec_dot_target<type, J, !fixed_shape, rolled_q2_k>(
+                    tile_x, tile_y, sum, MMQ_TILE_NE_K);
+    #endif
+                __syncthreads();
+
+                if (kb + 1 < kernel_blocks_per_weight_row) {
+                    ggml_cuda_mmq_store_payload_iq2_xxs<type, J, !fixed_shape>(
+                        tile_x, payload + ((stage + 1) % pipeline_stages) * payload_slots);
+                }
+                ++weight_block_offset;
+                activation_k += 2 * activation_half_stride;
+            }
+            }
+#else
         int weight_block_offset = tile_i * MMQ_I * kernel_blocks_per_weight_row;
 #pragma unroll 1
         for (int kb = 0; kb < kernel_blocks_per_weight_row; ++kb) {
@@ -1090,6 +1218,7 @@ static __device__ __forceinline__ void grouped_mmq_row_tile(
             ++weight_block_offset;
             activation_k += 2 * activation_half_stride;
         }
+#endif
     }
 
     mmq_write_back_bf16<type, J, fixed_shape, full_j>(

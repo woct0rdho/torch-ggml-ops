@@ -26,6 +26,31 @@ The retained body uses four wave32 waves, exact N4096/K2048 geometry, width-16 Q
 
 The kernel handles routed tails, inactive experts, and device-resident route metadata without host offset reads.
 
+## Issue-mix and ablation measurements
+
+The deployed `grouped_fwd_serial_q2_k_n4096_k2048_j32` route for `(196608, 4096, 2048)` was profiled with PC sampling and PMC counters (`~/tmp/torch-ggml-ops/mmb_probe/pcs_q2k_gfwd/`). Samples with an issued instruction are `38%` of the total (`62%` find none available), the issued mix is `33.8%` mixed-precision FMA, `18.7%` int-to-float conversion, `20.0%` register moves, `5.8%` masked moves and `2.2%` shared loads, and the stall reasons are `ARBITER_NOT_WIN` `26.2%`, `BARRIER_WAIT` `18.5%`, `WAITCNT` `18.2%`, `ALU_DEPENDENCY` `18.2%` and `ARBITER_WIN_EX_STALL` `17.5%`. The counters report `321.0G` `VALU` instructions and `24.7G` shared-load instructions over `167.6G` busy cycles, i.e. `0.48` `VALU` per busy cycle and about half of the machine's issue capacity, so the kernel is neither issue-saturated nor `VALU`-saturated even though its instruction mix is dominated by decode and epilogue arithmetic.
+
+Four ablations were then built from the same rendered source with the same flags and timed against the unmodified build under the official case protocol, each wrong by construction so that only the timing is meaningful:
+
+| variant | time | against unmodified |
+| --- | ---: | ---: |
+| unmodified | 254.3 ms | 1.000x |
+| per-element epilogue replaced by an integer sink | 255.9 ms | 0.994x |
+| packed-weight global loads removed | 256.0 ms | 0.995x |
+| activation global loads removed | 239.6 ms | 1.069x |
+| loader decode replaced by the raw words (loads and stores kept) | 252.0 ms | 0.992x |
+| `__launch_bounds__` min-blocks raised from 2 to 3, 4 and 6 | 256.0-256.8 ms | 0.997-0.994x |
+
+The epilogue ablation is a ceiling rather than a removal, and it says that replacing about half of the issued instructions with an integer chain buys nothing, while the dense Q8_0 body shows the same replacement can even be `20%` slower; the packed-weight loads are a clean ceiling and they are free as well. Only the activation loads move the needle, at `6.9%`, and that is consistent with the tiling: every activation element is read once per output tile, so this key re-reads each activation element 128 times through L2. Raising the launch-bounds minimum from two to six workgroups per unit changes nothing, so the kernel is not occupancy limited either. Its remaining levers are therefore structural, in the tiling that determines how often the activations are re-read, rather than in the instruction mix that the profile shows.
+
+## Activation-side tiling
+
+The ablations above are the reason this campaign stopped trusting instruction counts: a body can be far above the non-matrix instruction budget and still not improve when those instructions are removed, so each ablation here is read as a ceiling on the mechanism it removes before anything is implemented.
+
+The activation-load ablation is the only clean ceiling this body has (`1.069x` with the activation global loads removed), and it is a property of the tiling rather than of the instruction stream: each activation element is re-read once per output tile, `128` times for this key. Widening the weight-row tile from `I = 64` to `I = 128` would halve that, but the shared memory grows to `54.6 KiB`, which drops the kernel to one workgroup per compute unit and costs more than the `6.9%` it recovers. Keeping the two workgroups by halving the staged k width instead (stride `100 -> 50` at `I = 128`) holds the same `29.6 KiB`, but it changes three coupled things at once - the staged k width in the loader, the `k00` walk in the vector dot, and the k iterator plus `blocks_per_weight_row` in the caller and its launcher - which is not worth a `6.9%` ceiling. The activation-side avenue is therefore closed by budget rather than by measurement.
+
+The residual this body carries is representation cost: repeated packed scale and minimum reconstruction, and each activation element's reuse distance. Only a different payload or scale-preparation layout would change that, and no lossless form of it has been tried.
+
 ## Optimization log
 
 ### Exact geometry and decode

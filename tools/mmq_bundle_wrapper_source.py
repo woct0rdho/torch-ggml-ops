@@ -80,6 +80,8 @@ class ForwardConfig:
     prefetch_activation: bool = False
     compact_tile: bool = False
     hoisted_epilogue: bool = False
+    wide_tile: bool = False
+    pipeline_depth: int = 0
 
     def __post_init__(self) -> None:
         rows_a, rows_b = self.mixed_j32_rows
@@ -103,6 +105,17 @@ class ForwardConfig:
                 raise ValueError("IQ2_S mixed J32 tails do not accept aggregate bounds")
         elif self.mixed_j32_rows != (0, 0):
             raise ValueError("mixed J32 row bounds require mixed J32 tails")
+        if self.pipeline_depth < 0 or self.pipeline_depth > 8:
+            raise ValueError(
+                "a weight pipeline of more than eight stages is not staged"
+            )
+        if self.wide_tile:
+            if self.kind != ForwardKind.GROUPED_SERIAL or self.j % 8:
+                raise ValueError(
+                    "a wide tile requires the grouped shape with J a multiple of 8"
+                )
+            if self.nrows_weight % 128 != 0:
+                raise ValueError("a wide tile requires whole 128-row weight groups")
 
 
 @dataclass(frozen=True)
@@ -255,9 +268,22 @@ void {symbol}(
                 '#define MMQ_PREFETCH_ACT 1\n#include "mmq_core.cuh"',
                 1,
             )
+        if config.wide_tile:
+            prefix = prefix.replace(
+                '#include "mmq_core.cuh"',
+                '#define MMQ_I 128\n#define MMQ_NTHREADS 256\n#include "mmq_core.cuh"',
+                1,
+            )
+        if config.pipeline_depth:
+            prefix = prefix.replace(
+                '#include "mmq_core.cuh"',
+                f'#define MMQ_WEIGHT_PIPELINE {config.pipeline_depth}\n#include "mmq_core.cuh"',
+                1,
+            )
+        min_blocks = 1 if config.wide_tile else 2
         return (
             prefix
-            + f"""extern "C" __launch_bounds__(MMQ_NTHREADS, 2) __global__
+            + f"""extern "C" __launch_bounds__(MMQ_NTHREADS, {min_blocks}) __global__
 void {symbol}(
         const char * __restrict__ weights,
         const int * __restrict__ activations,

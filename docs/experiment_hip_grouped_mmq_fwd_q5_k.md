@@ -22,6 +22,17 @@ The retained Q5_K body uses exact N2048/K512 geometry, four wave32 waves, serial
 
 Q5_K row-task and serial bodies use different LDS/resource points. A standalone J32 body uses 189 VGPRs and 32 SGPRs.
 
+## Decode ablation
+
+The Q5_K staging loader reconstructs each staged value from a low nibble word and a high-bit word (`ql0 | qh0`, `ql1 | qh1`) and rebuilds the per-block scale and minimum pair (`dm * make_half2(sc, m)`) before writing them to shared memory. One ablation replaced both with the raw loaded words while keeping the global loads, the shared stores, the barriers and the matrix work, and was timed against the unmodified build under the official case protocol on the largest deployed route (`(262144, 2048, 512)`, grouped forward), in the harness at `~/tmp/torch-ggml-ops/r3_epilogue/`:
+
+| variant | time | TFLOPS | against unmodified |
+| --- | ---: | ---: | ---: |
+| unmodified | 21.529 ms | 25.54 | 1.000x |
+| loader decode replaced by the raw words | 22.090 ms | 24.89 | 0.975x |
+
+Removing the entire Q5_K decode arithmetic buys nothing, and the same ablation on the grouped Q2_K forward measures `0.992x`. Together with the load-side ablations (Q2_K packed weights `0.995x`, IQ2_XXS packed weights worth `1.241x` through latency alone rather than instruction count) this closes the per-quant decode item for the bodies measured: the staged decode is not on the critical path, and where the packed loads do matter it is their latency, which the tile budget leaves no room to hide.
+
 ## Optimization log
 
 ### Early grouped redesign

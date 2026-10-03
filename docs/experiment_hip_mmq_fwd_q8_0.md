@@ -42,6 +42,20 @@ The generic Q8_0 body used runtime M/N/K state, 248 VGPRs, 29 SGPRs, and 38,400 
 
 Width32 decode, broad scalarization, and generic alternate row layouts were evaluated as kernel mechanisms rather than as host policy.
 
+### Epilogue ablation
+
+The dense forward body applies the weight scale and the activation scale per accumulator element per k block. Two ablations of that epilogue were built from the same rendered source with the same flags and timed against the unmodified build under the official case protocol on `dense_fwd_q8_0_k4096_j128_full` (`(2048,1024,4096)`), in one harness (`~/tmp/torch-ggml-ops/r3_epilogue/`); both are wrong by construction and only their timing is meaningful.
+
+| variant | time | TFLOPS | against unmodified |
+| --- | ---: | ---: | ---: |
+| unmodified | 0.557 ms | 30.85 | 1.000x |
+| weight scale taken from one value per thread tile, conversion and final multiply kept | 0.520 ms | 33.02 | 1.070x |
+| the whole per-element epilogue replaced by an integer sink | 0.697 ms | 24.66 | 0.799x |
+
+The second row is not a usable mechanism and must not be read as one. The physical C fragment of this body is lane-major in the result rows, so each thread owns eight different rows and the ablation gives it a single row's weight scale, which coarsens the scale across rows where the quantizer genuinely assigns different values. What the measurement says is therefore narrower than it first appears: the per-element shared load and the extra product are worth `7%` *if* a single scale could serve a thread's rows, which no coarse effective scale block along the contraction can provide, because the epilogue evaluates `C * dA(row, block) * dB(column, block)` and both factors still vary per block after any contraction-side coarsening. Deferring the scale needs both factors constant over the accumulation group, which in this body is only the 32 values of one block step, so the deferrable group is at most two matrix steps and the epilogue work can only halve, and only with a loop interchange that reloads the weight fragments.
+
+The third row is the stronger signal: replacing the arithmetic with an integer chain is `20%` slower than the body it replaces, so the epilogue's conversions and multiplies sit in latency the body absorbs rather than in a resource it is short of. Together with the grouped measurements in `experiment_hip_grouped_mmq_fwd_q2_k.md` and `experiment_hip_grouped_mmq_fwd_pair_iq2_xxs.md`, this closes the coarse-scale item for the deployed bodies.
+
 ## Optimization log
 
 ### Baseline and exact shapes

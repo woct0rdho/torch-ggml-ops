@@ -22,6 +22,10 @@ The retained pair body uses 128 threads, four wave32 waves, exact Q3_K N/K geome
 
 Activation data is staged once for the pair, while packed weight tiles are decoded for each projection. Partial and nonuniform routed groups use masked row accesses without host-side route inspection.
 
+## Address arithmetic sweep
+
+A disassembly sweep of every installed control scores integer multiplies and 64-bit address add pairs, and this body is one of only two deployed controls that carries forty or more integer multiplies: `40` of its `3335` instructions, about one percent. It is not an addressing dependency chain of the kind the Q6_K forward fix removed (`1.27-1.30x` for 128 multiplies per unrolled loop body), so no hoisting is warranted here.
+
 ## Optimization log
 
 ### Initial grouped redesign

@@ -103,6 +103,13 @@ def find_control(symbol: str, code_object: Path | None = None) -> Path:
     return located
 
 
+# HIP defaults the dynamic LDS of a function to 48 KiB, and a tile above
+# that has to ask for the space it uses (`hipFuncAttributeMaxDynamicSharedMemorySize`
+# is attribute 8 in the HIP runtime API).
+_DEFAULT_DYNAMIC_SHARED_BYTES = 48 * 1024
+_HIP_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_MEMORY_SIZE = 8
+
+
 class _HIPModule:
     """Shared HIP module lifetime and runtime API configuration."""
 
@@ -161,6 +168,25 @@ class _HIPModule:
             message = self._lib.hipGetErrorString(status).decode()
             raise HIPRuntimeError(f"{operation} failed ({status}): {message}")
 
+    def _set_dynamic_shared_bytes(self, shared_bytes: int) -> None:
+        """Raise the per-function dynamic LDS limit above the 48 KiB default.
+
+        A control whose tile needs more than the default must opt in before it
+        can be launched, and a tile of that size also fixes the occupancy at one
+        workgroup per compute unit.
+        """
+
+        if shared_bytes <= _DEFAULT_DYNAMIC_SHARED_BYTES:
+            return
+        self._check(
+            self._lib.hipFuncSetAttribute(
+                self._function,
+                _HIP_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_MEMORY_SIZE,
+                shared_bytes,
+            ),
+            "hipFuncSetAttribute",
+        )
+
     def _configure_api(self) -> None:
         self._lib.hipGetErrorString.argtypes = [ctypes.c_int]
         self._lib.hipGetErrorString.restype = ctypes.c_char_p
@@ -191,6 +217,12 @@ class _HIPModule:
         self._lib.hipModuleLaunchKernel.restype = ctypes.c_int
         self._lib.hipModuleUnload.argtypes = [ctypes.c_void_p]
         self._lib.hipModuleUnload.restype = ctypes.c_int
+        self._lib.hipFuncSetAttribute.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_int,
+        ]
+        self._lib.hipFuncSetAttribute.restype = ctypes.c_int
 
 
 class _OrdinaryHIPModule(_HIPModule):

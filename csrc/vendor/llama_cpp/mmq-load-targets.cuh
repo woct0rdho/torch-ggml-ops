@@ -356,7 +356,7 @@ template <ggml_type type, int J, bool fallback> static __device__ __forceinline_
 
             const half2 dm = bxi->dm * make_half2(1.0f, -1.0f);
 
-    #pragma unroll
+#pragma unroll
             for (int l = 0; l < sizeof(int); ++l) {
                 x_dm[i*sram_stride + sizeof(int)*ksc + l] = dm*make_half2(sc8[l], m8[l]);
             }
@@ -553,6 +553,97 @@ template <ggml_type type, int J, bool fallback> static __device__ __forceinline_
         x_df[i*sram_stride             + kqsx] = d * ls / 8; // (d * scale + d / 2) / 4
     }
 }
+
+#if defined(MMQ_WEIGHT_PIPELINE)
+// Register staging for IQ2_XXS. The packed payload of one k block is read into
+// registers by `load_payload` and decoded into the shared tile by
+// `store_payload`, so a caller can issue the loads of a later k block while the
+// decode, the shared stores, the barriers and the matrix work of the current
+// one run. Nothing about the decode or the summation order changes: only the
+// position of the global loads moves.
+struct iq2_xxs_stage_payload {
+    int q2;
+    uint32_t aux32;
+    float d;
+};
+
+// Payload registers one thread needs for one k block of the staged tile.
+template <ggml_type type, int J, bool fallback>
+static constexpr int mmq_iq2_xxs_payload_slots() {
+    constexpr int warp_size   = ggml_cuda_get_physical_warp_size();
+    constexpr int nwarps      = ggml_cuda_mmq_get_nthreads(type, J, fallback) / warp_size;
+    constexpr int I           = ggml_cuda_mmq_get_I(type, J, fallback);
+    constexpr int threads_per_row = (MMQ_ITER_K / (4 * QR2_XXS)) / 2;
+    constexpr int nrows       = warp_size / threads_per_row;
+    return (I + nwarps*nrows - 1) / (nwarps*nrows);
+}
+
+template <ggml_type type, int J, bool fallback>
+static __device__ __forceinline__ void ggml_cuda_mmq_load_payload_iq2_xxs(
+        const char * __restrict__ x, const int kbx0, const int i_max, const int stride,
+        iq2_xxs_stage_payload * __restrict__ payload) {
+    constexpr int warp_size   = ggml_cuda_get_physical_warp_size();
+    constexpr int nwarps      = ggml_cuda_mmq_get_nthreads(type, J, fallback) / warp_size;
+    constexpr int I           = ggml_cuda_mmq_get_I(type, J, fallback);
+    constexpr int threads_per_row = (MMQ_ITER_K / (4 * QR2_XXS)) / 2;
+    constexpr int nrows       = warp_size / threads_per_row;
+    const int kqsx = warp_size > threads_per_row ? threadIdx.x % threads_per_row : threadIdx.x;
+
+#pragma unroll
+    for (int i0 = 0; i0 < I; i0 += nwarps*nrows) {
+        int i = i0 + threadIdx.y*nrows + threadIdx.x/threads_per_row;
+        if (fallback) {
+            i = min(i, i_max);
+        }
+        const block_iq2_xxs * bxi = (const block_iq2_xxs *) x + kbx0 + i*stride;
+        iq2_xxs_stage_payload & slot = payload[i0 / (nwarps*nrows)];
+        slot.q2 = get_int_b2(bxi->qs, 2*kqsx+0);
+        slot.aux32 = get_int_b2(bxi->qs, 2*kqsx+1);
+        slot.d = bxi->d;
+    }
+}
+
+template <ggml_type type, int J, bool fallback>
+static __device__ __forceinline__ void ggml_cuda_mmq_store_payload_iq2_xxs(
+        int * __restrict__ x_tile, const iq2_xxs_stage_payload * __restrict__ payload) {
+    constexpr int warp_size   = ggml_cuda_get_physical_warp_size();
+    constexpr int nwarps      = ggml_cuda_mmq_get_nthreads(type, J, fallback) / warp_size;
+    constexpr int I           = ggml_cuda_mmq_get_I(type, J, fallback);
+    constexpr int sram_stride = ggml_cuda_mmq_get_sram_stride(type, J, fallback);
+    constexpr int threads_per_row = (MMQ_ITER_K / (4 * QR2_XXS)) / 2;
+    constexpr int nrows       = warp_size / threads_per_row;
+    const int kqsx = warp_size > threads_per_row ? threadIdx.x % threads_per_row : threadIdx.x;
+
+    int   * x_qs = (int   *)  x_tile;
+    float * x_df = (float *)  (x_qs + MMQ_TILE_NE_K*2);
+
+#pragma unroll
+    for (int i0 = 0; i0 < I; i0 += nwarps*nrows) {
+        const int i = i0 + threadIdx.y*nrows + threadIdx.x/threads_per_row;
+        const iq2_xxs_stage_payload & slot = payload[i0 / (nwarps*nrows)];
+        const uint8_t * aux8 = (const uint8_t *) &slot.q2;
+
+#pragma unroll
+        for (int l = 0; l < QR2_XXS; ++l) {
+            const uint2 grid_pos = ((const uint2*)iq2xxs_grid)[aux8[l]];
+            const int2 sign_masks =
+                iq2xxs_sign_masks[(uint8_t)(slot.aux32 >> (7*l))];
+
+            const int signs0 = sign_masks.x;
+            const int grid0 = __vsub4(grid_pos.x ^ signs0, signs0);
+
+            const int signs1 = sign_masks.y;
+            const int grid1 = __vsub4(grid_pos.y ^ signs1, signs1);
+
+            x_qs[i*sram_stride + 8*kqsx + (2*l + 0)] = grid0;
+            x_qs[i*sram_stride + 8*kqsx + (2*l + 1)] = grid1;
+        }
+
+        const int ls = slot.aux32 >> 27 | 1; // (scale * 2 + 1)
+        x_df[i*sram_stride + kqsx] = slot.d * ls / 8;
+    }
+}
+#endif
 
 template <ggml_type type, int J, bool fallback> static __device__ __forceinline__ void ggml_cuda_mmq_load_tiles_iq2_s(
         const char * __restrict__ x, int * __restrict__ x_tile, const int kbx0, const int i_max, const int stride) {

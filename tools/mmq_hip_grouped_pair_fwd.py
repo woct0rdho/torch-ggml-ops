@@ -192,14 +192,35 @@ class InstalledGroupedForwardPairSerialControl(_HIPModule):
 class InstalledGroupedForwardPairIQ2XXSSerialControl(_HIPModule):
     """Launch one installed DeepSeek IQ2_XXS serial projection."""
 
-    _CONFIGS: ClassVar[dict[int, tuple[str, int]]] = {
+    _CONFIGS: ClassVar[dict[int, tuple[str, int, int, int]]] = {
+        # row tile -> (symbol, dynamic LDS bytes, rows staged per workgroup,
+        # workgroup warps). The vector dot gives each warp sixteen rows, so the
+        # wide tile stages 128 rows with eight warps and its LDS pins the
+        # kernel to one workgroup per compute unit.
         64: (
             "grouped_fwd_serial_iq2_xxs_n2048_k4096_j64",
             28_928,
+            64,
+            4,
         ),
         80: (
             "grouped_fwd_serial_iq2_xxs_n2048_k4096_j80",
             31_552,
+            64,
+            4,
+        ),
+        88: (
+            # The widest tile that still fits two workgroups per compute unit.
+            "grouped_fwd_serial_iq2_xxs_n2048_k4096_j88",
+            32_608,
+            64,
+            4,
+        ),
+        128: (
+            "grouped_fwd_serial_iq2_xxs_n2048_k4096_j128",
+            57_856,
+            128,
+            8,
         ),
     }
     BYTES_PER_EXPERT = 2_162_688
@@ -213,15 +234,20 @@ class InstalledGroupedForwardPairIQ2XXSSerialControl(_HIPModule):
     ) -> None:
         config = self._CONFIGS.get(row_tile)
         if config is None:
-            raise HIPRuntimeError("installed IQ2_XXS control requires J64 or J80")
-        symbol, dynamic_lds_bytes = config
+            raise HIPRuntimeError(
+                "installed IQ2_XXS control requires J64, J80, J88 or J128"
+            )
+        symbol, dynamic_lds_bytes, tile_i, warps = config
         self.row_tile = row_tile
         self.dynamic_lds_bytes = dynamic_lds_bytes
+        self.tile_i = tile_i
+        self.warps = warps
         super().__init__(
             code_object or _find_installed_kernel(symbol),
             hip_library,
             symbol,
         )
+        self._set_dynamic_shared_bytes(dynamic_lds_bytes)
 
     def launch(
         self,
@@ -275,11 +301,11 @@ class InstalledGroupedForwardPairIQ2XXSSerialControl(_HIPModule):
         self._check(
             self._lib.hipModuleLaunchKernel(
                 self._function,
-                32,
+                self.OUT_FEATURES // self.tile_i,
                 route_entries,
                 1,
                 32,
-                4,
+                self.warps,
                 1,
                 self.dynamic_lds_bytes,
                 ctypes.c_void_p(stream),

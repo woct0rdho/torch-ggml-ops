@@ -57,6 +57,14 @@ The LM head uses active-two-wave M32, G0 M64, G1 M128, and G3 M256/M512 bodies. 
 
 The ordinary G2 body is `192 VGPR / 14 SGPR / 8 KiB LDS`; the isolated LM bodies use 91-194 VGPR and 2-4 KiB LDS.
 
+## Closed dtype and distribution avenues
+
+The compute dtype is never the lever on this hardware. A pure WMMA probe measured `v_wmma_f32_16x16x16_bf16` at `54.93` TFLOPS, `v_wmma_i32_16x16x16_iu8` at `54.25` and both f16 forms at `54.5-54.9`, so int8, bf16 and f16 all run at the same rate, and the f16-accumulate form occupies the same eight registers as the f32 form, so it buys no occupancy either. There is no dtype swap that improves throughput by itself.
+
+For the same reason an int8 backward path for the q8_0-class quants is not queued: it would add activation quantization and an epilogue to a body that is already decode and barrier limited, so it needs a profile that shows the bf16 decode dominating before it is worth building.
+
+Stream-K-style work distribution was screened over all one hundred deployed dense keys. Eleven of them have a starved grid, and every one of those has a contraction of at least `2,048` rows, i.e. at least `64` slices, so split-contraction already reaches thousands of blocks and the slice sweep saturates before the contraction bound. Stream-K's extra freedom is granularity below the k stage and smoothing of the tail wave, which can only pay where the contraction is short enough to bound the slice count, so the mechanism stays screened out until a key appears with a short contraction and a starved grid.
+
 ## Optimization log
 
 ### Baseline and exact shape specialization

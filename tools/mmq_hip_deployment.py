@@ -50,6 +50,7 @@ _J128_LDS_BYTES = 38_400
 # MMQ_I rows of the packed SRAM layout, and the kernel reserves a J-int prefix.
 _GROUPED_FORWARD_BLOCK = (32, 4, 1)
 _GROUPED_FORWARD_TILE_I = 64
+_GROUPED_FORWARD_THREADS = 128
 _GROUPED_TILE_Y_K = 36
 _MMQ_SRAM_STRIDE = {
     "Q2_K": 100,
@@ -201,11 +202,33 @@ def select_hip_control(
     return HipControl(symbol, spec)
 
 
+def grouped_forward_geometry(config: ForwardConfig) -> tuple[int, int]:
+    """Return the `(row tile, workgroup width)` of one grouped-forward control.
+
+    The vector dot gives each warp sixteen weight rows, so the row tile is the
+    warp count times sixteen: the inherited configuration stages 64 rows with
+    four warps and the wide tile stages 128 rows with eight. A wider tile halves
+    the number of times the packed weights of an expert are streamed.
+    """
+
+    if (
+        not isinstance(config, ForwardConfig)
+        or config.kind is not ForwardKind.GROUPED_SERIAL
+    ):
+        raise ValueError("the geometry of a grouped-forward control needs a spec")
+    if config.quant_type is None:
+        raise ValueError("a grouped-forward control needs a quant type")
+    if config.wide_tile:
+        return 128, 256
+    return _GROUPED_FORWARD_TILE_I, _GROUPED_FORWARD_THREADS
+
+
 def _grouped_forward_lds_bytes(spec: HIPControlSpec) -> int:
     """Return the dynamic LDS bytes of one grouped-forward control.
 
-    Mirrors the tile layout in `csrc/mmq_core.cuh`: a J-int prefix, a padded
-    `J x 36` activation tile, and a `64 x stride` weight tile.
+    Mirrors the tile layout in `csrc/mmq_core.cuh`: a J-int prefix, a `J x 36`
+    activation tile padded to the workgroup width, and a `row tile x stride`
+    weight tile.
     """
 
     config = spec.config
@@ -216,9 +239,10 @@ def _grouped_forward_lds_bytes(spec: HIPControlSpec) -> int:
         raise ValueError(f"{spec.symbol} is not a routed grouped-forward control")
     if config.quant_type is None:
         raise ValueError(f"{spec.symbol} has no quant type")
+    tile_i, threads = grouped_forward_geometry(config)
     stride = _MMQ_SRAM_STRIDE[config.quant_type.name]
-    tile_y = -(-config.j * _GROUPED_TILE_Y_K // 128) * 128
-    return 4 * (config.j + tile_y + _GROUPED_FORWARD_TILE_I * stride)
+    tile_y = -(-config.j * _GROUPED_TILE_Y_K // threads) * threads
+    return 4 * (config.j + tile_y + tile_i * stride)
 
 
 @dataclass(frozen=True)
@@ -239,9 +263,24 @@ class GroupedForwardControl:
 
         if route_entries <= 0:
             raise ValueError("grouped-forward launch needs at least one route entry")
+        config = self.spec.config
+        if (
+            not isinstance(config, ForwardConfig)
+            or config.kind is not ForwardKind.GROUPED_SERIAL
+        ):
+            raise ValueError(
+                f"{self.spec.symbol} is not a routed grouped-forward control"
+            )
+        tile_i, threads = grouped_forward_geometry(config)
+        if out_features % tile_i:
+            raise ValueError("grouped-forward out features must divide by the tile")
         return (
-            (out_features // _GROUPED_FORWARD_TILE_I, route_entries, 1),
-            _GROUPED_FORWARD_BLOCK,
+            (out_features // tile_i, route_entries, 1),
+            (
+                _GROUPED_FORWARD_BLOCK[0],
+                _GROUPED_FORWARD_BLOCK[1] * threads // _GROUPED_FORWARD_THREADS,
+                1,
+            ),
             self.lds_bytes,
         )
 

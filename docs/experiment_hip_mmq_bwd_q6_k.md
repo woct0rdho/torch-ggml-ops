@@ -34,6 +34,10 @@ The deployed bodies on this record resolve both the contraction and the result w
 
 The exact bodies are `dense_bwd_q6_k_m64_nt32_ki64_full`, `dense_bwd_q6_k_m128_nt64_ki32_full`, and `dense_bwd_q6_k_m256_nt64_ki32_full`: M64/N32/K64 for M64, M128/N64/K32 for M128, and two M128-style workgroups for M256. The decoded-weight LDS layout, packed extraction, and register lifetime are Q6-specific. The `_bounded` twins and the `nt128_ki16_g2`/`nt256_ki16_g2` generic bodies are built but are not competitive on the three deployment chunks.
 
+## Exact-shape closure detail
+
+The exact-shape twins were measured against the deployed single-pass bodies and lose (`0.990x` here, `0.858x` and `0.886x` on the two Q4_K keys), so exact dimensions are not a general win. The one case that looked positive, the M64 language-model-head chunk, was measured with the slice body, so its gain is not separable from the slice and the exact-dimension bound cannot be credited on its own.
+
 ## Optimization log
 
 ### Initial tiled redesign

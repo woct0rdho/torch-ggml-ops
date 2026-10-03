@@ -324,6 +324,50 @@ def _forward_controls() -> list[HIPControlSpec]:
                 blocks_per_weight_row=16,
             ),
             _forward(
+                "grouped_fwd_serial_iq2_xxs_n2048_k4096_j80_pipe1",
+                ForwardKind.GROUPED_SERIAL,
+                QuantType.IQ2_XXS,
+                j=80,
+                nrows_weight=2048,
+                blocks_per_weight_row=16,
+                pipeline_depth=1,
+            ),
+            _forward(
+                "grouped_fwd_serial_iq2_xxs_n2048_k4096_j80_pipe2",
+                ForwardKind.GROUPED_SERIAL,
+                QuantType.IQ2_XXS,
+                j=80,
+                nrows_weight=2048,
+                blocks_per_weight_row=16,
+                pipeline_depth=2,
+            ),
+            _forward(
+                "grouped_fwd_serial_iq2_xxs_n2048_k4096_j80_pipe4",
+                ForwardKind.GROUPED_SERIAL,
+                QuantType.IQ2_XXS,
+                j=80,
+                nrows_weight=2048,
+                blocks_per_weight_row=16,
+                pipeline_depth=4,
+            ),
+            _forward(
+                "grouped_fwd_serial_iq2_xxs_n2048_k4096_j88",
+                ForwardKind.GROUPED_SERIAL,
+                QuantType.IQ2_XXS,
+                j=88,
+                nrows_weight=2048,
+                blocks_per_weight_row=16,
+            ),
+            _forward(
+                "grouped_fwd_serial_iq2_xxs_n2048_k4096_j128",
+                ForwardKind.GROUPED_SERIAL,
+                QuantType.IQ2_XXS,
+                j=128,
+                nrows_weight=2048,
+                blocks_per_weight_row=16,
+                wide_tile=True,
+            ),
+            _forward(
                 "grouped_fwd_serial_q2_k_n4096_k2048_j32",
                 ForwardKind.GROUPED_SERIAL,
                 QuantType.Q2_K,
@@ -943,7 +987,7 @@ def hip_control_specs() -> tuple[HIPControlSpec, ...]:
         + _grouped_backward_controls()
     )
     symbols = [spec.symbol for spec in specs]
-    if len(specs) != 221:
+    if len(specs) != 226:
         raise ValueError(f"historical HIP control inventory has {len(specs)} entries")
     if len(symbols) != len(set(symbols)):
         raise ValueError("HIP control symbols must be unique")
