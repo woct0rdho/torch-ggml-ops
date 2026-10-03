@@ -549,19 +549,19 @@
           "m": 64,
           "n": 248320,
           "k": 2048,
-          "symbol": "dense_fwd_q6_k_k2048_j64_full"
+          "symbol": "dense_fwd_q6_k_k2048_j64_full_hoisted"
         },
         {
           "m": 128,
           "n": 248320,
           "k": 2048,
-          "symbol": "dense_fwd_q6_k_k2048_j128_full"
+          "symbol": "dense_fwd_q6_k_k2048_j128_full_hoisted"
         },
         {
           "m": 256,
           "n": 248320,
           "k": 2048,
-          "symbol": "dense_fwd_q6_k_k2048_j128_full"
+          "symbol": "dense_fwd_q6_k_k2048_j128_full_hoisted"
         }
       ]
     },

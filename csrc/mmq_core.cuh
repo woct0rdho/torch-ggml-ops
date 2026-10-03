@@ -148,6 +148,306 @@ enum mmq_q8_1_metadata_layout {
 #include "vendor/llama_cpp/mmq-vec-dot-targets.cuh"
 #include "vendor/llama_cpp/mmq-vec-dot-q2-k-rolled.cuh"
 
+// Repository-local vec-dot targets that hoist the activation metadata out
+// of the column loop. Selected per control through the MMQ_EPILOGUE_HOISTED
+// macro so both forms can be measured against each other. They mirror the
+// vendored targets of the same shape and only move the metadata loads.
+template <ggml_type type, int J, bool fallback, mmq_q8_1_metadata_layout metadata_layout>
+static __device__ __forceinline__ void ggml_cuda_mmq_vec_dot_q8_0_q8_1_hoisted(
+        const int * __restrict__ x,
+        const int * __restrict__ y,
+        float * __restrict__ sum,
+        const int k00) {
+    constexpr data_layout input_layout = get_input_data_layout();
+    typedef tile<16, 8, int, input_layout> tile_A;
+    typedef tile<16, 8, int, input_layout> tile_B;
+    typedef tile<16, 16, int, DATA_LAYOUT_J_MAJOR> tile_C;
+
+    constexpr int sram_stride = ggml_cuda_mmq_get_sram_stride(type, J, fallback);
+    constexpr int rows_per_warp = ggml_cuda_mmq_get_rows_per_warp(type, J, fallback);
+    constexpr int ntx = rows_per_warp / tile_C::I;
+
+    y += (threadIdx.y % ntx) * (tile_C::J * MMQ_TILE_Y_K);
+
+    const int * x_qs = (const int *) x;
+    const float * x_df = (const float *) x_qs + 2 * MMQ_TILE_NE_K;
+    const int * y_qs = (const int *) y + 4;
+    const float * y_df = (const float *) y;
+    const half2 * y_ds = (const half2 *) y;
+
+    const int i0 = (threadIdx.y / ntx) * rows_per_warp;
+
+    for (int k01 = 0; k01 < MMQ_TILE_NE_K; k01 += QI8_0) {
+        const int k0 = k00 + k01;
+
+        tile_A A[ntx];
+#pragma unroll
+        for (int n = 0; n < ntx; ++n) {
+            load_ldmatrix(
+                A[n], x_qs + (i0 + n * tile_A::I) * sram_stride + k0, sram_stride);
+        }
+        float dA[ntx][tile_C::ne];
+#pragma unroll
+        for (int n = 0; n < ntx; ++n) {
+#pragma unroll
+            for (int l = 0; l < tile_C::ne; ++l) {
+                const int i = i0 + n * tile_A::I + tile_C::get_i(l);
+                dA[n][l] = x_df[i * sram_stride + k0 / QI8_0];
+            }
+        }
+
+#pragma unroll
+        for (int j0 = 0; j0 < J; j0 += ntx * tile_C::J) {
+            tile_B B;
+            load_ldmatrix(B, y_qs + j0 * MMQ_TILE_Y_K + k01, MMQ_TILE_Y_K);
+
+            float dB;
+            const int j = j0 + tile_C::get_j(0);
+            if (metadata_layout == MMQ_Q8_1_METADATA_F32_D4) {
+                dB = y_df[j * MMQ_TILE_Y_K + k01 / QI8_1];
+            } else {
+                dB = __low2float(y_ds[j * MMQ_TILE_Y_K + k01 / QI8_1]);
+            }
+
+#pragma unroll
+            for (int n = 0; n < ntx; ++n) {
+                tile_C C;
+                mma(C, A[n], B);
+
+#pragma unroll
+                for (int l = 0; l < tile_C::ne; ++l) {
+                    const int row = (j0 / tile_C::J + n) * tile_C::ne + l;
+                    sum[row] += C.x[l] * dA[n][l] * dB;
+                }
+            }
+        }
+    }
+}
+
+template <ggml_type type, int J, bool fallback>
+static __device__ __forceinline__ void ggml_cuda_mmq_vec_dot_q8_1_q8_1_hoisted(
+        const int * __restrict__ x,
+        const int * __restrict__ y,
+        float * __restrict__ sum,
+        const int k00) {
+    constexpr data_layout input_layout = get_input_data_layout();
+    typedef tile<16, 8, int, input_layout> tile_A;
+    typedef tile<16, 8, int, input_layout> tile_B;
+    typedef tile<16, 16, int, DATA_LAYOUT_J_MAJOR> tile_C;
+
+    constexpr int sram_stride = ggml_cuda_mmq_get_sram_stride(type, J, fallback);
+    constexpr int rows_per_warp = ggml_cuda_mmq_get_rows_per_warp(type, J, fallback);
+    constexpr int ntx = rows_per_warp / tile_C::I;
+
+    y += (threadIdx.y % ntx) * (tile_C::J * MMQ_TILE_Y_K);
+
+    const int * x_qs = (const int *) x;
+#if defined(MMQ_COMPACT_TILE)
+    const half2 * x_dm = (const half2 *) x_qs + MMQ_COMPACT_QUANT_INTS;
+#else
+    const half2 * x_dm = (const half2 *) x_qs + 2 * MMQ_TILE_NE_K;
+#endif
+    const int * y_qs = (const int *) y + 4;
+    const half2 * y_dm = (const half2 *) y;
+
+    const int i0 = (threadIdx.y / ntx) * rows_per_warp;
+
+    for (int k01 = 0; k01 < MMQ_TILE_NE_K; k01 += QI8_1) {
+        const int k0 = k00 + k01;
+
+        tile_A A[ntx];
+#pragma unroll
+        for (int n = 0; n < ntx; ++n) {
+            load_ldmatrix(
+                A[n], x_qs + (i0 + n * tile_A::I) * sram_stride + k0, sram_stride);
+        }
+        float2 dmA[ntx][tile_C::ne];
+#pragma unroll
+        for (int n = 0; n < ntx; ++n) {
+#pragma unroll
+            for (int l = 0; l < tile_C::ne; ++l) {
+                const int i = i0 + n * tile_A::I + tile_C::get_i(l);
+                dmA[n][l] = __half22float2(x_dm[i * sram_stride + k0 / QI8_1]);
+            }
+        }
+
+#pragma unroll
+        for (int j0 = 0; j0 < J; j0 += ntx * tile_C::J) {
+            tile_B B;
+            load_ldmatrix(B, y_qs + j0 * MMQ_TILE_Y_K + k01, MMQ_TILE_Y_K);
+
+            const int j = j0 + tile_C::get_j(0);
+            const float2 dsB = __half22float2(y_dm[j * MMQ_TILE_Y_K + k01 / QI8_1]);
+
+#pragma unroll
+            for (int n = 0; n < ntx; ++n) {
+                tile_C C;
+                mma(C, A[n], B);
+
+#pragma unroll
+                for (int l = 0; l < tile_C::ne; ++l) {
+                    const int row = (j0 / tile_C::J + n) * tile_C::ne + l;
+                    sum[row] += dmA[n][l].x * dsB.x * C.x[l];
+                    sum[row] += dmA[n][l].y * dsB.y;
+                }
+            }
+        }
+    }
+}
+
+template <ggml_type type, int J, bool fallback>
+static __device__ __forceinline__ void ggml_cuda_mmq_vec_dot_q8_0_16_q8_1_hoisted(
+        const int * __restrict__ x,
+        const int * __restrict__ y,
+        float * __restrict__ sum,
+        const int k00) {
+    constexpr data_layout input_layout = get_input_data_layout();
+    typedef tile<16, 4, int, input_layout> tile_A;
+    typedef tile<16, 4, int, input_layout> tile_B;
+    typedef tile<16, 16, int, DATA_LAYOUT_J_MAJOR> tile_C;
+
+    constexpr int sram_stride = ggml_cuda_mmq_get_sram_stride(type, J, fallback);
+    constexpr int rows_per_warp = ggml_cuda_mmq_get_rows_per_warp(type, J, fallback);
+    constexpr int ntx = rows_per_warp / tile_C::I;
+
+    y += (threadIdx.y % ntx) * (tile_C::J * MMQ_TILE_Y_K);
+
+    const int * x_qs = (const int *) x;
+    const float * x_df = (const float *) x_qs + MMQ_TILE_NE_K * 2;
+    const int * y_qs = (const int *) y + 4;
+    const float * y_df = (const float *) y;
+
+    const int i0 = (threadIdx.y / ntx) * rows_per_warp;
+
+    for (int k01 = 0; k01 < MMQ_TILE_NE_K; k01 += 4) {
+        const int k0 = k00 + k01;
+
+        tile_A A[ntx];
+#pragma unroll
+        for (int n = 0; n < ntx; ++n) {
+            load_ldmatrix(
+                A[n], x_qs + (i0 + n * tile_A::I) * sram_stride + k0, sram_stride);
+        }
+        float dA[ntx][tile_C::ne];
+#pragma unroll
+        for (int n = 0; n < ntx; ++n) {
+#pragma unroll
+            for (int l = 0; l < tile_C::ne; ++l) {
+                const int i = i0 + n * tile_A::I + tile_C::get_i(l);
+                dA[n][l] = x_df[i * sram_stride + k0 / 4];
+            }
+        }
+
+#pragma unroll
+        for (int j0 = 0; j0 < J; j0 += ntx * tile_C::J) {
+            tile_B B;
+            load_ldmatrix(B, y_qs + j0 * MMQ_TILE_Y_K + k01, MMQ_TILE_Y_K);
+
+            const int j = j0 + tile_C::get_j(0);
+            const float dB = y_df[j * MMQ_TILE_Y_K + k01 / QI8_1];
+
+#pragma unroll
+            for (int n = 0; n < ntx; ++n) {
+                tile_C C;
+                mma(C, A[n], B);
+
+#pragma unroll
+                for (int l = 0; l < tile_C::ne; ++l) {
+                    const int row = (j0 / tile_C::J + n) * tile_C::ne + l;
+                    sum[row] += C.x[l] * dA[n][l] * dB;
+                }
+            }
+        }
+    }
+}
+
+template <ggml_type type, int J, bool fallback>
+static __device__ __forceinline__ void ggml_cuda_mmq_vec_dot_q6_K_q8_1_hoisted(
+        const int * __restrict__ x,
+        const int * __restrict__ y,
+        float * __restrict__ sum,
+        const int k00) {
+    constexpr data_layout input_layout = get_input_data_layout();
+    typedef tile<16, 4, int, input_layout> tile_A;
+    typedef tile<16, 4, int, input_layout> tile_B;
+    typedef tile<16, 16, int, DATA_LAYOUT_J_MAJOR> tile_C;
+
+    constexpr int sram_stride = ggml_cuda_mmq_get_sram_stride(type, J, fallback);
+    constexpr int rows_per_warp = ggml_cuda_mmq_get_rows_per_warp(type, J, fallback);
+    constexpr int ntx = rows_per_warp / tile_C::I;
+
+    y += (threadIdx.y % ntx) * (tile_C::J * MMQ_TILE_Y_K);
+
+    const int * x_qs = (const int *) x;
+    const float * x_df = (const float *) x_qs + MMQ_TILE_NE_K * 2;
+    const int * x_sc = (const int *) x_df + MMQ_TILE_NE_K / QI6_K;
+    const int * y_qs = (const int *) y + 4;
+    const float * y_df = (const float *) y;
+
+    const int i0 = (threadIdx.y / ntx) * rows_per_warp;
+
+    for (int k01 = 0; k01 < MMQ_TILE_NE_K; k01 += 4) {
+        const int k0 = k00 + k01;
+
+        tile_A A[ntx];
+#pragma unroll
+        for (int n = 0; n < ntx; ++n) {
+            load_ldmatrix(
+                A[n], x_qs + (i0 + n * tile_A::I) * sram_stride + k0, sram_stride);
+        }
+        float dA[ntx][tile_C::ne];
+#pragma unroll
+        for (int n = 0; n < ntx; ++n) {
+#pragma unroll
+            for (int l = 0; l < tile_C::ne; ++l) {
+                const int i = i0 + n * tile_A::I + tile_C::get_i(l);
+                const int8_t * sc =
+                    (const int8_t *) (x_sc + i * sram_stride + k00 / 16);
+                dA[n][l] = x_df[i * sram_stride] * sc[k01 / 4];
+            }
+        }
+
+#pragma unroll
+        for (int j0 = 0; j0 < J; j0 += ntx * tile_C::J) {
+            tile_B B;
+            load_ldmatrix(B, y_qs + j0 * MMQ_TILE_Y_K + k01, MMQ_TILE_Y_K);
+
+            const int j = j0 + tile_C::get_j(0);
+            const float dB = y_df[j * MMQ_TILE_Y_K + k01 / QI8_1];
+
+#pragma unroll
+            for (int n = 0; n < ntx; ++n) {
+                tile_C C;
+                mma(C, A[n], B);
+
+#pragma unroll
+                for (int l = 0; l < tile_C::ne; ++l) {
+                    const int row = (j0 / tile_C::J + n) * tile_C::ne + l;
+                    sum[row] += C.x[l] * dA[n][l] * dB;
+                }
+            }
+        }
+    }
+}
+
+template <ggml_type type, int J, bool fallback, bool rolled_q2_k>
+static __device__ __forceinline__ void mmq_vec_dot_target_hoisted(
+        const int * x, const int * y, float * sum, int k00) {
+    if constexpr (type == GGML_TYPE_Q8_0) {
+        ggml_cuda_mmq_vec_dot_q8_0_q8_1_hoisted<
+            type, J, fallback, MMQ_Q8_1_METADATA_F32_D4>(x, y, sum, k00);
+    } else if constexpr (type == GGML_TYPE_Q3_K) {
+        ggml_cuda_mmq_vec_dot_q8_0_16_q8_1_hoisted<type, J, fallback>(
+            x, y, sum, k00);
+    } else if constexpr (type == GGML_TYPE_Q4_K || type == GGML_TYPE_Q5_K) {
+        ggml_cuda_mmq_vec_dot_q8_1_q8_1_hoisted<type, J, fallback>(
+            x, y, sum, k00);
+    } else if constexpr (type == GGML_TYPE_Q6_K) {
+        ggml_cuda_mmq_vec_dot_q6_K_q8_1_hoisted<type, J, fallback>(
+            x, y, sum, k00);
+    }
+}
+
 template <ggml_type type, int J, bool fallback = true>
 static __device__ __forceinline__ void mmq_load_target(
         const char * x, int * tile, int block_offset, int i_max, int row_stride,
@@ -189,6 +489,17 @@ static __device__ __forceinline__ void mmq_load_target(
 template <ggml_type type, int J, bool fallback = true, bool rolled_q2_k = false>
 static __device__ __forceinline__ void mmq_vec_dot_target(
         const int * x, const int * y, float * sum, int k00) {
+#if defined(MMQ_EPILOGUE_HOISTED)
+    if constexpr (
+        type == GGML_TYPE_Q8_0 || type == GGML_TYPE_IQ2_XXS ||
+        type == GGML_TYPE_Q3_K || type == GGML_TYPE_IQ2_S ||
+        type == GGML_TYPE_Q4_K || type == GGML_TYPE_Q5_K ||
+        type == GGML_TYPE_Q6_K) {
+        mmq_vec_dot_target_hoisted<type, J, fallback, rolled_q2_k>(
+            x, y, sum, k00);
+        return;
+    }
+#endif
     if constexpr (type == GGML_TYPE_Q8_0 || type == GGML_TYPE_IQ2_XXS) {
         ggml_cuda_mmq_vec_dot_q8_0_q8_1_mma<
             type, J, fallback, MMQ_Q8_1_METADATA_F32_D4>(x, y, sum, k00);

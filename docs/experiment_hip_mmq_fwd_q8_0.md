@@ -70,6 +70,10 @@ Activation-half double buffering was spill-free but lost `2-26%` because extra L
 
 The remaining Q8_0 limit is representation cost: the packed kernel reconstructs int8 weights and scales while BF16 `torch.mm` starts from already decoded weights. A lossless payload/scale preparation layout is the next meaningful mechanism; a hidden BF16 shadow is not.
 
+### Hoisted epilogue metadata
+
+The epilogue metadata of this quant was hoisted out of the column loop in the same way the Q6_K body deploys it. Over the full ordinary-shape A/B with the official protocol the change is neutral here (per-shape ratios inside `0.99x` to `1.01x`, no consistent direction), so the shipped body keeps the vendored target. The result is independent of tolerance because the body only moves loads: the arithmetic and the accumulation order are unchanged. Evidence: `~/tmp/torch-ggml-ops/retune_fwd/official/`.
+
 ## Resources
 
 Exact ordinary J128 bodies use `216 VGPR / 28 SGPR / 38,400 B LDS`; exact/bounded J64 bodies use `132 VGPR / 28 SGPR / 28,928 B LDS`.

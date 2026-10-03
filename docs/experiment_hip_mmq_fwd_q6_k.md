@@ -8,15 +8,15 @@ This record covers the Qwen language-model-head Q6_K forward kernel on gfx1151.
 
 | Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm | Kernel |
 | ---: | --- | --- | --- | --- |
-| Language model head | `(64,248320,2048)` | 15.949 | 2.12x | `dense_fwd_q6_k_k2048_j64_full` |
-| Language model head | `(128,248320,2048)` | 17.202 | 1.65x | `dense_fwd_q6_k_k2048_j128_full` |
-| Language model head | `(256,248320,2048)` | 17.249 | 0.84x | `dense_fwd_q6_k_k2048_j128_full` |
+| Language model head | `(64,248320,2048)` | 20.84 | 2.77x | `dense_fwd_q6_k_k2048_j64_full_hoisted` |
+| Language model head | `(128,248320,2048)` | 22.81 | 2.19x | `dense_fwd_q6_k_k2048_j128_full_hoisted` |
+| Language model head | `(256,248320,2048)` | 22.78 | 1.11x | `dense_fwd_q6_k_k2048_j128_full_hoisted` |
 
-The isolated M256 packed kernel is slower than BF16 `torch.mm`, even though the smaller chunks win.
+All three shapes now beat BF16 `torch.mm`, the widest by `2.77x` and the narrowest, previously the one losing case, by `1.11x`.
 
 ## Kernel implementation
 
-Q6_K retains the four-wave MMQ foundation. The exact production bodies use J64 for small rows and J128 for larger rows. M256 uses two M128-style workgroups rather than one wider accumulator tile.
+Q6_K retains the four-wave MMQ foundation. The exact production bodies use J64 for small rows and J128 for larger rows. M256 uses two M128-style workgroups rather than one wider accumulator tile. The deployed bodies use the hoisted epilogue described below: the per-row scale pair is read and converted once per contraction step instead of once per accumulator element and column tile.
 
 The common exact geometry is `I=64`, with 128 threads and K256 reduction steps. Q6-specific state is kept separate from Q3_K, Q4_K, and Q5_K identities. It is not valid to infer Q6 performance from another quant decoder's extraction or LDS layout.
 
@@ -35,6 +35,12 @@ Two apparently fast M256 N=5/N=7 measurements were invalid because the N tile di
 Exact Q6 specialization reduced bounds and K state while retaining the packed arithmetic order. Q6 M256 is representation/arithmetic-bound: Q8_1 preparation is below `0.1%` of the call, exact bounds/K state adds only `2.09-2.56%`, and the packed result remains `16.568 ms` versus `13.462 ms` BF16.
 
 A possible effective-scale loader would stage `float(block_d * scale)` once per row/K iteration. Any future test requires a stable complete-call gain and no M64/M128 regression.
+
+### Hoisted epilogue metadata
+
+The vendored Q6_K vec-dot target reloads `x_df` and the int8 scale array inside the column loop even though both depend only on the row and the contraction step. The hoisted body computes the row product `x_df[i * sram_stride] * sc[k01 / 4]` once per row and contraction step, outside the column loop, and keeps the same association and accumulation order, so the arithmetic is unchanged and only the placement of the loads moves.
+
+A dense-forward A/B over all 50 ordinary shapes with the official protocol reports `1.270x`, `1.300x` and `1.299x` for the three language-model-head shapes and neutral or sub-percent effects for Q3_K, Q4_K, Q5_K and Q8_0, whose targets are either dominated by other costs or already hoisted by the compiler. Only the Q6_K keys deploy the hoisted body. Evidence: `~/tmp/torch-ggml-ops/retune_fwd/official/hoisted_OrdinaryForward_qwen.json`, `~/tmp/torch-ggml-ops/retune_fwd/ab.py`.
 
 ### Closed mechanisms
 

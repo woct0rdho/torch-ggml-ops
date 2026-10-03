@@ -38,6 +38,10 @@ The full typed campaign retained fixed Q8_0 J64 full/bounded bodies and tested J
 
 The residual is representation mismatch: Q8_0 packed payloads and scales must be reconstructed before WMMA, while BMM consumes a predecoded BF16 tensor. A lossless prepared payload/scale layout would be a separate representation experiment.
 
+### Hoisted epilogue metadata
+
+The epilogue metadata of this quant was hoisted out of the column loop in the same way the Q6_K body deploys it. Over the full ordinary-shape A/B with the official protocol the change is neutral here (per-shape ratios inside `0.99x` to `1.01x`, no consistent direction), so the shipped body keeps the vendored target. The result is independent of tolerance because the body only moves loads: the arithmetic and the accumulation order are unchanged. Evidence: `~/tmp/torch-ggml-ops/retune_fwd/official/`.
+
 ## Evidence
 
 Current measurement evidence for the table above:

@@ -71,6 +71,10 @@ The grouped backward campaign tested reduced-precision accumulation as a separat
 
 Learned route banks carry a large `max/mean` expert row spread, so the serial pair bodies kept column tiles of small experts idle while tall experts still walked rows. The deployed body now consumes a device row-task bank built once per route by `grouped_row_task_setup`: one task per 128-row tile of each active expert, so a small expert keeps one task and a tall expert splits into many, and each workgroup runs exactly one tile. Measured against the serial M128/N64 body on identical prepared inputs, kernel-only gains were `1.066x/1.074x/1.126x` at B1/B4/B16, and the official protocol moved `14.40/22.67/24.79` to `15.68/25.08/29.48` TFLOPS. The task body carries inactive-wave suppression because the last task of every expert is partial. Wide-M task bodies were rejected (`m4n4` tasks reached only `0.46-0.54x` of the serial body since a 128-row task cannot fill an M256 body), as were a third LDS stage and the projection-split decode. Reduction and projection splits were not pursued: the fused output is `rows x 512`, so a global f32 partial round trip costs more than the whole multiply.
 
+### Occupancy and stage sweep
+
+A launch-bound and stage-count sweep over the staged pair bodies (`__launch_bounds__` second argument `2/3/4`, two, three and four LDS stages, and the inactive-wave suppression flag for the bodies that do not deploy it) changed no shape by more than measurement noise, and three or four stages lost `5-15%` on the small-route shapes through the larger LDS footprint. The two-stage, two-wave-per-SIMD geometry is retained. Evidence: `~/tmp/torch-ggml-ops/retune_pairs/run_pair_v2.py`.
+
 ## Resources
 
 The deployed row-task pair body uses 233 VGPR / 26 SGPR / 20480 B LDS and runs one 128-row task per workgroup.

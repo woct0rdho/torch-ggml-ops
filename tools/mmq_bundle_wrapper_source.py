@@ -79,6 +79,7 @@ class ForwardConfig:
     full_j: bool = False
     prefetch_activation: bool = False
     compact_tile: bool = False
+    hoisted_epilogue: bool = False
 
     def __post_init__(self) -> None:
         rows_a, rows_b = self.mixed_j32_rows
@@ -176,6 +177,12 @@ def _cpp_quant(quant_type: QuantType | None) -> str:
 
 def _render_forward(symbol: str, config: ForwardConfig) -> str:
     prefix = _PREAMBLE + '#include "mmq_core.cuh"\n\n'
+    if config.hoisted_epilogue:
+        prefix = prefix.replace(
+            '#include "mmq_core.cuh"',
+            '#define MMQ_EPILOGUE_HOISTED 1\n#include "mmq_core.cuh"',
+            1,
+        )
     mixed_j32_rows = "".join(
         f",\n        {rows}" for rows in config.mixed_j32_rows if rows > 0
     )

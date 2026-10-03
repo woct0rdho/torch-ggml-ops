@@ -54,13 +54,17 @@ The remaining theoretical ceiling is IQ2_S decode state and pair accumulator pre
 
 The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE; even without its scale scan it was 33.3% slower. The fused IQ2_S pair therefore retains one FP32 accumulation and one BF16 rounding per output.
 
-### ### Balanced row-task ownership
+### Balanced row-task ownership
 
 Route banks drawn from the fitted prior carry a large `max/mean` expert row spread (`13-27x` on the measured vectors), so the serial bodies left column tiles of small experts idle behind the tallest expert. Isolating that effect on the deployed serial body: uniform routes of the same aggregate rows ran `2.80/2.77/2.60 ms` at B1 against `5.56-3.68 ms` for the learned bank, i.e. the skew alone cost up to `45%` at B1 and `5-10%` at B4.
 
 The deployed body therefore consumes a device row-task bank built once per route by `grouped_row_task_setup`: one task per 128-row tile of each active expert, so small experts keep a single task and tall experts split into many, and every workgroup runs exactly one tile. Measured against the serial bodies on the same prepared inputs (same packed banks, same bf16 gradients, same learned routes), kernel-only gains were `1.027x/1.036x/1.028x` at B1/B4/B16 for the harness geometry, and the official protocol moved `13.39/21.62/24.74` to `14.51/23.30/26.65` TFLOPS. Inactive-wave suppression is part of the task body: the last task of each expert is partial, so waves past the task end would otherwise decode and multiply empty rows.
 
 Alternatives measured and rejected for this decoder: the wide-M task bodies (`m4n4` tasks were `0.62-0.72x` of the deployed serial body because a 128-row task cannot fill an M256 body), a third LDS stage, and the projection-split decode used by the N32 sweeps. Splitting the reduction or the projections into separate blocks was not pursued for this operator: the fused output is `rows x 2048` bf16, so a global f32 partial round trip costs more than the entire multiply at these shapes.
+
+### Occupancy and stage sweep
+
+A launch-bound and stage-count sweep over the staged pair bodies (`__launch_bounds__` second argument `2/3/4`, two, three and four LDS stages, and the inactive-wave suppression flag for the bodies that do not deploy it) changed no shape by more than measurement noise, and three or four stages lost `5-15%` on the small-route shapes through the larger LDS footprint. The two-stage, two-wave-per-SIMD geometry is retained. Evidence: `~/tmp/torch-ggml-ops/retune_pairs/run_pair_v2.py`.
 
 ## Resources
 

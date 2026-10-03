@@ -172,6 +172,46 @@ def _forward_controls() -> list[HIPControlSpec]:
                 full_j=True,
             )
         )
+    for quant, k, j in (
+        (QuantType.Q3_K, 2048, 128),
+        (QuantType.Q4_K, 512, 128),
+        (QuantType.Q4_K, 2048, 128),
+        (QuantType.Q4_K, 4096, 128),
+        (QuantType.Q5_K, 512, 128),
+        (QuantType.Q5_K, 2048, 128),
+        (QuantType.Q6_K, 2048, 64),
+        (QuantType.Q6_K, 2048, 128),
+        (QuantType.Q8_0, 1024, 128),
+        (QuantType.Q8_0, 2048, 128),
+        (QuantType.Q8_0, 4096, 128),
+        (QuantType.Q8_0, 8192, 128),
+    ):
+        specs.append(
+            _forward(
+                f"dense_fwd_{quant.name.lower()}_k{k}_j{j}_full_hoisted",
+                ForwardKind.DENSE,
+                quant,
+                j=j,
+                blocks_per_weight_row=k // 256,
+                full_i=True,
+                full_j=True,
+                hoisted_epilogue=True,
+            )
+        )
+    for j, full_j in ((64, True), (64, False)):
+        body = "full" if full_j else "bounded"
+        specs.append(
+            _forward(
+                f"dense_fwd_q8_0_k4096_j{j}_{body}_hoisted",
+                ForwardKind.DENSE,
+                QuantType.Q8_0,
+                j=j,
+                blocks_per_weight_row=16,
+                full_i=True,
+                full_j=full_j,
+                hoisted_epilogue=True,
+            )
+        )
     specs.extend(
         [
             _forward(
@@ -185,6 +225,15 @@ def _forward_controls() -> list[HIPControlSpec]:
                 j=64,
                 blocks_per_weight_row=16,
                 groups=8,
+            ),
+            _forward(
+                "grouped_fwd_fixed_q8_0_g8_k4096_j64_full_hoisted",
+                ForwardKind.FIXED_GROUPED,
+                QuantType.Q8_0,
+                j=64,
+                blocks_per_weight_row=16,
+                groups=8,
+                hoisted_epilogue=True,
             ),
             _forward(
                 "grouped_fwd_fixed_q8_0_g8_k4096_j64_bounded",
@@ -772,7 +821,7 @@ def hip_control_specs() -> tuple[HIPControlSpec, ...]:
         + _grouped_backward_controls()
     )
     symbols = [spec.symbol for spec in specs]
-    if len(specs) != 194:
+    if len(specs) != 209:
         raise ValueError(f"historical HIP control inventory has {len(specs)} entries")
     if len(symbols) != len(set(symbols)):
         raise ValueError("HIP control symbols must be unique")

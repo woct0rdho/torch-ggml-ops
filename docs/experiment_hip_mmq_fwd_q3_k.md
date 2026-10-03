@@ -52,6 +52,10 @@ Aligned local fragment loads improved narrow Q3_K but were not a universal rule:
 
 The Q3_K K2048 exact wrapper was retained with a full J128 body. Across its measured matrix, exact specialization improved the generic control by `0.90-5.26%`. The detached build confirmed that the Q3_K artifact was unchanged while the separate DeepSeek Q8_0 phase was optimized.
 
+### Hoisted epilogue metadata
+
+The epilogue metadata of this quant was hoisted out of the column loop in the same way the Q6_K body deploys it. Over the full ordinary-shape A/B with the official protocol the change is neutral here (per-shape ratios inside `0.99x` to `1.01x`, no consistent direction), so the shipped body keeps the vendored target. The result is independent of tolerance because the body only moves loads: the arithmetic and the accumulation order are unchanged. Evidence: `~/tmp/torch-ggml-ops/retune_fwd/official/`.
+
 ## Resources
 
 The exact Q3_K J128 body uses `196 VGPR / 27 SGPR / 40,448 B LDS`.

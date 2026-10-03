@@ -65,6 +65,10 @@ The exact Q4_K wrappers cover K512, K2048, and K4096. Exact specialization impro
 
 The Q4_K path remains representation- and decode-bound at the lower margin. A transient BF16 materialization floor was slower even when real decode work was excluded, so another global tile or buffer sweep is not justified without a changed representation premise.
 
+### Hoisted epilogue metadata
+
+The epilogue metadata of this quant was hoisted out of the column loop in the same way the Q6_K body deploys it. Over the full ordinary-shape A/B with the official protocol the change is neutral here (per-shape ratios inside `0.99x` to `1.01x`, no consistent direction), so the shipped body keeps the vendored target. The result is independent of tolerance because the body only moves loads: the arithmetic and the accumulation order are unchanged. Evidence: `~/tmp/torch-ggml-ops/retune_fwd/official/`.
+
 ## Resources
 
 Retained Q4_K J128 bodies use `239 VGPR / 28-29 SGPR / 38,400 B LDS`.

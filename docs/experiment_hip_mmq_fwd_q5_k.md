@@ -46,6 +46,10 @@ The standalone small-route J32 body improved nonuniform routes by approximately 
 
 Global J64, I128, alternate workgroup sizes, K64, activation-half double buffering, decoded-weight LDS caching, broad packed prefetch, split-K, persistent workgroups, and generic swizzle rules are closed for the current Q5 representation. A future experiment must first demonstrate lower decode state or a lossless prepared representation.
 
+### Hoisted epilogue metadata
+
+The epilogue metadata of this quant was hoisted out of the column loop in the same way the Q6_K body deploys it. Over the full ordinary-shape A/B with the official protocol the change is neutral here (per-shape ratios inside `0.99x` to `1.01x`, no consistent direction), so the shipped body keeps the vendored target. The result is independent of tolerance because the body only moves loads: the arithmetic and the accumulation order are unchanged. Evidence: `~/tmp/torch-ggml-ops/retune_fwd/official/`.
+
 ## Resources
 
 Retained Q5_K J128 bodies use `244 VGPR / 28 SGPR / 38,400 B LDS`.
