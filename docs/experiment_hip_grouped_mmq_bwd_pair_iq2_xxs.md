@@ -16,8 +16,6 @@ Aggregate routed rows are `R=12288,49152,196608`.
 
 Every shape uses the same device row-task body, so one workgroup owns one 128-row tile of one expert instead of walking a whole expert's rows, and partial tasks carry suppression. All three shapes beat two predecoded BF16 AITER GMM calls.
 
-The B16 row keeps the inactive-wave suppression, which pays `2-3%` at that route size and costs `5%` at B1, where almost every wave owns rows. All three shapes beat two predecoded BF16 AITER GMM calls.
-
 ## Kernel implementation
 
 The retained pair body consumes a device row-task bank with an N64 x M128 tile, a 32-wide contraction stage, two projection weight tiles per stage, two LDS stages and one plain barrier per stage. Four waves own 32 rows each, every thread decodes one 16-value lookup/sign/scale segment per projection and stage from one adjacent-code-word read, and activation rows are clamped so no load is predicated.
@@ -52,7 +50,7 @@ Learned route banks carry a large `max/mean` expert row spread, so the serial pa
 
 ### Occupancy and stage sweep
 
-A launch-bound and stage-count sweep over the staged pair bodies (`__launch_bounds__` second argument `2/3/4`, two, three and four LDS stages, and the inactive-wave suppression flag for the bodies that do not deploy it) changed no shape by more than measurement noise, and three or four stages lost `5-15%` on the small-route shapes through the larger LDS footprint. The two-stage, two-wave-per-SIMD geometry is retained. Evidence: `~/tmp/torch-ggml-ops/retune_pairs/run_pair_v2.py`.
+A launch-bound and stage-count sweep over the retired staged serial pair bodies (`__launch_bounds__` second argument `2/3/4`, two, three and four LDS stages, and the inactive-wave suppression flag for the bodies that do not deploy it) changed no shape by more than measurement noise, and three or four stages lost `5-15%` on the small-route shapes through the larger LDS footprint. The two-stage, two-wave-per-SIMD geometry is retained. Evidence: `~/tmp/torch-ggml-ops/retune_pairs/run_pair_v2.py`.
 
 ## Resources
 

@@ -16,8 +16,6 @@ Aggregate rows are `R=16384,65536,262144`.
 
 Every shape uses the same device row-task body, so one workgroup owns one 128-row tile of one expert instead of walking a whole expert's rows. The fused pair beats two predecoded BF16 AITER GMM calls on all three shapes, by `70%` to `86%`.
 
-The fused pair beats two predecoded BF16 AITER GMM calls on all three shapes, by `59%` to `73%`. The B16 row keeps the wider M256 body because this decoder turns the extra row reuse into throughput at that route size, where the median active expert owns more than one M256 tile.
-
 ## Kernel implementation
 
 The deployed pair body uses a device row-task bank with an N64 x M128 tile, a 32-wide contraction stage, two projection weight tiles per stage, two LDS stages, one plain barrier per stage and inactive-wave suppression: four waves own 32 rows each, every thread decodes one 16-value grid segment per projection and stage, and activation rows are clamped so no load is predicated. Pair and single-down IQ2_S keep separate LDS swizzles; the decode and epilogue state must not be generalized from the single-down path.
@@ -64,7 +62,7 @@ Alternatives measured and rejected for this decoder: the wide-M task bodies (`m4
 
 ### Occupancy and stage sweep
 
-A launch-bound and stage-count sweep over the staged pair bodies (`__launch_bounds__` second argument `2/3/4`, two, three and four LDS stages, and the inactive-wave suppression flag for the bodies that do not deploy it) changed no shape by more than measurement noise, and three or four stages lost `5-15%` on the small-route shapes through the larger LDS footprint. The two-stage, two-wave-per-SIMD geometry is retained. Evidence: `~/tmp/torch-ggml-ops/retune_pairs/run_pair_v2.py`.
+A launch-bound and stage-count sweep over the retired staged serial pair bodies (`__launch_bounds__` second argument `2/3/4`, two, three and four LDS stages, and the inactive-wave suppression flag for the bodies that do not deploy it) changed no shape by more than measurement noise, and three or four stages lost `5-15%` on the small-route shapes through the larger LDS footprint. The two-stage, two-wave-per-SIMD geometry is retained. Evidence: `~/tmp/torch-ggml-ops/retune_pairs/run_pair_v2.py`.
 
 ## Resources
 

@@ -10,6 +10,7 @@ from tools.mmq_bundle_wrapper_source import (
     GroupedBackwardConfig,
     GroupedBackwardKind,
     QuantType,
+    SplitKReduceConfig,
     render_wrapper,
 )
 
@@ -33,7 +34,9 @@ def control_filename(symbol: str) -> str:
 @dataclass(frozen=True)
 class HIPControlSpec:
     symbol: str
-    config: ForwardConfig | DenseBackwardConfig | GroupedBackwardConfig
+    config: (
+        ForwardConfig | DenseBackwardConfig | GroupedBackwardConfig | SplitKReduceConfig
+    )
 
     @property
     def filename(self) -> str:
@@ -482,6 +485,29 @@ def _dense_backward_controls() -> list[HIPControlSpec]:
                 exact_in_features=4096,
             )
         )
+    specs.append(HIPControlSpec("dense_bwd_split_k_reduce", SplitKReduceConfig()))
+    for suffix, n_tiles, k_iteration, m_tiles, slices, full_tiles in (
+        ("m32_s2", 4, 16, 1, 2, False),
+        ("m64_s4", 4, 16, 1, 4, True),
+        ("m128_s16", 4, 32, 2, 16, True),
+        ("m256_s16", 4, 32, 4, 16, True),
+        ("m512_s32", 4, 32, 4, 32, True),
+    ):
+        specs.append(
+            _dense_backward(
+                f"dense_bwd_q8_0_exact_lm_head_splitk_{suffix}",
+                QuantType.Q8_0,
+                n_tiles,
+                k_iteration,
+                group_m=0,
+                m_tiles_per_wave=m_tiles,
+                decoder_width=16,
+                full_tiles=full_tiles,
+                exact_out_features=129280,
+                exact_in_features=4096,
+                split_k=slices,
+            )
+        )
     for label, quant, variants in (
         ("q3_k", QuantType.Q3_K, ((1, 0), (4, 0), (4, 2), (8, 2), (12, 2), (16, 2))),
         ("q4_k", QuantType.Q4_K, ((1, 0), (4, 0), (8, 2), (12, 2), (16, 2))),
@@ -821,7 +847,7 @@ def hip_control_specs() -> tuple[HIPControlSpec, ...]:
         + _grouped_backward_controls()
     )
     symbols = [spec.symbol for spec in specs]
-    if len(specs) != 209:
+    if len(specs) != 215:
         raise ValueError(f"historical HIP control inventory has {len(specs)} entries")
     if len(symbols) != len(set(symbols)):
         raise ValueError("HIP control symbols must be unique")

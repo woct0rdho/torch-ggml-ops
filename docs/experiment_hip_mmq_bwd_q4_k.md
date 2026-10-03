@@ -17,18 +17,18 @@ Backward shapes are written `(M, in_features, out_features)`, matching the weigh
 
 | Family | `(M,K,N)` | HIP TFLOPS | HIP/torch.mm | Kernel |
 | --- | ---: | ---: | ---: | --- |
-| Query/query gate | `(2048,2048,8192)` | 20.822 | 1.225x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| Query/query gate | `(8192,2048,8192)` | 22.511 | 1.257x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k2048` |
-| Query/query gate | `(32768,2048,8192)` | 22.785 | 1.255x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k2048` |
-| Narrow K/V/gate/up | `(2048,2048,512)` | 20.112 | 0.868x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| Narrow K/V/gate/up | `(8192,2048,512)` | 22.624 | 0.930x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| Narrow K/V/gate/up | `(32768,2048,512)` | 24.090 | 0.987x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| Attention output | `(2048,4096,2048)` | 26.198 | 1.125x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| Attention output | `(8192,4096,2048)` | 24.098 | 1.010x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| Attention output | `(32768,4096,2048)` | 23.961 | 0.998x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| Shared down | `(2048,512,2048)` | 18.441 | 1.434x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| Shared down | `(8192,512,2048)` | 11.047 | 0.725x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| Shared down | `(32768,512,2048)` | 13.272 | 0.797x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k512` |
+| Query/query gate | `(2048,2048,8192)` | 20.834 | 1.225x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
+| Query/query gate | `(8192,2048,8192)` | 22.605 | 1.254x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k2048` |
+| Query/query gate | `(32768,2048,8192)` | 23.240 | 1.261x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k2048` |
+| Narrow K/V/gate/up | `(2048,2048,512)` | 20.580 | 0.884x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
+| Narrow K/V/gate/up | `(8192,2048,512)` | 22.688 | 0.928x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
+| Narrow K/V/gate/up | `(32768,2048,512)` | 24.021 | 0.978x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
+| Attention output | `(2048,4096,2048)` | 26.648 | 1.133x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
+| Attention output | `(8192,4096,2048)` | 23.975 | 1.004x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
+| Attention output | `(32768,4096,2048)` | 24.381 | 1.009x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
+| Shared down | `(2048,512,2048)` | 18.269 | 1.422x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
+| Shared down | `(8192,512,2048)` | 11.368 | 0.745x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
+| Shared down | `(32768,512,2048)` | 13.118 | 0.789x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k512` |
 
 The current source matrix is the complete packed-gradient path. The `Kernel` column names the deployed body for each exact key; it is the fastest built body whose output is bitwise equal to the reference body in the per-key candidate campaign.
 

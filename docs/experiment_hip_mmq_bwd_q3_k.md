@@ -17,12 +17,12 @@ Backward shapes are written `(M, in_features, out_features)`, matching the weigh
 
 | Family | `(M,K,N)` | HIP TFLOPS | HIP/torch.mm | Kernel |
 | --- | ---: | ---: | ---: | --- |
-| Query/query gate | `(2048,2048,8192)` | 22.570 | 1.324x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
-| Query/query gate | `(8192,2048,8192)` | 22.601 | 1.266x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
-| Query/query gate | `(32768,2048,8192)` | 22.831 | 1.243x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
-| Narrow key | `(2048,2048,512)` | 23.738 | 1.034x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
-| Narrow key | `(8192,2048,512)` | 23.951 | 0.996x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
-| Narrow key | `(32768,2048,512)` | 25.107 | 1.033x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| Query/query gate | `(2048,2048,8192)` | 22.649 | 1.329x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| Query/query gate | `(8192,2048,8192)` | 22.680 | 1.263x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| Query/query gate | `(32768,2048,8192)` | 23.165 | 1.255x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| Narrow key | `(2048,2048,512)` | 23.266 | 1.040x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| Narrow key | `(8192,2048,512)` | 24.272 | 1.003x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| Narrow key | `(32768,2048,512)` | 25.262 | 1.031x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
 
 The values use the current packed/BF16 matrix and report the complete packed-gradient path represented there. The `Kernel` column names the deployed body for each exact key; it is the fastest built body whose output is bitwise equal to the reference body in the per-key candidate campaign.
 

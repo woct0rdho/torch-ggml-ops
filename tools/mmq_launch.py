@@ -41,9 +41,15 @@ from tools.ggtensile.mmq_bwd_spec import BackwardKernelSpec
 from tools.ggtensile.mmq_fwd_spec import ForwardKernelSpec
 from tools.ggtensile.model import ProblemSize
 from tools.mmq_deployment_cases import DeploymentCase
-from tools.mmq_hip_dense import InstalledDenseBackwardModule
+from tools.mmq_hip_dense import (
+    InstalledDenseBackwardModule,
+    InstalledDenseBackwardSplitKModule,
+    InstalledSplitKReduceModule,
+)
 from tools.mmq_hip_deployment import (
+    control_inventory,
     select_grouped_forward_control,
+    select_hip_control,
     select_routed_control,
 )
 from tools.mmq_hip_grouped_pair_bwd import is_pair_row_task_body
@@ -140,6 +146,9 @@ class Launcher:
     tasks_factory: Any
     reference: torch.Tensor
     device: torch.device
+    partials: torch.Tensor | None = None
+    reduce_modules: tuple[Any, ...] = ()
+    split_k_shape: tuple[int, int, int] | None = None
 
     @property
     def needs_route(self) -> bool:
@@ -187,13 +196,22 @@ class Launcher:
         weights = self.weights
         inputs = self.inputs
         workspace = self.workspace
+        partials = self.partials
+        reduce_modules = self.reduce_modules
         operation = self.operation
+        rows, in_features, slices = self.split_k_shape or (0, 0, 0)
 
         def dense_forward(outputs: Outputs) -> None:
             modules[0].launch(weights[0], workspace, outputs[0], stream=stream)
 
         def dense_backward(outputs: Outputs) -> None:
-            modules[0].launch(inputs[0], weights[0], outputs[0], stream=stream)
+            if partials is None:
+                modules[0].launch(inputs[0], weights[0], outputs[0], stream=stream)
+                return
+            modules[0].launch(inputs[0], weights[0], partials, stream=stream)
+            reduce_modules[0].launch(
+                partials, outputs[0], rows, in_features, slices, stream=stream
+            )
 
         def grouped_forward(outputs: Outputs) -> None:
             modules[0].launch(
@@ -396,6 +414,12 @@ def build_launcher(
     inputs: tuple[torch.Tensor, ...] = ()
     row_tile: int | None = None
     tasks_factory: Any = RowTaskWorkspace
+    # Split-contraction state: a partial workspace, the reduction module and
+    # the shape the reduction needs. Only the dense backward branch fills them.
+    partials: torch.Tensor | None = None
+    reduce_modules: list[Any] = []
+    split_slices = 0
+    split_k_shape: tuple[int, int, int] | None = None
     problem = case.instance.problem
     spec = case.instance.kernel_spec
     # The routed tensor carries the aggregate row count on axis 0: forward
@@ -430,19 +454,48 @@ def build_launcher(
         assert isinstance(problem, ProblemSize)
         assert isinstance(spec, BackwardKernelSpec)
         inputs = (prepared.grad_outputs[0],)
-        modules.append(
-            stack.enter_context(
-                BackwardModule(
-                    problem,
-                    case.quant_type,
-                    spec,
-                    _artifact(artifact),
-                    _instance(instance),
-                )
-                if not hip
-                else InstalledDenseBackwardModule(problem, case.quant_type, spec, root)
+        reduce_modules = []
+        partials = None
+        split_slices = 0
+        split_k_shape = None
+        if hip:
+            split_control = select_hip_control(
+                "OrdinaryBackward",
+                case.quant_type,
+                problem.m,
+                problem.n,
+                problem.k,
             )
-        )
+            split_config = control_inventory()[split_control.symbol].config
+            split_slices = int(getattr(split_config, "split_k", 0))
+            if split_slices:
+                split_module = stack.enter_context(
+                    InstalledDenseBackwardSplitKModule(
+                        problem, case.quant_type, spec, root
+                    )
+                )
+                modules.append(split_module)
+                partials = split_module.allocate(problem.m, problem.n, device)
+                split_k_shape = (problem.m, problem.n, split_slices)
+                reduce_modules.append(
+                    stack.enter_context(InstalledSplitKReduceModule(root))
+                )
+        if not split_slices:
+            modules.append(
+                stack.enter_context(
+                    BackwardModule(
+                        problem,
+                        case.quant_type,
+                        spec,
+                        _artifact(artifact),
+                        _instance(instance),
+                    )
+                    if not hip
+                    else InstalledDenseBackwardModule(
+                        problem, case.quant_type, spec, root
+                    )
+                )
+            )
     elif operation == "GroupedForward":
         assert isinstance(problem, GroupedForwardProblem)
         assert isinstance(spec, GroupedForwardKernelSpec)
@@ -585,6 +638,9 @@ def build_launcher(
         tasks_factory=tasks_factory,
         reference=reference,
         device=device,
+        partials=partials,
+        reduce_modules=tuple(reduce_modules),
+        split_k_shape=split_k_shape,
     )
 
 

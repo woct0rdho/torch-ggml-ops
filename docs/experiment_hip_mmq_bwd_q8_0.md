@@ -10,34 +10,42 @@ The final ordinary matrix contains six families at `M=2048,8192,32768`, and the 
 
 | Family | `(M,K,N)` | HIP TFLOPS | HIP/torch.mm | Kernel |
 | --- | ---: | ---: | ---: | --- |
-| Q-A | `(2048,4096,1024)` | 26.090 | 1.082x | `dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8` |
-| Q-A | `(8192,4096,1024)` | 26.358 | 1.059x | `dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8` |
-| Q-A | `(32768,4096,1024)` | 27.368 | 1.104x | `dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8` |
-| Q-B | `(2048,1024,32768)` | 19.765 | 0.874x | `dense_bwd_q8_0_exact_n32768k1024_g2_group_m1_padding8` |
-| Q-B | `(8192,1024,32768)` | 19.530 | 0.870x | `dense_bwd_q8_0_exact_n32768k1024_g2_group_m1_padding8` |
-| Q-B | `(32768,1024,32768)` | 22.473 | 0.987x | `dense_bwd_q8_0_exact_n32768k1024_g2_group_m1_padding8` |
-| KV | `(2048,4096,512)` | 24.655 | 1.110x | `dense_bwd_q8_0_exact_n512k4096_g2_group_m2_padding8` |
-| KV | `(8192,4096,512)` | 25.659 | 1.036x | `dense_bwd_q8_0_exact_n512k4096_g2_group_m2_padding8` |
-| KV | `(32768,4096,512)` | 27.608 | 1.131x | `dense_bwd_q8_0_exact_n512k4096_g2_group_m2_padding8` |
-| Output B | `(2048,8192,4096)` | 26.284 | 1.067x | `dense_bwd_q8_0_exact_n4096k8192_g2_padding8` |
-| Output B | `(8192,8192,4096)` | 21.445 | 0.834x | `dense_bwd_q8_0_exact_n4096k8192_g2_group_m2` |
-| Output B | `(32768,8192,4096)` | 20.806 | 0.837x | `dense_bwd_q8_0_exact_n4096k8192_g2_group_m2` |
-| Shared gate/up | `(2048,4096,2048)` | 26.452 | 1.112x | `dense_bwd_q8_0_exact_n2048k4096_g2_group_m2_padding8` |
-| Shared gate/up | `(8192,4096,2048)` | 24.662 | 1.029x | `dense_bwd_q8_0_exact_n2048k4096_g2_group_m2_padding8` |
-| Shared gate/up | `(32768,4096,2048)` | 24.688 | 1.024x | `dense_bwd_q8_0_exact_n2048k4096_g2_group_m2_padding8` |
-| Shared down | `(2048,2048,4096)` | 21.604 | 1.262x | `dense_bwd_q8_0_exact_n4096k2048_g2_padding8` |
-| Shared down | `(8192,2048,4096)` | 19.533 | 1.076x | `dense_bwd_q8_0_exact_n4096k2048_g2_group_m2` |
-| Shared down | `(32768,2048,4096)` | 20.255 | 1.110x | `dense_bwd_q8_0_exact_n4096k2048_g2_group_m2` |
+| Q-A | `(2048,4096,1024)` | 25.866 | 1.074x | `dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8` |
+| Q-A | `(8192,4096,1024)` | 26.482 | 1.064x | `dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8` |
+| Q-A | `(32768,4096,1024)` | 27.413 | 1.107x | `dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8` |
+| Q-B | `(2048,1024,32768)` | 19.033 | 0.859x | `dense_bwd_q8_0_exact_n32768k1024_g2_group_m1_padding8` |
+| Q-B | `(8192,1024,32768)` | 18.476 | 0.823x | `dense_bwd_q8_0_exact_n32768k1024_g2_group_m1_padding8` |
+| Q-B | `(32768,1024,32768)` | 22.170 | 1.023x | `dense_bwd_q8_0_exact_n32768k1024_g2_group_m1_padding8` |
+| KV | `(2048,4096,512)` | 24.861 | 1.115x | `dense_bwd_q8_0_exact_n512k4096_g2_group_m2_padding8` |
+| KV | `(8192,4096,512)` | 25.566 | 1.031x | `dense_bwd_q8_0_exact_n512k4096_g2_group_m2_padding8` |
+| KV | `(32768,4096,512)` | 27.747 | 1.132x | `dense_bwd_q8_0_exact_n512k4096_g2_group_m2_padding8` |
+| Output B | `(2048,8192,4096)` | 26.268 | 1.061x | `dense_bwd_q8_0_exact_n4096k8192_g2_padding8` |
+| Output B | `(8192,8192,4096)` | 21.574 | 0.832x | `dense_bwd_q8_0_exact_n4096k8192_g2_group_m2` |
+| Output B | `(32768,8192,4096)` | 20.844 | 0.835x | `dense_bwd_q8_0_exact_n4096k8192_g2_group_m2` |
+| Shared gate/up | `(2048,4096,2048)` | 26.571 | 1.112x | `dense_bwd_q8_0_exact_n2048k4096_g2_group_m2_padding8` |
+| Shared gate/up | `(8192,4096,2048)` | 24.880 | 1.033x | `dense_bwd_q8_0_exact_n2048k4096_g2_group_m2_padding8` |
+| Shared gate/up | `(32768,4096,2048)` | 25.107 | 1.043x | `dense_bwd_q8_0_exact_n2048k4096_g2_group_m2_padding8` |
+| Shared down | `(2048,2048,4096)` | 21.647 | 1.265x | `dense_bwd_q8_0_exact_n4096k2048_g2_padding8` |
+| Shared down | `(8192,2048,4096)` | 19.650 | 1.075x | `dense_bwd_q8_0_exact_n4096k2048_g2_group_m2` |
+| Shared down | `(32768,2048,4096)` | 20.580 | 1.114x | `dense_bwd_q8_0_exact_n4096k2048_g2_group_m2` |
 
-The `Kernel` column names the deployed body for each exact key; every one of them is the fastest built body whose output is bitwise equal to the reference body in the per-key candidate campaign.
+The `Kernel` column names the deployed body for each exact key. The ordinary bodies are bitwise equal to the reference body of their per-key candidate campaign; the four split-contraction LM-head bodies keep the deployed decode and matrix work but sum FP32 partial tiles in ascending slice order and round once at the end, so they belong to the precision-changing class of the accuracy policy rather than the bitwise class.
 
 | `(M,N,K)` | HIP time (ms) | HIP TFLOPS | HIP/torch.mm | Kernel |
 | ---: | ---: | ---: | ---: | --- |
-| `(32,4096,129280)` | 8.321 | 4.073 | 0.556x | `dense_bwd_q8_0_exact_lm_head_bounded` |
-| `(64,4096,129280)` | 7.068 | 9.590 | 0.667x | `dense_bwd_q8_0_exact_lm_head_full` |
-| `(128,4096,129280)` | 7.393 | 18.335 | 1.143x | `dense_bwd_q8_0_exact_lm_head_g1` |
-| `(256,4096,129280)` | 10.020 | 27.059 | 1.750x | `dense_bwd_q8_0_exact_lm_head_g3` |
-| `(512,4096,129280)` | 21.338 | 25.412 | 1.536x | `dense_bwd_q8_0_exact_lm_head_g3` |
+| `(32,4096,129280)` | 5.921 | 5.72 | 0.789x | `dense_bwd_q8_0_exact_lm_head_splitk_m32_s2` |
+| `(64,4096,129280)` | 3.750 | 18.07 | 1.254x | `dense_bwd_q8_0_exact_lm_head_splitk_m64_s4` |
+| `(128,4096,129280)` | 5.701 | 23.78 | 1.894x | `dense_bwd_q8_0_exact_lm_head_splitk_m128_s16` |
+| `(256,4096,129280)` | 8.226 | 32.96 | 2.184x | `dense_bwd_q8_0_exact_lm_head_splitk_m256_s16` |
+| `(512,4096,129280)` | 20.448 | 26.52 | 1.598x | `dense_bwd_q8_0_exact_lm_head_splitk_m512_s32` |
+
+All five chunks run the split-contraction body described below, with the slice count fitted per chunk. Every row in the table comes from one official run against the same BF16 `torch.mm` baseline.
+
+### Split-contraction deployment
+
+The LM-head chunks launch a small number of workgroups against a contraction of 129,280, so the machine is starved at the narrow chunk and the ordinary tile cannot grow without giving up resident workgroups. The deployed mechanism splits the contraction: the same tile, decode and matrix work run over one contiguous slice per workgroup (`grid.z` is the slice index), each slice writes an FP32 partial tile, and a second kernel sums the slices in ascending order and rounds once to BF16. The slice width is a per-chunk constant rounded up to the 32-wide contraction step, so no slice can overlap its neighbour, and the partial workspace is sized `[slices][rows][in_features]` in FP32.
+
+Both kernels run inside the timed region, and the slice bodies carry the same exact dimensions as the single-pass bodies, which is what makes them competitive: with runtime contraction and result widths the same tile reached only `0.43-0.59x` of the single-pass body at one slice. With exact dimensions one slice matches or beats the single-pass body (`0.977-1.010x`) and the slices then pay for themselves on the starved chunks: `0.789x` at M32 with two slices, `1.258x` at M64 with four, `1.894x` at M128 and `2.184x` at M256 with sixteen, and `1.598x` at M512 with thirty-two, against the BF16 `torch.mm` baseline, all measured under the official protocol in one run. The Q8_0 numbers above are that run.
 
 ## Kernel implementation
 
@@ -45,7 +53,7 @@ The initial generic body used 64x64/reduction-16 ownership, 92 VGPRs, 17 SGPRs, 
 
 The build carries four ordinary variant generations: the plain `exact_n{N}k{K}` wrappers, the `_g1`/`_g2`/`_g3` geometry screen winners, and the `_g2_padding8`/`_g2_group_m{1,2}`/`_g2_group_m2_padding8` traversal variants. The deployed ordinary bodies are all G2-family (`n_tiles=8`, `k_iteration=32`, `decoder_width=16`, `active_waves=4`) with `lds_padding=8` and/or `group_m` set per key; `K` in the variant name is the reduction length, and no single variant wins every shape. The plain `exact_n{N}k{K}` wrappers are the pre-G generation that the `_g*` screen superseded and are not part of the deployment campaign.
 
-The LM head uses active-two-wave M32, G0 M64, G1 M128, and G3 M256/M512 bodies. M512 launches two exact M256-style tiles. The campaign timed the built chunk bodies per `M` and deploys the fastest valid one: `_bounded` at M32, `_full` at M64, `_g1` at M128, and `_g3` at M256/M512. `_g2` lost at M128/M256/M512, `_full` lost at M128 and above, `_bounded` lost at M64 and above, `_m32_active2` tied with the deployed `_bounded` body inside `0.2%` at M32, and `_g3` faults at M128, which `_g1` covers.
+The LM head uses active-two-wave M32, G0 M64, G1 M128, and G3 M256/M512 bodies. M512 launches two exact M256-style tiles. The single-pass campaign timed the built chunk bodies per `M` and selected `_bounded` at M32, `_full` at M64, `_g1` at M128, and `_g3` at M256/M512; the split-contraction campaign then replaced every chunk's single-pass body with an exact slice body whose slice count is fitted per chunk. `_g2` lost at M128/M256/M512, `_full` lost at M128 and above, `_bounded` lost at M64 and above, `_m32_active2` tied with the deployed `_bounded` body inside `0.2%` at M32, and `_g3` faults at M128, which `_g1` covers.
 
 The ordinary G2 body is `192 VGPR / 14 SGPR / 8 KiB LDS`; the isolated LM bodies use 91-194 VGPR and 2-4 KiB LDS.
 
@@ -81,7 +89,13 @@ Changing only grouped-M traversal reduced Q-B B4/B16 by `38.77%/40.16%` and outp
 
 The DB8 screen retained M2 for Q-A, KV, shared gate/up, and shared down at the longer row counts, and M1 only for Q-B B1. Representative all-M-to-M2 times were Q-A B16 `32.386 -> 13.184 ms`, KV B16 `23.194 -> 5.253 ms`, shared gate B16 `54.401 -> 27.955 ms`, and shared down B16 `49.452 -> 27.961 ms`; Q-B B1 used the `7.241/6.923/7.509 ms` M2/M1/M2 bracket. L2 hit rate rose by `30.6-47.4` percentage points, while occupancy changed only modestly. `MemUnitBusy` was unavailable because rocprofv3 rejected its non-windowable `TA_TA_BUSY` dependency.
 
-Activation-half double buffering, K-loop unrolling, width32 decode, stride77 padding, decoded-weight LDS caching, split-K, GSU, Stream-K, persistent workgroups, and direct-to-LDS/direct-to-VGPR rewrites are closed for the current packed representation. The remaining ordinary deficit is repeated packed decode versus a BF16 baseline that starts from decoded weights.
+Activation-half double buffering, K-loop unrolling, width32 decode, stride77 padding, decoded-weight LDS caching, split-K, GSU, Stream-K, persistent workgroups, and direct-to-LDS/direct-to-VGPR rewrites are closed for the current packed representation.
+
+### Split-contraction measurement
+
+The split-K closure above was a contract deferral, not a measurement. Retested with a dedicated split-contraction body: the deployed tile, decode and matrix work are unchanged, each workgroup takes one contiguous slice of the contraction, writes an FP32 partial tile, and a second kernel sums the slices in ascending order and rounds once to BF16. Both sides consume the same prepared gradient and the same packed weights, and the partial write plus the reduction are inside the timed region.
+
+The first form used runtime contraction and result widths, so its loop bounds and the gradient row stride were runtime values; it lost everywhere (`0.43-0.59x` at one slice). Folding the exact dimensions into the body the way the deployed twins do restores parity at one slice (`0.977-1.010x`), and the split then pays where the ordinary grid is starved: `1.916x` at the M64 chunk (four slices), `1.275x` at M128, `1.202x` at M256 and `1.058x` at M512, with the best slice count between sixteen and thirty-two. The mechanism therefore needs per-shape, per-slice-count exact instantiations; the slice count is a per-key choice. Evidence and the experimental body live under `~/tmp/torch-ggml-ops/retune_dense_bwd/`.
 
 ## Evidence
 

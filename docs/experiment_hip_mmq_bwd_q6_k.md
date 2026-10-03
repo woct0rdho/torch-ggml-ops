@@ -8,9 +8,9 @@ This record covers the Qwen language-model-head Q6_K packed input-gradient kerne
 
 | Family | `(M,K,N)` | HIP TFLOPS | HIP/torch.mm | Kernel |
 | --- | ---: | ---: | ---: | ---: |
-| Language model head | `(64,2048,248320)` | 12.111 | 1.841x | `dense_bwd_q6_k_m64_nt32_ki64_full` |
-| Language model head | `(128,2048,248320)` | 13.757 | 1.533x | `dense_bwd_q6_k_m128_nt64_ki32_full` |
-| Language model head | `(256,2048,248320)` | 21.449 | 1.564x | `dense_bwd_q6_k_m256_nt64_ki32_full` |
+| Language model head | `(64,2048,248320)` | 12.155 | 1.844x | `dense_bwd_q6_k_m64_nt32_ki64_full` |
+| Language model head | `(128,2048,248320)` | 13.677 | 1.521x | `dense_bwd_q6_k_m128_nt64_ki32_full` |
+| Language model head | `(256,2048,248320)` | 21.507 | 1.567x | `dense_bwd_q6_k_m256_nt64_ki32_full` |
 
 The values use the current Q6_K packed/BF16 kernel matrix. M256 is the primary large chunk, with M64 and M128 as smaller exact geometries. The `Kernel` column names the deployed body for each chunk; it is the fastest built body whose output is bitwise equal to the reference body in the per-key candidate campaign, and the `_full_*` bodies are the unbounded exact variants (`_bounded` builds exist for shapes outside the exact-tile contract).
 
@@ -45,6 +45,12 @@ Packed extraction remained selected for M256; scalar extraction regressed `2.14%
 An effective-scale loader could stage `float(block_d * scale)` once per decoded row/K iteration. A future approximate-order experiment must show stable complete-kernel timing across all three chunks.
 
 Global J64, I128, broad K64, activation double buffering, decoded-weight caching, speculative prefetch, split-K, persistent workgroups, and broad swizzle sweeps are closed for the present arithmetic contract.
+
+### Split-contraction measurement
+
+The split-K closure above was a contract deferral, not a measurement, so the language-model-head keys were retested with a dedicated split-contraction body: the deployed tile, decode and matrix work are unchanged, each workgroup takes one contiguous slice of the contraction, writes an FP32 partial tile, and a second kernel sums the slices in ascending order and rounds once to BF16. Both sides consume the same prepared gradient and the same packed weights.
+
+Two forms were measured. The runtime-dimension form loses on all three chunks (`0.56-0.59x` at one slice, `0.74-0.78x` at the best slice count), and unlike the Q8_0 keys the deployed Q6_K bodies also carry runtime dimensions, so the remaining gap belongs to the experimental body's missing vectorised fragment loads and local prefetch rather than to shape specialization alone. The mechanism is therefore neither confirmed nor rejected here: the next step is a Q6_K split body that carries the deployed body's loader and exact dimensions and matches it at one slice before any slice count is judged. Evidence and the experimental body live under `~/tmp/torch-ggml-ops/retune_dense_bwd/`.
 
 ## Resources
 

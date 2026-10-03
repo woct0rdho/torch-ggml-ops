@@ -16,8 +16,6 @@ Aggregate routed rows are `R=16384,65536,262144`.
 
 Every shape uses the same device row-task body, so one workgroup owns one 128-row tile of one expert instead of walking a whole expert's rows. The pair body beats the AITER GMM baseline at all three shapes, by `88%` to `102%`.
 
-The pair body beats the AITER GMM baseline at all three shapes, by `57%` to `83%`.
-
 ## Kernel implementation
 
 The retained pair body consumes a device row-task bank with an N64 x M128 tile, a 32-wide contraction stage, two projection weight tiles per stage, two LDS stages and one plain barrier per stage, with vectorised payload and mask loads feeding the Q3_K decode. Four waves own 32 rows each, activation rows are clamped so no load is predicated, and waves whose first row is past the task end skip their activation loads, matrix work and stores while still taking part in the shared decode.
@@ -73,7 +71,7 @@ Learned route banks carry a large `max/mean` expert row spread, so the serial pa
 
 ### Occupancy and stage sweep
 
-A launch-bound and stage-count sweep over the staged pair bodies (`__launch_bounds__` second argument `2/3/4`, two, three and four LDS stages, and the inactive-wave suppression flag for the bodies that do not deploy it) changed no shape by more than measurement noise, and three or four stages lost `5-15%` on the small-route shapes through the larger LDS footprint. The two-stage, two-wave-per-SIMD geometry is retained. Evidence: `~/tmp/torch-ggml-ops/retune_pairs/run_pair_v2.py`.
+A launch-bound and stage-count sweep over the retired staged serial pair bodies (`__launch_bounds__` second argument `2/3/4`, two, three and four LDS stages, and the inactive-wave suppression flag for the bodies that do not deploy it) changed no shape by more than measurement noise, and three or four stages lost `5-15%` on the small-route shapes through the larger LDS footprint. The two-stage, two-wave-per-SIMD geometry is retained. Evidence: `~/tmp/torch-ggml-ops/retune_pairs/run_pair_v2.py`.
 
 ## Resources
 

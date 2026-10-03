@@ -15,12 +15,12 @@ Backward shapes are written `(M, in_features, out_features)`, matching the weigh
 
 | Family | `(M,K,N)` | HIP TFLOPS | HIP/torch.mm | Kernel |
 | --- | ---: | ---: | ---: | --- |
-| Narrow K/V/gate/up | `(2048,2048,512)` | 20.034 | 0.895x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k512` |
-| Narrow K/V/gate/up | `(8192,2048,512)` | 21.898 | 0.918x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
-| Narrow K/V/gate/up | `(32768,2048,512)` | 22.789 | 0.936x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
-| Shared down | `(2048,512,2048)` | 17.612 | 1.372x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
-| Shared down | `(8192,512,2048)` | 11.141 | 0.731x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k512` |
-| Shared down | `(32768,512,2048)` | 12.194 | 0.732x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
+| Narrow K/V/gate/up | `(2048,2048,512)` | 20.862 | 0.898x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k512` |
+| Narrow K/V/gate/up | `(8192,2048,512)` | 22.190 | 0.903x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
+| Narrow K/V/gate/up | `(32768,2048,512)` | 23.240 | 0.946x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
+| Shared down | `(2048,512,2048)` | 17.356 | 1.351x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
+| Shared down | `(8192,512,2048)` | 11.315 | 0.742x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k512` |
+| Shared down | `(32768,512,2048)` | 12.464 | 0.748x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
 
 The `Kernel` column names the deployed body for each exact key; it is the fastest built body whose output is bitwise equal to the reference body in the per-key candidate campaign. The shared-down rows show the largest per-sample spread in the matrix (`1.20-1.53` max/min here); the narrow rows stay at `1.05-1.07`.
 

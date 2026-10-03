@@ -36,6 +36,10 @@ from tools.mmq_bundle_wrapper_source import (
 from tools.mmq_hip_control_spec import HIPControlSpec, hip_control_specs
 
 CONFIG_PATH = Path(__file__).resolve().parent / "configs" / "hip_deployment.json"
+# Split-contraction slices step by the 32-wide contraction stage, so the
+# contraction bound must be a multiple of it for the unguarded fast path.
+SPLIT_K_STEP = 32
+SPLIT_K_REDUCE_SYMBOL = "dense_bwd_split_k_reduce"
 _DENSE_FORWARD_BLOCK = (32, 4, 1)
 _DENSE_BACKWARD_BLOCK = (128, 1, 1)
 _Q3_K_LDS_BYTES = 40_448
@@ -115,6 +119,19 @@ class HipControl:
             n_per_block = 16 * config.n_tiles
             m_blocks = math.ceil(m / m_per_block)
             n_blocks = math.ceil(n / n_per_block)
+            if config.split_k:
+                if config.group_m:
+                    raise ValueError("split-contraction controls cannot group in M")
+                if config.exact_out_features % SPLIT_K_STEP:
+                    raise ValueError(
+                        "split-contraction controls need a contraction bound that "
+                        "is a multiple of the decode step"
+                    )
+                return (
+                    (m_blocks, n_blocks, config.split_k),
+                    _DENSE_BACKWARD_BLOCK,
+                    0,
+                )
             if config.group_m:
                 grid = (
                     config.group_m,
@@ -133,6 +150,23 @@ class HipControl:
         """Return the M tile of a fixed-grouped backward control."""
 
         return 192 if "tuned" in self.symbol else 256
+
+
+def split_k_chunk(out_features: int, slices: int) -> int:
+    """Return the slice width, rounded up to the contraction step."""
+
+    chunk = -(-out_features // slices)
+    return -(-chunk // SPLIT_K_STEP) * SPLIT_K_STEP
+
+
+def split_k_reduce_configuration(
+    rows: int, in_features: int
+) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
+    """Return `(grid, block, shared_bytes)` for the partial reduction."""
+
+    count = rows * in_features
+    blocks = min(1024, max(1, math.ceil(count / 256)))
+    return ((blocks, 1, 1), (256, 1, 1), 0)
 
 
 def select_hip_control(

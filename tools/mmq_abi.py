@@ -182,6 +182,29 @@ ORDINARY_FORWARD_ABI = KernelAbi(
     )
 )
 
+DENSE_BACKWARD_SPLIT_K_ABI = KernelAbi(
+    (
+        _pointer("grad_output", KernelValueType.BFloat16),
+        _pointer("packed_weight", KernelValueType.Struct),
+        _pointer("partials", KernelValueType.Struct),
+        _value("rows", KernelValueType.UInt32),
+        _value("out_features", KernelValueType.UInt32),
+        _value("in_features", KernelValueType.UInt32),
+        _value("blocks_per_weight_row", KernelValueType.UInt32),
+        _value("split_chunk", KernelValueType.UInt32),
+    )
+)
+
+SPLIT_K_REDUCE_ABI = KernelAbi(
+    (
+        _pointer("partials", KernelValueType.Struct),
+        _pointer("grad_input", KernelValueType.BFloat16),
+        _value("rows", KernelValueType.UInt32),
+        _value("in_features", KernelValueType.UInt32),
+        _value("splits", KernelValueType.UInt32),
+    )
+)
+
 ORDINARY_BACKWARD_ABI = KernelAbi(
     (
         _pointer("grad_output", KernelValueType.BFloat16),
