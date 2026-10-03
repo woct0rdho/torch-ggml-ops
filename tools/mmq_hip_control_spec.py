@@ -508,6 +508,29 @@ def _dense_backward_controls() -> list[HIPControlSpec]:
                 split_k=slices,
             )
         )
+    for suffix, n_tiles, k_iteration, m_tiles, swizzle, pack_q6, slices in (
+        ("m64_s2", 2, 64, 1, 16, False, 2),
+        ("m128_s40", 4, 32, 2, 8, False, 40),
+        ("m256_s40", 4, 32, 2, 8, True, 40),
+    ):
+        specs.append(
+            _dense_backward(
+                f"dense_bwd_q6_k_exact_lm_head_splitk_{suffix}",
+                QuantType.Q6_K,
+                n_tiles,
+                k_iteration,
+                group_m=0,
+                m_tiles_per_wave=m_tiles,
+                prefetch_local=True,
+                full_tiles=True,
+                vector_local_load=True,
+                lds_swizzle_chunk=swizzle,
+                pack_q6_quant_bytes=pack_q6,
+                exact_out_features=248320,
+                exact_in_features=2048,
+                split_k=slices,
+            )
+        )
     for label, quant, variants in (
         ("q3_k", QuantType.Q3_K, ((1, 0), (4, 0), (4, 2), (8, 2), (12, 2), (16, 2))),
         ("q4_k", QuantType.Q4_K, ((1, 0), (4, 0), (8, 2), (12, 2), (16, 2))),
@@ -600,6 +623,79 @@ def _dense_backward_controls() -> list[HIPControlSpec]:
                     vector_local_load=True,
                     lds_swizzle_chunk=swizzle,
                     pack_q6_quant_bytes=pack_q6,
+                )
+            )
+    # Exact-dimension twins of the three deployed bodies whose contraction is
+    # 2048 or more and which still resolve both bounds at runtime: the language
+    # model head at M256, and the two wide Q4_K chunks. Their geometry is
+    # copied from the deployed bodies so the only difference is the bound.
+    for (
+        label,
+        quant,
+        n_tiles,
+        k_iteration,
+        group_m,
+        m_tiles,
+        swizzle,
+        pack_q6,
+        out_features,
+        in_features,
+    ) in (
+        (
+            "q6_k_m256_nt64_ki32_full",
+            QuantType.Q6_K,
+            4,
+            32,
+            0,
+            2,
+            8,
+            True,
+            248320,
+            2048,
+        ),
+        (
+            "q4_k_mt128_nt128_ki32_full_k2048",
+            QuantType.Q4_K,
+            8,
+            32,
+            1,
+            2,
+            8,
+            False,
+            8192,
+            2048,
+        ),
+        (
+            "q4_k_mt128_nt128_ki32_full_k512",
+            QuantType.Q4_K,
+            8,
+            32,
+            1,
+            2,
+            16,
+            False,
+            2048,
+            512,
+        ),
+    ):
+        for exacts in (True,):
+            specs.append(
+                _dense_backward(
+                    f"dense_bwd_{label}_exact",
+                    quant,
+                    n_tiles,
+                    k_iteration,
+                    group_m=group_m,
+                    m_tiles_per_wave=m_tiles,
+                    decoder_width=16 if quant is QuantType.Q4_K else 0,
+                    prefetch_local=True,
+                    full_tiles=True,
+                    prefetch_packed=quant is QuantType.Q4_K,
+                    vector_local_load=True,
+                    lds_swizzle_chunk=swizzle,
+                    pack_q6_quant_bytes=pack_q6,
+                    exact_out_features=out_features,
+                    exact_in_features=in_features,
                 )
             )
     for n_tiles in (8, 16):
@@ -847,7 +943,7 @@ def hip_control_specs() -> tuple[HIPControlSpec, ...]:
         + _grouped_backward_controls()
     )
     symbols = [spec.symbol for spec in specs]
-    if len(specs) != 215:
+    if len(specs) != 221:
         raise ValueError(f"historical HIP control inventory has {len(specs)} entries")
     if len(symbols) != len(set(symbols)):
         raise ValueError("HIP control symbols must be unique")

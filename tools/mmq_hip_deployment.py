@@ -122,11 +122,17 @@ class HipControl:
             if config.split_k:
                 if config.group_m:
                     raise ValueError("split-contraction controls cannot group in M")
-                if config.exact_out_features % SPLIT_K_STEP:
+                step = split_k_step(config.k_iteration)
+                if config.exact_out_features % step:
                     raise ValueError(
                         "split-contraction controls need a contraction bound that "
                         "is a multiple of the decode step"
                     )
+                # The slice width is rounded up to the stage width, so every
+                # slice but the last is exactly that wide and the last one, at
+                # most that wide, is a multiple of the stage width too because
+                # both the contraction bound and the width are. No stage is
+                # therefore truncated and the unguarded full-tile path is safe.
                 return (
                     (m_blocks, n_blocks, config.split_k),
                     _DENSE_BACKWARD_BLOCK,
@@ -152,11 +158,18 @@ class HipControl:
         return 192 if "tuned" in self.symbol else 256
 
 
-def split_k_chunk(out_features: int, slices: int) -> int:
+def split_k_step(k_iteration: int) -> int:
+    """Return the slice quantum: the stage width, at least the decode step."""
+
+    return max(SPLIT_K_STEP, k_iteration)
+
+
+def split_k_chunk(out_features: int, slices: int, k_iteration: int = 0) -> int:
     """Return the slice width, rounded up to the contraction step."""
 
+    step = split_k_step(k_iteration)
     chunk = -(-out_features // slices)
-    return -(-chunk // SPLIT_K_STEP) * SPLIT_K_STEP
+    return -(-chunk // step) * step
 
 
 def split_k_reduce_configuration(

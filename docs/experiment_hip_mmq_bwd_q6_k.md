@@ -8,11 +8,27 @@ This record covers the Qwen language-model-head Q6_K packed input-gradient kerne
 
 | Family | `(M,K,N)` | HIP TFLOPS | HIP/torch.mm | Kernel |
 | --- | ---: | ---: | ---: | ---: |
-| Language model head | `(64,2048,248320)` | 12.155 | 1.844x | `dense_bwd_q6_k_m64_nt32_ki64_full` |
-| Language model head | `(128,2048,248320)` | 13.677 | 1.521x | `dense_bwd_q6_k_m128_nt64_ki32_full` |
-| Language model head | `(256,2048,248320)` | 21.507 | 1.567x | `dense_bwd_q6_k_m256_nt64_ki32_full` |
+| Language model head | `(64,2048,248320)` | 13.970 | 2.119x | `dense_bwd_q6_k_exact_lm_head_splitk_m64_s2` |
+| Language model head | `(128,2048,248320)` | 23.170 | 2.572x | `dense_bwd_q6_k_exact_lm_head_splitk_m128_s40` |
+| Language model head | `(256,2048,248320)` | 21.620 | 1.577x | `dense_bwd_q6_k_m256_nt64_ki32_full` |
 
-The values use the current Q6_K packed/BF16 kernel matrix. M256 is the primary large chunk, with M64 and M128 as smaller exact geometries. The `Kernel` column names the deployed body for each chunk; it is the fastest built body whose output is bitwise equal to the reference body in the per-key candidate campaign, and the `_full_*` bodies are the unbounded exact variants (`_bounded` builds exist for shapes outside the exact-tile contract).
+The values use the current Q6_K packed/BF16 kernel matrix and come from one official run. M256 is the primary large chunk, with M64 and M128 as smaller exact geometries. The `Kernel` column names the deployed body for each chunk. The M64 and M128 chunks deploy the split-contraction body described below; M256 keeps its single-pass body because the slice body measures within noise there. The `_full_*` bodies are the unbounded exact variants (`_bounded` builds exist for shapes outside the exact-tile contract).
+
+### Split-contraction deployment
+
+The Q6_K language-model-head chunks launch 32 or 64 workgroups against a contraction of 248,320, so the machine is starved exactly as it is for the Q8_0 chunks, and the same mechanism applies: each workgroup takes one contiguous slice of the contraction, writes an FP32 partial tile, and a deterministic reduce kernel sums the slices in ascending order with a single BF16 rounding. M64 runs two slices, M128 runs forty, and both kernels are inside the timed region.
+
+Parity at one slice was the prerequisite, and it needed two changes beyond the Q8_0 form. First, the deployed bodies use the unguarded full-tile path (their activations are exactly `rows x in_features` and their weights exactly `out_features x in_features`), and the same body with the bounded path costs more than half the throughput: the bounded slice body reached only `0.49x` of the deployed single-pass body at one slice, while the full-tile form with the deployed exact dimensions reaches `1.04x`. The exact dimensions alone account for that `1.04x`, since the single-pass bodies resolve both bounds at runtime. Second, the paired local-prefetch schedule of the deployed bodies is part of the slice body as well (`PREFETCH_LOCAL`), which is worth a few percent here but was required for the Q8_0 slice bodies to match their single-pass twins.
+
+The Q6_K decode stage is 64 wide on M64, so a slice width has to be a multiple of the stage width for every slice, including the truncated last one. The host rounds the width up to `max(32, k_iteration)` and the contraction bound is a multiple of the same step, so both the width and the bound are multiples of the stage width and the last slice is too; no stage is ever truncated, and the full-tile path needs no per-element guard. The Q8_0 slice bodies have the same invariant with a 16- or 32-wide stage. Where a slice body is built but the stage alignment cannot be guaranteed, it is the bounded body that carries the guard, and there the shared-tile bound is the *slice* end rather than the contraction: a tile column beyond the slice would otherwise keep the previous stage's decoded weights and multiply them with real activations, which measured as an NRMSE of `4.5e-2` against the `1.9e-3` of the correct form.
+
+Measured against the deployed single-pass bodies with identical inputs, and with the reduce inside the timed region, the slice bodies gain `1.25x` at M64 with two slices and `1.71x` at M128 with forty; at M256 the same body is worth `1.07x` in the A/B harness and `+2%` under the official protocol, which is inside the run-to-run spread, so M256 keeps its single-pass body and no partial workspace is allocated for it. The A/B slice sweep, all against the same prepared gradient and packed weights: M64 `1.041x` at one slice, `1.251x` at two, `1.169x` at twenty, `1.247x` at forty, with a reproducible dip to `0.72x` at four slices; M128 `1.050x` at one, `1.566x` at four, `1.577x` at sixteen, `1.715x` at forty, `1.749x` at eighty; M256 `1.041x` at one, `0.947x` at sixteen, `1.071x` at forty, `1.077x` at eighty, and `0.239x` at 1,940 slices where the partial workspace dominates.
+
+The slice bodies change the accumulation order, so their output is not bitwise equal to the single-pass body; the difference against that body is an NRMSE of `1.9e-3` at 40 or 80 slices and `1.5e-3` at two, and the external oracle check passes on the deployed routes.
+
+### Exact-dimension twins
+
+The deployed bodies on this record resolve both the contraction and the result width at runtime. Twins that copy the deployed geometry exactly and only substitute the two compile-time bounds were built and measured against the deployed bodies in one interleaved A/B run, with identical prepared inputs and bitwise identical output: `0.990x` at `(256,2048,248320)`. Exact dimensions are therefore not deployed on these keys; where the mechanism looked positive on the Q6_K M64 chunk, the measurement also carried the split-contraction body.
 
 ## Kernel implementation
 

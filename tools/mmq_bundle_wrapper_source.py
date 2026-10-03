@@ -429,6 +429,7 @@ void {symbol}(
         {config.decoder_width},
         {config.lds_swizzle_chunk},
         {_cpp_bool(config.full_tiles)},
+        {_cpp_bool(config.prefetch_local)},
         {_cpp_bool(config.vector_local_load)},
         {_cpp_bool(config.pack_q6_quant_bytes)}>(
             grad_output,

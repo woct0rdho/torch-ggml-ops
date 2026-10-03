@@ -19,6 +19,14 @@ namespace torch_ggml_ops::ck {
 // families, whose output is large and whose contraction is short. Here the
 // output is `rows x 2048/4096` and the contraction is `129,280` or `248,320`,
 // so the partial round trip is a fraction of a percent of the multiply.
+//
+// The last stage of a slice can be shorter than `K_ITERATION` when the slice
+// does not divide the contraction, so the shared-tile guard is against
+// `split_end` rather than the contraction: a column of the tile beyond the
+// slice would otherwise keep the previous stage's values and multiply them
+// with real activations. `FULL_TILES` keeps the unguarded fast path and only
+// applies where the host rounds `split_chunk` up to a multiple of
+// `K_ITERATION`.
 
 template <
     ggml_type type,
@@ -31,6 +39,7 @@ template <
     int DECODER_WIDTH,
     int LDS_SWIZZLE_CHUNK,
     bool FULL_TILES,
+    bool PREFETCH_LOCAL,
     bool VECTOR_LOCAL_LOAD,
     bool PACK_Q6_QUANT_BYTES>
 static __device__ __forceinline__ void dense_mmq_grad_input_splitk_body(
@@ -85,7 +94,7 @@ static __device__ __forceinline__ void dense_mmq_grad_input_splitk_body(
                 const int input_column = input_column_start + local_input_column;
                 if (FULL_TILES ||
                     (input_column + 15 < kernel_in_features &&
-                     output_column < kernel_out_features)) {
+                     output_column < split_end)) {
                     const char * packed_row = packed_weight +
                         static_cast<int64_t>(output_column) * packed_row_bytes;
                     __hip_bfloat16 values[16];
@@ -124,7 +133,7 @@ static __device__ __forceinline__ void dense_mmq_grad_input_splitk_body(
                 const int input_column = input_column_start + local_input_column;
                 if (FULL_TILES ||
                     (input_column + DECODER_WIDTH - 1 < kernel_in_features &&
-                     output_column < kernel_out_features)) {
+                     output_column < split_end)) {
                     const char * packed_row = packed_weight +
                         static_cast<int64_t>(output_column) * packed_row_bytes;
                     __hip_bfloat16 values[DECODER_WIDTH];
@@ -175,30 +184,103 @@ static __device__ __forceinline__ void dense_mmq_grad_input_splitk_body(
                         }
                     }
                 }
+                if constexpr (PREFETCH_LOCAL) {
 #pragma unroll
-                for (int n_tile = 0; n_tile < N_TILES; ++n_tile) {
-                    bf16_fragment b_fragment{};
-                    if constexpr (VECTOR_LOCAL_LOAD) {
-                        shared_b.load_fragment_vector(
-                            b_fragment,
-                            n_tile * BACKWARD_N_PER_TILE + c_row(lane),
-                            k_tile);
-                    } else {
-                        __hip_bfloat16 * b = fragment_data(b_fragment);
+                    for (int n_tile = 0; n_tile < N_TILES - 1; n_tile += 2) {
+                        bf16_fragment b_first{};
+                        bf16_fragment b_second{};
+                        if constexpr (VECTOR_LOCAL_LOAD) {
+                            shared_b.load_fragment_vector(
+                                b_first,
+                                n_tile * BACKWARD_N_PER_TILE + c_row(lane),
+                                k_tile);
+                            shared_b.load_fragment_vector(
+                                b_second,
+                                (n_tile + 1) * BACKWARD_N_PER_TILE + c_row(lane),
+                                k_tile);
+                        } else {
+                            __hip_bfloat16 * first = fragment_data(b_first);
+                            __hip_bfloat16 * second = fragment_data(b_second);
 #pragma unroll
-                        for (int k = 0; k < 16; ++k) {
-                            b[k] = shared_b[
-                                (n_tile * BACKWARD_N_PER_TILE + c_row(lane)) *
-                                    K_ITERATION +
-                                k_tile + k];
+                            for (int k = 0; k < 16; ++k) {
+                                first[k] = shared_b[
+                                    (n_tile * BACKWARD_N_PER_TILE + c_row(lane)) *
+                                        K_ITERATION +
+                                    k_tile + k];
+                                second[k] = shared_b[
+                                    ((n_tile + 1) * BACKWARD_N_PER_TILE +
+                                     c_row(lane)) *
+                                        K_ITERATION +
+                                    k_tile + k];
+                            }
+                        }
+#pragma unroll
+                        for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
+                            wmma_f32_16x16x16_bf16(
+                                accumulators[m_tile][n_tile],
+                                a_fragments[m_tile],
+                                b_first);
+                        }
+#pragma unroll
+                        for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
+                            wmma_f32_16x16x16_bf16(
+                                accumulators[m_tile][n_tile + 1],
+                                a_fragments[m_tile],
+                                b_second);
                         }
                     }
+                    if constexpr (N_TILES % 2 != 0) {
+                        constexpr int n_tile = N_TILES - 1;
+                        bf16_fragment b_fragment{};
+                        if constexpr (VECTOR_LOCAL_LOAD) {
+                            shared_b.load_fragment_vector(
+                                b_fragment,
+                                n_tile * BACKWARD_N_PER_TILE + c_row(lane),
+                                k_tile);
+                        } else {
+                            __hip_bfloat16 * b = fragment_data(b_fragment);
 #pragma unroll
-                    for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
-                        wmma_f32_16x16x16_bf16(
-                            accumulators[m_tile][n_tile],
-                            a_fragments[m_tile],
-                            b_fragment);
+                            for (int k = 0; k < 16; ++k) {
+                                b[k] = shared_b[
+                                    (n_tile * BACKWARD_N_PER_TILE + c_row(lane)) *
+                                        K_ITERATION +
+                                    k_tile + k];
+                            }
+                        }
+#pragma unroll
+                        for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
+                            wmma_f32_16x16x16_bf16(
+                                accumulators[m_tile][n_tile],
+                                a_fragments[m_tile],
+                                b_fragment);
+                        }
+                    }
+                } else {
+#pragma unroll
+                    for (int n_tile = 0; n_tile < N_TILES; ++n_tile) {
+                        bf16_fragment b_fragment{};
+                        if constexpr (VECTOR_LOCAL_LOAD) {
+                            shared_b.load_fragment_vector(
+                                b_fragment,
+                                n_tile * BACKWARD_N_PER_TILE + c_row(lane),
+                                k_tile);
+                        } else {
+                            __hip_bfloat16 * b = fragment_data(b_fragment);
+#pragma unroll
+                            for (int k = 0; k < 16; ++k) {
+                                b[k] = shared_b[
+                                    (n_tile * BACKWARD_N_PER_TILE + c_row(lane)) *
+                                        K_ITERATION +
+                                    k_tile + k];
+                            }
+                        }
+#pragma unroll
+                        for (int m_tile = 0; m_tile < M_TILES_PER_WAVE; ++m_tile) {
+                            wmma_f32_16x16x16_bf16(
+                                accumulators[m_tile][n_tile],
+                                a_fragments[m_tile],
+                                b_fragment);
+                        }
                     }
                 }
             }

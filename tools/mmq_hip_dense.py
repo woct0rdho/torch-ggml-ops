@@ -98,7 +98,9 @@ class InstalledDenseBackwardSplitKModule(_HIPModule):
                 f"{self.hip_control.symbol} is not a split-contraction control"
             )
         self.problem_size = problem_size
-        self.split_chunk = split_k_chunk(config.exact_out_features, self.slices)
+        self.split_chunk = split_k_chunk(
+            config.exact_out_features, self.slices, config.k_iteration
+        )
         selected = (
             _resolve_code_object(code_object, self.hip_control.symbol)
             if code_object is not None

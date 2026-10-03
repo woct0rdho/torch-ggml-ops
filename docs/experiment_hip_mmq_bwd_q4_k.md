@@ -32,6 +32,10 @@ Backward shapes are written `(M, in_features, out_features)`, matching the weigh
 
 The current source matrix is the complete packed-gradient path. The `Kernel` column names the deployed body for each exact key; it is the fastest built body whose output is bitwise equal to the reference body in the per-key candidate campaign.
 
+### Exact-dimension twins
+
+The deployed bodies on this record resolve both the contraction and the result width at runtime. Twins that copy the deployed geometry exactly and only substitute the two compile-time bounds were built and measured against the deployed bodies in one interleaved A/B run, with identical prepared inputs and bitwise identical output: `0.858x` at `(8192,2048,8192)` and `0.886x` at `(32768,512,2048)`. Exact dimensions are therefore not deployed on these keys; where the mechanism looked positive on the Q6_K M64 chunk, the measurement also carried the split-contraction body.
+
 ## Kernel implementation
 
 The retained Q4_K bodies are a four-wave 128x128/K32 tiled decoder with decoded-weight LDS staging. The build carries three tuned `mt128_nt128_ki32_full` variants (`_k512`, `_k2048`, `_k4096`) plus five legacy generic bodies; all three tuned variants were timed on every deployment key. The deployed body per key is the fastest one, which does not follow the variant suffix: `_k4096` covers the query, narrow, and attention-output rows, `_k2048` the two longer query rows, and `_k512` the B16 shared-down row.
