@@ -33,6 +33,7 @@ enum ggml_type : int32_t {
     GGML_TYPE_IQ2_XXS = 16,
     GGML_TYPE_IQ2_S = 22,
     GGML_TYPE_IQ4_NL = 20,
+    GGML_TYPE_IQ4_XS = 23,
     GGML_TYPE_Q2_0 = 42,
 };
 
@@ -54,6 +55,10 @@ static const __device__ int8_t kvalues_iq4nl[16] = {
 #define QI4_0 (QK4_0 / (4 * QR4_0))
 #define QR4_NL 2
 #define QI4_NL (QK4_NL / (4 * QR4_NL))
+// IQ4_XS keeps its 4-bit payload in a 256-wide block with eight 32-value
+// sub-blocks, so its scale step is per sub-block rather than per block.
+#define QR4_XS 2
+#define QI4_XS (QK_K / (4 * QR4_XS))
 #define QR5_0 2
 #define QI5_0 (QK5_0 / (4 * QR5_0))
 #define QR8_0 1
@@ -79,6 +84,14 @@ struct block_q4_0 {
     uint8_t qs[QK4_0 / 2];
 };
 static_assert(sizeof(block_q4_0) == 18, "wrong q4_0 block size");
+
+struct block_iq4_xs {
+    half d;
+    uint16_t scales_h;
+    uint8_t scales_l[QK_K / 64];
+    uint8_t qs[QK_K / 2];
+};
+static_assert(sizeof(block_iq4_xs) == 136, "wrong iq4_xs block size");
 
 struct block_iq4_nl {
     half d;

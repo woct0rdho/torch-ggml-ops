@@ -65,7 +65,8 @@ enum ggml_cuda_mmq_sram_layout {
 static constexpr __host__ __device__ ggml_cuda_mmq_sram_layout mmq_sram_layout(ggml_type type) {
     return type == GGML_TYPE_Q4_0 || type == GGML_TYPE_Q5_0 ||
         type == GGML_TYPE_Q8_0 || type == GGML_TYPE_IQ2_XXS ||
-        type == GGML_TYPE_Q2_0 || type == GGML_TYPE_IQ4_NL
+        type == GGML_TYPE_Q2_0 || type == GGML_TYPE_IQ4_NL ||
+        type == GGML_TYPE_IQ4_XS
         ? GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0
         : type == GGML_TYPE_Q2_K
             ? GGML_CUDA_MMQ_SRAM_LAYOUT_Q2_K
@@ -785,6 +786,65 @@ static __device__ __forceinline__ void ggml_cuda_mmq_load_tiles_iq4_nl(
     }
 }
 
+// IQ4_XS loader: 256 weights in a 136-byte block, one fp16 base scale, eight
+// 6-bit signed sub-block scales and a nibble payload that indexes the same
+// sixteen-level codebook as IQ4_NL. A stage is exactly one block, and its levels
+// fill the Q8_0 LDS slots with one f32 scale per 32-value group.
+template <ggml_type type, int J, bool fallback>
+static __device__ __forceinline__ void ggml_cuda_mmq_load_tiles_iq4_xs(
+        const char * __restrict__ x,
+        int * __restrict__ x_tile,
+        const int kbx0,
+        const int i_max,
+        const int stride) {
+    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int nwarps = ggml_cuda_mmq_get_nthreads(type, J, fallback) / warp_size;
+    constexpr int I = ggml_cuda_mmq_get_I(type, J, fallback);
+    constexpr int sram_stride = ggml_cuda_mmq_get_sram_stride(type, J, fallback);
+
+    int * x_qs = (int *) x_tile;
+    float * x_df = (float *) (x_qs + 2 * MMQ_TILE_NE_K);
+
+    constexpr int threads_per_row = MMQ_ITER_K / (4 * QR4_XS);
+    constexpr int nrows = warp_size / threads_per_row;
+
+    const int kqsx = threadIdx.x % threads_per_row;
+
+#pragma unroll
+    for (int i0 = 0; i0 < I; i0 += nrows * nwarps) {
+        int i = i0 + (nrows == 1 ? threadIdx.y : threadIdx.y * nrows + threadIdx.x / threads_per_row);
+
+        if (fallback) {
+            i = min(i, i_max);
+        }
+
+        const block_iq4_xs * bxi = (const block_iq4_xs *) x + kbx0 + i * stride;
+        const int2 v = iq4_table_lookup_16(get_int_b4(bxi->qs, kqsx), kvalues_iq4nl);
+        const int k0 = 8 * (kqsx / 4) + kqsx % 4;
+
+        x_qs[i * sram_stride + k0 + 0] = v.x;
+        x_qs[i * sram_stride + k0 + 4] = v.y;
+    }
+
+    constexpr int rows_per_warp = warp_size / 8;
+
+#pragma unroll
+    for (int i0 = 0; i0 < I; i0 += nwarps * rows_per_warp) {
+        int i = i0 + threadIdx.y * rows_per_warp + threadIdx.x / (MMQ_TILE_NE_K / 4);
+
+        if (fallback) {
+            i = min(i, i_max);
+        }
+
+        const block_iq4_xs * bxi = (const block_iq4_xs *) x + kbx0 + i * stride;
+        const int scale_index = threadIdx.x % 8;
+        const int ls =
+            ((bxi->scales_l[scale_index / 2] >> (4 * (scale_index % 2))) & 0x0F) |
+            (((bxi->scales_h >> (2 * scale_index)) & 0x03) << 4);
+        x_df[i * sram_stride + scale_index] = __half2float(bxi->d) * (ls - 32);
+    }
+}
+
 template <ggml_type type, int J, bool fallback = true, bool table_decode = false>
 static __device__ __forceinline__ void mmq_load_target(
         const char * x, int * tile, int block_offset, int i_max, int row_stride,
@@ -814,6 +874,9 @@ static __device__ __forceinline__ void mmq_load_target(
             block_offset * blocks_per_iteration,
             i_max,
             row_stride * blocks_per_iteration);
+    } else if constexpr (type == GGML_TYPE_IQ4_XS) {
+        ggml_cuda_mmq_load_tiles_iq4_xs<type, J, fallback>(
+            x, tile, block_offset, i_max, row_stride);
     } else if constexpr (type == GGML_TYPE_IQ4_NL) {
         constexpr int blocks_per_iteration = MMQ_ITER_K / QK4_NL;
         ggml_cuda_mmq_load_tiles_iq4_nl<type, J, fallback>(
@@ -872,7 +935,8 @@ static __device__ __forceinline__ void mmq_vec_dot_target(
     if constexpr (
         type == GGML_TYPE_Q8_0 || type == GGML_TYPE_IQ2_XXS ||
         type == GGML_TYPE_Q2_0 || type == GGML_TYPE_Q4_0 ||
-        type == GGML_TYPE_Q5_0 || type == GGML_TYPE_IQ4_NL) {
+        type == GGML_TYPE_Q5_0 || type == GGML_TYPE_IQ4_NL ||
+        type == GGML_TYPE_IQ4_XS) {
         ggml_cuda_mmq_vec_dot_q8_0_q8_1_mma<
             type, J, fallback, MMQ_Q8_1_METADATA_F32_D4>(x, y, sum, k00);
     } else if constexpr (type == GGML_TYPE_Q2_K) {

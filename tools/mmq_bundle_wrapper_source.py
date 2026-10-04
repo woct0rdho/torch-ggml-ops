@@ -8,6 +8,7 @@ class QuantType(IntEnum):
     Q4_0 = 2
     Q5_0 = 6
     IQ4_NL = 20
+    IQ4_XS = 23
     Q2_0 = 42
     Q8_0 = 8
     Q2_K = 10

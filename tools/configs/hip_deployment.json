@@ -1254,6 +1254,120 @@
           "symbol": "dense_fwd_iq4_nl_k640_j128_full"
         }
       ]
+    },
+    {
+      "operation": "OrdinaryForward",
+      "quant_type": "IQ4_XS",
+      "controls": [
+        {
+          "m": 2048,
+          "n": 512,
+          "k": 2560,
+          "symbol": "dense_fwd_iq4_xs_k2560_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 640,
+          "k": 2560,
+          "symbol": "dense_fwd_iq4_xs_k2560_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 2560,
+          "k": 2560,
+          "symbol": "dense_fwd_iq4_xs_k2560_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 6144,
+          "k": 2560,
+          "symbol": "dense_fwd_iq4_xs_k2560_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 10240,
+          "k": 2560,
+          "symbol": "dense_fwd_iq4_xs_k2560_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 12288,
+          "k": 2560,
+          "symbol": "dense_fwd_iq4_xs_k2560_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 512,
+          "k": 2560,
+          "symbol": "dense_fwd_iq4_xs_k2560_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 640,
+          "k": 2560,
+          "symbol": "dense_fwd_iq4_xs_k2560_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 2560,
+          "k": 2560,
+          "symbol": "dense_fwd_iq4_xs_k2560_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 6144,
+          "k": 2560,
+          "symbol": "dense_fwd_iq4_xs_k2560_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 10240,
+          "k": 2560,
+          "symbol": "dense_fwd_iq4_xs_k2560_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 12288,
+          "k": 2560,
+          "symbol": "dense_fwd_iq4_xs_k2560_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 512,
+          "k": 2560,
+          "symbol": "dense_fwd_iq4_xs_k2560_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 640,
+          "k": 2560,
+          "symbol": "dense_fwd_iq4_xs_k2560_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 2560,
+          "k": 2560,
+          "symbol": "dense_fwd_iq4_xs_k2560_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 6144,
+          "k": 2560,
+          "symbol": "dense_fwd_iq4_xs_k2560_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 10240,
+          "k": 2560,
+          "symbol": "dense_fwd_iq4_xs_k2560_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 12288,
+          "k": 2560,
+          "symbol": "dense_fwd_iq4_xs_k2560_j128_full"
+        }
+      ]
     }
   ],
   "routed": [
