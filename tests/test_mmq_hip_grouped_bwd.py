@@ -200,7 +200,7 @@ def test_standalone_backward_control_resolves_directory_and_file(
 
 def test_hip_control_spec_is_separate_and_complete() -> None:
     specs = hip_control_specs()
-    assert len(specs) == 230
+    assert len(specs) == 234
     assert len({spec.symbol for spec in specs}) == len(specs)
 
 

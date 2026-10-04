@@ -6,7 +6,7 @@ This record covers the gfx1151 HIP packed-MMQ forward kernels for Q3_K weights.
 
 Q3_K carries the ordinary projections of the Qwen3.6-35B-A3B (APEX-I-Mini) and Qwen3.8-Flash-Next (GSQ-RCO-Q2_0) checkpoints, so the record also covers the QSA attention, shared-expert and GatedDeltaNet shapes those checkpoints add at hidden size 2560, at the training token counts of a sequence length 2048 batch (B1/B4/B16).
 
-The GatedDeltaNet `in_proj_qkv` and `in_proj_z` projections are in scope: the loader applies their tiled -> grouped value-head reorder to packed rows as whole blocks, so their packed weights are in the model's ordinary layout and need no permutation, copy or transpose (`gated_delta_net_layout.md`). `out_proj` is deferred, and `token_embd.weight` is an embedding gather rather than a multiply.
+The GatedDeltaNet `in_proj_qkv` and `in_proj_z` projections are in scope: the loader applies their tiled -> grouped value-head reorder to packed rows as whole blocks, so their packed weights are in the model's ordinary layout and need no permutation, copy or transpose (`gated_delta_net_layout.md`). GatedDeltaNet `out_proj` is deferred because wiring it needs the activation permutation, and `token_embd.weight` is an embedding gather rather than a multiply.
 
 ## Final kernel result
 
@@ -77,7 +77,7 @@ The new geometries change the weight-to-activation byte ratio: at `K=2560` and `
 
 The two limits that bound this body are therefore both already reached. Instruction-side, `rocprofv3` PC sampling of the retained K2560 body at `(8192,12288,2560)` reports `60%` VALU against `7.5%` WMMA, a ratio of `8.8` VALU instructions per WMMA, with the epilogue at one fused multiply-add per output element per sixteen-element MMA step, which is the minimum this decomposition allows. Memory-side, the large-M points run at `238-261 GB/s`, i.e. at the DRAM rate, and halving their traffic does not move the time, so neither side can be bought with the other.
 
-The ceilings above are what a TFLOP/s figure should be read against. A pure `v_wmma_i32_16x16x16_iu8` probe with the same wave count, the same eight independent accumulators per wave and the same 128-thread workgroup reaches `48.7 TFLOPS` flat from two to eight workgroups per CU (`~/tmp/torch-ggml-ops/q3k2560/wmma_i8_probe.cu`), so the `60 TFLOPS` nominal int8/bf16 roof is not reachable through this instruction. The retained body sits at `45-51%` of that practical ceiling, and the rejected wide tile at `44-50%`. Evidence: `~/tmp/torch-ggml-ops/q3k2560/`.
+The ceilings above are what a TFLOP/s figure should be read against. A pure `v_wmma_i32_16x16x16_iu8` probe with the same wave count, the same eight independent accumulators per wave and the same 128-thread workgroup reaches `48.7 TFLOPS` flat from two to eight workgroups per CU (`~/tmp/torch-ggml-ops/qwen4_fwd/wmma_i8_probe.cu`), so the `60 TFLOPS` nominal int8/bf16 roof is not reachable through this instruction. The retained body sits at `45-51%` of that practical ceiling, and the rejected wide tile at `44-50%`. Evidence: `~/tmp/torch-ggml-ops/qwen4_fwd/`.
 
 ## Resources
 
@@ -98,9 +98,9 @@ The current source-of-record measurements are:
 The Qwen4-Exp and GatedDeltaNet points come from outside the public case list, because those shapes have HIP controls but no GGTensile problem key yet, so they cannot be selected as deployment cases. Their runs use the deployed Q8_1 producer and the same prepared inputs, the same `torch.mm` BF16 baseline on the same activation tensor, and the same paired timing as the official protocol:
 
 ```text
-~/tmp/torch-ggml-ops/q3k2560/sweep_v1.txt
-~/tmp/torch-ggml-ops/q3k2560/verify.py
-~/tmp/torch-ggml-ops/q3k2560/probe_v1.txt
+~/tmp/torch-ggml-ops/qwen4_fwd/sweep_v1.txt
+~/tmp/torch-ggml-ops/qwen4_fwd/verify.py
+~/tmp/torch-ggml-ops/qwen4_fwd/probe_v1.txt
 ```
 
 The standalone artifact controls also include the retained generic sequential baseline and the detached Qwen control used to check that DeepSeek exact-body work did not alter Q3_K bytes:

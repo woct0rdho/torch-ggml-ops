@@ -44,9 +44,9 @@ _DENSE_FORWARD_BLOCK = (32, 4, 1)
 _WIDE_FORWARD_BLOCK = (32, 8, 1)
 _DENSE_BACKWARD_BLOCK = (128, 1, 1)
 _Q3_K_LDS_BYTES = 40_448
-# The wide dense tile holds twice the weight rows, so its LDS is the same
-# activation tile plus 128 rows of the Q3_K SRAM layout.
-_Q3_K_WIDE_LDS_BYTES = 61_952
+# A wide dense tile holds twice the weight rows, so its LDS is the J-row
+# activation tile plus 128 rows of that type's packed SRAM layout.
+_WIDE_LDS_BYTES = {"Q3_K": 61_952, "Q4_K": 57_856}
 _J64_LDS_BYTES = 28_928
 _J128_LDS_BYTES = 38_400
 # Grouped-forward launch geometry. The activation tile holds one Q8_1 plane per
@@ -115,14 +115,14 @@ class HipControl:
             j = config.j
             quant_name = getattr(config.quant_type, "name", None)
             if config.wide_tile:
-                if quant_name != "Q3_K":
-                    raise ValueError("a wide dense tile is only built for Q3_K")
+                if quant_name not in _WIDE_LDS_BYTES:
+                    raise ValueError(f"no wide dense tile is built for {quant_name}")
                 if n % 128:
                     raise ValueError("a wide dense tile needs whole 128-row tiles")
                 return (
                     (n // 128, math.ceil(m / j), 1),
                     _WIDE_FORWARD_BLOCK,
-                    _Q3_K_WIDE_LDS_BYTES,
+                    _WIDE_LDS_BYTES[quant_name],
                 )
             if quant_name == "Q3_K":
                 shared_bytes = _Q3_K_LDS_BYTES
