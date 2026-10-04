@@ -65,6 +65,37 @@ def test_quant_type_mismatch_with_the_tuned_inventory_is_rejected():
         infer_expert_prior(16384, 512, 2048, quant_type="Q2_K", transposed_rhs=True)
 
 
+def test_qwen38_quant_type_resolves_the_qwen38_law():
+    assert (
+        infer_expert_prior(20480, 2560, 640, quant_type="Q2_0", transposed_rhs=True)
+        == "qwen3.8-learned"
+    )
+    assert (
+        infer_expert_prior(327680, 4, 640, quant_type="IQ4_XS", transposed_rhs=False)
+        == "qwen3.8-learned"
+    )
+    assert (
+        infer_expert_prior(20480, 640, 4, quant_type="IQ4_NL", transposed_rhs=None)
+        == "qwen3.8-learned"
+    )
+
+
+def test_qwen38_geometry_is_unambiguous_without_a_quant_type():
+    assert (
+        infer_expert_prior(20480, 2560, 640, quant_type=None, transposed_rhs=True)
+        == "qwen3.8-learned"
+    )
+    assert (
+        infer_expert_prior(327680, 4, 2560, quant_type=None, transposed_rhs=None)
+        == "qwen3.8-learned"
+    )
+
+
+def test_qwen_quant_type_does_not_resolve_a_qwen38_geometry():
+    with pytest.raises(ValueError, match="No tuned qwen-learned"):
+        infer_expert_prior(20480, 2560, 640, quant_type="Q4_K", transposed_rhs=True)
+
+
 def test_missing_quant_type_resolves_an_unambiguous_learned_family():
     assert (
         infer_expert_prior(12288, 2048, 4096, quant_type=None, transposed_rhs=True)

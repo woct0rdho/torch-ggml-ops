@@ -22,8 +22,9 @@ from tools.aiter_gmm_heuristics import (
 )
 
 _QWEN_QUANT_TYPES = frozenset({"Q3_K", "Q4_K", "Q5_K", "Q6_K", "IQ2_S"})
+_QWEN38_QUANT_TYPES = frozenset({"Q2_0", "IQ4_NL", "IQ4_XS"})
 _DEEPSEEK_QUANT_TYPES = frozenset({"Q2_K", "IQ2_XXS"})
-_LEARNED_PRIORS = ("qwen-learned", "deepseek-learned")
+_LEARNED_PRIORS = ("qwen-learned", "qwen3.8-learned", "deepseek-learned")
 
 
 def _quant_type_name(quant_type: object | None) -> str | None:
@@ -53,11 +54,15 @@ def infer_expert_prior(
 
     The quant type selects the routed family. Without one the learned inventory
     has to be unambiguous. The result is validated against the tuned inventory,
-    so an unmeasured key fails instead of borrowing another family's law.
+    so an unmeasured key fails instead of borrowing another family's law. A
+    quantization type that selects a family with no entry for the key fails as
+    well: a Qwen3.5-family type must not silently resolve a Qwen3.8 geometry.
     """
 
     quant_name = _quant_type_name(quant_type)
-    if quant_name in _QWEN_QUANT_TYPES:
+    if quant_name in _QWEN38_QUANT_TYPES:
+        family = "qwen3.8"
+    elif quant_name in _QWEN_QUANT_TYPES:
         family = "qwen"
     elif quant_name in _DEEPSEEK_QUANT_TYPES:
         family = "deepseek"
