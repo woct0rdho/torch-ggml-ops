@@ -1230,6 +1230,30 @@
           "symbol": "dense_fwd_q5_0_k640_j128_full_table"
         }
       ]
+    },
+    {
+      "operation": "OrdinaryForward",
+      "quant_type": "IQ4_NL",
+      "controls": [
+        {
+          "m": 2048,
+          "n": 2560,
+          "k": 640,
+          "symbol": "dense_fwd_iq4_nl_k640_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 2560,
+          "k": 640,
+          "symbol": "dense_fwd_iq4_nl_k640_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 2560,
+          "k": 640,
+          "symbol": "dense_fwd_iq4_nl_k640_j128_full"
+        }
+      ]
     }
   ],
   "routed": [

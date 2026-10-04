@@ -7,6 +7,7 @@ from enum import Enum, IntEnum
 class QuantType(IntEnum):
     Q4_0 = 2
     Q5_0 = 6
+    IQ4_NL = 20
     Q2_0 = 42
     Q8_0 = 8
     Q2_K = 10
@@ -125,6 +126,7 @@ class ForwardConfig:
             if self.tail_values != 128:
                 raise ValueError("a tail stage holds one 128-value vector dot call")
             if self.quant_type not in {
+                QuantType.IQ4_NL,
                 QuantType.Q2_0,
                 QuantType.Q4_0,
                 QuantType.Q5_0,

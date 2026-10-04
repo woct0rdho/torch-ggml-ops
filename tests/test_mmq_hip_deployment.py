@@ -95,6 +95,7 @@ def test_extra_catalog_keys_are_hip_only_forward_shapes() -> None:
     for operation, quant_type, m, n, k in sorted(_hip_only_keys()):
         assert operation == "OrdinaryForward"
         assert quant_type in {
+            "IQ4_NL",
             "Q2_0",
             "Q3_K",
             "Q4_0",

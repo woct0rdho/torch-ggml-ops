@@ -32,12 +32,19 @@ enum ggml_type : int32_t {
     GGML_TYPE_Q6_K = 14,
     GGML_TYPE_IQ2_XXS = 16,
     GGML_TYPE_IQ2_S = 22,
+    GGML_TYPE_IQ4_NL = 20,
     GGML_TYPE_Q2_0 = 42,
+};
+
+// Sixteen-level codebook of IQ4_NL, in the order its nibbles index it.
+static const __device__ int8_t kvalues_iq4nl[16] = {
+    -127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113,
 };
 
 #define QK_K 256
 #define K_SCALE_SIZE 12
 #define QK4_0 32
+#define QK4_NL 32
 #define QK5_0 32
 #define QK8_0 32
 #define QK8_1 32
@@ -45,6 +52,8 @@ enum ggml_type : int32_t {
 
 #define QR4_0 2
 #define QI4_0 (QK4_0 / (4 * QR4_0))
+#define QR4_NL 2
+#define QI4_NL (QK4_NL / (4 * QR4_NL))
 #define QR5_0 2
 #define QI5_0 (QK5_0 / (4 * QR5_0))
 #define QR8_0 1
@@ -70,6 +79,12 @@ struct block_q4_0 {
     uint8_t qs[QK4_0 / 2];
 };
 static_assert(sizeof(block_q4_0) == 18, "wrong q4_0 block size");
+
+struct block_iq4_nl {
+    half d;
+    uint8_t qs[QK4_NL / 2];
+};
+static_assert(sizeof(block_iq4_nl) == 18, "wrong iq4_nl block size");
 
 struct block_q5_0 {
     half d;
