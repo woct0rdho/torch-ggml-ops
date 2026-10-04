@@ -6,11 +6,11 @@ convention, so the mechanical rules below are exactly the shared part of those
 conventions:
 - the first statement of a control-flow block (`if`, `else`, `for`, `while`,
   `do`, `switch`, `case`, `default`) is indented four spaces past the line that
-  opens it, when that line starts the statement;
+  opens it, when that line starts the statement.
 - no code line is indented less than four spaces per enclosing block, counting
   namespaces as no indentation (both projects leave namespace contents at the
-  outer level);
-- no tabs;
+  outer level).
+- no tabs.
 - a local include (`"name.cuh"`) comes before an include from the parent
   directory (`"../name.cuh"`), and the quoted project includes come before the
   system includes.

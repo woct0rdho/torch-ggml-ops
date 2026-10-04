@@ -110,12 +110,16 @@ class ForwardConfig:
                 "a weight pipeline of more than eight stages is not staged"
             )
         if self.wide_tile:
-            if self.kind != ForwardKind.GROUPED_SERIAL or self.j % 8:
-                raise ValueError(
-                    "a wide tile requires the grouped shape with J a multiple of 8"
-                )
-            if self.nrows_weight % 128 != 0:
-                raise ValueError("a wide tile requires whole 128-row weight groups")
+            if self.kind == ForwardKind.DENSE:
+                if self.j != 128 or not (self.full_i and self.full_j):
+                    raise ValueError("a wide dense tile requires the exact J128 shape")
+            else:
+                if self.kind != ForwardKind.GROUPED_SERIAL or self.j % 8:
+                    raise ValueError(
+                        "a wide tile requires the grouped shape with J a multiple of 8"
+                    )
+                if self.nrows_weight % 128 != 0:
+                    raise ValueError("a wide tile requires whole 128-row weight groups")
 
 
 @dataclass(frozen=True)
@@ -226,6 +230,12 @@ void {symbol}(
 
     if config.kind == ForwardKind.DENSE:
         quant_type = _cpp_quant(config.quant_type)
+        if config.wide_tile:
+            prefix = prefix.replace(
+                '#include "mmq_core.cuh"',
+                '#define MMQ_I 128\n#define MMQ_NTHREADS 256\n#include "mmq_core.cuh"',
+                1,
+            )
         return (
             prefix
             + f"""extern "C" __launch_bounds__(MMQ_NTHREADS, 2) __global__

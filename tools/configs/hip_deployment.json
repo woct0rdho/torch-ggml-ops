@@ -391,9 +391,45 @@
         },
         {
           "m": 2048,
+          "n": 512,
+          "k": 2560,
+          "symbol": "dense_fwd_q3_k_k2560_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 640,
+          "k": 2560,
+          "symbol": "dense_fwd_q3_k_k2560_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 4096,
+          "k": 2048,
+          "symbol": "dense_fwd_q3_k_k2048_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 6144,
+          "k": 2560,
+          "symbol": "dense_fwd_q3_k_k2560_j128_full"
+        },
+        {
+          "m": 2048,
           "n": 8192,
           "k": 2048,
           "symbol": "dense_fwd_q3_k_k2048_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 10240,
+          "k": 2560,
+          "symbol": "dense_fwd_q3_k_k2560_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 12288,
+          "k": 2560,
+          "symbol": "dense_fwd_q3_k_k2560_j128_full"
         },
         {
           "m": 8192,
@@ -403,9 +439,45 @@
         },
         {
           "m": 8192,
+          "n": 512,
+          "k": 2560,
+          "symbol": "dense_fwd_q3_k_k2560_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 640,
+          "k": 2560,
+          "symbol": "dense_fwd_q3_k_k2560_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 4096,
+          "k": 2048,
+          "symbol": "dense_fwd_q3_k_k2048_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 6144,
+          "k": 2560,
+          "symbol": "dense_fwd_q3_k_k2560_j128_full"
+        },
+        {
+          "m": 8192,
           "n": 8192,
           "k": 2048,
           "symbol": "dense_fwd_q3_k_k2048_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 10240,
+          "k": 2560,
+          "symbol": "dense_fwd_q3_k_k2560_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 12288,
+          "k": 2560,
+          "symbol": "dense_fwd_q3_k_k2560_j128_full"
         },
         {
           "m": 32768,
@@ -415,9 +487,45 @@
         },
         {
           "m": 32768,
+          "n": 512,
+          "k": 2560,
+          "symbol": "dense_fwd_q3_k_k2560_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 640,
+          "k": 2560,
+          "symbol": "dense_fwd_q3_k_k2560_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 4096,
+          "k": 2048,
+          "symbol": "dense_fwd_q3_k_k2048_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 6144,
+          "k": 2560,
+          "symbol": "dense_fwd_q3_k_k2560_j128_full"
+        },
+        {
+          "m": 32768,
           "n": 8192,
           "k": 2048,
           "symbol": "dense_fwd_q3_k_k2048_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 10240,
+          "k": 2560,
+          "symbol": "dense_fwd_q3_k_k2560_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 12288,
+          "k": 2560,
+          "symbol": "dense_fwd_q3_k_k2560_j128_full"
         }
       ]
     },

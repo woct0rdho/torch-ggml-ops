@@ -156,6 +156,23 @@ def _forward_controls() -> list[HIPControlSpec]:
         )
     for quant, k, j in (
         (QuantType.Q3_K, 2048, 128),
+        (QuantType.Q3_K, 2560, 128),
+    ):
+        specs.append(
+            _forward(
+                f"dense_fwd_{quant.name.lower()}_k{k}_j{j}_wide",
+                ForwardKind.DENSE,
+                quant,
+                j=j,
+                blocks_per_weight_row=k // 256,
+                full_i=True,
+                full_j=True,
+                wide_tile=True,
+            )
+        )
+    for quant, k, j in (
+        (QuantType.Q3_K, 2048, 128),
+        (QuantType.Q3_K, 2560, 128),
         (QuantType.Q4_K, 512, 128),
         (QuantType.Q4_K, 2048, 128),
         (QuantType.Q4_K, 4096, 128),
@@ -177,6 +194,7 @@ def _forward_controls() -> list[HIPControlSpec]:
         )
     for quant, k, j in (
         (QuantType.Q3_K, 2048, 128),
+        (QuantType.Q3_K, 2560, 128),
         (QuantType.Q4_K, 512, 128),
         (QuantType.Q4_K, 2048, 128),
         (QuantType.Q4_K, 4096, 128),
@@ -987,7 +1005,7 @@ def hip_control_specs() -> tuple[HIPControlSpec, ...]:
         + _grouped_backward_controls()
     )
     symbols = [spec.symbol for spec in specs]
-    if len(specs) != 226:
+    if len(specs) != 230:
         raise ValueError(f"historical HIP control inventory has {len(specs)} entries")
     if len(symbols) != len(set(symbols)):
         raise ValueError("HIP control symbols must be unique")

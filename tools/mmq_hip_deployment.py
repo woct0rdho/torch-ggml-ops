@@ -41,8 +41,12 @@ CONFIG_PATH = Path(__file__).resolve().parent / "configs" / "hip_deployment.json
 SPLIT_K_STEP = 32
 SPLIT_K_REDUCE_SYMBOL = "dense_bwd_split_k_reduce"
 _DENSE_FORWARD_BLOCK = (32, 4, 1)
+_WIDE_FORWARD_BLOCK = (32, 8, 1)
 _DENSE_BACKWARD_BLOCK = (128, 1, 1)
 _Q3_K_LDS_BYTES = 40_448
+# The wide dense tile holds twice the weight rows, so its LDS is the same
+# activation tile plus 128 rows of the Q3_K SRAM layout.
+_Q3_K_WIDE_LDS_BYTES = 61_952
 _J64_LDS_BYTES = 28_928
 _J128_LDS_BYTES = 38_400
 # Grouped-forward launch geometry. The activation tile holds one Q8_1 plane per
@@ -110,6 +114,16 @@ class HipControl:
         if isinstance(config, ForwardConfig) and config.kind is ForwardKind.DENSE:
             j = config.j
             quant_name = getattr(config.quant_type, "name", None)
+            if config.wide_tile:
+                if quant_name != "Q3_K":
+                    raise ValueError("a wide dense tile is only built for Q3_K")
+                if n % 128:
+                    raise ValueError("a wide dense tile needs whole 128-row tiles")
+                return (
+                    (n // 128, math.ceil(m / j), 1),
+                    _WIDE_FORWARD_BLOCK,
+                    _Q3_K_WIDE_LDS_BYTES,
+                )
             if quant_name == "Q3_K":
                 shared_bytes = _Q3_K_LDS_BYTES
             else:
