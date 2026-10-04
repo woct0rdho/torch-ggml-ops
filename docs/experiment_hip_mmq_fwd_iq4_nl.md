@@ -40,7 +40,7 @@ The lookup is the only decode question this type raises, since the table is not 
 
 ### Closed mechanisms
 
-Global J64, the wide `I=128` tile, activation-half double buffering of the weight tile, decoded-weight LDS caching, split-K, persistent workgroups, and the hoisted epilogue are closed for this family of shapes on the sibling types: the wide tile lost by `1.05-1.21x` on Q3_K, Q4_K and Q5_K, and the hoisted epilogue was neutral for Q3_K, Q4_K, Q5_K and Q8_0. The remaining gap to the practical WMMA ceiling is the int32-to-fp32 conversion and the scale multiply of the epilogue, which every type in the family pays.
+Global J64, the wide `I=128` tile, activation-half double buffering of the weight tile, decoded-weight LDS caching, split-K, persistent workgroups, and the hoisted epilogue are closed for this family of shapes on the sibling types: the wide tile lost by `1.05-1.21x` on Q3_K, Q4_K and Q5_K, and the hoisted epilogue was neutral for Q3_K, Q4_K, Q5_K and Q8_0. The remaining decode-side cost is the int32-to-fp32 conversion and the scale multiply of the epilogue, which every type in the family pays.
 
 ## Resources
 

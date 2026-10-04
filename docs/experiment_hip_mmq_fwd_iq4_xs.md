@@ -48,7 +48,7 @@ Exact specialization is worth `1.04-1.09x` over the generic control across the f
 
 The decode here carries two metadata planes and a codebook lookup per value, so it costs more than the nibble types, and the cost shows at the narrow end: the body runs `26.3 TFLOPS` on `(2048,640,2560)` and `26.9` on `(2048,512,2560)`, against `29.4-30.2` on the wide shapes, where the same decode is a smaller share of a longer stage.
 
-Nothing in the decode is left to fold: the codebook is resolved by byte permutes at the cost of the offset arithmetic the Q4_0 body uses, the sub-block scales are six-bit fields whose extraction is two shifts and two masks per 32-value group, and the payload planes are already one nibble per byte. The body is therefore at the same place as its siblings: the epilogue, one int32-to-fp32 conversion and one scale multiply per output element per MMA step, is the remaining difference to the practical ceiling, and every type in the family pays it.
+Nothing in the decode is left to fold: the codebook is resolved by byte permutes at the cost of the offset arithmetic the Q4_0 body uses, the sub-block scales are six-bit fields whose extraction is two shifts and two masks per 32-value group, and the payload planes are already one nibble per byte. The body is therefore at the same place as its siblings: the epilogue, one int32-to-fp32 conversion and one scale multiply per output element per MMA step, is the remaining decode-side cost, and every type in the family pays it.
 
 ### Closed mechanisms
 

@@ -169,6 +169,8 @@ class DenseBackwardConfig:
     exact_in_features: int = 0
     active_waves: int = 4
     split_k: int = 0
+    pipeline_tiles: bool = False
+    prefetch_a_fragments: bool = False
 
 
 @dataclass(frozen=True)
@@ -468,6 +470,51 @@ void {symbol}(
 
 
 def _render_dense_backward(symbol: str, config: DenseBackwardConfig) -> str:
+    if config.pipeline_tiles:
+        if config.quant_type is not QuantType.Q2_0:
+            raise ValueError("the pipelined backward tile is built for Q2_0 only")
+        if config.split_k or config.pack_q5_quant_bytes or config.pack_q6_quant_bytes:
+            raise ValueError("the pipelined backward tile takes no split or pack flags")
+        if config.prefetch_a_fragments and not config.prefetch_local:
+            raise ValueError("activation prefetch needs the local prefetch schedule")
+        return (
+            _PREAMBLE
+            + f"""#include "ck/mmq_backward_q2_0.cuh"
+
+extern "C" __launch_bounds__(torch_ggml_ops::ck::BACKWARD_THREADS, 2) __global__
+void {symbol}(
+        const __hip_bfloat16 * __restrict__ grad_output,
+        const char * __restrict__ packed_weight,
+        __hip_bfloat16 * __restrict__ grad_input,
+        int rows,
+        int out_features,
+        int in_features,
+        int blocks_per_weight_row) {{
+    torch_ggml_ops::ck::dense_mmq_q2_0_grad_input_body<
+        {config.exact_out_features},
+        {config.exact_in_features},
+        {config.n_tiles},
+        {config.k_iteration},
+        {config.group_m},
+        {config.m_tiles_per_wave},
+        {config.active_waves},
+        {config.lds_padding},
+        {config.lds_swizzle_chunk},
+        {_cpp_bool(config.full_tiles)},
+        {_cpp_bool(config.prefetch_local)},
+        {_cpp_bool(config.vector_local_load)},
+        {config.decoder_width},
+        {_cpp_bool(config.prefetch_a_fragments)}>(
+            grad_output,
+            packed_weight,
+            grad_input,
+            rows,
+            out_features,
+            in_features,
+            blocks_per_weight_row);
+}}
+"""
+        )
     if config.split_k:
         return (
             _PREAMBLE

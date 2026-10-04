@@ -34,13 +34,13 @@ The tail body is worth `1.13-1.19x` against the generic control, which is the su
 
 ### Instruction mix
 
-`rocprofv3` PC sampling of the tail body at `(8192,2560,640)` reports `17.2%` WMMA, `19.7%` conversions, `16.0%` arithmetic and `6.5%` shifts and logic, i.e. the same profile as the Q2_0 body and the most MMA-bound shape in the family: against the `48.7 TFLOPS` practical WMMA ceiling the Q3_K record measures for `v_wmma_i32_16x16x16_iu8` at this accumulator count, the body runs at `57-60%`, above Q3_K (`45-51%`), Q4_K (`55-60%`) and level with the Q8_0 bodies.
+`rocprofv3` PC sampling of the tail body at `(8192,2560,640)` reports `17.2%` WMMA, `19.7%` conversions, `16.0%` arithmetic and `6.5%` shifts and logic, i.e. the same profile as the Q2_0 body and the most MMA-bound shape in the family, with the WMMA share level with the Q8_0 bodies and above Q3_K and Q4_K at their own geometries.
 
 The nibble decode is only `6.5%` of the stream, two shifts, two masks and two per-byte level subtractions per eight values, so the level-table mechanism that pays for Q2_0 was not applied here: the Q2_0 table buys `1.2-2.4%` by removing a `7.3%` share, and a table read costs one LDS lookup per four values against two arithmetic operations, which is not a clear trade at this share.
 
 ### Closed mechanisms
 
-Global J64, the wide `I=128` tile, activation-half double buffering of the weight tile, decoded-weight LDS caching, split-K, persistent workgroups, and the hoisted epilogue are closed for this family of shapes on the sibling types: the wide tile lost by `1.05-1.21x` on Q3_K, Q4_K and Q5_K, and the hoisted epilogue was neutral for Q3_K, Q4_K, Q5_K and Q8_0. The remaining gap to the ceiling is the int32-to-fp32 conversion and the scale multiply of the epilogue, which every type in the family pays.
+Global J64, the wide `I=128` tile, activation-half double buffering of the weight tile, decoded-weight LDS caching, split-K, persistent workgroups, and the hoisted epilogue are closed for this family of shapes on the sibling types: the wide tile lost by `1.05-1.21x` on Q3_K, Q4_K and Q5_K, and the hoisted epilogue was neutral for Q3_K, Q4_K, Q5_K and Q8_0. The remaining decode-side cost is the int32-to-fp32 conversion and the scale multiply of the epilogue, which every type in the family pays.
 
 ## Resources
 

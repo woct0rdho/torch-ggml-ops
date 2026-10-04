@@ -899,6 +899,40 @@ def _dense_backward_controls() -> list[HIPControlSpec]:
                 lds_swizzle_chunk=swizzle,
             )
         )
+    for suffix, n_tiles, k_iteration, m_tiles, swizzle, padding in (
+        ("pipe_nt4_ki64_pad8", 4, 64, 2, 16, 8),
+        ("pipe_nt4_ki64_sw0_pad8", 4, 64, 2, 0, 8),
+        ("pipe_nt4_ki32_pad8", 4, 32, 2, 8, 8),
+        ("pipe_nt8_ki32_pad8", 8, 32, 2, 8, 8),
+        ("pipe_nt8_ki64_pad8", 8, 64, 2, 16, 8),
+        ("pipea_nt4_ki64_pad8", 4, 64, 2, 16, 8),
+        ("pipea_nt4_ki64_sw0_pad8", 4, 64, 2, 0, 8),
+        ("pipea_nt4_ki64_mw4_pad8", 4, 64, 4, 16, 8),
+        ("pipea_nt4_ki32_pad8", 4, 32, 2, 8, 8),
+        ("pipea_nt4_ki64", 4, 64, 2, 16, 0),
+        ("pipea_nt4_ki64_sw0", 4, 64, 2, 0, 0),
+        ("pipea_nt2_ki64_pad8", 2, 64, 2, 8, 8),
+        ("pipea_nt4_ki32", 4, 32, 2, 8, 0),
+        ("pipea_nt4_ki64_mw4", 4, 64, 4, 16, 0),
+    ):
+        specs.append(
+            _dense_backward(
+                f"dense_bwd_q2_0_mt128_nt128_ki32_full_{suffix}",
+                QuantType.Q2_0,
+                n_tiles,
+                k_iteration,
+                group_m=1,
+                m_tiles_per_wave=m_tiles,
+                decoder_width=16,
+                prefetch_local=True,
+                full_tiles=True,
+                lds_padding=padding,
+                vector_local_load=True,
+                lds_swizzle_chunk=swizzle,
+                pipeline_tiles=True,
+                prefetch_a_fragments=suffix.startswith("pipea_"),
+            )
+        )
     for suffix, swizzle, decoder, waves, m_tiles in (
         ("nt4mw2_sw0_pad8", 0, 16, 4, 2),
         ("nt4mw2_sw8_pad8", 8, 16, 4, 2),
@@ -1267,7 +1301,7 @@ def hip_control_specs() -> tuple[HIPControlSpec, ...]:
         + _grouped_backward_controls()
     )
     symbols = [spec.symbol for spec in specs]
-    if len(specs) != 331:
+    if len(specs) != 345:
         raise ValueError(f"historical HIP control inventory has {len(specs)} entries")
     if len(symbols) != len(set(symbols)):
         raise ValueError("HIP control symbols must be unique")

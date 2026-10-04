@@ -1755,91 +1755,91 @@
           "m": 2048,
           "n": 2560,
           "k": 12288,
-          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_nt4mw2_sw0_pad8"
+          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64"
         },
         {
           "m": 8192,
           "n": 2560,
           "k": 12288,
-          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_nt4mw2_sw0_pad8"
+          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64"
         },
         {
           "m": 32768,
           "n": 2560,
           "k": 12288,
-          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_nt4mw2_sw0_pad8"
+          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64"
         },
         {
           "m": 2048,
           "n": 2560,
           "k": 640,
-          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_nt4mw2_pad8"
+          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_mw4_pad8"
         },
         {
           "m": 8192,
           "n": 2560,
           "k": 640,
-          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_nt4mw2_sw0_pad8"
+          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_mw4_pad8"
         },
         {
           "m": 32768,
           "n": 2560,
           "k": 640,
-          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_nt4mw2_sw0_pad8"
+          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_mw4_pad8"
         },
         {
           "m": 2048,
           "n": 640,
           "k": 2560,
-          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_nt8_ki32_pad8"
+          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_sw0_pad8"
         },
         {
           "m": 8192,
           "n": 640,
           "k": 2560,
-          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_nt4mw2_pad8"
+          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_pad8"
         },
         {
           "m": 32768,
           "n": 640,
           "k": 2560,
-          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_nt4mw2_sw0_pad8"
+          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_pad8"
         },
         {
           "m": 2048,
           "n": 2560,
           "k": 10240,
-          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_nt4mw2_sw0_pad8"
+          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64"
         },
         {
           "m": 8192,
           "n": 2560,
           "k": 10240,
-          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_nt4mw2_sw0_pad8"
+          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64"
         },
         {
           "m": 32768,
           "n": 2560,
           "k": 10240,
-          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_nt4mw2_sw0_pad8"
+          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64"
         },
         {
           "m": 2048,
           "n": 2560,
           "k": 6144,
-          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_nt4mw2_pad8"
+          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_pad8"
         },
         {
           "m": 8192,
           "n": 2560,
           "k": 6144,
-          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_nt4mw2_sw0_pad8"
+          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64"
         },
         {
           "m": 32768,
           "n": 2560,
           "k": 6144,
-          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_nt4mw2_sw0_pad8"
+          "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64"
         }
       ]
     }

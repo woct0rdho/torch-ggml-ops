@@ -122,7 +122,7 @@ The Qwen4-Exp and GatedDeltaNet shapes added two contraction lengths, `K=2560` a
 
 The wide `I=128` dense tile that was built for the Q3_K shapes was rendered for this type as well and measured on the same points. It does not pay here either: `1.214x` slower on `(512,2560)` at `M=2048` and `1.066-1.068x` slower at `M=32768` on the three shapes with the largest activation re-read (`(2560,6144)`, `(10240,2560)`, `(6144,2560)`), so it is not deployed.
 
-Against the ceiling the Q3_K record measures on the same instruction (`48.7 TFLOPS` for `v_wmma_i32_16x16x16_iu8` with this accumulator count, from `~/tmp/torch-ggml-ops/qwen4_fwd/wmma_i8_probe.cu`), the retained Q4_K bodies run at `27-29 TFLOPS`, i.e. `55-60%`, against `45-51%` for the Q3_K bodies. Evidence: `~/tmp/torch-ggml-ops/qwen4_fwd/sweep_q4k_v1.txt`.
+The retained Q4_K bodies run at `27-29 TFLOPS` on the shapes they share with the Q3_K record, above that record's `22.7-24.7` on the same families and the same protocol. Evidence: `~/tmp/torch-ggml-ops/qwen4_fwd/sweep_q4k_v1.txt`.
 
 ## Resources
 

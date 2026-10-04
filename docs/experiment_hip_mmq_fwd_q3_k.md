@@ -77,7 +77,7 @@ The new geometries change the weight-to-activation byte ratio: at `K=2560` and `
 
 The two limits that bound this body are therefore both already reached. Instruction-side, `rocprofv3` PC sampling of the retained K2560 body at `(8192,12288,2560)` reports `60%` VALU against `7.5%` WMMA, a ratio of `8.8` VALU instructions per WMMA, with the epilogue at one fused multiply-add per output element per sixteen-element MMA step, which is the minimum this decomposition allows. Memory-side, the large-M points run at `238-261 GB/s`, i.e. at the DRAM rate, and halving their traffic does not move the time, so neither side can be bought with the other.
 
-The ceilings above are what a TFLOP/s figure should be read against. A pure `v_wmma_i32_16x16x16_iu8` probe with the same wave count, the same eight independent accumulators per wave and the same 128-thread workgroup reaches `48.7 TFLOPS` flat from two to eight workgroups per CU (`~/tmp/torch-ggml-ops/qwen4_fwd/wmma_i8_probe.cu`), so the `60 TFLOPS` nominal int8/bf16 roof is not reachable through this instruction. The retained body sits at `45-51%` of that practical ceiling, and the rejected wide tile at `44-50%`. Evidence: `~/tmp/torch-ggml-ops/qwen4_fwd/`.
+An isolated `v_wmma_i32_16x16x16_iu8` probe with this body's wave count, accumulator count and workgroup size was built to see what the instruction reaches on its own (`~/tmp/torch-ggml-ops/qwen4_fwd/wmma_i8_probe.cu`). Its figure is deliberately not used here as a ceiling for a whole kernel: nothing in the profiles above shows this body limited by the matrix pipe, so a probe number would bound the wrong resource, and the record keeps only the two limits it did measure. Evidence: `~/tmp/torch-ggml-ops/qwen4_fwd/`.
 
 ## Resources
 
