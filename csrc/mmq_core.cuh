@@ -63,8 +63,9 @@ enum ggml_cuda_mmq_sram_layout {
 };
 
 static constexpr __host__ __device__ ggml_cuda_mmq_sram_layout mmq_sram_layout(ggml_type type) {
-    return type == GGML_TYPE_Q4_0 || type == GGML_TYPE_Q8_0 ||
-        type == GGML_TYPE_IQ2_XXS || type == GGML_TYPE_Q2_0
+    return type == GGML_TYPE_Q4_0 || type == GGML_TYPE_Q5_0 ||
+        type == GGML_TYPE_Q8_0 || type == GGML_TYPE_IQ2_XXS ||
+        type == GGML_TYPE_Q2_0
         ? GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0
         : type == GGML_TYPE_Q2_K
             ? GGML_CUDA_MMQ_SRAM_LAYOUT_Q2_K
@@ -608,6 +609,100 @@ static __device__ __forceinline__ void ggml_cuda_mmq_load_tiles_q4_0(
     }
 }
 
+// Q5_0 loader: 32 weights in a 22-byte block, one fp16 scale, a little-endian
+// fifth-bit word and Q4_0's nibble planes, with the level `nibble | 16*bit - 16`.
+// A stage holds eight blocks, whose expanded int8 values fill the same LDS slots
+// the Q8_0 loader produces, and the 32-wide block means one scale per 32-value
+// group.
+// Place the four fifth bits of one group at bit 4 of four consecutive bytes.
+static __device__ __forceinline__ int q5_0_spread_bits(const int bits) {
+    return ((bits & 0x01) << 4) | ((bits & 0x02) << 11) | ((bits & 0x04) << 18) |
+        ((bits & 0x08) << 25);
+}
+
+template <ggml_type type, int J, bool fallback, bool table_decode = false>
+static __device__ __forceinline__ void ggml_cuda_mmq_load_tiles_q5_0(
+        const char * __restrict__ x,
+        int * __restrict__ x_tile,
+        const int kbx0,
+        const int i_max,
+        const int stride) {
+    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int nwarps = ggml_cuda_mmq_get_nthreads(type, J, fallback) / warp_size;
+    constexpr int I = ggml_cuda_mmq_get_I(type, J, fallback);
+    constexpr int sram_stride = ggml_cuda_mmq_get_sram_stride(type, J, fallback);
+
+    int * x_qs = (int *) x_tile;
+    float * x_df = (float *) (x_qs + 2 * MMQ_TILE_NE_K);
+
+    constexpr int threads_per_row = MMQ_ITER_K / (4 * QR5_0);
+    constexpr int nrows = warp_size / threads_per_row;
+    constexpr int blocks_per_iteration = MMQ_ITER_K / QK5_0;
+    constexpr int blocks_per_tile_x_row = MMQ_TILE_NE_K / QI5_0;
+
+    const int txi = threadIdx.x % threads_per_row;
+    const int kbx = txi / QI5_0;
+    const int kqsx = txi % QI5_0;
+
+#pragma unroll
+    for (int i0 = 0; i0 < I; i0 += nrows * nwarps) {
+        int i = i0 + (nrows == 1 ? threadIdx.y : threadIdx.y * nrows + threadIdx.x / threads_per_row);
+
+        if (fallback) {
+            i = min(i, i_max);
+        }
+
+        const block_q5_0 * bxi = (const block_q5_0 *) x + kbx0 + i * stride + kbx;
+
+        const int ql = get_int_b2(bxi->qs, kqsx);
+        const int qh = get_int_b2(bxi->qh, 0) >> (4 * kqsx);
+
+        if constexpr (table_decode) {
+            // The nibble plane is already one nibble per byte, so only the
+            // fifth-bit spread is read from the table.
+            const int * bit_table = x_tile + I * sram_stride;
+            const int bits_lo = bit_table[qh & 0xF];
+            const int bits_hi = bit_table[(qh >> 16) & 0xF];
+            x_qs[i * sram_stride + kbx * (2 * QI5_0) + kqsx] = __vsubss4(
+                ((ql >> 0) & 0x0F0F0F0F) | bits_lo, 0x10101010);
+            x_qs[i * sram_stride + kbx * (2 * QI5_0) + kqsx + QI5_0] = __vsubss4(
+                ((ql >> 4) & 0x0F0F0F0F) | bits_hi, 0x10101010);
+            continue;
+        }
+
+        int qs0 = (ql >> 0) & 0x0F0F0F0F;
+        qs0 |= (qh << 4) & 0x00000010;
+        qs0 |= (qh << 11) & 0x00001000;
+        qs0 |= (qh << 18) & 0x00100000;
+        qs0 |= (qh << 25) & 0x10000000;
+        x_qs[i * sram_stride + kbx * (2 * QI5_0) + kqsx] =
+            __vsubss4(qs0, 0x10101010);
+
+        int qs1 = (ql >> 4) & 0x0F0F0F0F;
+        qs1 |= (qh >> 12) & 0x00000010;
+        qs1 |= (qh >> 5) & 0x00001000;
+        qs1 |= (qh << 2) & 0x00100000;
+        qs1 |= (qh << 9) & 0x10000000;
+        x_qs[i * sram_stride + kbx * (2 * QI5_0) + kqsx + QI5_0] =
+            __vsubss4(qs1, 0x10101010);
+    }
+
+    constexpr int rows_per_warp = warp_size / blocks_per_tile_x_row;
+    const int kbxd = threadIdx.x % blocks_per_tile_x_row;
+
+#pragma unroll
+    for (int i0 = 0; i0 < I; i0 += nwarps * rows_per_warp) {
+        int i = i0 + threadIdx.y * rows_per_warp + threadIdx.x / blocks_per_tile_x_row;
+
+        if (fallback) {
+            i = min(i, i_max);
+        }
+
+        const block_q5_0 * bxi = (const block_q5_0 *) x + kbx0 + i * stride + kbxd;
+        x_df[i * sram_stride + kbxd] = __half2float(bxi->d);
+    }
+}
+
 template <ggml_type type, int J, bool fallback = true, bool table_decode = false>
 static __device__ __forceinline__ void mmq_load_target(
         const char * x, int * tile, int block_offset, int i_max, int row_stride,
@@ -632,6 +727,14 @@ static __device__ __forceinline__ void mmq_load_target(
     } else if constexpr (type == GGML_TYPE_Q4_0) {
         constexpr int blocks_per_iteration = MMQ_ITER_K / QK4_0;
         ggml_cuda_mmq_load_tiles_q4_0<type, J, fallback>(
+            x,
+            tile,
+            block_offset * blocks_per_iteration,
+            i_max,
+            row_stride * blocks_per_iteration);
+    } else if constexpr (type == GGML_TYPE_Q5_0) {
+        constexpr int blocks_per_iteration = MMQ_ITER_K / QK5_0;
+        ggml_cuda_mmq_load_tiles_q5_0<type, J, fallback, table_decode>(
             x,
             tile,
             block_offset * blocks_per_iteration,
@@ -678,7 +781,8 @@ static __device__ __forceinline__ void mmq_vec_dot_target(
 #endif
     if constexpr (
         type == GGML_TYPE_Q8_0 || type == GGML_TYPE_IQ2_XXS ||
-        type == GGML_TYPE_Q2_0 || type == GGML_TYPE_Q4_0) {
+        type == GGML_TYPE_Q2_0 || type == GGML_TYPE_Q4_0 ||
+        type == GGML_TYPE_Q5_0) {
         ggml_cuda_mmq_vec_dot_q8_0_q8_1_mma<
             type, J, fallback, MMQ_Q8_1_METADATA_F32_D4>(x, y, sum, k00);
     } else if constexpr (type == GGML_TYPE_Q2_K) {
@@ -807,7 +911,7 @@ static __device__ __forceinline__ void quantize_bf16_mmq_q8_1_body(
 // MMQ_ITER_K stages. Offsets and lengths are counted in quantized values. Only
 // the loaders that address rows in blocks small enough to express a half stage
 // have a window form.
-template <ggml_type type, int J, bool fallback>
+template <ggml_type type, int J, bool fallback, bool table_decode = false>
 static __device__ __forceinline__ void mmq_load_window(
         const char * x, int * tile, int value_offset, int value_end, int i_max) {
     if constexpr (type == GGML_TYPE_Q8_0) {
@@ -816,6 +920,9 @@ static __device__ __forceinline__ void mmq_load_window(
     } else if constexpr (type == GGML_TYPE_Q4_0) {
         ggml_cuda_mmq_load_tiles_q4_0<type, J, fallback>(
             x, tile, value_offset / QK4_0, i_max, value_end / QK4_0);
+    } else if constexpr (type == GGML_TYPE_Q5_0) {
+        ggml_cuda_mmq_load_tiles_q5_0<type, J, fallback, table_decode>(
+            x, tile, value_offset / QK5_0, i_max, value_end / QK5_0);
     } else {
         static_assert(type == GGML_TYPE_Q2_0, "window loads need a fine-grained loader");
         ggml_cuda_mmq_load_tiles_q2_0<type, J, fallback>(
@@ -852,8 +959,8 @@ static __device__ __forceinline__ void dense_mmq_bf16_body(
         tail_values == 0 || tail_values == 128,
         "a tail stage holds one 128-value vector dot call");
     static_assert(
-        tail_values == 0 || type == GGML_TYPE_Q4_0 || type == GGML_TYPE_Q8_0 ||
-            type == GGML_TYPE_Q2_0,
+        tail_values == 0 || type == GGML_TYPE_Q4_0 || type == GGML_TYPE_Q5_0 ||
+            type == GGML_TYPE_Q8_0 || type == GGML_TYPE_Q2_0,
         "a tail stage needs a loader that can address a half stage");
     static_assert(
         tail_values == 0 || fixed_blocks_per_weight_row > 0,
@@ -874,13 +981,21 @@ static __device__ __forceinline__ void dense_mmq_bf16_body(
     // directly behind the weight tile, so the loader replaces the spread and
     // the level offset with one lookup.
     if constexpr (table_decode) {
-        static_assert(type == GGML_TYPE_Q2_0, "the level table is a Q2_0 mechanism");
         static_assert(
-            tail_values == 0, "the tail window loader does not read the level table");
+            type == GGML_TYPE_Q2_0 || type == GGML_TYPE_Q5_0,
+            "the level table serves the two-bit and the nibble-plus-bit decodes");
         int * levels = tile_x + MMQ_I * ggml_cuda_mmq_get_sram_stride<type, J, false>();
-        for (int entry = threadIdx.y * WARP_SIZE + threadIdx.x; entry < 256;
-             entry += MMQ_NTHREADS) {
-            levels[entry] = q2_0_spread_levels(entry);
+        if constexpr (type == GGML_TYPE_Q2_0) {
+            for (int entry = threadIdx.y * WARP_SIZE + threadIdx.x; entry < 256;
+                 entry += MMQ_NTHREADS) {
+                levels[entry] = q2_0_spread_levels(entry);
+            }
+        } else {
+            // Sixteen fifth-bit spreads, indexed by the four bits of a group.
+            for (int entry = threadIdx.y * WARP_SIZE + threadIdx.x; entry < 16;
+                 entry += MMQ_NTHREADS) {
+                levels[entry] = q5_0_spread_bits(entry);
+            }
         }
         __syncthreads();
     }
@@ -893,7 +1008,7 @@ static __device__ __forceinline__ void dense_mmq_bf16_body(
         if constexpr (tail_values > 0) {
             // Every stage of a tailed row is addressed by its value offset, so
             // the stride is the true row length rather than the stage count.
-            mmq_load_window<type, J, !full_i>(
+            mmq_load_window<type, J, !full_i, table_decode>(
                 weights,
                 tile_x,
                 tile_i * MMQ_I * row_values +

@@ -137,6 +137,17 @@ Q4_0_FORMAT = QuantFormat(
     arithmetic_contract="SignedQ4Int8ScaleIntegerWmmaF32Correction",
 )
 
+Q5_0_FORMAT = QuantFormat(
+    block_values=32,
+    block_bytes=22,
+    activation_layout="F32_D4",
+    activation_block_bytes=Q8_1_F32_D4_BLOCK_BYTES,
+    wmma_clamp=False,
+    weight_decode="DirectNibblePlanePairFifthBitLevelMinusSixteen",
+    scale_arithmetic="Int32ScaleF32",
+    arithmetic_contract="SignedQ5Int8ScaleIntegerWmmaF32Correction",
+)
+
 BACKWARD_QUANT_FORMATS: Mapping[str, QuantFormat] = MappingProxyType(
     {
         **QUANT_FORMATS,
@@ -145,6 +156,7 @@ BACKWARD_QUANT_FORMATS: Mapping[str, QuantFormat] = MappingProxyType(
         "IQ2_XXS": IQ2_XXS_FORMAT,
         "Q2_0": Q2_0_FORMAT,
         "Q4_0": Q4_0_FORMAT,
+        "Q5_0": Q5_0_FORMAT,
     }
 )
 

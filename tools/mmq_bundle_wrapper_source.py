@@ -6,6 +6,7 @@ from enum import Enum, IntEnum
 
 class QuantType(IntEnum):
     Q4_0 = 2
+    Q5_0 = 6
     Q2_0 = 42
     Q8_0 = 8
     Q2_K = 10
@@ -113,17 +114,22 @@ class ForwardConfig:
             raise ValueError(
                 "a weight pipeline of more than eight stages is not staged"
             )
-        if self.table_decode:
-            if self.kind != ForwardKind.DENSE or self.quant_type != QuantType.Q2_0:
-                raise ValueError("the level table is a dense Q2_0 mechanism")
-            if self.tail_values:
-                raise ValueError("the level table does not serve a tail stage")
+        if self.table_decode and (
+            self.kind != ForwardKind.DENSE
+            or self.quant_type not in {QuantType.Q2_0, QuantType.Q5_0}
+        ):
+            raise ValueError("the level table is a dense Q2_0 or Q5_0 mechanism")
         if self.tail_values:
             if self.kind != ForwardKind.DENSE:
                 raise ValueError("a tail stage requires the dense shape")
             if self.tail_values != 128:
                 raise ValueError("a tail stage holds one 128-value vector dot call")
-            if self.quant_type not in {QuantType.Q4_0, QuantType.Q8_0, QuantType.Q2_0}:
+            if self.quant_type not in {
+                QuantType.Q2_0,
+                QuantType.Q4_0,
+                QuantType.Q5_0,
+                QuantType.Q8_0,
+            }:
                 raise ValueError(
                     "a tail stage needs a loader that can address a half stage"
                 )

@@ -23,6 +23,7 @@
 // GGML quantization identifiers used by the checkpoint.
 enum ggml_type : int32_t {
     GGML_TYPE_Q4_0 = 2,
+    GGML_TYPE_Q5_0 = 6,
     GGML_TYPE_Q8_0 = 8,
     GGML_TYPE_Q2_K = 10,
     GGML_TYPE_Q3_K = 11,
@@ -37,12 +38,15 @@ enum ggml_type : int32_t {
 #define QK_K 256
 #define K_SCALE_SIZE 12
 #define QK4_0 32
+#define QK5_0 32
 #define QK8_0 32
 #define QK8_1 32
 #define QK2_0 64
 
 #define QR4_0 2
 #define QI4_0 (QK4_0 / (4 * QR4_0))
+#define QR5_0 2
+#define QI5_0 (QK5_0 / (4 * QR5_0))
 #define QR8_0 1
 #define QI8_0 (QK8_0 / (4 * QR8_0))
 #define QR8_1 1
@@ -66,6 +70,13 @@ struct block_q4_0 {
     uint8_t qs[QK4_0 / 2];
 };
 static_assert(sizeof(block_q4_0) == 18, "wrong q4_0 block size");
+
+struct block_q5_0 {
+    half d;
+    uint8_t qh[QK5_0 / 8];
+    uint8_t qs[QK5_0 / 2];
+};
+static_assert(sizeof(block_q5_0) == 22, "wrong q5_0 block size");
 
 struct block_q8_0 {
     half d;

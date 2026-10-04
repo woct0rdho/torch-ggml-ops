@@ -50,6 +50,8 @@ _WIDE_LDS_BYTES = {"Q3_K": 61_952, "Q4_K": 57_856, "Q5_K": 57_856}
 _J64_LDS_BYTES = 28_928
 # The Q2_0 level table holds 256 expanded payload bytes behind the weight tile.
 _Q2_0_LEVEL_TABLE_BYTES = 1_024
+# The Q5_0 table holds the 16 fifth-bit spreads of a group.
+_Q5_0_LEVEL_TABLE_BYTES = 64
 _J128_LDS_BYTES = 38_400
 # Grouped-forward launch geometry. The activation tile holds one Q8_1 plane per
 # J-tile row (32 quant ints plus four metadata ints), the weight tile holds
@@ -131,7 +133,11 @@ class HipControl:
             else:
                 shared_bytes = _J64_LDS_BYTES if j == 64 else _J128_LDS_BYTES
             if config.table_decode:
-                shared_bytes += _Q2_0_LEVEL_TABLE_BYTES
+                shared_bytes += (
+                    _Q5_0_LEVEL_TABLE_BYTES
+                    if quant_name == "Q5_0"
+                    else _Q2_0_LEVEL_TABLE_BYTES
+                )
             return ((n // 64, math.ceil(m / j), 1), _DENSE_FORWARD_BLOCK, shared_bytes)
         if isinstance(config, DenseBackwardConfig):
             m_per_block = 16 * config.m_tiles_per_wave * config.active_waves
