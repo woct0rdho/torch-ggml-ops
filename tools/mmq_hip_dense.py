@@ -21,6 +21,7 @@ from tools.mmq_hip_deployment import (
     split_k_chunk,
     split_k_reduce_configuration,
 )
+from tools.mmq_quant_formats import BACKWARD_QUANT_FORMATS
 from tools.mmq_runtime import (
     BackwardModule,
     HIPRuntimeError,
@@ -98,6 +99,7 @@ class InstalledDenseBackwardSplitKModule(_HIPModule):
                 f"{self.hip_control.symbol} is not a split-contraction control"
             )
         self.problem_size = problem_size
+        self.quant_type = quant_type
         self.split_chunk = split_k_chunk(
             config.exact_out_features, self.slices, config.k_iteration
         )
@@ -146,7 +148,8 @@ class InstalledDenseBackwardSplitKModule(_HIPModule):
                 "rows": size.m,
                 "out_features": size.k,
                 "in_features": size.n,
-                "blocks_per_weight_row": size.n // 256,
+                "blocks_per_weight_row": size.n
+                // BACKWARD_QUANT_FORMATS[self.quant_type].block_values,
                 "split_chunk": self.split_chunk,
             }
         )

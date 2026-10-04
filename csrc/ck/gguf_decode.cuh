@@ -50,6 +50,8 @@ static constexpr __host__ __device__ int gguf_block_bytes() {
         return sizeof(block_q6_K);
     } else if constexpr (type == GGML_TYPE_IQ2_S) {
         return sizeof(block_iq2_s);
+    } else if constexpr (type == GGML_TYPE_Q2_0) {
+        return sizeof(block_q2_0);
     } else {
         return 0;
     }
@@ -60,6 +62,16 @@ static __device__ __forceinline__ float decode_gguf_value(
         const char * packed_row,
         int block_index,
         int value_index);
+
+template <>
+__device__ __forceinline__ float decode_gguf_value<GGML_TYPE_Q2_0>(
+        const char * packed_row,
+        int block_index,
+        int value_index) {
+    const auto & block = reinterpret_cast<const block_q2_0 *>(packed_row)[block_index];
+    const int quant = (block.qs[value_index >> 2] >> (2 * (value_index & 3))) & 0x03;
+    return fp16_to_fp32(block.d) * static_cast<float>(quant - 1);
+}
 
 template <>
 __device__ __forceinline__ float decode_gguf_value<GGML_TYPE_Q8_0>(

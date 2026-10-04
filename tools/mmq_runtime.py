@@ -62,6 +62,7 @@ from tools.mmq_abi import (
 from tools.mmq_hip_deployment import GroupedForwardControl, select_hip_control
 from tools.mmq_hip_paths import locate_control
 from tools.mmq_quant_formats import (
+    BACKWARD_QUANT_FORMATS,
     Q8_1_F16_D2S6_BLOCK_BYTES,
     Q8_1_F16_D4S4_BLOCK_BYTES,
     Q8_1_F32_D4_BLOCK_BYTES,
@@ -311,7 +312,8 @@ class BackwardModule(_OrdinaryHIPModule):
                 "rows": size.m,
                 "out_features": size.k,
                 "in_features": size.n,
-                "blocks_per_weight_row": size.n // 256,
+                "blocks_per_weight_row": size.n
+                // BACKWARD_QUANT_FORMATS[self.quant_type].block_values,
             }
         )
         grid, block, shared_memory = self._launch_configuration()
