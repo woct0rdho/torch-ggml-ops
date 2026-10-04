@@ -424,6 +424,96 @@
           "n": 2048,
           "k": 512,
           "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+        },
+        {
+          "m": 2048,
+          "n": 2560,
+          "k": 512,
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+        },
+        {
+          "m": 2048,
+          "n": 2560,
+          "k": 640,
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+        },
+        {
+          "m": 2048,
+          "n": 6144,
+          "k": 2560,
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+        },
+        {
+          "m": 2048,
+          "n": 2048,
+          "k": 8192,
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k512"
+        },
+        {
+          "m": 8192,
+          "n": 2560,
+          "k": 512,
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+        },
+        {
+          "m": 8192,
+          "n": 2560,
+          "k": 640,
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+        },
+        {
+          "m": 8192,
+          "n": 6144,
+          "k": 2560,
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+        },
+        {
+          "m": 8192,
+          "n": 2048,
+          "k": 8192,
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+        },
+        {
+          "m": 32768,
+          "n": 2560,
+          "k": 512,
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+        },
+        {
+          "m": 32768,
+          "n": 2560,
+          "k": 640,
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+        },
+        {
+          "m": 32768,
+          "n": 6144,
+          "k": 2560,
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+        },
+        {
+          "m": 32768,
+          "n": 2048,
+          "k": 8192,
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+        },
+        {
+          "m": 64,
+          "n": 2560,
+          "k": 248320,
+          "symbol": "dense_bwd_q5_k_exact_lm_head_splitk_m64_s4"
+        },
+        {
+          "m": 128,
+          "n": 2560,
+          "k": 248320,
+          "symbol": "dense_bwd_q5_k_exact_lm_head_splitk_m128_s8"
+        },
+        {
+          "m": 256,
+          "n": 2560,
+          "k": 248320,
+          "symbol": "dense_bwd_q5_k_exact_lm_head_splitk_m256_s32"
         }
       ]
     },

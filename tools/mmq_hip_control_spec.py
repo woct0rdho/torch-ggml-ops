@@ -703,6 +703,50 @@ def _dense_backward_controls() -> list[HIPControlSpec]:
                 split_k=slices,
             )
         )
+    for suffix, slices in (("s2", 2), ("s4", 4)):
+        specs.append(
+            _dense_backward(
+                f"dense_bwd_q5_k_exact_n8192k2048_splitk_{suffix}",
+                QuantType.Q5_K,
+                8,
+                32,
+                group_m=0,
+                m_tiles_per_wave=2,
+                decoder_width=16,
+                prefetch_local=True,
+                full_tiles=True,
+                prefetch_packed=True,
+                vector_local_load=True,
+                lds_swizzle_chunk=8,
+                pack_q5_quant_bytes=True,
+                exact_out_features=8192,
+                exact_in_features=2048,
+                split_k=slices,
+            )
+        )
+    for suffix, n_tiles, k_iteration, m_tiles, slices in (
+        ("m64_s2", 4, 32, 1, 2),
+        ("m64_s4", 4, 32, 1, 4),
+        ("m128_s8", 4, 32, 2, 8),
+        ("m128_s16", 4, 32, 2, 16),
+        ("m256_s16", 4, 32, 4, 16),
+        ("m256_s32", 4, 32, 4, 32),
+    ):
+        specs.append(
+            _dense_backward(
+                f"dense_bwd_q5_k_exact_lm_head_splitk_{suffix}",
+                QuantType.Q5_K,
+                n_tiles,
+                k_iteration,
+                group_m=0,
+                m_tiles_per_wave=m_tiles,
+                decoder_width=16,
+                full_tiles=True,
+                exact_out_features=248320,
+                exact_in_features=2560,
+                split_k=slices,
+            )
+        )
     for label, quant, variants in (
         ("q3_k", QuantType.Q3_K, ((1, 0), (4, 0), (4, 2), (8, 2), (12, 2), (16, 2))),
         ("q4_k", QuantType.Q4_K, ((1, 0), (4, 0), (8, 2), (12, 2), (16, 2))),
@@ -1115,7 +1159,7 @@ def hip_control_specs() -> tuple[HIPControlSpec, ...]:
         + _grouped_backward_controls()
     )
     symbols = [spec.symbol for spec in specs]
-    if len(specs) != 272:
+    if len(specs) != 280:
         raise ValueError(f"historical HIP control inventory has {len(specs)} entries")
     if len(symbols) != len(set(symbols)):
         raise ValueError("HIP control symbols must be unique")
