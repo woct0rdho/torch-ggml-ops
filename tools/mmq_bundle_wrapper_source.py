@@ -5,6 +5,7 @@ from enum import Enum, IntEnum
 
 
 class QuantType(IntEnum):
+    Q2_0 = 42
     Q8_0 = 8
     Q2_K = 10
     Q3_K = 11
@@ -83,6 +84,7 @@ class ForwardConfig:
     wide_tile: bool = False
     pipeline_depth: int = 0
     tail_values: int = 0
+    table_decode: bool = False
 
     def __post_init__(self) -> None:
         rows_a, rows_b = self.mixed_j32_rows
@@ -110,13 +112,20 @@ class ForwardConfig:
             raise ValueError(
                 "a weight pipeline of more than eight stages is not staged"
             )
+        if self.table_decode:
+            if self.kind != ForwardKind.DENSE or self.quant_type != QuantType.Q2_0:
+                raise ValueError("the level table is a dense Q2_0 mechanism")
+            if self.tail_values:
+                raise ValueError("the level table does not serve a tail stage")
         if self.tail_values:
             if self.kind != ForwardKind.DENSE:
                 raise ValueError("a tail stage requires the dense shape")
             if self.tail_values != 128:
                 raise ValueError("a tail stage holds one 128-value vector dot call")
-            if self.quant_type != QuantType.Q8_0:
-                raise ValueError("only the Q8_0 loader can address a half stage")
+            if self.quant_type not in {QuantType.Q8_0, QuantType.Q2_0}:
+                raise ValueError(
+                    "only the Q8_0 and Q2_0 loaders can address a half stage"
+                )
         if self.wide_tile:
             if self.kind == ForwardKind.DENSE:
                 if self.j != 128 or not (self.full_i and self.full_j):
@@ -261,7 +270,8 @@ void {symbol}(
         {config.blocks_per_weight_row},
         {_cpp_bool(config.full_i)},
         {_cpp_bool(config.full_j)},
-        {config.tail_values}>(
+        {config.tail_values},
+        {_cpp_bool(config.table_decode)}>(
         weights,
         activations,
         dst,

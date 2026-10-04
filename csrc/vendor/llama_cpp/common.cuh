@@ -30,17 +30,22 @@ enum ggml_type : int32_t {
     GGML_TYPE_Q6_K = 14,
     GGML_TYPE_IQ2_XXS = 16,
     GGML_TYPE_IQ2_S = 22,
+    GGML_TYPE_Q2_0 = 42,
 };
 
 #define QK_K 256
 #define K_SCALE_SIZE 12
 #define QK8_0 32
 #define QK8_1 32
+#define QK2_0 64
 
 #define QR8_0 1
 #define QI8_0 (QK8_0 / (4 * QR8_0))
 #define QR8_1 1
 #define QI8_1 (QK8_1 / (4 * QR8_1))
+// Q2_0 keeps four consecutive codes per payload byte, so a 32-value group is
+// addressed by two payload words rather than by four.
+#define QI2_0 (QK2_0 / 32)
 #define QR2_K 4
 #define QR3_K 4
 #define QI3_K (QK_K / (4 * QR3_K))
@@ -57,6 +62,12 @@ struct block_q8_0 {
     int8_t qs[QK8_0];
 };
 static_assert(sizeof(block_q8_0) == 34, "wrong q8_0 block size");
+
+typedef struct {
+    half d;
+    uint8_t qs[QK2_0 / 4];
+} block_q2_0;
+static_assert(sizeof(block_q2_0) == 18, "wrong q2_0 block size");
 
 struct block_q8_1 {
     half2 ds;

@@ -63,7 +63,7 @@ enum ggml_cuda_mmq_sram_layout {
 };
 
 static constexpr __host__ __device__ ggml_cuda_mmq_sram_layout mmq_sram_layout(ggml_type type) {
-    return type == GGML_TYPE_Q8_0 || type == GGML_TYPE_IQ2_XXS
+    return type == GGML_TYPE_Q8_0 || type == GGML_TYPE_IQ2_XXS || type == GGML_TYPE_Q2_0
         ? GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0
         : type == GGML_TYPE_Q2_K
             ? GGML_CUDA_MMQ_SRAM_LAYOUT_Q2_K
@@ -457,7 +457,96 @@ static __device__ __forceinline__ void mmq_vec_dot_target_hoisted(
     }
 }
 
-template <ggml_type type, int J, bool fallback = true>
+// Q2_0 loader: 64 weights in an 18-byte block, one fp16 scale and four
+// consecutive 2-bit codes per payload byte whose level is `code - 1`. A stage
+// therefore holds four blocks. The expanded int8 values fill the same LDS slots
+// the Q8_0 loader produces, and each block scale is repeated over the two
+// 32-value scale entries it covers, so the Q8_0 vector dot consumes the tile
+// unchanged.
+// Expand one payload byte into its four levels. The table variant reads a
+// precomputed LDS table instead of repeating the spread and the level offset.
+static __device__ __forceinline__ int q2_0_spread_levels(const int byte) {
+    const int spread =
+        (byte & 0x03) | ((byte & 0x0C) << 6) | ((byte & 0x30) << 12) | ((byte & 0xC0) << 18);
+    return __vsubss4(spread, 0x01010101);
+}
+
+template <ggml_type type, int J, bool fallback, bool table_decode = false>
+static __device__ __forceinline__ void ggml_cuda_mmq_load_tiles_q2_0(
+        const char * __restrict__ x,
+        int * __restrict__ x_tile,
+        const int kbx0,
+        const int i_max,
+        const int stride) {
+    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int nwarps = ggml_cuda_mmq_get_nthreads(type, J, fallback) / warp_size;
+    constexpr int I = ggml_cuda_mmq_get_I(type, J, fallback);
+    constexpr int sram_stride = ggml_cuda_mmq_get_sram_stride(type, J, fallback);
+
+    int * x_qs = (int *) x_tile;
+    float * x_df = (float *) (x_qs + 2 * MMQ_TILE_NE_K);
+
+    constexpr int blocks_per_iteration = MMQ_ITER_K / QK2_0;
+    constexpr int threads_per_row = blocks_per_iteration * QI2_0;
+    constexpr int nrows = warp_size / threads_per_row;
+    constexpr int scale_entries_per_block = QK2_0 / QK8_1;
+    constexpr int scale_entries_per_row = blocks_per_iteration * scale_entries_per_block;
+
+    const int txi = threadIdx.x % threads_per_row;
+    const int kbx = txi / QI2_0;
+    const int kqsx = txi % QI2_0;
+
+#pragma unroll
+    for (int i0 = 0; i0 < I; i0 += nrows * nwarps) {
+        int i = i0 + threadIdx.y * nrows + threadIdx.x / threads_per_row;
+
+        if (fallback) {
+            i = min(i, i_max);
+        }
+
+        const block_q2_0 * bxi = (const block_q2_0 *) x + kbx0 + i * stride + kbx;
+        const uint16_t * qxi = (const uint16_t *) bxi->qs + 4 * kqsx;
+        const int dst = kbx * (scale_entries_per_block * QI8_0) + kqsx * QI8_0;
+
+        if constexpr (table_decode) {
+            const int * levels = x_tile + I * sram_stride;
+#pragma unroll
+            for (int j = 0; j < 4; ++j) {
+                const int word = qxi[j];
+                x_qs[i * sram_stride + dst + 2 * j + 0] = levels[word & 0xFF];
+                x_qs[i * sram_stride + dst + 2 * j + 1] = levels[(word >> 8) & 0xFF];
+            }
+        } else {
+#pragma unroll
+            for (int j = 0; j < 4; ++j) {
+                const int word = qxi[j];
+#pragma unroll
+                for (int half_word = 0; half_word < 2; ++half_word) {
+                    const int byte = (word >> (8 * half_word)) & 0xFF;
+                    x_qs[i * sram_stride + dst + 2 * j + half_word] =
+                        q2_0_spread_levels(byte);
+                }
+            }
+        }
+    }
+
+    const int ksx = threadIdx.x % scale_entries_per_row;
+    const int scale_block = ksx / scale_entries_per_block;
+
+#pragma unroll
+    for (int i0 = 0; i0 < I; i0 += nwarps) {
+        int i = i0 + threadIdx.y;
+
+        if (fallback) {
+            i = min(i, i_max);
+        }
+
+        const block_q2_0 * bxi = (const block_q2_0 *) x + kbx0 + i * stride + scale_block;
+        x_df[i * sram_stride + ksx] = __half2float(bxi->d);
+    }
+}
+
+template <ggml_type type, int J, bool fallback = true, bool table_decode = false>
 static __device__ __forceinline__ void mmq_load_target(
         const char * x, int * tile, int block_offset, int i_max, int row_stride,
         int stage = 0) {
@@ -473,6 +562,14 @@ static __device__ __forceinline__ void mmq_load_target(
     if constexpr (type == GGML_TYPE_Q8_0) {
         constexpr int blocks_per_iteration = MMQ_ITER_K / QK8_0;
         ggml_cuda_mmq_load_tiles_q8_0<type, J, fallback>(
+            x,
+            tile,
+            block_offset * blocks_per_iteration,
+            i_max,
+            row_stride * blocks_per_iteration);
+    } else if constexpr (type == GGML_TYPE_Q2_0) {
+        constexpr int blocks_per_iteration = MMQ_ITER_K / QK2_0;
+        ggml_cuda_mmq_load_tiles_q2_0<type, J, fallback, table_decode>(
             x,
             tile,
             block_offset * blocks_per_iteration,
@@ -509,7 +606,9 @@ static __device__ __forceinline__ void mmq_vec_dot_target(
         return;
     }
 #endif
-    if constexpr (type == GGML_TYPE_Q8_0 || type == GGML_TYPE_IQ2_XXS) {
+    if constexpr (
+        type == GGML_TYPE_Q8_0 || type == GGML_TYPE_IQ2_XXS ||
+        type == GGML_TYPE_Q2_0) {
         ggml_cuda_mmq_vec_dot_q8_0_q8_1_mma<
             type, J, fallback, MMQ_Q8_1_METADATA_F32_D4>(x, y, sum, k00);
     } else if constexpr (type == GGML_TYPE_Q2_K) {
@@ -636,14 +735,19 @@ static __device__ __forceinline__ void quantize_bf16_mmq_q8_1_body(
 
 // Window load for a packed row whose contraction is not a whole number of
 // MMQ_ITER_K stages. Offsets and lengths are counted in quantized values. Only
-// the Q8_0 loader addresses rows in blocks small enough to express a half
-// stage, so the window form exists for that type alone.
+// the loaders that address rows in blocks small enough to express a half stage
+// have a window form.
 template <ggml_type type, int J, bool fallback>
 static __device__ __forceinline__ void mmq_load_window(
         const char * x, int * tile, int value_offset, int value_end, int i_max) {
-    static_assert(type == GGML_TYPE_Q8_0, "window loads are only defined for Q8_0");
-    ggml_cuda_mmq_load_tiles_q8_0<type, J, fallback>(
-        x, tile, value_offset / QK8_0, i_max, value_end / QK8_0);
+    if constexpr (type == GGML_TYPE_Q8_0) {
+        ggml_cuda_mmq_load_tiles_q8_0<type, J, fallback>(
+            x, tile, value_offset / QK8_0, i_max, value_end / QK8_0);
+    } else {
+        static_assert(type == GGML_TYPE_Q2_0, "window loads need a fine-grained loader");
+        ggml_cuda_mmq_load_tiles_q2_0<type, J, fallback>(
+            x, tile, value_offset / QK2_0, i_max, value_end / QK2_0);
+    }
 }
 
 template <
@@ -652,7 +756,8 @@ template <
     int fixed_blocks_per_weight_row = 0,
     bool full_i = false,
     bool full_j = false,
-    int tail_values = 0>
+    int tail_values = 0,
+    bool table_decode = false>
 static __device__ __forceinline__ void dense_mmq_bf16_body(
         const char * __restrict__ weights,
         const int * __restrict__ activations,
@@ -674,8 +779,8 @@ static __device__ __forceinline__ void dense_mmq_bf16_body(
         tail_values == 0 || tail_values == 128,
         "a tail stage holds one 128-value vector dot call");
     static_assert(
-        tail_values == 0 || type == GGML_TYPE_Q8_0,
-        "only the Q8_0 loader can address a half stage");
+        tail_values == 0 || type == GGML_TYPE_Q8_0 || type == GGML_TYPE_Q2_0,
+        "only the Q8_0 and Q2_0 loaders can address a half stage");
     static_assert(
         tail_values == 0 || fixed_blocks_per_weight_row > 0,
         "a tail stage requires the exact contraction length");
@@ -690,6 +795,21 @@ static __device__ __forceinline__ void dense_mmq_bf16_body(
 
     float sum[J * MMQ_I / MMQ_NTHREADS] = {0.0f};
     constexpr int q8_block_ints = sizeof(block_q8_1_mmq) / sizeof(int);
+
+    // The table decode keeps the 256 expansions of one payload byte in LDS
+    // directly behind the weight tile, so the loader replaces the spread and
+    // the level offset with one lookup.
+    if constexpr (table_decode) {
+        static_assert(type == GGML_TYPE_Q2_0, "the level table is a Q2_0 mechanism");
+        static_assert(
+            tail_values == 0, "the tail window loader does not read the level table");
+        int * levels = tile_x + MMQ_I * ggml_cuda_mmq_get_sram_stride<type, J, false>();
+        for (int entry = threadIdx.y * WARP_SIZE + threadIdx.x; entry < 256;
+             entry += MMQ_NTHREADS) {
+            levels[entry] = q2_0_spread_levels(entry);
+        }
+        __syncthreads();
+    }
     const int kernel_blocks_per_weight_row = fixed_blocks_per_weight_row > 0
         ? fixed_blocks_per_weight_row
         : blocks_per_weight_row;
@@ -709,7 +829,7 @@ static __device__ __forceinline__ void dense_mmq_bf16_body(
         } else {
             const int weight_block_offset =
                 tile_i * MMQ_I * kernel_blocks_per_weight_row + kb;
-            mmq_load_target<type, J, !full_i>(
+            mmq_load_target<type, J, !full_i, table_decode>(
                 weights,
                 tile_x,
                 weight_block_offset,
