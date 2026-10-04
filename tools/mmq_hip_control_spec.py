@@ -552,6 +552,7 @@ def _dense_backward_controls() -> list[HIPControlSpec]:
         ("n4096k8192", 4096, 8192),
         ("n2048k4096", 2048, 4096),
         ("n4096k2048", 4096, 2048),
+        ("n640k2560", 2560, 640),
     )
     for label, out_features, in_features in exact_shapes:
         specs.append(
@@ -990,6 +991,9 @@ def _db8_dense_backward_controls() -> list[HIPControlSpec]:
         ("n2048k4096", 2048, 4096, 0, 2),
         ("n2048k4096", 2048, 4096, 8, 2),
         ("n4096k2048", 4096, 2048, 0, 2),
+        ("n640k2560", 2560, 640, 0, 1),
+        ("n640k2560", 2560, 640, 0, 2),
+        ("n640k2560", 2560, 640, 8, 2),
     ):
         suffix = "_padding8" if padding else ""
         specs.append(
@@ -1197,7 +1201,7 @@ def hip_control_specs() -> tuple[HIPControlSpec, ...]:
         + _grouped_backward_controls()
     )
     symbols = [spec.symbol for spec in specs]
-    if len(specs) != 296:
+    if len(specs) != 304:
         raise ValueError(f"historical HIP control inventory has {len(specs)} entries")
     if len(symbols) != len(set(symbols)):
         raise ValueError("HIP control symbols must be unique")

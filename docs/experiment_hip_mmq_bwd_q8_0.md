@@ -4,7 +4,7 @@
 
 This record covers gfx1151 HIP packed-MMQ input-gradient kernels for DeepSeek Q8_0 weights.
 
-The final ordinary matrix contains six families at `M=2048,8192,32768`, and the separate LM-head chunk matrix uses `M=32,64,128,256,512`. Shapes are written `(M, in_features, out_features)`, matching the weight's `(N,K) = (out_features, in_features)`.
+The final ordinary matrix contains seven families at `M=2048,8192,32768`, and the separate LM-head chunk matrix uses `M=32,64,128,256,512`. Shapes are written `(M, in_features, out_features)`, matching the weight's `(N,K) = (out_features, in_features)`. One of the seven is the Qwen4-Exp checkpoint `Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` shared-expert down projection, whose weight is `(2560,640)`. Its M values count tokens of a sequence length 2048 batch (B1/B4/B16), and the training path calls `M=2048`. The 48 layers mix recipes - the same projection family is a different quant type in different layers - so every type that appears needs a body, or those layers fall back to a dequantizing multiply.
 
 ## Final ordinary-kernel result
 
@@ -28,8 +28,11 @@ The final ordinary matrix contains six families at `M=2048,8192,32768`, and the 
 | Shared down | `(2048,2048,4096)` | 21.647 | 1.265x | `dense_bwd_q8_0_exact_n4096k2048_g2_padding8` |
 | Shared down | `(8192,2048,4096)` | 19.650 | 1.075x | `dense_bwd_q8_0_exact_n4096k2048_g2_group_m2` |
 | Shared down | `(32768,2048,4096)` | 20.580 | 1.114x | `dense_bwd_q8_0_exact_n4096k2048_g2_group_m2` |
+| Shared down Qwen4-Exp | `(2048,640,2560)` | 26.950 | 1.658x | `dense_bwd_q8_0_exact_n640k2560_g2_group_m2_padding8` |
+| Shared down Qwen4-Exp | `(8192,640,2560)` | 25.446 | 1.513x | `dense_bwd_q8_0_exact_n640k2560_g2_group_m2_padding8` |
+| Shared down Qwen4-Exp | `(32768,640,2560)` | 27.959 | 1.553x | `dense_bwd_q8_0_exact_n640k2560_g2_group_m2_padding8` |
 
-The `Kernel` column names the deployed body for each exact key. The ordinary bodies are bitwise equal to the reference body of their per-key candidate campaign; the four split-contraction LM-head bodies keep the deployed decode and matrix work but sum FP32 partial tiles in ascending slice order and round once at the end, so they belong to the precision-changing class of the accuracy policy rather than the bitwise class.
+The `Kernel` column names the deployed body for each exact key. The ordinary bodies are bitwise equal to the reference body of their per-key candidate campaign. The four split-contraction LM-head bodies keep the deployed decode and matrix work but sum FP32 partial tiles in ascending slice order and round once at the end, so they belong to the precision-changing class of the accuracy policy rather than the bitwise class.
 
 | `(M,N,K)` | HIP time (ms) | HIP TFLOPS | HIP/torch.mm | Kernel |
 | ---: | ---: | ---: | ---: | --- |
@@ -51,11 +54,11 @@ Both kernels run inside the timed region, and the slice bodies carry the same ex
 
 The initial generic body used 64x64/reduction-16 ownership, 92 VGPRs, 17 SGPRs, and 2 KiB LDS. The ordinary bodies use exact Q8_0 shapes with a four-wave 128x128/K32 geometry, width-16 decode, and row-dependent LDS padding. M1/M2 traversal is measured per shape and row count.
 
-The build carries four ordinary variant generations: the plain `exact_n{N}k{K}` wrappers, the `_g1`/`_g2`/`_g3` geometry screen winners, and the `_g2_padding8`/`_g2_group_m{1,2}`/`_g2_group_m2_padding8` traversal variants. The deployed ordinary bodies are all G2-family (`n_tiles=8`, `k_iteration=32`, `decoder_width=16`, `active_waves=4`) with `lds_padding=8` and/or `group_m` set per key; `K` in the variant name is the reduction length, and no single variant wins every shape. The plain `exact_n{N}k{K}` wrappers are the pre-G generation that the `_g*` screen superseded and are not part of the deployment campaign.
+The build carries four ordinary variant generations: the plain `exact_n{N}k{K}` wrappers, the `_g1`/`_g2`/`_g3` geometry screen winners, and the `_g2_padding8`/`_g2_group_m{1,2}`/`_g2_group_m2_padding8` traversal variants. The deployed ordinary bodies are all G2-family (`n_tiles=8`, `k_iteration=32`, `decoder_width=16`, `active_waves=4`) with `lds_padding=8` and/or `group_m` set per key. `K` in the variant name is the reduction length, and no single variant wins every shape. The plain `exact_n{N}k{K}` wrappers are the pre-G generation that the `_g*` screen superseded and are not part of the deployment campaign.
 
-The LM head uses active-two-wave M32, G0 M64, G1 M128, and G3 M256/M512 bodies. M512 launches two exact M256-style tiles. The single-pass campaign timed the built chunk bodies per `M` and selected `_bounded` at M32, `_full` at M64, `_g1` at M128, and `_g3` at M256/M512; the split-contraction campaign then replaced every chunk's single-pass body with an exact slice body whose slice count is fitted per chunk. `_g2` lost at M128/M256/M512, `_full` lost at M128 and above, `_bounded` lost at M64 and above, `_m32_active2` tied with the deployed `_bounded` body inside `0.2%` at M32, and `_g3` faults at M128, which `_g1` covers.
+The LM head uses active-two-wave M32, G0 M64, G1 M128, and G3 M256/M512 bodies. M512 launches two exact M256-style tiles. The single-pass campaign timed the built chunk bodies per `M` and selected `_bounded` at M32, `_full` at M64, `_g1` at M128, and `_g3` at M256/M512. The split-contraction campaign then replaced every chunk's single-pass body with an exact slice body whose slice count is fitted per chunk. `_g2` lost at M128/M256/M512, `_full` lost at M128 and above, `_bounded` lost at M64 and above, `_m32_active2` tied with the deployed `_bounded` body inside `0.2%` at M32, and `_g3` faults at M128, which `_g1` covers.
 
-The ordinary G2 body is `192 VGPR / 14 SGPR / 8 KiB LDS`; the isolated LM bodies use 91-194 VGPR and 2-4 KiB LDS.
+The ordinary G2 body is `192 VGPR / 14 SGPR / 8 KiB LDS`, and `padding8` adds 2 KiB of LDS to it. The isolated LM bodies use 91-194 VGPR and 2-4 KiB LDS.
 
 ## Closed dtype and distribution avenues
 
@@ -79,33 +82,39 @@ The generic baseline was resource-light but ownership-limited:
 
 The first exact Q8_0 wrappers removed runtime shape, bounds, and address state. Exact specialization improved all 18 ordinary points by `11.32-246.14%`, with a `60.58%` geometric gain. The full ordinary wrappers remained resource-clean.
 
-The generic body used `92 VGPR / 17 SGPR / 2 KiB LDS`; the geometry screen compared G0 `64x64/K16` at 92 VGPR, G1 `128x64/K32` at 118, G2 `128x128/K32` at 192, and G3 `256x64/K32` at 194. G2 won all six ordinary shape families. The first exact-shape bracket improved the full ordinary matrix by `77.49%` geometrically and by `86.99%/96.51%/99.95%` at B1/B4/B16 weighted latency.
+The generic body used `92 VGPR / 17 SGPR / 2 KiB LDS`. The geometry screen compared G0 `64x64/K16` at 92 VGPR, G1 `128x64/K32` at 118, G2 `128x128/K32` at 192, and G3 `256x64/K32` at 194. G2 won all six ordinary shape families. The first exact-shape bracket improved the full ordinary matrix by `77.49%` geometrically and by `86.99%/96.51%/99.95%` at B1/B4/B16 weighted latency.
 
 ### Ordinary geometry and padding
 
 G2 128x128/K32 beat G0 64x64/K16, G1 128x64/K32, and G3 256x64/K32 across the six ordinary families. Unpadded G2 reported a repeated `79.17%` LDS-conflict metric. Padding8 lowered Q-A B1 conflict from `79.17%` to `58.33%`, derived LDS latency from about 585 to 245 cycles, and ALU stall from LDS from `24.19%` to `15.26%`.
 
-Padding was retained only where exact row cost justified it. Q-B and output-B required separate traversal and padding decisions; global J64 lost full ordinary tiles by `3.75-8.85%` depending on K and family.
+Padding was retained only where exact row cost justified it. Q-B and output-B required separate traversal and padding decisions. Global J64 lost full ordinary tiles by `3.75-8.85%` depending on K and family.
 
 ### LM chunk geometries
 
-The isolated backward medians for Q8_0 LM chunks were `8.297/7.459/7.569/10.386/23.206 ms` at M32/M64/M128/M256/M512. M32 keeps all waves for decode and barriers but limits cotangent loads, WMMA, and stores to two waves. M128 improved `19.48%`; M256/M512 improved `51.85%/60.64%` over the preceding controls.
+The isolated backward medians for Q8_0 LM chunks were `8.297/7.459/7.569/10.386/23.206 ms` at M32/M64/M128/M256/M512. M32 keeps all waves for decode and barriers but limits cotangent loads, WMMA, and stores to two waves. M128 improved `19.48%`. M256/M512 improved `51.85%/60.64%` over the preceding controls.
 
 ### Traversal and closed controls
 
 Changing only grouped-M traversal reduced Q-B B4/B16 by `38.77%/40.16%` and output-B B4/B16 by `42.03%/42.21%`. The later complete traversal correction reduced weighted packed latency by `4.51%/18.85%/26.41%` at B1/B4/B16. Normalized disassembly was `98.16-98.83%` opcode-identical, so locality and mapping, not a new decoder, supplied the improvement.
 
-The DB8 screen retained M2 for Q-A, KV, shared gate/up, and shared down at the longer row counts, and M1 only for Q-B B1. Representative all-M-to-M2 times were Q-A B16 `32.386 -> 13.184 ms`, KV B16 `23.194 -> 5.253 ms`, shared gate B16 `54.401 -> 27.955 ms`, and shared down B16 `49.452 -> 27.961 ms`; Q-B B1 used the `7.241/6.923/7.509 ms` M2/M1/M2 bracket. L2 hit rate rose by `30.6-47.4` percentage points, while occupancy changed only modestly. `MemUnitBusy` was unavailable because rocprofv3 rejected its non-windowable `TA_TA_BUSY` dependency.
+The DB8 screen retained M2 for Q-A, KV, shared gate/up, and shared down at the longer row counts, and M1 only for Q-B B1. Representative all-M-to-M2 times were Q-A B16 `32.386 -> 13.184 ms`, KV B16 `23.194 -> 5.253 ms`, shared gate B16 `54.401 -> 27.955 ms`, and shared down B16 `49.452 -> 27.961 ms`. Q-B B1 used the `7.241/6.923/7.509 ms` M2/M1/M2 bracket. L2 hit rate rose by `30.6-47.4` percentage points, while occupancy changed only modestly. `MemUnitBusy` was unavailable because rocprofv3 rejected its non-windowable `TA_TA_BUSY` dependency.
 
 Activation-half double buffering, K-loop unrolling, width32 decode, stride77 padding, decoded-weight LDS caching, split-K, GSU, Stream-K, persistent workgroups, and direct-to-LDS/direct-to-VGPR rewrites are closed for the current packed representation.
+
+### Qwen4-Exp shared-expert down
+
+The seventh ordinary family is the Qwen4-Exp shared-expert down projection, `(M,640,2560)`: the result is only `640` wide, so a G2 workgroup covers a fifth of it and the whole grid is `64 x 5` workgroups at `M=8192`. The family's eight candidate bodies were timed on all three row counts at `4` repeats. The `_g2_group_m2_padding8` body wins every point, by `1.18-1.33x` over the unpadded `_g2` bodies, `1.25-3.61x` over `_g1`, `1.49-5.60x` over `_g3`, and `2.10-3.49x` over the pre-G plain wrapper. The padding carries the win at `M=2048` and the grouped-M traversal carries it at the larger row counts. The body is the family's standing choice for a narrow result and deploys on all three keys.
 
 ### Split-contraction measurement
 
 The split-K closure above was a contract deferral, not a measurement. Retested with a dedicated split-contraction body: the deployed tile, decode and matrix work are unchanged, each workgroup takes one contiguous slice of the contraction, writes an FP32 partial tile, and a second kernel sums the slices in ascending order and rounds once to BF16. Both sides consume the same prepared gradient and the same packed weights, and the partial write plus the reduction are inside the timed region.
 
-The first form used runtime contraction and result widths, so its loop bounds and the gradient row stride were runtime values; it lost everywhere (`0.43-0.59x` at one slice). Folding the exact dimensions into the body the way the deployed twins do restores parity at one slice (`0.977-1.010x`), and the split then pays where the ordinary grid is starved: `1.916x` at the M64 chunk (four slices), `1.275x` at M128, `1.202x` at M256 and `1.058x` at M512, with the best slice count between sixteen and thirty-two. The mechanism therefore needs per-shape, per-slice-count exact instantiations; the slice count is a per-key choice. Evidence and the experimental body live under `~/tmp/torch-ggml-ops/retune_dense_bwd/`.
+The first form used runtime contraction and result widths, so its loop bounds and the gradient row stride were runtime values. It lost everywhere (`0.43-0.59x` at one slice). Folding the exact dimensions into the body the way the deployed twins do restores parity at one slice (`0.977-1.010x`), and the split then pays where the ordinary grid is starved: `1.916x` at the M64 chunk (four slices), `1.275x` at M128, `1.202x` at M256 and `1.058x` at M512, with the best slice count between sixteen and thirty-two. The mechanism therefore needs per-shape, per-slice-count exact instantiations. The slice count is a per-key choice. Evidence and the experimental body live under `~/tmp/torch-ggml-ops/retune_dense_bwd/`.
 
 ## Evidence
+
+The Qwen4-Exp rows come from `~/tmp/torch-ggml-ops/qwen4_fwd/bwd_q80_final.txt` (screen in `bwd_q80_v1.txt`), which uses the deployed preparation, the same `torch.mm` BF16 baseline and the same paired timing as the official protocol, under the same harness as the Q4_K, Q5_K and Q6_K records.
 
 Current measurement evidence for both tables:
 
