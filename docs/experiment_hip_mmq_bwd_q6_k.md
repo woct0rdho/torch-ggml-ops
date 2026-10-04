@@ -2,7 +2,15 @@
 
 ## Scope
 
-This record covers the Qwen language-model-head Q6_K packed input-gradient kernel on gfx1151.
+This record covers gfx1151 HIP packed-MMQ input-gradient kernels for Q6_K weights.
+
+Backward shapes are written `(M, in_features, out_features)`, matching the weight's `(N,K) = (out_features, in_features)`. The type carries the Qwen4-Exp checkpoint `Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` (`qwen4_exp_text`, 48 layers, hidden size 2560, 512 experts with top-10 routing): the QSA attention key/value and output projections and the shared-expert gate/up projection, at the training token counts of a sequence length 2048 batch (B1/B4/B16), and the chunked language model head of the Qwen3.6-35B-A3B (APEX-I-Mini) checkpoint at 64/128/256 rows. The 48 layers mix recipes - the same projection family is a different quant type in different layers - so every type that appears needs a body, or those layers fall back to a dequantizing multiply.
+
+## GatedDeltaNet target shapes
+
+`in_proj_qkv` and `in_proj_z` are in scope. `out_proj` is deferred. Both carry only the tiled -> grouped value-head reorder, which the loader applies to their packed *rows* as whole blocks, so the packed weight as loaded is already in the model's ordinary layout: a kernel takes the packed tensor and the layer input as they are, with no permutation, copy or transpose (`gated_delta_net_layout.md`).
+
+Neither checkpoint carries this type in `in_proj_qkv` or `in_proj_z`, so this section adds no key. Still deferred: `out_proj`, which this type carries in the Qwen4-Exp checkpoint as `ssm_out` `(2560,6144)` twice.
 
 ## Final kernel result
 
@@ -11,8 +19,17 @@ This record covers the Qwen language-model-head Q6_K packed input-gradient kerne
 | Language model head | `(64,2048,248320)` | 13.970 | 2.119x | `dense_bwd_q6_k_exact_lm_head_splitk_m64_s2` |
 | Language model head | `(128,2048,248320)` | 23.170 | 2.572x | `dense_bwd_q6_k_exact_lm_head_splitk_m128_s40` |
 | Language model head | `(256,2048,248320)` | 21.620 | 1.577x | `dense_bwd_q6_k_m256_nt64_ki32_full` |
+| QSA key/value | `(2048,2560,512)` | 25.091 | 1.202x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4` |
+| QSA key/value | `(8192,2560,512)` | 27.808 | 1.087x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4` |
+| QSA key/value | `(32768,2560,512)` | 30.801 | 1.161x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4` |
+| QSA output | `(2048,6144,2560)` | 33.655 | 1.383x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4` |
+| QSA output | `(8192,6144,2560)` | 31.267 | 1.221x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4` |
+| QSA output | `(32768,6144,2560)` | 27.131 | 1.087x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4` |
+| Shared-expert gate/up | `(2048,2560,640)` | 33.369 | 1.553x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4` |
+| Shared-expert gate/up | `(8192,2560,640)` | 35.648 | 1.328x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4` |
+| Shared-expert gate/up | `(32768,2560,640)` | 36.641 | 1.326x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4` |
 
-The values use the current Q6_K packed/BF16 kernel matrix and come from one official run. M256 is the primary large chunk, with M64 and M128 as smaller exact geometries. The `Kernel` column names the deployed body for each chunk. The M64 and M128 chunks deploy the split-contraction body described below; M256 keeps its single-pass body because the slice body measures within noise there. The `_full_*` bodies are the unbounded exact variants (`_bounded` builds exist for shapes outside the exact-tile contract).
+The values use the current Q6_K packed/BF16 kernel matrix and come from one official run. M256 is the primary large chunk, with M64 and M128 as smaller exact geometries. The `Kernel` column names the deployed body for each chunk. The M64 and M128 chunks deploy the split-contraction body described below. M256 keeps its single-pass body because the slice body measures within noise there. The `_full_*` bodies are the unbounded exact variants (`_bounded` builds exist for shapes outside the exact-tile contract).
 
 ### Split-contraction deployment
 
@@ -20,19 +37,19 @@ The Q6_K language-model-head chunks launch 32 or 64 workgroups against a contrac
 
 Parity at one slice was the prerequisite, and it needed two changes beyond the Q8_0 form. First, the deployed bodies use the unguarded full-tile path (their activations are exactly `rows x in_features` and their weights exactly `out_features x in_features`), and the same body with the bounded path costs more than half the throughput: the bounded slice body reached only `0.49x` of the deployed single-pass body at one slice, while the full-tile form with the deployed exact dimensions reaches `1.04x`. The exact dimensions alone account for that `1.04x`, since the single-pass bodies resolve both bounds at runtime. Second, the paired local-prefetch schedule of the deployed bodies is part of the slice body as well (`PREFETCH_LOCAL`), which is worth a few percent here but was required for the Q8_0 slice bodies to match their single-pass twins.
 
-The Q6_K decode stage is 64 wide on M64, so a slice width has to be a multiple of the stage width for every slice, including the truncated last one. The host rounds the width up to `max(32, k_iteration)` and the contraction bound is a multiple of the same step, so both the width and the bound are multiples of the stage width and the last slice is too; no stage is ever truncated, and the full-tile path needs no per-element guard. The Q8_0 slice bodies have the same invariant with a 16- or 32-wide stage. Where a slice body is built but the stage alignment cannot be guaranteed, it is the bounded body that carries the guard, and there the shared-tile bound is the *slice* end rather than the contraction: a tile column beyond the slice would otherwise keep the previous stage's decoded weights and multiply them with real activations, which measured as an NRMSE of `4.5e-2` against the `1.9e-3` of the correct form.
+The Q6_K decode stage is 64 wide on M64, so a slice width has to be a multiple of the stage width for every slice, including the truncated last one. The host rounds the width up to `max(32, k_iteration)` and the contraction bound is a multiple of the same step, so both the width and the bound are multiples of the stage width and the last slice is too. No stage is ever truncated, and the full-tile path needs no per-element guard. The Q8_0 slice bodies have the same invariant with a 16- or 32-wide stage. Where a slice body is built but the stage alignment cannot be guaranteed, it is the bounded body that carries the guard, and there the shared-tile bound is the *slice* end rather than the contraction: a tile column beyond the slice would otherwise keep the previous stage's decoded weights and multiply them with real activations, which measured as an NRMSE of `4.5e-2` against the `1.9e-3` of the correct form.
 
-Measured against the deployed single-pass bodies with identical inputs, and with the reduce inside the timed region, the slice bodies gain `1.25x` at M64 with two slices and `1.71x` at M128 with forty; at M256 the same body is worth `1.07x` in the A/B harness and `+2%` under the official protocol, which is inside the run-to-run spread, so M256 keeps its single-pass body and no partial workspace is allocated for it. The A/B slice sweep, all against the same prepared gradient and packed weights: M64 `1.041x` at one slice, `1.251x` at two, `1.169x` at twenty, `1.247x` at forty, with a reproducible dip to `0.72x` at four slices; M128 `1.050x` at one, `1.566x` at four, `1.577x` at sixteen, `1.715x` at forty, `1.749x` at eighty; M256 `1.041x` at one, `0.947x` at sixteen, `1.071x` at forty, `1.077x` at eighty, and `0.239x` at 1,940 slices where the partial workspace dominates.
+Measured against the deployed single-pass bodies with identical inputs, and with the reduce inside the timed region, the slice bodies gain `1.25x` at M64 with two slices and `1.71x` at M128 with forty. At M256 the same body is worth `1.07x` in the A/B harness and `+2%` under the official protocol, which is inside the run-to-run spread, so M256 keeps its single-pass body and no partial workspace is allocated for it. The A/B slice sweep, all against the same prepared gradient and packed weights: M64 `1.041x` at one slice, `1.251x` at two, `1.169x` at twenty, `1.247x` at forty, with a reproducible dip to `0.72x` at four slices. M128 `1.050x` at one, `1.566x` at four, `1.577x` at sixteen, `1.715x` at forty, `1.749x` at eighty. M256 `1.041x` at one, `0.947x` at sixteen, `1.071x` at forty, `1.077x` at eighty, and `0.239x` at 1,940 slices where the partial workspace dominates.
 
-The slice bodies change the accumulation order, so their output is not bitwise equal to the single-pass body; the difference against that body is an NRMSE of `1.9e-3` at 40 or 80 slices and `1.5e-3` at two, and the external oracle check passes on the deployed routes.
+The slice bodies change the accumulation order, so their output is not bitwise equal to the single-pass body. The difference against that body is an NRMSE of `1.9e-3` at 40 or 80 slices and `1.5e-3` at two, and the external oracle check passes on the deployed routes.
 
 ### Exact-dimension twins
 
-The deployed bodies on this record resolve both the contraction and the result width at runtime. Twins that copy the deployed geometry exactly and only substitute the two compile-time bounds were built and measured against the deployed bodies in one interleaved A/B run, with identical prepared inputs and bitwise identical output: `0.990x` at `(256,2048,248320)`. Exact dimensions are therefore not deployed on these keys; where the mechanism looked positive on the Q6_K M64 chunk, the measurement also carried the split-contraction body.
+The deployed bodies on this record resolve both the contraction and the result width at runtime. Twins that copy the deployed geometry exactly and only substitute the two compile-time bounds were built and measured against the deployed bodies in one interleaved A/B run, with identical prepared inputs and bitwise identical output: `0.990x` at `(256,2048,248320)`. Exact dimensions are therefore not deployed on these keys. Where the mechanism looked positive on the Q6_K M64 chunk, the measurement also carried the split-contraction body.
 
 ## Kernel implementation
 
-The exact bodies are `dense_bwd_q6_k_m64_nt32_ki64_full`, `dense_bwd_q6_k_m128_nt64_ki32_full`, and `dense_bwd_q6_k_m256_nt64_ki32_full`: M64/N32/K64 for M64, M128/N64/K32 for M128, and two M128-style workgroups for M256. The decoded-weight LDS layout, packed extraction, and register lifetime are Q6-specific. The `_bounded` twins and the `nt128_ki16_g2`/`nt256_ki16_g2` generic bodies are built but are not competitive on the three deployment chunks.
+The three head chunks use `dense_bwd_q6_k_m64_nt32_ki64_full`, `dense_bwd_q6_k_m128_nt64_ki32_full`, and `dense_bwd_q6_k_m256_nt64_ki32_full`: M64/N32/K64 for M64, M128/N64/K32 for M128, and two M128-style workgroups for M256. The Qwen4-Exp projection keys use two `mt128_nt128_ki32_full` bodies: `_k2048_nt4` (64 output columns per workgroup, 128 rows) and `_k2048_nt4_ki64_mw4` (64 output columns, a 64-value contract stage, four row tiles per wave). The decoded-weight LDS layout, packed extraction, and register lifetime are Q6-specific. The `_bounded` twins, the `nt128_ki16_g2`/`nt256_ki16_g2` generics, and the head lineage on the projection shapes are built but are not competitive.
 
 ## Exact-shape closure detail
 
@@ -58,13 +75,19 @@ M64 benefited from a 16-BF16 XOR layout that changed the decoded row bank phase 
 
 Two apparently fast M256 N=5/N=7 measurements were invalid: the selected N tile did not divide the 2,048-column result. The corrected N=7 body measured `29.628 ms`. K16/K64, M128 N3, M64 N3/N4, and alternate four-/16-BF16 layouts were rejected.
 
-Packed extraction remained selected for M256; scalar extraction regressed `2.14%`. Exact bounds and K state accounted for only `2.09-2.56%` of the final M64/M128/M256 result, so the remaining M256 cost is packed Q6 arithmetic/representation rather than generic bounds handling.
+Packed extraction remained selected for M256. Scalar extraction regressed `2.14%`. Exact bounds and K state accounted for only `2.09-2.56%` of the final M64/M128/M256 result, so the remaining M256 cost is packed Q6 arithmetic/representation rather than generic bounds handling.
 
 ### Arithmetic boundary
 
 An effective-scale loader could stage `float(block_d * scale)` once per decoded row/K iteration. A future approximate-order experiment must show stable complete-kernel timing across all three chunks.
 
 Global J64, I128, broad K64, activation double buffering, decoded-weight caching, speculative prefetch, split-K, persistent workgroups, and broad swizzle sweeps are closed for the present arithmetic contract.
+
+### Projection-body screen
+
+The head lineage does not transfer to the Qwen4-Exp projection shapes. On them its best member reaches only `6-17 TFLOPS` against `28-30` for the BF16 baseline, while a `mt128_nt128_ki32_full` body built from the Q4_K and Q5_K knob set reaches `25-27`. On the shared-expert gate/up at `M=32768` the ratio between the two is `4.5-5.0x`. The projection bodies below are that family.
+
+Its first screen, on all three shapes at `4` repeats, compared the deployed knob set (`_k2048`: eight output tiles, 32-wide contract stage, two row tiles per wave, swizzle eight) against a 16-tile and a four-tile variant, a swizzle-zero variant with `8`-word padding, a zero decoder-width and a non-prefetching variant, and 64-wide contract stages. Four output tiles (`64` columns per workgroup) is the large win, `+12-16%` over eight tiles. A 64-wide contract stage and four row tiles per wave add `+10-21%` on the two shapes whose result is 2560 wide, and nothing beyond noise on the 6144-wide one, where four output tiles with the deployed row geometry stay ahead. A zero decoder width and disabling packed prefetch measure within noise, and padding or 16 output tiles lose `+7%` and `5x` respectively.
 
 ### Split-contraction measurement
 
@@ -74,9 +97,11 @@ Two forms were measured. The runtime-dimension form loses on all three chunks (`
 
 ## Resources
 
-Retained Q6_K bodies use `87/138/137 VGPR` for M64/M128/M256, `15/16/15 SGPR`, and 4 KiB LDS.
+Retained head bodies use `87/138/137 VGPR` for M64/M128/M256, `15/16/15 SGPR`, and 4 KiB LDS. The projection bodies use `141 VGPR / 16 SGPR / 4 KiB` for `_k2048_nt4` and `213 VGPR / 17 SGPR / 8 KiB` for `_k2048_nt4_ki64_mw4`, both spill-free.
 
 ## Evidence
+
+The Qwen4-Exp projection rows come from `~/tmp/torch-ggml-ops/qwen4_fwd/bwd_q6k_final.txt` (with the screens in `bwd_q6k_v2.txt` and `bwd_q6k_v4.txt`), which uses the deployed preparation, the same `torch.mm` BF16 baseline and the same paired timing as the official protocol, under the same harness as the Q4_K and Q5_K records.
 
 Current measurement evidence for the table above:
 

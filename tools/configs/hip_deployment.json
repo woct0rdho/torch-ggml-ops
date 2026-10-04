@@ -538,6 +538,60 @@
           "n": 2048,
           "k": 248320,
           "symbol": "dense_bwd_q6_k_m256_nt64_ki32_full"
+        },
+        {
+          "m": 2048,
+          "n": 2560,
+          "k": 512,
+          "symbol": "dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4"
+        },
+        {
+          "m": 2048,
+          "n": 6144,
+          "k": 2560,
+          "symbol": "dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4"
+        },
+        {
+          "m": 2048,
+          "n": 2560,
+          "k": 640,
+          "symbol": "dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4"
+        },
+        {
+          "m": 8192,
+          "n": 2560,
+          "k": 512,
+          "symbol": "dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4"
+        },
+        {
+          "m": 8192,
+          "n": 6144,
+          "k": 2560,
+          "symbol": "dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4"
+        },
+        {
+          "m": 8192,
+          "n": 2560,
+          "k": 640,
+          "symbol": "dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4"
+        },
+        {
+          "m": 32768,
+          "n": 2560,
+          "k": 512,
+          "symbol": "dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4"
+        },
+        {
+          "m": 32768,
+          "n": 6144,
+          "k": 2560,
+          "symbol": "dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4"
+        },
+        {
+          "m": 32768,
+          "n": 2560,
+          "k": 640,
+          "symbol": "dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4"
         }
       ]
     },

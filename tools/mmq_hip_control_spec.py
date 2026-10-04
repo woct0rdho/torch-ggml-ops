@@ -794,17 +794,21 @@ def _dense_backward_controls() -> list[HIPControlSpec]:
             ),
         ]
     )
-    for quant, k, swizzle, pack_q5 in (
-        (QuantType.Q4_K, 4096, 0, False),
-        (QuantType.Q4_K, 2048, 8, False),
-        (QuantType.Q4_K, 512, 16, False),
-        (QuantType.Q5_K, 2048, 8, True),
-        (QuantType.Q5_K, 512, 4, True),
+    for quant, k, swizzle, pack_q5, pack_q6 in (
+        (QuantType.Q4_K, 4096, 0, False, False),
+        (QuantType.Q4_K, 2048, 8, False, False),
+        (QuantType.Q4_K, 512, 16, False, False),
+        (QuantType.Q5_K, 2048, 8, True, False),
+        (QuantType.Q5_K, 512, 4, True, False),
+        (QuantType.Q6_K, 2048, 8, False, True),
+        (QuantType.Q6_K, 512, 4, False, True),
+        (QuantType.Q6_K, 2048, 8, False, False),
     ):
         name = quant.name.lower()
+        suffix = "_scalar_extraction" if quant is QuantType.Q6_K and not pack_q6 else ""
         specs.append(
             _dense_backward(
-                f"dense_bwd_{name}_mt128_nt128_ki32_full_k{k}",
+                f"dense_bwd_{name}_mt128_nt128_ki32_full_k{k}{suffix}",
                 quant,
                 8,
                 32,
@@ -818,6 +822,40 @@ def _dense_backward_controls() -> list[HIPControlSpec]:
                 vector_local_load=True,
                 lds_swizzle_chunk=swizzle,
                 pack_q5_quant_bytes=pack_q5,
+                pack_q6_quant_bytes=pack_q6,
+            )
+        )
+    for suffix, n_tiles, k_iteration, m_tiles, swizzle, padding, decoder, prefetch in (
+        ("k4096", 8, 32, 2, 0, 8, 16, True),
+        ("k2048_pad8", 8, 32, 2, 8, 8, 16, True),
+        ("k2048_dw0", 8, 32, 2, 8, 0, 0, True),
+        ("k2048_noprefetch", 8, 32, 2, 8, 0, 16, False),
+        ("k2048_ki64", 8, 64, 2, 16, 0, 16, True),
+        ("k2048_nt16", 16, 32, 2, 8, 0, 16, True),
+        ("k2048_nt4", 4, 32, 2, 8, 0, 16, True),
+        ("k2048_nt2", 2, 32, 2, 8, 0, 16, True),
+        ("k2048_nt4_ki64", 4, 64, 2, 16, 0, 16, True),
+        ("k2048_nt4_ki64_mw4", 4, 64, 4, 16, 0, 16, True),
+        ("k2048_nt8_ki64_mw4", 8, 64, 4, 16, 0, 16, True),
+        ("k2048_nt4_mw4", 4, 32, 4, 8, 0, 16, True),
+        ("k2048_nt4_ki64_mw8", 4, 64, 8, 16, 0, 16, True),
+    ):
+        specs.append(
+            _dense_backward(
+                f"dense_bwd_q6_k_mt128_nt128_ki32_full_{suffix}",
+                QuantType.Q6_K,
+                n_tiles,
+                k_iteration,
+                group_m=1,
+                m_tiles_per_wave=m_tiles,
+                decoder_width=decoder,
+                prefetch_local=True,
+                full_tiles=True,
+                prefetch_packed=prefetch,
+                lds_padding=padding,
+                vector_local_load=True,
+                lds_swizzle_chunk=swizzle,
+                pack_q6_quant_bytes=True,
             )
         )
     for rows, n_tiles, k_iteration, m_tiles, swizzle, pack_q6 in (
@@ -1159,7 +1197,7 @@ def hip_control_specs() -> tuple[HIPControlSpec, ...]:
         + _grouped_backward_controls()
     )
     symbols = [spec.symbol for spec in specs]
-    if len(specs) != 280:
+    if len(specs) != 296:
         raise ValueError(f"historical HIP control inventory has {len(specs)} entries")
     if len(symbols) != len(set(symbols)):
         raise ValueError("HIP control symbols must be unique")
