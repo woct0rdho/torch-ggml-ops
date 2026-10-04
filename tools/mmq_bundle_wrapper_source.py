@@ -5,6 +5,7 @@ from enum import Enum, IntEnum
 
 
 class QuantType(IntEnum):
+    Q4_0 = 2
     Q2_0 = 42
     Q8_0 = 8
     Q2_K = 10
@@ -122,9 +123,9 @@ class ForwardConfig:
                 raise ValueError("a tail stage requires the dense shape")
             if self.tail_values != 128:
                 raise ValueError("a tail stage holds one 128-value vector dot call")
-            if self.quant_type not in {QuantType.Q8_0, QuantType.Q2_0}:
+            if self.quant_type not in {QuantType.Q4_0, QuantType.Q8_0, QuantType.Q2_0}:
                 raise ValueError(
-                    "only the Q8_0 and Q2_0 loaders can address a half stage"
+                    "a tail stage needs a loader that can address a half stage"
                 )
         if self.wide_tile:
             if self.kind == ForwardKind.DENSE:

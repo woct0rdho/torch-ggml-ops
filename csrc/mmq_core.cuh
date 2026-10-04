@@ -63,7 +63,8 @@ enum ggml_cuda_mmq_sram_layout {
 };
 
 static constexpr __host__ __device__ ggml_cuda_mmq_sram_layout mmq_sram_layout(ggml_type type) {
-    return type == GGML_TYPE_Q8_0 || type == GGML_TYPE_IQ2_XXS || type == GGML_TYPE_Q2_0
+    return type == GGML_TYPE_Q4_0 || type == GGML_TYPE_Q8_0 ||
+        type == GGML_TYPE_IQ2_XXS || type == GGML_TYPE_Q2_0
         ? GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0
         : type == GGML_TYPE_Q2_K
             ? GGML_CUDA_MMQ_SRAM_LAYOUT_Q2_K
@@ -546,6 +547,67 @@ static __device__ __forceinline__ void ggml_cuda_mmq_load_tiles_q2_0(
     }
 }
 
+// Q4_0 loader: 32 weights in an 18-byte block, one fp16 scale and a
+// nibble-plane pair whose low nibble is weight j and high nibble weight j + 16,
+// with the level `nibble - 8`. A stage holds eight blocks, whose expanded int8
+// values fill the same LDS slots the Q8_0 loader produces, and the 32-wide
+// block means one scale per 32-value group, so no metadata is replicated.
+template <ggml_type type, int J, bool fallback>
+static __device__ __forceinline__ void ggml_cuda_mmq_load_tiles_q4_0(
+        const char * __restrict__ x,
+        int * __restrict__ x_tile,
+        const int kbx0,
+        const int i_max,
+        const int stride) {
+    constexpr int warp_size = ggml_cuda_get_physical_warp_size();
+    constexpr int nwarps = ggml_cuda_mmq_get_nthreads(type, J, fallback) / warp_size;
+    constexpr int I = ggml_cuda_mmq_get_I(type, J, fallback);
+    constexpr int sram_stride = ggml_cuda_mmq_get_sram_stride(type, J, fallback);
+
+    int * x_qs = (int *) x_tile;
+    float * x_df = (float *) (x_qs + 2 * MMQ_TILE_NE_K);
+
+    constexpr int threads_per_row = MMQ_ITER_K / (4 * QR4_0);
+    constexpr int nrows = warp_size / threads_per_row;
+    constexpr int blocks_per_iteration = MMQ_ITER_K / QK4_0;
+
+    const int txi = threadIdx.x % threads_per_row;
+    const int kbx = txi / QI4_0;
+    const int kqsx = txi % QI4_0;
+
+#pragma unroll
+    for (int i0 = 0; i0 < I; i0 += nrows * nwarps) {
+        int i = i0 + (nrows == 1 ? threadIdx.y : threadIdx.y * nrows + threadIdx.x / threads_per_row);
+
+        if (fallback) {
+            i = min(i, i_max);
+        }
+
+        const block_q4_0 * bxi = (const block_q4_0 *) x + kbx0 + i * stride + kbx;
+        const int qs0 = get_int_b2(bxi->qs, kqsx);
+
+        x_qs[i * sram_stride + kbx * (2 * QI4_0) + kqsx] =
+            __vsubss4((qs0 >> 0) & 0x0F0F0F0F, 0x08080808);
+        x_qs[i * sram_stride + kbx * (2 * QI4_0) + kqsx + QI4_0] =
+            __vsubss4((qs0 >> 4) & 0x0F0F0F0F, 0x08080808);
+    }
+
+    constexpr int rows_per_warp = warp_size / blocks_per_iteration;
+    const int kbxd = threadIdx.x % blocks_per_iteration;
+
+#pragma unroll
+    for (int i0 = 0; i0 < I; i0 += nwarps * rows_per_warp) {
+        int i = i0 + threadIdx.y * rows_per_warp + threadIdx.x / blocks_per_iteration;
+
+        if (fallback) {
+            i = min(i, i_max);
+        }
+
+        const block_q4_0 * bxi = (const block_q4_0 *) x + kbx0 + i * stride + kbxd;
+        x_df[i * sram_stride + kbxd] = __half2float(bxi->d);
+    }
+}
+
 template <ggml_type type, int J, bool fallback = true, bool table_decode = false>
 static __device__ __forceinline__ void mmq_load_target(
         const char * x, int * tile, int block_offset, int i_max, int row_stride,
@@ -562,6 +624,14 @@ static __device__ __forceinline__ void mmq_load_target(
     if constexpr (type == GGML_TYPE_Q8_0) {
         constexpr int blocks_per_iteration = MMQ_ITER_K / QK8_0;
         ggml_cuda_mmq_load_tiles_q8_0<type, J, fallback>(
+            x,
+            tile,
+            block_offset * blocks_per_iteration,
+            i_max,
+            row_stride * blocks_per_iteration);
+    } else if constexpr (type == GGML_TYPE_Q4_0) {
+        constexpr int blocks_per_iteration = MMQ_ITER_K / QK4_0;
+        ggml_cuda_mmq_load_tiles_q4_0<type, J, fallback>(
             x,
             tile,
             block_offset * blocks_per_iteration,
@@ -608,7 +678,7 @@ static __device__ __forceinline__ void mmq_vec_dot_target(
 #endif
     if constexpr (
         type == GGML_TYPE_Q8_0 || type == GGML_TYPE_IQ2_XXS ||
-        type == GGML_TYPE_Q2_0) {
+        type == GGML_TYPE_Q2_0 || type == GGML_TYPE_Q4_0) {
         ggml_cuda_mmq_vec_dot_q8_0_q8_1_mma<
             type, J, fallback, MMQ_Q8_1_METADATA_F32_D4>(x, y, sum, k00);
     } else if constexpr (type == GGML_TYPE_Q2_K) {
@@ -743,6 +813,9 @@ static __device__ __forceinline__ void mmq_load_window(
     if constexpr (type == GGML_TYPE_Q8_0) {
         ggml_cuda_mmq_load_tiles_q8_0<type, J, fallback>(
             x, tile, value_offset / QK8_0, i_max, value_end / QK8_0);
+    } else if constexpr (type == GGML_TYPE_Q4_0) {
+        ggml_cuda_mmq_load_tiles_q4_0<type, J, fallback>(
+            x, tile, value_offset / QK4_0, i_max, value_end / QK4_0);
     } else {
         static_assert(type == GGML_TYPE_Q2_0, "window loads need a fine-grained loader");
         ggml_cuda_mmq_load_tiles_q2_0<type, J, fallback>(
@@ -779,8 +852,9 @@ static __device__ __forceinline__ void dense_mmq_bf16_body(
         tail_values == 0 || tail_values == 128,
         "a tail stage holds one 128-value vector dot call");
     static_assert(
-        tail_values == 0 || type == GGML_TYPE_Q8_0 || type == GGML_TYPE_Q2_0,
-        "only the Q8_0 and Q2_0 loaders can address a half stage");
+        tail_values == 0 || type == GGML_TYPE_Q4_0 || type == GGML_TYPE_Q8_0 ||
+            type == GGML_TYPE_Q2_0,
+        "a tail stage needs a loader that can address a half stage");
     static_assert(
         tail_values == 0 || fixed_blocks_per_weight_row > 0,
         "a tail stage requires the exact contraction length");

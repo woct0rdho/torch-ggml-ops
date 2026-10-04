@@ -110,12 +110,41 @@ QUANT_FORMATS: Mapping[str, QuantFormat] = MappingProxyType(
 )
 
 
+# The two simple dense-only types carry no codebook and only one metadata
+# value per block, so their levels are the whole decode. They are listed in this
+# superset rather than in QUANT_FORMATS because that table also drives the
+# GGTensile forward type registry, which does not know them yet, while the
+# correctness machinery reads packed shapes from here.
+Q2_0_FORMAT = QuantFormat(
+    block_values=64,
+    block_bytes=18,
+    activation_layout="F32_D4",
+    activation_block_bytes=Q8_1_F32_D4_BLOCK_BYTES,
+    wmma_clamp=False,
+    weight_decode="DirectTwoBitConsecutiveLevelMinusOne",
+    scale_arithmetic="Int32ScaleF32",
+    arithmetic_contract="SignedQ2Int8ScaleIntegerWmmaF32Correction",
+)
+
+Q4_0_FORMAT = QuantFormat(
+    block_values=32,
+    block_bytes=18,
+    activation_layout="F32_D4",
+    activation_block_bytes=Q8_1_F32_D4_BLOCK_BYTES,
+    wmma_clamp=False,
+    weight_decode="DirectNibblePlanePairLevelMinusEight",
+    scale_arithmetic="Int32ScaleF32",
+    arithmetic_contract="SignedQ4Int8ScaleIntegerWmmaF32Correction",
+)
+
 BACKWARD_QUANT_FORMATS: Mapping[str, QuantFormat] = MappingProxyType(
     {
         **QUANT_FORMATS,
         "Q2_K": Q2_K_FORMAT,
         "IQ2_S": IQ2_S_FORMAT,
         "IQ2_XXS": IQ2_XXS_FORMAT,
+        "Q2_0": Q2_0_FORMAT,
+        "Q4_0": Q4_0_FORMAT,
     }
 )
 
