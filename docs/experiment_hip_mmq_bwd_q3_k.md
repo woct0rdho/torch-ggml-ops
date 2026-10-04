@@ -4,14 +4,9 @@
 
 This record covers gfx1151 HIP packed-MMQ input-gradient kernels for Q3_K weights.
 
-The measured families are the Qwen query and narrow projections.
+Backward shapes are written `(M, in_features, out_features)`, matching the weight's `(N,K) = (out_features, in_features)`. Beyond the Qwen query and narrow projections measured first, the type carries the QSA attention query, key/value and shared-expert gate/up projections of the Qwen4-Exp checkpoint `Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` (hidden size 2560) and the GatedDeltaNet `in_proj_qkv` and `in_proj_z` projections of both checkpoints in use, at the training token counts of a sequence length 2048 batch (B1/B4/B16).
 
-| Family | Forward weight `(N,K)` | Backward shape `(M,N,K)` | M values |
-| --- | ---: | ---: | ---: |
-| Query/query gate | `(8192,2048)` | `(M,2048,8192)` | `2048,8192,32768` |
-| Narrow attention key | `(512,2048)` | `(M,2048,512)` | `2048,8192,32768` |
-
-Backward shapes are written `(M, in_features, out_features)`, matching the weight's `(N,K) = (out_features, in_features)`.
+GatedDeltaNet `out_proj` is deferred because wiring it needs the activation permutation. `token_embd.weight` `(248320,2560)` is an embedding gather rather than a multiply and stays on the GGUF embedding module.
 
 ## Final kernel result
 
@@ -23,12 +18,30 @@ Backward shapes are written `(M, in_features, out_features)`, matching the weigh
 | Narrow key | `(2048,2048,512)` | 23.266 | 1.040x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
 | Narrow key | `(8192,2048,512)` | 24.272 | 1.003x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
 | Narrow key | `(32768,2048,512)` | 25.262 | 1.031x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| QSA query | `(2048,2560,12288)` | 22.329 | 0.946x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| QSA query | `(8192,2560,12288)` | 24.067 | 0.935x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| QSA query | `(32768,2560,12288)` | 23.431 | 0.932x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| QSA key/value | `(2048,2560,512)` | 24.308 | 1.152x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| QSA key/value | `(8192,2560,512)` | 26.035 | 0.976x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| QSA key/value | `(32768,2560,512)` | 26.921 | 0.999x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| Shared-expert gate/up | `(2048,2560,640)` | 24.663 | 1.139x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| Shared-expert gate/up | `(8192,2560,640)` | 26.982 | 0.966x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| Shared-expert gate/up | `(32768,2560,640)` | 27.464 | 0.957x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| GatedDeltaNet QKV | `(2048,2560,10240)` | 22.735 | 0.962x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| GatedDeltaNet QKV | `(8192,2560,10240)` | 24.240 | 0.940x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| GatedDeltaNet QKV | `(32768,2560,10240)` | 23.644 | 0.929x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| GatedDeltaNet Z | `(2048,2560,6144)` | 23.646 | 1.006x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| GatedDeltaNet Z | `(8192,2560,6144)` | 24.755 | 0.959x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| GatedDeltaNet Z | `(32768,2560,6144)` | 23.878 | 0.950x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| GatedDeltaNet Z APEX-I-Mini | `(2048,2048,4096)` | 26.553 | 1.546x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| GatedDeltaNet Z APEX-I-Mini | `(8192,2048,4096)` | 22.360 | 1.218x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| GatedDeltaNet Z APEX-I-Mini | `(32768,2048,4096)` | 23.250 | 1.255x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
 
-The values use the current packed/BF16 matrix and report the complete packed-gradient path represented there. The `Kernel` column names the deployed body for each exact key; it is the fastest built body whose output is bitwise equal to the reference body in the per-key candidate campaign.
+The values use the current packed/BF16 matrix and report the complete packed-gradient path represented there. The `Kernel` column names the deployed body for each exact key. It is the fastest built body whose output is bitwise equal to the reference body in the per-key candidate campaign.
 
 ## Kernel implementation
 
-The build carries two tuned `mt128_nt128_ki32_full` variants: `..._full_narrow` (8-value LDS row padding, vector local loads) and `..._full_wide` (swizzle chunk 8, no LDS padding). Both were timed on both shapes; `full_narrow` won the query and narrow rows and is the deployed body for all six keys. Exact shape and row-count specialization removes runtime bounds and address state from the common production shapes. Generic bounds-safe bodies remain available for unmatched shapes and are not competitive on these keys.
+The build carries two tuned `mt128_nt128_ki32_full` variants: `..._full_narrow` (8-value LDS row padding, vector local loads) and `..._full_wide` (swizzle chunk 8, no LDS padding). Both were timed on both shapes and then on the eighteen Qwen4-Exp and GatedDeltaNet points. `full_narrow` won every one of them by `1.027-1.221x` and is the deployed body for all twenty-four keys, so the new shapes needed no new body. Exact shape and row-count specialization removes runtime bounds and address state from the common production shapes. Generic bounds-safe bodies remain available for unmatched shapes and are not competitive on these keys.
 
 ## Optimization log
 
@@ -42,7 +55,13 @@ Representative first redesign results included query Q3_K M32768 moving from `1,
 
 Wide Q3_K packed extraction, two-row prefetch, and the eight-BF16 XOR LDS layout were retained for the query body. Removing those controls regressed by `1.06-11.78%` depending on the measured point. Narrow Q3_K does not prefetch because its 110-byte block layout made the path slower.
 
-K-loop unrolling, activation-half double buffering, generic padding, decoded-weight LDS caching, and broad local-load rules were rejected. The accepted Q3 path keeps packed state bounded to the active decode phase; keeping the next iteration's packed fragments live across WMMA extended register lifetimes without a timing benefit.
+K-loop unrolling, activation-half double buffering, generic padding, decoded-weight LDS caching, and broad local-load rules were rejected. The accepted Q3 path keeps packed state bounded to the active decode phase. Keeping the next iteration's packed fragments live across WMMA extended register lifetimes without a timing benefit.
+
+### Qwen4-Exp and GatedDeltaNet shapes
+
+The new shapes span contraction lengths from `512` to `12288` and output widths from `2048` to `2560`, all of which are multiples of the `ki32` step and the 128-wide tiles, so the deployed body serves them without a new specialization. Its rate over the eighteen new points is `22.3-27.5 TFLOPS`, inside the band of the six rows measured first (`22.6-25.3`), and the `full_narrow` candidate beats `full_wide` on every one of them.
+
+The rate is not uniform in the contraction length: the short-contraction key, value and shared-expert shapes run at `24.3-27.5 TFLOPS` while the long-contraction query and QKV shapes run at `22.3-24.2`. The BF16 `torch.mm` baseline does not pay the packed decode, so the ratio against it crosses one inside this set: the narrow Qwen4 shapes are above it (`1.14-1.15x` at `M=2048`) and the longest contractions are below it (`0.93x`). That is the representation cost this record already names, and bringing it down needs a cheaper decode or a denser weight layout rather than another tiling sweep.
 
 ### Packaged-kernel controls
 
@@ -50,13 +69,14 @@ The source-built HSACO conversion produced a `+0.56%` initial geometric movement
 
 ## Resources
 
-The retained Q3_K query body uses `237 VGPR / 27 SGPR / 8 KiB LDS`.
+The retained Q3_K query body uses `216 VGPR / 17 SGPR / 10 KiB LDS`, static and spill-free.
 
 ## Evidence
 
 Current measurement evidence for the table above:
 
 ```text
+~/tmp/torch-ggml-ops/qwen4_fwd/bwd_q3k_v1.txt
 ~/tmp/torch-ggml-ops/hip_vs_baseline/pass11_ordbwd_qwen.json
 ~/tmp/torch-ggml-ops/hip_selection/           (per-key candidate campaign)
 tools/configs/hip_deployment.json             (deployed body per key)

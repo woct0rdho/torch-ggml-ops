@@ -81,19 +81,19 @@ def test_catalog_keys_cover_the_public_keys() -> None:
 def _hip_only_keys() -> set[tuple[str, str, int, int, int]]:
     """Return deployment keys whose shapes have no GGTensile problem key yet.
 
-    The Qwen4-Exp and GatedDeltaNet forward shapes get HIP controls first, so
-    they are selectable before any GGTensile kernel covers them. Every other
-    deployment key must be a public key, and a HIP-only key must still select a
-    built control for a whole number of 64-row tiles.
+    The Qwen4-Exp and GatedDeltaNet shapes get HIP controls first, so they are
+    selectable before any GGTensile kernel covers them. Every other deployment
+    key must be a public key, and a HIP-only key must still select a built
+    control for a whole number of 64-row tiles, in either direction.
     """
 
     return set(deployment_table()) - _public_keys()
 
 
-def test_extra_catalog_keys_are_hip_only_forward_shapes() -> None:
+def test_extra_catalog_keys_are_hip_only_shapes() -> None:
     inventory = {spec.symbol for spec in hip_control_specs()}
     for operation, quant_type, m, n, k in sorted(_hip_only_keys()):
-        assert operation == "OrdinaryForward"
+        assert operation in {"OrdinaryForward", "OrdinaryBackward"}
         assert quant_type in {
             "IQ4_NL",
             "IQ4_XS",
