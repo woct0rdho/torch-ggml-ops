@@ -149,6 +149,16 @@ class ForwardConfig:
                     raise ValueError("a wide tile requires whole 128-row weight groups")
 
 
+_PIPELINED_QUANT_TYPES = (
+    QuantType.Q2_0,
+    QuantType.Q8_0,
+    QuantType.Q3_K,
+    QuantType.Q4_K,
+    QuantType.Q5_K,
+    QuantType.Q6_K,
+)
+
+
 @dataclass(frozen=True)
 class DenseBackwardConfig:
     quant_type: QuantType
@@ -470,16 +480,72 @@ void {symbol}(
 
 
 def _render_dense_backward(symbol: str, config: DenseBackwardConfig) -> str:
-    if config.pipeline_tiles:
-        if config.quant_type is not QuantType.Q2_0:
-            raise ValueError("the pipelined backward tile is built for Q2_0 only")
-        if config.split_k or config.pack_q5_quant_bytes or config.pack_q6_quant_bytes:
-            raise ValueError("the pipelined backward tile takes no split or pack flags")
-        if config.prefetch_a_fragments and not config.prefetch_local:
-            raise ValueError("activation prefetch needs the local prefetch schedule")
+    if config.split_k and config.pipeline_tiles:
         return (
             _PREAMBLE
-            + f"""#include "ck/mmq_backward_q2_0.cuh"
+            + f"""#include "ck/mmq_backward_pipelined.cuh"
+
+extern "C" __launch_bounds__(torch_ggml_ops::ck::BACKWARD_THREADS, 2) __global__
+void {symbol}(
+        const __hip_bfloat16 * __restrict__ grad_output,
+        const char * __restrict__ packed_weight,
+        float * __restrict__ partials,
+        int rows,
+        int out_features,
+        int in_features,
+        int blocks_per_weight_row,
+        int split_chunk) {{
+    torch_ggml_ops::ck::dense_mmq_pipelined_splitk_body<
+        {_cpp_quant(config.quant_type)},
+        {config.exact_out_features},
+        {config.exact_in_features},
+        {config.n_tiles},
+        {config.k_iteration},
+        {config.m_tiles_per_wave},
+        {config.active_waves},
+        {config.decoder_width},
+        {config.lds_swizzle_chunk},
+        {_cpp_bool(config.prefetch_local)},
+        {_cpp_bool(config.vector_local_load)},
+        {_cpp_bool(config.prefetch_packed)},
+        {_cpp_bool(config.pack_q5_quant_bytes)},
+        {_cpp_bool(config.pack_q6_quant_bytes)}>(
+            grad_output,
+            packed_weight,
+            partials,
+            rows,
+            out_features,
+            in_features,
+            blocks_per_weight_row,
+            split_chunk);
+}}
+"""
+        )
+    if config.pipeline_tiles:
+        if config.quant_type not in _PIPELINED_QUANT_TYPES:
+            raise ValueError(
+                "the pipelined backward tile decodes "
+                + ", ".join(sorted(t.name for t in _PIPELINED_QUANT_TYPES))
+                + " only"
+            )
+        if config.pack_q5_quant_bytes and not config.prefetch_packed:
+            raise ValueError("packed Q5 bytes need the prefetched decode")
+        if config.pack_q6_quant_bytes and not config.prefetch_packed:
+            raise ValueError("packed Q6 bytes need the prefetched decode")
+        if config.prefetch_a_fragments and not config.prefetch_local:
+            raise ValueError("activation prefetch needs the local prefetch schedule")
+        if not config.full_tiles:
+            raise ValueError("the pipelined backward tile stages whole tiles only")
+        if config.split_k:
+            raise ValueError("the dense pipelined tile takes no slice count")
+        if config.split_k and not config.exact_out_features:
+            raise ValueError(
+                "the pipelined split-contraction tile needs the exact "
+                "contraction bound to size its slices"
+            )
+        return (
+            _PREAMBLE
+            + f"""#include "ck/mmq_backward_pipelined.cuh"
 
 extern "C" __launch_bounds__(torch_ggml_ops::ck::BACKWARD_THREADS, 2) __global__
 void {symbol}(
@@ -490,7 +556,8 @@ void {symbol}(
         int out_features,
         int in_features,
         int blocks_per_weight_row) {{
-    torch_ggml_ops::ck::dense_mmq_q2_0_grad_input_body<
+    torch_ggml_ops::ck::dense_mmq_pipelined_grad_input_body<
+        {_cpp_quant(config.quant_type)},
         {config.exact_out_features},
         {config.exact_in_features},
         {config.n_tiles},
@@ -504,14 +571,22 @@ void {symbol}(
         {_cpp_bool(config.prefetch_local)},
         {_cpp_bool(config.vector_local_load)},
         {config.decoder_width},
-        {_cpp_bool(config.prefetch_a_fragments)}>(
+        {_cpp_bool(config.prefetch_a_fragments)},
+        {_cpp_bool(config.pipeline_tiles)},
+        {_cpp_bool(config.prefetch_packed)},
+        {_cpp_bool(config.pack_q5_quant_bytes)},
+        {_cpp_bool(config.pack_q6_quant_bytes)},
+        false>(
             grad_output,
             packed_weight,
             grad_input,
+            nullptr,
             rows,
             out_features,
             in_features,
-            blocks_per_weight_row);
+            blocks_per_weight_row,
+            0,
+            0);
 }}
 """
         )

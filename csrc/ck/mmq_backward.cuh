@@ -355,6 +355,25 @@ static __device__ __forceinline__ void decode_backward_tile_group(
             values[index] = __float2bfloat16(
                 d * static_cast<float>(code - 1));
         }
+    } else if constexpr (type == GGML_TYPE_Q6_K && WIDTH == 16) {
+        const auto & block =
+            reinterpret_cast<const block_q6_K *>(packed_row)[block_index];
+        const float scaled_d = fp16_to_fp32(block.d) *
+            static_cast<float>(block.scales[value_index >> 4]);
+        const int chunk = value_index >> 7;
+        const int remainder = value_index & 127;
+        const int low_byte = chunk * 64 + (remainder & 63);
+        const int low_shift = 4 * (remainder >> 6);
+        const int high_byte = chunk * 32 + (value_index & 31);
+        const int high_shift = 2 * ((remainder >> 5) & 3);
+#pragma unroll
+        for (int index = 0; index < WIDTH; ++index) {
+            const int low = (block.ql[low_byte + index] >> low_shift) & 0x0f;
+            const int high =
+                (block.qh[high_byte + index] >> high_shift) & 0x03;
+            values[index] = __float2bfloat16(
+                scaled_d * static_cast<float>((low | (high << 4)) - 32));
+        }
     } else {
         const auto & block =
             reinterpret_cast<const block_q5_K *>(packed_row)[block_index];

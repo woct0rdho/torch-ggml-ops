@@ -1,6 +1,6 @@
 #pragma once
 
-// Pipelined Q2_0 input-gradient body.
+// Pipelined input-gradient body, reusable across quantized weight types.
 //
 // The shared dense body decodes one contraction stage into a single shared
 // tile, barriers, multiplies from it, and barriers again, so every stage pays
@@ -8,10 +8,12 @@
 // keeps the same tile geometry, decode and matrix work but holds two shared
 // tiles: while the matrix units consume stage `s`, the loader writes stage
 // `s + 1` into the other tile, and a single barrier per stage retires both.
+// Setting `PIPELINE_TILES` to false keeps one tile and the two-barrier order,
+// so a caller can separate the tile pipelining from the activation prefetch.
 //
 // The decoded tile is written one column per thread at a stride of
 // `K_ITERATION` values, so every store of a thread lands in the same LDS bank
-// unless the tile is padded; the padding is therefore a template parameter the
+// unless the tile is padded or swizzled; both are template parameters the
 // caller sets, as in the shared body.
 
 #include "bf16_wmma.cuh"
@@ -22,24 +24,86 @@
 
 namespace torch_ggml_ops::ck {
 
-// Decode sixteen consecutive input columns of one Q2_0 weight row.
-static __device__ __forceinline__ void decode_q2_0_group(
+// Decode sixteen consecutive input columns of one weight row, with the
+// payload byte of a Q2_0 row read once for its four codes.
+template <ggml_type TYPE>
+static __device__ __forceinline__ void decode_pipelined_group(
         const char * __restrict__ packed_row,
         int block_index,
         int value_index,
         __hip_bfloat16 * values) {
-    const auto & block =
-        reinterpret_cast<const block_q2_0 *>(packed_row)[block_index];
-    const float d = fp16_to_fp32(block.d);
+    if constexpr (TYPE == GGML_TYPE_Q2_0) {
+        const auto & block =
+            reinterpret_cast<const block_q2_0 *>(packed_row)[block_index];
+        const float d = fp16_to_fp32(block.d);
 #pragma unroll
-    for (int index = 0; index < 16; ++index) {
-        const int value = value_index + index;
-        const int code = (block.qs[value >> 2] >> (2 * (value & 3))) & 0x03;
-        values[index] = __float2bfloat16(d * static_cast<float>(code - 1));
+        for (int index = 0; index < 16; ++index) {
+            const int value = value_index + index;
+            const int code = (block.qs[value >> 2] >> (2 * (value & 3))) & 0x03;
+            values[index] = __float2bfloat16(d * static_cast<float>(code - 1));
+        }
+    } else {
+        decode_backward_tile_group<TYPE, 16>(
+            packed_row, block_index, value_index, values);
+    }
+}
+
+template <ggml_type TYPE, bool PACK_Q5_QUANT_BYTES, bool PACK_Q6_QUANT_BYTES>
+static __device__ __forceinline__ void decode_pipelined_group_prefetched(
+        const char * __restrict__ packed_row,
+        int block_index,
+        int value_index,
+        __hip_bfloat16 * values) {
+    if constexpr (TYPE == GGML_TYPE_Q8_0) {
+        const auto & block =
+            reinterpret_cast<const block_q8_0 *>(packed_row)[block_index];
+        const uint4 payload =
+            load_uint4_unaligned(block.qs + value_index);
+        // Q8_0 stores signed quants: reading the prefetched word as unsigned
+        // bytes shifts every negative value by +256.
+        const auto * quants = reinterpret_cast<const int8_t *>(&payload);
+        const float d = fp16_to_fp32(block.d);
+#pragma unroll
+        for (int index = 0; index < 16; ++index) {
+            values[index] =
+                __float2bfloat16(d * static_cast<float>(quants[index]));
+        }
+    } else if constexpr (TYPE == GGML_TYPE_Q3_K) {
+        const auto & block =
+            reinterpret_cast<const block_q3_K *>(packed_row)[block_index];
+        const int low_byte =
+            (value_index >> 7) * 32 + (value_index & 31);
+        const uint4 low = load_uint4_unaligned(block.qs + low_byte);
+        const uint4 high =
+            load_uint4_unaligned(block.hmask + (value_index & 31));
+        decode_backward_tile_q3_preloaded(
+            block, value_index, low, high, values);
+    } else if constexpr (TYPE == GGML_TYPE_Q4_K) {
+        const auto & block =
+            reinterpret_cast<const block_q4_K *>(packed_row)[block_index];
+        const int group = value_index >> 5;
+        const int byte = (group >> 1) * 32 + (value_index & 31);
+        const uint4 quants = load_uint4_unaligned(block.qs + byte);
+        decode_backward_tile_q4_preloaded(
+            block, value_index, quants, values);
+    } else if constexpr (TYPE == GGML_TYPE_Q5_K) {
+        const auto & block =
+            reinterpret_cast<const block_q5_K *>(packed_row)[block_index];
+        const int group = value_index >> 5;
+        const int low_byte = (group >> 1) * 32 + (value_index & 31);
+        const uint4 low = load_uint4_unaligned(block.qs + low_byte);
+        const uint4 high =
+            load_uint4_unaligned(block.qh + (value_index & 31));
+        decode_backward_tile_q5_preloaded<PACK_Q5_QUANT_BYTES>(
+            block, value_index, low, high, values);
+    } else {
+        decode_backward_tile_sixteen_q6<PACK_Q6_QUANT_BYTES>(
+            packed_row, block_index, value_index, values);
     }
 }
 
 template <
+    ggml_type TYPE,
     int EXACT_OUT_FEATURES,
     int EXACT_IN_FEATURES,
     int N_TILES,
@@ -53,18 +117,38 @@ template <
     bool PREFETCH_LOCAL,
     bool VECTOR_LOCAL_LOAD,
     int DECODER_WIDTH,
-    bool PREFETCH_A_FRAGMENTS>
-static __device__ __forceinline__ void dense_mmq_q2_0_grad_input_body(
+    bool PREFETCH_A_FRAGMENTS,
+    bool PIPELINE_TILES,
+    bool PREFETCH_PACKED,
+    bool PACK_Q5_QUANT_BYTES,
+    bool PACK_Q6_QUANT_BYTES,
+    bool PARTIAL_STORE>
+static __device__ __forceinline__ void dense_mmq_pipelined_grad_input_body(
         const __hip_bfloat16 * __restrict__ grad_output,
         const char * __restrict__ packed_weight,
         __hip_bfloat16 * __restrict__ grad_input,
+        float * __restrict__ partials,
         int rows,
         int out_features,
         int in_features,
-        int blocks_per_weight_row) {
+        int blocks_per_weight_row,
+        int split_begin,
+        int split_end) {
     constexpr int N_PER_BLOCK = N_TILES * BACKWARD_N_PER_TILE;
-    constexpr int WEIGHT_BLOCK_VALUES = QK2_0;
+    constexpr int WEIGHT_BLOCK_VALUES =
+        TYPE == GGML_TYPE_Q8_0 ? QK8_0 : (TYPE == GGML_TYPE_Q2_0 ? QK2_0 : QK_K);
     static_assert(DECODER_WIDTH > 0 && N_PER_BLOCK % DECODER_WIDTH == 0);
+    static_assert(
+        TYPE == GGML_TYPE_Q2_0 || TYPE == GGML_TYPE_Q8_0 ||
+        TYPE == GGML_TYPE_Q3_K || TYPE == GGML_TYPE_Q4_K ||
+        TYPE == GGML_TYPE_Q5_K || TYPE == GGML_TYPE_Q6_K,
+        "the pipelined body decodes one of the six staged weight types");
+    if constexpr (PARTIAL_STORE) {
+        static_assert(
+            FULL_TILES,
+            "a split-contraction slice stages whole tiles, so it can only be "
+            "built unguarded");
+    }
     static_assert(K_ITERATION % 16 == 0);
     static_assert(ACTIVE_WAVES > 0 && ACTIVE_WAVES <= BACKWARD_WAVES);
 
@@ -88,15 +172,16 @@ static __device__ __forceinline__ void dense_mmq_q2_0_grad_input_body(
     const int input_column_start = blockIdx.y * N_PER_BLOCK;
     const int64_t packed_row_bytes =
         static_cast<int64_t>(kernel_blocks_per_weight_row) *
-        gguf_block_bytes<GGML_TYPE_Q2_0>();
+        gguf_block_bytes<TYPE>();
 
     __shared__ backward_shared_b_tile<
-        N_PER_BLOCK, K_ITERATION, LDS_PADDING, LDS_SWIZZLE_CHUNK> shared_b[2];
+        N_PER_BLOCK, K_ITERATION, LDS_PADDING, LDS_SWIZZLE_CHUNK>
+        shared_b[PIPELINE_TILES ? 2 : 1];
     f32_accumulator accumulators[M_TILES_PER_WAVE][N_TILES];
 
     // One contraction stage into the given tile: every thread decodes
     // `DECODER_WIDTH` consecutive input columns of one weight row per pass.
-    const auto decode_stage = [&](auto & tile, int output_start) {
+    const auto decode_stage = [&](auto & tile, int output_start, int stage_end) {
 #pragma unroll
         for (int group_index = threadIdx.x;
              group_index < DECODE_GROUPS * K_ITERATION;
@@ -106,15 +191,54 @@ static __device__ __forceinline__ void dense_mmq_q2_0_grad_input_body(
                 DECODER_WIDTH * (group_index % DECODE_GROUPS);
             const int output_column = output_start + k;
             const int input_column = input_column_start + local_input_column;
-            if constexpr (FULL_TILES) {
+            if constexpr (PARTIAL_STORE) {
+#pragma unroll
+                for (int index = 0; index < DECODER_WIDTH; ++index) {
+                    tile[(local_input_column + index) * K_ITERATION + k] =
+                        __float2bfloat16(0.0f);
+                }
+                if (output_column < stage_end) {
+                    const char * packed_row = packed_weight +
+                        static_cast<int64_t>(output_column) * packed_row_bytes;
+                    __hip_bfloat16 values[DECODER_WIDTH];
+                    if constexpr (PREFETCH_PACKED) {
+                        decode_pipelined_group_prefetched<
+                            TYPE, PACK_Q5_QUANT_BYTES, PACK_Q6_QUANT_BYTES>(
+                            packed_row,
+                            input_column / WEIGHT_BLOCK_VALUES,
+                            input_column % WEIGHT_BLOCK_VALUES,
+                            values);
+                    } else {
+                        decode_pipelined_group<TYPE>(
+                            packed_row,
+                            input_column / WEIGHT_BLOCK_VALUES,
+                            input_column % WEIGHT_BLOCK_VALUES,
+                            values);
+                    }
+#pragma unroll
+                    for (int index = 0; index < DECODER_WIDTH; ++index) {
+                        tile[(local_input_column + index) * K_ITERATION + k] =
+                            values[index];
+                    }
+                }
+            } else if constexpr (FULL_TILES) {
                 const char * packed_row = packed_weight +
                     static_cast<int64_t>(output_column) * packed_row_bytes;
                 __hip_bfloat16 values[DECODER_WIDTH];
-                decode_q2_0_group(
-                    packed_row,
-                    input_column / WEIGHT_BLOCK_VALUES,
-                    input_column % WEIGHT_BLOCK_VALUES,
-                    values);
+                if constexpr (PREFETCH_PACKED) {
+                    decode_pipelined_group_prefetched<
+                        TYPE, PACK_Q5_QUANT_BYTES, PACK_Q6_QUANT_BYTES>(
+                        packed_row,
+                        input_column / WEIGHT_BLOCK_VALUES,
+                        input_column % WEIGHT_BLOCK_VALUES,
+                        values);
+                } else {
+                    decode_pipelined_group<TYPE>(
+                        packed_row,
+                        input_column / WEIGHT_BLOCK_VALUES,
+                        input_column % WEIGHT_BLOCK_VALUES,
+                        values);
+                }
 #pragma unroll
                 for (int index = 0; index < DECODER_WIDTH; ++index) {
                     tile[(local_input_column + index) * K_ITERATION + k] =
@@ -126,7 +250,7 @@ static __device__ __forceinline__ void dense_mmq_q2_0_grad_input_body(
                 const char * packed_row = packed_weight +
                     static_cast<int64_t>(output_column) * packed_row_bytes;
                 __hip_bfloat16 values[DECODER_WIDTH];
-                decode_q2_0_group(
+                decode_pipelined_group<TYPE>(
                     packed_row,
                     input_column / WEIGHT_BLOCK_VALUES,
                     input_column % WEIGHT_BLOCK_VALUES,
@@ -299,16 +423,42 @@ static __device__ __forceinline__ void dense_mmq_q2_0_grad_input_body(
         }
     };
 
+    const int contraction_begin = PARTIAL_STORE ? split_begin : 0;
+    const int contraction_end =
+        PARTIAL_STORE ? split_end : kernel_out_features;
     const int stage_count =
-        (kernel_out_features + K_ITERATION - 1) / K_ITERATION;
-    decode_stage(shared_b[0], 0);
+        (contraction_end - contraction_begin + K_ITERATION - 1) / K_ITERATION;
+    const auto stage_end_of = [&](int stage) {
+        return min(
+            contraction_begin + (stage + 1) * K_ITERATION, contraction_end);
+    };
+    decode_stage(shared_b[0], contraction_begin, stage_end_of(0));
     __syncthreads();
-    for (int stage = 0; stage < stage_count; ++stage) {
-        if (stage + 1 < stage_count) {
-            decode_stage(shared_b[(stage + 1) & 1], (stage + 1) * K_ITERATION);
+    if constexpr (PIPELINE_TILES) {
+        for (int stage = 0; stage < stage_count; ++stage) {
+            if (stage + 1 < stage_count) {
+                decode_stage(
+                    shared_b[(stage + 1) & 1],
+                    contraction_begin + (stage + 1) * K_ITERATION,
+                    stage_end_of(stage + 1));
+            }
+            multiply_stage(
+                shared_b[stage & 1], contraction_begin + stage * K_ITERATION);
+            __syncthreads();
         }
-        multiply_stage(shared_b[stage & 1], stage * K_ITERATION);
+    } else {
+        multiply_stage(shared_b[0], contraction_begin);
         __syncthreads();
+        for (int stage = 1; stage < stage_count; ++stage) {
+            decode_stage(
+                shared_b[0],
+                contraction_begin + stage * K_ITERATION,
+                stage_end_of(stage));
+            __syncthreads();
+            multiply_stage(
+                shared_b[0], contraction_begin + stage * K_ITERATION);
+            __syncthreads();
+        }
     }
 
     if (ACTIVE_WAVES == BACKWARD_WAVES || wave < ACTIVE_WAVES) {
@@ -326,24 +476,96 @@ static __device__ __forceinline__ void dense_mmq_q2_0_grad_input_body(
                         c_column(lane, element);
                     const int output_column = input_column_start +
                         n_tile * BACKWARD_N_PER_TILE + c_row(lane);
-                    if constexpr (FULL_TILES) {
-                        grad_input[static_cast<int64_t>(output_row) *
-                                       kernel_in_features +
-                                   output_column] =
-                            __float2bfloat16(
-                                accumulators[m_tile][n_tile].values[element]);
+                    const int64_t target =
+                        static_cast<int64_t>(output_row) * kernel_in_features +
+                        output_column;
+                    if constexpr (PARTIAL_STORE) {
+                        partials[target] =
+                            accumulators[m_tile][n_tile].values[element];
+                    } else if constexpr (FULL_TILES) {
+                        grad_input[target] = __float2bfloat16(
+                            accumulators[m_tile][n_tile].values[element]);
                     } else if (
                         output_row < rows && output_column < kernel_in_features) {
-                        grad_input[static_cast<int64_t>(output_row) *
-                                       kernel_in_features +
-                                   output_column] =
-                            __float2bfloat16(
-                                accumulators[m_tile][n_tile].values[element]);
+                        grad_input[target] = __float2bfloat16(
+                            accumulators[m_tile][n_tile].values[element]);
                     }
                 }
             }
         }
     }
+}
+
+// Prefetched variant: the payload planes covering the sixteen values are read
+// as one or two `uint4` before decoding, which halves the loader's addressing
+// work exactly as the deployed bodies' packed paths do. Every plane load is
+// sixteen-byte aligned because the group is sixteen values wide and the
+// per-type byte formulas are multiples of sixteen for such a group.
+// Split-contraction variant of the pipelined body: the same stage order over
+// one slice of the contraction, writing the per-slice FP32 partial tile that
+// the reduction kernel consumes.
+template <
+    ggml_type TYPE,
+    int EXACT_OUT_FEATURES,
+    int EXACT_IN_FEATURES,
+    int N_TILES,
+    int K_ITERATION,
+    int M_TILES_PER_WAVE,
+    int ACTIVE_WAVES,
+    int DECODER_WIDTH,
+    int LDS_SWIZZLE_CHUNK,
+    bool PREFETCH_LOCAL,
+    bool VECTOR_LOCAL_LOAD,
+    bool PREFETCH_PACKED,
+    bool PACK_Q5_QUANT_BYTES,
+    bool PACK_Q6_QUANT_BYTES>
+static __device__ __forceinline__ void dense_mmq_pipelined_splitk_body(
+        const __hip_bfloat16 * __restrict__ grad_output,
+        const char * __restrict__ packed_weight,
+        float * __restrict__ partials,
+        int rows,
+        int out_features,
+        int in_features,
+        int blocks_per_weight_row,
+        int split_chunk) {
+    constexpr int N_PER_BLOCK = N_TILES * BACKWARD_N_PER_TILE;
+    const int kernel_in_features = EXACT_IN_FEATURES > 0
+        ? EXACT_IN_FEATURES
+        : in_features;
+    const int split_begin = blockIdx.z * split_chunk;
+    const int split_end = min(split_begin + split_chunk, out_features);
+    dense_mmq_pipelined_grad_input_body<
+        TYPE,
+        EXACT_OUT_FEATURES,
+        EXACT_IN_FEATURES,
+        N_TILES,
+        K_ITERATION,
+        0,
+        M_TILES_PER_WAVE,
+        ACTIVE_WAVES,
+        0,
+        LDS_SWIZZLE_CHUNK,
+        true,
+        PREFETCH_LOCAL,
+        VECTOR_LOCAL_LOAD,
+        DECODER_WIDTH,
+        false,
+        true,
+        PREFETCH_PACKED,
+        PACK_Q5_QUANT_BYTES,
+        PACK_Q6_QUANT_BYTES,
+        true>(
+            grad_output,
+            packed_weight,
+            nullptr,
+            partials +
+                static_cast<int64_t>(blockIdx.z) * rows * kernel_in_features,
+            rows,
+            out_features,
+            in_features,
+            blocks_per_weight_row,
+            split_begin,
+            split_end);
 }
 
 } // namespace torch_ggml_ops::ck

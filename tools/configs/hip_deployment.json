@@ -99,7 +99,7 @@
           "m": 2048,
           "n": 2560,
           "k": 640,
-          "symbol": "dense_bwd_q3_k_mt128_nt128_ki32_full_narrow"
+          "symbol": "dense_bwd_q3_k_pipea_nt4_ki64_mw4_sw16_prefetch"
         },
         {
           "m": 2048,
@@ -165,13 +165,13 @@
           "m": 32768,
           "n": 2560,
           "k": 512,
-          "symbol": "dense_bwd_q3_k_mt128_nt128_ki32_full_narrow"
+          "symbol": "dense_bwd_q3_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw4_sw16"
         },
         {
           "m": 32768,
           "n": 2560,
           "k": 640,
-          "symbol": "dense_bwd_q3_k_mt128_nt128_ki32_full_narrow"
+          "symbol": "dense_bwd_q3_k_pipea_nt4_ki64_mw4_sw16_prefetch"
         },
         {
           "m": 32768,
@@ -225,7 +225,7 @@
           "m": 2048,
           "n": 4096,
           "k": 2048,
-          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096"
+          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096_sw16"
         },
         {
           "m": 8192,
@@ -249,7 +249,7 @@
           "m": 8192,
           "n": 4096,
           "k": 2048,
-          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096"
+          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096_sw16"
         },
         {
           "m": 32768,
@@ -273,13 +273,13 @@
           "m": 32768,
           "n": 4096,
           "k": 2048,
-          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096"
+          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096_sw16"
         },
         {
           "m": 2048,
           "n": 2560,
           "k": 512,
-          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096"
+          "symbol": "dense_bwd_q4_k_pipea_nt4_ki64_mw4_sw16_prefetch"
         },
         {
           "m": 2048,
@@ -303,13 +303,13 @@
           "m": 2048,
           "n": 2560,
           "k": 6144,
-          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096"
+          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096_sw16"
         },
         {
           "m": 2048,
           "n": 2560,
           "k": 10240,
-          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096"
+          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096_sw16"
         },
         {
           "m": 8192,
@@ -339,19 +339,19 @@
           "m": 8192,
           "n": 2560,
           "k": 6144,
-          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k2048"
+          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096_sw16"
         },
         {
           "m": 8192,
           "n": 2560,
           "k": 10240,
-          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k2048"
+          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096_sw16"
         },
         {
           "m": 32768,
           "n": 2560,
           "k": 512,
-          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096"
+          "symbol": "dense_bwd_q4_k_pipea_nt4_ki64_mw4_sw16_prefetch"
         },
         {
           "m": 32768,
@@ -375,13 +375,13 @@
           "m": 32768,
           "n": 2560,
           "k": 6144,
-          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k2048"
+          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096_sw16"
         },
         {
           "m": 32768,
           "n": 2560,
           "k": 10240,
-          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k2048"
+          "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096_sw16"
         }
       ]
     },
@@ -393,7 +393,7 @@
           "m": 2048,
           "n": 512,
           "k": 2048,
-          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw2_sw16"
         },
         {
           "m": 2048,
@@ -405,7 +405,7 @@
           "m": 8192,
           "n": 512,
           "k": 2048,
-          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k512"
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw2_sw16"
         },
         {
           "m": 8192,
@@ -417,7 +417,7 @@
           "m": 32768,
           "n": 512,
           "k": 2048,
-          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw2_sw16"
         },
         {
           "m": 32768,
@@ -429,19 +429,19 @@
           "m": 2048,
           "n": 2560,
           "k": 512,
-          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+          "symbol": "dense_bwd_q5_k_pipea_nt4_ki64_mw2_sw16_prefetch"
         },
         {
           "m": 2048,
           "n": 2560,
           "k": 640,
-          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw2_sw16"
         },
         {
           "m": 2048,
           "n": 6144,
           "k": 2560,
-          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw4_sw16"
         },
         {
           "m": 2048,
@@ -453,19 +453,19 @@
           "m": 8192,
           "n": 2560,
           "k": 512,
-          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw2_sw16"
         },
         {
           "m": 8192,
           "n": 2560,
           "k": 640,
-          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw2_sw16"
         },
         {
           "m": 8192,
           "n": 6144,
           "k": 2560,
-          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw2_sw16"
         },
         {
           "m": 8192,
@@ -477,43 +477,43 @@
           "m": 32768,
           "n": 2560,
           "k": 512,
-          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+          "symbol": "dense_bwd_q5_k_pipea_nt4_ki64_mw2_sw16_prefetch"
         },
         {
           "m": 32768,
           "n": 2560,
           "k": 640,
-          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw4_sw16"
         },
         {
           "m": 32768,
           "n": 6144,
           "k": 2560,
-          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw2_sw16"
         },
         {
           "m": 32768,
           "n": 2048,
           "k": 8192,
-          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_k2048"
+          "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw2_sw16"
         },
         {
           "m": 64,
           "n": 2560,
           "k": 248320,
-          "symbol": "dense_bwd_q5_k_exact_lm_head_splitk_m64_s4"
+          "symbol": "dense_bwd_q5_k_pipesplit_m64_s4"
         },
         {
           "m": 128,
           "n": 2560,
           "k": 248320,
-          "symbol": "dense_bwd_q5_k_exact_lm_head_splitk_m128_s8"
+          "symbol": "dense_bwd_q5_k_pipesplit_m128_s8"
         },
         {
           "m": 256,
           "n": 2560,
           "k": 248320,
-          "symbol": "dense_bwd_q5_k_exact_lm_head_splitk_m256_s32"
+          "symbol": "dense_bwd_q5_k_pipesplit_m256_s32"
         }
       ]
     },
@@ -525,31 +525,31 @@
           "m": 64,
           "n": 2048,
           "k": 248320,
-          "symbol": "dense_bwd_q6_k_exact_lm_head_splitk_m64_s2"
+          "symbol": "dense_bwd_q6_k_pipesplit_m64_s2"
         },
         {
           "m": 128,
           "n": 2048,
           "k": 248320,
-          "symbol": "dense_bwd_q6_k_exact_lm_head_splitk_m128_s40"
+          "symbol": "dense_bwd_q6_k_pipesplit_m128_s40"
         },
         {
           "m": 256,
           "n": 2048,
           "k": 248320,
-          "symbol": "dense_bwd_q6_k_m256_nt64_ki32_full"
+          "symbol": "dense_bwd_q6_k_pipesplit_m256_s40"
         },
         {
           "m": 2048,
           "n": 2560,
           "k": 512,
-          "symbol": "dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4"
+          "symbol": "dense_bwd_q6_k_pipe_nt4_ki64_mw4_sw16"
         },
         {
           "m": 2048,
           "n": 6144,
           "k": 2560,
-          "symbol": "dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4"
+          "symbol": "dense_bwd_q6_k_pipe_nt4_ki64_mw4_sw16"
         },
         {
           "m": 2048,
@@ -561,13 +561,13 @@
           "m": 8192,
           "n": 2560,
           "k": 512,
-          "symbol": "dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4"
+          "symbol": "dense_bwd_q6_k_pipe_nt4_ki64_mw4_sw16"
         },
         {
           "m": 8192,
           "n": 6144,
           "k": 2560,
-          "symbol": "dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4"
+          "symbol": "dense_bwd_q6_k_pipe_nt4_ki64_mw4_sw16"
         },
         {
           "m": 8192,
@@ -579,13 +579,13 @@
           "m": 32768,
           "n": 2560,
           "k": 512,
-          "symbol": "dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4"
+          "symbol": "dense_bwd_q6_k_pipe_nt4_ki64_mw4_sw16"
         },
         {
           "m": 32768,
           "n": 6144,
           "k": 2560,
-          "symbol": "dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4"
+          "symbol": "dense_bwd_q6_k_pipe_nt4_ki64_mw4_sw16"
         },
         {
           "m": 32768,
@@ -639,7 +639,7 @@
           "m": 2048,
           "n": 2048,
           "k": 4096,
-          "symbol": "dense_bwd_q8_0_exact_n4096k2048_g2_padding8"
+          "symbol": "dense_bwd_q8_0_exact_n4096k2048_g2_group_m2_sw8"
         },
         {
           "m": 2048,
@@ -651,7 +651,7 @@
           "m": 2048,
           "n": 4096,
           "k": 1024,
-          "symbol": "dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8"
+          "symbol": "dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8_pipe"
         },
         {
           "m": 2048,
@@ -675,7 +675,7 @@
           "m": 8192,
           "n": 2048,
           "k": 4096,
-          "symbol": "dense_bwd_q8_0_exact_n4096k2048_g2_group_m2"
+          "symbol": "dense_bwd_q8_0_exact_n4096k2048_g2_group_m2_sw8"
         },
         {
           "m": 8192,
@@ -711,7 +711,7 @@
           "m": 32768,
           "n": 2048,
           "k": 4096,
-          "symbol": "dense_bwd_q8_0_exact_n4096k2048_g2_group_m2"
+          "symbol": "dense_bwd_q8_0_exact_n4096k2048_g2_group_m2_sw8"
         },
         {
           "m": 32768,
@@ -723,7 +723,7 @@
           "m": 32768,
           "n": 4096,
           "k": 1024,
-          "symbol": "dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8"
+          "symbol": "dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8_pipe"
         },
         {
           "m": 32768,

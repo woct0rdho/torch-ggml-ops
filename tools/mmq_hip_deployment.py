@@ -140,10 +140,25 @@ class HipControl:
                 )
             return ((n // 64, math.ceil(m / j), 1), _DENSE_FORWARD_BLOCK, shared_bytes)
         if isinstance(config, DenseBackwardConfig):
+            if config.m_tiles_per_wave < 1:
+                raise ValueError("a dense backward tile needs a positive row tile")
             m_per_block = 16 * config.m_tiles_per_wave * config.active_waves
             n_per_block = 16 * config.n_tiles
             m_blocks = math.ceil(m / m_per_block)
             n_blocks = math.ceil(n / n_per_block)
+            if config.full_tiles and (
+                m % m_per_block or n % n_per_block or k % config.k_iteration
+            ):
+                # The unguarded tile writes whole result tiles, so a key that
+                # does not divide evenly faults rather than clipping. That is
+                # how an `m_tiles_per_wave = 3` body failed: its 192-row block
+                # does not divide 2048.
+                raise ValueError(
+                    f"{self.symbol} stages whole tiles only, but M={m} is not a "
+                    f"multiple of {m_per_block}, or N={n} is not a multiple of "
+                    f"{n_per_block}, or K={k} is not a multiple of "
+                    f"{config.k_iteration}"
+                )
             if config.split_k:
                 if config.group_m:
                     raise ValueError("split-contraction controls cannot group in M")

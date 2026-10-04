@@ -793,6 +793,32 @@ def _dense_backward_controls() -> list[HIPControlSpec]:
                 lds_padding=8,
                 vector_local_load=True,
             ),
+            _dense_backward(
+                "dense_bwd_q3_k_mt128_nt128_ki32_full_narrow_sw8",
+                QuantType.Q3_K,
+                8,
+                32,
+                group_m=1,
+                m_tiles_per_wave=2,
+                decoder_width=16,
+                prefetch_local=True,
+                full_tiles=True,
+                vector_local_load=True,
+                lds_swizzle_chunk=8,
+            ),
+            _dense_backward(
+                "dense_bwd_q3_k_mt128_nt128_ki32_full_narrow_sw16",
+                QuantType.Q3_K,
+                8,
+                32,
+                group_m=1,
+                m_tiles_per_wave=2,
+                decoder_width=16,
+                prefetch_local=True,
+                full_tiles=True,
+                vector_local_load=True,
+                lds_swizzle_chunk=16,
+            ),
         ]
     )
     for quant, k, swizzle, pack_q5, pack_q6 in (
@@ -802,11 +828,17 @@ def _dense_backward_controls() -> list[HIPControlSpec]:
         (QuantType.Q5_K, 2048, 8, True, False),
         (QuantType.Q5_K, 512, 4, True, False),
         (QuantType.Q6_K, 2048, 8, False, True),
+        (QuantType.Q4_K, 4096, 8, False, True),
+        (QuantType.Q4_K, 4096, 16, False, True),
         (QuantType.Q6_K, 512, 4, False, True),
         (QuantType.Q6_K, 2048, 8, False, False),
     ):
         name = quant.name.lower()
-        suffix = "_scalar_extraction" if quant is QuantType.Q6_K and not pack_q6 else ""
+        suffix = ""
+        if quant is QuantType.Q6_K and not pack_q6:
+            suffix = "_scalar_extraction"
+        elif quant is QuantType.Q4_K and k == 4096 and swizzle:
+            suffix = f"_sw{swizzle}"
         specs.append(
             _dense_backward(
                 f"dense_bwd_{name}_mt128_nt128_ki32_full_k{k}{suffix}",
@@ -900,15 +932,9 @@ def _dense_backward_controls() -> list[HIPControlSpec]:
             )
         )
     for suffix, n_tiles, k_iteration, m_tiles, swizzle, padding in (
-        ("pipe_nt4_ki64_pad8", 4, 64, 2, 16, 8),
-        ("pipe_nt4_ki64_sw0_pad8", 4, 64, 2, 0, 8),
-        ("pipe_nt4_ki32_pad8", 4, 32, 2, 8, 8),
-        ("pipe_nt8_ki32_pad8", 8, 32, 2, 8, 8),
-        ("pipe_nt8_ki64_pad8", 8, 64, 2, 16, 8),
         ("pipea_nt4_ki64_pad8", 4, 64, 2, 16, 8),
         ("pipea_nt4_ki64_sw0_pad8", 4, 64, 2, 0, 8),
         ("pipea_nt4_ki64_mw4_pad8", 4, 64, 4, 16, 8),
-        ("pipea_nt4_ki32_pad8", 4, 32, 2, 8, 8),
         ("pipea_nt4_ki64", 4, 64, 2, 16, 0),
         ("pipea_nt4_ki64_sw0", 4, 64, 2, 0, 0),
         ("pipea_nt2_ki64_pad8", 2, 64, 2, 8, 8),
@@ -957,6 +983,193 @@ def _dense_backward_controls() -> list[HIPControlSpec]:
                 vector_local_load=True,
                 lds_swizzle_chunk=swizzle,
                 active_waves=waves,
+            )
+        )
+    for suffix, quant, pipeline, a_prefetch, n_tiles, k_iteration, m_tiles, swizzle in (
+        ("q6_k_pipe_nt4_ki64_mw4_sw16", QuantType.Q6_K, True, True, 4, 64, 4, 16),
+    ):
+        specs.append(
+            _dense_backward(
+                f"dense_bwd_{suffix}",
+                quant,
+                n_tiles,
+                k_iteration,
+                group_m=1,
+                m_tiles_per_wave=m_tiles,
+                decoder_width=16,
+                prefetch_local=True,
+                full_tiles=True,
+                vector_local_load=True,
+                lds_swizzle_chunk=swizzle,
+                pipeline_tiles=pipeline,
+                prefetch_a_fragments=a_prefetch,
+            )
+        )
+    # Pipelined twins of the deployed K-quant backward tiles: the same
+    # geometries with the two-tile stage order, at the deployed swizzle and
+    # with the padding that the narrow-result families measured faster.
+    for (
+        quant,
+        name,
+        suffix,
+        n_tiles,
+        k_iteration,
+        m_tiles,
+        swizzle,
+        padding,
+        a_prefetch,
+    ) in (
+        (QuantType.Q3_K, "q3_k", "pipea_nt4_ki64_mw4_sw16", 4, 64, 4, 16, 0, True),
+        (QuantType.Q4_K, "q4_k", "pipea_nt4_ki64_mw4_sw16", 4, 64, 4, 16, 0, True),
+        (QuantType.Q5_K, "q5_k", "pipea_nt4_ki64_mw4_sw16", 4, 64, 4, 16, 0, True),
+        (QuantType.Q5_K, "q5_k", "pipea_nt4_ki64_mw2_sw16", 4, 64, 2, 16, 0, True),
+    ):
+        specs.append(
+            _dense_backward(
+                f"dense_bwd_{name}_mt128_nt128_ki32_full_{suffix}",
+                quant,
+                n_tiles,
+                k_iteration,
+                group_m=1,
+                m_tiles_per_wave=m_tiles,
+                decoder_width=16,
+                prefetch_local=True,
+                full_tiles=True,
+                lds_padding=padding,
+                vector_local_load=True,
+                lds_swizzle_chunk=swizzle,
+                pipeline_tiles=True,
+                prefetch_a_fragments=a_prefetch,
+            )
+        )
+    for label, out_features, in_features, group_m, swizzle, padding in (
+        ("n1024k4096", 1024, 4096, 2, 8, 0),
+        ("n1024k4096", 1024, 4096, 2, 0, 8),
+        ("n32768k1024", 32768, 1024, 1, 8, 0),
+        ("n512k4096", 512, 4096, 2, 8, 0),
+        ("n512k4096", 512, 4096, 2, 0, 8),
+        ("n2048k4096", 2048, 4096, 2, 8, 0),
+        ("n4096k2048", 4096, 2048, 0, 8, 0),
+        ("n4096k2048", 4096, 2048, 0, 0, 8),
+        ("n4096k8192", 4096, 8192, 0, 8, 0),
+        ("n640k2560", 2560, 640, 2, 8, 0),
+    ):
+        parts = f"_group_m{group_m}" if group_m else ""
+        parts += "_padding8" if padding else "_sw8"
+        specs.append(
+            _dense_backward(
+                f"dense_bwd_q8_0_exact_{label}_g2{parts}_pipe",
+                QuantType.Q8_0,
+                8,
+                32,
+                group_m=group_m,
+                m_tiles_per_wave=2,
+                decoder_width=16,
+                prefetch_local=False,
+                full_tiles=True,
+                lds_padding=padding,
+                lds_swizzle_chunk=swizzle,
+                pipeline_tiles=True,
+                exact_out_features=out_features,
+                exact_in_features=in_features,
+            )
+        )
+    # Pipelined split-contraction twins of the deployed head bodies, and
+    # prefetched-decode twins of the pipelined projection bodies.
+    for prefix, quant, n_tiles, k_iteration, m_tiles, swizzle, slices in (
+        ("q5_k_pipesplit_m64_s4", QuantType.Q5_K, 4, 64, 1, 16, 4),
+        ("q5_k_pipesplit_m128_s8", QuantType.Q5_K, 4, 32, 2, 8, 8),
+        ("q5_k_pipesplit_m256_s32", QuantType.Q5_K, 4, 32, 4, 8, 32),
+        ("q8_0_pipesplit_m64_s4", QuantType.Q8_0, 4, 16, 1, 0, 4),
+        ("q8_0_pipesplit_m128_s16", QuantType.Q8_0, 4, 32, 2, 0, 16),
+        ("q8_0_pipesplit_m256_s16", QuantType.Q8_0, 4, 32, 4, 0, 16),
+        ("q8_0_pipesplit_m512_s32", QuantType.Q8_0, 4, 32, 4, 0, 32),
+        ("q6_k_pipesplit_m256_s40", QuantType.Q6_K, 4, 32, 2, 8, 40),
+        ("q6_k_pipesplit_m64_s2", QuantType.Q6_K, 2, 64, 1, 16, 2),
+        ("q6_k_pipesplit_m128_s40", QuantType.Q6_K, 4, 32, 2, 8, 40),
+    ):
+        specs.append(
+            _dense_backward(
+                f"dense_bwd_{prefix}",
+                quant,
+                n_tiles,
+                k_iteration,
+                group_m=0,
+                m_tiles_per_wave=m_tiles,
+                decoder_width=16,
+                prefetch_local=True,
+                full_tiles=True,
+                vector_local_load=True,
+                lds_swizzle_chunk=swizzle,
+                pipeline_tiles=True,
+                prefetch_packed=True,
+                exact_out_features=(
+                    248320 if quant in (QuantType.Q5_K, QuantType.Q6_K) else 129280
+                ),
+                exact_in_features=(
+                    2560
+                    if quant is QuantType.Q5_K
+                    else (2048 if quant is QuantType.Q6_K else 4096)
+                ),
+                split_k=slices,
+            )
+        )
+    for prefix, quant, n_tiles, m_tiles, swizzle, pack_q5, pack_q6 in (
+        (
+            "q3_k_pipea_nt4_ki64_mw4_sw16_prefetch",
+            QuantType.Q3_K,
+            4,
+            4,
+            16,
+            False,
+            False,
+        ),
+        (
+            "q4_k_pipea_nt4_ki64_mw4_sw16_prefetch",
+            QuantType.Q4_K,
+            4,
+            4,
+            16,
+            False,
+            False,
+        ),
+        (
+            "q5_k_pipea_nt4_ki64_mw2_sw16_prefetch",
+            QuantType.Q5_K,
+            4,
+            2,
+            16,
+            True,
+            False,
+        ),
+        (
+            "q6_k_pipea_nt4_ki64_mw4_sw16_prefetch",
+            QuantType.Q6_K,
+            4,
+            4,
+            16,
+            False,
+            True,
+        ),
+    ):
+        specs.append(
+            _dense_backward(
+                f"dense_bwd_{prefix}",
+                quant,
+                n_tiles,
+                64,
+                group_m=1,
+                m_tiles_per_wave=m_tiles,
+                decoder_width=16,
+                prefetch_local=True,
+                full_tiles=True,
+                vector_local_load=True,
+                prefetch_packed=True,
+                lds_swizzle_chunk=swizzle,
+                pipeline_tiles=True,
+                prefetch_a_fragments=True,
+                pack_q5_quant_bytes=pack_q5,
+                pack_q6_quant_bytes=pack_q6,
             )
         )
     for rows, n_tiles, k_iteration, m_tiles, swizzle, pack_q6 in (
@@ -1083,22 +1296,30 @@ def _dense_backward_controls() -> list[HIPControlSpec]:
 
 def _db8_dense_backward_controls() -> list[HIPControlSpec]:
     specs = []
-    for label, out_features, in_features, padding, group_m in (
-        ("n1024k4096", 1024, 4096, 0, 2),
-        ("n1024k4096", 1024, 4096, 8, 2),
-        ("n32768k1024", 32768, 1024, 8, 1),
-        ("n512k4096", 512, 4096, 8, 2),
-        ("n2048k4096", 2048, 4096, 0, 2),
-        ("n2048k4096", 2048, 4096, 8, 2),
-        ("n4096k2048", 4096, 2048, 0, 2),
-        ("n640k2560", 2560, 640, 0, 1),
-        ("n640k2560", 2560, 640, 0, 2),
-        ("n640k2560", 2560, 640, 8, 2),
+    for label, out_features, in_features, padding, group_m, swizzle in (
+        ("n1024k4096", 1024, 4096, 0, 2, 0),
+        ("n1024k4096", 1024, 4096, 8, 2, 0),
+        ("n32768k1024", 32768, 1024, 8, 1, 0),
+        ("n512k4096", 512, 4096, 8, 2, 0),
+        ("n2048k4096", 2048, 4096, 0, 2, 0),
+        ("n2048k4096", 2048, 4096, 8, 2, 0),
+        ("n4096k2048", 4096, 2048, 0, 2, 0),
+        ("n640k2560", 2560, 640, 0, 1, 0),
+        ("n640k2560", 2560, 640, 0, 2, 0),
+        ("n640k2560", 2560, 640, 8, 2, 0),
+        # Swizzle-only twins of the padding-8 bodies: the same tile with the
+        # conflict handled by the LDS swizzle instead of two KiB of padding.
+        ("n4096k2048", 4096, 2048, 0, 2, 8),
+        ("n640k2560", 2560, 640, 0, 2, 8),
     ):
-        suffix = "_padding8" if padding else ""
+        parts = f"_group_m{group_m}" if group_m else ""
+        if padding:
+            parts += "_padding8"
+        if swizzle:
+            parts += f"_sw{swizzle}"
         specs.append(
             _dense_backward(
-                f"dense_bwd_q8_0_exact_{label}_g2_group_m{group_m}{suffix}",
+                f"dense_bwd_q8_0_exact_{label}_g2{parts}",
                 QuantType.Q8_0,
                 8,
                 32,
@@ -1107,6 +1328,7 @@ def _db8_dense_backward_controls() -> list[HIPControlSpec]:
                 decoder_width=16,
                 full_tiles=True,
                 lds_padding=padding,
+                lds_swizzle_chunk=swizzle,
                 exact_out_features=out_features,
                 exact_in_features=in_features,
             )
@@ -1301,7 +1523,7 @@ def hip_control_specs() -> tuple[HIPControlSpec, ...]:
         + _grouped_backward_controls()
     )
     symbols = [spec.symbol for spec in specs]
-    if len(specs) != 345:
+    if len(specs) != 374:
         raise ValueError(f"historical HIP control inventory has {len(specs)} entries")
     if len(symbols) != len(set(symbols)):
         raise ValueError("HIP control symbols must be unique")

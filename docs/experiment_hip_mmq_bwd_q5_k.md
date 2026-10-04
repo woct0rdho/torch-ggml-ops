@@ -15,24 +15,24 @@ GatedDeltaNet `out_proj` is deferred because wiring it needs the activation perm
 | Narrow K/V/gate/up | `(2048,2048,512)` | 20.862 | 0.898x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k512` |
 | Narrow K/V/gate/up | `(8192,2048,512)` | 22.190 | 0.903x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
 | Narrow K/V/gate/up | `(32768,2048,512)` | 23.240 | 0.946x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
-| Shared down | `(2048,512,2048)` | 17.356 | 1.351x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
-| Shared down | `(8192,512,2048)` | 11.315 | 0.742x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k512` |
-| Shared down | `(32768,512,2048)` | 12.464 | 0.748x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
-| QSA key/value | `(2048,2560,512)` | 22.328 | 1.060x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
-| QSA key/value | `(8192,2560,512)` | 23.637 | 0.873x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
-| QSA key/value | `(32768,2560,512)` | 25.253 | 0.932x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
-| QSA output | `(2048,6144,2560)` | 25.578 | 1.028x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
-| QSA output | `(8192,6144,2560)` | 26.831 | 1.033x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
-| QSA output | `(32768,6144,2560)` | 25.736 | 1.018x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
-| Shared-expert gate/up | `(2048,2560,640)` | 23.288 | 1.074x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
-| Shared-expert gate/up | `(8192,2560,640)` | 25.428 | 0.913x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
-| Shared-expert gate/up | `(32768,2560,640)` | 26.393 | 0.931x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
-| GatedDeltaNet QKV APEX-I-Mini | `(2048,2048,8192)` | 21.114 | 1.242x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k512` |
-| GatedDeltaNet QKV APEX-I-Mini | `(8192,2048,8192)` | 22.915 | 1.271x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
-| GatedDeltaNet QKV APEX-I-Mini | `(32768,2048,8192)` | 22.889 | 1.280x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
-| Language model head | `(64,2560,248320)` | 12.868 | 0.884x | `dense_bwd_q5_k_exact_lm_head_splitk_m64_s4` |
-| Language model head | `(128,2560,248320)` | 20.604 | 1.626x | `dense_bwd_q5_k_exact_lm_head_splitk_m128_s8` |
-| Language model head | `(256,2560,248320)` | 22.370 | 1.178x | `dense_bwd_q5_k_exact_lm_head_splitk_m256_s32` |
+| Shared down | (2048,512,2048) | 23.290 | 1.028x | `dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw2_sw16` |
+| Shared down | (8192,512,2048) | 26.970 | 1.129x | `dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw2_sw16` |
+| Shared down | (32768,512,2048) | 28.047 | 1.156x | `dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw2_sw16` |
+| QSA key/value | (2048,2560,512) | 29.207 | 1.393x | `dense_bwd_q5_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
+| QSA key/value | (8192,2560,512) | 28.242 | 1.081x | `dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw2_sw16` |
+| QSA key/value | (32768,2560,512) | 30.542 | 1.148x | `dense_bwd_q5_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
+| QSA output | (2048,6144,2560) | 33.643 | 1.370x | `dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw4_sw16` |
+| QSA output | (8192,6144,2560) | 30.265 | 1.171x | `dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw2_sw16` |
+| QSA output | (32768,6144,2560) | 30.010 | 1.145x | `dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw2_sw16` |
+| Shared-expert gate/up | (2048,2560,640) | 30.356 | 1.418x | `dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw2_sw16` |
+| Shared-expert gate/up | (8192,2560,640) | 30.025 | 1.107x | `dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw2_sw16` |
+| Shared-expert gate/up | (32768,2560,640) | 33.861 | 1.193x | `dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw4_sw16` |
+| GatedDeltaNet QKV APEX-I-Mini | (2048,2048,8192) | 21.114 | 1.242x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k512` |
+| GatedDeltaNet QKV APEX-I-Mini | (8192,2048,8192) | 22.915 | 1.271x | `dense_bwd_q5_k_mt128_nt128_ki32_full_k2048` |
+| GatedDeltaNet QKV APEX-I-Mini | (32768,2048,8192) | 23.869 | 1.295x | `dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw2_sw16` |
+| Language model head | (64,2560,248320) | 17.798 | 1.222x | `dense_bwd_q5_k_pipesplit_m64_s4` |
+| Language model head | (128,2560,248320) | 21.841 | 1.724x | `dense_bwd_q5_k_pipesplit_m128_s8` |
+| Language model head | (256,2560,248320) | 25.548 | 1.348x | `dense_bwd_q5_k_pipesplit_m256_s32` |
 
 The `Kernel` column names the deployed body for each exact key. It is the fastest built body whose output is bitwise equal to the reference body in the per-key candidate campaign. The shared-down rows show the largest per-sample spread in the matrix (`1.20-1.53` max/min here). The narrow rows stay at `1.05-1.07`.
 
@@ -67,6 +67,18 @@ The accepted body keeps packed/decode temporaries dead before long WMMA phases. 
 ### Closed directions
 
 The current source closes global J64, I128, alternate workgroup sizes, split-K, GSU, Stream-K, persistent workgroups, generic local-load rules, and compiler-managed prefetch arrays. Q5-specific results must not be inferred from Q4_K or Q3_K because packed high-bit reconstruction changes the register and LDS cost model.
+
+### Pipelined tile
+
+The Q2_0 and Q6_K records established a two-tile backward stage order, one barrier per contraction stage, and this record is where it pays most. The pipelined twin of the deployed `_k2048` geometry, at the 64-value stage with two and four row tiles per wave, beats the deployed bodies on every measured point: `1.31x/1.08x/1.09x` on the QSA value rows, `1.42x/1.11x/1.19x` on the shared-expert gate/up rows, `1.37x/1.17x/1.15x` on the QSA output rows, and `1.03x/1.13x/1.16x` on the APEX-I-Mini `(512,2048)` rows, against `M=2048/8192/32768` at eight repeats.
+
+On the APEX-I-Mini `(2048,8192)` rows the pipelined variant beats the eight-column tile by `1.15x` at `M=2048` and `1.02x` at `M=32768`. The `M=2048` row keeps the `_k512` wrapper it deploys and the `M=8192` row was not measured against the deployed body, so only the `M=32768` row takes the pipelined tile. The narrow-result rows prefer the two-row-tile variant and the wide rows the four-row-tile one at `M=2048`.
+
+The shared-expert down `(2048,512)` rows keep their single-tile body (`0.73x` at `M=2048`, where the pipelined variant's 256-row blocks starve the grid. `1.10x` at `M=32768` was left undeployed for the want of a confirmation run). The swizzle-only twin of the deployed 8 KiB tile loses (`1.03-1.21x` behind) on this type, so the pipeline is deployed with the swizzle the deployed bodies already use.
+
+### Pipelined split-contraction head
+
+The head keys were the one place the earlier records measured the tile pipeline on a single-tile body: the split-contraction body's stage loop was still the two-barrier order. The same pipelined body now carries the split window (`dense_mmq_pipelined_splitk_body`, sharing the projection tile's implementation), and against the deployed split bodies at eight repeats it is `1.40x` ahead at `M=64`, `1.04x` at `M=128` and `1.14x` at `M=256`, all three keys taking it. Its prefetched decode is what the projection rows took as well: `1.07x` and `1.06x` over the group-decoding pipelined tile on the QSA value rows, so those two rows moved to the prefetched twin too.
 
 ## Resources
 

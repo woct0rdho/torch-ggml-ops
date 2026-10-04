@@ -28,6 +28,30 @@ _ROUTED_OPERATIONS = (
     "GroupedBackwardPair",
 )
 
+
+def test_every_deployed_key_derives_a_launch_configuration() -> None:
+    """Every deployed key must satisfy its body's tiling contract.
+
+    A full-tile body writes whole result tiles, so a key whose row count,
+    result width or contraction does not divide by the body's tiles faults
+    instead of clipping. The launch configuration derives the grid and is
+    where that is rejected (`m_tiles_per_wave = 3` was such a geometry).
+    """
+
+    for (operation, quant_type, m, n, k), symbol in deployment_table().items():
+        if operation not in ("OrdinaryBackward", "OrdinaryForward"):
+            continue
+        control = select_hip_control(operation, quant_type, m, n, k)
+        assert control.symbol == symbol
+        try:
+            control.launch_configuration(m, n, k)
+        except ValueError as error:  # pragma: no cover - failure path
+            raise AssertionError(
+                f"{symbol} cannot launch key {operation} {quant_type} "
+                f"M={m}, N={n}, K={k}: {error}"
+            ) from error
+
+
 _ROUTED_SYMBOL_PREFIXES = {
     "GroupedForward": "grouped_fwd_",
     "GroupedForwardPair": "grouped_fwd_",

@@ -68,6 +68,8 @@ All are spill-free. The single-tile bodies use `120-232 VGPR` at `9-10 KiB` LDS.
 
 The first-generation screen covered the plain packed tile, a four-column tile, its ungrouped traversal, two 64-wide-stage variants, an eight-column four-row-tile variant, decoder widths of eight and 32, and padding of four, eight and sixteen values. The four-column tile with a 64-value stage and two row tiles per wave won nearly every point, `1.5-2.0x` over the packed eight-column tile on the wide shapes and `1.09-1.26x` over its own 32-value-stage twin. A four-row-tile variant lost `1.18-1.26x`, a one-row-tile variant lost `1.26-1.52x`, a two-column tile lost `1.8x`, and decoder widths of eight or 32 were `1.04-1.23x` behind. Padding of eight values then added `1.01-1.07x`, and padding of four or sixteen was worse than no padding. The one point preferring the packed eight-column tile is the shared-expert down projection at `M=2048`, whose result is only 640 wide. `m_tiles_per_wave = 3` faults with a memory error, so that geometry is built but must not be selected.
 
+The full-tile contract is now enforced where the grid is derived: a key whose M, result width or contraction is not a multiple of the body's row tile, column tile and stage width fails at launch instead of writing past the tile. That is the mistake the `m_tiles_per_wave = 3` variant made, whose 192-row block does not divide the 2048-row shape it was measured on.
+
 The launch path also had to stop assuming a 256-value block: `blocks_per_weight_row` was `in_features // 256` in both dense launchers and in the measurement harness, which is wrong for every type whose block is not `QK_K`. They now take it from the type's format record.
 
 ### Why the pipeline, and why not warp specialization

@@ -10,9 +10,9 @@ The final ordinary matrix contains seven families at `M=2048,8192,32768`, and th
 
 | Family | `(M,K,N)` | HIP TFLOPS | HIP/torch.mm | Kernel |
 | --- | ---: | ---: | ---: | --- |
-| Q-A | `(2048,4096,1024)` | 25.866 | 1.074x | `dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8` |
+| Q-A | (2048,4096,1024) | 28.984 | 1.221x | `dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8_pipe` |
 | Q-A | `(8192,4096,1024)` | 26.482 | 1.064x | `dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8` |
-| Q-A | `(32768,4096,1024)` | 27.413 | 1.107x | `dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8` |
+| Q-A | (32768,4096,1024) | 27.415 | 1.106x | `dense_bwd_q8_0_exact_n1024k4096_g2_group_m2_padding8_pipe` |
 | Q-B | `(2048,1024,32768)` | 19.033 | 0.859x | `dense_bwd_q8_0_exact_n32768k1024_g2_group_m1_padding8` |
 | Q-B | `(8192,1024,32768)` | 18.476 | 0.823x | `dense_bwd_q8_0_exact_n32768k1024_g2_group_m1_padding8` |
 | Q-B | `(32768,1024,32768)` | 22.170 | 1.023x | `dense_bwd_q8_0_exact_n32768k1024_g2_group_m1_padding8` |
@@ -25,9 +25,9 @@ The final ordinary matrix contains seven families at `M=2048,8192,32768`, and th
 | Shared gate/up | `(2048,4096,2048)` | 26.571 | 1.112x | `dense_bwd_q8_0_exact_n2048k4096_g2_group_m2_padding8` |
 | Shared gate/up | `(8192,4096,2048)` | 24.880 | 1.033x | `dense_bwd_q8_0_exact_n2048k4096_g2_group_m2_padding8` |
 | Shared gate/up | `(32768,4096,2048)` | 25.107 | 1.043x | `dense_bwd_q8_0_exact_n2048k4096_g2_group_m2_padding8` |
-| Shared down | `(2048,2048,4096)` | 21.647 | 1.265x | `dense_bwd_q8_0_exact_n4096k2048_g2_padding8` |
-| Shared down | `(8192,2048,4096)` | 19.650 | 1.075x | `dense_bwd_q8_0_exact_n4096k2048_g2_group_m2` |
-| Shared down | `(32768,2048,4096)` | 20.580 | 1.114x | `dense_bwd_q8_0_exact_n4096k2048_g2_group_m2` |
+| Shared down | (2048,2048,4096) | 22.034 | 1.287x | `dense_bwd_q8_0_exact_n4096k2048_g2_group_m2_sw8` |
+| Shared down | (8192,2048,4096) | 19.572 | 1.072x | `dense_bwd_q8_0_exact_n4096k2048_g2_group_m2_sw8` |
+| Shared down | (32768,2048,4096) | 22.807 | 1.232x | `dense_bwd_q8_0_exact_n4096k2048_g2_group_m2_sw8` |
 | Shared down Qwen4-Exp | `(2048,640,2560)` | 26.950 | 1.658x | `dense_bwd_q8_0_exact_n640k2560_g2_group_m2_padding8` |
 | Shared down Qwen4-Exp | `(8192,640,2560)` | 25.446 | 1.513x | `dense_bwd_q8_0_exact_n640k2560_g2_group_m2_padding8` |
 | Shared down Qwen4-Exp | `(32768,640,2560)` | 27.959 | 1.553x | `dense_bwd_q8_0_exact_n640k2560_g2_group_m2_padding8` |
@@ -59,6 +59,10 @@ The build carries four ordinary variant generations: the plain `exact_n{N}k{K}` 
 The LM head uses active-two-wave M32, G0 M64, G1 M128, and G3 M256/M512 bodies. M512 launches two exact M256-style tiles. The single-pass campaign timed the built chunk bodies per `M` and selected `_bounded` at M32, `_full` at M64, `_g1` at M128, and `_g3` at M256/M512. The split-contraction campaign then replaced every chunk's single-pass body with an exact slice body whose slice count is fitted per chunk. `_g2` lost at M128/M256/M512, `_full` lost at M128 and above, `_bounded` lost at M64 and above, `_m32_active2` tied with the deployed `_bounded` body inside `0.2%` at M32, and `_g3` faults at M128, which `_g1` covers.
 
 The ordinary G2 body is `192 VGPR / 14 SGPR / 8 KiB LDS`, and `padding8` adds 2 KiB of LDS to it. The isolated LM bodies use 91-194 VGPR and 2-4 KiB LDS.
+
+### Pipelined tile
+
+The pipelined stage order was screened on five of the seven ordinary families at `M=2048` and `32768`. It wins on the query A rows (`1.17x` at `M=2048`, level at `32768`), which are the deepest grid-starved points, and loses or collapses elsewhere: the swizzle-flavoured twins are `1.03-1.21x` behind on the query B, output B and shared down rows, the padded twin is `1.06x` behind on the shared down rows, and two configurations degenerate at `M=32768` (`10.1-10.8` against `19.6-22.8 TFLOPS`), the same pathology the non-pipelined padded body shows on that family. Only the two measured query A rows deploy the pipelined tile.
 
 ## Closed dtype and distribution avenues
 
@@ -105,6 +109,14 @@ Activation-half double buffering, K-loop unrolling, width32 decode, stride77 pad
 ### Qwen4-Exp shared-expert down
 
 The seventh ordinary family is the Qwen4-Exp shared-expert down projection, `(M,640,2560)`: the result is only `640` wide, so a G2 workgroup covers a fifth of it and the whole grid is `64 x 5` workgroups at `M=8192`. The family's eight candidate bodies were timed on all three row counts at `4` repeats. The `_g2_group_m2_padding8` body wins every point, by `1.18-1.33x` over the unpadded `_g2` bodies, `1.25-3.61x` over `_g1`, `1.49-5.60x` over `_g3`, and `2.10-3.49x` over the pre-G plain wrapper. The padding carries the win at `M=2048` and the grouped-M traversal carries it at the larger row counts. The body is the family's standing choice for a narrow result and deploys on all three keys.
+
+### Swizzle against padding
+
+Seven swizzle-only twins of the padded G2 bodies were built (`_g2_*_sw8`/`_sw16`, 8 KiB rather than 10 KiB) and screened on the DeepSeek families at `M=2048` and `32768`. Padding wins on six of the seven: the swizzle twins are `1.05-1.18x` slower on the query A, query B, KV, output B and shared gate/up shapes, and `1.15-1.36x` slower at `sw16`. The exception is the shared down projection, whose result is `(M,2048)`: there `sw8` is `1.20x` ahead at `M=2048`, level at `M=8192` and `1.11x` ahead at `M=32768`, and the padded body collapses at the larger row counts (`10.8` against `19.6-22.8 TFLOPS`), which is why those three keys were never deployed with padding above `M=2048`. The three shared-down keys now deploy `exact_n4096k2048_g2_group_m2_sw8`. Everything else keeps padding. Evidence: `~/tmp/torch-ggml-ops/qwen4_fwd/bwd_swz_q80.txt`, `bwd_final_decisions.txt` and `bwd_deploy_confirm.txt`.
+
+### Pipelined split-contraction head
+
+The head chunks were retried with the pipelined slice body. The first attempt returned results 2.9x too large, which was two bugs in the new decode: the Q8_0 payload word was read as unsigned bytes, so every negative quant shifted by `+256`, and a slice whose last stage is shorter than the stage width needed the shipped body's zero-fill guard (the head's `129,280`-value contraction with sixteen or thirty-two slices does not divide by the 32-value step). With both fixed the body is correct on all four chunks, and it is *not* faster: `0.81x`/`0.87x` behind the deployed slice bodies at `M=64`/`128` and level at `M=256`/`512` (`1.01x`). The deployed bodies therefore stay, and the finding is that this type's slices are already deep in stage terms (about 250 stages each), so a stage pipeline has nothing left to overlap.
 
 ### Split-contraction measurement
 

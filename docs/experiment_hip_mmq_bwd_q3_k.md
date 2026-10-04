@@ -23,10 +23,10 @@ GatedDeltaNet `out_proj` is deferred because wiring it needs the activation perm
 | QSA query | `(32768,2560,12288)` | 23.431 | 0.932x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
 | QSA key/value | `(2048,2560,512)` | 24.308 | 1.152x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
 | QSA key/value | `(8192,2560,512)` | 26.035 | 0.976x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
-| QSA key/value | `(32768,2560,512)` | 26.921 | 0.999x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
-| Shared-expert gate/up | `(2048,2560,640)` | 24.663 | 1.139x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| QSA key/value | (32768,2560,512) | 30.200 | 1.125x | `dense_bwd_q3_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw4_sw16` |
+| Shared-expert gate/up | (2048,2560,640) | 30.810 | 1.412x | `dense_bwd_q3_k_pipea_nt4_ki64_mw4_sw16_prefetch` |
 | Shared-expert gate/up | `(8192,2560,640)` | 26.982 | 0.966x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
-| Shared-expert gate/up | `(32768,2560,640)` | 27.464 | 0.957x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
+| Shared-expert gate/up | (32768,2560,640) | 36.000 | 1.269x | `dense_bwd_q3_k_pipea_nt4_ki64_mw4_sw16_prefetch` |
 | GatedDeltaNet QKV | `(2048,2560,10240)` | 22.735 | 0.962x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
 | GatedDeltaNet QKV | `(8192,2560,10240)` | 24.240 | 0.940x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
 | GatedDeltaNet QKV | `(32768,2560,10240)` | 23.644 | 0.929x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
@@ -66,6 +66,18 @@ The rate is not uniform in the contraction length: the short-contraction key, va
 ### Packaged-kernel controls
 
 The source-built HSACO conversion produced a `+0.56%` initial geometric movement and a `+1.12%` embedded/bundle bracket movement, while embedded controls themselves drifted by `+1.04%`. Q3 query showed `2.9-7.0%` placement-sensitive movement without a device semantic change. Warm standalone modules, normalized ISA, and sequential controls are required before treating a timing change as a kernel result.
+
+### Swizzle-only twin of the padded tile
+
+The retained `_full_narrow` body carries `lds_padding = 8` and no LDS swizzle. Swizzle-only twins (8 KiB rather than 10 KiB) were screened on two families at `M=2048` and `32768`: padding wins, `1.08-1.29x` at `sw8` and `1.18-1.35x` at `sw16`, so this body keeps its padded tile. Evidence: `~/tmp/torch-ggml-ops/qwen4_fwd/bwd_swz_q3q4.txt`.
+
+### Pipelined tile
+
+The pipelined stage order was screened here on the same pattern as Q5_K and Q6_K: on the narrow-result shared-expert gate/up rows the 64-value-stage, four-row-tile body is `1.37x` and `1.20x` ahead of the deployed body at `M=2048` and `32768`, and on the QSA key/value rows it is `1.13x` ahead at `M=32768` while losing `0.77x` at `M=2048`, where its 256-row blocks leave too few workgroups. Those three rows take the pipelined body. The pipelined twins of the eight-column tile lose `1.06-1.13x` everywhere they were measured, so the rest of the family keeps the deployed padded tile.
+
+### Prefetched decode on the pipelined tile
+
+The pipelined projection rows used the width-16 group decode. The prefetched variant, which reads the payload planes as `uint4` before decoding, is `1.04x` and `1.07x` ahead of it on the shared-expert gate/up rows, so those two rows deploy it.
 
 ## Resources
 

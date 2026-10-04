@@ -16,20 +16,20 @@ Neither checkpoint carries this type in `in_proj_qkv` or `in_proj_z`, so this se
 
 | Family | `(M,K,N)` | HIP TFLOPS | HIP/torch.mm | Kernel |
 | --- | ---: | ---: | ---: | ---: |
-| Language model head | `(64,2048,248320)` | 13.970 | 2.119x | `dense_bwd_q6_k_exact_lm_head_splitk_m64_s2` |
-| Language model head | `(128,2048,248320)` | 23.170 | 2.572x | `dense_bwd_q6_k_exact_lm_head_splitk_m128_s40` |
-| Language model head | `(256,2048,248320)` | 21.620 | 1.577x | `dense_bwd_q6_k_m256_nt64_ki32_full` |
-| QSA key/value | `(2048,2560,512)` | 25.091 | 1.202x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4` |
-| QSA key/value | `(8192,2560,512)` | 27.808 | 1.087x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4` |
-| QSA key/value | `(32768,2560,512)` | 30.801 | 1.161x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4` |
-| QSA output | `(2048,6144,2560)` | 33.655 | 1.383x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4` |
-| QSA output | `(8192,6144,2560)` | 31.267 | 1.221x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4` |
-| QSA output | `(32768,6144,2560)` | 27.131 | 1.087x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4` |
+| Language model head | (64,2048,248320) | 14.340 | 2.174x | `dense_bwd_q6_k_pipesplit_m64_s2` |
+| Language model head | (128,2048,248320) | 23.876 | 2.653x | `dense_bwd_q6_k_pipesplit_m128_s40` |
+| Language model head | (256,2048,248320) | 22.443 | 1.634x | `dense_bwd_q6_k_pipesplit_m256_s40` |
+| QSA key/value | (2048,2560,512) | 29.732 | 1.410x | `dense_bwd_q6_k_pipe_nt4_ki64_mw4_sw16` |
+| QSA key/value | (8192,2560,512) | 30.633 | 1.170x | `dense_bwd_q6_k_pipe_nt4_ki64_mw4_sw16` |
+| QSA key/value | (32768,2560,512) | 32.626 | 1.233x | `dense_bwd_q6_k_pipe_nt4_ki64_mw4_sw16` |
+| QSA output | (2048,6144,2560) | 34.519 | 1.423x | `dense_bwd_q6_k_pipe_nt4_ki64_mw4_sw16` |
+| QSA output | (8192,6144,2560) | 31.636 | 1.236x | `dense_bwd_q6_k_pipe_nt4_ki64_mw4_sw16` |
+| QSA output | (32768,6144,2560) | 29.497 | 1.127x | `dense_bwd_q6_k_pipe_nt4_ki64_mw4_sw16` |
 | Shared-expert gate/up | `(2048,2560,640)` | 33.369 | 1.553x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4` |
 | Shared-expert gate/up | `(8192,2560,640)` | 35.648 | 1.328x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4` |
 | Shared-expert gate/up | `(32768,2560,640)` | 36.641 | 1.326x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4` |
 
-The values use the current Q6_K packed/BF16 kernel matrix and come from one official run. M256 is the primary large chunk, with M64 and M128 as smaller exact geometries. The `Kernel` column names the deployed body for each chunk. The M64 and M128 chunks deploy the split-contraction body described below. M256 keeps its single-pass body because the slice body measures within noise there. The `_full_*` bodies are the unbounded exact variants (`_bounded` builds exist for shapes outside the exact-tile contract).
+The values use the current Q6_K packed/BF16 kernel matrix and come from one official run. M256 is the primary large chunk, with M64 and M128 as smaller exact geometries. The `Kernel` column names the deployed body for each chunk. All three chunks deploy a split-contraction body. M64 and M128 use the slice bodies measured below, and M256 moved to the pipelined slice body when it measured `1.07x` ahead of the single-pass body that chunk used to keep. The `_full_*` bodies are the unbounded exact variants (`_bounded` builds exist for shapes outside the exact-tile contract).
 
 ### Split-contraction deployment
 
@@ -39,7 +39,7 @@ Parity at one slice was the prerequisite, and it needed two changes beyond the Q
 
 The Q6_K decode stage is 64 wide on M64, so a slice width has to be a multiple of the stage width for every slice, including the truncated last one. The host rounds the width up to `max(32, k_iteration)` and the contraction bound is a multiple of the same step, so both the width and the bound are multiples of the stage width and the last slice is too. No stage is ever truncated, and the full-tile path needs no per-element guard. The Q8_0 slice bodies have the same invariant with a 16- or 32-wide stage. Where a slice body is built but the stage alignment cannot be guaranteed, it is the bounded body that carries the guard, and there the shared-tile bound is the *slice* end rather than the contraction: a tile column beyond the slice would otherwise keep the previous stage's decoded weights and multiply them with real activations, which measured as an NRMSE of `4.5e-2` against the `1.9e-3` of the correct form.
 
-Measured against the deployed single-pass bodies with identical inputs, and with the reduce inside the timed region, the slice bodies gain `1.25x` at M64 with two slices and `1.71x` at M128 with forty. At M256 the same body is worth `1.07x` in the A/B harness and `+2%` under the official protocol, which is inside the run-to-run spread, so M256 keeps its single-pass body and no partial workspace is allocated for it. The A/B slice sweep, all against the same prepared gradient and packed weights: M64 `1.041x` at one slice, `1.251x` at two, `1.169x` at twenty, `1.247x` at forty, with a reproducible dip to `0.72x` at four slices. M128 `1.050x` at one, `1.566x` at four, `1.577x` at sixteen, `1.715x` at forty, `1.749x` at eighty. M256 `1.041x` at one, `0.947x` at sixteen, `1.071x` at forty, `1.077x` at eighty, and `0.239x` at 1,940 slices where the partial workspace dominates.
+Measured against the deployed single-pass bodies with identical inputs, and with the reduce inside the timed region, the slice bodies gain `1.25x` at M64 with two slices and `1.71x` at M128 with forty. At M256 the same body was worth `1.07x` in the A/B harness and `+2%` under the official protocol, which at the time read as inside the run-to-run spread, so M256 kept its single-pass body. The pipelined slice body later measured `1.07x` ahead of that body at the same chunk and took the key. The A/B slice sweep, all against the same prepared gradient and packed weights: M64 `1.041x` at one slice, `1.251x` at two, `1.169x` at twenty, `1.247x` at forty, with a reproducible dip to `0.72x` at four slices. M128 `1.050x` at one, `1.566x` at four, `1.577x` at sixteen, `1.715x` at forty, `1.749x` at eighty. M256 `1.041x` at one, `0.947x` at sixteen, `1.071x` at forty, `1.077x` at eighty, and `0.239x` at 1,940 slices where the partial workspace dominates.
 
 The slice bodies change the accumulation order, so their output is not bitwise equal to the single-pass body. The difference against that body is an NRMSE of `1.9e-3` at 40 or 80 slices and `1.5e-3` at two, and the external oracle check passes on the deployed routes.
 
@@ -89,15 +89,27 @@ The head lineage does not transfer to the Qwen4-Exp projection shapes. On them i
 
 Its first screen, on all three shapes at `4` repeats, compared the deployed knob set (`_k2048`: eight output tiles, 32-wide contract stage, two row tiles per wave, swizzle eight) against a 16-tile and a four-tile variant, a swizzle-zero variant with `8`-word padding, a zero decoder-width and a non-prefetching variant, and 64-wide contract stages. Four output tiles (`64` columns per workgroup) is the large win, `+12-16%` over eight tiles. A 64-wide contract stage and four row tiles per wave add `+10-21%` on the two shapes whose result is 2560 wide, and nothing beyond noise on the 6144-wide one, where four output tiles with the deployed row geometry stay ahead. A zero decoder width and disabling packed prefetch measure within noise, and padding or 16 output tiles lose `+7%` and `5x` respectively.
 
+### Pipelined tile
+
+The Q2_0 record showed that a two-tile pipeline, one barrier per contraction stage, pays on the backward skeleton. The pilot here reuses that body (`csrc/ck/mmq_backward_pipelined.cuh`, generalized to the six staged weight types) at the deployed geometry, and includes the same body with the pipeline switched off so the two effects and the width-16 group decode can be read apart. Against the deployed `_k2048_nt4_ki64_mw4` body at eight repeats: the pipelined body is `1.02x` on the QSA output rows, `1.06-1.52x` on the QSA key/value rows (the narrowest result and the starved grid), and `0.96-1.04x` on the shared-expert gate/up rows, where the contraction is only ten stages deep and the pipeline's fill and drain dominate. Isolating the pipeline at fixed geometry and decode gives `1.003-1.18x` on all six measured points. The width-16 group decode on its own is not better than the deployed per-value path (`0.93-1.08x`), so the deployed bodies keep the pipelined tile with the group decode paired with the 64-value stage and four row tiles per wave. The key/value and output projection keys now deploy `_pipe_nt4_ki64_mw4_sw16`. The shared-expert keys keep their single-tile body.
+
 ### Split-contraction measurement
 
 The split-K closure above was a contract deferral, not a measurement, so the language-model-head keys were retested with a dedicated split-contraction body: the deployed tile, decode and matrix work are unchanged, each workgroup takes one contiguous slice of the contraction, writes an FP32 partial tile, and a second kernel sums the slices in ascending order and rounds once to BF16. Both sides consume the same prepared gradient and the same packed weights.
 
 Two forms were measured. The runtime-dimension form loses on all three chunks (`0.56-0.59x` at one slice, `0.74-0.78x` at the best slice count), and unlike the Q8_0 keys the deployed Q6_K bodies also carry runtime dimensions, so the remaining gap belongs to the experimental body's missing vectorised fragment loads and local prefetch rather than to shape specialization alone. The mechanism is therefore neither confirmed nor rejected here: the next step is a Q6_K split body that carries the deployed body's loader and exact dimensions and matches it at one slice before any slice count is judged. Evidence and the experimental body live under `~/tmp/torch-ggml-ops/retune_dense_bwd/`.
 
+### Pipelined split-contraction head
+
+The head chunks keep their split-contraction contract but take the pipelined stage order (`dense_mmq_pipelined_splitk_body`). Against the deployed slice bodies at eight repeats it is `1.06x` ahead at `M=64` and `1.03x` at `M=128`. At `M=256` it is `1.07x` ahead of the single-pass body that chunk used to keep, so the chunk moves to the pipelined slice body as well and all three keys deploy one. The prefetched decode that the projection rows use is neutral here (`0.94-1.01x`), so the projection keys keep the group decode while the head keys take the prefetched one because it is what the split body is built with.
+
 ## Resources
 
 Retained head bodies use `87/138/137 VGPR` for M64/M128/M256, `15/16/15 SGPR`, and 4 KiB LDS. The projection bodies use `141 VGPR / 16 SGPR / 4 KiB` for `_k2048_nt4` and `213 VGPR / 17 SGPR / 8 KiB` for `_k2048_nt4_ki64_mw4`, both spill-free.
+
+## Next
+
+The pipelined tile is deployed on the key/value and output projections here and on every Q2_0 key. The remaining rollout is one screen per type on the same pattern: Q5_K and Q4_K first (their tiles are 8-10 KiB, so the pipeline costs a workgroup per WGP rather than the occupancy a Q8_0-shaped 4 KiB tile keeps), then Q8_0 (whose decode is as cheap as Q2_0's, so its barrier share should resemble this record's), then Q3_K. Each type needs its own per-key screen afterwards, because this pilot reproduced the Q2_0 finding that the pipeline changes which tile geometry wins: here the pipelined body only pays at the 64-value stage with four row tiles per wave, and the width-16 group decode that comes with it is slower than the deployed per-value path at the smaller geometry.
 
 ## Evidence
 
