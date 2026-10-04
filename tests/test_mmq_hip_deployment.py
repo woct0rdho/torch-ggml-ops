@@ -94,7 +94,7 @@ def test_extra_catalog_keys_are_hip_only_forward_shapes() -> None:
     inventory = {spec.symbol for spec in hip_control_specs()}
     for operation, quant_type, m, n, k in sorted(_hip_only_keys()):
         assert operation == "OrdinaryForward"
-        assert quant_type in {"Q3_K", "Q4_K", "Q5_K"}
+        assert quant_type in {"Q3_K", "Q4_K", "Q5_K", "Q6_K"}
         control = select_hip_control(operation, quant_type, m, n, k)
         assert control.symbol in inventory
         assert n % 64 == 0
