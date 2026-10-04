@@ -46,7 +46,7 @@ _DENSE_BACKWARD_BLOCK = (128, 1, 1)
 _Q3_K_LDS_BYTES = 40_448
 # A wide dense tile holds twice the weight rows, so its LDS is the J-row
 # activation tile plus 128 rows of that type's packed SRAM layout.
-_WIDE_LDS_BYTES = {"Q3_K": 61_952, "Q4_K": 57_856}
+_WIDE_LDS_BYTES = {"Q3_K": 61_952, "Q4_K": 57_856, "Q5_K": 57_856}
 _J64_LDS_BYTES = 28_928
 _J128_LDS_BYTES = 38_400
 # Grouped-forward launch geometry. The activation tile holds one Q8_1 plane per
