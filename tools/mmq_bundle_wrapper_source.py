@@ -82,6 +82,7 @@ class ForwardConfig:
     hoisted_epilogue: bool = False
     wide_tile: bool = False
     pipeline_depth: int = 0
+    tail_values: int = 0
 
     def __post_init__(self) -> None:
         rows_a, rows_b = self.mixed_j32_rows
@@ -109,6 +110,13 @@ class ForwardConfig:
             raise ValueError(
                 "a weight pipeline of more than eight stages is not staged"
             )
+        if self.tail_values:
+            if self.kind != ForwardKind.DENSE:
+                raise ValueError("a tail stage requires the dense shape")
+            if self.tail_values != 128:
+                raise ValueError("a tail stage holds one 128-value vector dot call")
+            if self.quant_type != QuantType.Q8_0:
+                raise ValueError("only the Q8_0 loader can address a half stage")
         if self.wide_tile:
             if self.kind == ForwardKind.DENSE:
                 if self.j != 128 or not (self.full_i and self.full_j):
@@ -252,7 +260,8 @@ void {symbol}(
         {config.j},
         {config.blocks_per_weight_row},
         {_cpp_bool(config.full_i)},
-        {_cpp_bool(config.full_j)}>(
+        {_cpp_bool(config.full_j)},
+        {config.tail_values}>(
         weights,
         activations,
         dst,

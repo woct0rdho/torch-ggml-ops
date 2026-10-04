@@ -4,7 +4,7 @@
 
 This record covers gfx1151 HIP packed-MMQ forward for DeepSeek Q8_0 weights.
 
-The ordinary workload contains six geometry families; the language-model head is also retained as a separate Q8_0 chunk geometry.
+The ordinary workload contains six geometry families. the language-model head is also retained as a separate Q8_0 chunk geometry. Q8_0 also carries the shared-expert down projection of the `Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` checkpoint, `(2560,640)` at the training token counts of a sequence length 2048 batch (B1/B4/B16). Its contraction is two and a half `K=256` stages, which the stage-indexed body of the other types cannot express, so it has a tail body of its own.
 
 ## Final kernel result
 
@@ -33,8 +33,11 @@ The ordinary workload contains six geometry families; the language-model head is
 | LM head | `(128,129280,4096)` | 28.418 | 2.68x | `dense_fwd_q8_0_k4096_j128_full` |
 | LM head | `(256,129280,4096)` | 28.248 | 2.35x | `dense_fwd_q8_0_k4096_j128_full` |
 | LM head | `(512,129280,4096)` | 27.757 | 1.34x | `dense_fwd_q8_0_k4096_j128_full` |
+| Shared-expert down Qwen4 | `(2048,2560,640)` | 28.126 | 1.48x | `dense_fwd_q8_0_k640_j128_full` |
+| Shared-expert down Qwen4 | `(8192,2560,640)` | 28.681 | 1.20x | `dense_fwd_q8_0_k640_j128_full` |
+| Shared-expert down Qwen4 | `(32768,2560,640)` | 28.612 | 1.16x | `dense_fwd_q8_0_k640_j128_full` |
 
-The ordinary rows run the exact `dense_fwd_q8_0_k<K>_j128_full` artifacts; the LM head runs the bounded J64 body at M32, the full J64 body at M64, and the J128 bodies at M128 and above. The measured values sit above the earlier complete-call records because the producer is no longer inside the window, not because the multiply body changed.
+The ordinary rows run the exact `dense_fwd_q8_0_k<K>_j128_full` artifacts. The LM head runs the bounded J64 body at M32, the full J64 body at M64, and the J128 bodies at M128 and above. The measured values sit above the earlier complete-call records because the producer is no longer inside the window, not because the multiply body changed.
 
 ## Kernel implementation
 
@@ -44,7 +47,7 @@ Width32 decode, broad scalarization, and generic alternate row layouts were eval
 
 ### Epilogue ablation
 
-The dense forward body applies the weight scale and the activation scale per accumulator element per k block. Two ablations of that epilogue were built from the same rendered source with the same flags and timed against the unmodified build under the official case protocol on `dense_fwd_q8_0_k4096_j128_full` (`(2048,1024,4096)`), in one harness (`~/tmp/torch-ggml-ops/r3_epilogue/`); both are wrong by construction and only their timing is meaningful.
+The dense forward body applies the weight scale and the activation scale per accumulator element per k block. Two ablations of that epilogue were built from the same rendered source with the same flags and timed against the unmodified build under the official case protocol on `dense_fwd_q8_0_k4096_j128_full` (`(2048,1024,4096)`), in one harness (`~/tmp/torch-ggml-ops/r3_epilogue/`). Both are wrong by construction and only their timing is meaningful.
 
 | variant | time | TFLOPS | against unmodified |
 | --- | ---: | ---: | ---: |
@@ -62,9 +65,9 @@ The third row is the stronger signal: replacing the arithmetic with an integer c
 
 The first DeepSeek baseline found ordinary Q8_0 at about `18.4-23.4` logical TFLOP/s. The generic LM-head M32/M64/M128 bodies took `5.395/5.630/5.859 ms`, exposing padded-row work. Quantization was only `0.3%` of LM M32 and `0.4%` of Q-B B1, but reached `26.3%` of KV B16 and `3.2%` of output-B B1.
 
-The first exact Q8_0 bodies covered six ordinary geometries plus full and bounded LM rows. Exact specialization improved all 18 ordinary points by `9.18-21.75%`; LM M32/M64 improved by `47.40%/49.47%`, and M128/M256/M512 improved by `12.02-12.96%`. All retained bodies are zero-private and zero-spill.
+The first exact Q8_0 bodies covered six ordinary geometries plus full and bounded LM rows. Exact specialization improved all 18 ordinary points by `9.18-21.75%`. LM M32/M64 improved by `47.40%/49.47%`, and M128/M256/M512 improved by `12.02-12.96%`. All retained bodies are zero-private and zero-spill.
 
-The generic ordinary body was `248 VGPR / 29 SGPR / 38,400 B LDS`; exact J128 reduced it to `216 VGPR / 28 SGPR`, and exact/bounded J64 used `132 VGPR / 28 SGPR`. A first I64/J32/K4096 body was rejected before timing because it created 48 private bytes and 11 VGPR spills. The retained exact policy therefore uses J64 only where small rows would otherwise be padded.
+The generic ordinary body was `248 VGPR / 29 SGPR / 38,400 B LDS`. Exact J128 reduced it to `216 VGPR / 28 SGPR`, and exact/bounded J64 used `132 VGPR / 28 SGPR`. A first I64/J32/K4096 body was rejected before timing because it created 48 private bytes and 11 VGPR spills. The retained exact policy therefore uses J64 only where small rows would otherwise be padded.
 
 ### Geometry, traversal, and LDS
 
@@ -72,9 +75,9 @@ J64 lost on full ordinary tiles: K4096 families lost `4.03-8.85%`, Q-B lost `6.0
 
 The retained ordinary geometry was G2 128x128/K32. G0 64x64/K16, G1 128x64/K32, and G3 256x64/K32 were slower across the production families. Q8_0 row padding reduced representative LDS conflicts and derived latency, but stride 77 lowered the conflict metric while increasing actual LDS stalls and regressing every point by `3.83-12.86%`.
 
-The accepted stride-76 body measured `7.73%` LDS bank conflict, about `7.5%` ALU stalled by LDS, 128-cycle derived LDS latency, about 11.6 active waves per CU, and about 66% L2 hit rate. Stride 77 reduced conflict to `5.12%` but raised LDS-stalled ALU to about `14.3%`; its lower conflict score was not a performance win.
+The accepted stride-76 body measured `7.73%` LDS bank conflict, about `7.5%` ALU stalled by LDS, 128-cycle derived LDS latency, about 11.6 active waves per CU, and about 66% L2 hit rate. Stride 77 reduced conflict to `5.12%` but raised LDS-stalled ALU to about `14.3%`. Its lower conflict score was not a performance win.
 
-LM geometry retained active-two-wave M32, G0 M64, G1 M128, and G3 M256/M512. M32 limits cotangent loads, WMMA, and stores to two waves while retaining cooperative decode and barriers. Packed extraction and compact ownership improve the small chunks; M256/M512 remain constrained by packed traffic and accumulator occupancy.
+LM geometry retained active-two-wave M32, G0 M64, G1 M128, and G3 M256/M512. M32 limits cotangent loads, WMMA, and stores to two waves while retaining cooperative decode and barriers. Packed extraction and compact ownership improve the small chunks. M256/M512 remain constrained by packed traffic and accumulator occupancy.
 
 ### Traversal and closed controls
 
@@ -82,7 +85,13 @@ Changing only grouped-M traversal reduced Q-B B4/B16 by `38.77%/40.16%` and outp
 
 Activation-half double buffering was spill-free but lost `2-26%` because extra LDS and altered cadence outweighed fewer barriers. K-loop unrolling, stride-77 padding, broad width32 decode, decoded-weight LDS caching, split-K, GSU, Stream-K, persistent workgroups, and direct-to-LDS/direct-to-VGPR rewrites are closed for the current representation.
 
-The remaining Q8_0 limit is representation cost: the packed kernel reconstructs int8 weights and scales while BF16 `torch.mm` starts from already decoded weights. A lossless payload/scale preparation layout is the next meaningful mechanism; a hidden BF16 shadow is not.
+The remaining Q8_0 limit is representation cost: the packed kernel reconstructs int8 weights and scales while BF16 `torch.mm` starts from already decoded weights. A lossless payload/scale preparation layout is the next meaningful mechanism. A hidden BF16 shadow is not.
+
+### Tail stage for the Qwen4 contraction
+
+The Qwen4 shared-expert down shape contracts `640` values, which is two and a half `K=256` stages. The stage-indexed loader addresses rows in `K=256` units, so no stage count can express that length and the generic body silently computes a two-stage, 512-value contraction. The retained body gains a tail stage: the exact contraction length carries a `tail_values` of 128, the last stage loads the packed window that ends at the row end (values 384 to 639, still inside the row) and consumes only its upper half, which is exactly the last 128 values, and its stride is the true row length rather than the stage count so every stage addresses whole rows. Only the Q8_0 loader indexes rows in 32-value blocks, so the mechanism exists for this type alone. The tail branch is compiled out of every other control, and all 243 pre-existing artifacts are byte-identical after the change.
+
+A zero-padded `K=768` contraction would reach the same keys by doing `20%` more arithmetic, which the measured rate does not need: the tail body reaches `28.126/28.681/28.612 TFLOPS` at B1/B4/B16, in the same band as the other Q8_0 bodies, against `1.48x/1.20x/1.16x` over the BF16 baseline. Evidence: `~/tmp/torch-ggml-ops/qwen4_fwd/sweep_q8k_v1.txt`.
 
 ### Hoisted epilogue metadata
 
@@ -90,7 +99,7 @@ The epilogue metadata of this quant was hoisted out of the column loop in the sa
 
 ## Resources
 
-Exact ordinary J128 bodies use `216 VGPR / 28 SGPR / 38,400 B LDS`; exact/bounded J64 bodies use `132 VGPR / 28 SGPR / 28,928 B LDS`.
+Exact ordinary J128 bodies use `216 VGPR / 28 SGPR / 38,400 B LDS`. Exact/bounded J64 bodies use `132 VGPR / 28 SGPR / 28,928 B LDS`. The Qwen4 tail body uses `214 VGPR / 32 SGPR / 38,400 B LDS`.
 
 ## Evidence
 
@@ -103,6 +112,12 @@ Exact ordinary J128 bodies use `216 VGPR / 28 SGPR / 38,400 B LDS`; exact/bounde
 ~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_other_j64_25.json
 ~/tmp/torch-ggml-ops/mmq_fwd_ds4_p2_stride77_25.json
 ~/tmp/torch-ggml-ops/mmq_fwd_final_components.txt
+```
+
+The Qwen4-Exp point comes from outside the public case list, because the shape has a HIP control but no GGTensile problem key yet. Its run uses the deployed Q8_1 producer and the same prepared inputs, the same `torch.mm` BF16 baseline on the same activation tensor, and the same paired timing as the official protocol:
+
+```text
+~/tmp/torch-ggml-ops/qwen4_fwd/sweep_q8k_v1.txt
 ```
 
 Additional source-of-record artifacts for the initial DeepSeek geometry and standalone-bundle controls are:

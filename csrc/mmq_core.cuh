@@ -634,12 +634,25 @@ static __device__ __forceinline__ void quantize_bf16_mmq_q8_1_body(
     }
 }
 
+// Window load for a packed row whose contraction is not a whole number of
+// MMQ_ITER_K stages. Offsets and lengths are counted in quantized values. Only
+// the Q8_0 loader addresses rows in blocks small enough to express a half
+// stage, so the window form exists for that type alone.
+template <ggml_type type, int J, bool fallback>
+static __device__ __forceinline__ void mmq_load_window(
+        const char * x, int * tile, int value_offset, int value_end, int i_max) {
+    static_assert(type == GGML_TYPE_Q8_0, "window loads are only defined for Q8_0");
+    ggml_cuda_mmq_load_tiles_q8_0<type, J, fallback>(
+        x, tile, value_offset / QK8_0, i_max, value_end / QK8_0);
+}
+
 template <
     ggml_type type,
     int J,
     int fixed_blocks_per_weight_row = 0,
     bool full_i = false,
-    bool full_j = false>
+    bool full_j = false,
+    int tail_values = 0>
 static __device__ __forceinline__ void dense_mmq_bf16_body(
         const char * __restrict__ weights,
         const int * __restrict__ activations,
@@ -653,6 +666,24 @@ static __device__ __forceinline__ void dense_mmq_bf16_body(
     const int i_max = nrows_weight - tile_i * MMQ_I - 1;
     const int j_max = nrows_activation - tile_j * J - 1;
 
+    // A contraction that is not a whole number of MMQ_ITER_K stages ends in a
+    // stage that holds `tail_values` values (128, i.e. one vector dot call). Its
+    // packed window is loaded from the end of the row, so the load stays inside
+    // the row, and only that window's upper half is consumed.
+    static_assert(
+        tail_values == 0 || tail_values == 128,
+        "a tail stage holds one 128-value vector dot call");
+    static_assert(
+        tail_values == 0 || type == GGML_TYPE_Q8_0,
+        "only the Q8_0 loader can address a half stage");
+    static_assert(
+        tail_values == 0 || fixed_blocks_per_weight_row > 0,
+        "a tail stage requires the exact contraction length");
+    constexpr int tail_window_offset =
+        tail_values == 0 ? 0 : (fixed_blocks_per_weight_row - 2) * MMQ_ITER_K + tail_values;
+    constexpr int row_values = tail_values == 0
+        ? 0
+        : (fixed_blocks_per_weight_row - 1) * MMQ_ITER_K + tail_values;
     extern __shared__ int shared[];
     int * tile_y = shared + J;
     int * tile_x = tile_y + GGML_PAD(J * MMQ_TILE_Y_K, MMQ_NTHREADS);
@@ -664,14 +695,27 @@ static __device__ __forceinline__ void dense_mmq_bf16_body(
         : blocks_per_weight_row;
 
     for (int kb = 0; kb < kernel_blocks_per_weight_row; ++kb) {
-        const int weight_block_offset =
-            tile_i * MMQ_I * kernel_blocks_per_weight_row + kb;
-        mmq_load_target<type, J, !full_i>(
-            weights,
-            tile_x,
-            weight_block_offset,
-            i_max,
-            kernel_blocks_per_weight_row);
+        const bool tail = tail_values > 0 && kb + 1 == kernel_blocks_per_weight_row;
+        if constexpr (tail_values > 0) {
+            // Every stage of a tailed row is addressed by its value offset, so
+            // the stride is the true row length rather than the stage count.
+            mmq_load_window<type, J, !full_i>(
+                weights,
+                tile_x,
+                tile_i * MMQ_I * row_values +
+                    (tail ? tail_window_offset : kb * MMQ_ITER_K),
+                row_values,
+                i_max);
+        } else {
+            const int weight_block_offset =
+                tile_i * MMQ_I * kernel_blocks_per_weight_row + kb;
+            mmq_load_target<type, J, !full_i>(
+                weights,
+                tile_x,
+                weight_block_offset,
+                i_max,
+                kernel_blocks_per_weight_row);
+        }
 
 #pragma unroll
         for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += MMQ_NTHREADS) {
@@ -681,17 +725,38 @@ static __device__ __forceinline__ void dense_mmq_bf16_body(
             tile_y[l] = activations[src];
         }
         __syncthreads();
-        mmq_vec_dot_target<type, J>(tile_x, tile_y, sum, 0);
-        __syncthreads();
-
-#pragma unroll
-        for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += MMQ_NTHREADS) {
-            const int l = l0 + threadIdx.y * WARP_SIZE + threadIdx.x;
-            const int src =
-                ((2 * kb + 1) * nrows_activation_padded + tile_j * J) * q8_block_ints + l;
-            tile_y[l] = activations[src];
+        if constexpr (tail_values > 0) {
+            if (!tail) {
+                mmq_vec_dot_target<type, J>(tile_x, tile_y, sum, 0);
+            }
+        } else {
+            mmq_vec_dot_target<type, J>(tile_x, tile_y, sum, 0);
         }
         __syncthreads();
+
+        if constexpr (tail_values > 0) {
+            if (!tail) {
+#pragma unroll
+                for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += MMQ_NTHREADS) {
+                    const int l = l0 + threadIdx.y * WARP_SIZE + threadIdx.x;
+                    const int src =
+                        ((2 * kb + 1) * nrows_activation_padded + tile_j * J) *
+                            q8_block_ints +
+                        l;
+                    tile_y[l] = activations[src];
+                }
+                __syncthreads();
+            }
+        } else {
+#pragma unroll
+            for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += MMQ_NTHREADS) {
+                const int l = l0 + threadIdx.y * WARP_SIZE + threadIdx.x;
+                const int src =
+                    ((2 * kb + 1) * nrows_activation_padded + tile_j * J) * q8_block_ints + l;
+                tile_y[l] = activations[src];
+            }
+            __syncthreads();
+        }
         mmq_vec_dot_target<type, J>(tile_x, tile_y, sum, MMQ_TILE_NE_K);
         __syncthreads();
     }
