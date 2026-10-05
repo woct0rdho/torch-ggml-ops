@@ -100,14 +100,14 @@ class ForwardConfig:
             if self.kind != ForwardKind.GROUPED_SERIAL or self.j != 64:
                 raise ValueError("mixed J32 tails require the grouped J64 shape")
             qualified_shapes = {
-                QuantType.IQ2_S: (2048, 2),
-                QuantType.Q2_0: (2560, 3),
-                QuantType.Q4_K: (2048, 2),
+                QuantType.IQ2_S: ((2048, 2),),
+                QuantType.Q2_0: ((2560, 3), (640, 10)),
+                QuantType.Q4_K: ((2048, 2),),
             }
             if (
                 self.quant_type not in qualified_shapes
                 or (self.nrows_weight, self.blocks_per_weight_row)
-                != qualified_shapes[self.quant_type]
+                not in qualified_shapes[self.quant_type]
             ):
                 raise ValueError("mixed J32 tails require a qualified grouped shape")
             if (rows_a == 0) != (rows_b == 0):
