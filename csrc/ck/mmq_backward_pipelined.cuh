@@ -193,7 +193,7 @@ template <
     bool VECTOR_LOCAL_LOAD,
     int DECODER_WIDTH,
     bool PREFETCH_A_FRAGMENTS,
-    bool PIPELINE_TILES,
+    int PIPELINE_DEPTH,
     bool PREFETCH_PACKED,
     bool PACK_Q5_QUANT_BYTES,
     bool PACK_Q6_QUANT_BYTES,
@@ -222,6 +222,10 @@ static __device__ __forceinline__ void dense_mmq_pipelined_grad_input_body(
                                                            ? QK4_NL
                                                            : QK_K))));
     static_assert(DECODER_WIDTH > 0 && N_PER_BLOCK % DECODER_WIDTH == 0);
+    // The staged decode reads one sixteen-value group per pass, so the width
+    // is fixed here rather than a knob: a wider setting would leave the rest
+    // of every group uninitialized in the shared tile.
+    static_assert(DECODER_WIDTH == 16);
     static_assert(
         TYPE == GGML_TYPE_Q2_0 || TYPE == GGML_TYPE_Q4_0 ||
         TYPE == GGML_TYPE_Q5_0 || TYPE == GGML_TYPE_IQ4_NL ||
@@ -237,6 +241,8 @@ static __device__ __forceinline__ void dense_mmq_pipelined_grad_input_body(
     }
     static_assert(K_ITERATION % 16 == 0);
     static_assert(ACTIVE_WAVES > 0 && ACTIVE_WAVES <= BACKWARD_WAVES);
+    static_assert(PIPELINE_DEPTH >= 0 && PIPELINE_DEPTH <= 4);
+    static_assert(PIPELINE_DEPTH != 1, "a pipeline needs at least two tiles");
 
     const int kernel_out_features =
         EXACT_OUT_FEATURES > 0 ? EXACT_OUT_FEATURES : out_features;
@@ -260,9 +266,10 @@ static __device__ __forceinline__ void dense_mmq_pipelined_grad_input_body(
         static_cast<int64_t>(kernel_blocks_per_weight_row) *
         gguf_block_bytes<TYPE>();
 
+    constexpr int SHARED_TILES = PIPELINE_DEPTH > 1 ? PIPELINE_DEPTH : 1;
     __shared__ backward_shared_b_tile<
         N_PER_BLOCK, K_ITERATION, LDS_PADDING, LDS_SWIZZLE_CHUNK>
-        shared_b[PIPELINE_TILES ? 2 : 1];
+        shared_b[SHARED_TILES];
     f32_accumulator accumulators[M_TILES_PER_WAVE][N_TILES];
 
     // One contraction stage into the given tile: every thread decodes
@@ -518,21 +525,38 @@ static __device__ __forceinline__ void dense_mmq_pipelined_grad_input_body(
         return min(
             contraction_begin + (stage + 1) * K_ITERATION, contraction_end);
     };
-    decode_stage(shared_b[0], contraction_begin, stage_end_of(0));
-    __syncthreads();
-    if constexpr (PIPELINE_TILES) {
-        for (int stage = 0; stage < stage_count; ++stage) {
-            if (stage + 1 < stage_count) {
+    if constexpr (PIPELINE_DEPTH > 1) {
+        // Fill the tiles that the first stage's lookahead has already left
+        // behind: `PIPELINE_DEPTH - 1` stages are decoded ahead of the
+        // multiplication that consumes them, each into its own tile, so the
+        // prologue needs one barrier after the last of them and nothing in
+        // between.
+#pragma unroll
+        for (int stage = 0; stage < PIPELINE_DEPTH - 1; ++stage) {
+            if (stage < stage_count) {
                 decode_stage(
-                    shared_b[(stage + 1) & 1],
-                    contraction_begin + (stage + 1) * K_ITERATION,
-                    stage_end_of(stage + 1));
+                    shared_b[stage],
+                    contraction_begin + stage * K_ITERATION,
+                    stage_end_of(stage));
+            }
+        }
+        __syncthreads();
+        for (int stage = 0; stage < stage_count; ++stage) {
+            const int lookahead = stage + PIPELINE_DEPTH - 1;
+            if (lookahead < stage_count) {
+                decode_stage(
+                    shared_b[lookahead % PIPELINE_DEPTH],
+                    contraction_begin + lookahead * K_ITERATION,
+                    stage_end_of(lookahead));
             }
             multiply_stage(
-                shared_b[stage & 1], contraction_begin + stage * K_ITERATION);
+                shared_b[stage % PIPELINE_DEPTH],
+                contraction_begin + stage * K_ITERATION);
             __syncthreads();
         }
     } else {
+        decode_stage(shared_b[0], contraction_begin, stage_end_of(0));
+        __syncthreads();
         multiply_stage(shared_b[0], contraction_begin);
         __syncthreads();
         for (int stage = 1; stage < stage_count; ++stage) {
@@ -636,7 +660,7 @@ static __device__ __forceinline__ void dense_mmq_pipelined_splitk_body(
         VECTOR_LOCAL_LOAD,
         DECODER_WIDTH,
         false,
-        true,
+        2,
         PREFETCH_PACKED,
         PACK_Q5_QUANT_BYTES,
         PACK_Q6_QUANT_BYTES,

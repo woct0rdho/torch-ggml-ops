@@ -185,7 +185,16 @@ class DenseBackwardConfig:
     active_waves: int = 4
     split_k: int = 0
     pipeline_tiles: bool = False
+    # Number of shared tiles the pipelined body rotates through. Two hides one
+    # decode behind one stage of matrix work; a deeper rotation gives the
+    # decode more stages of slack at eight KiB per step.
+    pipeline_depth: int = 2
     prefetch_a_fragments: bool = False
+    # Second `__launch_bounds__` argument: the minimum number of waves per
+    # execution unit the compiler must leave resident. It caps the VGPR budget
+    # at `512 / min_waves` per lane, so a body can trade registers for
+    # residency.
+    min_waves: int = 2
 
 
 @dataclass(frozen=True)
@@ -490,7 +499,7 @@ def _render_dense_backward(symbol: str, config: DenseBackwardConfig) -> str:
             _PREAMBLE
             + f"""#include "ck/mmq_backward_pipelined.cuh"
 
-extern "C" __launch_bounds__(torch_ggml_ops::ck::BACKWARD_THREADS, 2) __global__
+extern "C" __launch_bounds__(torch_ggml_ops::ck::BACKWARD_THREADS, {config.min_waves}) __global__
 void {symbol}(
         const __hip_bfloat16 * __restrict__ grad_output,
         const char * __restrict__ packed_weight,
@@ -552,7 +561,7 @@ void {symbol}(
             _PREAMBLE
             + f"""#include "ck/mmq_backward_pipelined.cuh"
 
-extern "C" __launch_bounds__(torch_ggml_ops::ck::BACKWARD_THREADS, 2) __global__
+extern "C" __launch_bounds__(torch_ggml_ops::ck::BACKWARD_THREADS, {config.min_waves}) __global__
 void {symbol}(
         const __hip_bfloat16 * __restrict__ grad_output,
         const char * __restrict__ packed_weight,
@@ -577,7 +586,7 @@ void {symbol}(
         {_cpp_bool(config.vector_local_load)},
         {config.decoder_width},
         {_cpp_bool(config.prefetch_a_fragments)},
-        {_cpp_bool(config.pipeline_tiles)},
+        {config.pipeline_depth if config.pipeline_tiles else 0},
         {_cpp_bool(config.prefetch_packed)},
         {_cpp_bool(config.pack_q5_quant_bytes)},
         {_cpp_bool(config.pack_q6_quant_bytes)},
@@ -600,7 +609,7 @@ void {symbol}(
             _PREAMBLE
             + f"""#include "ck/mmq_backward_split_k.cuh"
 
-extern "C" __launch_bounds__(torch_ggml_ops::ck::BACKWARD_THREADS, 2) __global__
+extern "C" __launch_bounds__(torch_ggml_ops::ck::BACKWARD_THREADS, {config.min_waves}) __global__
 void {symbol}(
         const __hip_bfloat16 * __restrict__ grad_output,
         const char * __restrict__ packed_weight,
@@ -639,7 +648,7 @@ void {symbol}(
         _PREAMBLE
         + f"""#include "ck/mmq_backward.cuh"
 
-extern "C" __launch_bounds__(torch_ggml_ops::ck::BACKWARD_THREADS, 2) __global__
+extern "C" __launch_bounds__(torch_ggml_ops::ck::BACKWARD_THREADS, {config.min_waves}) __global__
 void {symbol}(
         const __hip_bfloat16 * __restrict__ grad_output,
         const char * __restrict__ packed_weight,

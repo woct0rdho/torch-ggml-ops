@@ -10,10 +10,9 @@ The type is Q4_0's nibble-plane payload plus one bit plane. `QK5_0 = 32` weights
 
 | Family | `(M,K,N)` | HIP TFLOPS | HIP/torch.mm | Kernel |
 | --- | ---: | ---: | ---: | --- |
-| Shared-expert down | `(2048,640,2560)` | 18.460 | 1.134x | `dense_bwd_q5_0_pipea_nt4_ki64_mw2_sw16` |
-| Shared-expert down | `(8192,640,2560)` | 27.854 | 1.675x | `dense_bwd_q5_0_pipea_nt4_ki64_mw2_sw16` |
+| Shared-expert down | `(2048,640,2560)` | 23.662 | 1.447x | `dense_bwd_q5_0_pipea_nt4_ki64_mw2_sw16_g0` |
+| Shared-expert down | `(8192,640,2560)` | 28.818 | 1.737x | `dense_bwd_q5_0_pipea_nt4_ki64_mw2_pad8` |
 | Shared-expert down | `(32768,640,2560)` | 29.657 | 1.664x | `dense_bwd_q5_0_pipea_nt4_ki64_mw2_sw16` |
-
 
 ## Kernel implementation
 
@@ -35,11 +34,21 @@ The Q4_0 record's six candidates were rendered for this type and screened on all
 
 ### Where this type sits
 
-`18.5/27.9/29.7 TFLOPS` is above the BF16 baseline on every row. The type's shape is the Q4_0 family's, and the two compare directly: Q4_0 measures `18.3/28.1/31.1` on the same keys. The fifth-bit plane therefore costs about four percent at the largest row count and nothing at the smallest, which is the expected size of one extra word load and shift per value against a payload that is already the cheapest in the bundle. Both types sit behind the K-quant families at the equivalent width - Q5_K measures `30.4/30.0/33.9` and Q6_K `36.6/37.7/38.0` on `(M,2560,640)` - and the reason is the result width rather than the decode: at `M=2048` this family's grid is `16 x 10` workgroups, which is why the larger-tile variants lose and why the `M=2048` row is the weakest of the three.
+`23.7/27.9/29.7 TFLOPS` is above the BF16 baseline on every row. The type's shape is the Q4_0 family's, and the two compare directly: Q4_0 measures `24.0/28.1/31.1` on the same keys. The fifth-bit plane therefore costs about four percent at the largest row count and nothing at the smallest, which is the expected size of one extra word load and shift per value against a payload that is already the cheapest in the bundle. The `M=2048` key deploys the M-fastest traversal that the Q4_0 record describes (`1.23x` ahead of the deployed order under repeated launches). The single-row-tile, 32-column-tile and slice twins were screened with it and lose or tie there. Both types sit behind the K-quant families at the equivalent width - Q5_K measures `30.4/30.0/33.9` and Q6_K `36.6/37.7/38.0` on `(M,2560,640)` - and the reason is the result width rather than the decode: at `M=2048` this family's grid is `16 x 10` workgroups, which is why the larger-tile variants lose and why the `M=2048` row is the weakest of the three.
+
+### Padding on the pipelined tile
+
+The pipelined tile's layout was chosen when the tile was first built - sixteen-value swizzle chunks, no padding - and the chunk was later swept on this body without revisiting padding. The layout is now screened over every deployed dense-backward key: the padding twin of each deployed body (eight values of row padding, no swizzle) is timed against it at the key's own row counts, four repeats per block, and every screen winner is then re-timed at eight repeats over two blocks in both measurement orders, so a key moves only when the padding body wins in both directions.
+
+Padding is not a general replacement for the swizzle. It wins where the resident grid is thin and the result is narrow - the `M=2048` rows and the 512- and 640-wide results - and loses on the wide results at the largest row counts, where the decoded tile's shared-memory traffic is high enough that the swizzle's bank pattern still pays. The split is per key rather than per type: on this type the `(M,640,2560)` shared-expert down row at `M=8192` moves, `3.7%` ahead.
+
+A second layout round then screened three further combinations on every officially measured body - sixteen-value padding, four-value padding, and eight-value padding with an eight-value swizzle chunk - at the deployed row counts. Nothing survives the confirmation: each candidate measures within `1-3%` of the deployed tile in one measurement order and loses in the other, so all three are rejected and none is built. The layout neighborhood is closed at the combinations the deployment uses.
 
 ## Evidence
 
 ```text
-~/tmp/torch-ggml-ops/qwen4_fwd/bwd_q50_v1.txt   (candidate screen)
-~/tmp/torch-ggml-ops/qwen4_fwd/bwd_q50_v2.txt   (confirmation)
+~/tmp/torch-ggml-ops/qwen4_fwd/bwd_q50_v1.txt              (candidate screen)
+~/tmp/torch-ggml-ops/qwen4_fwd/bwd_q50_v2.txt              (confirmation)
+~/tmp/torch-ggml-ops/qwen4_fwd/bwd_reopen_gridshape.txt    (grouped-M, row-tile and slice screens)
+~/tmp/torch-ggml-ops/qwen4_fwd/bwd_reopen_confirm.txt      (repeated-launch paired confirmation)
 ```

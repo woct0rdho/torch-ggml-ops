@@ -13,16 +13,16 @@ Two properties of the type drive the kernels. Four 2-bit codes share one payload
 | QSA query | `(2048,2560,12288)` | 30.580 | 1.312x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64` |
 | QSA query | `(8192,2560,12288)` | 29.729 | 1.159x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64` |
 | QSA query | `(32768,2560,12288)` | 27.212 | 1.040x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64` |
-| Shared-expert gate/up | `(2048,2560,640)` | 36.629 | 1.700x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_mw4_pad8` |
+| Shared-expert gate/up | `(2048,2560,640)` | 34.679 | 1.616x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_mw4_pad8` |
 | Shared-expert gate/up | `(8192,2560,640)` | 37.710 | 1.390x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_mw4_pad8` |
 | Shared-expert gate/up | `(32768,2560,640)` | 37.954 | 1.351x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_mw4_pad8` |
 | Shared-expert down | `(2048,640,2560)` | 22.928 | 1.410x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_sw0_pad8` |
-| Shared-expert down | `(8192,640,2560)` | 29.339 | 1.782x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_pad8` |
-| Shared-expert down | `(32768,640,2560)` | 31.910 | 1.780x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_pad8` |
+| Shared-expert down | `(8192,640,2560)` | 30.437 | 1.829x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_pad8` |
+| Shared-expert down | `(32768,640,2560)` | 31.923 | 1.774x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_pad8` |
 | PLE key / GDN `in_proj_qkv` | `(2048,2560,10240)` | 30.265 | 1.292x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64` |
 | PLE key / GDN `in_proj_qkv` | `(8192,2560,10240)` | 30.131 | 1.169x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64` |
 | PLE key / GDN `in_proj_qkv` | `(32768,2560,10240)` | 27.028 | 1.080x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64` |
-| GDN `in_proj_z` | `(2048,2560,6144)` | 31.266 | 1.381x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_pad8` |
+| GDN `in_proj_z` | `(2048,2560,6144)` | 31.522 | 1.375x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_pad8` |
 | GDN `in_proj_z` | `(8192,2560,6144)` | 31.008 | 1.208x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64` |
 | GDN `in_proj_z` | `(32768,2560,6144)` | 29.756 | 1.196x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64` |
 
@@ -66,7 +66,7 @@ All are spill-free. The single-tile bodies use `120-232 VGPR` at `9-10 KiB` LDS.
 
 ### Decode, tile shape and padding
 
-The first-generation screen covered the plain packed tile, a four-column tile, its ungrouped traversal, two 64-wide-stage variants, an eight-column four-row-tile variant, decoder widths of eight and 32, and padding of four, eight and sixteen values. The four-column tile with a 64-value stage and two row tiles per wave won nearly every point, `1.5-2.0x` over the packed eight-column tile on the wide shapes and `1.09-1.26x` over its own 32-value-stage twin. A four-row-tile variant lost `1.18-1.26x`, a one-row-tile variant lost `1.26-1.52x`, a two-column tile lost `1.8x`, and decoder widths of eight or 32 were `1.04-1.23x` behind. Padding of eight values then added `1.01-1.07x`, and padding of four or sixteen was worse than no padding. The one point preferring the packed eight-column tile is the shared-expert down projection at `M=2048`, whose result is only 640 wide. `m_tiles_per_wave = 3` faults with a memory error, so that geometry is built but must not be selected.
+The first-generation screen covered the plain packed tile, a four-column tile, its ungrouped traversal, two 64-wide-stage variants, an eight-column four-row-tile variant, decoder widths of eight and 32, and padding of four, eight and sixteen values. The four-column tile with a 64-value stage and two row tiles per wave won nearly every point, `1.5-2.0x` over the packed eight-column tile on the wide shapes and `1.09-1.26x` over its own 32-value-stage twin. A four-row-tile variant lost `1.18-1.26x`, a one-row-tile variant lost `1.26-1.52x`, a two-column tile lost `1.8x`, and decoder widths of eight or 32 were `1.04-1.23x` behind. Padding of eight values then added `1.01-1.07x`, and padding of four or sixteen was worse than no padding. The one point preferring the packed eight-column tile is the shared-expert down projection at `M=2048`, whose result is only 640 wide. `m_tiles_per_wave = 3` faults with a memory error, so that geometry is not built.
 
 The launch path also had to stop assuming a 256-value block: `blocks_per_weight_row` was `in_features // 256` in both dense launchers and in the measurement harness, which is wrong for every type whose block is not `QK_K`. They now take it from the type's format record.
 
@@ -78,9 +78,23 @@ Warp specialization - dedicated producer waves decoding while consumer waves mul
 
 That is also why the occupancy of this body matters more than its instruction count. The kernel issues roughly `1130 FLOP` per issued instruction, so at 29 TFLOPS it uses about `11%` of the machine's issue slots: it is nowhere near issue-bound, and the `32%` arbiter and `25%` ALU-dependency samples in the profile are the signature of too few resident waves rather than of too much work. The 18 KiB padded tile holds three workgroups per WGP, three waves per SIMD. The unpadded 16 KiB tile holds four, which is the whole reason it wins at `M=2048`.
 
+The second `__launch_bounds__` argument is the switch for that trade - it asks the compiler to leave a minimum number of waves per execution unit resident, which caps the VGPR budget at `512 / min_waves` per lane - and it was swept on six bodies at `min_waves` of one, three and four against the deployed two. It cannot buy residency the way an LDS change can: no body changed its VGPR, SGPR or spill count at any setting. Three of the six bodies compiled to byte-identical code at every setting (the pipelined four-row-tile and split-head bodies), and the other three compiled to a different schedule without a different register budget, the largest change being this type's four-row-tile pipelined body at `2349` to `1966` instructions. Every setting ties or loses: within `1.5%` on the wide and head bodies, and `1.01-1.11x` behind on this type, where the rescheduled body is the slowest. The deployed hint therefore stays at two.
+
+### Grid-shape screens on the pipelined tile
+
+The pipelined body leaves four grid-shape knobs open - the grouped-M order, the row tile per wave, the column tile, and slicing the contraction - and all four were screened on this type's three families. The M-fastest order is `2.1-3.4x` behind the deployed order at `M=8192` and above and `1.05x` behind at `M=2048`, so the deployed order stands. A two-block M group stays within `1.1x` everywhere. One row tile per wave doubles the grid but also doubles the decode-to-matrix ratio, so it lands `1.47-1.58x` behind at the two larger row counts. A 32-column tile is `1.8-2.9x` behind at every row count, including the starved `M=2048` point, where the extra column blocks cost more activation traffic than the added parallelism buys. Slicing the contraction twice or four times is `2.4-5.1x` behind at the larger row counts with the partial write and reduction inside the timed region, and `0.91-1.01x` at `M=2048`, where the small result makes the partial workspace cheap. None of the four displaces the deployed geometry.
+
 ### Where the pipeline puts Q2_0 relative to the K-quants
 
 With the pipeline the type now leads the K-quants on comparable shapes, which the cheaper decode alone never bought: the Q6_K record measures `33.4/35.6/36.6 TFLOPS` on `(M,2560,640)` and `33.7/31.3/27.1` on `(M,6144,2560)` where this record measures `36.6/37.7/38.0` and `31.3/31.0/29.8`.
+
+### Padding on the pipelined tile
+
+The pipelined tile's layout was chosen when the tile was first built - sixteen-value swizzle chunks, no padding - and the chunk was later swept on this body without revisiting padding. The layout is now screened over every deployed dense-backward key: the padding twin of each deployed body (eight values of row padding, no swizzle) is timed against it at the key's own row counts, four repeats per block, and every screen winner is then re-timed at eight repeats over two blocks in both measurement orders, so a key moves only when the padding body wins in both directions.
+
+Padding is not a general replacement for the swizzle. It wins where the resident grid is thin and the result is narrow - the `M=2048` rows and the 512- and 640-wide results - and loses on the wide results at the largest row counts, where the decoded tile's shared-memory traffic is high enough that the swizzle's bank pattern still pays. The split is per key rather than per type: on this type the three rows that carry the padded `_pad8` tile were deploying it *with* an eight-value swizzle chunk on top, and dropping that chunk is worth `30.8%`, `31.1%` and `29.7%` on the GatedDeltaNet `in_proj_z` eye, the shared-expert down row at `M=8192` and the same row at `M=32768`, with the shared-expert gate/up row at `M=2048` `3.4%` behind its old body. The padded bodies are now named for what they are: `_pad8` carries padding only and `_pad8_sw8` carries both.
+
+A second layout round then screened three further combinations on every officially measured body - sixteen-value padding, four-value padding, and eight-value padding with an eight-value swizzle chunk - at the deployed row counts. Nothing survives the confirmation: each candidate measures within `1-3%` of the deployed tile in one measurement order and loses in the other, so all three are rejected and none is built. The layout neighborhood is closed at the combinations the deployment uses.
 
 ## Evidence
 
@@ -93,4 +107,7 @@ With the pipeline the type now leads the K-quants on comparable shapes, which th
 ~/tmp/torch-ggml-ops/q20_bwd/prof_counters/           (PMC run, single tile: L2 88.9%, LDS conflicts 58.3%)
 ~/tmp/torch-ggml-ops/q20_bwd/prof_pc/                 (stochastic PC sampling, single tile)
 ~/tmp/torch-ggml-ops/q20_bwd/prof_pipe_pc/            (stochastic PC sampling, pipelined)
+~/tmp/torch-ggml-ops/qwen4_fwd/bwd_reopen_gridshape.txt (grid-shape screens, this type and the Q4_0 shape family)
+~/tmp/torch-ggml-ops/qwen4_fwd/bwd_reopen_traversal.txt (grouped-M screen, this type and four others)
+~/tmp/torch-ggml-ops/qwen4_fwd/bwd_reopen_minwaves.txt  (launch-bounds minimum-wave sweep, six bodies)
 ```

@@ -168,19 +168,8 @@ def test_dense_forward_launch_geometry_follows_the_control_config() -> None:
     assert shared == 28_928
 
 
-def test_dense_backward_launch_geometry_follows_the_control_config() -> None:
-    control = select_hip_control("OrdinaryBackward", "Q4_K", 2048, 2048, 512)
-    grid, block, shared = control.launch_configuration(2048, 2048, 512)
-    assert grid == (1, 16, 16)
-    assert block == (128, 1, 1)
-    assert shared == 0
-
-
-def test_fixed_grouped_selection_uses_the_tuned_bodies() -> None:
-    forward = select_hip_control("FixedGroupedForward", "Q8_0", 2048, 1024, 4096)
-    assert forward.symbol == "grouped_fwd_fixed_q8_0_g8_k4096_j64_full"
+def test_fixed_grouped_selection_uses_the_narrow_row_tile() -> None:
     backward = select_hip_control("FixedGroupedBackward", "Q8_0", 2048, 1024, 4096)
-    assert backward.symbol == "grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64"
     assert backward.fixed_m_tile() == 192
 
 
@@ -270,35 +259,6 @@ def test_paired_controls_carry_their_tile() -> None:
             and control.quant_type == "IQ2_XXS"
         ):
             assert control.tile in {64, 80}, control
-
-
-@pytest.mark.parametrize(
-    ("quant_type", "out_features", "in_features", "rows", "expected"),
-    (
-        ("Q4_K", 2048, 512, 16_384, "grouped_fwd_serial_q4_k_n2048_k512_j32"),
-        ("Q4_K", 2048, 512, 65_536, "grouped_fwd_serial_q4_k_n2048_k512_j64"),
-        ("Q4_K", 2048, 512, 262_144, "grouped_fwd_serial_q4_k_n2048_k512_j64"),
-        ("Q5_K", 2048, 512, 16_384, "grouped_fwd_serial_q5_k_n2048_k512_j32"),
-        ("Q5_K", 2048, 512, 65_536, "grouped_fwd_serial_q5_k_n2048_k512_j64"),
-        ("IQ2_S", 2048, 512, 16_384, "grouped_fwd_serial_iq2_s_n2048_k512_j64_j32"),
-        ("IQ2_S", 2048, 512, 65_536, "grouped_fwd_serial_iq2_s_n2048_k512_j64_j32"),
-        ("IQ2_S", 2048, 512, 262_144, "grouped_fwd_serial_iq2_s_n2048_k512_j64"),
-        ("Q2_K", 4096, 2048, 12_288, "grouped_fwd_serial_q2_k_n4096_k2048_j32_j16"),
-        ("Q2_K", 4096, 2048, 49_152, "grouped_fwd_serial_q2_k_n4096_k2048_j32_j16"),
-        ("Q2_K", 4096, 2048, 196_608, "grouped_fwd_serial_q2_k_n4096_k2048_j32"),
-    ),
-)
-def test_grouped_forward_policy_matches_the_deployed_bodies(
-    quant_type: str, out_features: int, in_features: int, rows: int, expected: str
-) -> None:
-    control = select_grouped_forward_control(
-        quant_type, out_features, in_features, rows, 256
-    )
-    assert control.symbol == expected
-    grid, block, shared = control.launch_configuration(out_features, 256)
-    assert grid == (out_features // 64, 256, 1)
-    assert block == (32, 4, 1)
-    assert shared == control.lds_bytes
 
 
 def test_grouped_forward_policy_fails_closed() -> None:

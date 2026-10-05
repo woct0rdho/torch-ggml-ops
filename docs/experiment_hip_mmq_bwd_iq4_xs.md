@@ -13,11 +13,11 @@ The type is the only one of the dense backward family with a 256-wide block *and
 | QSA query | `(2048,2560,12288)` | 28.708 | 1.232x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw16_prefetch` |
 | QSA query | `(8192,2560,12288)` | 27.220 | 1.077x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw16_prefetch` |
 | QSA query | `(32768,2560,12288)` | 24.757 | 0.958x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| QSA key/value | `(2048,2560,512)` | 29.179 | 1.412x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| QSA key/value | `(8192,2560,512)` | 29.633 | 1.153x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw16_prefetch` |
+| QSA key/value | `(2048,2560,512)` | 29.516 | 1.461x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_pad8_prefetch` |
+| QSA key/value | `(8192,2560,512)` | 30.798 | 1.220x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_pad8_prefetch` |
 | QSA key/value | `(32768,2560,512)` | 32.212 | 1.220x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw4_sw16_prefetch` |
-| Shared-expert gate/up | `(2048,2560,640)` | 30.483 | 1.427x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| Shared-expert gate/up | `(8192,2560,640)` | 34.263 | 1.258x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw4_sw16_prefetch` |
+| Shared-expert gate/up | `(2048,2560,640)` | 32.043 | 1.511x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw8_prefetch` |
+| Shared-expert gate/up | `(8192,2560,640)` | 33.662 | 1.270x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw4_pad8_prefetch` |
 | Shared-expert gate/up | `(32768,2560,640)` | 36.135 | 1.295x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw4_sw16_prefetch` |
 | GatedDeltaNet `in_proj_qkv` | `(2048,2560,10240)` | 29.094 | 1.258x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw16_prefetch` |
 | GatedDeltaNet `in_proj_qkv` | `(8192,2560,10240)` | 27.652 | 1.094x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw16_prefetch` |
@@ -25,7 +25,6 @@ The type is the only one of the dense backward family with a 256-wide block *and
 | GatedDeltaNet `in_proj_z` | `(2048,2560,6144)` | 29.241 | 1.290x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw16_prefetch` |
 | GatedDeltaNet `in_proj_z` | `(8192,2560,6144)` | 28.756 | 1.138x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw16_prefetch` |
 | GatedDeltaNet `in_proj_z` | `(32768,2560,6144)` | 27.406 | 1.066x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw16_prefetch` |
-
 
 ## Kernel implementation
 
@@ -47,9 +46,21 @@ Six candidates were screened on all five families: the pipelined tile with and w
 
 The two exceptions are the narrow-result families, where the decode is amortized over fewer columns and the larger tile pays: the shared-expert gate/up rows take the four-row-tile body at `M=8192` and `32768` (`1.10x` and `1.17x` over the two-row-tile body), and the QSA key/value rows take it at `M=32768` (`1.05x`). Those are the only four-row-tile keys in the deployment, and the table above names them.
 
+### Swizzle chunk on the pipelined tile
+
+The decoded-weights swizzle chunk is 16 on every pipelined family. Chunk 32 loses `7-38%` across the six types screened, chunk 4 and chunk 8 are inside noise on most keys, and chunk 8 wins on the starved `M=2048` rows of a few families. This type's shared-expert gate/up row takes the chunk-8 twin, `5%` ahead, and the rest keep chunk 16.
+
 ### Where this type sits
 
 With the codebook and the sub-block scales this is the most decode-heavy payload of the dense family, and it shows at the largest row count: the two widest families measure `0.958x` and `0.991x` against the BF16 baseline at `M=32768`, the only dense backward rows below it since the Q2_0 record. Everywhere else it is ahead, `1.07-1.43x`. The type is nonetheless the strongest of the four cheap-payload records on the narrow shapes - `36.1 TFLOPS` on `(M,2560,640)` against Q4_0's `31.1`, Q5_0's `29.7` and IQ4_NL's `30.4` at the same width - which is the opposite of what its decode cost suggests and points at the block width rather than the payload: a 256-wide block amortizes its metadata over eight times the values that a 32-wide block does.
+
+### Padding on the pipelined tile
+
+The pipelined tile's layout was chosen when the tile was first built - sixteen-value swizzle chunks, no padding - and the chunk was later swept on this body without revisiting padding. The layout is now screened over every deployed dense-backward key: the padding twin of each deployed body (eight values of row padding, no swizzle) is timed against it at the key's own row counts, four repeats per block, and every screen winner is then re-timed at eight repeats over two blocks in both measurement orders, so a key moves only when the padding body wins in both directions.
+
+Padding is not a general replacement for the swizzle. It wins where the resident grid is thin and the result is narrow - the `M=2048` rows and the 512- and 640-wide results - and loses on the wide results at the largest row counts, where the decoded tile's shared-memory traffic is high enough that the swizzle's bank pattern still pays. The split is per key rather than per type: on this type three rows move: the QSA key/value rows at `M=2048` and `M=8192` (`3.4%` each) and the shared-expert gate/up row at `M=8192` (`2.4%`).
+
+A second layout round then screened three further combinations on every officially measured body - sixteen-value padding, four-value padding, and eight-value padding with an eight-value swizzle chunk - at the deployed row counts. Nothing survives the confirmation: each candidate measures within `1-3%` of the deployed tile in one measurement order and loses in the other, so all three are rejected and none is built. The layout neighborhood is closed at the combinations the deployment uses.
 
 ## Evidence
 

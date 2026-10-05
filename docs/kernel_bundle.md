@@ -17,7 +17,7 @@ torch_ggml_ops.grouped_mmq_pair
 torch_ggml_ops.fixed_grouped_mmq
 ```
 
-They retain PyTorch autograd for the input tensor. Packed weights and route metadata are nondifferentiable. Paired autograd always uses the fused paired input-gradient kernel, including when one output has no cotangent; Python supplies an explicit zero cotangent for the unused projection.
+They retain PyTorch autograd for the input tensor. Packed weights and route metadata are nondifferentiable. Paired autograd always uses the fused paired input-gradient kernel, including when one output has no cotangent. Python supplies an explicit zero cotangent for the unused projection.
 
 Two ordinary-MMQ functions expose allocation-free execution to enclosing custom autograd functions:
 
@@ -26,7 +26,7 @@ torch_ggml_ops.mmq_inplace
 torch_ggml_ops.mmq_grad_input_inplace
 ```
 
-Both mutate caller-owned destination tensors and return `None`; `mmq_inplace` also mutates its caller-owned Q8_1 workspace. They do not install autograd edges. Tensor operands may be contiguous nonzero-storage-offset views when their effective data pointers satisfy the required alignment. Native validation remains authoritative.
+Both mutate caller-owned destination tensors and return `None`. `mmq_inplace` also mutates its caller-owned Q8_1 workspace. They do not install autograd edges. Tensor operands may be contiguous nonzero-storage-offset views when their effective data pointers satisfy the required alignment. Native validation remains authoritative.
 
 There are deliberately no public dispatcher operators with these names. Direct legacy calls such as `torch.ops.torch_ggml_ops.mmq` are unsupported. The extension registers only private, allocation-free launch operators:
 - `_mmq_launch` and `_mmq_grad_input_launch`.
@@ -44,7 +44,7 @@ Forward activation workspaces hold Q8_1 blocks and use:
 workspace_bytes = input.numel() / 128 * 144
 ```
 
-for every valid exact key. Paired Q3_K forward allocates 64-row device tasks; paired IQ2_S forward allocates 64-row tasks. Their explicit capacity is:
+for every valid exact key. Paired Q3_K forward allocates 64-row device tasks. Paired IQ2_S forward allocates 64-row tasks. Their explicit capacity is:
 
 ```text
 ceil(aggregate_rows / task_rows) + route_entries
@@ -52,7 +52,7 @@ ceil(aggregate_rows / task_rows) + route_entries
 
 Serial paired routes receive zero-length task tensors. Output, workspace, task-count, task-expert, and task-range tensors are all visible to the private native launch.
 
-`torch_ggml_ops/_mmq_autograd.py` owns the custom autograd functions. Backward passes autograd-owned cotangents directly to the native input-gradient kernels; it does not insert a copy or transpose. Cotangents may be aligned contiguous views, and native validation rejects invalid layouts rather than repairing them.
+`torch_ggml_ops/_mmq_autograd.py` owns the custom autograd functions. Backward passes autograd-owned cotangents directly to the native input-gradient kernels. It does not insert a copy or transpose. Cotangents may be aligned contiguous views, and native validation rejects invalid layouts rather than repairing them.
 
 Python allocation is intentionally not a capability check. An unsupported request may allocate derived tensors first. The native launch validates the complete contract and exact deployment key before launching any GPU kernel.
 
@@ -64,7 +64,7 @@ C++ is authoritative for:
 - uint8 packed-weight and workspace dtypes.
 - int64 expert indices and int32 offsets/tasks.
 - exact ranks, physical packed shapes, logical output shapes, and element counts.
-- contiguous layout; storage offset itself is unrestricted.
+- contiguous layout. Storage offset itself is unrestricted.
 - required effective-pointer alignment.
 - positive and bounded dimensions.
 - exactly 256 physical experts and 1-256 route entries for routed kernels.
@@ -92,9 +92,9 @@ The current public bundle contains 152 independently loadable artifacts:
 | Fixed grouped forward GGTensile | 3 |
 | Fixed grouped backward GGTensile | 3 |
 
-The four setup artifacts are the only HIP-compiled entries in the public bundle. All 148 public multiply artifacts come from typed GGTensile assembly writers. Historical HIP controls are built separately for research comparisons; they are never part of public dispatch or used as a fallback.
+The four setup artifacts are the only HIP-compiled entries in the public bundle. All 148 public multiply artifacts come from typed GGTensile assembly writers. Historical HIP controls are built separately for research comparisons. They are never part of public dispatch or used as a fallback.
 
-Each selected route stores one winner only. Artifact files use `<symbol>.hsaco`; their names come from the canonical typed key. The deployment builder does not emit a manifest or record toolchain, source, object, code-object, or resource provenance. Benchmark medians, model names, rejected alternatives, and tuning heuristics are not deployment fields.
+Each selected route stores one winner only. Artifact files use `<symbol>.hsaco`. Their names come from the canonical typed key. The deployment builder does not emit a manifest or record toolchain, source, object, code-object, or resource provenance. Benchmark medians, model names, rejected alternatives, and tuning heuristics are not deployment fields.
 
 `csrc/generated/mmq_bundle_table.cuh` is generated directly from the typed inventory and contains:
 - one ordered symbol array indexed by a numeric `MMQKernelIndex`.
@@ -115,7 +115,7 @@ There is no generic `KernelNNN` runtime identity or tuning database.
 - Generates operation/quant constants and the exact host table from the typed inventory.
 - Installs the complete set transactionally and removes stale artifacts.
 
-Temporary object files are deleted and never packaged. A failed build removes its staging directory. Every invocation regenerates every public kernel; there is no incremental bundle stamp or freshness check.
+Temporary object files are deleted and never packaged. A failed build removes its staging directory. Every invocation regenerates every public kernel. There is no incremental bundle stamp or freshness check.
 
 The build entry point is:
 
@@ -140,21 +140,23 @@ Use `--force` when recovering from a stale or partially copied output directory:
 python -m tools.build_mmq_hip_controls --force --jobs 16
 ```
 
-`--verify-reproducible` compiles the complete 181-control inventory twice, compares the resulting bytes, and installs the first build only after the comparison succeeds:
+`--verify-reproducible` compiles the complete retained inventory twice, compares the resulting bytes, and installs the first build only after the comparison succeeds:
 
 ```bash
 python -m tools.build_mmq_hip_controls --verify-reproducible --jobs 16
 ```
 
-The builder requires `hipcc` (or `--hipcc /path/to/hipcc`) and the matching `amdclang++`, `llvm-readelf`, `llvm-objdump`, and `llvm-objcopy` tools. `amdclang++` may be selected with `GGTENSILE_AMDCLANGXX`; the LLVM tools are normally found beside it or on `PATH`. The checked-in `csrc/mmq_core.cuh`, `csrc/ck/`, and `csrc/vendor/llama_cpp/` headers are the source inputs; no GPU is required to compile, although the device tests still require a compatible gfx1151 system and runtime.
+The builder requires `hipcc` (or `--hipcc /path/to/hipcc`) and the matching `amdclang++`, `llvm-readelf`, `llvm-objdump`, and `llvm-objcopy` tools. `amdclang++` may be selected with `GGTENSILE_AMDCLANGXX`. The LLVM tools are normally found beside it or on `PATH`. The checked-in `csrc/mmq_core.cuh`, `csrc/ck/`, and `csrc/vendor/llama_cpp/` headers are the source inputs. No GPU is required to compile, although the device tests still require a compatible gfx1151 system and runtime.
 
 Every header under `csrc/` is self-contained, so include order never matters and a translation unit includes exactly what it uses. `python -m tools.check_mmq_headers` compiles each header as its own translation unit and fails on a missing include, a missing include guard, or an unresolvable quoted include. Each historical control includes only the family header that defines its body, so the generated translation units stay independent of each other. The three vendored `csrc/vendor/llama_cpp/mmq-*.cuh` templates are configuration fragments rather than headers: they expand against the `MMQ_*` settings and helpers that `mmq_core.cuh` defines before including them, and that header is their only include site.
 
 `python -m tools.check_cpp_style` enforces the block convention that Composable Kernel and llama.cpp share on every checked-in C++/CUDA file: four spaces per block level, no tabs, no line shallower than its block level, and local includes before parent-directory includes. Line breaks, line width and vertical alignment are semantic choices and are not checked.
 
-A successful build atomically installs one bare-symbol file per historical control under `build/mmq_hip_controls/gfx1151/` and writes a freshness stamp there. The current launchers expect names such as `grouped_fwd_serial_q2_k_n4096_k2048_j32.hsaco`; older prefixed files such as `torch_ggml_ops_mmq_gfx1151_v1_<symbol>.hsaco` do not satisfy lookup and are replaced by a current rebuild. `--check` exits nonzero when the inventory, stamp, compiler, or source inputs are stale.
+The inventory itself is data. `tools/configs/hip_deployment.json` names the body each exact key selects and lists the bodies the direct launchers use outside a key under `helpers`. `tools/configs/hip_control_catalog.json` holds the build parameters of exactly those bodies, one record per symbol. `tools/mmq_hip_control_spec.py` loads the two files and renders each wrapper. A candidate that no key selects is not built - the experiment records hold its screen - so adding a candidate means adding its record, and dropping a screen means deleting it.
 
-Direct-kernel benchmark runners accept `--hip-root` for the directory containing the historical-control set. Tests and runners otherwise use `GGTENSILE_HIP_CONTROL_ROOT` when set, followed by `build/mmq_hip_controls/gfx1151` when it is available. These controls are comparison artifacts only; their presence does not change the 148-route public inventory.
+A successful build atomically installs one bare-symbol file per control in that inventory under `build/mmq_hip_controls/gfx1151/` and writes a freshness stamp there. The current launchers expect names such as `grouped_fwd_serial_q2_k_n4096_k2048_j32.hsaco`. Older prefixed files such as `torch_ggml_ops_mmq_gfx1151_v1_<symbol>.hsaco` do not satisfy lookup and are replaced by a current rebuild. `--check` exits nonzero when the inventory, stamp, compiler, or source inputs are stale.
+
+Direct-kernel benchmark runners accept `--hip-root` for the directory containing the historical-control set. Tests and runners otherwise use `GGTENSILE_HIP_CONTROL_ROOT` when set, followed by `build/mmq_hip_controls/gfx1151` when it is available. These controls are comparison artifacts only. Their presence does not change the 148-route public inventory.
 
 ## Runtime loading and launch
 
@@ -175,13 +177,13 @@ build/mmq_hip_controls/gfx1151/
 
 `csrc/mmq_bundle_loader.cpp` locates `_C.abi3.so` with `dladdr` and resolves the kernel directory relative to the extension, independent of the process working directory. On first use of `(device, kernel index)`, it reads and retains the artifact bytes, loads the module, resolves the exact symbol, and caches the module/function. A mutex serializes first resolution.
 
-`csrc/mmq_bundle.cpp` owns exact-record lookup and ABI argument packing. Launch uses PyTorch's current stream and the grid/workgroup recorded for the exact route. Grouped serial routes replace the route-count grid dimension with the validated active route count. Static split ownership scales that same grid-Y route dimension by the exact split factor stored in the generated record; paired packed-split kernels decode both route and split ownership from workgroup Y. Device row-task routes first launch the explicit setup artifact, then launch the exact paired multiply over bounded task slots.
+`csrc/mmq_bundle.cpp` owns exact-record lookup and ABI argument packing. Launch uses PyTorch's current stream and the grid/workgroup recorded for the exact route. Grouped serial routes replace the route-count grid dimension with the validated active route count. Static split ownership scales that same grid-Y route dimension by the exact split factor stored in the generated record. Paired packed-split kernels decode both route and split ownership from workgroup Y. Device row-task routes first launch the explicit setup artifact, then launch the exact paired multiply over bounded task slots.
 
 Artifact read, module load, symbol lookup, or launch failure is fatal and names the failing path or symbol. The loader never probes another artifact or invokes embedded arithmetic.
 
 ## Exact public compatibility
 
-`M`, `N`, and `K` below use the multiply-kernel convention. Forward computes `[M,K] @ [N,K]^T -> [M,N]`. Backward computes an input gradient with problem coordinates `[M,N] @ [K,N] -> [M,K]`; the table lists the backward kernel's `(M,N,K)` directly.
+`M`, `N`, and `K` below use the multiply-kernel convention. Forward computes `[M,K] @ [N,K]^T -> [M,N]`. Backward computes an input gradient with problem coordinates `[M,N] @ [K,N] -> [M,K]`. The table lists the backward kernel's `(M,N,K)` directly.
 
 A forward key and its transposed backward key are selected independently. If a supported forward is used with an input requiring gradients, its corresponding backward key must also appear below.
 
@@ -193,18 +195,18 @@ A forward key and its transposed backward key are selected independently. If a s
 | Forward | Q4_K | `M in {2048,8192,32768}`, `(N,K)` in `{(512,2048),(2048,512),(2048,4096),(8192,2048)}` |
 | Forward | Q5_K | `M in {2048,8192,32768}`, `(N,K)` in `{(512,2048),(2048,512)}` |
 | Forward | Q6_K | `(64,248320,2048)`, `(128,248320,2048)`, `(256,248320,2048)` |
-| Forward | Q8_0 | `M in {2048,8192,32768}` with `(N,K)` in `{(1024,4096),(32768,1024),(512,4096),(4096,8192),(2048,4096),(4096,2048)}`; also `M in {32,64,128,256,512}`, `(N,K)=(129280,4096)` |
+| Forward | Q8_0 | `M in {2048,8192,32768}` with `(N,K)` in `{(1024,4096),(32768,1024),(512,4096),(4096,8192),(2048,4096),(4096,2048)}`. Also `M in {32,64,128,256,512}`, `(N,K)=(129280,4096)` |
 | Backward | Q3_K | `M in {2048,8192,32768}`, `(N,K)` in `{(2048,512),(2048,8192)}` |
 | Backward | Q4_K | `M in {2048,8192,32768}`, `(N,K)` in `{(2048,512),(512,2048),(4096,2048),(2048,8192)}` |
 | Backward | Q5_K | `M in {2048,8192,32768}`, `(N,K)` in `{(2048,512),(512,2048)}` |
 | Backward | Q6_K | `(64,2048,248320)`, `(128,2048,248320)`, `(256,2048,248320)` |
-| Backward | Q8_0 | `M in {2048,8192,32768}` with `(N,K)` in `{(4096,1024),(1024,32768),(4096,512),(8192,4096),(4096,2048),(2048,4096)}`; also `M in {32,64,128,256,512}`, `(N,K)=(4096,129280)` |
+| Backward | Q8_0 | `M in {2048,8192,32768}` with `(N,K)` in `{(4096,1024),(1024,32768),(4096,512),(8192,4096),(4096,2048),(2048,4096)}`. Also `M in {32,64,128,256,512}`, `(N,K)=(4096,129280)` |
 
 Ordinary `Q2_K`, `IQ2_XXS`, and `IQ2_S` have no deployed key. Every ordinary shape not listed is unsupported.
 
 ### Routed grouped MMQ
 
-Routed inputs have shape `[R,K]`; packed weights have physical shape `[256,N,packed_row_bytes]`. Expert indices and cumulative offsets contain the same number of entries, from 1 through 256.
+Routed inputs have shape `[R,K]`. Packed weights have physical shape `[256,N,packed_row_bytes]`. Expert indices and cumulative offsets contain the same number of entries, from 1 through 256.
 
 | Direction | Quant type | Exact support | Ownership |
 | --- | --- | --- | --- |
@@ -222,7 +224,7 @@ There is no standalone grouped forward for Q3_K or IQ2_XXS, no standalone groupe
 
 ### Fixed grouped Q8_0
 
-Fixed grouped input has logical shape `[...,8,4096]`; packed weight has physical shape `[8,1024,4352]`; output is `[...,8,1024]`.
+Fixed grouped input has logical shape `[...,8,4096]`. Packed weight has physical shape `[8,1024,4352]`. Output is `[...,8,1024]`.
 
 | Direction | Exact support |
 | --- | --- |

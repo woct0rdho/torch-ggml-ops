@@ -12,36 +12,36 @@ GatedDeltaNet `out_proj` is deferred because wiring it needs the activation perm
 
 | Family | `(M,K,N)` | HIP TFLOPS | HIP/torch.mm | Kernel |
 | --- | ---: | ---: | ---: | --- |
-| Query/query gate | `(2048,2048,8192)` | 20.834 | 1.225x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| Query/query gate | `(8192,2048,8192)` | 22.605 | 1.254x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k2048` |
-| Query/query gate | `(32768,2048,8192)` | 23.240 | 1.261x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k2048` |
-| Narrow K/V/gate/up | `(2048,2048,512)` | 20.580 | 0.884x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| Narrow K/V/gate/up | `(8192,2048,512)` | 22.688 | 0.928x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| Narrow K/V/gate/up | `(32768,2048,512)` | 24.021 | 0.978x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| Attention output | (2048,4096,2048) | 25.934 | 1.513x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096_sw16` |
-| Attention output | (8192,4096,2048) | 23.618 | 1.294x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096_sw16` |
-| Attention output | (32768,4096,2048) | 24.540 | 1.328x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096_sw16` |
-| Shared down | `(2048,512,2048)` | 18.269 | 1.422x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| Shared down | `(8192,512,2048)` | 11.368 | 0.745x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| Shared down | `(32768,512,2048)` | 13.118 | 0.789x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k512` |
-| QSA key/value | (2048,2560,512) | 27.173 | 1.294x | `dense_bwd_q4_k_pipea_nt4_ki64_mw4_sw16_prefetch` |
-| QSA key/value | `(8192,2560,512)` | 24.377 | 0.914x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| QSA key/value | (32768,2560,512) | 31.309 | 1.161x | `dense_bwd_q4_k_pipea_nt4_ki64_mw4_sw16_prefetch` |
-| QSA output | `(2048,6144,2560)` | 26.524 | 1.075x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| QSA output | `(8192,6144,2560)` | 27.329 | 1.063x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| QSA output | `(32768,6144,2560)` | 26.211 | 1.046x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| Shared-expert gate/up | `(2048,2560,640)` | 24.031 | 1.111x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| Shared-expert gate/up | `(8192,2560,640)` | 26.262 | 0.945x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| Shared-expert gate/up | `(32768,2560,640)` | 26.927 | 0.951x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| GatedDeltaNet Z | (2048,2560,6144) | 23.380 | 1.017x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096_sw16` |
-| GatedDeltaNet Z | (8192,2560,6144) | 25.547 | 0.986x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096_sw16` |
-| GatedDeltaNet Z | (32768,2560,6144) | 25.803 | 0.980x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096_sw16` |
-| GatedDeltaNet QKV | (2048,2560,10240) | 23.261 | 0.987x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096_sw16` |
-| GatedDeltaNet QKV | (8192,2560,10240) | 25.200 | 0.973x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096_sw16` |
-| GatedDeltaNet QKV | (32768,2560,10240) | 24.528 | 0.978x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096_sw16` |
-| GatedDeltaNet Z APEX-I-Mini | `(2048,2048,4096)` | 24.702 | 1.439x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| GatedDeltaNet Z APEX-I-Mini | `(8192,2048,4096)` | 22.459 | 1.230x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
-| GatedDeltaNet Z APEX-I-Mini | `(32768,2048,4096)` | 22.381 | 1.256x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
+| Query/query gate | `(2048,2048,8192)` | 26.705 | 1.570x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
+| Query/query gate | `(8192,2048,8192)` | 27.017 | 1.543x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
+| Query/query gate | `(32768,2048,8192)` | 24.071 | 1.368x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
+| Narrow K/V/gate/up | `(2048,2048,512)` | 27.536 | 1.192x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8` |
+| Narrow K/V/gate/up | `(8192,2048,512)` | 29.654 | 1.256x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
+| Narrow K/V/gate/up | `(32768,2048,512)` | 30.301 | 1.255x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
+| Attention output | (2048,4096,2048) | 34.240 | 1.493x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
+| Attention output | (8192,4096,2048) | 29.368 | 1.225x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
+| Attention output | (32768,4096,2048) | 29.537 | 1.224x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
+| Shared down | `(2048,512,2048)` | 20.553 | 1.600x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096_sw16` |
+| Shared down | `(8192,512,2048)` | 16.355 | 1.073x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8` |
+| Shared down | `(32768,512,2048)` | 19.019 | 1.141x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
+| QSA key/value | `(2048,2560,512)` | 28.576 | 1.414x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8` |
+| QSA key/value | `(8192,2560,512)` | 30.310 | 1.184x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8` |
+| QSA key/value | `(32768,2560,512)` | 31.021 | 1.211x | `dense_bwd_q4_k_pipea_nt4_ki64_mw4_pad8_prefetch` |
+| QSA output | `(2048,6144,2560)` | 35.022 | 1.479x | `dense_bwd_q4_k_pipea_nt4_ki64_mw4_sw16_prefetch` |
+| QSA output | `(8192,6144,2560)` | 33.108 | 1.351x | `dense_bwd_q4_k_pipea_nt4_ki64_mw4_sw16_prefetch` |
+| QSA output | `(32768,6144,2560)` | 30.527 | 1.214x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16` |
+| Shared-expert gate/up | `(2048,2560,640)` | 33.915 | 1.601x | `dense_bwd_q4_k_pipea_nt4_ki64_mw4_pad8_prefetch` |
+| Shared-expert gate/up | `(8192,2560,640)` | 34.740 | 1.302x | `dense_bwd_q4_k_pipea_nt4_ki64_mw4_pad8_prefetch` |
+| Shared-expert gate/up | `(32768,2560,640)` | 35.223 | 1.305x | `dense_bwd_q4_k_pipea_nt4_ki64_mw4_pad8_prefetch` |
+| GatedDeltaNet Z | `(2048,2560,6144)` | 28.106 | 1.268x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet Z | `(8192,2560,6144)` | 28.096 | 1.171x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet Z | `(32768,2560,6144)` | 25.648 | 1.041x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet QKV | `(2048,2560,10240)` | 27.916 | 1.253x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet QKV | `(8192,2560,10240)` | 26.831 | 1.101x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet QKV | `(32768,2560,10240)` | 24.392 | 0.986x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
+| GatedDeltaNet Z APEX-I-Mini | `(2048,2048,4096)` | 31.362 | 1.871x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8` |
+| GatedDeltaNet Z APEX-I-Mini | `(8192,2048,4096)` | 27.583 | 1.587x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet Z APEX-I-Mini | `(32768,2048,4096)` | 27.004 | 1.505x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
 
 ### Qwen4-Exp and GatedDeltaNet shapes
 
@@ -57,15 +57,19 @@ The deployed bodies on this record resolve both the contraction and the result w
 
 ## Kernel implementation
 
-The retained Q4_K bodies are a four-wave 128x128/K32 tiled decoder with decoded-weight LDS staging. The build carries three tuned `mt128_nt128_ki32_full` variants (`_k512`, `_k2048`, `_k4096`) plus five legacy generic bodies. All three tuned variants were timed on every deployment key. The deployed body per key is the fastest one, which does not follow the variant suffix: `_k4096` covers the query, narrow, and attention-output rows, `_k2048` the two longer query rows, and `_k512` the B16 shared-down row.
+Q4_K's payload is a 144-byte block: two 32-byte high planes, a 64-byte low plane and 16 bytes of scale metadata for `QK_K = 256` weights. The deployed bodies are the reusable pipelined tile (`csrc/ck/mmq_backward_pipelined.cuh`) on twenty-four of the thirty keys and the first redesign's padded `mt128_nt128_ki32_full_k4096_sw16` tile on the six whose shapes the pipelined screen did not cover.
 
-Bounds-safe tails and generic fallbacks remain outside the exact tiled bodies and are not competitive on these keys.
+The pipelined tile runs a 128-thread workgroup, a 64-value contraction stage, `n_tiles = 4` result columns of 16 per wave, 128-row result blocks (`mw2`) or 256-row ones (`mw4`), two shared tiles with one barrier per stage, register double-buffered activation fragments, and either the width-16 cooperative decode or the prefetched `uint4` form.
+
+The catalog carries the six bodies these keys deploy and nothing else: the bounded tails and generic fallbacks the first screens measured are recorded here, not built.
 
 ## Optimization log
 
 ### Swizzle-only twins of the padded tile
 
-The `_k4096` body carried `lds_padding = 8` instead of the LDS swizzle its `_k2048` and `_k512` siblings use, and the Q2_0 campaign showed the padding is the LDS cost while the swizzle is what actually breaks the decoded tile's bank pattern. Swizzle-only twins (`_k4096_sw8`, `_k4096_sw16`, both at 8 KiB rather than 10 KiB) were screened against it. Padding survives on the narrow contraction shapes (`(2560,512)` and `(2560,640)`, `0.97-1.01x` either way) and loses everywhere else: `1.064/1.058/1.075x` on `(2560,6144)`, `1.066/1.067/1.070x` on `(2560,10240)` and `1.040/1.066/1.074x` on `(4096,2048)` across `M=2048/8192/32768`. The swizzle twin also beats the `_k2048` body that those two wide shapes deploy above `M=2048` (`1.044-1.053x` at `M=8192` and `32768`), so all nine wide-contraction keys now deploy `_k4096_sw16` and the Qwen4 and APEX GatedDeltaNet keys gain `4-7%` over the previous bodies. The A/B harness for this screen is `~/tmp/torch-ggml-ops/qwen4_fwd/bwd_final_decisions.txt` and the deployed-body confirmation is `bwd_deploy_confirm.txt`.
+The `_k4096` body carried `lds_padding = 8` instead of the LDS swizzle its `_k2048` and `_k512` siblings use, and the Q2_0 campaign showed the padding is the LDS cost while the swizzle is what actually breaks the decoded tile's bank pattern. Swizzle-only twins (`_k4096_sw8`, `_k4096_sw16`, both at 8 KiB rather than 10 KiB) were screened against it. Padding survives on the narrow contraction shapes (`(2560,512)` and `(2560,640)`, `0.97-1.01x` either way) and loses everywhere else: `1.064/1.058/1.075x` on `(2560,6144)`, `1.066/1.067/1.070x` on `(2560,10240)` and `1.040/1.066/1.074x` on `(4096,2048)` across `M=2048/8192/32768`.
+
+The swizzle twin also beats the `_k2048` body that those two wide shapes deploy above `M=2048` (`1.044-1.053x` at `M=8192` and `32768`), so all nine wide-contraction keys now deploy `_k4096_sw16` and the Qwen4 and APEX GatedDeltaNet keys gain `4-7%` over the previous bodies. The A/B harness for this screen is `~/tmp/torch-ggml-ops/qwen4_fwd/bwd_final_decisions.txt` and the deployed-body confirmation is `bwd_deploy_confirm.txt`.
 
 ### Qwen tiled geometry
 
@@ -94,7 +98,11 @@ Exact-shape simplifications removed dead dimension loads, shortened address stat
 
 ### Pipelined tile on the narrow-result rows
 
-The Q5_K and Q6_K records show the pipelined stage order paying where the result is narrow. The same body was built here at that geometry (`_pipea_nt4_ki64_mw4_sw16`) and screened against the deployed swizzle tile on three families at `M=2048` and `32768`: it wins on the QSA key/value rows (`1.12x` and `1.15x`), ties on the GatedDeltaNet `(2560,6144)` rows (`1.07x` at `M=2048`, `0.99x` at `32768`) and loses on the APEX-I-Mini `(2048,8192)` rows (`0.96x` and `0.92x`). Only the two measured QSA key/value rows take it. The wide-contraction rows keep their swizzle tile, which is also the faster of the two there.
+The Q5_K and Q6_K records show the pipelined stage order paying where the result is narrow. The same body was built here at that geometry (`_pipea_nt4_ki64_mw4_sw16`) and screened against the deployed swizzle tile on three families at `M=2048` and `32768`: it wins on the QSA key/value rows (`1.12x` and `1.15x`), ties on the GatedDeltaNet `(2560,6144)` rows (`1.07x` at `M=2048`, `0.99x` at `32768`) and loses on the APEX-I-Mini `(2048,8192)` rows (`0.96x` and `0.92x`), so only the two measured QSA key/value rows took it at the time.
+
+The screen covered one row-tile count on five shapes, and the losses it recorded belong to the 256-row block: the `M=2048` APEX loss is a grid that cannot fill from 256-row blocks, and the 128-row twin of the same body is what every record tuned after this one deploys. With both decode forms that twin takes twenty-three of these keys, `4-29%` ahead of the swizzle and padded tiles: `26-29%` on the shared-expert gate/up rows, where the 256-row prefetch twin is the fastest of the three, `13-26%` on the QSA output rows, `8-21%` on the QSA key/value rows, and `10-21%` on the query and GatedDeltaNet rows.
+
+The QSA key/value row at `M=32768` and the shared-down and attention-output shapes outside the screen keep their first-generation bodies. The deeper three-tile rotation screened on Q2_0, Q4_0, IQ4_XS, Q5_K and Q8_0 loses here as well (`1.03-1.21x`), so two shared tiles stay.
 
 The pipelined twins of the eight-column tile, at `sw8` and `sw16`, lose `1.03-1.39x` on all six points, and the eight-column tile pays a decode penalty the deployed `prefetch_packed` path does not.
 
@@ -104,7 +112,37 @@ The pipelined QSA key/value rows used the width-16 group decode, which is what c
 
 ## Resources
 
-The three tuned variants use `222 VGPR / 20 SGPR / 10 KiB LDS` (`_k4096`), `233 VGPR / 16 SGPR / 8 KiB LDS` (`_k2048`) and `220 VGPR / 16 SGPR / 8 KiB LDS` (`_k512`), all static and spill-free.
+The deployed pipelined bodies use `208 VGPR / 22 SGPR` at 16 KiB (`mw2`) and `216 VGPR / 22 SGPR` at 16 KiB (`mw4`), spill-free. The first-generation bodies kept for the shapes outside the pipelined screen use `222 VGPR / 20 SGPR / 10 KiB LDS` (`_k4096_sw16`) and `220 VGPR / 16 SGPR / 8 KiB LDS` (`_k512`).
+
+### Padding on the pipelined tile
+
+The pipelined tile's layout was chosen when the tile was first built - sixteen-value swizzle chunks, no padding - and the chunk was later swept on this body without revisiting padding. The layout is now screened over every deployed dense-backward key: the padding twin of each deployed body (eight values of row padding, no swizzle) is timed against it at the key's own row counts, four repeats per block, and every screen winner is then re-timed at eight repeats over two blocks in both measurement orders, so a key moves only when the padding body wins in both directions.
+
+Padding is not a general replacement for the swizzle. It wins where the resident grid is thin and the result is narrow - the `M=2048` rows and the 512- and 640-wide results - and loses on the wide results at the largest row counts, where the decoded tile's shared-memory traffic is high enough that the swizzle's bank pattern still pays.
+
+The split is per key rather than per type: on this type eleven rows move, the largest group of any type: `14.4%` on the GatedDeltaNet `in_proj_z` eye at `M=2048`, `10.7%` on the narrow key at that row count, `8.0%` on the query row, and `4-6%` on the QSA key/value rows at `M=8192`, the narrow key at `M=8192`, the shared-expert gate/up rows and the remaining `M=2048` rows. The wide attention-output rows and the APEX GatedDeltaNet rows at `M=32768` keep their swizzled bodies.
+
+A second layout round then screened three further combinations on every officially measured body - sixteen-value padding, four-value padding, and eight-value padding with an eight-value swizzle chunk - at the deployed row counts. Nothing survives the confirmation: each candidate measures within `1-3%` of the deployed tile in one measurement order and loses in the other, so all three are rejected and none is built. The layout neighborhood is closed at the combinations the deployment uses.
+
+### Reassignment of the sub-parity rows
+
+The tables' slowest rows were then revisited as a group. For every key whose ratio to BF16 sat at or below parity, each catalog body of the same type whose exact dimensions and tile geometry can express the shape was timed against the deployed body, four repeats per block, and every winner was re-timed at eight repeats over two blocks in both measurement orders. The pattern the screen found is systematic rather than specific: these families still ran first-generation tiles that the pipelined rollout never revisited for those particular shapes, so the fix is reassignment rather than a new mechanism.
+
+On this type the shared-down `(M,512,2048)` rows were the worst in the matrix (`0.745x` and `0.789x` against BF16 at `M=8192` and `32768`), because their 2048-wide contraction ran the first-generation `_k4096` and `_k512` tiles. The pipelined four-column tile takes `M=8192` and `M=32768` (`32.8%` and `34.3%` ahead in both measurement orders, `16.4` and `19.0` TFLOPS against BF16 baselines of `15.2` and `16.6`), and `M=2048` keeps a single-tile body but takes the swizzled `_k4096_sw16` twin (`9.4%` ahead, `20.6` TFLOPS). The GatedDeltaNet `(2560,10240)` row at `M=32768` also moves from the group-decoding pipelined tile to the prefetched one (`1.8%`).
+
+### The narrow-result shape is a shape cost, not a body cost
+
+The shared-down family came out of the reassignment with the best body the catalog holds, but still `1.6x` behind its mirror (`(M,512,2048)` against `(M,2048,512)`), so the tile space around it was probed directly instead of assumed closed. The same padding-prefetch body was measured on both orientations at `M=32768` and gives `18.4` against `30.1` TFLOPS: with a 512-wide result the contraction is 2048 deep, so a block runs 32 stages for the same tile that the mirror clears in 8, and the grid is only 8 result blocks deep, so the resident set spans many more activation slabs.
+
+Three further tiles were built and rejected against the deployed four-column, 64-value, two-row-tile body in both measurement orders: a 128-column tile at the same stage depth (`+17%` on the mirror and `+37%` on the narrow shape at `M=32768`, `+45%` at `M=8192`), the same tile with a 128-value stage (`+35%` to `+90%`), and 32-column tiles with eight and four row tiles (`+10%` to `+46%` on the narrow shape, up to `+316%` at the lower row counts).
+
+Padding, swizzle, prefetching and the group decode were already screened on the family, and the single-row-tile and wider-stage directions are the two the earlier Q5_K and Q6_K screens had rejected as well. Every axis of the expressible tile space is therefore measured on this shape: width `2/4/8`, height `2/4` row tiles, depth `32/64/128`, both layouts, both decodes.
+
+The deployed body is the optimum of that space, and the residual gap to the mirror is the price of a long contraction over a narrow result - the barrier wait at the pipeline sync is `29%` of issue slots on the narrow orientation against `13.6%` on the mirror, with the same instruction and byte mix per stage. Removing it would need a barrier-free decode that gives up the cooperative decode's fourfold sharing, i.e. a different data flow rather than another tile.
+
+The same screen also closed the two knobs that had never been swept on this type's keys. The attention-output `(M,4096,2048)` family was the last one still on a first-generation tile - its record's layout screen had compared padding and swizzle *within* that family, never against the pipelined tile - and the pipelined four-column padding body takes all three row counts: `26.6%`, `15.0%` and `14.3%` ahead in both measurement orders, i.e. `34.2`, `29.4` and `29.5` TFLOPS at ratios `1.224-1.493x` against `18.3`, `23.6` and `24.5` before.
+
+The traversal knob (`group_m = 0`) was built as twins of both the deployed and the pipelined bodies for the starved narrow-result `M=2048` keys. It loses there by `1.14x` and by `1.8-4.4x` at the larger row counts, so the M-grouped order stays everywhere except the 640-wide family where the earlier traversal screen deployed it.
 
 ## Evidence
 
@@ -115,7 +153,6 @@ Current measurement evidence for the table above:
 ~/tmp/torch-ggml-ops/qwen4_fwd/bwd_q4k_v2.txt
 ~/tmp/torch-ggml-ops/hip_vs_baseline/pass11_ordbwd_qwen.json
 ~/tmp/torch-ggml-ops/hip_selection/           (per-key candidate campaign)
-tools/configs/hip_deployment.json             (deployed body per key)
 ```
 
 The original campaign evidence is:
@@ -138,4 +175,4 @@ Additional retained Q4 controls include the generic/exact DeepSeek build bracket
 ~/tmp/torch-ggml-ops/mmq_bwd_ds4_p1_generic_after_25.json
 ```
 
-Global J64, I128, broad K64, split-K, GSU, Stream-K, persistent workgroups, compiler-managed prefetch arrays, decoded-weight LDS caching, and universal swizzle policies are closed for the current Q4_K representation.
+Global J64, I128, broad K64, split-K, GSU, Stream-K, persistent workgroups, compiler-managed prefetch arrays, decoded-weight LDS caching, and universal swizzle policies are closed for the current Q4_K representation. The pipelined tile below supersedes part of that list for the keys it took: the activation prefetch, the swizzle-only shared tile and the stage overlap are deployed there, while global J64, I128, broad K64, split-K, GSU, Stream-K and the persistent-workgroup forms stay closed.

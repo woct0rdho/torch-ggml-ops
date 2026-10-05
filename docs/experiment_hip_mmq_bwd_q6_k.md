@@ -19,15 +19,15 @@ Neither checkpoint carries this type in `in_proj_qkv` or `in_proj_z`, so this se
 | Language model head | (64,2048,248320) | 14.340 | 2.174x | `dense_bwd_q6_k_pipesplit_m64_s2` |
 | Language model head | (128,2048,248320) | 23.876 | 2.653x | `dense_bwd_q6_k_pipesplit_m128_s40` |
 | Language model head | (256,2048,248320) | 22.443 | 1.634x | `dense_bwd_q6_k_pipesplit_m256_s40` |
-| QSA key/value | (2048,2560,512) | 29.732 | 1.410x | `dense_bwd_q6_k_pipe_nt4_ki64_mw4_sw16` |
-| QSA key/value | (8192,2560,512) | 30.633 | 1.170x | `dense_bwd_q6_k_pipe_nt4_ki64_mw4_sw16` |
-| QSA key/value | (32768,2560,512) | 32.626 | 1.233x | `dense_bwd_q6_k_pipe_nt4_ki64_mw4_sw16` |
-| QSA output | (2048,6144,2560) | 34.519 | 1.423x | `dense_bwd_q6_k_pipe_nt4_ki64_mw4_sw16` |
-| QSA output | (8192,6144,2560) | 31.636 | 1.236x | `dense_bwd_q6_k_pipe_nt4_ki64_mw4_sw16` |
-| QSA output | (32768,6144,2560) | 29.497 | 1.127x | `dense_bwd_q6_k_pipe_nt4_ki64_mw4_sw16` |
-| Shared-expert gate/up | `(2048,2560,640)` | 33.369 | 1.553x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4` |
-| Shared-expert gate/up | `(8192,2560,640)` | 35.648 | 1.328x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4` |
-| Shared-expert gate/up | `(32768,2560,640)` | 36.641 | 1.326x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4` |
+| QSA key/value | `(2048,2560,512)` | 27.190 | 1.357x | `dense_bwd_q6_k_pipea_nt4_ki64_mw2_sw16` |
+| QSA key/value | `(8192,2560,512)` | 29.972 | 1.197x | `dense_bwd_q6_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
+| QSA key/value | `(32768,2560,512)` | 32.544 | 1.242x | `dense_bwd_q6_k_pipea_nt4_ki64_mw4_pad8_sw8_prefetch` |
+| QSA output | `(2048,6144,2560)` | 33.482 | 1.444x | `dense_bwd_q6_k_pipea_nt4_ki64_mw4_sw16_prefetch` |
+| QSA output | `(8192,6144,2560)` | 35.188 | 1.484x | `dense_bwd_q6_k_pipea_nt4_ki64_mw4_sw16_prefetch` |
+| QSA output | `(32768,6144,2560)` | 29.827 | 1.205x | `dense_bwd_q6_k_pipe_nt4_ki64_mw4_sw16` |
+| Shared-expert gate/up | `(2048,2560,640)` | 32.540 | 1.565x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4` |
+| Shared-expert gate/up | `(8192,2560,640)` | 34.825 | 1.326x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4` |
+| Shared-expert gate/up | `(32768,2560,640)` | 36.081 | 1.361x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4_pad8` |
 
 The values use the current Q6_K packed/BF16 kernel matrix and come from one official run. M256 is the primary large chunk, with M64 and M128 as smaller exact geometries. The `Kernel` column names the deployed body for each chunk. All three chunks deploy a split-contraction body. M64 and M128 use the slice bodies measured below, and M256 moved to the pipelined slice body when it measured `1.07x` ahead of the single-pass body that chunk used to keep. The `_full_*` bodies are the unbounded exact variants (`_bounded` builds exist for shapes outside the exact-tile contract).
 
@@ -47,7 +47,7 @@ The deployed bodies on this record resolve both the contraction and the result w
 
 ## Kernel implementation
 
-The three head chunks use `dense_bwd_q6_k_m64_nt32_ki64_full`, `dense_bwd_q6_k_m128_nt64_ki32_full`, and `dense_bwd_q6_k_m256_nt64_ki32_full`: M64/N32/K64 for M64, M128/N64/K32 for M128, and two M128-style workgroups for M256. The Qwen4-Exp projection keys use two `mt128_nt128_ki32_full` bodies: `_k2048_nt4` (64 output columns per workgroup, 128 rows) and `_k2048_nt4_ki64_mw4` (64 output columns, a 64-value contract stage, four row tiles per wave). The decoded-weight LDS layout, packed extraction, and register lifetime are Q6-specific. The `_bounded` twins, the `nt128_ki16_g2`/`nt256_ki16_g2` generics, and the head lineage on the projection shapes are built but are not competitive.
+The three head chunks use `dense_bwd_q6_k_m64_nt32_ki64_full`, `dense_bwd_q6_k_m128_nt64_ki32_full`, and `dense_bwd_q6_k_m256_nt64_ki32_full`: M64/N32/K64 for M64, M128/N64/K32 for M128, and two M128-style workgroups for M256. The Qwen4-Exp projection keys use the reusable pipelined tile (`csrc/ck/mmq_backward_pipelined.cuh`) at `n_tiles = 4` and a 64-value contraction stage over two shared tiles, with the activation prefetch, at 128 row tiles per wave on the QSA key/value rows and 256 on the QSA output rows, and with the prefetched payload read on four of the five changed keys. The shared-expert gate/up keys keep the first redesign's `_k2048_nt4_ki64_mw4` single-tile body. The decoded-weight LDS layout, packed extraction, and register lifetime are Q6-specific. The `_bounded` twins, the `nt128_ki16_g2`/`nt256_ki16_g2` generics and the other screened candidates are not in the catalog. Their measurements are in this log.
 
 ## Exact-shape closure detail
 
@@ -85,7 +85,7 @@ Global J64, I128, broad K64, activation double buffering, decoded-weight caching
 
 The head lineage does not transfer to the Qwen4-Exp projection shapes. On them its best member reaches only `6-17 TFLOPS` against `28-30` for the BF16 baseline, while a `mt128_nt128_ki32_full` body built from the Q4_K and Q5_K knob set reaches `25-27`. On the shared-expert gate/up at `M=32768` the ratio between the two is `4.5-5.0x`. The projection bodies below are that family.
 
-Its first screen, on all three shapes, compared the deployed knob set (`_k2048`: eight output tiles, 32-wide contract stage, two row tiles per wave, swizzle eight) against a 16-tile and a four-tile variant, a swizzle-zero variant with `8`-word padding, a zero decoder-width and a non-prefetching variant, and 64-wide contract stages. Four output tiles (`64` columns per workgroup) is the large win, `+12-16%` over eight tiles. A 64-wide contract stage and four row tiles per wave add `+10-21%` on the two shapes whose result is 2560 wide, and nothing beyond noise on the 6144-wide one, where four output tiles with the deployed row geometry stay ahead. A zero decoder width and disabling packed prefetch measure within noise, and padding or 16 output tiles lose `+7%` and `5x` respectively.
+Its first screen, on all three shapes, compared the deployed knob set (`_k2048`: eight output tiles, 32-wide contract stage, two row tiles per wave, swizzle eight) against a 16-tile and a four-tile variant, a swizzle-zero variant with `8`-word padding, a zero decoder-width and a non-prefetching variant, and 64-wide contract stages. Four output tiles (`64` columns per workgroup) is the large win, `+12-16%` over eight tiles. A 64-wide contract stage and four row tiles per wave add `+10-21%` on the two shapes whose result is 2560 wide, and nothing beyond noise on the 6144-wide one, where four output tiles with the deployed row geometry stay ahead. A zero decoder width and disabling packed prefetch measure within noise, and padding on that first tile or 16 output tiles lose `+7%` and `5x` respectively. The padding result does not carry to the pipelined tile, where the screen at the end of this log moves two rows to it.
 
 ### Pipelined tile
 
@@ -99,15 +99,25 @@ Two forms were measured. The runtime-dimension form loses on all three chunks (`
 
 ### Pipelined split-contraction head
 
+The projection screen that selected the deployed single-tile bodies used the 256-row pipelined twin only, so the geometry it rejected on the QSA rows is the same one the other records reject there. The 128-row twin of the pipelined tile takes the QSA key/value rows at every row count (`5-12%` ahead) and the two smaller QSA output rows (`6-7%` ahead). The QSA output row at `M=32768` and all three shared-expert gate/up rows keep the bodies they had, where the 128-row tile is level and `5-23%` behind respectively.
+
 The head chunks keep their split-contraction contract but take the pipelined stage order (`dense_mmq_pipelined_splitk_body`). Against the deployed slice bodies it is `1.06x` ahead at `M=64` and `1.03x` at `M=128`. At `M=256` it is `1.07x` ahead of the single-pass body that chunk used to keep, so the chunk moves to the pipelined slice body as well and all three keys deploy one. The prefetched decode that the projection rows use is neutral here (`0.94-1.01x`), so the projection keys keep the group decode while the head keys take the prefetched one because it is what the split body is built with.
 
 ## Resources
 
-Retained head bodies use `87/138/137 VGPR` for M64/M128/M256, `15/16/15 SGPR`, and 4 KiB LDS. The projection bodies use `141 VGPR / 16 SGPR / 4 KiB` for `_k2048_nt4` and `213 VGPR / 17 SGPR / 8 KiB` for `_k2048_nt4_ki64_mw4`, both spill-free.
+Retained head bodies use `87/138/137 VGPR` for M64/M128/M256, `15/16/15 SGPR`, and 4 KiB LDS. The deployed pipelined projection bodies use `208 VGPR / 22 SGPR` at 16 KiB (128-row) and `216 VGPR / 22 SGPR` at 16 KiB (256-row). The shared-expert gate/up body uses `213 VGPR / 17 SGPR / 8 KiB`.
 
 ## Next
 
 The pipelined tile is deployed on the key/value and output projections here and on every Q2_0 key. The remaining rollout is one screen per type on the same pattern: Q5_K and Q4_K first (their tiles are 8-10 KiB, so the pipeline costs a workgroup per WGP rather than the occupancy a Q8_0-shaped 4 KiB tile keeps), then Q8_0 (whose decode is as cheap as Q2_0's, so its barrier share should resemble this record's), then Q3_K. Each type needs its own per-key screen afterwards, because this pilot reproduced the Q2_0 finding that the pipeline changes which tile geometry wins: here the pipelined body only pays at the 64-value stage with four row tiles per wave, and the width-16 group decode that comes with it is slower than the deployed per-value path at the smaller geometry.
+
+### Padding on the pipelined tile
+
+The pipelined tile's layout was chosen when the tile was first built - sixteen-value swizzle chunks, no padding - and the chunk was later swept on this body without revisiting padding. The layout is now screened over every deployed dense-backward key: the padding twin of each deployed body (eight values of row padding, no swizzle) is timed against it at the key's own row counts, four repeats per block, and every screen winner is then re-timed at eight repeats over two blocks in both measurement orders, so a key moves only when the padding body wins in both directions.
+
+Padding is not a general replacement for the swizzle. It wins where the resident grid is thin and the result is narrow - the `M=2048` rows and the 512- and 640-wide results - and loses on the wide results at the largest row counts, where the decoded tile's shared-memory traffic is high enough that the swizzle's bank pattern still pays. The split is per key rather than per type: on this type three rows move: the QSA key/value row at `M=8192` (`2.6%`) and the shared-expert gate/up row at `M=32768` (`2.3%`) take padding alone, and the QSA key/value row at `M=32768` takes a different combination - eight-value padding with an eight-value swizzle chunk, `7.2%` ahead of the swizzled tile, which the layout round below measured as a separate candidate. The remaining QSA key/value and shared-expert rows keep the plain swizzle.
+
+A second layout round screened three further combinations on every officially measured body: sixteen-value padding, four-value padding, and eight-value padding with an eight-value swizzle chunk, each at the deployed row counts. Nothing survives the confirmation except the eight-value pair above: the other candidates measure within `1-3%` in one measurement order and lose in the other, so they are rejected rather than built. The layout neighborhood is closed at the combinations the deployment uses.
 
 ## Evidence
 
@@ -118,7 +128,6 @@ Current measurement evidence for the table above:
 ```text
 ~/tmp/torch-ggml-ops/hip_vs_baseline/pass11_ordbwd_qwen.json
 ~/tmp/torch-ggml-ops/hip_selection/           (per-key candidate campaign)
-tools/configs/hip_deployment.json             (deployed body per chunk)
 ```
 
 The original campaign evidence is:

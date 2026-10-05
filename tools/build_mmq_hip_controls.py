@@ -48,6 +48,8 @@ def _build_input_digest(
         Path(__file__),
         ROOT / "tools/mmq_hip_control_spec.py",
         ROOT / "tools/mmq_bundle_wrapper_source.py",
+        ROOT / "tools/configs/hip_control_catalog.json",
+        ROOT / "tools/configs/hip_deployment.json",
         ROOT / "csrc/mmq_core.cuh",
         *sorted((ROOT / "csrc/ck").rglob("*.cuh")),
         *sorted((ROOT / "csrc/vendor/llama_cpp").rglob("*.cuh")),
