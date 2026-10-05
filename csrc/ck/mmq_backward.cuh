@@ -227,6 +227,21 @@ static __device__ __forceinline__ void decode_backward_tile_quad(
             values[index] = __float2bfloat16(
                 d * static_cast<float>(quant - 8));
         }
+    } else if constexpr (type == GGML_TYPE_Q5_0) {
+        const auto & block =
+            reinterpret_cast<const block_q5_0 *>(packed_row)[block_index];
+        const float d = fp16_to_fp32(block.d);
+        const uint32_t fifth = get_int_b4(block.qh, 0);
+#pragma unroll
+        for (int index = 0; index < 4; ++index) {
+            const int value = value_index + index;
+            const int low = (
+                block.qs[value & (QK5_0 / 2 - 1)] >>
+                (4 * ((value >> 4) & 1))) & 0x0f;
+            const int high = (fifth >> value) & 0x01;
+            values[index] = __float2bfloat16(
+                d * static_cast<float>((low | (high << 4)) - 16));
+        }
     } else {
         const auto & block =
             reinterpret_cast<const block_q5_K *>(packed_row)[block_index];
@@ -380,6 +395,21 @@ static __device__ __forceinline__ void decode_backward_tile_group(
                 (4 * ((value >> 4) & 1))) & 0x0f;
             values[index] = __float2bfloat16(
                 d * static_cast<float>(quant - 8));
+        }
+    } else if constexpr (type == GGML_TYPE_Q5_0) {
+        const auto & block =
+            reinterpret_cast<const block_q5_0 *>(packed_row)[block_index];
+        const float d = fp16_to_fp32(block.d);
+        const uint32_t fifth = get_int_b4(block.qh, 0);
+#pragma unroll
+        for (int index = 0; index < WIDTH; ++index) {
+            const int value = value_index + index;
+            const int low = (
+                block.qs[value & (QK5_0 / 2 - 1)] >>
+                (4 * ((value >> 4) & 1))) & 0x0f;
+            const int high = (fifth >> value) & 0x01;
+            values[index] = __float2bfloat16(
+                d * static_cast<float>((low | (high << 4)) - 16));
         }
     } else if constexpr (type == GGML_TYPE_Q6_K && WIDTH == 16) {
         const auto & block =

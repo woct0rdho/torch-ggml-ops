@@ -82,6 +82,23 @@ static __device__ __forceinline__ void decode_pipelined_group_prefetched(
             values[index] = __float2bfloat16(
                 d * static_cast<float>(quant - 8));
         }
+    } else if constexpr (TYPE == GGML_TYPE_Q5_0) {
+        const auto & block =
+            reinterpret_cast<const block_q5_0 *>(packed_row)[block_index];
+        const uint4 payload = load_uint4_unaligned(block.qs);
+        const auto * bytes = reinterpret_cast<const uint8_t *>(&payload);
+        const uint32_t fifth = get_int_b4(block.qh, 0);
+        const int shift = 4 * ((value_index >> 4) & 1);
+        const float d = fp16_to_fp32(block.d);
+#pragma unroll
+        for (int index = 0; index < 16; ++index) {
+            const int value = value_index + index;
+            const int low =
+                (bytes[value & (QK5_0 / 2 - 1)] >> shift) & 0x0f;
+            const int high = (fifth >> value) & 0x01;
+            values[index] = __float2bfloat16(
+                d * static_cast<float>((low | (high << 4)) - 16));
+        }
     } else if constexpr (TYPE == GGML_TYPE_Q3_K) {
         const auto & block =
             reinterpret_cast<const block_q3_K *>(packed_row)[block_index];
@@ -153,13 +170,17 @@ static __device__ __forceinline__ void dense_mmq_pipelined_grad_input_body(
         TYPE == GGML_TYPE_Q8_0 ? QK8_0
                                : (TYPE == GGML_TYPE_Q2_0
                                       ? QK2_0
-                                      : (TYPE == GGML_TYPE_Q4_0 ? QK4_0 : QK_K));
+                                      : (TYPE == GGML_TYPE_Q4_0
+                                             ? QK4_0
+                                             : (TYPE == GGML_TYPE_Q5_0
+                                                    ? QK5_0
+                                                    : QK_K)));
     static_assert(DECODER_WIDTH > 0 && N_PER_BLOCK % DECODER_WIDTH == 0);
     static_assert(
         TYPE == GGML_TYPE_Q2_0 || TYPE == GGML_TYPE_Q4_0 ||
-        TYPE == GGML_TYPE_Q8_0 || TYPE == GGML_TYPE_Q3_K ||
-        TYPE == GGML_TYPE_Q4_K || TYPE == GGML_TYPE_Q5_K ||
-        TYPE == GGML_TYPE_Q6_K,
+        TYPE == GGML_TYPE_Q5_0 || TYPE == GGML_TYPE_Q8_0 ||
+        TYPE == GGML_TYPE_Q3_K || TYPE == GGML_TYPE_Q4_K ||
+        TYPE == GGML_TYPE_Q5_K || TYPE == GGML_TYPE_Q6_K,
         "the pipelined body decodes one of the staged weight types");
     if constexpr (PARTIAL_STORE) {
         static_assert(
