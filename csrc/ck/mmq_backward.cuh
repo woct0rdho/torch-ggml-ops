@@ -242,6 +242,20 @@ static __device__ __forceinline__ void decode_backward_tile_quad(
             values[index] = __float2bfloat16(
                 d * static_cast<float>((low | (high << 4)) - 16));
         }
+    } else if constexpr (type == GGML_TYPE_IQ4_NL) {
+        const auto & block =
+            reinterpret_cast<const block_iq4_nl *>(packed_row)[block_index];
+        const float d = fp16_to_fp32(block.d);
+        const int word = (value_index & (QK4_NL / 2 - 1)) / 4;
+        const int2 nibbles =
+            iq4_table_lookup_16(get_int_b2(block.qs, word), kvalues_iq4nl);
+        const int packed = ((value_index >> 4) & 1) ? nibbles.y : nibbles.x;
+#pragma unroll
+        for (int index = 0; index < 4; ++index) {
+            const auto level = static_cast<int8_t>(packed >> (8 * index));
+            values[index] =
+                __float2bfloat16(d * static_cast<float>(level));
+        }
     } else {
         const auto & block =
             reinterpret_cast<const block_q5_K *>(packed_row)[block_index];
@@ -410,6 +424,24 @@ static __device__ __forceinline__ void decode_backward_tile_group(
             const int high = (fifth >> value) & 0x01;
             values[index] = __float2bfloat16(
                 d * static_cast<float>((low | (high << 4)) - 16));
+        }
+    } else if constexpr (type == GGML_TYPE_IQ4_NL) {
+        const auto & block =
+            reinterpret_cast<const block_iq4_nl *>(packed_row)[block_index];
+        const float d = fp16_to_fp32(block.d);
+        const int first_word = (value_index & (QK4_NL / 2 - 1)) / 4;
+        const bool high_plane = ((value_index >> 4) & 1) != 0;
+#pragma unroll
+        for (int word = 0; word < WIDTH / 4; ++word) {
+            const int2 nibbles = iq4_table_lookup_16(
+                get_int_b2(block.qs, first_word + word), kvalues_iq4nl);
+            const int packed = high_plane ? nibbles.y : nibbles.x;
+#pragma unroll
+            for (int slot = 0; slot < 4; ++slot) {
+                const auto level = static_cast<int8_t>(packed >> (8 * slot));
+                values[4 * word + slot] =
+                    __float2bfloat16(d * static_cast<float>(level));
+            }
         }
     } else if constexpr (type == GGML_TYPE_Q6_K && WIDTH == 16) {
         const auto & block =

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ck/gguf_decode.cuh"
 #include "vendor/llama_cpp/common.cuh"
 #include "vendor/llama_cpp/mma.cuh"
 
@@ -704,30 +705,6 @@ static __device__ __forceinline__ void ggml_cuda_mmq_load_tiles_q5_0(
     }
 }
 
-// Look up eight 4-bit indices in a 16-byte table at once. The low three bits
-// of each index select a byte of one half of the table with a byte permute and
-// the fourth bit selects between the halves with a second permute, so no memory
-// gather is needed.
-static __device__ __forceinline__ int2 iq4_table_lookup_16(
-        const int q4, const int8_t * table) {
-    const uint32_t * values = (const uint32_t *) table;
-
-    const uint32_t q_even = q4;
-    const uint32_t q_odd = q4 >> 4;
-
-    const uint32_t even_low = __builtin_amdgcn_perm(values[1], values[0], q_even & 0x07070707);
-    const uint32_t odd_low = __builtin_amdgcn_perm(values[1], values[0], q_odd & 0x07070707);
-    const uint32_t even_high = __builtin_amdgcn_perm(values[3], values[2], q_even & 0x07070707);
-    const uint32_t odd_high = __builtin_amdgcn_perm(values[3], values[2], q_odd & 0x07070707);
-
-    const uint32_t even_mask = 0x03020100 | ((q_even & 0x08080808) >> 1);
-    const uint32_t odd_mask = 0x03020100 | ((q_odd & 0x08080808) >> 1);
-
-    return make_int2(
-        __builtin_amdgcn_perm(even_high, even_low, even_mask),
-        __builtin_amdgcn_perm(odd_high, odd_low, odd_mask));
-}
-
 // IQ4_NL loader: 32 weights in an 18-byte block, one fp16 scale and Q4_0's
 // nibble planes, whose nibbles index the sixteen-level codebook. A stage holds
 // eight blocks, whose levels fill the same LDS slots the Q8_0 loader produces,
@@ -764,7 +741,7 @@ static __device__ __forceinline__ void ggml_cuda_mmq_load_tiles_iq4_nl(
         }
 
         const block_iq4_nl * bxi = (const block_iq4_nl *) x + kbx0 + i * stride + kbx;
-        const int2 v = iq4_table_lookup_16(get_int_b2(bxi->qs, kqsx), kvalues_iq4nl);
+        const int2 v = torch_ggml_ops::ck::iq4_table_lookup_16(get_int_b2(bxi->qs, kqsx), kvalues_iq4nl);
 
         x_qs[i * sram_stride + kbx * (2 * QI4_NL) + kqsx] = v.x;
         x_qs[i * sram_stride + kbx * (2 * QI4_NL) + kqsx + QI4_NL] = v.y;
@@ -819,7 +796,7 @@ static __device__ __forceinline__ void ggml_cuda_mmq_load_tiles_iq4_xs(
         }
 
         const block_iq4_xs * bxi = (const block_iq4_xs *) x + kbx0 + i * stride;
-        const int2 v = iq4_table_lookup_16(get_int_b4(bxi->qs, kqsx), kvalues_iq4nl);
+        const int2 v = torch_ggml_ops::ck::iq4_table_lookup_16(get_int_b4(bxi->qs, kqsx), kvalues_iq4nl);
         const int k0 = 8 * (kqsx / 4) + kqsx % 4;
 
         x_qs[i * sram_stride + k0 + 0] = v.x;

@@ -1890,6 +1890,30 @@
           "symbol": "dense_bwd_q5_0_pipea_nt4_ki64_mw2_sw16"
         }
       ]
+    },
+    {
+      "operation": "OrdinaryBackward",
+      "quant_type": "IQ4_NL",
+      "controls": [
+        {
+          "m": 2048,
+          "n": 640,
+          "k": 2560,
+          "symbol": "dense_bwd_iq4_nl_pipea_nt4_ki64_mw2_sw16_prefetch"
+        },
+        {
+          "m": 8192,
+          "n": 640,
+          "k": 2560,
+          "symbol": "dense_bwd_iq4_nl_pipea_nt4_ki64_mw2_sw16_prefetch"
+        },
+        {
+          "m": 32768,
+          "n": 640,
+          "k": 2560,
+          "symbol": "dense_bwd_iq4_nl_pipea_nt4_ki64_mw2_sw16_prefetch"
+        }
+      ]
     }
   ],
   "routed": [

@@ -99,6 +99,27 @@ static __device__ __forceinline__ void decode_pipelined_group_prefetched(
             values[index] = __float2bfloat16(
                 d * static_cast<float>((low | (high << 4)) - 16));
         }
+    } else if constexpr (TYPE == GGML_TYPE_IQ4_NL) {
+        const auto & block =
+            reinterpret_cast<const block_iq4_nl *>(packed_row)[block_index];
+        const int first_word = (value_index & (QK4_NL / 2 - 1)) / 4;
+        const bool high_plane = ((value_index >> 4) & 1) != 0;
+        const float d = fp16_to_fp32(block.d);
+        // One 16-byte payload block holds both nibble planes, so a 32-bit word
+        // feeds both a low-nibble and a high-nibble lookup at once and the
+        // sixteen values need four permute pairs instead of sixteen gathers.
+#pragma unroll
+        for (int word = 0; word < 4; ++word) {
+            const int2 levels = iq4_table_lookup_16(
+                get_int_b2(block.qs, first_word + word), kvalues_iq4nl);
+            const int packed = high_plane ? levels.y : levels.x;
+#pragma unroll
+            for (int slot = 0; slot < 4; ++slot) {
+                const auto level = static_cast<int8_t>(packed >> (8 * slot));
+                values[4 * word + slot] =
+                    __float2bfloat16(d * static_cast<float>(level));
+            }
+        }
     } else if constexpr (TYPE == GGML_TYPE_Q3_K) {
         const auto & block =
             reinterpret_cast<const block_q3_K *>(packed_row)[block_index];
@@ -174,11 +195,14 @@ static __device__ __forceinline__ void dense_mmq_pipelined_grad_input_body(
                                              ? QK4_0
                                              : (TYPE == GGML_TYPE_Q5_0
                                                     ? QK5_0
-                                                    : QK_K)));
+                                                    : (TYPE == GGML_TYPE_IQ4_NL
+                                                           ? QK4_NL
+                                                           : QK_K))));
     static_assert(DECODER_WIDTH > 0 && N_PER_BLOCK % DECODER_WIDTH == 0);
     static_assert(
         TYPE == GGML_TYPE_Q2_0 || TYPE == GGML_TYPE_Q4_0 ||
-        TYPE == GGML_TYPE_Q5_0 || TYPE == GGML_TYPE_Q8_0 ||
+        TYPE == GGML_TYPE_Q5_0 || TYPE == GGML_TYPE_IQ4_NL ||
+        TYPE == GGML_TYPE_Q8_0 ||
         TYPE == GGML_TYPE_Q3_K || TYPE == GGML_TYPE_Q4_K ||
         TYPE == GGML_TYPE_Q5_K || TYPE == GGML_TYPE_Q6_K,
         "the pipelined body decodes one of the staged weight types");

@@ -12,6 +12,30 @@ static __device__ __forceinline__ float fp16_to_fp32(half value) {
     return __half2float(value);
 }
 
+// Look up eight 4-bit indices in a 16-byte table at once. The low three bits
+// of each index select a byte of one half of the table with a byte permute and
+// the fourth bit selects between the halves with a second permute, so no memory
+// gather is needed.
+static __device__ __forceinline__ int2 iq4_table_lookup_16(
+        const int q4, const int8_t * table) {
+    const uint32_t * values = (const uint32_t *) table;
+
+    const uint32_t q_even = q4;
+    const uint32_t q_odd = q4 >> 4;
+
+    const uint32_t even_low = __builtin_amdgcn_perm(values[1], values[0], q_even & 0x07070707);
+    const uint32_t odd_low = __builtin_amdgcn_perm(values[1], values[0], q_odd & 0x07070707);
+    const uint32_t even_high = __builtin_amdgcn_perm(values[3], values[2], q_even & 0x07070707);
+    const uint32_t odd_high = __builtin_amdgcn_perm(values[3], values[2], q_odd & 0x07070707);
+
+    const uint32_t even_mask = 0x03020100 | ((q_even & 0x08080808) >> 1);
+    const uint32_t odd_mask = 0x03020100 | ((q_odd & 0x08080808) >> 1);
+
+    return make_int2(
+        __builtin_amdgcn_perm(even_high, even_low, even_mask),
+        __builtin_amdgcn_perm(odd_high, odd_low, odd_mask));
+}
+
 static __device__ __forceinline__ int k_scale(
         const uint8_t * scales,
         int group) {
@@ -56,6 +80,8 @@ static constexpr __host__ __device__ int gguf_block_bytes() {
         return sizeof(block_q4_0);
     } else if constexpr (type == GGML_TYPE_Q5_0) {
         return sizeof(block_q5_0);
+    } else if constexpr (type == GGML_TYPE_IQ4_NL) {
+        return sizeof(block_iq4_nl);
     } else {
         return 0;
     }
@@ -77,6 +103,20 @@ __device__ __forceinline__ float decode_gguf_value<GGML_TYPE_Q4_0>(
         block.qs[value_index & (QK4_0 / 2 - 1)] >>
         (4 * ((value_index >> 4) & 1))) & 0x0f;
     return fp16_to_fp32(block.d) * static_cast<float>(quant - 8);
+}
+
+template <>
+__device__ __forceinline__ float decode_gguf_value<GGML_TYPE_IQ4_NL>(
+        const char * packed_row,
+        int block_index,
+        int value_index) {
+    const auto & block =
+        reinterpret_cast<const block_iq4_nl *>(packed_row)[block_index];
+    const int nibble = (
+        block.qs[value_index & (QK4_NL / 2 - 1)] >>
+        (4 * ((value_index >> 4) & 1))) & 0x0f;
+    return fp16_to_fp32(block.d) *
+        static_cast<float>(kvalues_iq4nl[nibble]);
 }
 
 template <>

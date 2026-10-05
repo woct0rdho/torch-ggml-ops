@@ -154,6 +154,7 @@ _PIPELINED_QUANT_TYPES = (
     QuantType.Q2_0,
     QuantType.Q4_0,
     QuantType.Q5_0,
+    QuantType.IQ4_NL,
     QuantType.Q8_0,
     QuantType.Q3_K,
     QuantType.Q4_K,
