@@ -75,6 +75,12 @@ class HIPRuntimeError(RuntimeError):
     pass
 
 
+# The widest row tile a forward body can ask for is 128 rows, and a fragment
+# body addresses its whole row tile at once, so one padded tile covers every
+# fragment control's last partial tile.
+Q8_1_FRAGMENT_ROW_PAD = 128
+
+
 def _resolve_code_object(code_object: Path, kernel_name: str) -> Path:
     located = locate_control(kernel_name, code_object)
     if located is not None:
@@ -1112,11 +1118,18 @@ class _Q81QuantizerModule(_HIPModule):
                 "quantizer input must be [rows, K] with K divisible by 128"
             )
         rows, k = input_tensor.shape
-        return torch.empty(
-            (k // 128, rows, self.BLOCK_BYTES),
+        workspace_bytes = (k // 128) * rows * self.BLOCK_BYTES
+        storage = torch.empty(
+            workspace_bytes + Q8_1_FRAGMENT_ROW_PAD * self.BLOCK_BYTES,
             dtype=torch.uint8,
             device=input_tensor.device,
         )
+        # A forward body that reads its activation fragments straight from the
+        # workspace addresses a whole row tile, so its last tile reads up to
+        # `J - 1` rows past the group's end. Every plane but the last one keeps
+        # that read inside the workspace, and the pad keeps the last one inside
+        # the allocation, which costs nothing at the tensor's own shape.
+        return storage[:workspace_bytes].view(k // 128, rows, self.BLOCK_BYTES)
 
     def _uses_grouped_producer(self, rows: int, k: int) -> bool:
         return rows * k * 2 <= self.GROUPED_MAX_INPUT_BYTES

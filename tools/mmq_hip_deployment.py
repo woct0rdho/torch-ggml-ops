@@ -119,6 +119,7 @@ _MMQ_SRAM_STRIDE = {
     "IQ2_S": 84,
     "Q6_K": 91,
     "Q8_0": 76,
+    "Q2_0": 76,
     "IQ2_XXS": 76,
     "Q4_K": 76,
     "Q5_K": 76,
@@ -337,7 +338,11 @@ def _grouped_forward_lds_bytes(spec: HIPControlSpec) -> int:
         raise ValueError(f"{spec.symbol} has no quant type")
     tile_i, threads = grouped_forward_geometry(config)
     stride = _MMQ_SRAM_STRIDE[config.quant_type.name]
-    tile_y = -(-config.j * _GROUPED_TILE_Y_K // threads) * threads
+    if getattr(config, "fragment_activation", False):
+        # Only the sixteen-byte metadata header of each token stays in LDS.
+        tile_y = config.j * _FORWARD_META_STRIDE
+    else:
+        tile_y = -(-config.j * _GROUPED_TILE_Y_K // threads) * threads
     return 4 * (config.j + tile_y + tile_i * stride)
 
 

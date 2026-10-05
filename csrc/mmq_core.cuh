@@ -1694,6 +1694,25 @@ load_grouped_nonaligned_full_activation_tile(
     tile_y[l] = l < tile_ints ? activation[l] : 0;
 }
 
+// One activation plane of a grouped stage. A control with `MMQ_FRAGMENT_ACT`
+// keeps only the sixteen-byte metadata header of each token in LDS and lets the
+// vector dot read its B fragments straight from the workspace: the header is the
+// first sixteen bytes of the token's row record and the 128 payload bytes the
+// fragment loader addresses sit behind it.
+template <int J>
+static __device__ __forceinline__ void grouped_mmq_load_metadata_strip(
+        const int * __restrict__ activation_k,
+        int * __restrict__ tile_y) {
+    constexpr int q8_block_ints = sizeof(block_q8_1_mmq) / sizeof(int);
+    const int lane = threadIdx.y * WARP_SIZE + threadIdx.x;
+    if (lane < J) {
+        __builtin_memcpy(
+            tile_y + lane * MMQ_META_STRIDE,
+            activation_k + lane * q8_block_ints,
+            16);
+    }
+}
+
 template <ggml_type type, int J, bool fixed_shape, bool full_j>
 static __device__ __forceinline__ void grouped_mmq_k_block(
         const char * __restrict__ expert_weights,
@@ -1723,7 +1742,7 @@ static __device__ __forceinline__ void grouped_mmq_k_block(
         i_max,
         kernel_blocks_per_weight_row);
 #endif
-#if defined(MMQ_PREFETCH_ACT)
+#if defined(MMQ_PREFETCH_ACT) && !defined(MMQ_FRAGMENT_ACT)
     constexpr int plane_regs = grouped_activation_plane_regs<J>();
     int plane_buffer[plane_regs];
     {
@@ -1736,6 +1755,9 @@ static __device__ __forceinline__ void grouped_mmq_k_block(
     }
 #endif
 
+#if defined(MMQ_FRAGMENT_ACT)
+    grouped_mmq_load_metadata_strip<J>(activation_k, tile_y);
+#else
     if constexpr (full_j && J * MMQ_TILE_Y_K % MMQ_NTHREADS != 0) {
         load_grouped_nonaligned_full_activation_tile<J>(activation_k, tile_y);
     } else {
@@ -1751,16 +1773,25 @@ static __device__ __forceinline__ void grouped_mmq_k_block(
             }
         }
     }
+#endif
 #if defined(MMQ_COMPACT_TILE)
     mmq_load_target<type, J, !fixed_shape>(
         expert_weights, tile_x, weight_block_offset, i_max,
         kernel_blocks_per_weight_row, 0);
 #endif
     __syncthreads();
+#if defined(MMQ_FRAGMENT_ACT)
+    mmq_vec_dot_target<type, J, !fixed_shape>(
+        tile_x, activation_k, sum, 0, tile_y);
+#else
     mmq_vec_dot_target<type, J, !fixed_shape>(tile_x, tile_y, sum, 0);
+#endif
     __syncthreads();
 
-#if defined(MMQ_PREFETCH_ACT)
+#if defined(MMQ_FRAGMENT_ACT)
+    grouped_mmq_load_metadata_strip<J>(
+        activation_k + activation_plane_stride, tile_y);
+#elif defined(MMQ_PREFETCH_ACT)
     {
         const int lane = threadIdx.y * WARP_SIZE + threadIdx.x;
         store_grouped_activation_plane_regs<J>(tile_y, plane_buffer, lane);
@@ -1791,6 +1822,9 @@ static __device__ __forceinline__ void grouped_mmq_k_block(
     __syncthreads();
 #if defined(MMQ_COMPACT_TILE)
     mmq_vec_dot_target<type, J, !fixed_shape>(tile_x, tile_y, sum, 0);
+#elif defined(MMQ_FRAGMENT_ACT)
+    mmq_vec_dot_target<type, J, !fixed_shape>(
+        tile_x, activation_k + activation_plane_stride, sum, MMQ_TILE_NE_K, tile_y);
 #else
     mmq_vec_dot_target<type, J, !fixed_shape>(
         tile_x, tile_y, sum, MMQ_TILE_NE_K);
@@ -2015,6 +2049,9 @@ static __device__ __forceinline__ void grouped_mmq_row_tile(
                 );
             }
 
+#if defined(MMQ_FRAGMENT_ACT)
+            grouped_mmq_load_metadata_strip<J>(activation_k, tile_y);
+#else
             if constexpr (full_j && J * MMQ_TILE_Y_K % MMQ_NTHREADS != 0) {
                 load_grouped_nonaligned_full_activation_tile<J>(
                     activation_k, tile_y);
@@ -2036,11 +2073,21 @@ static __device__ __forceinline__ void grouped_mmq_row_tile(
                     }
                 }
             }
+#endif
             __syncthreads();
+#if defined(MMQ_FRAGMENT_ACT)
+            mmq_vec_dot_target<type, J, !fixed_shape, rolled_q2_k>(
+                tile_x, activation_k, sum, 0, tile_y);
+#else
             mmq_vec_dot_target<type, J, !fixed_shape, rolled_q2_k>(
                 tile_x, tile_y, sum, 0);
+#endif
             __syncthreads();
 
+#if defined(MMQ_FRAGMENT_ACT)
+            grouped_mmq_load_metadata_strip<J>(
+                activation_k + activation_half_stride, tile_y);
+#else
             if constexpr (full_j && J * MMQ_TILE_Y_K % MMQ_NTHREADS != 0) {
                 load_grouped_nonaligned_full_activation_tile<J>(
                     activation_k + activation_half_stride, tile_y);
@@ -2063,6 +2110,7 @@ static __device__ __forceinline__ void grouped_mmq_row_tile(
                     }
                 }
             }
+#endif
 #if defined(MMQ_COMPACT_TILE)
             mmq_load_target<type, J, !fixed_shape>(
                 expert_weights,
@@ -2076,6 +2124,10 @@ static __device__ __forceinline__ void grouped_mmq_row_tile(
 #if defined(MMQ_COMPACT_TILE)
             mmq_vec_dot_target<type, J, !fixed_shape, rolled_q2_k>(
                 tile_x, tile_y, sum, 0);
+#elif defined(MMQ_FRAGMENT_ACT)
+            mmq_vec_dot_target<type, J, !fixed_shape, rolled_q2_k>(
+                tile_x, activation_k + activation_half_stride, sum,
+                MMQ_TILE_NE_K, tile_y);
 #else
             mmq_vec_dot_target<type, J, !fixed_shape, rolled_q2_k>(
                 tile_x, tile_y, sum, MMQ_TILE_NE_K);
@@ -2097,6 +2149,9 @@ static __device__ __forceinline__ void grouped_mmq_row_tile(
                     tile_i * MMQ_I * k_row_values + k_tail_window,
                     k_row_values,
                     i_max);
+#if defined(MMQ_FRAGMENT_ACT)
+                grouped_mmq_load_metadata_strip<J>(activation_k, tile_y);
+#else
                 if constexpr (full_j && J * MMQ_TILE_Y_K % MMQ_NTHREADS != 0) {
                     load_grouped_nonaligned_full_activation_tile<J>(
                         activation_k, tile_y);
@@ -2118,9 +2173,15 @@ static __device__ __forceinline__ void grouped_mmq_row_tile(
                         }
                     }
                 }
+#endif
                 __syncthreads();
+#if defined(MMQ_FRAGMENT_ACT)
+                mmq_vec_dot_target<type, J, !fixed_shape, rolled_q2_k>(
+                    tile_x, activation_k, sum, MMQ_TILE_NE_K, tile_y);
+#else
                 mmq_vec_dot_target<type, J, !fixed_shape, rolled_q2_k>(
                     tile_x, tile_y, sum, MMQ_TILE_NE_K);
+#endif
                 __syncthreads();
             }
         }
@@ -2160,7 +2221,8 @@ static __device__ __forceinline__ void grouped_mmq_tail_tile(
         int blocks_per_weight_row) {
     if constexpr (
         mixed_j32_tails &&
-        (type == GGML_TYPE_IQ2_S || type == GGML_TYPE_Q4_K) &&
+        (type == GGML_TYPE_IQ2_S || type == GGML_TYPE_Q4_K ||
+         type == GGML_TYPE_Q2_0) &&
         J == MMQ_J_SMALL
     ) {
         constexpr bool qualified_rows_are_bounded =
@@ -2173,7 +2235,7 @@ static __device__ __forceinline__ void grouped_mmq_tail_tile(
         if (qualified_rows && tail_rows <= MMQ_J_TINY) {
             grouped_mmq_row_tile<
                 type, MMQ_J_TINY, fixed_nrows_weight, fixed_blocks_per_weight_row,
-                false, rolled_q2_k>(
+                false, rolled_q2_k, k_tail_values>(
                     expert_weights, activations, dst, tile_x, tile_y, tile_i,
                     row_start, row_end, nrows_weight, nrows_activation,
                     blocks_per_weight_row);
@@ -2253,8 +2315,15 @@ static __device__ __forceinline__ void grouped_mmq_bf16_body(
 
     const char * expert_weights = weights + expert * bytes_per_expert;
     extern __shared__ int shared[];
+#if defined(MMQ_FRAGMENT_ACT)
+    // Only the four per-group scales of each token stay in LDS, so the weight
+    // tile starts directly behind the metadata strip.
+    constexpr int activation_ints = J * MMQ_META_STRIDE;
+#else
+    constexpr int activation_ints = GGML_PAD(J * MMQ_TILE_Y_K, MMQ_NTHREADS);
+#endif
     int * tile_y = shared + J;
-    int * tile_x = tile_y + GGML_PAD(J * MMQ_TILE_Y_K, MMQ_NTHREADS);
+    int * tile_x = tile_y + activation_ints;
 
     int row_start = row_begin;
     for (; row_start + J <= row_end; row_start += J) {

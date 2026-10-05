@@ -99,20 +99,27 @@ class ForwardConfig:
         if self.mixed_j32_tails:
             if self.kind != ForwardKind.GROUPED_SERIAL or self.j != 64:
                 raise ValueError("mixed J32 tails require the grouped J64 shape")
+            qualified_shapes = {
+                QuantType.IQ2_S: (2048, 2),
+                QuantType.Q2_0: (2560, 3),
+                QuantType.Q4_K: (2048, 2),
+            }
             if (
-                self.nrows_weight != 2048
-                or self.blocks_per_weight_row != 2
-                or self.quant_type not in {QuantType.Q4_K, QuantType.IQ2_S}
+                self.quant_type not in qualified_shapes
+                or (self.nrows_weight, self.blocks_per_weight_row)
+                != qualified_shapes[self.quant_type]
             ):
-                raise ValueError("mixed J32 tails require the grouped J64 K512 shape")
+                raise ValueError("mixed J32 tails require a qualified grouped shape")
             if (rows_a == 0) != (rows_b == 0):
                 raise ValueError("mixed J32 row bounds must both be zero or positive")
             if rows_a < 0 or rows_b < 0 or (rows_a > 0 and rows_a >= rows_b):
                 raise ValueError("mixed J32 row bounds must be ordered distinct values")
             if self.quant_type == QuantType.Q4_K and self.mixed_j32_rows == (0, 0):
                 raise ValueError("Q4_K mixed J32 tails require bounded aggregate rows")
-            if self.quant_type == QuantType.IQ2_S and self.mixed_j32_rows != (0, 0):
-                raise ValueError("IQ2_S mixed J32 tails do not accept aggregate bounds")
+            if self.quant_type != QuantType.Q4_K and self.mixed_j32_rows != (0, 0):
+                raise ValueError(
+                    "this type's mixed J32 tails do not accept aggregate bounds"
+                )
         elif self.mixed_j32_rows != (0, 0):
             raise ValueError("mixed J32 row bounds require mixed J32 tails")
         if self.pipeline_depth < 0 or self.pipeline_depth > 8:

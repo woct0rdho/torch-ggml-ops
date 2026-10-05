@@ -24,7 +24,7 @@ def test_public_bundle_contains_no_hip_compute_artifacts() -> None:
         "QuantizeQ81F16D2S6",
         "GroupedRowTaskSetup",
         # The grouped producers are the same quantization entry points with a
-        # thread-per-half-group body; the dispatch picks between them by size.
+        # thread-per-half-group body. The dispatch picks between them by size.
         "QuantizeQ81GroupedF32D4",
         "QuantizeQ81GroupedF16D4S4",
     ]
