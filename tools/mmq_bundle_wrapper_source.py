@@ -151,6 +151,7 @@ class ForwardConfig:
 
 _PIPELINED_QUANT_TYPES = (
     QuantType.Q2_0,
+    QuantType.Q4_0,
     QuantType.Q8_0,
     QuantType.Q3_K,
     QuantType.Q4_K,

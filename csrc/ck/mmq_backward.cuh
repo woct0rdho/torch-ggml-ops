@@ -214,6 +214,19 @@ static __device__ __forceinline__ void decode_backward_tile_quad(
             values[index] = __float2bfloat16(
                 d * static_cast<float>(code - 1));
         }
+    } else if constexpr (type == GGML_TYPE_Q4_0) {
+        const auto & block =
+            reinterpret_cast<const block_q4_0 *>(packed_row)[block_index];
+        const float d = fp16_to_fp32(block.d);
+#pragma unroll
+        for (int index = 0; index < 4; ++index) {
+            const int value = value_index + index;
+            const int quant = (
+                block.qs[value & (QK4_0 / 2 - 1)] >>
+                (4 * ((value >> 4) & 1))) & 0x0f;
+            values[index] = __float2bfloat16(
+                d * static_cast<float>(quant - 8));
+        }
     } else {
         const auto & block =
             reinterpret_cast<const block_q5_K *>(packed_row)[block_index];
@@ -354,6 +367,19 @@ static __device__ __forceinline__ void decode_backward_tile_group(
                 (block.qs[value >> 2] >> (2 * (value & 3))) & 0x03;
             values[index] = __float2bfloat16(
                 d * static_cast<float>(code - 1));
+        }
+    } else if constexpr (type == GGML_TYPE_Q4_0) {
+        const auto & block =
+            reinterpret_cast<const block_q4_0 *>(packed_row)[block_index];
+        const float d = fp16_to_fp32(block.d);
+#pragma unroll
+        for (int index = 0; index < WIDTH; ++index) {
+            const int value = value_index + index;
+            const int quant = (
+                block.qs[value & (QK4_0 / 2 - 1)] >>
+                (4 * ((value >> 4) & 1))) & 0x0f;
+            values[index] = __float2bfloat16(
+                d * static_cast<float>(quant - 8));
         }
     } else if constexpr (type == GGML_TYPE_Q6_K && WIDTH == 16) {
         const auto & block =
