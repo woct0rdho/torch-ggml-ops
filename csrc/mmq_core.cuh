@@ -2405,48 +2405,59 @@ static __device__ __forceinline__ void grouped_mmq_build_row_tasks_body(
         int num_groups,
         int nrows_activation,
         int row_tile) {
+    // The cumulative scan covers 256 groups per pass, and a family with 512
+    // physical experts can route to more entries than that, so the pass runs
+    // once per chunk of 256 entries with the finished count as its base.
     __shared__ int cumulative_tasks[256];
-    const int group = threadIdx.x;
+    const int slot = threadIdx.x;
+    int task_base = 0;
 
-    int row_begin = 0;
-    int row_end = 0;
-    int expert = -1;
-    int group_tasks = 0;
-    if (group < num_groups) {
-        row_begin = group == 0 ? 0 : expert_offsets[group - 1];
-        row_end = expert_offsets[group];
-        const int64_t expert64 = expert_indices[group];
-        if (
-            expert64 >= 0 && expert64 < num_experts && row_begin >= 0 &&
-            row_end > row_begin && row_end <= nrows_activation
-        ) {
-            expert = static_cast<int>(expert64);
-            group_tasks = (row_end - row_begin + row_tile - 1) / row_tile;
+    for (int chunk = 0; chunk < num_groups; chunk += 256) {
+        const int group = chunk + slot;
+        int row_begin = 0;
+        int row_end = 0;
+        int expert = -1;
+        int group_tasks = 0;
+        if (group < num_groups) {
+            row_begin = group == 0 ? 0 : expert_offsets[group - 1];
+            row_end = expert_offsets[group];
+            const int64_t expert64 = expert_indices[group];
+            if (
+                expert64 >= 0 && expert64 < num_experts && row_begin >= 0 &&
+                row_end > row_begin && row_end <= nrows_activation
+            ) {
+                expert = static_cast<int>(expert64);
+                group_tasks = (row_end - row_begin + row_tile - 1) / row_tile;
+            }
         }
-    }
-    cumulative_tasks[group] = group_tasks;
-    __syncthreads();
+        cumulative_tasks[slot] = group_tasks;
+        __syncthreads();
 
 #pragma unroll
-    for (int offset = 1; offset < 256; offset <<= 1) {
-        const int add = group >= offset ? cumulative_tasks[group - offset] : 0;
-        __syncthreads();
-        cumulative_tasks[group] += add;
+        for (int offset = 1; offset < 256; offset <<= 1) {
+            const int add = slot >= offset ? cumulative_tasks[slot - offset] : 0;
+            __syncthreads();
+            cumulative_tasks[slot] += add;
+            __syncthreads();
+        }
+
+        if (group < num_groups) {
+            const int task_begin = task_base +
+                (slot == 0 ? 0 : cumulative_tasks[slot - 1]);
+            for (int task = 0; task < group_tasks; ++task) {
+                const int task_index = task_begin + task;
+                const int task_row_start = row_begin + task * row_tile;
+                task_experts[task_index] = expert;
+                task_row_starts[task_index] = task_row_start;
+                task_row_ends[task_index] =
+                    min(task_row_start + row_tile, row_end);
+            }
+        }
+        task_base += cumulative_tasks[255];
         __syncthreads();
     }
-
-    if (group < num_groups) {
-        const int task_begin = group == 0 ? 0 : cumulative_tasks[group - 1];
-        for (int task = 0; task < group_tasks; ++task) {
-            const int task_index = task_begin + task;
-            const int task_row_start = row_begin + task * row_tile;
-            task_experts[task_index] = expert;
-            task_row_starts[task_index] = task_row_start;
-            task_row_ends[task_index] = min(task_row_start + row_tile, row_end);
-        }
-        if (group == num_groups - 1) {
-            task_count[0] = cumulative_tasks[group];
-        }
+    if (slot == 0) {
+        task_count[0] = task_base;
     }
 }
 

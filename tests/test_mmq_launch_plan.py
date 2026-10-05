@@ -1,5 +1,6 @@
 """Guards for the shared deployed-case launch plan."""
 
+import pytest
 import torch
 
 from tools.mmq_deployment_cases import public_deployment_cases
@@ -40,3 +41,14 @@ def test_row_task_workspaces_take_rows_and_capacity_from_the_contract() -> None:
         assert workspace.row_task_rows == tile
         assert workspace.capacity == paired_row_task_capacity(1152, 7, tile)
         assert workspace.task_row_starts.numel() == workspace.capacity
+
+
+def test_row_task_workspaces_cover_a_512_expert_route_bank() -> None:
+    """The Qwen3.8 family routes to more entries than the 256-expert models."""
+
+    reference = torch.empty(20480, 8)
+    workspace = RowTaskWorkspace.allocate(reference, route_entries=497, row_tile=128)
+    assert workspace.route_entries == 497
+    assert workspace.capacity == paired_row_task_capacity(20480, 497, 128)
+    with pytest.raises(RuntimeError, match="route entry count"):
+        RowTaskWorkspace.allocate(reference, route_entries=513, row_tile=128)

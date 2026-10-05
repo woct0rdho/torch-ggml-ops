@@ -48,6 +48,11 @@ class GroupedBackwardKind(str, Enum):
     Q5_ROW_TASK_N64_S2 = "q5_row_task_n64_s2"
     IQ2_S_ROW_TASK_N64_S2 = "iq2_s_row_task_n64_s2"
     Q2_K_ROW_TASK_N64_S3 = "q2_k_row_task_n64_s3"
+    Q2_0_ROW_TASK_N64_S3 = "q2_0_row_task_n64_s3"
+    Q2_0_ROW_TASK_N64_S2 = "q2_0_row_task_n64_s2"
+    Q2_0_ROW_TASK_N64_S3_NOSKIP = "q2_0_row_task_n64_s3_noskip"
+    Q2_0_ROW_TASK_N64_S3_SW8 = "q2_0_row_task_n64_s3_sw8"
+    Q2_0_ROW_TASK_N64_S3_SW4 = "q2_0_row_task_n64_s3_sw4"
     FIXED_Q8_0_GENERIC = "fixed_q8_0_generic"
     Q2_K_SINGLE_M64_U1 = "q2_k_single_m64_u1"
     Q2_K_SINGLE_M128_U1 = "q2_k_single_m128_u1"
@@ -853,6 +858,21 @@ _SPECIAL_GROUPED_CALLS = {
     GroupedBackwardKind.Q2_K_ROW_TASK_N64_S3: "torch_ggml_ops::ck::"
     "grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::"
     "grouped_backward_row_task_decoder_q2_k, 3, true>",
+    GroupedBackwardKind.Q2_0_ROW_TASK_N64_S3: "torch_ggml_ops::ck::"
+    "grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::"
+    "grouped_backward_row_task_decoder_q2_0, 3, true>",
+    GroupedBackwardKind.Q2_0_ROW_TASK_N64_S2: "torch_ggml_ops::ck::"
+    "grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::"
+    "grouped_backward_row_task_decoder_q2_0, 2, true>",
+    GroupedBackwardKind.Q2_0_ROW_TASK_N64_S3_NOSKIP: "torch_ggml_ops::ck::"
+    "grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::"
+    "grouped_backward_row_task_decoder_q2_0, 3, false>",
+    GroupedBackwardKind.Q2_0_ROW_TASK_N64_S3_SW8: "torch_ggml_ops::ck::"
+    "grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::"
+    "grouped_backward_row_task_decoder_q2_0_sw8, 3, true>",
+    GroupedBackwardKind.Q2_0_ROW_TASK_N64_S3_SW4: "torch_ggml_ops::ck::"
+    "grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::"
+    "grouped_backward_row_task_decoder_q2_0_sw4, 3, true>",
     GroupedBackwardKind.Q3_PAIR_STAGED_M128: "torch_ggml_ops::ck::"
     "grouped_mmq_pair_grad_input_staged_body<torch_ggml_ops::ck::"
     "grouped_backward_pair_decoder_q3_k, 2, 2, true>",
@@ -914,6 +934,11 @@ _ROW_TASK_KINDS = {
     GroupedBackwardKind.Q5_ROW_TASK_N64_S2,
     GroupedBackwardKind.IQ2_S_ROW_TASK_N64_S2,
     GroupedBackwardKind.Q2_K_ROW_TASK_N64_S3,
+    GroupedBackwardKind.Q2_0_ROW_TASK_N64_S3,
+    GroupedBackwardKind.Q2_0_ROW_TASK_N64_S2,
+    GroupedBackwardKind.Q2_0_ROW_TASK_N64_S3_NOSKIP,
+    GroupedBackwardKind.Q2_0_ROW_TASK_N64_S3_SW8,
+    GroupedBackwardKind.Q2_0_ROW_TASK_N64_S3_SW4,
 }
 
 
@@ -952,6 +977,21 @@ _GROUPED_HEADERS = {
         "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
     ),
     GroupedBackwardKind.Q2_K_ROW_TASK_N64_S3: (
+        "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
+    ),
+    GroupedBackwardKind.Q2_0_ROW_TASK_N64_S3: (
+        "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
+    ),
+    GroupedBackwardKind.Q2_0_ROW_TASK_N64_S2: (
+        "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
+    ),
+    GroupedBackwardKind.Q2_0_ROW_TASK_N64_S3_NOSKIP: (
+        "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
+    ),
+    GroupedBackwardKind.Q2_0_ROW_TASK_N64_S3_SW8: (
+        "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
+    ),
+    GroupedBackwardKind.Q2_0_ROW_TASK_N64_S3_SW4: (
         "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
     ),
     GroupedBackwardKind.Q3_PAIR_STAGED_M128: "ck/grouped_mmq_backward_pair_staged.cuh",

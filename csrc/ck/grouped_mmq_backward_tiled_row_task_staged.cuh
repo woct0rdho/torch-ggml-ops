@@ -103,6 +103,87 @@ struct grouped_backward_row_task_decoder_q2_k {
     }
 };
 
+struct grouped_backward_row_task_decoder_q2_0_sw8 {
+    static constexpr ggml_type type = GGML_TYPE_Q2_0;
+    static constexpr int out_features = 2560;
+    static constexpr int in_features = 640;
+    static constexpr int blocks_per_weight_row = 10;
+    static constexpr int swizzle = 8;
+
+    static __device__ __forceinline__ void decode(
+            const char * packed_row,
+            int block_index,
+            int value_index,
+            __hip_bfloat16 * values) {
+        const auto & block = reinterpret_cast<const block_q2_0 *>(
+            packed_row)[block_index];
+        const float scale = fp16_to_fp32(block.d);
+        uint32_t word;
+        __builtin_memcpy(&word, block.qs + (value_index >> 2), sizeof(word));
+#pragma unroll
+        for (int index = 0; index < 16; ++index) {
+            const int quant = (word >> (2 * index)) & 0x03;
+            values[index] = __float2bfloat16(
+                scale * static_cast<float>(quant - 1));
+        }
+    }
+};
+
+
+struct grouped_backward_row_task_decoder_q2_0_sw4 {
+    static constexpr ggml_type type = GGML_TYPE_Q2_0;
+    static constexpr int out_features = 2560;
+    static constexpr int in_features = 640;
+    static constexpr int blocks_per_weight_row = 10;
+    static constexpr int swizzle = 4;
+
+    static __device__ __forceinline__ void decode(
+            const char * packed_row,
+            int block_index,
+            int value_index,
+            __hip_bfloat16 * values) {
+        const auto & block = reinterpret_cast<const block_q2_0 *>(
+            packed_row)[block_index];
+        const float scale = fp16_to_fp32(block.d);
+        uint32_t word;
+        __builtin_memcpy(&word, block.qs + (value_index >> 2), sizeof(word));
+#pragma unroll
+        for (int index = 0; index < 16; ++index) {
+            const int quant = (word >> (2 * index)) & 0x03;
+            values[index] = __float2bfloat16(
+                scale * static_cast<float>(quant - 1));
+        }
+    }
+};
+
+struct grouped_backward_row_task_decoder_q2_0 {
+    static constexpr ggml_type type = GGML_TYPE_Q2_0;
+    static constexpr int out_features = 2560;
+    static constexpr int in_features = 640;
+    static constexpr int blocks_per_weight_row = 10;
+    static constexpr int swizzle = 16;
+
+    static __device__ __forceinline__ void decode(
+            const char * packed_row,
+            int block_index,
+            int value_index,
+            __hip_bfloat16 * values) {
+        const auto & block = reinterpret_cast<const block_q2_0 *>(
+            packed_row)[block_index];
+        const float scale = fp16_to_fp32(block.d);
+        // Four consecutive codes per payload byte, lowest bits first, so one
+        // sixteen-value segment is one unaligned 32-bit word.
+        uint32_t word;
+        __builtin_memcpy(&word, block.qs + (value_index >> 2), sizeof(word));
+#pragma unroll
+        for (int index = 0; index < 16; ++index) {
+            const int quant = (word >> (2 * index)) & 0x03;
+            values[index] = __float2bfloat16(
+                scale * static_cast<float>(quant - 1));
+        }
+    }
+};
+
 static constexpr int GROUPED_BACKWARD_ROW_TASK_STAGED_N_TILES = 4;
 static constexpr int GROUPED_BACKWARD_ROW_TASK_STAGED_M_TILES_PER_WAVE = 2;
 static constexpr int GROUPED_BACKWARD_ROW_TASK_STAGED_N =
@@ -146,8 +227,11 @@ static __device__ __forceinline__ void grouped_mmq_grad_input_row_task_staged_ti
     const int k_index = threadIdx.x / N_TILES;
     const int local_input_column = BACKWARD_N_PER_TILE * column_group;
     const int input_column = input_column_start + local_input_column;
-    const int block_index = input_column / QK_K;
-    const int value_index = input_column % QK_K;
+    // The packed block width follows from the geometry the decoder declares:
+    // 256 values for the K-quant layouts and 64 for Q2_0.
+    constexpr int BLOCK_VALUES = IN_FEATURES / Decoder::blocks_per_weight_row;
+    const int block_index = input_column / BLOCK_VALUES;
+    const int value_index = input_column % BLOCK_VALUES;
     const int a_row_base = wave_row_start + c_row(lane);
     // Waves whose first row is already past the task end still take part in the
     // shared decode, but they need no activation load, matrix work or store.

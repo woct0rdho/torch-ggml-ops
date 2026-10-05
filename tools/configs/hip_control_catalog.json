@@ -2432,6 +2432,24 @@
     "reduction_unroll": 0
   },
   {
+    "symbol": "grouped_bwd_row_task_q2_0_n2560_k640_mt128_nt64_s3",
+    "config": "grouped_backward",
+    "kind": "Q2_0_ROW_TASK_N64_S3",
+    "quant_type": "Q2_0",
+    "n_tiles": 0,
+    "m_tiles_per_wave": 0,
+    "reduction_unroll": 0
+  },
+  {
+    "symbol": "grouped_bwd_row_task_q2_0_n2560_k640_mt128_nt64_s3_sw8",
+    "config": "grouped_backward",
+    "kind": "Q2_0_ROW_TASK_N64_S3_SW8",
+    "quant_type": "Q2_0",
+    "n_tiles": 0,
+    "m_tiles_per_wave": 0,
+    "reduction_unroll": 0
+  },
+  {
     "symbol": "grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3",
     "config": "grouped_backward",
     "kind": "Q2_K_ROW_TASK_N64_S3",

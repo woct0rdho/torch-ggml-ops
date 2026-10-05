@@ -21,6 +21,7 @@ class _ControlSpec:
     in_features: int
     packed_row_bytes: int
     tiled_n: int = 128
+    physical_experts: int = 256
 
     @property
     def bytes_per_expert(self) -> int:
@@ -48,6 +49,46 @@ _SYMBOL_SPECS: dict[str, _ControlSpec] = {
         ),
         _ControlSpec(
             "grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt128", 2048, 512, 164
+        ),
+        _ControlSpec(
+            "grouped_bwd_row_task_q2_0_n2560_k640_mt128_nt64_s3",
+            2560,
+            640,
+            180,
+            tiled_n=64,
+            physical_experts=512,
+        ),
+        _ControlSpec(
+            "grouped_bwd_row_task_q2_0_n2560_k640_mt128_nt64_s2",
+            2560,
+            640,
+            180,
+            tiled_n=64,
+            physical_experts=512,
+        ),
+        _ControlSpec(
+            "grouped_bwd_row_task_q2_0_n2560_k640_mt128_nt64_s3_noskip",
+            2560,
+            640,
+            180,
+            tiled_n=64,
+            physical_experts=512,
+        ),
+        _ControlSpec(
+            "grouped_bwd_row_task_q2_0_n2560_k640_mt128_nt64_s3_sw8",
+            2560,
+            640,
+            180,
+            tiled_n=64,
+            physical_experts=512,
+        ),
+        _ControlSpec(
+            "grouped_bwd_row_task_q2_0_n2560_k640_mt128_nt64_s3_sw4",
+            2560,
+            640,
+            180,
+            tiled_n=64,
+            physical_experts=512,
         ),
         _ControlSpec(
             "grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt64_s3",
@@ -140,7 +181,7 @@ class InstalledGroupedBackwardControl(_HIPModule):
         if tuple(grad_output.shape) != (rows, spec.out_features):
             raise HIPRuntimeError("grouped-backward control gradient shape is invalid")
         if tuple(packed_weight.shape) != (
-            self.PHYSICAL_EXPERTS,
+            spec.physical_experts,
             spec.out_features,
             spec.packed_row_bytes,
         ):
@@ -245,7 +286,7 @@ class InstalledGroupedBackwardRowTaskControl(_HIPModule):
         if tuple(grad_output.shape) != (rows, spec.out_features):
             raise HIPRuntimeError("row-task gradient shape is invalid")
         if tuple(packed_weight.shape) != (
-            self.PHYSICAL_EXPERTS,
+            spec.physical_experts,
             spec.out_features,
             spec.packed_row_bytes,
         ):

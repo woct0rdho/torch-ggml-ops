@@ -49,7 +49,7 @@ class RowTaskWorkspace:
         """
 
         aggregate_rows = int(reference.shape[0])
-        if route_entries <= 0 or route_entries > 256:
+        if route_entries <= 0 or route_entries > 512:
             raise HIPRuntimeError("row-task route entry count is outside the contract")
         if aggregate_rows <= 0 or not 0 < row_tile <= 128:
             raise HIPRuntimeError(
@@ -98,6 +98,7 @@ class InstalledGroupedRowTaskSetup(_HIPModule):
         workspace: RowTaskWorkspace,
         *,
         stream: int,
+        num_experts: int = 256,
     ) -> None:
         tensors = (
             expert_indices,
@@ -134,7 +135,7 @@ class InstalledGroupedRowTaskSetup(_HIPModule):
                 "task_experts": workspace.task_experts.data_ptr(),
                 "task_row_starts": workspace.task_row_starts.data_ptr(),
                 "task_row_ends": workspace.task_row_ends.data_ptr(),
-                "num_experts": 256,
+                "num_experts": num_experts,
                 "num_groups": route_entries,
                 "nrows_activation": workspace.aggregate_rows,
                 "row_tile": workspace.row_task_rows,
