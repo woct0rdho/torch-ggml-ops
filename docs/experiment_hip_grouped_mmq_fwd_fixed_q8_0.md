@@ -16,31 +16,25 @@ The packed kernel is slower than BMM because the baseline starts from already de
 
 That step is not free: it costs `0.964/3.820/15.267 ms` at B1/B4/B16, `8.7%` of the kernel-plus-quantizer time, and adding it back gives `12.41/12.46/12.50` TFLOPS. The body is unchanged from the earlier recording, so that reconstruction reproduces the earlier `12.57/12.57/12.58` reading within `1.3%`: the higher TFLOPS above is the protocol change, not a kernel change.
 
-## Kernel implementation
-
-The retained fixed-group body uses exact `(N,K)=(1024,4096)` per group, four wave32 waves, J64 ownership, width-16 Q8_0 decode, one unswizzled N64/K32 weight tile per group, and fixed group-Z ownership. It performs the group-major to token-major output conversion in the kernel path. The `_j64_bounded` twin is built for out-of-contract shapes and measured `0.9-1.2%` slower at the three batch sizes in the table, so it is not deployed for them.
-
-The kernel does not rely on fabricated route metadata.
-
 ## Optimization log
 
 ### Initial geometry
 
 The generic fixed body used narrow eight-wave ownership, N16/K16 work, and serial row handling. The first exact four-wave M256/N64/K32 body improved the generic fixed kernel by `8.09x`, `8.33x`, and `8.75x` at B1/B4/B16.
 
-The retained fixed body uses `213 VGPR / 48 SGPR / 4096 B LDS`. M64 and M128 were slower at the smaller fixed batches; width32, swizzle4, and M512 were rejected by timing or the resource warning boundary.
+The retained fixed body uses `213 VGPR / 48 SGPR / 4096 B LDS`. M64 and M128 were slower at the smaller fixed batches. Width32, swizzle4, and M512 were rejected by timing or the resource warning boundary.
 
 M64 and M128 were screened but M256 remained the better fixed-group geometry at B1/B4. Width32 decode, swizzle4, M512, broad scale staging, rolled dot loops, and group-major Q8_1 workspace alternatives were invalid, resource-heavy, or slower.
 
 ### Coefficient-only geometry
 
-The full typed campaign retained fixed Q8_0 J64 full/bounded bodies and tested J16, J80, wider ownership, bounded tails, decoder width, and LDS layout. No alternate geometry passed the timing and resource gates. The fixed path retains token rows rather than routed rows and has no inactive-expert work to suppress.
+The full typed campaign retained fixed Q8_0 J64 full/bounded bodies and tested J16, J80, wider ownership, bounded tails, decoder width, and LDS layout. No alternate geometry passed the timing and resource gates. The `_j64_bounded` twin measured `0.9-1.2%` slower at the three batch sizes in the table, so it is not deployed for them. The fixed path retains token rows rather than routed rows and has no inactive-expert work to suppress.
 
 The residual is representation mismatch: Q8_0 packed payloads and scales must be reconstructed before WMMA, while BMM consumes a predecoded BF16 tensor. A lossless prepared payload/scale layout would be a separate representation experiment.
 
 ### Hoisted epilogue metadata
 
-The epilogue metadata of this quant was hoisted out of the column loop in the same way the Q6_K body deploys it. Over the full ordinary-shape A/B with the official protocol the change is neutral here (per-shape ratios inside `0.99x` to `1.01x`, no consistent direction), so the shipped body keeps the vendored target. The result is independent of tolerance because the body only moves loads: the arithmetic and the accumulation order are unchanged. Evidence: `~/tmp/torch-ggml-ops/retune_fwd/official/`.
+The epilogue metadata of this quant was hoisted out of the column loop in the same way the Q6_K body deploys it. Over the full ordinary-shape A/B the change is neutral here (per-shape ratios inside `0.99x` to `1.01x`, no consistent direction), so the shipped body keeps the vendored target. Evidence: `~/tmp/torch-ggml-ops/retune_fwd/official/`.
 
 ## Evidence
 

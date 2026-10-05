@@ -14,13 +14,7 @@ This record covers the fused routed Q3_K gate/up forward kernel on gfx1151.
 
 The deployed row-task body trails its uniform-route control by `36%` at B1 and `13%` at B4, and is level at B16 (`1%`). The earlier B1 screen preferred serial ownership on other route distributions, so the B1/B4 rows need a learned-route serial-versus-row-task re-screen. Flagged prior-sensitive at B1/B4.
 
-The Q3_K pair code object was not changed by the IQ2_S/IQ2_XXS sign-table work; these numbers come from the same run as the sibling pair records, and the `1-2%` movement against earlier runs of the identical artifact is benchmark drift between sessions. The table kernel is the deployed HIP body for these shapes and rebuilds byte-identically from the current sources; the retained choice was measured on other route distributions, so a learned-route candidate sweep is the follow-up for the flagged batches.
-
-## Kernel implementation
-
-The retained pair body uses 128 threads, four wave32 waves, exact Q3_K N/K geometry, cooperative width-16 payload decode, separate decoded-weight LDS tiles, and one activation workspace shared by both projections. The pair does not replace packed decode with a dense weight.
-
-Activation data is staged once for the pair, while packed weight tiles are decoded for each projection. Partial and nonuniform routed groups use masked row accesses without host-side route inspection.
+The Q3_K pair code object was not changed by the IQ2_S/IQ2_XXS sign-table work. These numbers come from the same run as the sibling pair records, and the `1-2%` movement against earlier runs of the identical artifact is benchmark drift between sessions. The retained choice was measured on other route distributions, so a learned-route candidate sweep is the follow-up for the flagged batches.
 
 ## Address arithmetic sweep
 
@@ -32,7 +26,7 @@ A disassembly sweep of every installed control scores integer multiplies and 64-
 
 The historical grouped baseline used eight waves, narrow N16/K16 ownership, scalar decode, and serial row work. The first four-wave tiled pair introduced exact `(N,K)=(512,2048)` ownership, cooperative decode, separate weight LDS images, pair accumulation, and one final BF16 store path per output. Representative B4/B16 points improved by roughly 8-14x over the generic baseline and beat AITER by about 2.1-2.9x in the early controls.
 
-The small-row M64 body and the larger M128 body were both measured. Universal M128 ownership was rejected because uniform 64-row groups would become half-empty bounded tiles; serial and row-task ownership were therefore evaluated as separate kernel variants.
+The small-row M64 body and the larger M128 body were both measured. Universal M128 ownership was rejected because uniform 64-row groups would become half-empty bounded tiles. Serial and row-task ownership were therefore evaluated as separate kernel variants.
 
 ### Ownership retune
 

@@ -2810,6 +2810,33 @@
     "table_decode": false
   },
   {
+    "symbol": "grouped_fwd_serial_q2_0_n2560_k640_j64",
+    "config": "forward",
+    "kind": "GROUPED_SERIAL",
+    "quant_type": "Q2_0",
+    "j": 64,
+    "nrows_weight": 2560,
+    "blocks_per_weight_row": 3,
+    "groups": 0,
+    "bounded_tokens": false,
+    "rolled_q2": false,
+    "mixed_j32_tails": false,
+    "mixed_q2_k": false,
+    "mixed_j32_rows": [
+      0,
+      0
+    ],
+    "full_i": false,
+    "full_j": false,
+    "prefetch_activation": false,
+    "compact_tile": false,
+    "hoisted_epilogue": false,
+    "wide_tile": false,
+    "pipeline_depth": 0,
+    "tail_values": 128,
+    "table_decode": false
+  },
+  {
     "symbol": "grouped_fwd_serial_q2_k_n4096_k2048_j32",
     "config": "forward",
     "kind": "GROUPED_SERIAL",

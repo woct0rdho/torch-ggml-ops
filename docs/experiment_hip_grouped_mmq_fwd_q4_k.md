@@ -14,12 +14,6 @@ This record covers the routed Q4_K down kernel for Qwen on gfx1151.
 
 The small-route batch now uses the pure J32 body: it removes masked rows and fits a fifth workgroup per WGP, which is worth `5-10%` at B1. B4/B16 keep the J64 mixed-tail body, which is level with the uniform-route control at B16 (`4%`). The B4/B16 residual remains packed scale/minimum reconstruction against predecoded BF16 weights. Flagged prior-sensitive at B1/B4.
 
-The table kernel is the deployed HIP body for these shapes and the selection rule that picks it is part of the deployed-control rule table; every candidate the retune measured was verified bitwise against the body in the table.
-
-## Kernel implementation
-
-The retained bodies use exact Q4_K N2048/K512 geometry and four wave32 waves: a pure J32 body for the small-route batch and J64 ownership with a bounded J32 tail for the larger batches. Both use width-16 packed decode, Q4 scale/minimum reconstruction, and BF16 output stores. It keeps inactive route handling in the device kernel and does not build host descriptors from offsets.
-
 ## Optimization log
 
 ### Mixed J32 tails
@@ -30,19 +24,17 @@ The pure J32 B4 typed probe was resource-clean but reached only `0.8970x` weight
 
 ### Geometry campaign
 
-The coefficient-only campaign screened exact J values, row-task alternatives, linked tail fields, decoder width, LDS layout, and bounded prefetch. Q4_K retained J64 with the measured J32 tails; broad row-task geometry and inactive-M policies were not promoted for this forward body. The retained Q4 path uses width-16 decode and a Q4-specific LDS arrangement.
+The coefficient-only campaign screened exact J values, row-task alternatives, linked tail fields, decoder width, LDS layout, and bounded prefetch. Q4_K retained J64 with the measured J32 tails. Broad row-task geometry and inactive-M policies were not promoted for this forward body. The retained Q4 path uses width-16 decode and a Q4-specific LDS arrangement.
 
 ### Balance and decomposition screen
 
-The routed down shapes keep a fixed grid of `(out_features/64, route_entries)` workgroups that walk each expert's rows serially, so the largest expert sets each launch's length. A device row-task body (one task per expert tile from the same `grouped_row_task_setup` bank the backward families use) was built for `n2048_k512_j32` and `j64` and exercised through the deployed launch path on identical prepared inputs. Two results close the mechanism for this direction:
-- Against the external oracle, all twelve grouped-forward deployment cases failed with the row-task bodies. The bodies were removed from the control inventory rather than deployed.
-- Timings were mixed at best: `+3-4%` at B16 for Q4_K/Q5_K (`24.42 -> 25.32` TFLOPS for Q4_K), and `3-45%` slower at B1 and B4, with Q2_K collapsing to `0.55x` at B4/B16. A correct body would do no less work than the measured one, so the balance mechanism has no headroom here.
+Each routed expert's rows are walked serially, so the largest expert sets each launch's length. A device row-task body was built for `n2048_k512_j32` and `j64` and measured on identical prepared inputs. It was removed rather than deployed. Its timings were mixed at best: `+3-4%` at B16 for Q4_K/Q5_K (`24.42 -> 25.32` TFLOPS for Q4_K), and `3-45%` slower at B1 and B4, with Q2_K collapsing to `0.55x` at B4/B16, so the balance mechanism has no headroom here.
 
 Reduction and column splits were not pursued. The forward output is `rows x 2048` bf16, so an f32 partial round trip costs 3.2-6.4 GB per pass against a 22 ms multiply at B16, and the packed weight decode dominates per-block work rather than parallelism.
 
 ### Loop-invariant weight decode
 
-The row-tile inner loop (`ggml_cuda_mmq_vec_dot_q8_1_q8_1_mma`) re-reads and converts the weight scale/minimum pair `x_dm[i*sram_stride + k0/QI8_1]` for every one of the J row tiles, although the pair depends only on the mini tile element and the contraction block. Two ways of decoding it once per block were built and measured against the deployed body on identical prepared inputs (same packed banks, same Q8_1 activation workspace, same route bank), with the external oracle for correctness and `VALUInsts` plus `LDSBankConflict` from `rocprofv3` for attribution. Both are numerically identical to the deployed body on every shape, so neither changes the arithmetic.
+The row-tile inner loop (`ggml_cuda_mmq_vec_dot_q8_1_q8_1_mma`) re-reads and converts the weight scale/minimum pair `x_dm[i*sram_stride + k0/QI8_1]` for every one of the J row tiles, although the pair depends only on the mini tile element and the contraction block. Two ways of decoding it once per block were built and measured against the deployed body on identical prepared inputs (same packed banks, same Q8_1 activation workspace, same route bank), with `VALUInsts` and `LDSBankConflict` for attribution.
 
 | build | VALUInsts per launch | LDS bank conflicts | B16 time |
 | --- | ---: | ---: | ---: |
@@ -50,7 +42,7 @@ The row-tile inner loop (`ggml_cuda_mmq_vec_dot_q8_1_q8_1_mma`) re-reads and con
 | decoded pairs hoisted into registers | 1,358,520 | 13.5% | 21.34 ms |
 | decoded pairs staged in LDS | 1,424,550 | 38.9% | 91.7 ms |
 
-- Registers: the pairs cannot stay live. The first build without loop pinning spilled instead of hoisting (`256` VGPR, `1515` spills, 4124 byte private segment, `5814 -> 17698` static instructions) and ran `4.4x` slower; pinning the contraction loop with `#pragma unroll 1` restored `237` VGPR and no spills, and the `VALUInsts` count is then identical to the deployed body, i.e. LLVM rematerialises the decode per use rather than keeping it live. The kernel already owns `237` of the `256` VGPRs a thread can own and the accumulators alone are 64 floats, so there is no room for a per-lane copy; forcing it would need an opaque register barrier, which is the spilling case measured above.
+- Registers: the pairs cannot stay live. The first build without loop pinning spilled instead of hoisting (`256` VGPR, `1515` spills, 4124 byte private segment, `5814 -> 17698` static instructions) and ran `4.4x` slower. Pinning the contraction loop with `#pragma unroll 1` restored `237` VGPR and no spills, and the `VALUInsts` count is then identical to the deployed body, i.e. LLVM rematerialises the decode per use rather than keeping it live. The kernel already owns `237` of the `256` VGPRs a thread can own and the accumulators alone are 64 floats, so there is no room for a per-lane copy. Forcing it would need an opaque register barrier, which is the spilling case measured above.
 - LDS: staging decoded pairs per half wave (all 16 lanes of a half wave need the same pairs, so the staging area is only 512 bytes) removes the conversions but adds a staged read per use and cannot use a 64 bit read while the staging is volatile, which the compiler requires to stop it from promoting the values into registers again. The result is `+4.9%` more VALU instructions and `13.5% -> 38.9%` bank conflicts, and `4.3x` slower at every shape.
 - The unroll pin alone is within run-to-run noise across all twelve grouped-forward shapes (largest movement `+3.1%` at Q5_K B16, others `+-1.5%`), so it was not deployed either.
 - J64 beats J32 on every down shape and quant (`25.7` against `24.1` TFLOPS at B16 for Q4_K), so the tile size is not the lever.
@@ -59,26 +51,25 @@ Conclusion: the packed weight decode of this body is closed for the current tile
 
 The measured Q4 residual is repeated packed scale/minimum reconstruction rather than cache misses or high LDS stalls. Wider ownership, broad swizzles, two-LDS decoded-weight caches, split-K, Stream-K, persistent groups, and direct-to-LDS forms are closed.
 
-The early Q4 redesign moved a representative B1 point from `6.874 ms` to `2.842 ms`; exact full-row and bounded-tail specialization later moved it to `1.599 ms`. The retained Q4 row-task body is `242 VGPR / 46 SGPR`. These measurements explain the accepted tiled/tail mechanism without replacing the final matrix above.
+The early Q4 redesign moved a representative B1 point from `6.874 ms` to `2.842 ms`. Exact full-row and bounded-tail specialization later moved it to `1.599 ms`. The retained Q4 row-task body is `242 VGPR / 46 SGPR`. These measurements explain the accepted tiled/tail mechanism without replacing the final matrix above.
 
 ### Learned-route retune
 
-The flagged prior-sensitive batches were re-swept under the learned route law: J bodies of the same geometry (J16, J32, J64, J80, J128), adaptive J cascades (64/32/16 by remaining rows), 8-wave workgroups with the J tile split across two warp groups, and a compact single-stage weight tile that halves the LDS footprint. All candidates were checked bitwise against the deployed body.
+The flagged prior-sensitive batches were re-swept under the learned route law: J bodies of the same geometry (J16, J32, J64, J80, J128), adaptive J cascades (64/32/16 by remaining rows), 8-wave workgroups with the J tile split across two warp groups, and a compact single-stage weight tile that halves the LDS footprint.
 
 What the measurements show for this kernel family:
 - The limiting resource is the number of independent workgroups resident per WGP, not the wave count. Reserving more dynamic LDS on one fixed body costs `15%` at four to three resident workgroups and `40%` at four to two, and a J32 body with a fifth workgroup gains about `11%`. Doubling the waves per workgroup (8-wave, J-split) changes nothing because the waves inside a workgroup stay phase-locked by the barriers.
 - The kernel is not barrier- or traffic-bound: removing the barriers saves `2%`, and removing the activation or weight global loads (keeping the LDS stores) saves `22%`/`4%`.
 - The scale/minimum epilogue is latency filling, not waste. Replacing its FMAs with a bare accumulate makes the body `1.8x` slower because nothing covers the WMMA and LDS latency any more.
 - Masked rows of a large J tile cost much less than the per-tile weight decode: adaptive cascades, J16 and J128/J80 bodies all lose to the plain J32 (small routes) and J64 (large routes) bodies.
-- The compact single-stage weight tile is bitwise-identical and fits half the LDS, but the extra per-stage loader calls cancel the occupancy gain at the same J. Re-measured on the current tree (activation prefetch enabled, staged-barrier redundancy removed) it is still inside the run-to-run spread: `+0.8%`/`+1.1%`/`-2.8%` for Q4_K and `+0.8%`/`-0.5%`/`-2.9%` for Q5_K at B1/B4/B16, against a `0.7%` spread between two builds of the identical deployed body. The LDS saving is real (`28,928` to `18,688` bytes, four to seven resident workgroups) but this family does not convert occupancy into time.
+- The compact single-stage weight tile fits half the LDS, but the extra per-stage loader calls cancel the occupancy gain at the same J. Re-measured on the current tree (activation prefetch enabled, staged-barrier redundancy removed) it is still inside the run-to-run spread: `+0.8%`/`+1.1%`/`-2.8%` for Q4_K and `+0.8%`/`-0.5%`/`-2.9%` for Q5_K at B1/B4/B16, against a `0.7%` spread between two builds of the identical deployed body. The LDS saving is real (`28,928` to `18,688` bytes, four to seven resident workgroups) but this family does not convert occupancy into time.
 
 Still open after this round, in measured-payoff order: a swizzled activation tile and matching dot addressing to remove the `14%` LDS bank-conflict share (every 16-byte-aligned row stride this layout allows still conflicts, so this needs a layout change rather than padding), a permute-based nibble expansion for the decode-bound Q2_K bodies, and the I=32 tile that trades activation reuse for a smaller LDS footprint and a higher resident-workgroup count. The activation tile copy is closed: its 128-bit vectorised form is neutral, and the register prefetch above already covers the load latency.
 
 ### Activation prefetch
 
-The ablation that removed the activation global reads (keeping the LDS stores) was worth about a fifth of the runtime, so the next retune overlapped that latency instead of shrinking the copy: the second activation plane of each k block is now loaded into registers before the first dot and only stored to LDS after it. The switch is the `prefetch_activation` build knob, so it is a property of the control rather than of the kernel family.
-
-Within one build tree the staged body is `1.9%` faster at the largest batch and `2-3.5%` faster at the smaller ones; under the benchmark protocol the three Qwen families gain `1.6-3.2%` at B1/B4 and are neutral at B16, where the groups are large enough that the serial row-tile loop already covers the load latency. The DeepSeek Q2_K bodies keep the knob off: their decode-bound instruction stream has no slack to fill, and the staging registers cost `1-2%`.
+The ablation that removed the activation global reads (keeping the LDS stores) was worth about a fifth of the runtime, so the next retune overlapped that latency instead of shrinking the copy: the second activation plane of each k block is now loaded into registers before the first dot and only stored to LDS after it.
+Within one build tree the staged body is `1.9%` faster at the largest batch and `2-3.5%` faster at the smaller ones. Under the benchmark protocol the three Qwen families gain `1.6-3.2%` at B1/B4 and are neutral at B16, where the groups are large enough that the serial row-tile loop already covers the load latency. The DeepSeek Q2_K bodies keep the knob off: their decode-bound instruction stream has no slack to fill, and the staging registers cost `1-2%`.
 
 Two neighbouring ideas were measured and rejected on the same route banks: a 128-bit vectorised activation copy is neutral (so it is the load latency, not the copy instruction count, that matters), and row-task ownership of the `n2048k512` shapes loses at B16 (`+2.2%` for Q4_K, `-2.4%` for Q5_K, `-8.9%` for IQ2_S) because one workgroup per J tile pays the per-workgroup setup that the serial row loop amortises.
 

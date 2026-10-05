@@ -97,15 +97,14 @@ class ForwardConfig:
     def __post_init__(self) -> None:
         rows_a, rows_b = self.mixed_j32_rows
         if self.mixed_j32_tails:
+            if self.kind != ForwardKind.GROUPED_SERIAL or self.j != 64:
+                raise ValueError("mixed J32 tails require the grouped J64 shape")
             if (
-                self.kind != ForwardKind.GROUPED_SERIAL
-                or self.j != 64
-                or self.nrows_weight != 2048
+                self.nrows_weight != 2048
                 or self.blocks_per_weight_row != 2
+                or self.quant_type not in {QuantType.Q4_K, QuantType.IQ2_S}
             ):
                 raise ValueError("mixed J32 tails require the grouped J64 K512 shape")
-            if self.quant_type not in {QuantType.Q4_K, QuantType.IQ2_S}:
-                raise ValueError("mixed J32 tails require Q4_K or IQ2_S")
             if (rows_a == 0) != (rows_b == 0):
                 raise ValueError("mixed J32 row bounds must both be zero or positive")
             if rows_a < 0 or rows_b < 0 or (rows_a > 0 and rows_a >= rows_b):
@@ -126,8 +125,10 @@ class ForwardConfig:
         ):
             raise ValueError("the level table is a dense Q2_0 or Q5_0 mechanism")
         if self.tail_values:
-            if self.kind != ForwardKind.DENSE:
-                raise ValueError("a tail stage requires the dense shape")
+            if self.kind not in (ForwardKind.DENSE, ForwardKind.GROUPED_SERIAL):
+                raise ValueError(
+                    "a tail stage requires the dense or routed serial shape"
+                )
             if self.tail_values != 128:
                 raise ValueError("a tail stage holds one 128-value vector dot call")
             if self.quant_type not in {
@@ -283,9 +284,9 @@ def _render_forward(symbol: str, config: ForwardConfig) -> str:
             '#define MMQ_FRAGMENT_ACT 1\n#include "mmq_core.cuh"',
             1,
         )
-    mixed_j32_rows = "".join(
-        f",\n        {rows}" for rows in config.mixed_j32_rows if rows > 0
-    )
+    # The routed serial body always takes both mixed J32 row bounds, so its
+    # argument list spells them out even when they are zero.
+    grouped_j32_rows = "".join(f",\n        {rows}" for rows in config.mixed_j32_rows)
     if config.kind == ForwardKind.QUANTIZE:
         quant_type = _cpp_quant(config.quant_type)
         body = (
@@ -394,7 +395,8 @@ void {symbol}(
         {config.blocks_per_weight_row},
         {_cpp_bool(config.mixed_j32_tails)},
         {_cpp_bool(config.mixed_q2_k)},
-        {_cpp_bool(config.rolled_q2)}{mixed_j32_rows}>(
+        {_cpp_bool(config.rolled_q2)}{grouped_j32_rows},
+        {config.tail_values}>(
             weights,
             activations,
             dst,
