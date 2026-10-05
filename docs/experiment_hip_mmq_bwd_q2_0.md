@@ -38,7 +38,7 @@ The decode has two forms. The generic form indexes the payload byte per value, `
 
 ### Pipelined body
 
-The second generation is `csrc/ck/mmq_backward_q2_0.cuh`, a Q2_0-only body that keeps the same tile geometry, decode and matrix work but holds **two** shared tiles and issues the decode of stage `s + 1` before the matrix work of stage `s`:
+The second generation is `csrc/ck/mmq_backward_q2_0.cuh`, a Q2_0-only body that keeps the same tile geometry, decode and matrix work but holds two shared tiles and issues the decode of stage `s + 1` before the matrix work of stage `s`:
 
 ```text
 decode(stage 0 -> tile 0); s_barrier;
@@ -50,7 +50,7 @@ for stage in 0 .. stages - 1:
 
 That is one barrier per stage instead of two, and the decode's LDS stores and global loads are in flight under the current stage's matrix work instead of in front of it. The tile is also where the LDS budget goes, so the body is built in a padded and an unpadded flavour: `_pad8` keeps the decoded tile in sixteen-value-aligned banks, while the unpadded `_nt4_ki64` variant spends 16 KiB instead of 18 KiB and admits a fourth resident workgroup per WGP, which is what the four wide families deploy. Turning the LDS swizzle off is not an option: the decoded tile is written one column per thread at a stride of `k_iteration` values, and without the swizzle the same body measures `14.8 TFLOPS`.
 
-The body additionally double-buffers the **activation** fragments in registers: the sixteen bf16 cotangent values of k tile `k + 1` are issued before k tile `k`'s fragment loads and matrix work, so their global latency retires under that work rather than in front of it. The rotation costs `M_TILES_PER_WAVE` fragments of registers.
+The body additionally double-buffers the activation fragments in registers: the sixteen bf16 cotangent values of k tile `k + 1` are issued before k tile `k`'s fragment loads and matrix work, so their global latency retires under that work rather than in front of it. The rotation costs `M_TILES_PER_WAVE` fragments of registers.
 
 ## Resources
 

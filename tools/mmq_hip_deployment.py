@@ -40,6 +40,43 @@ CONFIG_PATH = Path(__file__).resolve().parent / "configs" / "hip_deployment.json
 # contraction bound must be a multiple of it for the unguarded fast path.
 SPLIT_K_STEP = 32
 SPLIT_K_REDUCE_SYMBOL = "dense_bwd_split_k_reduce"
+# Dense-forward LDS geometry. A J-row activation half tile holds
+# `J * MMQ_TILE_Y_K` ints (32 values plus their Q8_1 metadata per row), and the
+# packed weight tile holds `MMQ_I` rows of the type's SRAM stride. Compact
+# strides are the ones the vendored loader uses when `MMQ_COMPACT_TILE` is set;
+# only Q4_K and Q5_K have a smaller compact stride.
+_FORWARD_TILE_Y_K = 36
+_FORWARD_MMQ_I = 64
+_FORWARD_COMPACT_STRIDES = {"Q4_K": 36, "Q5_K": 36, "Q2_K": 40}
+_FORWARD_STRIDES = {
+    "Q2_K": 100,
+    "Q3_K": 84,
+    "Q6_K": 76,
+    "Q8_0": 76,
+    "Q2_0": 76,
+    "Q4_0": 76,
+    "Q5_0": 76,
+    "IQ4_NL": 76,
+    "IQ4_XS": 76,
+    "Q4_K": 76,
+    "Q5_K": 76,
+}
+
+
+def forward_lds_bytes(
+    j: int, quant_name: str, compact_tile: bool, table_bytes: int
+) -> int:
+    """Return the dynamic LDS a dense-forward body addresses."""
+
+    stride = _FORWARD_STRIDES.get(quant_name)
+    if stride is None:
+        raise ValueError(f"no dense-forward LDS stride is known for {quant_name}")
+    if compact_tile:
+        stride = _FORWARD_COMPACT_STRIDES.get(quant_name, stride)
+    activation = -(-(j * _FORWARD_TILE_Y_K) // 128) * 128
+    return 4 * (j + activation + _FORWARD_MMQ_I * stride) + (1024 if table_bytes else 0)
+
+
 _DENSE_FORWARD_BLOCK = (32, 4, 1)
 _WIDE_FORWARD_BLOCK = (32, 8, 1)
 _DENSE_BACKWARD_BLOCK = (128, 1, 1)
@@ -117,7 +154,7 @@ class HipControl:
         config = self.spec.config
         if isinstance(config, ForwardConfig) and config.kind is ForwardKind.DENSE:
             j = config.j
-            quant_name = getattr(config.quant_type, "name", None)
+            quant_name = str(getattr(config.quant_type, "name", ""))
             if config.wide_tile:
                 if quant_name not in _WIDE_LDS_BYTES:
                     raise ValueError(f"no wide dense tile is built for {quant_name}")
@@ -128,16 +165,18 @@ class HipControl:
                     _WIDE_FORWARD_BLOCK,
                     _WIDE_LDS_BYTES[quant_name],
                 )
-            if quant_name == "Q3_K":
-                shared_bytes = _Q3_K_LDS_BYTES
-            else:
-                shared_bytes = _J64_LDS_BYTES if j == 64 else _J128_LDS_BYTES
-            if config.table_decode:
-                shared_bytes += (
+            shared_bytes = forward_lds_bytes(
+                j,
+                quant_name,
+                bool(config.compact_tile),
+                (
                     _Q5_0_LEVEL_TABLE_BYTES
                     if quant_name == "Q5_0"
                     else _Q2_0_LEVEL_TABLE_BYTES
                 )
+                if config.table_decode
+                else 0,
+            )
             return ((n // 64, math.ceil(m / j), 1), _DENSE_FORWARD_BLOCK, shared_bytes)
         if isinstance(config, DenseBackwardConfig):
             if config.m_tiles_per_wave < 1:

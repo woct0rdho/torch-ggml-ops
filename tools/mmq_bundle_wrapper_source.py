@@ -89,6 +89,7 @@ class ForwardConfig:
     pipeline_depth: int = 0
     tail_values: int = 0
     table_decode: bool = False
+    grouped_producer: bool = False
 
     def __post_init__(self) -> None:
         rows_a, rows_b = self.mixed_j32_rows
@@ -266,6 +267,11 @@ def _render_forward(symbol: str, config: ForwardConfig) -> str:
     )
     if config.kind == ForwardKind.QUANTIZE:
         quant_type = _cpp_quant(config.quant_type)
+        body = (
+            "quantize_bf16_mmq_q8_1_grouped_body"
+            if config.grouped_producer
+            else "quantize_bf16_mmq_q8_1_body"
+        )
         return (
             prefix
             + f"""extern "C" __launch_bounds__(512, 1) __global__
@@ -275,7 +281,7 @@ void {symbol}(
         int64_t rows,
         int64_t rows_padded,
         int64_t k) {{
-    quantize_bf16_mmq_q8_1_body<{quant_type}>(
+    {body}<{quant_type}>(
         input, output, rows, rows_padded, k);
 }}
 """

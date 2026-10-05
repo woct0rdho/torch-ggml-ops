@@ -124,6 +124,44 @@ The wide `I=128` dense tile that was built for the Q3_K shapes was rendered for 
 
 The retained Q4_K bodies run at `27-29 TFLOPS` on the shapes they share with the Q3_K record, above that record's `22.7-24.7` on the same families and the same protocol. Evidence: `~/tmp/torch-ggml-ops/qwen4_fwd/sweep_q4k_v1.txt`.
 
+### Where the forward bodies stand against the backward ones
+
+The forward and backward records have never been compared on identical work. Pairing each forward row `(M, N, K)` - contraction `K`, result width `N` - with the backward row of the same contraction and result width, the forward body is `0.65-0.79x` of the backward body on eighteen projection shapes (`21-24` TFLOPS against `30-36`), and ahead only where the backward orientation is the narrow-result/long-contraction one (up to `1.8x` on the shared-down rows). The bodies are not comparable in design: the forward body stages the *packed* weight blocks and multiplies them against a Q8_1 activation tile with `v_wmma_i32_16x16x16_iu8` (confirmed by disassembling all four sampled controls, including this type's `_hoisted` twin), while the backward body dequantizes into an LDS tile and multiplies in bf16. Two structural differences stand out.
+
+First, occupancy. A J128 forward body addresses `38,400 B` of dynamic LDS - the launcher's request, and the true minimum for the uint8 SRAM layout - which fits three workgroups per WGP, i.e. twelve waves. The backward pipelined bodies use `16-18 KB` and run `24-28` waves. The forward profile matches an issue-bound kernel: `7.5 %` WMMA (Q3_K) to `18 %` (Q2_0), with `19.7 %` conversions for Q4_0 and the remainder in arithmetic, shifts, the epilogue and barriers.
+
+Second, the producer. The forward path quantizes its activations to Q8_1 in a separate kernel that the kernel tables do not time, because the tables measure the multiply on a prequantized workspace. Timed on the producer it costs `14.8 %` of the end-to-end path at `(M=2048, N=512, K=2048)`, `27.8 %` at `M=32768` on the same shape, `17.3 %` on the Q8_0 `(32768,1024,4096)` row, `6.2 %` on `(32768,2560,6144)` and `1.7 %` on the widest Q2_0 row. It is the one part of the forward path the backward path does not have at all.
+
+The producer has two regimes and the deployed row body was built for neither of them well. Disassembled, it gives a thread four values: one 64-bit load, three LDS permutes to fold the 32-value group's amax, three more for its sum, two fully rounded IEEE divisions and a six-instruction `roundf` per value, about `39` SASS instructions per value, and every thread lives for exactly one group. It runs at `73` G values/s when the row set streams from memory - `227 GB/s`, at this APU's DRAM roofline - and at only `139` G values/s when the row set is cache resident, which is where the instruction count and the LDS round trips actually bind.
+
+A grouped body removes that cost in the second regime: a thread takes half a 32-value group, so the group needs one lane exchange instead of six LDS permutes, the loads and stores become 16-byte vectors, the index arithmetic happens once, and the two IEEE divisions and the `roundf` stay, so the workspace is bitwise identical to the row body's. Measured over the deployed row sets, with every candidate checked against the row body byte for byte:
+
+| rows x k | input | row G values/s | grouped G values/s | grouped / row |
+| --- | ---: | ---: | ---: | ---: |
+| `2048 x 2048` | 8 MB | 137 | 211 | `1.54x` |
+| `2048 x 2560` | 10 MB | 168 | 192 | `1.15x` |
+| `2048 x 4096` | 17 MB | 176 | 244 | `1.39x` |
+| `2048 x 6144` | 25 MB | 72 | 72 | `1.00x` |
+| `8192 x 2048` | 34 MB | 71 | 66 | `0.92x` |
+| `32768 x 2048` | 134 MB | 73 | 67 | `0.92x` |
+| `32768 x 4096` | 268 MB | 70 | 66 | `0.94x` |
+
+The crossover is the cache, not the instruction count: up to about `17 MB` of activation the grouped body wins `1.15-1.54x`, at `25 MB` the two are equal and past `34 MB` the row body is `5-8 %` ahead, because both are then at the DRAM roofline and only the grouped body's slightly shorter blocks show. The dispatch therefore keeps both bodies and picks by activation bytes with a `20 MB` threshold, which is what the deployed quantizer does.
+
+On the end-to-end path this moves `(M=2048, N=512, K=2048)` from `21.66` to `22.46` TFLOPS and the producer's share from `14.8 %` to `11.2 %`. The `M=32768` rows keep the row body and are unchanged. F16_D4S4 and F32_D4 both have grouped bodies. F16_D2S6 does not, because its scale spans 64 values rather than 32.
+
+### Tuning knobs swept on the forward bodies
+
+Three forward-body knobs were swept over ten keys (`Q3_K`, `Q4_K`, `Q5_K`, `Q6_K`, `Q8_0`, `Q2_0`, `IQ4_XS`, short and long contractions, narrow and wide results), four repeats per block, with every candidate checked against the external reference before it was timed.
+
+A 64-row J tile was deployed only on the language-model-head chunks, because the earlier campaign closed the *global* J64 rule rather than the per-key choice. Per key it loses: `1.03-1.14x` on every measured projection key, and it takes the two-knob combination down with it. The head chunks keep it.
+
+The compact SRAM stride (`MMQ_COMPACT_TILE`) only changes the stride for Q4_K and Q5_K (`36` against `76` ints). For the other types it is a no-op, which is why the first screen read it as neutral on `Q8_0`, `Q2_0` and `IQ4_XS`. For Q4_K and Q5_K it is not usable with the dense loader: launched at the shipped request it produces non-finite output, and the same body launched at any request produces non-finite output too, so the knob is rejected rather than tuned.
+
+The dynamic-LDS request of every shipped body is nevertheless now *derived* from the layout in the launcher instead of hard-coded, which reproduces every shipped constant (`Q3_K` `40,448`, the Q8_1-layout types `38,400`, `J64` `28,928`, the level-table bodies `39,424`) and lets a future body declare its own.
+
+A weight-tile pipeline - the backward stage order - was analyzed and not built. A second packed weight tile costs another `19.5 KB` at the uint8 layout, which would take the body to `57 KB` and two workgroups per WGP, i.e. eight waves against the current twelve. The backward record already shows its three-tile rotation losing for the same reason, so the forward pipeline needs a layout that shrinks first, and the compact stride that would have done it is rejected above.
+
 ## Resources
 
 Retained Q4_K J128 bodies use `223 VGPR / 28-29 SGPR / 38,400 B LDS`.

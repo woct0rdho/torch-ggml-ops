@@ -77,11 +77,11 @@ Every failure occurs before quantization, task setup, or multiply launch. Native
 
 All selected winners are loaded from the strict canonical catalogs in `tools/ggtensile/configs/mmq_*_catalog.json`. Research-only catalogs are kept outside that public directory and are never included in the bundle.
 
-The current public bundle contains 152 independently loadable artifacts:
+The current public bundle contains 154 independently loadable artifacts:
 
 | Artifact class | Count |
 | --- | ---: |
-| Q8_1 activation producers | 3 |
+| Q8_1 activation producers | 5 |
 | Grouped row-task setup | 1 |
 | Ordinary forward GGTensile | 50 |
 | Ordinary backward GGTensile | 50 |
@@ -92,13 +92,13 @@ The current public bundle contains 152 independently loadable artifacts:
 | Fixed grouped forward GGTensile | 3 |
 | Fixed grouped backward GGTensile | 3 |
 
-The four setup artifacts are the only HIP-compiled entries in the public bundle. All 148 public multiply artifacts come from typed GGTensile assembly writers. Historical HIP controls are built separately for research comparisons. They are never part of public dispatch or used as a fallback.
+The six setup artifacts are the only HIP-compiled entries in the public bundle. Two of the five Q8_1 producers are the grouped body that the F32_D4 and F16_D4S4 quantizers dispatch to while the activation row set is cache resident. The F16_D2S6 producer has no grouped body because its scale spans 64 values. All 148 public multiply artifacts come from typed GGTensile assembly writers. Historical HIP controls are built separately for research comparisons. They are never part of public dispatch or used as a fallback.
 
 Each selected route stores one winner only. Artifact files use `<symbol>.hsaco`. Their names come from the canonical typed key. The deployment builder does not emit a manifest or record toolchain, source, object, code-object, or resource provenance. Benchmark medians, model names, rejected alternatives, and tuning heuristics are not deployment fields.
 
 `csrc/generated/mmq_bundle_table.cuh` is generated directly from the typed inventory and contains:
 - one ordered symbol array indexed by a numeric `MMQKernelIndex`.
-- named indices only for the four setup artifacts.
+- named indices only for the six setup artifacts.
 - one exact deployment record per multiply artifact.
 - exact grid, workgroup, ownership, and row-task metadata.
 
@@ -110,7 +110,7 @@ There is no generic `KernelNNN` runtime identity or tuning database.
 - Loads every public canonical catalog from `tools/ggtensile/configs/`.
 - Initializes every GGTensile writer serially and emits deterministic assembly.
 - Assembles and links GGTensile sources for gfx1151, wave32, code-object v5.
-- Compiles only the three quantizers and row-task setup with HIP using deterministic compiler-unit settings.
+- Compiles only the five quantizers and row-task setup with HIP using deterministic compiler-unit settings.
 - Verifies ELF target data and the single expected exported symbol.
 - Generates operation/quant constants and the exact host table from the typed inventory.
 - Installs the complete set transactionally and removes stale artifacts.

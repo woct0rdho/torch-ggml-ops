@@ -967,6 +967,105 @@ mmq_activation_metadata_layout() {
             : MMQ_Q8_1_METADATA_F32_D4;
 }
 
+// Group producer for the two 32-value metadata layouts. The row producer above
+// gives a thread four values, folds every 32-value group through three LDS
+// permutes, divides twice per group and rounds with roundf; that is ~39 SASS
+// instructions per value and leaves the warp waiting on LDS latency it cannot
+// hide. This body gives a thread half a group, so the group's amax and sum need
+// one lane exchange, the loads and stores are 16-byte vectors and the index
+// math happens once. It is the same arithmetic - the two IEEE divisions and the
+// roundf stay - so the workspace is bitwise identical, and it is faster
+// whenever the activation row set is cache resident, which is where the row
+// producer runs at a third of its instruction rate. Past cache it is a few
+// percent behind, so the dispatch keeps the row producer for large row sets.
+template <ggml_type type>
+static __device__ __forceinline__ void quantize_bf16_mmq_q8_1_grouped_body(
+        const __hip_bfloat16 * __restrict__ x,
+        block_q8_1_mmq * __restrict__ y,
+        int64_t rows,
+        int64_t rows_padded,
+        int64_t k) {
+    constexpr mmq_q8_1_metadata_layout metadata_layout =
+        mmq_activation_metadata_layout<type>();
+    static_assert(
+        metadata_layout == MMQ_Q8_1_METADATA_F32_D4 ||
+            metadata_layout == MMQ_Q8_1_METADATA_F16_D4S4,
+        "the grouped producer serves the two 32-value layouts");
+    constexpr int values_per_thread = 16;
+    constexpr int values_per_group = 32;
+    constexpr int threads_per_group = values_per_group / values_per_thread;
+    constexpr int groups_per_block = 4;
+    const int64_t row = blockIdx.x;
+    const int groups = static_cast<int>(k / values_per_group);
+    // Both partners of a group stay active so the exchange is well defined.
+    const int slots = (groups * threads_per_group + 1) & ~1;
+    for (int slot = threadIdx.x; slot < slots; slot += blockDim.x) {
+        const bool active = slot < groups * threads_per_group;
+        const int group = slot / threads_per_group;
+        const int part = slot % threads_per_group;
+        const int64_t offset = active
+            ? row * k + static_cast<int64_t>(group) * values_per_group +
+                part * values_per_thread
+            : 0;
+
+        float values[values_per_thread];
+#pragma unroll
+        for (int i = 0; i < values_per_thread / 8; ++i) {
+            const uint4 quad = reinterpret_cast<const uint4 *>(x + offset)[i];
+            const uint32_t raw[4] = {quad.x, quad.y, quad.z, quad.w};
+#pragma unroll
+            for (int j = 0; j < 4; ++j) {
+                // BF16 is the upper half of an FP32, so the conversion is a shift.
+                values[8 * i + 2 * j] = __uint_as_float(raw[j] << 16);
+                values[8 * i + 2 * j + 1] = __uint_as_float(raw[j] & 0xffff0000u);
+            }
+        }
+
+        float amax = fabsf(values[0]);
+        float sum = values[0];
+#pragma unroll
+        for (int i = 1; i < values_per_thread; ++i) {
+            amax = fmaxf(amax, fabsf(values[i]));
+            if constexpr (metadata_layout == MMQ_Q8_1_METADATA_F16_D4S4) {
+                sum += values[i];
+            }
+        }
+#pragma unroll
+        for (int step = threads_per_group / 2; step > 0; step >>= 1) {
+            amax = fmaxf(amax, __shfl_xor_sync(0xffffffff, amax, step, WARP_SIZE));
+            if constexpr (metadata_layout == MMQ_Q8_1_METADATA_F16_D4S4) {
+                sum += __shfl_xor_sync(0xffffffff, sum, step, WARP_SIZE);
+            }
+        }
+        const float d = amax == 0.0f ? 0.0f : amax / 127.0f;
+        const float d_inv = amax == 0.0f ? 0.0f : 127.0f / amax;
+
+        int8_t bytes[values_per_thread];
+#pragma unroll
+        for (int i = 0; i < values_per_thread; ++i) {
+            const int rounded = static_cast<int>(roundf(values[i] * d_inv));
+            bytes[i] = static_cast<int8_t>(
+                rounded < -128 ? -128 : (rounded > 127 ? 127 : rounded));
+        }
+        if (!active) {
+            continue;
+        }
+        const int64_t block_k = group / groups_per_block;
+        const int lane = (group % groups_per_block) * values_per_group +
+            part * values_per_thread;
+        block_q8_1_mmq & out = y[block_k * rows_padded + row];
+        __builtin_memcpy(out.qs + lane, bytes, values_per_thread);
+        if (part == 0) {
+            if constexpr (metadata_layout == MMQ_Q8_1_METADATA_F16_D4S4) {
+                out.scale_sum_pairs_f16[group % groups_per_block] =
+                    make_half2(d, sum);
+            } else {
+                out.scales_f32[group % groups_per_block] = d;
+            }
+        }
+    }
+}
+
 template <ggml_type type>
 static __device__ __forceinline__ void quantize_bf16_mmq_q8_1_body(
         const __hip_bfloat16 * __restrict__ x,

@@ -22,8 +22,10 @@ def test_bundle_retains_hip_only_for_quantization_and_task_setup() -> None:
         "QuantizeQ81F16D4S4",
         "QuantizeQ81F16D2S6",
         "GroupedRowTaskSetup",
+        "QuantizeQ81GroupedF32D4",
+        "QuantizeQ81GroupedF16D4S4",
     ]
-    assert all(isinstance(kernel.instance, KernelInstance) for kernel in bundle[4:])
+    assert all(isinstance(kernel.instance, KernelInstance) for kernel in bundle[6:])
 
 
 def test_paired_backward_split_factor_is_preserved_in_host_records() -> None:

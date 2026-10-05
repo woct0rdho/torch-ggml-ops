@@ -63,7 +63,7 @@ def _hip_kernels() -> list[BundleKernel]:
             None,
         ),
     )
-    return [
+    result = [
         BundleKernel(
             name,
             symbol,
@@ -75,6 +75,34 @@ def _hip_kernels() -> list[BundleKernel]:
         )
         for name, symbol, quant in values
     ]
+    # The grouped producer wins while the activation row set is cache resident
+    # and loses a few percent past it, so it ships beside the row producer and
+    # the dispatch picks between them by size.
+    for name, symbol, quant in (
+        (
+            "QuantizeQ81GroupedF32D4",
+            "quantize_bf16_q8_1_f32_d4_grouped",
+            QuantType.Q8_0,
+        ),
+        (
+            "QuantizeQ81GroupedF16D4S4",
+            "quantize_bf16_q8_1_f16_d4s4_grouped",
+            QuantType.Q4_K,
+        ),
+    ):
+        result.append(
+            BundleKernel(
+                name,
+                symbol,
+                None,
+                ForwardConfig(
+                    kind=ForwardKind.QUANTIZE,
+                    quant_type=quant,
+                    grouped_producer=True,
+                ),
+            )
+        )
+    return result
 
 
 def kernels() -> tuple[BundleKernel, ...]:
