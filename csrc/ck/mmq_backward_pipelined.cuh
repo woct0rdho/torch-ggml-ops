@@ -120,6 +120,29 @@ static __device__ __forceinline__ void decode_pipelined_group_prefetched(
                     __float2bfloat16(d * static_cast<float>(level));
             }
         }
+    } else if constexpr (TYPE == GGML_TYPE_IQ4_XS) {
+        const auto & block =
+            reinterpret_cast<const block_iq4_xs *>(packed_row)[block_index];
+        const int sub_block = value_index >> 5;
+        const int plane = (value_index >> 4) & 1;
+        const float scaled_d = fp16_to_fp32(block.d) *
+            static_cast<float>(iq4_xs_scale(block, sub_block));
+        const uint4 payload = load_uint4_unaligned(block.qs + 16 * sub_block);
+        const auto * words = reinterpret_cast<const uint32_t *>(&payload);
+        // The sixteen payload bytes hold both planes, so each word feeds one
+        // permute pair and the plane selects the half.
+#pragma unroll
+        for (int word = 0; word < 4; ++word) {
+            const int2 nibbles =
+                iq4_table_lookup_16(static_cast<int>(words[word]), kvalues_iq4nl);
+            const int packed = plane ? nibbles.y : nibbles.x;
+#pragma unroll
+            for (int slot = 0; slot < 4; ++slot) {
+                const auto level = static_cast<int8_t>(packed >> (8 * slot));
+                values[4 * word + slot] =
+                    __float2bfloat16(scaled_d * static_cast<float>(level));
+            }
+        }
     } else if constexpr (TYPE == GGML_TYPE_Q3_K) {
         const auto & block =
             reinterpret_cast<const block_q3_K *>(packed_row)[block_index];
@@ -202,7 +225,7 @@ static __device__ __forceinline__ void dense_mmq_pipelined_grad_input_body(
     static_assert(
         TYPE == GGML_TYPE_Q2_0 || TYPE == GGML_TYPE_Q4_0 ||
         TYPE == GGML_TYPE_Q5_0 || TYPE == GGML_TYPE_IQ4_NL ||
-        TYPE == GGML_TYPE_Q8_0 ||
+        TYPE == GGML_TYPE_IQ4_XS || TYPE == GGML_TYPE_Q8_0 ||
         TYPE == GGML_TYPE_Q3_K || TYPE == GGML_TYPE_Q4_K ||
         TYPE == GGML_TYPE_Q5_K || TYPE == GGML_TYPE_Q6_K,
         "the pipelined body decodes one of the staged weight types");

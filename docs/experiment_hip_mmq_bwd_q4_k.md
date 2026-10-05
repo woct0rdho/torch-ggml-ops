@@ -43,11 +43,9 @@ GatedDeltaNet `out_proj` is deferred because wiring it needs the activation perm
 | GatedDeltaNet Z APEX-I-Mini | `(8192,2048,4096)` | 22.459 | 1.230x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
 | GatedDeltaNet Z APEX-I-Mini | `(32768,2048,4096)` | 22.381 | 1.256x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096` |
 
-The current source matrix is the complete packed-gradient path. The `Kernel` column names the deployed body for each exact key. It is the fastest built body whose output is bitwise equal to the reference body in the per-key candidate campaign.
-
 ### Qwen4-Exp and GatedDeltaNet shapes
 
-The new shapes span contraction lengths from `2048` to `10240` and result widths from `512` to `2560`, all whole multiples of the `ki32` step and the 128-wide tiles, so the three tuned variants serve them without a new body. All three were timed on every point and their outputs are bitwise identical, as on the keys measured first.
+The new shapes span contraction lengths from `2048` to `10240` and result widths from `512` to `2560`, all whole multiples of the `ki32` step and the 128-wide tiles, so the three tuned variants serve them without a new body. All three were timed on every point.
 
 The `_k512` variant loses everywhere on the new points (`1.13-1.32x` behind the winner), which leaves the choice between `_k4096` and `_k2048`: the QSA key/value, QSA output, shared-expert gate/up and APEX-I-Mini `in_proj_z` rows take `_k4096` at every M (`1.02-1.06x` ahead), while the two long-contraction Qwen4 GatedDeltaNet rows, `(M,2560,6144)` and `(M,2560,10240)`, take `_k4096` at `M=2048` and `_k2048` above it, where it is `1.9-3.0%` faster. The deployed body therefore follows the measurement per key rather than the suffix.
 
@@ -55,7 +53,7 @@ Six of the new rows are below the BF16 `torch.mm` baseline (the long contraction
 
 ### Exact-dimension twins
 
-The deployed bodies on this record resolve both the contraction and the result width at runtime. Twins that copy the deployed geometry exactly and only substitute the two compile-time bounds were built and measured against the deployed bodies in one interleaved A/B run, with identical prepared inputs and bitwise identical output: `0.858x` at `(8192,2048,8192)` and `0.886x` at `(32768,512,2048)`. Exact dimensions are therefore not deployed on these keys. Where the mechanism looked positive on the Q6_K M64 chunk, the measurement also carried the split-contraction body.
+The deployed bodies on this record resolve both the contraction and the result width at runtime. Twins that copy the deployed geometry exactly and only substitute the two compile-time bounds were built and measured against the deployed bodies in one interleaved A/B run: `0.858x` at `(8192,2048,8192)` and `0.886x` at `(32768,512,2048)`. Exact dimensions are therefore not deployed on these keys. Where the mechanism looked positive on the Q6_K M64 chunk, the measurement also carried the split-contraction body.
 
 ## Kernel implementation
 
@@ -67,7 +65,7 @@ Bounds-safe tails and generic fallbacks remain outside the exact tiled bodies an
 
 ### Swizzle-only twins of the padded tile
 
-The `_k4096` body carried `lds_padding = 8` instead of the LDS swizzle its `_k2048` and `_k512` siblings use, and the Q2_0 campaign showed the padding is the LDS cost while the swizzle is what actually breaks the decoded tile's bank pattern. Swizzle-only twins (`_k4096_sw8`, `_k4096_sw16`, both at 8 KiB rather than 10 KiB) were screened against it. Padding survives on the narrow contraction shapes (`(2560,512)` and `(2560,640)`, `0.97-1.01x` either way) and loses everywhere else: `1.064/1.058/1.075x` on `(2560,6144)`, `1.066/1.067/1.070x` on `(2560,10240)` and `1.040/1.066/1.074x` on `(4096,2048)` across `M=2048/8192/32768`, all at eight repeats. The swizzle twin also beats the `_k2048` body that those two wide shapes deploy above `M=2048` (`1.044-1.053x` at `M=8192` and `32768`), so all nine wide-contraction keys now deploy `_k4096_sw16` and the Qwen4 and APEX GatedDeltaNet keys gain `4-7%` over the previous bodies. The A/B harness for this screen is `~/tmp/torch-ggml-ops/qwen4_fwd/bwd_final_decisions.txt` and the deployed-body confirmation is `bwd_deploy_confirm.txt`.
+The `_k4096` body carried `lds_padding = 8` instead of the LDS swizzle its `_k2048` and `_k512` siblings use, and the Q2_0 campaign showed the padding is the LDS cost while the swizzle is what actually breaks the decoded tile's bank pattern. Swizzle-only twins (`_k4096_sw8`, `_k4096_sw16`, both at 8 KiB rather than 10 KiB) were screened against it. Padding survives on the narrow contraction shapes (`(2560,512)` and `(2560,640)`, `0.97-1.01x` either way) and loses everywhere else: `1.064/1.058/1.075x` on `(2560,6144)`, `1.066/1.067/1.070x` on `(2560,10240)` and `1.040/1.066/1.074x` on `(4096,2048)` across `M=2048/8192/32768`. The swizzle twin also beats the `_k2048` body that those two wide shapes deploy above `M=2048` (`1.044-1.053x` at `M=8192` and `32768`), so all nine wide-contraction keys now deploy `_k4096_sw16` and the Qwen4 and APEX GatedDeltaNet keys gain `4-7%` over the previous bodies. The A/B harness for this screen is `~/tmp/torch-ggml-ops/qwen4_fwd/bwd_final_decisions.txt` and the deployed-body confirmation is `bwd_deploy_confirm.txt`.
 
 ### Qwen tiled geometry
 

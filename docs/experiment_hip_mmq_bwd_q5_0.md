@@ -14,7 +14,6 @@ The type is Q4_0's nibble-plane payload plus one bit plane. `QK5_0 = 32` weights
 | Shared-expert down | `(8192,640,2560)` | 27.854 | 1.675x | `dense_bwd_q5_0_pipea_nt4_ki64_mw2_sw16` |
 | Shared-expert down | `(32768,640,2560)` | 29.657 | 1.664x | `dense_bwd_q5_0_pipea_nt4_ki64_mw2_sw16` |
 
-Shapes are written `(M, in_features, out_features)`, matching the weight's `(N,K) = (out_features, in_features)` in the table's `(M,K,N)` column. Every row comes from one run at eight repeats and two blocks against a BF16 `torch.mm` baseline on the same prepared gradient and packed weights.
 
 ## Kernel implementation
 
@@ -32,7 +31,7 @@ The deployed body uses `160 VGPR`, `19 SGPR` and `16 KiB` LDS (two 64x64 bf16 ti
 
 ### Candidate screen
 
-The Q4_0 record's six candidates were rendered for this type and screened at four repeats on all three row counts, then the three surviving variants were confirmed at eight repeats. The result is the same shape as Q4_0's, with the same reasons: the two-row-tile pipelined tile wins every row count (`1.09-1.44x` over the four-row-tile variants and `1.12-1.27x` over the 32-value stage), padding loses to the swizzle-only 8 KiB tile, and the three variants that differ in the activation prefetch and the payload read are within the run-to-run spread of each other (`0.95-1.05x`). The deployed body is the swizzle-only pipelined tile with the activation prefetch, chosen for its smaller LDS footprint at equal speed. The prefetched payload read is neutral on this type, as it was on Q4_0.
+The Q4_0 record's six candidates were rendered for this type and screened on all three row counts. The result is the same shape as Q4_0's, with the same reasons: the two-row-tile pipelined tile wins every row count (`1.09-1.44x` over the four-row-tile variants and `1.12-1.27x` over the 32-value stage), padding loses to the swizzle-only 8 KiB tile, and the three variants that differ in the activation prefetch and the payload read are within the run-to-run spread of each other (`0.95-1.05x`). The deployed body is the swizzle-only pipelined tile with the activation prefetch, chosen for its smaller LDS footprint at equal speed. The prefetched payload read is neutral on this type, as it was on Q4_0.
 
 ### Where this type sits
 
@@ -42,5 +41,5 @@ The Q4_0 record's six candidates were rendered for this type and screened at fou
 
 ```text
 ~/tmp/torch-ggml-ops/qwen4_fwd/bwd_q50_v1.txt   (candidate screen)
-~/tmp/torch-ggml-ops/qwen4_fwd/bwd_q50_v2.txt   (eight-repeat confirmation)
+~/tmp/torch-ggml-ops/qwen4_fwd/bwd_q50_v2.txt   (confirmation)
 ```

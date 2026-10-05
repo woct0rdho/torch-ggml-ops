@@ -14,7 +14,6 @@ Three properties of the type drive the kernel. `QK4_0 = 32` weights share an 18-
 | Shared-expert down | `(8192,640,2560)` | 28.143 | 1.338x | `dense_bwd_q4_0_pipea_nt4_ki64_mw2_sw16` |
 | Shared-expert down | `(32768,640,2560)` | 31.118 | 1.347x | `dense_bwd_q4_0_pipea_nt4_ki64_mw2_sw16` |
 
-Shapes are written `(M, in_features, out_features)`, matching the weight's `(N,K) = (out_features, in_features)` in the table's `(M,K,N)` column. Every row comes from one run at eight repeats and two blocks against a BF16 `torch.mm` baseline on the same prepared gradient and packed weights.
 
 ## Kernel implementation
 
@@ -30,7 +29,7 @@ The deployed body uses `144 VGPR`, `19 SGPR` and `16 KiB` LDS (two 64x64 bf16 ti
 
 ### Candidate screen
 
-Six candidates were built and screened at four repeats on all three row counts: the pipelined tile with and without the activation prefetch, its prefetched-decode twin, a four-row-tile variant with the prefetched decode, a padded four-row-tile variant, and a 32-value-stage variant. The two-row-tile tile wins every row count: `1.09-1.48x` over the four-row-tile variants and `1.11-1.41x` over the 32-value stage. The 32-value stage is the notable loss, because this family's contraction is only 2560 values and its result only 640 wide, so a 64-value stage already amortizes the barrier over the whole slice and the narrower stage pays barrier frequency instead. Padding loses to the swizzle-only 8 KiB tile (`1.09-1.21x` at the two larger row counts), and padding four or more values costs the fourth resident workgroup on a tile this small.
+Six candidates were built and screened on all three row counts: the pipelined tile with and without the activation prefetch, its prefetched-decode twin, a four-row-tile variant with the prefetched decode, a padded four-row-tile variant, and a 32-value-stage variant. The two-row-tile tile wins every row count: `1.09-1.48x` over the four-row-tile variants and `1.11-1.41x` over the 32-value stage. The 32-value stage is the notable loss, because this family's contraction is only 2560 values and its result only 640 wide, so a 64-value stage already amortizes the barrier over the whole slice and the narrower stage pays barrier frequency instead. Padding loses to the swizzle-only 8 KiB tile (`1.09-1.21x` at the two larger row counts), and padding four or more values costs the fourth resident workgroup on a tile this small.
 
 The three surviving variants - group decode, prefetched decode, and the activation prefetch - are within the run-to-run spread of each other on every row count (`0.95-1.06x`, no consistent direction), so the choice is structural rather than measured: the deployed body is the swizzle-only pipelined tile with the activation prefetch, which is the smallest LDS footprint of the three. The type's decode is cheap enough that neither the prefetched payload read nor the activation prefetch buys anything measurable here, unlike Q3_K, Q4_K and Q5_K where the prefetched decode is worth `1.00-1.07x`.
 
@@ -42,5 +41,5 @@ The three surviving variants - group decode, prefetched decode, and the activati
 
 ```text
 ~/tmp/torch-ggml-ops/qwen4_fwd/bwd_q40_v2.txt   (candidate screen)
-~/tmp/torch-ggml-ops/qwen4_fwd/bwd_q40_v3.txt   (eight-repeat confirmation)
+~/tmp/torch-ggml-ops/qwen4_fwd/bwd_q40_v3.txt   (confirmation)
 ```

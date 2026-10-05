@@ -4,7 +4,7 @@
 
 This record covers gfx1151 HIP packed-MMQ input-gradient kernels for DeepSeek Q8_0 weights.
 
-The final ordinary matrix contains seven families at `M=2048,8192,32768`, and the separate LM-head chunk matrix uses `M=32,64,128,256,512`. Shapes are written `(M, in_features, out_features)`, matching the weight's `(N,K) = (out_features, in_features)`. One of the seven is the Qwen4-Exp checkpoint `Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` shared-expert down projection, whose weight is `(2560,640)`. Its M values count tokens of a sequence length 2048 batch (B1/B4/B16), and the training path calls `M=2048`. The 48 layers mix recipes - the same projection family is a different quant type in different layers - so every type that appears needs a body, or those layers fall back to a dequantizing multiply.
+The record covers seven ordinary families at `M=2048,8192,32768` and the LM-head chunk matrix at `M=32,64,128,256,512`. One of the seven is the Qwen4-Exp checkpoint `Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` shared-expert down projection, whose weight is `(2560,640)`. Its M values count tokens of a sequence length 2048 batch (B1/B4/B16), and the training path calls `M=2048`. The 48 layers mix recipes - the same projection family is a different quant type in different layers - so every type that appears needs a body, or those layers fall back to a dequantizing multiply.
 
 ## Final ordinary-kernel result
 
@@ -32,7 +32,7 @@ The final ordinary matrix contains seven families at `M=2048,8192,32768`, and th
 | Shared down Qwen4-Exp | `(8192,640,2560)` | 25.446 | 1.513x | `dense_bwd_q8_0_exact_n640k2560_g2_group_m2_padding8` |
 | Shared down Qwen4-Exp | `(32768,640,2560)` | 27.959 | 1.553x | `dense_bwd_q8_0_exact_n640k2560_g2_group_m2_padding8` |
 
-The `Kernel` column names the deployed body for each exact key. The ordinary bodies are bitwise equal to the reference body of their per-key candidate campaign. The four split-contraction LM-head bodies keep the deployed decode and matrix work but sum FP32 partial tiles in ascending slice order and round once at the end, so they belong to the precision-changing class of the accuracy policy rather than the bitwise class.
+The `Kernel` column names the deployed body for each exact key. The four split-contraction LM-head bodies keep the deployed decode and matrix work but sum FP32 partial tiles in ascending slice order and round once at the end.
 
 | `(M,N,K)` | HIP time (ms) | HIP TFLOPS | HIP/torch.mm | Kernel |
 | ---: | ---: | ---: | ---: | --- |
@@ -108,7 +108,7 @@ Activation-half double buffering, K-loop unrolling, width32 decode, stride77 pad
 
 ### Qwen4-Exp shared-expert down
 
-The seventh ordinary family is the Qwen4-Exp shared-expert down projection, `(M,640,2560)`: the result is only `640` wide, so a G2 workgroup covers a fifth of it and the whole grid is `64 x 5` workgroups at `M=8192`. The family's eight candidate bodies were timed on all three row counts at `4` repeats. The `_g2_group_m2_padding8` body wins every point, by `1.18-1.33x` over the unpadded `_g2` bodies, `1.25-3.61x` over `_g1`, `1.49-5.60x` over `_g3`, and `2.10-3.49x` over the pre-G plain wrapper. The padding carries the win at `M=2048` and the grouped-M traversal carries it at the larger row counts. The body is the family's standing choice for a narrow result and deploys on all three keys.
+The seventh ordinary family is the Qwen4-Exp shared-expert down projection, `(M,640,2560)`: the result is only `640` wide, so a G2 workgroup covers a fifth of it and the whole grid is `64 x 5` workgroups at `M=8192`. The family's eight candidate bodies were timed on all three row counts. The `_g2_group_m2_padding8` body wins every point, by `1.18-1.33x` over the unpadded `_g2` bodies, `1.25-3.61x` over `_g1`, `1.49-5.60x` over `_g3`, and `2.10-3.49x` over the pre-G plain wrapper. The padding carries the win at `M=2048` and the grouped-M traversal carries it at the larger row counts. The body is the family's standing choice for a narrow result and deploys on all three keys.
 
 ### Swizzle against padding
 

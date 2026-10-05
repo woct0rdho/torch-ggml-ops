@@ -37,11 +37,9 @@ GatedDeltaNet `out_proj` is deferred because wiring it needs the activation perm
 | GatedDeltaNet Z APEX-I-Mini | `(8192,2048,4096)` | 22.360 | 1.218x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
 | GatedDeltaNet Z APEX-I-Mini | `(32768,2048,4096)` | 23.250 | 1.255x | `dense_bwd_q3_k_mt128_nt128_ki32_full_narrow` |
 
-The values use the current packed/BF16 matrix and report the complete packed-gradient path represented there. The `Kernel` column names the deployed body for each exact key. It is the fastest built body whose output is bitwise equal to the reference body in the per-key candidate campaign.
-
 ## Kernel implementation
 
-The build carries two tuned `mt128_nt128_ki32_full` variants: `..._full_narrow` (8-value LDS row padding, vector local loads) and `..._full_wide` (swizzle chunk 8, no LDS padding). Both were timed on both shapes and then on the eighteen Qwen4-Exp and GatedDeltaNet points. `full_narrow` won every one of them by `1.027-1.221x` and is the deployed body for all twenty-four keys, so the new shapes needed no new body. Exact shape and row-count specialization removes runtime bounds and address state from the common production shapes. Generic bounds-safe bodies remain available for unmatched shapes and are not competitive on these keys.
+The build carries two tuned `mt128_nt128_ki32_full` variants, `..._full_narrow` and `..._full_wide`. Both were timed on both shapes and then on the eighteen Qwen4-Exp and GatedDeltaNet points. `full_narrow` won every one of them by `1.027-1.221x` and is the deployed body for all twenty-four keys, so the new shapes needed no new body. Exact shape and row-count specialization removes runtime bounds and address state from the common production shapes. Generic bounds-safe bodies remain available for unmatched shapes and are not competitive on these keys.
 
 ## Optimization log
 

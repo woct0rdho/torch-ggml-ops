@@ -14,7 +14,6 @@ This record covers the gfx1151 HIP input-gradient backward kernels for IQ4_NL we
 | Shared-expert down | `(8192,640,2560)` | 28.288 | 1.707x | `dense_bwd_iq4_nl_pipea_nt4_ki64_mw2_sw16_prefetch` |
 | Shared-expert down | `(32768,640,2560)` | 30.411 | 1.689x | `dense_bwd_iq4_nl_pipea_nt4_ki64_mw2_sw16_prefetch` |
 
-Shapes are written `(M, in_features, out_features)`, matching the weight's `(N,K) = (out_features, in_features)` in the table's `(M,K,N)` column. Every row comes from one run at eight repeats and two blocks against a BF16 `torch.mm` baseline on the same prepared gradient and packed weights.
 
 ## Kernel implementation
 
@@ -32,7 +31,7 @@ The deployed body uses `143 VGPR`, `23 SGPR` and `16 KiB` LDS (two 64x64 bf16 ti
 
 ### Candidate screen
 
-The Q4_0 and Q5_0 records' six candidates were rendered for this type and screened at four repeats on all three row counts, then the three that survived were confirmed at eight repeats. The verdicts repeat for the same reasons: the two-row-tile pipelined tile wins every row count (`1.12-1.54x` over the four-row-tile variants and `1.18-1.33x` over the 32-value stage), and padding loses to the swizzle-only 8 KiB tile. Among the three the prefetched payload read is worth `1.06x` at `M=8192` and level at the other two row counts, so it deploys. The differences at the outer row counts are inside the spread of a shape whose grid is only `16 x 10` workgroups at `M=2048`.
+The Q4_0 and Q5_0 records' six candidates were rendered for this type and screened on all three row counts. The verdicts repeat for the same reasons: the two-row-tile pipelined tile wins every row count (`1.12-1.54x` over the four-row-tile variants and `1.18-1.33x` over the 32-value stage), and padding loses to the swizzle-only 8 KiB tile. Among the three the prefetched payload read is worth `1.06x` at `M=8192` and level at the other two row counts, so it deploys. The differences at the outer row counts are inside the spread of a shape whose grid is only `16 x 10` workgroups at `M=2048`.
 
 No level-table mechanism is needed. The forward records' table trick targets Q2_0's byte-spread arithmetic and Q5_0's fifth-bit merge, and here the lookup is already the cheap form: the Q4_0 record, whose payload needs two shifts and two masks instead, measures the same band (`18.3/28.1/31.1`) as this one, so the codebook is not a visible cost.
 
@@ -44,5 +43,5 @@ No level-table mechanism is needed. The forward records' table trick targets Q2_
 
 ```text
 ~/tmp/torch-ggml-ops/qwen4_fwd/bwd_iq4nl_v1.txt   (candidate screen)
-~/tmp/torch-ggml-ops/qwen4_fwd/bwd_iq4nl_v2.txt   (eight-repeat confirmation)
+~/tmp/torch-ggml-ops/qwen4_fwd/bwd_iq4nl_v2.txt   (confirmation)
 ```

@@ -82,6 +82,8 @@ static constexpr __host__ __device__ int gguf_block_bytes() {
         return sizeof(block_q5_0);
     } else if constexpr (type == GGML_TYPE_IQ4_NL) {
         return sizeof(block_iq4_nl);
+    } else if constexpr (type == GGML_TYPE_IQ4_XS) {
+        return sizeof(block_iq4_xs);
     } else {
         return 0;
     }
@@ -103,6 +105,33 @@ __device__ __forceinline__ float decode_gguf_value<GGML_TYPE_Q4_0>(
         block.qs[value_index & (QK4_0 / 2 - 1)] >>
         (4 * ((value_index >> 4) & 1))) & 0x0f;
     return fp16_to_fp32(block.d) * static_cast<float>(quant - 8);
+}
+
+// Six-bit signed sub-block scale of an IQ4_XS block: a nibble from the low
+// plane and two bits from the high plane, biased by 32.
+static __device__ __forceinline__ int iq4_xs_scale(
+        const block_iq4_xs & block, int sub_block) {
+    const int low =
+        (block.scales_l[sub_block >> 1] >> (4 * (sub_block & 1))) & 0x0f;
+    const int high = (block.scales_h >> (2 * sub_block)) & 0x03;
+    return (low | (high << 4)) - 32;
+}
+
+template <>
+__device__ __forceinline__ float decode_gguf_value<GGML_TYPE_IQ4_XS>(
+        const char * packed_row,
+        int block_index,
+        int value_index) {
+    const auto & block =
+        reinterpret_cast<const block_iq4_xs *>(packed_row)[block_index];
+    // Within a sub-block the sixteen payload bytes carry both planes: byte `j`
+    // holds value `j` in its low nibble and value `j + 16` in its high nibble.
+    const int sub_block = value_index >> 5;
+    const int plane = (value_index >> 4) & 1;
+    const uint8_t byte = block.qs[16 * sub_block + (value_index & 15)];
+    const int nibble = (byte >> (4 * plane)) & 0x0f;
+    return fp16_to_fp32(block.d) * static_cast<float>(iq4_xs_scale(block, sub_block)) *
+        static_cast<float>(kvalues_iq4nl[nibble]);
 }
 
 template <>

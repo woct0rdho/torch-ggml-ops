@@ -1261,6 +1261,36 @@ def _dense_backward_controls() -> list[HIPControlSpec]:
                 prefetch_a_fragments=a_prefetch,
             )
         )
+    # IQ4_XS backward: a 256-wide block with eight six-bit sub-block scales on
+    # the K-quant tile class, over the QSA query, key/value and shared-expert
+    # gate/up families plus the two GatedDeltaNet projections.
+    for suffix, n_tiles, k_iteration, m_tiles, swizzle, padding, a_prefetch, packed in (
+        ("pipe_nt4_ki64_mw2_sw16", 4, 64, 2, 16, 0, False, False),
+        ("pipea_nt4_ki64_mw2_sw16", 4, 64, 2, 16, 0, True, False),
+        ("pipea_nt4_ki64_mw2_sw16_prefetch", 4, 64, 2, 16, 0, True, True),
+        ("pipea_nt4_ki64_mw4_sw16_prefetch", 4, 64, 4, 16, 0, True, True),
+        ("pipea_nt4_ki64_mw2_pad8", 4, 64, 2, 16, 8, True, False),
+        ("pipea_nt4_ki32_sw8_prefetch", 4, 32, 2, 8, 0, True, True),
+    ):
+        specs.append(
+            _dense_backward(
+                f"dense_bwd_iq4_xs_{suffix}",
+                QuantType.IQ4_XS,
+                n_tiles,
+                k_iteration,
+                group_m=1,
+                m_tiles_per_wave=m_tiles,
+                decoder_width=16,
+                prefetch_local=True,
+                full_tiles=True,
+                vector_local_load=True,
+                prefetch_packed=packed,
+                lds_padding=padding,
+                lds_swizzle_chunk=swizzle,
+                pipeline_tiles=True,
+                prefetch_a_fragments=a_prefetch,
+            )
+        )
     for rows, n_tiles, k_iteration, m_tiles, swizzle, pack_q6 in (
         (64, 2, 64, 1, 16, False),
         (128, 4, 32, 2, 8, False),
@@ -1612,7 +1642,7 @@ def hip_control_specs() -> tuple[HIPControlSpec, ...]:
         + _grouped_backward_controls()
     )
     symbols = [spec.symbol for spec in specs]
-    if len(specs) != 392:
+    if len(specs) != 398:
         raise ValueError(f"historical HIP control inventory has {len(specs)} entries")
     if len(symbols) != len(set(symbols)):
         raise ValueError("HIP control symbols must be unique")

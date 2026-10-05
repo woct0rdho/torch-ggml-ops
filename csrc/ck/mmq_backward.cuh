@@ -256,6 +256,23 @@ static __device__ __forceinline__ void decode_backward_tile_quad(
             values[index] =
                 __float2bfloat16(d * static_cast<float>(level));
         }
+    } else if constexpr (type == GGML_TYPE_IQ4_XS) {
+        const auto & block =
+            reinterpret_cast<const block_iq4_xs *>(packed_row)[block_index];
+        const int sub_block = value_index >> 5;
+        const int plane = (value_index >> 4) & 1;
+        const float scaled_d = fp16_to_fp32(block.d) *
+            static_cast<float>(iq4_xs_scale(block, sub_block));
+        const uint8_t * sub_bytes = block.qs + 16 * sub_block;
+        const int2 nibbles = iq4_table_lookup_16(
+            get_int_b2(sub_bytes, (value_index & 15) >> 2), kvalues_iq4nl);
+        const int packed = plane ? nibbles.y : nibbles.x;
+#pragma unroll
+        for (int index = 0; index < 4; ++index) {
+            const auto level = static_cast<int8_t>(packed >> (8 * index));
+            values[index] = __float2bfloat16(
+                scaled_d * static_cast<float>(level));
+        }
     } else {
         const auto & block =
             reinterpret_cast<const block_q5_K *>(packed_row)[block_index];
@@ -441,6 +458,29 @@ static __device__ __forceinline__ void decode_backward_tile_group(
                 const auto level = static_cast<int8_t>(packed >> (8 * slot));
                 values[4 * word + slot] =
                     __float2bfloat16(d * static_cast<float>(level));
+            }
+        }
+    } else if constexpr (type == GGML_TYPE_IQ4_XS) {
+        const auto & block =
+            reinterpret_cast<const block_iq4_xs *>(packed_row)[block_index];
+        const int sub_block = value_index >> 5;
+        const int plane = (value_index >> 4) & 1;
+        const float scaled_d = fp16_to_fp32(block.d) *
+            static_cast<float>(iq4_xs_scale(block, sub_block));
+        const uint8_t * sub_bytes = block.qs + 16 * sub_block;
+        // Sixteen consecutive values are the sixteen payload bytes of one
+        // sub-block in one plane, so one permute pair per word yields four
+        // consecutive values and the plane picks the half.
+#pragma unroll
+        for (int word = 0; word < WIDTH / 4; ++word) {
+            const int2 nibbles = iq4_table_lookup_16(
+                get_int_b2(sub_bytes, word), kvalues_iq4nl);
+            const int packed = plane ? nibbles.y : nibbles.x;
+#pragma unroll
+            for (int slot = 0; slot < 4; ++slot) {
+                const auto level = static_cast<int8_t>(packed >> (8 * slot));
+                values[4 * word + slot] =
+                    __float2bfloat16(scaled_d * static_cast<float>(level));
             }
         }
     } else if constexpr (type == GGML_TYPE_Q6_K && WIDTH == 16) {

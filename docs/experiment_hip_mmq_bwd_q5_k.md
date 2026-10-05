@@ -34,7 +34,7 @@ GatedDeltaNet `out_proj` is deferred because wiring it needs the activation perm
 | Language model head | (128,2560,248320) | 21.841 | 1.724x | `dense_bwd_q5_k_pipesplit_m128_s8` |
 | Language model head | (256,2560,248320) | 25.548 | 1.348x | `dense_bwd_q5_k_pipesplit_m256_s32` |
 
-The `Kernel` column names the deployed body for each exact key. It is the fastest built body whose output is bitwise equal to the reference body in the per-key candidate campaign. The shared-down rows show the largest per-sample spread in the matrix (`1.20-1.53` max/min here). The narrow rows stay at `1.05-1.07`.
+The shared-down rows show the largest per-sample spread in the matrix (`1.20-1.53` max/min here). The narrow rows stay at `1.05-1.07`.
 
 ## Kernel implementation
 
@@ -70,7 +70,7 @@ The current source closes global J64, I128, alternate workgroup sizes, split-K, 
 
 ### Pipelined tile
 
-The Q2_0 and Q6_K records established a two-tile backward stage order, one barrier per contraction stage, and this record is where it pays most. The pipelined twin of the deployed `_k2048` geometry, at the 64-value stage with two and four row tiles per wave, beats the deployed bodies on every measured point: `1.31x/1.08x/1.09x` on the QSA value rows, `1.42x/1.11x/1.19x` on the shared-expert gate/up rows, `1.37x/1.17x/1.15x` on the QSA output rows, and `1.03x/1.13x/1.16x` on the APEX-I-Mini `(512,2048)` rows, against `M=2048/8192/32768` at eight repeats.
+The Q2_0 and Q6_K records established a two-tile backward stage order, one barrier per contraction stage, and this record is where it pays most. The pipelined twin of the deployed `_k2048` geometry, at the 64-value stage with two and four row tiles per wave, beats the deployed bodies on every measured point: `1.31x/1.08x/1.09x` on the QSA value rows, `1.42x/1.11x/1.19x` on the shared-expert gate/up rows, `1.37x/1.17x/1.15x` on the QSA output rows, and `1.03x/1.13x/1.16x` on the APEX-I-Mini `(512,2048)` rows, against `M=2048/8192/32768`.
 
 On the APEX-I-Mini `(2048,8192)` rows the pipelined variant beats the eight-column tile by `1.15x` at `M=2048` and `1.02x` at `M=32768`. The `M=2048` row keeps the `_k512` wrapper it deploys and the `M=8192` row was not measured against the deployed body, so only the `M=32768` row takes the pipelined tile. The narrow-result rows prefer the two-row-tile variant and the wide rows the four-row-tile one at `M=2048`.
 
@@ -78,7 +78,7 @@ The shared-expert down `(2048,512)` rows keep their single-tile body (`0.73x` at
 
 ### Pipelined split-contraction head
 
-The head keys were the one place the earlier records measured the tile pipeline on a single-tile body: the split-contraction body's stage loop was still the two-barrier order. The same pipelined body now carries the split window (`dense_mmq_pipelined_splitk_body`, sharing the projection tile's implementation), and against the deployed split bodies at eight repeats it is `1.40x` ahead at `M=64`, `1.04x` at `M=128` and `1.14x` at `M=256`, all three keys taking it. Its prefetched decode is what the projection rows took as well: `1.07x` and `1.06x` over the group-decoding pipelined tile on the QSA value rows, so those two rows moved to the prefetched twin too.
+The head keys were the one place the earlier records measured the tile pipeline on a single-tile body: the split-contraction body's stage loop was still the two-barrier order. The same pipelined body now carries the split window (`dense_mmq_pipelined_splitk_body`, sharing the projection tile's implementation), and against the deployed split bodies it is `1.40x` ahead at `M=64`, `1.04x` at `M=128` and `1.14x` at `M=256`, all three keys taking it. Its prefetched decode is what the projection rows took as well: `1.07x` and `1.06x` over the group-decoding pipelined tile on the QSA value rows, so those two rows moved to the prefetched twin too.
 
 ## Resources
 
@@ -88,7 +88,7 @@ The retained Q5_K bodies use `247 VGPR / 17 SGPR / 8 KiB LDS` for narrow scalar 
 
 ## Evidence
 
-The Qwen4-Exp and GatedDeltaNet rows come from the backward harness under `~/tmp/torch-ggml-ops/qwen4_fwd/bwd_q5k_v1.txt`, which uses the deployed preparation, the same `torch.mm` BF16 baseline and the same paired timing as the official protocol. The split-contraction rows include the partial reduction in the timed region.
+The Qwen4-Exp and GatedDeltaNet rows come from the backward harness under `~/tmp/torch-ggml-ops/qwen4_fwd/bwd_q5k_v1.txt`.
 
 Current measurement evidence for the table above:
 
