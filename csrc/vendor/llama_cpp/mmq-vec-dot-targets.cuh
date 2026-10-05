@@ -8,7 +8,8 @@ using namespace ggml_cuda_mma;
 
 template <ggml_type type, int J, bool fallback, mmq_q8_1_metadata_layout metadata_layout>
 static __device__ __forceinline__ void ggml_cuda_mmq_vec_dot_q8_0_q8_1_mma(
-    const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int k00) {
+    const int * __restrict__ x, const int * __restrict__ y, float * __restrict__ sum, const int k00,
+    const int * __restrict__ meta) {
     constexpr data_layout input_layout = get_input_data_layout();
     typedef tile<16,  8, int, input_layout>        tile_A;
     typedef tile<16,  8, int, input_layout>        tile_B;
@@ -24,8 +25,8 @@ static __device__ __forceinline__ void ggml_cuda_mmq_vec_dot_q8_0_q8_1_mma(
     const int   * x_qs = (const int   *) x;
     const float * x_df = (const float *) x_qs + MMQ_QUANT_INTS;
     const int   * y_qs = (const int   *) y + 4;
-    const float * y_df = (const float *) y;
-    const half2 * y_ds = (const half2 *) y;
+    const float * y_df = (const float *) meta;
+    const half2 * y_ds = (const half2 *) meta;
 
     const int i0 = (threadIdx.y / ntx) * rows_per_warp;
 
@@ -41,14 +42,20 @@ static __device__ __forceinline__ void ggml_cuda_mmq_vec_dot_q8_0_q8_1_mma(
 #pragma unroll
         for (int j0 = 0; j0 < J; j0 += ntx*tile_C::J) {
             tile_B B;
+#if defined(MMQ_FRAGMENT_ACT)
+            // `y` points straight at the workspace: the same arithmetic, one
+            // 32-byte group per token, no LDS tile in between.
+            load_fragment_global(B, y_qs + j0*MMQ_TILE_Y_K + k01, MMQ_TILE_Y_K);
+#else
             load_ldmatrix(B, y_qs + j0*MMQ_TILE_Y_K + k01, MMQ_TILE_Y_K);
+#endif
 
             float dB;
             const int j = j0 + tile_C::get_j(0);
             if (metadata_layout == MMQ_Q8_1_METADATA_F32_D4) {
-                dB = y_df[j*MMQ_TILE_Y_K + k01/QI8_1];
+                dB = y_df[j*MMQ_META_STRIDE + k01/QI8_1];
             } else {
-                dB = __low2float(y_ds[j*MMQ_TILE_Y_K + k01/QI8_1]);
+                dB = __low2float(y_ds[j*MMQ_META_STRIDE + k01/QI8_1]);
             }
 
 #pragma unroll

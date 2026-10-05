@@ -16,23 +16,23 @@ The type also carries all 144 routed-expert tensors, 32,400 MiB, which are the g
 
 | Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm | Kernel |
 | ---: | --- | --- | --- | --- |
-| QSA query | `(2048,12288,2560)` | 29.556 | 1.24x | `dense_fwd_q2_0_k2560_j128_full_table` |
-| QSA query | `(8192,12288,2560)` | 29.813 | 1.24x | `dense_fwd_q2_0_k2560_j128_full_table` |
-| QSA query | `(32768,12288,2560)` | 28.487 | 1.22x | `dense_fwd_q2_0_k2560_j128_full_table` |
-| Shared-expert gate/up | `(2048,640,2560)` | 25.415 | 1.79x | `dense_fwd_q2_0_k2560_j128_full_table` |
-| Shared-expert gate/up | `(8192,640,2560)` | 29.667 | 2.00x | `dense_fwd_q2_0_k2560_j128_full_table` |
-| Shared-expert gate/up | `(32768,640,2560)` | 29.587 | 1.97x | `dense_fwd_q2_0_k2560_j128_full_table` |
-| Shared-expert down | `(2048,2560,640)` | 26.954 | 1.42x | `dense_fwd_q2_0_k640_j128_full` |
-| Shared-expert down | `(8192,2560,640)` | 27.447 | 1.14x | `dense_fwd_q2_0_k640_j128_full` |
-| Shared-expert down | `(32768,2560,640)` | 27.600 | 1.12x | `dense_fwd_q2_0_k640_j128_full` |
-| PLE key / GDN QKV | `(2048,10240,2560)` | 29.302 | 1.24x | `dense_fwd_q2_0_k2560_j128_full_table` |
-| PLE key / GDN QKV | `(8192,10240,2560)` | 28.559 | 1.26x | `dense_fwd_q2_0_k2560_j128_full_table` |
-| PLE key / GDN QKV | `(32768,10240,2560)` | 28.394 | 1.23x | `dense_fwd_q2_0_k2560_j128_full_table` |
-| GatedDeltaNet Z | `(2048,6144,2560)` | 29.510 | 1.26x | `dense_fwd_q2_0_k2560_j128_full_table` |
-| GatedDeltaNet Z | `(8192,6144,2560)` | 29.732 | 1.24x | `dense_fwd_q2_0_k2560_j128_full_table` |
-| GatedDeltaNet Z | `(32768,6144,2560)` | 28.520 | 1.23x | `dense_fwd_q2_0_k2560_j128_full_table` |
+| QSA query | `(2048,12288,2560)` | 30.382 | 1.30x | `dense_fwd_q2_0_k2560_j128_full_table_frag` |
+| QSA query | `(8192,12288,2560)` | 30.650 | 1.28x | `dense_fwd_q2_0_k2560_j128_full_table_frag` |
+| QSA query | `(32768,12288,2560)` | 30.559 | 1.27x | `dense_fwd_q2_0_k2560_j128_full_table_frag` |
+| Shared-expert gate/up | `(2048,640,2560)` | 26.103 | 1.85x | `dense_fwd_q2_0_k2560_j128_full_table_frag` |
+| Shared-expert gate/up | `(8192,640,2560)` | 32.249 | 2.25x | `dense_fwd_q2_0_k2560_j128_full_table_frag` |
+| Shared-expert gate/up | `(32768,640,2560)` | 30.771 | 2.04x | `dense_fwd_q2_0_k2560_j128_full_table_frag` |
+| Shared-expert down | `(2048,2560,640)` | 26.873 | 1.42x | `dense_fwd_q2_0_k640_j128_full` |
+| Shared-expert down | `(8192,2560,640)` | 27.571 | 1.14x | `dense_fwd_q2_0_k640_j128_full` |
+| Shared-expert down | `(32768,2560,640)` | 27.763 | 1.13x | `dense_fwd_q2_0_k640_j128_full` |
+| PLE key / GDN QKV | `(2048,10240,2560)` | 30.333 | 1.30x | `dense_fwd_q2_0_k2560_j128_full_table_frag` |
+| PLE key / GDN QKV | `(8192,10240,2560)` | 30.513 | 1.29x | `dense_fwd_q2_0_k2560_j128_full_table_frag` |
+| PLE key / GDN QKV | `(32768,10240,2560)` | 30.388 | 1.28x | `dense_fwd_q2_0_k2560_j128_full_table_frag` |
+| GatedDeltaNet Z | `(2048,6144,2560)` | 30.864 | 1.36x | `dense_fwd_q2_0_k2560_j128_full_table_frag` |
+| GatedDeltaNet Z | `(8192,6144,2560)` | 30.240 | 1.28x | `dense_fwd_q2_0_k2560_j128_full_table_frag` |
+| GatedDeltaNet Z | `(32768,6144,2560)` | 30.496 | 1.28x | `dense_fwd_q2_0_k2560_j128_full_table_frag` |
 
-Every point is above the BF16 `torch.mm` baseline on the multiply-only surface, from `1.12x` to `2.00x`.
+Every point is above the BF16 `torch.mm` baseline on the multiply-only surface, from `1.13x` to `2.25x`.
 
 ## Kernel implementation
 
@@ -51,6 +51,37 @@ Exact specialization folds the contraction length and the full-tile bounds into 
 The 2-bit decode is a real share of the instruction stream for this type: `rocprofv3` PC sampling of the retained K2560 body at `(8192,12288,2560)` reports `18.0%` WMMA, the highest of the dense bodies (`7.5%` for Q3_K at the same geometry), with `7.3%` in the spread and shift instructions and the rest in the epilogue and barriers. Reading the expansion from a 256-entry LDS table instead of recomputing it removes most of that share and is worth `1.2-2.4%` on all six measured points (`0.975-1.002x`), which is why the K2560 keys deploy the table body. The table costs `1,024 B` of LDS behind the weight tile, which does not change the number of resident workgroups.
 
 That WMMA share is the highest sampled on any dense body of the family (`7.5%` for Q3_K at the same geometry, `17.2%` for the Q4_0 tail body), so the expectation that the simple decode pays off holds: this is the most MMA-bound dense body of the family.
+
+### Fragment-order activation reads
+
+The activation used to take the long way round: the producer writes a Q8_1 block per token, the body copies every stage's blocks into an LDS tile, and the vector dot reads its B fragments back out of that tile with `load_ldmatrix`. The fragment the int8 WMMA wants is, per lane, the thirty-two contiguous bytes of one 32-value group of one token - two sixteen-byte chunks at `xs0 + (lane % 16)*stride` and `+16 B` - and a Q8_1 block already stores its four 32-byte groups back to back behind a 16-byte metadata header, so those bytes are contiguous in the workspace too. The LDS tile in between was a copy that bought nothing.
+
+The fragment body reads the quants straight from global memory with the same addressing arithmetic and keeps only the scales in LDS: one sixteen-byte metadata header per token, copied in a single load per token per stage ahead of the barrier that publishes it. The request falls from `39,424 B` to `23,040 B`, which takes the body from three to five workgroups per WGP, and the stage loses its activation copy and one of its two barrier-separated halves.
+
+Two ablations set the design before anything was written. Staging the activation once per block instead of per stage - the conservative bound, since it keeps every barrier - is worth `+5.2 %` to `+6.2 %` on four deployed rows, so the LDS round trip was worth attacking. Then, on the first fragment body, replacing the metadata loads with a constant is worth another `+7.6 %` to `+8.2 %`: the per-group scales are read inside the innermost loop and feed the accumulator scaling directly, so as cold global loads they are entirely exposed. That is why they, and only they, stay in LDS.
+
+The deployed body reproduces the staged body byte for byte (verified on every screened key) and measures:
+
+| rows x k | before, three workgroups | after, five workgroups | delta |
+| --- | ---: | ---: | ---: |
+| `32768 x 2560` (`N=12288`) | 29.90 TF | 30.58 TF | `+2.29 %` |
+| `8192 x 2560` (`N=12288`) | 29.59 TF | 30.39 TF | `+2.69 %` |
+| `2048 x 2560` (`N=12288`) | 29.22 TF | 30.58 TF | `+4.64 %` |
+| `32768 x 2560` (`N=640`) | 28.76 TF | 30.44 TF | `+5.84 %` |
+
+The producer is untouched: the workspace layout the fragment order needs is the layout it already writes, so the "rearrange the activation at quantization time" step that motivated the experiment turned out to be unnecessary for the multiply. The tail body (`K=640`, which needs a half stage loader) does not yet have a fragment form, so those keys keep the staged body.
+
+The mechanism does not transfer to the 8-bit types as it stands. The same dot serves Q4_0, Q5_0, Q8_0, IQ4_NL and IQ4_XS, and Q8_0 was screened the same way:
+
+| rows x k | staged, three workgroups | fragment, five workgroups | delta |
+| --- | ---: | ---: | ---: |
+| `32768 x 4096` (`N=1024`) | 29.68 TF | 27.47 TF | `-7.46 %` |
+| `2048 x 4096` (`N=1024`) | 29.03 TF | 28.60 TF | `-1.49 %` |
+| `32768 x 2048` (`N=4096`) | 29.58 TF | 29.57 TF | `-0.04 %` |
+
+Output is byte-identical there too, so this is a memory-pattern effect. The staged body copies the activation with perfectly coalesced loads. The fragment body reads, per instruction, sixteen 32-byte groups that sit 144 bytes apart, which is sixteen cache lines where the tile copy touched one. For Q2_0 the decode-heavy body has enough slack to absorb that and the removed stage work wins. For an 8-bit type the decode is nearly free, the body is closer to its memory path, and the extra line touches cost more than the tile they replace.
+
+The two halves of the idea are separable, and that is why this record keeps only the Q2_0 half: the multiply path stays on the workspace layout the producer already writes, and the producer was not rearranged at all. Moving the other types onto it in future would mean writing the quants as `[32-value group][token][32 B]`, which puts a warp's sixteen groups in one contiguous 512-byte span - strictly better than the copy it replaces, and what would also make the metadata strip's copy coalesced. That is a producer-and-workspace change with its own contract, worth considering for other quant types in future rather than for this deployment.
 
 ### Closed mechanisms
 

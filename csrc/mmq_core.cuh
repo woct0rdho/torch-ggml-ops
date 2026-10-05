@@ -17,6 +17,22 @@ static constexpr int MMQ_TILE_Y_K = MMQ_TILE_NE_K + MMQ_TILE_NE_K / QI8_1;
 // workgroups per WGP, while the bytes loaded and the barriers per 256 values are
 // unchanged because a stage's weight and activation loads already share one
 // barrier. Only the level layouts that store one byte per value are covered.
+// A control that reads activation fragments from global memory keeps only the
+// four per-group scales of each token in LDS, one sixteen-byte row per token.
+#if defined(MMQ_FRAGMENT_ACT)
+static constexpr int MMQ_META_STRIDE = 4;
+#else
+static constexpr int MMQ_META_STRIDE = MMQ_TILE_Y_K;
+#endif
+
+// Planar activation layout, used by controls that read their fragments straight
+// from the workspace. Inside every (128-value block, 16-token chunk) the sixteen
+// metadata headers gather into one 256-byte plane and each of the four 32-value
+// groups forms its own 512-byte plane of sixteen 32-byte chunks, so a warp's
+// fragment reads become one contiguous span per group instead of sixteen groups
+// scattered at the per-token cell stride. The total per token and block is
+// unchanged: sixteen bytes of scales plus 128 bytes of values.
+
 #if defined(MMQ_HALF_STAGE)
 static constexpr int MMQ_STAGE_K = MMQ_ITER_K / 2;
 static constexpr int MMQ_QUANT_INTS = MMQ_TILE_NE_K;
@@ -176,6 +192,26 @@ enum mmq_q8_1_metadata_layout {
 // Vendored llama.cpp templates. These three files are fragments rather than
 // headers: they expand against the configuration and helpers defined above,
 // so they are included here and nowhere else.
+// Fragment-order activation reads. The int8 B fragment of one vector dot needs,
+// for each of sixteen tokens, the thirty-two contiguous bytes of one 32-value
+// group: `load_ldmatrix` fetches exactly that in two 16-byte chunks at
+// `xs0 + (lane % 16)*stride` and `+16 B`. A Q8_1 workspace block already stores
+// its four 32-byte groups back to back behind a 16-byte metadata header, so the
+// same 32 bytes are contiguous in global memory too and the LDS tile in between
+// buys nothing but a copy. This loader reads them straight from global.
+template <typename T, ggml_cuda_mma::data_layout dl>
+static __device__ __forceinline__ void load_fragment_global(
+        ggml_cuda_mma::tile<16, 8, T, dl> & t,
+        const T * __restrict__ xs0,
+        const int stride) {
+    static_assert(
+        dl == ggml_cuda_mma::DATA_LAYOUT_I_MAJOR_MIRRORED, "bad data layout");
+    static_assert(sizeof(t.x) == 32, "bad ne");
+    const T * base = xs0 + t.get_i(0) * stride;
+    __builtin_memcpy(t.x + 0, base + 0, 16);
+    __builtin_memcpy(t.x + 4, base + 4, 16);
+}
+
 #include "vendor/llama_cpp/mmq-load-targets.cuh"
 #include "vendor/llama_cpp/mmq-vec-dot-targets.cuh"
 #include "vendor/llama_cpp/mmq-vec-dot-q2-k-rolled.cuh"
@@ -916,7 +952,7 @@ static __device__ __forceinline__ void mmq_load_target(
 
 template <ggml_type type, int J, bool fallback = true, bool rolled_q2_k = false>
 static __device__ __forceinline__ void mmq_vec_dot_target(
-        const int * x, const int * y, float * sum, int k00) {
+        const int * x, const int * y, float * sum, int k00, const int * meta = nullptr) {
 #if defined(MMQ_EPILOGUE_HOISTED)
     if constexpr (
         type == GGML_TYPE_Q8_0 || type == GGML_TYPE_IQ2_XXS ||
@@ -934,7 +970,8 @@ static __device__ __forceinline__ void mmq_vec_dot_target(
         type == GGML_TYPE_Q5_0 || type == GGML_TYPE_IQ4_NL ||
         type == GGML_TYPE_IQ4_XS) {
         ggml_cuda_mmq_vec_dot_q8_0_q8_1_mma<
-            type, J, fallback, MMQ_Q8_1_METADATA_F32_D4>(x, y, sum, k00);
+            type, J, fallback, MMQ_Q8_1_METADATA_F32_D4>(
+            x, y, sum, k00, meta == nullptr ? y : meta);
     } else if constexpr (type == GGML_TYPE_Q2_K) {
         if constexpr (rolled_q2_k) {
             ggml_cuda_mmq_vec_dot_q2_K_q8_1_mma_rolled<type, J, fallback>(
@@ -1331,8 +1368,16 @@ static __device__ __forceinline__ void dense_mmq_bf16_body(
         ? 0
         : (fixed_blocks_per_weight_row - 1) * MMQ_ITER_K + tail_values;
     extern __shared__ int shared[];
+#if defined(MMQ_FRAGMENT_ACT)
+    // Only the four per-group scales of each token stay in LDS; the quants are
+    // read as fragments straight from the workspace.
+    static_assert(tail_values == 0, "the fragment path owns the whole stage");
+    constexpr int activation_ints = J * MMQ_META_STRIDE;
+#else
+    constexpr int activation_ints = GGML_PAD(J * MMQ_TILE_Y_K, MMQ_NTHREADS);
+#endif
     int * tile_y = shared + J;
-    int * tile_x = tile_y + GGML_PAD(J * MMQ_TILE_Y_K, MMQ_NTHREADS);
+    int * tile_x = tile_y + activation_ints;
 
     float sum[J * MMQ_I / MMQ_NTHREADS] = {0.0f};
     constexpr int q8_block_ints = sizeof(block_q8_1_mmq) / sizeof(int);
@@ -1414,6 +1459,22 @@ static __device__ __forceinline__ void dense_mmq_bf16_body(
                 kernel_blocks_per_weight_row);
         }
 
+#if defined(MMQ_FRAGMENT_ACT)
+        // One stage's activation is one Q8_1 block per token, and the workspace
+        // lays those blocks out exactly as the tile did, so the dot addresses its
+        // fragments in global memory with the same arithmetic. Each token's
+        // sixteen-byte metadata header is copied onto the LDS strip in one
+        // sixteen-byte load ahead of the barrier that publishes it.
+        const int * activation_stage =
+            activations + ((2 * kb) * nrows_activation_padded + tile_j * J) * q8_block_ints;
+        if (threadIdx.y * WARP_SIZE + threadIdx.x < J) {
+            const int token = threadIdx.y * WARP_SIZE + threadIdx.x;
+            __builtin_memcpy(
+                tile_y + token * MMQ_META_STRIDE,
+                activation_stage + token * q8_block_ints,
+                16);
+        }
+#else
 #pragma unroll
         for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += MMQ_NTHREADS) {
             const int l = l0 + threadIdx.y * WARP_SIZE + threadIdx.x;
@@ -1421,13 +1482,16 @@ static __device__ __forceinline__ void dense_mmq_bf16_body(
                 ((2 * kb) * nrows_activation_padded + tile_j * J) * q8_block_ints + l;
             tile_y[l] = activations[src];
         }
+        const int * activation_stage = tile_y;
+#endif
         __syncthreads();
         if constexpr (tail_values > 0) {
             if (!tail) {
-                mmq_vec_dot_target<type, J>(tile_x, tile_y, sum, 0);
+                mmq_vec_dot_target<type, J>(
+                    tile_x, activation_stage, sum, 0, tile_y);
             }
         } else {
-            mmq_vec_dot_target<type, J>(tile_x, tile_y, sum, 0);
+            mmq_vec_dot_target<type, J>(tile_x, activation_stage, sum, 0, tile_y);
         }
         __syncthreads();
 
@@ -1445,6 +1509,18 @@ static __device__ __forceinline__ void dense_mmq_bf16_body(
                 __syncthreads();
             }
         } else {
+#if defined(MMQ_FRAGMENT_ACT)
+            // Advance to the second half of the stage and refresh the metadata
+            // strip before the barrier that publishes it to the whole block.
+            activation_stage += nrows_activation_padded * q8_block_ints;
+            if (threadIdx.y * WARP_SIZE + threadIdx.x < J) {
+                const int token = threadIdx.y * WARP_SIZE + threadIdx.x;
+                __builtin_memcpy(
+                    tile_y + token * MMQ_META_STRIDE,
+                    activation_stage + token * q8_block_ints,
+                    16);
+            }
+#else
 #pragma unroll
             for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += MMQ_NTHREADS) {
                 const int l = l0 + threadIdx.y * WARP_SIZE + threadIdx.x;
@@ -1452,9 +1528,11 @@ static __device__ __forceinline__ void dense_mmq_bf16_body(
                     ((2 * kb + 1) * nrows_activation_padded + tile_j * J) * q8_block_ints + l;
                 tile_y[l] = activations[src];
             }
+#endif
             __syncthreads();
         }
-        mmq_vec_dot_target<type, J>(tile_x, tile_y, sum, MMQ_TILE_NE_K);
+        mmq_vec_dot_target<type, J>(
+            tile_x, activation_stage, sum, MMQ_TILE_NE_K, tile_y);
         __syncthreads();
     }
 #endif

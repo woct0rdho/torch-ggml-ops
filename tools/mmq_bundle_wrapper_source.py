@@ -87,6 +87,7 @@ class ForwardConfig:
     hoisted_epilogue: bool = False
     staged_epilogue: bool = False
     half_stage: bool = False
+    fragment_activation: bool = False
     wide_tile: bool = False
     pipeline_depth: int = 0
     tail_values: int = 0
@@ -274,6 +275,12 @@ def _render_forward(symbol: str, config: ForwardConfig) -> str:
         prefix = prefix.replace(
             '#include "mmq_core.cuh"',
             '#define MMQ_HALF_STAGE 1\n#include "mmq_core.cuh"',
+            1,
+        )
+    if config.fragment_activation:
+        prefix = prefix.replace(
+            '#include "mmq_core.cuh"',
+            '#define MMQ_FRAGMENT_ACT 1\n#include "mmq_core.cuh"',
             1,
         )
     mixed_j32_rows = "".join(

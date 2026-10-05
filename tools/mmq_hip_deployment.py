@@ -49,6 +49,7 @@ _FORWARD_TILE_Y_K = 36
 _FORWARD_MMQ_I = 64
 _FORWARD_COMPACT_STRIDES = {"Q4_K": 36, "Q5_K": 36, "Q2_K": 40}
 _FORWARD_MMQ_I_STRIDE_HALF = 40
+_FORWARD_META_STRIDE = 4
 _FORWARD_STRIDES = {
     "Q2_K": 100,
     "Q3_K": 84,
@@ -70,6 +71,7 @@ def forward_lds_bytes(
     compact_tile: bool,
     table_bytes: int,
     half_stage: bool = False,
+    fragment_activation: bool = False,
 ) -> int:
     """Return the dynamic LDS a dense-forward body addresses."""
 
@@ -82,7 +84,12 @@ def forward_lds_bytes(
         # A stage holds one 128-value half, so the weight row is one quant region
         # plus one scale region instead of two of each.
         stride = _FORWARD_MMQ_I_STRIDE_HALF
-    activation = -(-(j * _FORWARD_TILE_Y_K) // 128) * 128
+    # A control that reads its activation fragments from global memory keeps only
+    # the four per-group scales of each token, which is what frees the workgroups.
+    if fragment_activation:
+        activation = j * _FORWARD_META_STRIDE
+    else:
+        activation = -(-(j * _FORWARD_TILE_Y_K) // 128) * 128
     return 4 * (j + activation + _FORWARD_MMQ_I * stride) + (1024 if table_bytes else 0)
 
 
@@ -185,6 +192,8 @@ class HipControl:
                 )
                 if config.table_decode
                 else 0,
+                False,
+                bool(getattr(config, "fragment_activation", False)),
             )
             return ((n // 64, math.ceil(m / j), 1), _DENSE_FORWARD_BLOCK, shared_bytes)
         if isinstance(config, DenseBackwardConfig):

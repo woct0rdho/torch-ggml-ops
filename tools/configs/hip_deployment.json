@@ -1473,7 +1473,7 @@
           "m": 2048,
           "n": 640,
           "k": 2560,
-          "symbol": "dense_fwd_q2_0_k2560_j128_full_table"
+          "symbol": "dense_fwd_q2_0_k2560_j128_full_table_frag"
         },
         {
           "m": 2048,
@@ -1485,25 +1485,25 @@
           "m": 2048,
           "n": 6144,
           "k": 2560,
-          "symbol": "dense_fwd_q2_0_k2560_j128_full_table"
+          "symbol": "dense_fwd_q2_0_k2560_j128_full_table_frag"
         },
         {
           "m": 2048,
           "n": 10240,
           "k": 2560,
-          "symbol": "dense_fwd_q2_0_k2560_j128_full_table"
+          "symbol": "dense_fwd_q2_0_k2560_j128_full_table_frag"
         },
         {
           "m": 2048,
           "n": 12288,
           "k": 2560,
-          "symbol": "dense_fwd_q2_0_k2560_j128_full_table"
+          "symbol": "dense_fwd_q2_0_k2560_j128_full_table_frag"
         },
         {
           "m": 8192,
           "n": 640,
           "k": 2560,
-          "symbol": "dense_fwd_q2_0_k2560_j128_full_table"
+          "symbol": "dense_fwd_q2_0_k2560_j128_full_table_frag"
         },
         {
           "m": 8192,
@@ -1515,25 +1515,25 @@
           "m": 8192,
           "n": 6144,
           "k": 2560,
-          "symbol": "dense_fwd_q2_0_k2560_j128_full_table"
+          "symbol": "dense_fwd_q2_0_k2560_j128_full_table_frag"
         },
         {
           "m": 8192,
           "n": 10240,
           "k": 2560,
-          "symbol": "dense_fwd_q2_0_k2560_j128_full_table"
+          "symbol": "dense_fwd_q2_0_k2560_j128_full_table_frag"
         },
         {
           "m": 8192,
           "n": 12288,
           "k": 2560,
-          "symbol": "dense_fwd_q2_0_k2560_j128_full_table"
+          "symbol": "dense_fwd_q2_0_k2560_j128_full_table_frag"
         },
         {
           "m": 32768,
           "n": 640,
           "k": 2560,
-          "symbol": "dense_fwd_q2_0_k2560_j128_full_table"
+          "symbol": "dense_fwd_q2_0_k2560_j128_full_table_frag"
         },
         {
           "m": 32768,
@@ -1545,19 +1545,19 @@
           "m": 32768,
           "n": 6144,
           "k": 2560,
-          "symbol": "dense_fwd_q2_0_k2560_j128_full_table"
+          "symbol": "dense_fwd_q2_0_k2560_j128_full_table_frag"
         },
         {
           "m": 32768,
           "n": 10240,
           "k": 2560,
-          "symbol": "dense_fwd_q2_0_k2560_j128_full_table"
+          "symbol": "dense_fwd_q2_0_k2560_j128_full_table_frag"
         },
         {
           "m": 32768,
           "n": 12288,
           "k": 2560,
-          "symbol": "dense_fwd_q2_0_k2560_j128_full_table"
+          "symbol": "dense_fwd_q2_0_k2560_j128_full_table_frag"
         }
       ]
     },

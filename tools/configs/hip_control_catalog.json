@@ -1567,6 +1567,34 @@
     "table_decode": true
   },
   {
+    "symbol": "dense_fwd_q2_0_k2560_j128_full_table_frag",
+    "config": "forward",
+    "kind": "DENSE",
+    "quant_type": "Q2_0",
+    "j": 128,
+    "nrows_weight": 0,
+    "blocks_per_weight_row": 10,
+    "groups": 0,
+    "bounded_tokens": false,
+    "rolled_q2": false,
+    "mixed_j32_tails": false,
+    "mixed_q2_k": false,
+    "mixed_j32_rows": [
+      0,
+      0
+    ],
+    "full_i": true,
+    "full_j": true,
+    "prefetch_activation": false,
+    "compact_tile": false,
+    "hoisted_epilogue": false,
+    "wide_tile": false,
+    "pipeline_depth": 0,
+    "tail_values": 0,
+    "table_decode": true,
+    "fragment_activation": true
+  },
+  {
     "symbol": "dense_fwd_q2_0_k640_j128_full",
     "config": "forward",
     "kind": "DENSE",
