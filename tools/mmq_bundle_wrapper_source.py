@@ -85,6 +85,7 @@ class ForwardConfig:
     prefetch_activation: bool = False
     compact_tile: bool = False
     hoisted_epilogue: bool = False
+    staged_epilogue: bool = False
     wide_tile: bool = False
     pipeline_depth: int = 0
     tail_values: int = 0
@@ -260,6 +261,12 @@ def _render_forward(symbol: str, config: ForwardConfig) -> str:
         prefix = prefix.replace(
             '#include "mmq_core.cuh"',
             '#define MMQ_EPILOGUE_HOISTED 1\n#include "mmq_core.cuh"',
+            1,
+        )
+    if config.staged_epilogue:
+        prefix = prefix.replace(
+            '#include "mmq_core.cuh"',
+            '#define MMQ_EPILOGUE_STAGED 1\n#include "mmq_core.cuh"',
             1,
         )
     mixed_j32_rows = "".join(

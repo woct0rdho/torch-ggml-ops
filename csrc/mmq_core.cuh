@@ -957,6 +957,113 @@ static __device__ __forceinline__ void mmq_write_back_bf16(
     }
 }
 
+// Staged write-back. The gfx11 C fragment hands a thread every other column of
+// one output row, so the direct store is two bytes wide, scatters sixteen rows
+// across a warp and has to round each value in software: disassembled, that
+// write-back is 657 instructions per thread. Staging the tile in LDS first lets
+// the read side take eight contiguous columns per lane, so the store becomes one
+// 16-byte vector and the rounding a packed instruction.
+//
+// Every exact-tile control has a fixed shape, so this path has no boundary work
+// at all: `full_i` and `full_j` must both hold and the row stride must be a
+// whole number of 16-byte vectors, which the dense forward launcher already
+// requires by tiling the weight rows in 64-row groups.
+template <ggml_type type, int J, bool full_i, bool full_j>
+static __device__ __forceinline__ void mmq_write_back_bf16_staged(
+        const float * sum,
+        __hip_bfloat16 * dst,
+        int stride,
+        int i_max,
+        int j_max,
+        float * stage) {
+    using namespace ggml_cuda_mma;
+    using tile_C = tile<16, 16, int, DATA_LAYOUT_J_MAJOR>;
+    constexpr int ne = tile_C::ne;
+    constexpr int lanes = MMQ_NTHREADS;
+    constexpr int lanes_per_row = MMQ_I / 8;
+    constexpr int rows_per_pass = lanes / lanes_per_row;
+    // One staging pass covers whole 16-row C fragments. The row stride is
+    // padded so the two half-warps of a fragment land in different banks.
+    constexpr int chunk = J < 64 ? J : 64;
+    // A row stride of MMQ_I + 2 words spreads the sixteen rows of a store
+    // across sixteen banks, and keeps the staging reads 8-byte aligned.
+    constexpr int row_words = MMQ_I + 2;
+    static_assert(full_i && full_j, "the staged write-back is exact-tile only");
+    static_assert(J % 16 == 0, "the staged write-back walks 16-row C fragments");
+    static_assert(MMQ_I % 8 == 0, "eight columns per lane per store");
+    static_assert(chunk % 16 == 0 && rows_per_pass % 16 == 0);
+    static_assert(chunk % rows_per_pass == 0, "a pass covers whole rows");
+    (void)i_max;
+    (void)j_max;
+
+    const int lane = threadIdx.y * WARP_SIZE + threadIdx.x;
+    // The C fragment is indexed by the warp-local lane, not by the linear
+    // thread id: warp W covers columns [W*16, W*16+16) of the staged tile.
+    const int fragment_row = threadIdx.x % 16;
+    const int fragment_column = threadIdx.x / 16;
+    const int i0 = threadIdx.y * tile_C::I;
+
+    for (int base = 0; base < J; base += chunk) {
+#pragma unroll
+        for (int j0 = 0; j0 < chunk; j0 += 16) {
+#pragma unroll
+            for (int l = 0; l < ne; ++l) {
+                stage[(j0 + fragment_row) * row_words + i0 + 2 * l + fragment_column] =
+                    sum[(base / 16 + j0 / 16) * ne + l];
+            }
+        }
+        __syncthreads();
+#pragma unroll
+        for (int pass = 0; pass < chunk / rows_per_pass; ++pass) {
+            const int row = pass * rows_per_pass + lane / lanes_per_row;
+            const int column = (lane % lanes_per_row) * 8;
+            const float * source = stage + row * row_words + column;
+            union {
+                __hip_bfloat162 pairs[4];
+                uint4 vector;
+            } packed;
+#pragma unroll
+            for (int pair = 0; pair < 4; ++pair) {
+                packed.pairs[pair] = __float22bfloat162_rn(
+                    make_float2(source[2 * pair], source[2 * pair + 1]));
+            }
+            // The dense forward launcher tiles the weight rows in 64-row groups,
+            // so a row starts on a 128-byte boundary and this is aligned.
+            *reinterpret_cast<uint4 *>(
+                dst + static_cast<int64_t>(base + row) * stride + column) =
+                packed.vector;
+        }
+        __syncthreads();
+    }
+}
+
+// Write-back selection: the staged body needs a scratch tile and the plain body
+// does not, so the dense forward body picks between them at compile time.
+#if defined(MMQ_EPILOGUE_STAGED)
+template <ggml_type type, int J, bool full_i, bool full_j>
+static __device__ __forceinline__ void mmq_write_back_bf16_impl(
+        const float * sum,
+        __hip_bfloat16 * dst,
+        int stride,
+        int i_max,
+        int j_max,
+        int * scratch) {
+    mmq_write_back_bf16_staged<type, J, full_i, full_j>(
+        sum, dst, stride, i_max, j_max, reinterpret_cast<float *>(scratch));
+}
+#else
+template <ggml_type type, int J, bool full_i, bool full_j>
+static __device__ __forceinline__ void mmq_write_back_bf16_impl(
+        const float * sum,
+        __hip_bfloat16 * dst,
+        int stride,
+        int i_max,
+        int j_max,
+        int *) {
+    mmq_write_back_bf16<type, J, full_i, full_j>(sum, dst, stride, i_max, j_max);
+}
+#endif
+
 template <ggml_type type>
 static constexpr __host__ __device__ mmq_q8_1_metadata_layout
 mmq_activation_metadata_layout() {
@@ -1304,12 +1411,13 @@ static __device__ __forceinline__ void dense_mmq_bf16_body(
         __syncthreads();
     }
 
-    mmq_write_back_bf16<type, J, full_i, full_j>(
+    mmq_write_back_bf16_impl<type, J, full_i, full_j>(
         sum,
         dst + tile_j * J * nrows_weight + tile_i * MMQ_I,
         nrows_weight,
         i_max,
-        j_max);
+        j_max,
+        tile_y);
 }
 
 template <int J, int groups, int blocks_per_weight_row, bool fallback>

@@ -162,6 +162,30 @@ The dynamic-LDS request of every shipped body is nevertheless now *derived* from
 
 A weight-tile pipeline - the backward stage order - was analyzed and not built. A second packed weight tile costs another `19.5 KB` at the uint8 layout, which would take the body to `57 KB` and two workgroups per WGP, i.e. eight waves against the current twelve. The backward record already shows its three-tile rotation losing for the same reason, so the forward pipeline needs a layout that shrinks first, and the compact stride that would have done it is rejected above.
 
+### The epilogue is measured and closed
+
+The non-hoisted dense forward bodies write their tile back through `mmq_write_back_bf16`: the gfx11 C fragment gives a thread every other column of one output row, so the store is two bytes wide, a warp scatters sixteen rows per instruction, and every value is rounded in software because the compiler must pre-round before the truncating half store. Disassembled, that write-back is 657 instructions per thread - 64 stores, and roughly nine instructions of rounding and addressing each - and it is the same code for every type and every contraction length.
+
+A staged variant replaces it: the tile goes through LDS first, so the read side takes eight contiguous columns per lane, the store becomes one `global_store_b128`, and the rounding becomes one packed `__float22bfloat162_rn`. The exact-tile controls have fixed shapes, so the staged path carries no boundary work at all. It reproduces the plain write-back bitwise. Measured on the same build of both bodies:
+
+| epilogue | instructions | stores |
+| --- | ---: | ---: |
+| plain write-back | 657 | 64 x 2 B |
+| staged write-back | 264 | 8 x 16 B |
+
+The wall clock does not follow. Eight repeats per block in both measurement orders, byte-identical output on every row:
+
+| shape | plain TFLOPS | staged TFLOPS | staged / plain |
+| --- | ---: | ---: | ---: |
+| Q4_K `(2048, 512, 2048)` | 25.38 | 25.16 | `-0.86 %` |
+| Q4_K `(32768, 512, 2048)` | 28.37 | 28.38 | `+0.03 %` |
+| Q8_0 `(32768, 1024, 4096)` | 30.36 | 30.73 | `+1.24 %` |
+| Q6_K `(32768, 2560, 6144)` | 17.90 | 18.00 | `+0.59 %` |
+
+Every reading is inside the `+/- 2.6 %` control band, so the staged epilogue is not deployed. The finding is the point: removing 60 % of the epilogue's instructions and seven eighths of its store instructions changes nothing, so the non-hoisted dense forward body is neither instruction bound nor store bound, and the epilogue is closed as a forward lever. What is left is latency and occupancy - the body addresses `38,400 B` of dynamic LDS and runs three workgroups per WGP - which the tile and layout sweeps above already failed to move.
+
+The staged body stays in `csrc/mmq_core.cuh` behind `MMQ_EPILOGUE_STAGED` with its `staged_epilogue` catalog flag, because it is exact, bitwise identical and free at build time. No deployed control sets it.
+
 ## Resources
 
 Retained Q4_K J128 bodies use `223 VGPR / 28-29 SGPR / 38,400 B LDS`.
