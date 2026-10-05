@@ -16,7 +16,7 @@ The multiply-only result is above the BF16 BMM baseline at all three token count
 
 ## Kernel implementation
 
-The retained body uses exact per-group `(N,K)=(1024,4096)` geometry, four wave32 waves, M192/N64 ownership, width-16 Q8_0 decode, one unswizzled N64/K32 weight tile per fixed group, and BF16 stores. `InstalledFixedGroupedQ8BackwardModule` selects the tuned M192/N64 body at every deployed token count; the M256/N64 body remains built with the same arithmetic and bitwise-identical output, and was 4.5%/8.5% slower at 2,048/8,192 tokens when both were measured under the current protocol (`5.881/22.900/86.677 ms` M192 versus `6.160/25.040/95.434 ms` M256). This control exists for comparison against GGTensile and is not part of the public API.
+The retained body uses exact per-group `(N,K)=(1024,4096)` geometry, four wave32 waves, M192/N64 ownership, width-16 Q8_0 decode, one unswizzled N64/K32 weight tile per fixed group, and BF16 stores. `InstalledFixedGroupedQ8BackwardModule` selects the tuned M192/N64 body at every deployed token count. The M256/N64 body remains built with the same arithmetic and bitwise-identical output, and was 4.5%/8.5% slower at 2,048/8,192 tokens when both were measured under the current protocol (`5.881/22.900/86.677 ms` M192 versus `6.160/25.040/95.434 ms` M256). This control exists for comparison against GGTensile and is not part of the public API.
 
 No routed task descriptors, inactive-expert suppression, or fabricated route metadata are involved.
 
@@ -30,7 +30,7 @@ M64 and M128 alternatives were slower at B1/B4. Width32 decode, swizzle4, and M5
 
 ### Exact-token geometry
 
-The coefficient-only campaign screened M256 and the exact M192 alternative at token rows `2048`, `8192`, and `32768`, along with decoder width, swizzle, and ownership controls. M192/N64 was retained for the 32,768-token geometry; M256 remains the other exact fixed-group body.
+The coefficient-only campaign screened M256 and the exact M192 alternative at token rows `2048`, `8192`, and `32768`, along with decoder width, swizzle, and ownership controls. M192/N64 was retained for the 32,768-token geometry. M256 remains the other exact fixed-group body.
 
 The fixed path has no route imbalance or inactive expert work to remove. Its remaining comparison advantage comes from compact packed traffic and geometry, while any direct comparison with BMM must account for BMM starting from decoded BF16 weights.
 
@@ -42,7 +42,7 @@ A prepared lossless payload/scale layout is the only credible next representatio
 
 ### Shared backward arithmetic controls
 
-The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE; even without its scale scan it was 33.3% slower.
+The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE. Even without its scale scan it was 33.3% slower.
 
 ## Resources
 

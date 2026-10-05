@@ -2405,6 +2405,15 @@
     "reduction_unroll": 0
   },
   {
+    "symbol": "grouped_bwd_pair_task_q2_0_n640_k2560_mt128_nt64_s2_skip",
+    "config": "grouped_backward",
+    "kind": "Q2_0_PAIR_TASK",
+    "quant_type": "Q2_0",
+    "n_tiles": 0,
+    "m_tiles_per_wave": 0,
+    "reduction_unroll": 0
+  },
+  {
     "symbol": "grouped_bwd_pair_task_q3_k_n512_k2048_mt128_nt64_s2_skip",
     "config": "grouped_backward",
     "kind": "Q3_PAIR_TASK",

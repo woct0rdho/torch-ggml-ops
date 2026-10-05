@@ -36,7 +36,7 @@ The deployed body is `150` VGPR / `24` SGPR / `4` KB LDS per stage against `216`
 
 The generic grouped body used eight waves, N16/K16 ownership, scalar Q4 decode, and serial 128-row chunks. The first tiled Q4_K body established M128/N128/K32 ownership, width-16 decode, and sixteen-BF16 XOR LDS. It improved representative B4/B16 controls by 5-8x over the generic baseline.
 
-M64/N64 bodies were added for small groups. Universal M128 ownership was rejected because uniform 64-row groups became half-empty. M-major row tasks were retained for large routes; N-major ordering nearly doubled B16 latency.
+M64/N64 bodies were added for small groups. Universal M128 ownership was rejected because uniform 64-row groups became half-empty. M-major row tasks were retained for large routes. N-major ordering nearly doubled B16 latency.
 
 ### Row-task and tail controls
 
@@ -50,11 +50,11 @@ Width-16 decode, Q4-specific scale/minimum reconstruction, and the sixteen-BF16 
 
 ### Shared backward arithmetic controls
 
-The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE; even without its scale scan it was 33.3% slower.
+The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE. Even without its scale scan it was 33.3% slower.
 
 ## Resources
 
-The deployed Q4_K row-task body uses 150 VGPR / 24 SGPR / 4096 B LDS per stage; the retired M128/N128 row-task body used 216 / 128 / 8192.
+The deployed Q4_K row-task body uses 150 VGPR / 24 SGPR / 4096 B LDS per stage. The retired M128/N128 row-task body used 216 / 128 / 8192.
 
 ## Evidence
 

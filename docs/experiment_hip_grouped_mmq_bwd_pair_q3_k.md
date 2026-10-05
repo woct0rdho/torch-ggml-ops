@@ -44,11 +44,11 @@ Universal M128 ownership was rejected because uniform 64-row groups became half-
 
 Large Q3_K pair controls use M-major row-task ownership where measured. N64 reduced pair accumulator pressure and improved representative points by `1-7%` over larger N ownership. N-major ordering nearly doubled B16 latency and was rejected.
 
-The learned-route B1 ownership retune compared serial and row-task bodies. The fitted prior gain was `1.1074x`, but captured-route gain was only `1.0179x`; B1 therefore retains serial ownership while the M128 body serves the larger routed rows in the current deployment. The typed campaign found no alternate J geometry that passed the full route controls.
+The learned-route B1 ownership retune compared serial and row-task bodies. The fitted prior gain was `1.1074x`, but captured-route gain was only `1.0179x`. B1 therefore retains serial ownership while the M128 body serves the larger routed rows in the current deployment. The typed campaign found no alternate J geometry that passed the full route controls.
 
 ### Decode and layout controls
 
-Width-16 decode shares packed payload and scale work. Width-8 duplicated metadata and loader work and was rejected. Q3_K pair uses padded LDS rows; pair and down layouts remain separate because their reuse and accumulator lifetimes differ. Cross-iteration packed prefetch, universal swizzle, decoded-weight caching, split-K, persistent workgroups, and compiler-managed local arrays were rejected.
+Width-16 decode shares packed payload and scale work. Width-8 duplicated metadata and loader work and was rejected. Q3_K pair uses padded LDS rows. Pair and down layouts remain separate because their reuse and accumulator lifetimes differ. Cross-iteration packed prefetch, universal swizzle, decoded-weight caching, split-K, persistent workgroups, and compiler-managed local arrays were rejected.
 
 ### Cross-family accumulation controls
 
@@ -58,12 +58,12 @@ The reduced-precision controls were:
 | --- | --- | --- | --- |
 | Direct paired BF16-C | 122 VGPR, 31 SGPR, 4096 B LDS | `0.86089` NRMSE at 513 rows | reject for accuracy |
 | Full-N FP32 slabs into BF16 | 256 VGPR, 647/2069 spills | not timed | reject by resource gate |
-| Pair-serial K32/K64 slabs | 215/212 VGPR | `0.01343/0.00959` NRMSE; 35.0%/82.9% slower | reject |
-| Row-normalized paired FP16-C | 156 VGPR, 5120 B LDS | `0.00723-0.00727` NRMSE; no-scan floor 33.3% slower | reject |
+| Pair-serial K32/K64 slabs | 215/212 VGPR | `0.01343/0.00959` NRMSE, 35.0%/82.9% slower | reject |
+| Row-normalized paired FP16-C | 156 VGPR, 5120 B LDS | `0.00723-0.00727` NRMSE, no-scan floor 33.3% slower | reject |
 
 ### Shared backward arithmetic controls
 
-The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE; even without its scale scan it was 33.3% slower. The fused Q3_K pair therefore retains one FP32 accumulation and one BF16 rounding per output.
+The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE. Even without its scale scan it was 33.3% slower. The fused Q3_K pair therefore retains one FP32 accumulation and one BF16 rounding per output.
 
 ### Balanced row-task ownership
 
@@ -77,7 +77,7 @@ A launch-bound and stage-count sweep over the retired staged serial pair bodies 
 
 The deployed row-task pair body uses 233 VGPR / 26 SGPR / 20480 B LDS and runs one 128-row task per workgroup.
 
-The deployed staged pair body uses 233 VGPR / 26 SGPR / 16384 B LDS; the retired M128/N64 body used 206 / 26 / 10240.
+The deployed staged pair body uses 233 VGPR / 26 SGPR / 16384 B LDS. The retired M128/N64 body used 206 / 26 / 10240.
 
 ## Evidence
 

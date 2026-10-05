@@ -12,7 +12,7 @@ This record covers the routed single-projection IQ2_S down input-gradient kernel
 | 4 | `(65536,512,2048)` | 17.49 | 1.054x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2` |
 | 16 | `(262144,512,2048)` | 21.05 | 1.014x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2` |
 
-The single-down IQ2_S body is ahead of predecoded BF16 AITER at all three shapes; the residual is grid lookup and sign reconstruction in the packed decode.
+The single-down IQ2_S body is ahead of predecoded BF16 AITER at all three shapes. The residual is grid lookup and sign reconstruction in the packed decode.
 
 ## Kernel implementation
 
@@ -22,9 +22,9 @@ The retained IQ2_S single-projection bodies use an M128/N64 tile, a 32-wide cont
 
 ### Staged row-task redesign
 
-PC sampling of the first-generation row-task body attributed most stalls to ALU dependencies, barrier waits and memory waits, with only about four resident waves per SIMD. The staged redesign keeps the same grid decode and changes the skeleton: an M128/N64 tile with a 32-wide contraction stage, two LDS buffers, one plain barrier per stage, and clamped activation rows. The smaller column tile halves the accumulator budget and roughly doubles the resident wave count; the extra column blocks only add L2-resident activation traffic. Two buffers measure better than three for this decoder, so the deployed body keeps two.
+PC sampling of the first-generation row-task body attributed most stalls to ALU dependencies, barrier waits and memory waits, with only about four resident waves per SIMD. The staged redesign keeps the same grid decode and changes the skeleton: an M128/N64 tile with a 32-wide contraction stage, two LDS buffers, one plain barrier per stage, and clamped activation rows. The smaller column tile halves the accumulator budget and roughly doubles the resident wave count. The extra column blocks only add L2-resident activation traffic. Two buffers measure better than three for this decoder, so the deployed body keeps two.
 
-Waves whose first row is already past the task end skip their activation loads, matrix work and stores while still taking part in the shared decode; for this decoder that is worth `19%` at B1, `9%` at B4 and `7%` at B16, so the deployed body keeps the suppression. The same switch costs `3-5%` on the Q4_K and Q5_K decoders, which therefore keep it off.
+Waves whose first row is already past the task end skip their activation loads, matrix work and stores while still taking part in the shared decode. For this decoder that is worth `19%` at B1, `9%` at B4 and `7%` at B16, so the deployed body keeps the suppression. The same switch costs `3-5%` on the Q4_K and Q5_K decoders, which therefore keep it off.
 
 The deployed body is `155` VGPR / `26` SGPR / `4` KB LDS per stage. Its bench result is `11.21/17.49/21.05` TFLOPS at B1/B4/B16 against `8.54/13.02/16.28` for the previous selection.
 
@@ -32,13 +32,13 @@ The deployed body is `155` VGPR / `26` SGPR / `4` KB LDS per stage. Its bench re
 
 The original eight-wave N16/K16 body was spill-free but ownership-limited. Representative task timing improved the original serial B16 point from `38.992 ms` to `32.806 ms`.
 
-N-major ordering nearly doubled B16 latency. A fixed 1,024-program traversal was slower and spilled Q5 controls. Runtime full/tail branches created private segments and spills; split full/tail lists regressed nonuniform routes due to the second launch.
+N-major ordering nearly doubled B16 latency. A fixed 1,024-program traversal was slower and spilled Q5 controls. Runtime full/tail branches created private segments and spills. Split full/tail lists regressed nonuniform routes due to the second launch.
 
 ### Decode, swizzle, and ownership controls
 
-Width-8 IQ2_S decode duplicated scale work and loader groups. M256/N64 doubled N workgroups and regressed B4/B16. The pair/down swizzle comparison showed opposite timing preferences, so the down layout remains independent. Inactive-M suppression was tested for the IQ2_S row-task body but produced mixed route movement and two regressions; it was rejected.
+Width-8 IQ2_S decode duplicated scale work and loader groups. M256/N64 doubled N workgroups and regressed B4/B16. The pair/down swizzle comparison showed opposite timing preferences, so the down layout remains independent. Inactive-M suppression was tested for the IQ2_S row-task body but produced mixed route movement and two regressions. It was rejected.
 
-A learned B1 ownership screen compared the row-task body with the serial body for the exact B1 single-down geometry. Other route sizes retain their measured ownership bodies; no broad new J geometry passed the coefficient-only campaign.
+A learned B1 ownership screen compared the row-task body with the serial body for the exact B1 single-down geometry. Other route sizes retain their measured ownership bodies. No broad new J geometry passed the coefficient-only campaign.
 
 ### Bottleneck attribution
 
@@ -46,7 +46,7 @@ The residual is repeated grid lookup, sign reconstruction, shared scale extracti
 
 ### Shared backward arithmetic controls
 
-The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE; even without its scale scan it was 33.3% slower.
+The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE. Even without its scale scan it was 33.3% slower.
 
 ## Resources
 

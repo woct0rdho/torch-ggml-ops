@@ -433,21 +433,29 @@ class InstalledGroupedBackwardPairRowTaskControl(_HIPModule):
     index is past the decoded task count return without touching memory.
     """
 
+    @property
+    def physical_experts(self) -> int:
+        return self.EXPERTS.get(self.family, self.PHYSICAL_EXPERTS)
+
     _SYMBOLS: ClassVar[tuple[str, ...]] = (
         "grouped_bwd_pair_task_q3_k_n512_k2048_mt128_nt64_s2_skip",
         "grouped_bwd_pair_task_iq2_s_n512_k2048_mt128_nt64_s2_skip",
         "grouped_bwd_pair_task_iq2_xxs_n2048_k4096_mt128_nt64_s2_skip",
+        "grouped_bwd_pair_task_q2_0_n640_k2560_mt128_nt64_s2_skip",
     )
     PHYSICAL_EXPERTS = 256
+    EXPERTS: ClassVar[dict[str, int]] = {"q2_0": 512}
     OUT_FEATURES: ClassVar[dict[str, int]] = {
         "q3_k": 512,
         "iq2_s": 512,
         "iq2_xxs": 2048,
+        "q2_0": 640,
     }
     IN_FEATURES: ClassVar[dict[str, int]] = {
         "q3_k": 2048,
         "iq2_s": 2048,
         "iq2_xxs": 4096,
+        "q2_0": 2560,
     }
     ROW_TASK_ROWS = 128
 
@@ -480,6 +488,7 @@ class InstalledGroupedBackwardPairRowTaskControl(_HIPModule):
         "q3_k": 450_560,
         "iq2_s": 335_872,
         "iq2_xxs": 2_162_688,
+        "q2_0": 460_800,
     }
 
     def launch(
@@ -533,7 +542,7 @@ class InstalledGroupedBackwardPairRowTaskControl(_HIPModule):
                 "task_experts": tasks.task_experts.data_ptr(),
                 "task_row_starts": tasks.task_row_starts.data_ptr(),
                 "task_row_ends": tasks.task_row_ends.data_ptr(),
-                "num_experts": self.PHYSICAL_EXPERTS,
+                "num_experts": self.physical_experts,
                 "rows": rows,
                 "bytes_per_expert": self.BYTES_PER_EXPERT[self.family],
             }

@@ -68,6 +68,7 @@ class GroupedBackwardKind(str, Enum):
     Q3_PAIR_TASK = "q3_pair_task"
     IQ2_S_PAIR_TASK = "iq2_s_pair_task"
     IQ2_XXS_PAIR_TASK = "iq2_xxs_pair_task"
+    Q2_0_PAIR_TASK = "q2_0_pair_task"
 
     TUNED_FIXED_Q8_0 = "tuned_fixed_q8_0"
 
@@ -897,6 +898,9 @@ _SPECIAL_GROUPED_CALLS = {
     GroupedBackwardKind.IQ2_XXS_PAIR_TASK: "torch_ggml_ops::ck::"
     "grouped_mmq_pair_grad_input_task_body<torch_ggml_ops::ck::"
     "grouped_backward_pair_decoder_iq2_xxs, 2, 2, true>",
+    GroupedBackwardKind.Q2_0_PAIR_TASK: "torch_ggml_ops::ck::"
+    "grouped_mmq_pair_grad_input_task_body<torch_ggml_ops::ck::"
+    "grouped_backward_pair_decoder_q2_0_sw4, 2, 2, true>",
     GroupedBackwardKind.Q2_K_SINGLE_M64_U1: "torch_ggml_ops::ck::grouped_mmq_grad_input_deepseek_body<"
     "GGML_TYPE_Q2_K, 4096, 2048, 8, 1, 1, true>",
     GroupedBackwardKind.Q2_K_SINGLE_M128_U1: "torch_ggml_ops::ck::grouped_mmq_grad_input_deepseek_body<"
@@ -924,6 +928,7 @@ _PAIR_ROW_TASK_KINDS = {
     GroupedBackwardKind.Q3_PAIR_TASK,
     GroupedBackwardKind.IQ2_S_PAIR_TASK,
     GroupedBackwardKind.IQ2_XXS_PAIR_TASK,
+    GroupedBackwardKind.Q2_0_PAIR_TASK,
 }
 
 _ROW_TASK_KINDS = {
@@ -1006,6 +1011,7 @@ _GROUPED_HEADERS = {
     GroupedBackwardKind.Q3_PAIR_TASK: "ck/grouped_mmq_backward_pair_staged.cuh",
     GroupedBackwardKind.IQ2_S_PAIR_TASK: "ck/grouped_mmq_backward_pair_staged.cuh",
     GroupedBackwardKind.IQ2_XXS_PAIR_TASK: ("ck/grouped_mmq_backward_pair_staged.cuh"),
+    GroupedBackwardKind.Q2_0_PAIR_TASK: "ck/grouped_mmq_backward_pair_staged.cuh",
 }
 
 

@@ -18,9 +18,9 @@ Every shape uses the same device row-task body, so one workgroup owns one 128-ro
 
 ## Kernel implementation
 
-The deployed pair body uses a device row-task bank with an N64 x M128 tile, a 32-wide contraction stage, two projection weight tiles per stage, two LDS stages, one plain barrier per stage and inactive-wave suppression: four waves own 32 rows each, every thread decodes one 16-value grid segment per projection and stage, and activation rows are clamped so no load is predicated. Pair and single-down IQ2_S keep separate LDS swizzles; the decode and epilogue state must not be generalized from the single-down path.
+The deployed pair body uses a device row-task bank with an N64 x M128 tile, a 32-wide contraction stage, two projection weight tiles per stage, two LDS stages, one plain barrier per stage and inactive-wave suppression: four waves own 32 rows each, every thread decodes one 16-value grid segment per projection and stage, and activation rows are clamped so no load is predicated. Pair and single-down IQ2_S keep separate LDS swizzles. The decode and epilogue state must not be generalized from the single-down path.
 
-The retained pair bodies use an N64 x M128 tile, a 32-wide contraction stage, two projection weight tiles per stage, two LDS stages and one plain barrier per stage: four waves own 32 rows each, every thread decodes one 16-value grid segment per projection and stage, and activation rows are clamped so no load is predicated. Pair and single-down IQ2_S keep separate LDS swizzles; the decode and epilogue state must not be generalized from the single-down path.
+The retained pair bodies use an N64 x M128 tile, a 32-wide contraction stage, two projection weight tiles per stage, two LDS stages and one plain barrier per stage: four waves own 32 rows each, every thread decodes one 16-value grid segment per projection and stage, and activation rows are clamped so no load is predicated. Pair and single-down IQ2_S keep separate LDS swizzles. The decode and epilogue state must not be generalized from the single-down path.
 
 ## Optimization log
 
@@ -28,9 +28,9 @@ The retained pair bodies use an N64 x M128 tile, a 32-wide contraction stage, tw
 
 The deployed pair body decoded both projections, waited on two `__syncthreads()` fences per contraction stage, predicated every activation load, and carried 219 VGPR / 54 SGPR at M128/N64, which held it to roughly six resident waves per SIMD.
 
-The staged redesign keeps the N64/M128 tile and the pair accumulation order and changes the skeleton: two LDS stages of both projection tiles with a single plain barrier per stage, clamped activation rows, and one vectorised packed row load per thread, projection and stage. A sweep over M64/M128/M256 x two/three stages x inactive-wave suppression measured M128/N64 with two stages as the best or near-best point at every shape except B16, where an M256 three-stage body is about `2.6%` ahead; the deployed body keeps the simpler M128/N64 two-stage shape. Suppression costs `2-3%` at the small batches, where nearly every wave owns rows, so only the Q3_K and IQ2_XXS B16 rules enable it.
+The staged redesign keeps the N64/M128 tile and the pair accumulation order and changes the skeleton: two LDS stages of both projection tiles with a single plain barrier per stage, clamped activation rows, and one vectorised packed row load per thread, projection and stage. A sweep over M64/M128/M256 x two/three stages x inactive-wave suppression measured M128/N64 with two stages as the best or near-best point at every shape except B16, where an M256 three-stage body is about `2.6%` ahead. The deployed body keeps the simpler M128/N64 two-stage shape. Suppression costs `2-3%` at the small batches, where nearly every wave owns rows, so only the Q3_K and IQ2_XXS B16 rules enable it.
 
-The staged body is `208` VGPR / `28` SGPR / `16` KB LDS against `219`/`54`/`8` KB for the deployed M128/N64 body, and it is bitwise identical to it on the same inputs. Its bench result is `13.39/21.62/24.74` TFLOPS at B1/B4/B16 against `11.23/18.69/20.59` for the previous selection. The B16 row uses an M256 three-stage body with suppression, worth `12%` there; the same wider body loses `8-14%` on the Q3_K and IQ2_XXS decoders, so only this family's large-route rule adopts it.
+The staged body is `208` VGPR / `28` SGPR / `16` KB LDS against `219`/`54`/`8` KB for the deployed M128/N64 body, and it is bitwise identical to it on the same inputs. Its bench result is `13.39/21.62/24.74` TFLOPS at B1/B4/B16 against `11.23/18.69/20.59` for the previous selection. The B16 row uses an M256 three-stage body with suppression, worth `12%` there. The same wider body loses `8-14%` on the Q3_K and IQ2_XXS decoders, so only this family's large-route rule adopts it.
 
 ### Initial pair body
 
@@ -50,7 +50,7 @@ The remaining theoretical ceiling is IQ2_S decode state and pair accumulator pre
 
 ### Shared backward arithmetic controls
 
-The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE; even without its scale scan it was 33.3% slower. The fused IQ2_S pair therefore retains one FP32 accumulation and one BF16 rounding per output.
+The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE. Even without its scale scan it was 33.3% slower. The fused IQ2_S pair therefore retains one FP32 accumulation and one BF16 rounding per output.
 
 ### Balanced row-task ownership
 
@@ -66,9 +66,9 @@ A launch-bound and stage-count sweep over the retired staged serial pair bodies 
 
 ## Resources
 
-The deployed row-task pair body uses 208 VGPR / 28 SGPR / 16384 B LDS and runs one 128-row task per workgroup; the retired M128/N64 serial body used the same resources over a serial row walk, and the M256 three-stage body used 256 VGPR with 44 spills and 24576 B LDS.
+The deployed row-task pair body uses 208 VGPR / 28 SGPR / 16384 B LDS and runs one 128-row task per workgroup. The retired M128/N64 serial body used the same resources over a serial row walk, and the M256 three-stage body used 256 VGPR with 44 spills and 24576 B LDS.
 
-The deployed staged pair body uses 208 VGPR / 28 SGPR / 16384 B LDS; the retired M128/N64 body used 219 / 54 / 8192.
+The deployed staged pair body uses 208 VGPR / 28 SGPR / 16384 B LDS. The retired M128/N64 body used 219 / 54 / 8192.
 
 ## Evidence
 

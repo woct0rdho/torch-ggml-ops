@@ -28,13 +28,13 @@ The retained pair body uses an N64 x M128 tile, a 32-wide contraction stage, two
 
 PC sampling of the deployed M128/N64 pair at B16 attributed `29%` of stalls to barrier waits, `26%` to ALU dependencies and `7%` to memory waits, with the barrier instruction itself the single most sampled PC. The body carried 239 VGPR / 54 SGPR, decoded the two packed rows with the generic per-value path, and predicated every activation load.
 
-The staged redesign keeps the qualified M128/N64 geometry and the pair accumulation order and changes the skeleton: two projection tiles per stage, two LDS stages, one plain barrier per stage, one adjacent-code-word packed load per thread, projection and stage, and clamped activation rows. Reading the two 32-bit code words as one 8-byte load is timing-neutral here, so the decode keeps whichever form the compiler schedules best; two LDS stages with M128/N64 is the best point of the M64/M128/M256 x two/three stage sweep at B1 and B4, and inactive-wave suppression takes B16 (`2-3%`). Suppression costs `5%` at B1, so the catalog enables it only for the large-route rule.
+The staged redesign keeps the qualified M128/N64 geometry and the pair accumulation order and changes the skeleton: two projection tiles per stage, two LDS stages, one plain barrier per stage, one adjacent-code-word packed load per thread, projection and stage, and clamped activation rows. Reading the two 32-bit code words as one 8-byte load is timing-neutral here, so the decode keeps whichever form the compiler schedules best. Two LDS stages with M128/N64 is the best point of the M64/M128/M256 x two/three stage sweep at B1 and B4, and inactive-wave suppression takes B16 (`2-3%`). Suppression costs `5%` at B1, so the catalog enables it only for the large-route rule.
 
 The staged bodies are `208`-`247` VGPR / `28` SGPR / `16` KB LDS and are bitwise identical to the deployed body. Their bench result is `11.09/20.14/20.52` TFLOPS at B1/B4/B16 against `10.59/15.71/17.24` for the previous selection. The wider M256 body loses `8%` at B16 for this decoder, so only the M128/N64 two-stage bodies are deployed.
 
 ### Initial exact pair body
 
-The generic grouped backward path used narrow N16/K16 ownership and serial rows. The exact IQ2_XXS pair body moved to M64/N64/K32 ownership, cooperative width-16 decode, two weight LDS images, and pair accumulation. Swizzle4 improved all 12 historical points by roughly `20-28%` over unswizzled staging; swizzle16 lost `24-39%` relative to swizzle4.
+The generic grouped backward path used narrow N16/K16 ownership and serial rows. The exact IQ2_XXS pair body moved to M64/N64/K32 ownership, cooperative width-16 decode, two weight LDS images, and pair accumulation. Swizzle4 improved all 12 historical points by roughly `20-28%` over unswizzled staging. Swizzle16 lost `24-39%` relative to swizzle4.
 
 An early M128/N64 source form created an 8-byte private segment and was rejected before timing. A historical M192/N64 body used 32 private bytes, seven VGPR spills, and scratch instructions. Those failures do not close the later lower-state exact M128 identity, but they do close the spilling bodies.
 
@@ -56,7 +56,7 @@ A launch-bound and stage-count sweep over the retired staged serial pair bodies 
 
 The deployed row-task pair body uses 208 VGPR / 28 SGPR / 16384 B LDS and runs one 128-row task per workgroup.
 
-The deployed staged pair bodies use 208 (B1/B4) and 247 (B16) VGPR / 28 SGPR / 16384 B LDS; the retired M128/N64 body used 239 / 54 / 8192.
+The deployed staged pair bodies use 208 (B1/B4) and 247 (B16) VGPR / 28 SGPR / 16384 B LDS. The retired M128/N64 body used 239 / 54 / 8192.
 
 ## Evidence
 

@@ -24,7 +24,7 @@ The retained Q2_K single-projection body uses an M128/N64 tile, a 32-wide contra
 
 ### Staged row-task redesign
 
-The DeepSeek body kept its M128/N64 geometry but adopted the staged skeleton: a 32-wide contraction stage, three LDS buffers, one plain barrier per stage, a vectorised two-bit packed segment per thread, clamped activation rows, and inactive-wave suppression. Suppression is worth `29%` at B1 and `4%` at B16 here, because the learned prior leaves most experts with fewer rows than one tile; it also retires the separate M64 body that used to serve the smallest groups.
+The DeepSeek body kept its M128/N64 geometry but adopted the staged skeleton: a 32-wide contraction stage, three LDS buffers, one plain barrier per stage, a vectorised two-bit packed segment per thread, clamped activation rows, and inactive-wave suppression. Suppression is worth `29%` at B1 and `4%` at B16 here, because the learned prior leaves most experts with fewer rows than one tile. It also retires the separate M64 body that used to serve the smallest groups.
 
 The deployed body is `149` VGPR / `24` SGPR / `4` KB LDS per stage. Its bench result is `11.97/19.67/22.57` TFLOPS at B1/B4/B16 against `9.34/15.95/16.96` for the previous selection, and it now leads predecoded BF16 AITER by `30%`, `23%` and `34%`.
 
@@ -58,7 +58,7 @@ The packed kernel fetches fewer bytes but executes a much larger decode/instruct
 
 ### Shared backward arithmetic controls
 
-The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE; even without its scale scan it was 33.3% slower.
+The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE. Even without its scale scan it was 33.3% slower.
 
 ## Resources
 
