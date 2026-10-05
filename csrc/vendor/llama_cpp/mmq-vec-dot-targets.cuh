@@ -22,7 +22,7 @@ static __device__ __forceinline__ void ggml_cuda_mmq_vec_dot_q8_0_q8_1_mma(
     y += (threadIdx.y % ntx) * (tile_C::J*MMQ_TILE_Y_K);
 
     const int   * x_qs = (const int   *) x;
-    const float * x_df = (const float *) x_qs + 2*MMQ_TILE_NE_K;
+    const float * x_df = (const float *) x_qs + MMQ_QUANT_INTS;
     const int   * y_qs = (const int   *) y + 4;
     const float * y_df = (const float *) y;
     const half2 * y_ds = (const half2 *) y;
@@ -141,7 +141,7 @@ template <ggml_type type, int J, bool fallback> static __device__ __forceinline_
     y += (threadIdx.y % ntx) * (tile_C::J*MMQ_TILE_Y_K);
 
     const int   * x_qs = (const int   *) x;
-    const float * x_df = (const float *) x_qs + MMQ_TILE_NE_K*2;
+    const float * x_df = (const float *) x_qs + MMQ_QUANT_INTS;
     const int   * y_qs = (const int   *) y + 4;
     const float * y_df = (const float *) y;
 
@@ -270,7 +270,7 @@ template <ggml_type type, int J, bool fallback> static __device__ __forceinline_
     y += (threadIdx.y % ntx) * (tile_C::J*MMQ_TILE_Y_K);
 
     const int   * x_qs = (const int   *) x;
-    const float * x_df = (const float *) x_qs + MMQ_TILE_NE_K*2;
+    const float * x_df = (const float *) x_qs + MMQ_QUANT_INTS;
     const int   * x_sc = (const int   *) x_df + MMQ_TILE_NE_K/QI6_K;
     const int   * y_qs = (const int   *) y + 4;
     const float * y_df = (const float *) y;

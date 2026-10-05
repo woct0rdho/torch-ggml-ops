@@ -186,6 +186,45 @@ Every reading is inside the `+/- 2.6 %` control band, so the staged epilogue is 
 
 The staged body stays in `csrc/mmq_core.cuh` behind `MMQ_EPILOGUE_STAGED` with its `staged_epilogue` catalog flag, because it is exact, bitwise identical and free at build time. No deployed control sets it.
 
+### What occupancy is worth, and why the forward body cannot buy it
+
+The dense forward body addresses `38,400 B` of dynamic LDS and every byte is used: `512 B` of header, `18,432 B` of activation tile (`J = 128` tokens x one 128-value Q8_1 block of 144 B) and `19,456 B` of weight tile (`MMQ_I = 64` rows x 304 B, which is 256 B of expanded int8 quants plus 48 B of per-stage scales and minima). Three workgroups fit in the 128 KB a WGP holds (`115,200 B`), four would need the request under `32,768 B`.
+
+The value of a resident workgroup is easy to measure without touching the kernel: the same code, the same work and the same output, only the dynamic LDS request changes. Inflating the request only changes how many workgroups fit, and the readings are identical whether the request is 42, 48 or 64 KB, which confirms the count and not the size is what matters.
+
+| key | three workgroups | two workgroups | delta |
+| --- | ---: | ---: | ---: |
+| Q4_K `(32768, 512, 2048)` | 28.39 TF | 23.59 TF | `-16.9 %` |
+| Q4_K `(2048, 512, 2048)` | 25.30 TF | 19.30 TF | `-23.7 %` |
+| Q8_0 `(32768, 1024, 4096)` | 29.97 TF | 25.76 TF | `-14.1 %` |
+| Q6_K `(32768, 2560, 6144)` | 23.57 TF | 21.25 TF | `-9.8 %` |
+| Q2_0 `(32768, 12288, 2560)` | 32.28 TF | 26.81 TF | `-17.0 %` |
+
+One workgroup out of three is worth `9.4 %` to `23.7 %`, which is larger than any single knob left in this record, and it is also the difference that separates the forward and backward bodies: the backward pipelined bodies address `16-18 KB`, run six to seven workgroups and are faster on identical work.
+
+Buying a fourth workgroup means giving up the tile that fills the LDS, and the two ways to do that are measurable. A `J = 64` tile halves the activation tile to `28,928 B` and fits four workgroups, but it doubles the weight tile's traffic per output row because every block still loads the full `19,456 B` for half as many rows. Screened with the occupancy effect separated from the tile effect by launching the twin at both requests:
+
+| key | J128 at three workgroups | J64 at four workgroups | J64 at three workgroups | occupancy part |
+| --- | ---: | ---: | ---: | ---: |
+| Q4_K `(2048, 512, 2048)` | 25.38 TF | 23.61 TF (`-7.0 %`) | 25.38 TF (`+0.0 %`) | `-6.9 %` |
+| Q8_0 `(32768, 1024, 4096)` | 29.98 TF | 27.38 TF (`-8.7 %`) | 27.26 TF (`-9.0 %`) | `+0.5 %` |
+| Q6_K `(32768, 2560, 6144)` | 23.53 TF | 21.24 TF (`-9.7 %`) | 20.51 TF (`-12.5 %`) | `+3.5 %` |
+| Q2_0 `(32768, 12288, 2560)` | 32.29 TF | 28.86 TF (`-10.6 %`) | 25.04 TF (`-21.6 %`) | `+15.3 %` |
+
+The fourth workgroup is real - it returns up to `15.3 %` where the tile meets it well - but the smaller tile costs more than it returns on every key, so `J = 64` stays rejected, now with the reason measured rather than assumed. The same arithmetic closes `MMQ_I = 32`.
+
+One lever remained that would buy a workgroup without paying traffic: halving the stage depth (`MMQ_ITER_K` 256 to 128). The weight tile then holds `64 x 160 B = 10,240 B` instead of `19,456 B`, the request falls from `38,400 B` to `29,184 B` and four workgroups fit, while the bytes loaded and the barriers per 256 values stay the same because a stage's weight and activation loads already share one barrier. The weight row layout turned out to be exactly two 128-value halves side by side, so a stage is one of them: the loader writes one half, the dot's scale base moves to `MMQ_QUANT_INTS`, and the body runs one dot per stage. Q8_0 is the prototype, behind `MMQ_HALF_STAGE` with a `half_stage` catalog flag.
+
+It reproduces the full-stage body bitwise, and it is slower:
+
+| key | full stage, three workgroups | half stage, four workgroups | half stage, three workgroups | occupancy part |
+| --- | ---: | ---: | ---: | ---: |
+| Q8_0 `(32768, 1024, 4096)` | 30.26 TF | 28.90 TF (`-4.51 %`) | 29.62 TF (`-2.08 %`) | `-2.43 %` |
+| Q8_0 `(2048, 1024, 4096)` | 30.76 TF | 26.78 TF (`-12.92 %`) | 28.86 TF (`-3.28 %`) | `-7.21 %` |
+| Q8_0 `(32768, 4096, 2048)` | 29.99 TF | 29.05 TF (`-3.11 %`) | 29.11 TF (`-2.83 %`) | `-0.21 %` |
+
+Halving the stage costs `2-3 %` on its own - the loader and the dot each run twice as often for the same bytes - and the fourth workgroup pays nothing back, and on the smallest row set it costs another `7 %`. Together with the workgroup-inflation curve this locates the curve's shape: going from three workgroups down to two is expensive (`9-24 %`), but at three the body is already past the steep part, and the only way found to reach four - a smaller tile or a shorter stage - costs more than the extra waves return. The half-stage body stays in the tree behind its macro because it is exact, verified bitwise and inert for every deployed control, and because it is the only working four-workgroup forward body a future shape can start from.
+
 ## Resources
 
 Retained Q4_K J128 bodies use `223 VGPR / 28-29 SGPR / 38,400 B LDS`.

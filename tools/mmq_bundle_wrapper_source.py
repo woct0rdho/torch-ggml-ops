@@ -86,6 +86,7 @@ class ForwardConfig:
     compact_tile: bool = False
     hoisted_epilogue: bool = False
     staged_epilogue: bool = False
+    half_stage: bool = False
     wide_tile: bool = False
     pipeline_depth: int = 0
     tail_values: int = 0
@@ -267,6 +268,12 @@ def _render_forward(symbol: str, config: ForwardConfig) -> str:
         prefix = prefix.replace(
             '#include "mmq_core.cuh"',
             '#define MMQ_EPILOGUE_STAGED 1\n#include "mmq_core.cuh"',
+            1,
+        )
+    if config.half_stage:
+        prefix = prefix.replace(
+            '#include "mmq_core.cuh"',
+            '#define MMQ_HALF_STAGE 1\n#include "mmq_core.cuh"',
             1,
         )
     mixed_j32_rows = "".join(

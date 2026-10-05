@@ -17,7 +17,11 @@ template <ggml_type type, int J, bool fallback> static __device__ __forceinline_
     constexpr int sram_stride = ggml_cuda_mmq_get_sram_stride(type, J, fallback);
 
     int   * x_qs = (int   *)  x_tile;
+#if defined(MMQ_HALF_STAGE)
+    float * x_df = (float *) (x_tile + MMQ_QUANT_INTS);
+#else
     float * x_df = (float *) (x_tile + 2*MMQ_TILE_NE_K);
+#endif
 
     // MMQ_ITER_K / (4 * QR8_0) == 64 required. but NV has only 32 threads per warp
     constexpr int threads_per_row = 32;
@@ -36,11 +40,17 @@ template <ggml_type type, int J, bool fallback> static __device__ __forceinline_
 
         const block_q8_0 * bxi = (const block_q8_0 *) x + kbx0 + i*stride + kbx;
 
-        x_qs[i*sram_stride + 0             + txi] = get_int_b2(bxi[0].qs,                   kqsx);
+        x_qs[i*sram_stride + 0 + txi] = get_int_b2(bxi[0].qs, kqsx);
+#if !defined(MMQ_HALF_STAGE)
         x_qs[i*sram_stride + MMQ_TILE_NE_K + txi] = get_int_b2(bxi[MMQ_TILE_NE_K/QI8_0].qs, kqsx);
+#endif
     }
 
+#if defined(MMQ_HALF_STAGE)
+    constexpr int blocks_per_tile_x_row = MMQ_TILE_NE_K / QI8_0;
+#else
     constexpr int blocks_per_tile_x_row = 2*MMQ_TILE_NE_K / QI8_0;
+#endif
     constexpr int rows_per_warp = warp_size / blocks_per_tile_x_row;
     const int kbxd = threadIdx.x % blocks_per_tile_x_row;
 

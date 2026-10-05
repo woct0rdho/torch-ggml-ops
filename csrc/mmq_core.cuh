@@ -12,6 +12,19 @@ static constexpr int MMQ_ITER_K = 256;
 static constexpr int MMQ_TILE_NE_K = 32;
 static constexpr int MMQ_TILE_Y_K = MMQ_TILE_NE_K + MMQ_TILE_NE_K / QI8_1;
 
+// A control can stage half of MMQ_ITER_K at a time. The weight tile then holds
+// one 128-value half, which halves its LDS footprint and lifts the body to four
+// workgroups per WGP, while the bytes loaded and the barriers per 256 values are
+// unchanged because a stage's weight and activation loads already share one
+// barrier. Only the level layouts that store one byte per value are covered.
+#if defined(MMQ_HALF_STAGE)
+static constexpr int MMQ_STAGE_K = MMQ_ITER_K / 2;
+static constexpr int MMQ_QUANT_INTS = MMQ_TILE_NE_K;
+#else
+static constexpr int MMQ_STAGE_K = MMQ_ITER_K;
+static constexpr int MMQ_QUANT_INTS = 2 * MMQ_TILE_NE_K;
+#endif
+
 // The row tile and the workgroup width are overridable by a control that stages
 // a wider weight tile: `I` must equal the warp count times the sixteen rows the
 // vector dot gives each warp, so a wider `I` also wants a wider workgroup. A
@@ -79,7 +92,9 @@ static constexpr __host__ __device__ ggml_cuda_mmq_sram_layout mmq_sram_layout(g
 }
 
 static constexpr __host__ __device__ int mmq_sram_stride(ggml_type type) {
-#if defined(MMQ_COMPACT_TILE)
+#if defined(MMQ_HALF_STAGE)
+    return MMQ_QUANT_INTS + MMQ_QUANT_INTS / QI8_0 + 4;
+#elif defined(MMQ_COMPACT_TILE)
     return type == GGML_TYPE_Q2_K
         ? MMQ_COMPACT_STRIDE_Q2_K
         : (type == GGML_TYPE_Q4_K || type == GGML_TYPE_Q5_K)
@@ -96,7 +111,11 @@ static constexpr __host__ __device__ int mmq_sram_stride(ggml_type type) {
 #else
     switch (mmq_sram_layout(type)) {
         case GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0:
+#if defined(MMQ_HALF_STAGE)
+            return MMQ_QUANT_INTS + MMQ_QUANT_INTS / QI8_0 + 4;
+#else
             return 2 * MMQ_TILE_NE_K + 2 * MMQ_TILE_NE_K / QI8_0 + 4;
+#endif
         case GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_1:
             return 2 * MMQ_TILE_NE_K + 2 * MMQ_TILE_NE_K / QI8_1 + 4;
         case GGML_CUDA_MMQ_SRAM_LAYOUT_Q2_K:
@@ -490,7 +509,7 @@ static __device__ __forceinline__ void ggml_cuda_mmq_load_tiles_q2_0(
     int * x_qs = (int *) x_tile;
     float * x_df = (float *) (x_qs + 2 * MMQ_TILE_NE_K);
 
-    constexpr int blocks_per_iteration = MMQ_ITER_K / QK2_0;
+    constexpr int blocks_per_iteration = MMQ_STAGE_K / QK2_0;
     constexpr int threads_per_row = blocks_per_iteration * QI2_0;
     constexpr int nrows = warp_size / threads_per_row;
     constexpr int scale_entries_per_block = QK2_0 / QK8_1;
@@ -572,7 +591,7 @@ static __device__ __forceinline__ void ggml_cuda_mmq_load_tiles_q4_0(
 
     constexpr int threads_per_row = MMQ_ITER_K / (4 * QR4_0);
     constexpr int nrows = warp_size / threads_per_row;
-    constexpr int blocks_per_iteration = MMQ_ITER_K / QK4_0;
+    constexpr int blocks_per_iteration = MMQ_STAGE_K / QK4_0;
 
     const int txi = threadIdx.x % threads_per_row;
     const int kbx = txi / QI4_0;
@@ -639,7 +658,7 @@ static __device__ __forceinline__ void ggml_cuda_mmq_load_tiles_q5_0(
 
     constexpr int threads_per_row = MMQ_ITER_K / (4 * QR5_0);
     constexpr int nrows = warp_size / threads_per_row;
-    constexpr int blocks_per_iteration = MMQ_ITER_K / QK5_0;
+    constexpr int blocks_per_iteration = MMQ_STAGE_K / QK5_0;
     constexpr int blocks_per_tile_x_row = MMQ_TILE_NE_K / QI5_0;
 
     const int txi = threadIdx.x % threads_per_row;
@@ -836,7 +855,7 @@ static __device__ __forceinline__ void mmq_load_target(
     } else
 #endif
     if constexpr (type == GGML_TYPE_Q8_0) {
-        constexpr int blocks_per_iteration = MMQ_ITER_K / QK8_0;
+        constexpr int blocks_per_iteration = MMQ_STAGE_K / QK8_0;
         ggml_cuda_mmq_load_tiles_q8_0<type, J, fallback>(
             x,
             tile,
@@ -844,7 +863,7 @@ static __device__ __forceinline__ void mmq_load_target(
             i_max,
             row_stride * blocks_per_iteration);
     } else if constexpr (type == GGML_TYPE_Q4_0) {
-        constexpr int blocks_per_iteration = MMQ_ITER_K / QK4_0;
+        constexpr int blocks_per_iteration = MMQ_STAGE_K / QK4_0;
         ggml_cuda_mmq_load_tiles_q4_0<type, J, fallback>(
             x,
             tile,
@@ -855,7 +874,7 @@ static __device__ __forceinline__ void mmq_load_target(
         ggml_cuda_mmq_load_tiles_iq4_xs<type, J, fallback>(
             x, tile, block_offset, i_max, row_stride);
     } else if constexpr (type == GGML_TYPE_IQ4_NL) {
-        constexpr int blocks_per_iteration = MMQ_ITER_K / QK4_NL;
+        constexpr int blocks_per_iteration = MMQ_STAGE_K / QK4_NL;
         ggml_cuda_mmq_load_tiles_iq4_nl<type, J, fallback>(
             x,
             tile,
@@ -863,7 +882,7 @@ static __device__ __forceinline__ void mmq_load_target(
             i_max,
             row_stride * blocks_per_iteration);
     } else if constexpr (type == GGML_TYPE_Q5_0) {
-        constexpr int blocks_per_iteration = MMQ_ITER_K / QK5_0;
+        constexpr int blocks_per_iteration = MMQ_STAGE_K / QK5_0;
         ggml_cuda_mmq_load_tiles_q5_0<type, J, fallback, table_decode>(
             x,
             tile,
@@ -871,7 +890,7 @@ static __device__ __forceinline__ void mmq_load_target(
             i_max,
             row_stride * blocks_per_iteration);
     } else if constexpr (type == GGML_TYPE_Q2_0) {
-        constexpr int blocks_per_iteration = MMQ_ITER_K / QK2_0;
+        constexpr int blocks_per_iteration = MMQ_STAGE_K / QK2_0;
         ggml_cuda_mmq_load_tiles_q2_0<type, J, fallback, table_decode>(
             x,
             tile,
@@ -1344,6 +1363,34 @@ static __device__ __forceinline__ void dense_mmq_bf16_body(
         ? fixed_blocks_per_weight_row
         : blocks_per_weight_row;
 
+#if defined(MMQ_HALF_STAGE)
+    static_assert(
+        mmq_sram_layout(type) == GGML_CUDA_MMQ_SRAM_LAYOUT_Q8_0,
+        "the half stage covers the one-byte-per-value level layouts");
+    static_assert(tail_values == 0, "a half stage does not implement the tail window");
+    const int stage_count = 2 * kernel_blocks_per_weight_row;
+    for (int stage = 0; stage < stage_count; ++stage) {
+        // Half a weight block per stage: the loader's row layout already holds
+        // the two 128-value halves side by side, so a stage is one of them.
+        mmq_load_target<type, J, !full_i, table_decode>(
+            weights,
+            tile_x,
+            2 * (tile_i * MMQ_I * kernel_blocks_per_weight_row + (stage >> 1)) +
+                (stage & 1),
+            i_max,
+            2 * kernel_blocks_per_weight_row);
+#pragma unroll
+        for (int l0 = 0; l0 < J * MMQ_TILE_Y_K; l0 += MMQ_NTHREADS) {
+            const int l = l0 + threadIdx.y * WARP_SIZE + threadIdx.x;
+            const int src =
+                (stage * nrows_activation_padded + tile_j * J) * q8_block_ints + l;
+            tile_y[l] = activations[src];
+        }
+        __syncthreads();
+        mmq_vec_dot_target<type, J>(tile_x, tile_y, sum, 0);
+        __syncthreads();
+    }
+#else
     for (int kb = 0; kb < kernel_blocks_per_weight_row; ++kb) {
         const bool tail = tail_values > 0 && kb + 1 == kernel_blocks_per_weight_row;
         if constexpr (tail_values > 0) {
@@ -1410,6 +1457,7 @@ static __device__ __forceinline__ void dense_mmq_bf16_body(
         mmq_vec_dot_target<type, J>(tile_x, tile_y, sum, MMQ_TILE_NE_K);
         __syncthreads();
     }
+#endif
 
     mmq_write_back_bf16_impl<type, J, full_i, full_j>(
         sum,
