@@ -10,17 +10,15 @@ Aggregate routed rows are `R=16384,65536,262144`.
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | --- | --- | --- | --- |
-| 1 | `2 x (16384,512,2048)` | 15.68 | 1.895x | `grouped_bwd_pair_task_q3_k_n512_k2048_mt128_nt64_s2_skip` |
-| 4 | `2 x (65536,512,2048)` | 25.08 | 2.018x | `grouped_bwd_pair_task_q3_k_n512_k2048_mt128_nt64_s2_skip` |
-| 16 | `2 x (262144,512,2048)` | 29.48 | 1.882x | `grouped_bwd_pair_task_q3_k_n512_k2048_mt128_nt64_s2_skip` |
+| 1 | `2 x (16384,512,2048)` | 15.90 | 1.907x | `grouped_bwd_pair_task_q3_k_n512_k2048_mt128_nt64_s2_skip_abar` |
+| 4 | `2 x (65536,512,2048)` | 25.08 | 2.013x | `grouped_bwd_pair_task_q3_k_n512_k2048_mt128_nt64_s2_skip_abar` |
+| 16 | `2 x (262144,512,2048)` | 31.32 | 1.999x | `grouped_bwd_pair_task_q3_k_n512_k2048_mt256_nt64_s2_skip` |
 
 Every shape uses the same device row-task body, so one workgroup owns one 128-row tile of one expert instead of walking a whole expert's rows. The pair body beats the AITER GMM baseline at all three shapes, by `88%` to `102%`.
 
 ## Kernel implementation
 
-The retained pair body consumes a device row-task bank with an N64 x M128 tile, a 32-wide contraction stage, two projection weight tiles per stage, two LDS stages and one plain barrier per stage, with vectorised payload and mask loads feeding the Q3_K decode. Four waves own 32 rows each, activation rows are clamped so no load is predicated, and waves whose first row is past the task end skip their activation loads, matrix work and stores while still taking part in the shared decode.
-
-The retained pair bodies use an N64 x M128 tile, a 32-wide contraction stage, two projection weight tiles per stage, two LDS stages and one plain barrier per stage, with vectorised payload and mask loads feeding the Q3_K decode. Four waves own 32 rows each, activation rows are clamped so no load is predicated, and waves whose first row is past the task end skip their activation loads, matrix work and stores while still taking part in the shared decode.
+The deployed pair body consumes a device row-task bank and owns an N64 x M128 tile of one expert per workgroup, with a 32-wide contraction stage, two projection weight tiles per stage, two LDS stages, one plain barrier per stage and vectorised payload and mask loads feeding the Q3_K decode. Four waves own 32 rows each, activation rows are clamped so no load is predicated, and waves whose first row is past the task end skip their activation loads, matrix work and stores while still taking part in the shared decode.
 
 Device-resident route indices and offsets identify active experts. Invalid routes, inactive experts, and partial row tiles remain inert without host descriptor construction.
 
@@ -50,17 +48,6 @@ The learned-route B1 ownership retune compared serial and row-task bodies. The f
 
 Width-16 decode shares packed payload and scale work. Width-8 duplicated metadata and loader work and was rejected. Q3_K pair uses padded LDS rows. Pair and down layouts remain separate because their reuse and accumulator lifetimes differ. Cross-iteration packed prefetch, universal swizzle, decoded-weight caching, split-K, persistent workgroups, and compiler-managed local arrays were rejected.
 
-### Cross-family accumulation controls
-
-The reduced-precision controls were:
-
-| Candidate | Resources | Result | Decision |
-| --- | --- | --- | --- |
-| Direct paired BF16-C | 122 VGPR, 31 SGPR, 4096 B LDS | `0.86089` NRMSE at 513 rows | reject for accuracy |
-| Full-N FP32 slabs into BF16 | 256 VGPR, 647/2069 spills | not timed | reject by resource gate |
-| Pair-serial K32/K64 slabs | 215/212 VGPR | `0.01343/0.00959` NRMSE, 35.0%/82.9% slower | reject |
-| Row-normalized paired FP16-C | 156 VGPR, 5120 B LDS | `0.00723-0.00727` NRMSE, no-scan floor 33.3% slower | reject |
-
 ### Shared backward arithmetic controls
 
 The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE. Even without its scale scan it was 33.3% slower. The fused Q3_K pair therefore retains one FP32 accumulation and one BF16 rounding per output.
@@ -73,11 +60,27 @@ Learned route banks carry a large `max/mean` expert row spread, so the serial pa
 
 A launch-bound and stage-count sweep over the retired staged serial pair bodies (`__launch_bounds__` second argument `2/3/4`, two, three and four LDS stages, and the inactive-wave suppression flag for the bodies that do not deploy it) changed no shape by more than measurement noise, and three or four stages lost `5-15%` on the small-route shapes through the larger LDS footprint. The two-stage, two-wave-per-SIMD geometry is retained. Evidence: `~/tmp/torch-ggml-ops/retune_pairs/run_pair_v2.py`.
 
+### Wide task tile
+
+The task descriptor height sets how often the packed weights are decoded: a task decodes its own copy of the weight rows it needs, so the decode per output row is one weight matrix per descriptor, and a 256-row descriptor halves it. The wide body keeps the per-wave tile, the four-column tile count and therefore the accumulator budget of the deployed shape - eight waves of `M_TILES = 2` give the 256 rows - so the only costs are twice the shared memory per stage at the same stage count and more waves arriving at each barrier. Measured at the largest route, where a 256-row descriptor is well filled, paired in one process with both arms pinned by symbol:
+
+| Variant | against the four-wave body at B16 |
+| --- | ---: |
+| K32 twin | `+6.1 % / +6.0 %` (official `29.47` to `31.32` TFLOPS). The K64 twin is level with the four-wave body |
+
+At the smaller routes the same body loses to the four-wave one (`-19 % / -6 %` for Q5_K's K32 twin at B1/B4, `-13 % / -6 %` for IQ2_S, `-30 % / -25 %` for Q4_K, `-7 %` for the IQ2_XXS pair at B16), because a 58-row expert cannot fill a 256-row descriptor and the wider workgroup pays more drift per barrier than it saves. The deployment therefore takes a `rows_at_least` rule per family instead of replacing the body outright, and Q4_K and the IQ2_XXS pair keep the four-wave body everywhere.
+
+The neighbouring latency variants are closed with numbers. Hoisting the second projection as well needs a third fragment set and measured neutral. Hoisting only that projection's first contraction tile splits its multiply and costs `5 %` to `15 %` on all four paired families, so the first projection remains the only hoisted load. A 512-row descriptor was rejected on arithmetic rather than measured: sixteen waves per workgroup at this register count leave one resident workgroup per compute unit, which halves the resident waves the barrier needs to hide behind.
+
 ## Resources
 
 The deployed row-task pair body uses 233 VGPR / 26 SGPR / 20480 B LDS and runs one 128-row task per workgroup.
 
 The deployed staged pair body uses 233 VGPR / 26 SGPR / 16384 B LDS. The retired M128/N64 body used 206 / 26 / 10240.
+
+The deployed hoisted body allocates 224 VGPR / 20480 B LDS, so it runs two workgroups per compute unit against a shared-memory limit that would allow six.
+
+The wide B16 body allocates 248 VGPR / 32768 B LDS.
 
 ## Evidence
 

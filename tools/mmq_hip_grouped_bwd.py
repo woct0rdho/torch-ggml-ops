@@ -3,6 +3,7 @@
 import ctypes
 from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 
 import torch
 
@@ -59,15 +60,14 @@ _SYMBOL_SPECS: dict[str, _ControlSpec] = {
             physical_experts=512,
         ),
         _ControlSpec(
-            "grouped_bwd_row_task_q2_0_n2560_k640_mt128_nt64_s2",
-            2560,
-            640,
-            180,
+            "grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3_g4",
+            4096,
+            2048,
+            672,
             tiled_n=64,
-            physical_experts=512,
         ),
         _ControlSpec(
-            "grouped_bwd_row_task_q2_0_n2560_k640_mt128_nt64_s3_noskip",
+            "grouped_bwd_row_task_q2_0_n2560_k640_mt128_nt64_s3_sw8_g4",
             2560,
             640,
             180,
@@ -76,14 +76,6 @@ _SYMBOL_SPECS: dict[str, _ControlSpec] = {
         ),
         _ControlSpec(
             "grouped_bwd_row_task_q2_0_n2560_k640_mt128_nt64_s3_sw8",
-            2560,
-            640,
-            180,
-            tiled_n=64,
-            physical_experts=512,
-        ),
-        _ControlSpec(
-            "grouped_bwd_row_task_q2_0_n2560_k640_mt128_nt64_s3_sw4",
             2560,
             640,
             180,
@@ -116,6 +108,64 @@ _SYMBOL_SPECS: dict[str, _ControlSpec] = {
             4096,
             2048,
             672,
+            tiled_n=64,
+        ),
+        _ControlSpec(
+            "grouped_bwd_row_task_q2_0_n2560_k640_mt256_nt64_s3_k64_sw8_g4_abar",
+            2560,
+            640,
+            180,
+            tiled_n=64,
+            physical_experts=512,
+        ),
+        _ControlSpec(
+            "grouped_bwd_row_task_q2_0_n2560_k640_mt128_nt64_s3_sw8_g4_abar",
+            2560,
+            640,
+            180,
+            tiled_n=64,
+            physical_experts=512,
+        ),
+        _ControlSpec(
+            "grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2_abar",
+            2048,
+            512,
+            164,
+            tiled_n=64,
+        ),
+        _ControlSpec(
+            "grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt64_s2_abar",
+            2048,
+            512,
+            352,
+            tiled_n=64,
+        ),
+        _ControlSpec(
+            "grouped_bwd_row_task_q2_k_n4096_k2048_mt256_nt64_s3_g4_k64",
+            4096,
+            2048,
+            672,
+            tiled_n=64,
+        ),
+        _ControlSpec(
+            "grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3_g4_abar",
+            4096,
+            2048,
+            672,
+            tiled_n=64,
+        ),
+        _ControlSpec(
+            "grouped_bwd_row_task_q5_k_n2048_k512_mt256_nt64_s2",
+            2048,
+            512,
+            352,
+            tiled_n=64,
+        ),
+        _ControlSpec(
+            "grouped_bwd_row_task_iq2_s_n2048_k512_mt256_nt64_s2",
+            2048,
+            512,
+            164,
             tiled_n=64,
         ),
     )
@@ -243,6 +293,29 @@ class InstalledGroupedBackwardRowTaskControl(_HIPModule):
     PHYSICAL_EXPERTS = 256
     TILED_N = 128
     ROW_TASK_ROWS = 128
+    # Task descriptor height and workgroup width per symbol. A wide body tiles
+    # more rows per descriptor, so the bank must be built with the same height
+    # and the launch with the same width.
+    ROW_TILES: ClassVar[dict[str, int]] = {
+        "grouped_bwd_row_task_iq2_s_n2048_k512_mt256_nt64_s2": 256,
+        "grouped_bwd_row_task_q5_k_n2048_k512_mt256_nt64_s2": 256,
+        "grouped_bwd_row_task_q2_k_n4096_k2048_mt256_nt64_s3_g4_k64": 256,
+        "grouped_bwd_row_task_q2_0_n2560_k640_mt256_nt64_s3_k64_sw8_g4_abar": 256,
+    }
+    THREADS: ClassVar[dict[str, int]] = {
+        "grouped_bwd_row_task_iq2_s_n2048_k512_mt256_nt64_s2": 256,
+        "grouped_bwd_row_task_q5_k_n2048_k512_mt256_nt64_s2": 256,
+        "grouped_bwd_row_task_q2_k_n4096_k2048_mt256_nt64_s3_g4_k64": 256,
+        "grouped_bwd_row_task_q2_0_n2560_k640_mt256_nt64_s3_k64_sw8_g4_abar": 256,
+    }
+
+    @property
+    def row_tile(self) -> int:
+        return self.ROW_TILES.get(self.spec.symbol, self.ROW_TASK_ROWS)
+
+    @property
+    def threads(self) -> int:
+        return self.THREADS.get(self.spec.symbol, 128)
 
     def __init__(
         self,
@@ -311,7 +384,7 @@ class InstalledGroupedBackwardRowTaskControl(_HIPModule):
                 (spec.in_features + spec.tiled_n - 1) // spec.tiled_n,
                 tasks.capacity,
                 1,
-                128,
+                self.threads,
                 1,
                 1,
                 0,

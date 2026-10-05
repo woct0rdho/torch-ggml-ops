@@ -2155,9 +2155,14 @@
       "k": 512,
       "rules": [
         {
+          "when": "rows_at_least",
+          "value": 262144,
+          "symbol": "grouped_bwd_row_task_iq2_s_n2048_k512_mt256_nt64_s2"
+        },
+        {
           "when": "always",
           "value": null,
-          "symbol": "grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2"
+          "symbol": "grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2_abar"
         }
       ]
     },
@@ -2168,9 +2173,14 @@
       "k": 2048,
       "rules": [
         {
+          "when": "rows_at_least",
+          "value": 196608,
+          "symbol": "grouped_bwd_row_task_q2_k_n4096_k2048_mt256_nt64_s3_g4_k64"
+        },
+        {
           "when": "always",
           "value": null,
-          "symbol": "grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3"
+          "symbol": "grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3_g4_abar"
         }
       ]
     },
@@ -2194,9 +2204,14 @@
       "k": 512,
       "rules": [
         {
+          "when": "rows_at_least",
+          "value": 262144,
+          "symbol": "grouped_bwd_row_task_q5_k_n2048_k512_mt256_nt64_s2"
+        },
+        {
           "when": "always",
           "value": null,
-          "symbol": "grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt64_s2"
+          "symbol": "grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt64_s2_abar"
         }
       ]
     },
@@ -2207,9 +2222,15 @@
       "k": 2048,
       "rules": [
         {
+          "when": "rows_at_least",
+          "value": 262144,
+          "symbol": "grouped_bwd_pair_task_iq2_s_n512_k2048_mt256_nt64_s2_skip_g4",
+          "tile": 256
+        },
+        {
           "when": "always",
           "value": null,
-          "symbol": "grouped_bwd_pair_task_iq2_s_n512_k2048_mt128_nt64_s2_skip",
+          "symbol": "grouped_bwd_pair_task_iq2_s_n512_k2048_mt128_nt64_s2_skip_g4_abar",
           "tile": 128
         }
       ]
@@ -2223,7 +2244,7 @@
         {
           "when": "always",
           "value": null,
-          "symbol": "grouped_bwd_pair_task_iq2_xxs_n2048_k4096_mt128_nt64_s2_skip",
+          "symbol": "grouped_bwd_pair_task_iq2_xxs_n2048_k4096_mt128_nt64_s2_skip_g4_abar",
           "tile": 128
         }
       ]
@@ -2235,9 +2256,15 @@
       "k": 2048,
       "rules": [
         {
+          "when": "rows_at_least",
+          "value": 262144,
+          "symbol": "grouped_bwd_pair_task_q3_k_n512_k2048_mt256_nt64_s2_skip",
+          "tile": 256
+        },
+        {
           "when": "always",
           "value": null,
-          "symbol": "grouped_bwd_pair_task_q3_k_n512_k2048_mt128_nt64_s2_skip",
+          "symbol": "grouped_bwd_pair_task_q3_k_n512_k2048_mt128_nt64_s2_skip_abar",
           "tile": 128
         }
       ]

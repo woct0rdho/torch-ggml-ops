@@ -531,7 +531,7 @@ def build_launcher(
                 control = stack.enter_context(build_backward_pair_control(choice, root))
                 modules.append(control)
                 if is_pair_row_task_body(choice.symbol):
-                    row_tile = control.ROW_TASK_ROWS
+                    row_tile = control.row_tile
             else:
                 modules.append(
                     stack.enter_context(
@@ -549,7 +549,7 @@ def build_launcher(
                 control = stack.enter_context(build_backward_control(choice, root))
                 modules.append(control)
                 if is_row_task_body(choice.symbol):
-                    row_tile = control.ROW_TASK_ROWS
+                    row_tile = control.row_tile
             else:
                 modules.append(
                     stack.enter_context(

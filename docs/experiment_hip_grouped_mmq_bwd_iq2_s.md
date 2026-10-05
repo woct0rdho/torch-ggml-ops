@@ -8,9 +8,9 @@ This record covers the routed single-projection IQ2_S down input-gradient kernel
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | --- | --- | --- | --- |
-| 1 | `(16384,512,2048)` | 11.21 | 1.052x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2` |
-| 4 | `(65536,512,2048)` | 17.49 | 1.054x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2` |
-| 16 | `(262144,512,2048)` | 21.05 | 1.014x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2` |
+| 1 | `(16384,512,2048)` | 12.34 | 1.145x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2_abar` |
+| 4 | `(65536,512,2048)` | 18.19 | 1.116x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2_abar` |
+| 16 | `(262144,512,2048)` | 22.24 | 1.080x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt256_nt64_s2` |
 
 The single-down IQ2_S body is ahead of predecoded BF16 AITER at all three shapes. The residual is grid lookup and sign reconstruction in the packed decode.
 
@@ -44,13 +44,39 @@ A learned B1 ownership screen compared the row-task body with the serial body fo
 
 The residual is repeated grid lookup, sign reconstruction, shared scale extraction, `d` application, and packed LDS staging for each output tile. A decoded BF16 AITER baseline has already paid that representation cost outside timing. The kernel-level profiler and resource controls found no broad LDS-bank or spill issue that would justify another generic scheduling sweep.
 
+### A-fragment hoist
+
+PC sampling of the deployed body attributed `52-55 %` of wave stalls to the stage barrier, with `s_barrier` the single most sampled instruction, while VALU ran at a few percent of peak issue. The gradient fragments are private to the wave, so their global loads do not have to follow the barrier: issuing the first projection's fragment load before `s_barrier` lets the barrier wait cover the L2 latency the multiply would otherwise stall behind. Nothing else moves, and the hoisted arm is bit-identical to its parent (`max|base-candidate| 0.0`).
+
+Paired in one process, both orders, rotating route banks, both arms pinned by symbol:
+
+| Route | hoisted against its parent |
+| --- | ---: |
+| B1 | +7.8 % / +8.4 % |
+| B4 | +6.4 % / +6.7 % |
+| B16 | +0.9 % / +0.7 % |
+
 ### Shared backward arithmetic controls
 
 The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE. Even without its scale scan it was 33.3% slower.
 
+### Wide task tile
+
+The task descriptor height sets how often the packed weights are decoded: a task decodes its own copy of the weight rows it needs, so the decode per output row is one weight matrix per descriptor, and a 256-row descriptor halves it. The wide body keeps the per-wave tile, the four-column tile count and therefore the accumulator budget of the deployed shape - eight waves of `M_TILES = 2` give the 256 rows - so the only costs are twice the shared memory per stage at the same stage count and more waves arriving at each barrier. Measured at the largest route, where a 256-row descriptor is well filled, paired in one process with both arms pinned by symbol:
+
+| Variant | against the four-wave body at B16 |
+| --- | ---: |
+| K32 twin | `+2.7 % / +2.6 %` (official `21.18` to `22.24` TFLOPS) |
+
+At the smaller routes the same body loses to the four-wave one (`-19 % / -6 %` for Q5_K's K32 twin at B1/B4, `-13 % / -6 %` for IQ2_S, `-30 % / -25 %` for Q4_K, `-7 %` for the IQ2_XXS pair at B16), because a 58-row expert cannot fill a 256-row descriptor and the wider workgroup pays more drift per barrier than it saves. The deployment therefore takes a `rows_at_least` rule per family instead of replacing the body outright, and Q4_K and the IQ2_XXS pair keep the four-wave body everywhere.
+
 ## Resources
 
-Retained IQ2_S down bodies use 90 VGPR/22 SGPR/4096 B LDS for M64/N64, 161/30/4096 for M128/N64, 238/24/8192 for the retired row-task M128/N128, and 155/26/4096 per stage for the deployed row-task M128/N64.
+Retained IQ2_S down bodies use 90 VGPR/22 SGPR/4096 B LDS for M64/N64, 161/30/4096 for M128/N64, 238/24/8192 for the retired row-task M128/N128, and 155/26/4096 per stage for the pre-hoist row-task M128/N64.
+
+The hoisted body allocates 200 VGPR for the same 8192 B of shared memory, which trades resident waves for hidden gradient-load latency.
+
+The wide B16 body allocates 240 VGPR / 16384 B LDS.
 
 ## Evidence
 

@@ -1132,7 +1132,7 @@ mmq_activation_metadata_layout() {
 
 // Group producer for the two 32-value metadata layouts. The row producer above
 // gives a thread four values, folds every 32-value group through three LDS
-// permutes, divides twice per group and rounds with roundf; that is ~39 SASS
+// permutes, divides twice per group and rounds with roundf. That is ~39 SASS
 // instructions per value and leaves the warp waiting on LDS latency it cannot
 // hide. This body gives a thread half a group, so the group's amax and sum need
 // one lane exchange, the loads and stores are 16-byte vectors and the index
@@ -1369,7 +1369,7 @@ static __device__ __forceinline__ void dense_mmq_bf16_body(
         : (fixed_blocks_per_weight_row - 1) * MMQ_ITER_K + tail_values;
     extern __shared__ int shared[];
 #if defined(MMQ_FRAGMENT_ACT)
-    // Only the four per-group scales of each token stay in LDS; the quants are
+    // Only the four per-group scales of each token stay in LDS. The quants are
     // read as fragments straight from the workspace.
     static_assert(tail_values == 0, "the fragment path owns the whole stage");
     constexpr int activation_ints = J * MMQ_META_STRIDE;

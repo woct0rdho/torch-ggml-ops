@@ -10,9 +10,9 @@ Aggregate routed rows are `R=12288,49152,196608`.
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | --- | --- | --- | --- |
-| 1 | `2 x (12288,2048,4096)` | 12.01 | 1.442x | `grouped_bwd_pair_task_iq2_xxs_n2048_k4096_mt128_nt64_s2_skip` |
-| 4 | `2 x (49152,2048,4096)` | 21.34 | 1.536x | `grouped_bwd_pair_task_iq2_xxs_n2048_k4096_mt128_nt64_s2_skip` |
-| 16 | `2 x (196608,2048,4096)` | 25.56 | 1.705x | `grouped_bwd_pair_task_iq2_xxs_n2048_k4096_mt128_nt64_s2_skip` |
+| 1 | `2 x (12288,2048,4096)` | 12.29 | 1.472x | `grouped_bwd_pair_task_iq2_xxs_n2048_k4096_mt128_nt64_s2_skip_g4_abar` |
+| 4 | `2 x (49152,2048,4096)` | 22.87 | 1.629x | `grouped_bwd_pair_task_iq2_xxs_n2048_k4096_mt128_nt64_s2_skip_g4_abar` |
+| 16 | `2 x (196608,2048,4096)` | 27.77 | 1.856x | `grouped_bwd_pair_task_iq2_xxs_n2048_k4096_mt128_nt64_s2_skip_g4_abar` |
 
 Every shape uses the same device row-task body, so one workgroup owns one 128-row tile of one expert instead of walking a whole expert's rows, and partial tasks carry suppression. All three shapes beat two predecoded BF16 AITER GMM calls.
 
@@ -23,6 +23,20 @@ The retained pair body consumes a device row-task bank with an N64 x M128 tile, 
 The retained pair body uses an N64 x M128 tile, a 32-wide contraction stage, two projection weight tiles per stage, two LDS stages and one plain barrier per stage. Four waves own 32 rows each, every thread decodes one 16-value lookup/sign/scale segment per projection and stage from one adjacent-code-word read, and activation rows are clamped so no load is predicated.
 
 ## Optimization log
+
+### Swizzle fold
+
+The decoded tile is written down its rows: a thread decodes sixteen consecutive output columns of one packed row, so its sixteen stores advance by the contraction stride while every lane starts at the same column. The plain chunk XOR (`chunk = (column / 4) ^ (row & 7)`) therefore gives the writer only the row bits the fragment reader also uses, and the counter run on the deployed Q2_0 pair body of the same shape reports `LDSBankConflict 58.75 %`. Folding the row bits one sixteen-row step above the low ones (`row ^ (row >> 4)`) adds the writer's row step without moving the reader's. The change is layout-only and the body is bit-identical to the deployed one (`max|base-candidate| 0.0` against the BF16 product for both).
+
+Paired against the previous control in one process, both orders, rotating banks, and with both arms pinned by symbol:
+
+| Route | against the previous control |
+| --- | ---: |
+| B1 | +0.1 % / +0.1 % |
+| B4 | +3.4 % / +3.0 % |
+| B16 | +5.6 % / +5.8 % |
+
+The fold is not universal: it wins on the chunk-4 pair layouts and on the deep-contraction Q2_K single, and it loses on the Q4_K and Q5_K singles (`+0.1 % / +2.5 % / +2.9 %` and `+6.7 % / +6.2 % / +4.1 %` over the same protocol), whose decoders are expensive enough that the tile's bank pattern is not what limits them. Those two candidates are not deployed and their controls are removed.
 
 ### Staged pair redesign
 
@@ -52,11 +66,27 @@ Learned route banks carry a large `max/mean` expert row spread, so the serial pa
 
 A launch-bound and stage-count sweep over the retired staged serial pair bodies (`__launch_bounds__` second argument `2/3/4`, two, three and four LDS stages, and the inactive-wave suppression flag for the bodies that do not deploy it) changed no shape by more than measurement noise, and three or four stages lost `5-15%` on the small-route shapes through the larger LDS footprint. The two-stage, two-wave-per-SIMD geometry is retained. Evidence: `~/tmp/torch-ggml-ops/retune_pairs/run_pair_v2.py`.
 
+### A-fragment hoist
+
+PC sampling of the deployed body attributed `52-55 %` of wave stalls to the stage barrier, with `s_barrier` the single most sampled instruction, while VALU ran at a few percent of peak issue. The gradient fragments are private to the wave, so their global loads do not have to follow the barrier: issuing the first projection's fragment load before `s_barrier` lets the barrier wait cover the L2 latency the multiply would otherwise stall behind. Nothing else moves, and the hoisted arm is bit-identical to its parent (`max|base-candidate| 0.0`).
+
+Paired in one process, both orders, rotating route banks, both arms pinned by symbol:
+
+| Route | hoisted against its parent |
+| --- | ---: |
+| B1 | +2.8 % / +2.8 % |
+| B4 | +2.8 % / +2.9 % |
+| B16 | +3.3 % / +3.2 % |
+
+The neighbouring latency variants are closed with numbers. Hoisting the second projection as well needs a third fragment set and measured neutral. Hoisting only that projection's first contraction tile splits its multiply and costs `5 %` to `15 %` on all four paired families, so the first projection remains the only hoisted load. A 512-row descriptor was rejected on arithmetic rather than measured: sixteen waves per workgroup at this register count leave one resident workgroup per compute unit, which halves the resident waves the barrier needs to hide behind.
+
 ## Resources
 
 The deployed row-task pair body uses 208 VGPR / 28 SGPR / 16384 B LDS and runs one 128-row task per workgroup.
 
 The deployed staged pair bodies use 208 (B1/B4) and 247 (B16) VGPR / 28 SGPR / 16384 B LDS. The retired M128/N64 body used 239 / 54 / 8192.
+
+The deployed hoisted body allocates 216 VGPR / 16384 B LDS.
 
 ## Evidence
 

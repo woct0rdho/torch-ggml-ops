@@ -13,7 +13,7 @@
 //
 // The decoded tile is written one column per thread at a stride of
 // `K_ITERATION` values, so every store of a thread lands in the same LDS bank
-// unless the tile is padded or swizzled; both are template parameters the
+// unless the tile is padded or swizzled. Both are template parameters the
 // caller sets, as in the shared body.
 
 #include "bf16_wmma.cuh"
@@ -363,7 +363,7 @@ static __device__ __forceinline__ void dense_mmq_pipelined_grad_input_body(
         }
     };
 
-    // Load the activation fragment quad of one k tile; every lane reads
+    // Load the activation fragment quad of one k tile. Every lane reads
     // sixteen bf16 values, one per k, of its row of the cotangent.
     const auto load_a_fragments = [&](bf16_fragment (&a_fragments)
                                               [M_TILES_PER_WAVE],

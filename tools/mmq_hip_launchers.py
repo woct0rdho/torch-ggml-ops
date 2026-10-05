@@ -20,9 +20,7 @@ from tools.mmq_hip_grouped_pair_bwd import (
 from tools.mmq_hip_grouped_pair_fwd import (
     InstalledGroupedForwardPairIQ2XXSSerialControl,
     InstalledGroupedForwardPairQ3RowTaskControl,
-    InstalledGroupedForwardPairQ3SerialControl,
     InstalledGroupedForwardPairRowTaskControl,
-    InstalledGroupedForwardPairSerialControl,
 )
 from tools.mmq_runtime import (
     FixedQ81F16D2S6QuantizerModule,
@@ -34,9 +32,7 @@ ROW_TASK_PREFIXES = ("grouped_bwd_row_task_", "grouped_fwd_row_task_")
 
 _PAIR_FORWARD_CONTROLS = {
     ("IQ2_S", True): InstalledGroupedForwardPairRowTaskControl,
-    ("IQ2_S", False): InstalledGroupedForwardPairSerialControl,
     ("Q3_K", True): InstalledGroupedForwardPairQ3RowTaskControl,
-    ("Q3_K", False): InstalledGroupedForwardPairQ3SerialControl,
 }
 
 _PAIR_BACKWARD_CONTROLS = {

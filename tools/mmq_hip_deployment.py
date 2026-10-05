@@ -430,6 +430,10 @@ def _rows_below_per_entry(rows: int, route_entries: int, value: int) -> bool:
     return rows < value * route_entries
 
 
+def _rows_at_least(rows: int, route_entries: int, value: int) -> bool:
+    return rows >= value
+
+
 def _always(rows: int, route_entries: int, value: int) -> bool:
     return True
 
@@ -437,6 +441,7 @@ def _always(rows: int, route_entries: int, value: int) -> bool:
 _ROUTED_PREDICATES = {
     "rows_eq": _rows_equal,
     "rows_lt_per_entry": _rows_below_per_entry,
+    "rows_at_least": _rows_at_least,
     "always": _always,
 }
 

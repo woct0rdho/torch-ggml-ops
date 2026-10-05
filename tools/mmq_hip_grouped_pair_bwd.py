@@ -442,9 +442,46 @@ class InstalledGroupedBackwardPairRowTaskControl(_HIPModule):
         "grouped_bwd_pair_task_iq2_s_n512_k2048_mt128_nt64_s2_skip",
         "grouped_bwd_pair_task_iq2_xxs_n2048_k4096_mt128_nt64_s2_skip",
         "grouped_bwd_pair_task_q2_0_n640_k2560_mt128_nt64_s2_skip",
+        "grouped_bwd_pair_task_iq2_s_n512_k2048_mt128_nt64_s2_skip_g4",
+        "grouped_bwd_pair_task_iq2_xxs_n2048_k4096_mt128_nt64_s2_skip_g4",
+        "grouped_bwd_pair_task_q2_0_n640_k2560_mt128_nt64_s2_skip_g4",
+        "grouped_bwd_pair_task_q3_k_n512_k2048_mt256_nt64_s2_skip",
+        "grouped_bwd_pair_task_iq2_s_n512_k2048_mt256_nt64_s2_skip_g4",
+        "grouped_bwd_pair_task_q2_0_n640_k2560_mt256_nt64_s2_skip_k64_g4_mb3_abar",
+        "grouped_bwd_pair_task_q3_k_n512_k2048_mt128_nt64_s2_skip_abar",
+        "grouped_bwd_pair_task_iq2_xxs_n2048_k4096_mt128_nt64_s2_skip_g4_abar",
+        "grouped_bwd_pair_task_iq2_s_n512_k2048_mt128_nt64_s2_skip_g4_abar",
+        "grouped_bwd_pair_task_q2_0_n640_k2560_mt128_nt64_s2_skip_g4_mb3_abar",
+        "grouped_bwd_pair_task_q2_0_n640_k2560_mt128_nt64_s2_skip_g4_mb3",
     )
     PHYSICAL_EXPERTS = 256
-    EXPERTS: ClassVar[dict[str, int]] = {"q2_0": 512}
+    EXPERTS: ClassVar[dict[str, int]] = {
+        "q3_k": 256,
+        "iq2_s": 256,
+        "iq2_xxs": 256,
+        "q2_0": 512,
+    }
+    # Column tile of the body behind each symbol. The deployed family shape is
+    # sixteen columns times four tiles. A body built with a different tile
+    # count must declare it here, because the grid is derived from it.
+    # Task row tile of the body behind each symbol. A body that consumes a wider
+    # task than the deployed 128 rows must declare it here, because the task
+    # bank it is launched with has to match.
+    ROW_TILES: ClassVar[dict[str, int]] = {
+        "grouped_bwd_pair_task_q3_k_n512_k2048_mt256_nt64_s2_skip": 256,
+        "grouped_bwd_pair_task_iq2_s_n512_k2048_mt256_nt64_s2_skip_g4": 256,
+        "grouped_bwd_pair_task_q2_0_n640_k2560_mt256_nt64_s2_skip_k64_g4_mb3_abar": 256,
+    }
+    THREADS: ClassVar[dict[str, int]] = {
+        "grouped_bwd_pair_task_q3_k_n512_k2048_mt256_nt64_s2_skip": 256,
+        "grouped_bwd_pair_task_iq2_s_n512_k2048_mt256_nt64_s2_skip_g4": 256,
+        "grouped_bwd_pair_task_q2_0_n640_k2560_mt256_nt64_s2_skip_k64_g4_mb3_abar": 256,
+    }
+    COLUMN_TILES: ClassVar[dict[str, int]] = {
+        "grouped_bwd_pair_task_q3_k_n512_k2048_mt256_nt64_s2_skip": 64,
+        "grouped_bwd_pair_task_iq2_s_n512_k2048_mt256_nt64_s2_skip_g4": 64,
+        "grouped_bwd_pair_task_q2_0_n640_k2560_mt256_nt64_s2_skip_k64_g4_mb3_abar": 64,
+    }
     OUT_FEATURES: ClassVar[dict[str, int]] = {
         "q3_k": 512,
         "iq2_s": 512,
@@ -458,6 +495,18 @@ class InstalledGroupedBackwardPairRowTaskControl(_HIPModule):
         "q2_0": 2560,
     }
     ROW_TASK_ROWS = 128
+
+    @property
+    def column_tile(self) -> int:
+        return self.COLUMN_TILES.get(self.symbol, 64)
+
+    @property
+    def threads(self) -> int:
+        return self.THREADS.get(self.symbol, 128)
+
+    @property
+    def row_tile(self) -> int:
+        return self.ROW_TILES.get(self.symbol, self.ROW_TASK_ROWS)
 
     def __init__(
         self,
@@ -529,7 +578,7 @@ class InstalledGroupedBackwardPairRowTaskControl(_HIPModule):
             raise HIPRuntimeError("paired row-task gradient shape is invalid")
         if tuple(grad_input.shape) != (rows, in_features):
             raise HIPRuntimeError("paired row-task output shape is invalid")
-        if int(tasks.row_task_rows) != self.ROW_TASK_ROWS:
+        if int(tasks.row_task_rows) != self.row_tile:
             raise HIPRuntimeError("paired row-task tile does not match the body")
         arguments = GROUPED_BACKWARD_PAIR_ROW_TASK_ABI.pack(
             {
@@ -547,13 +596,17 @@ class InstalledGroupedBackwardPairRowTaskControl(_HIPModule):
                 "bytes_per_expert": self.BYTES_PER_EXPERT[self.family],
             }
         )
+        if in_features % self.column_tile:
+            raise HIPRuntimeError(
+                "paired row-task output width is not a multiple of the column tile"
+            )
         self._check(
             self._lib.hipModuleLaunchKernel(
                 self._function,
-                in_features // 64,
+                in_features // self.column_tile,
                 tasks.capacity,
                 1,
-                128,
+                self.threads,
                 1,
                 1,
                 0,

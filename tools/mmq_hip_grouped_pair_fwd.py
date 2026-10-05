@@ -111,84 +111,6 @@ class InstalledGroupedForwardPairRowTaskControl(_HIPModule):
         )
 
 
-class InstalledGroupedForwardPairSerialControl(_HIPModule):
-    """Launch the installed single-projection N512/K2048 IQ2_S control."""
-
-    SYMBOL = "grouped_fwd_serial_iq2_s_n512_k2048_j64"
-    BYTES_PER_EXPERT = 335_872
-    OUT_FEATURES = 512
-    DYNAMIC_LDS_BYTES = 30_976
-
-    def __init__(
-        self,
-        code_object: Path | None = None,
-        hip_library: Path | None = None,
-    ) -> None:
-        super().__init__(
-            code_object or _find_installed_kernel(self.SYMBOL),
-            hip_library,
-            self.SYMBOL,
-        )
-
-    def launch(
-        self,
-        packed_weight: torch.Tensor,
-        activations: torch.Tensor,
-        output: torch.Tensor,
-        expert_indices: torch.Tensor,
-        expert_offsets: torch.Tensor,
-        *,
-        stream: int,
-    ) -> None:
-        tensors = (packed_weight, activations, output, expert_indices, expert_offsets)
-        if any(not tensor.is_cuda or not tensor.is_contiguous() for tensor in tensors):
-            raise HIPRuntimeError(
-                "installed paired controls require contiguous HIP tensors"
-            )
-        if (
-            packed_weight.dtype != torch.uint8
-            or activations.dtype != torch.uint8
-            or output.dtype != torch.bfloat16
-        ):
-            raise HIPRuntimeError("installed paired control tensor dtypes are invalid")
-        route_entries = expert_indices.numel()
-        if expert_indices.dtype != torch.int64 or expert_offsets.dtype != torch.int32:
-            raise HIPRuntimeError("installed paired control route dtypes are invalid")
-        aggregate_rows = paired_forward_rows(activations)
-        if tuple(output.shape) != (aggregate_rows, self.OUT_FEATURES):
-            raise HIPRuntimeError("installed paired control output shape is invalid")
-        packed_arguments = GROUPED_FORWARD_ABI.pack(
-            {
-                "weights": packed_weight.data_ptr(),
-                "activations": activations.data_ptr(),
-                "dst": output.data_ptr(),
-                "expert_indices": expert_indices.data_ptr(),
-                "expert_offsets": expert_offsets.data_ptr(),
-                "num_experts": 256,
-                "nrows_weight": 512,
-                "nrows_activation": aggregate_rows,
-                "blocks_per_weight_row": 8,
-                "bytes_per_expert": self.BYTES_PER_EXPERT,
-            }
-        )
-        self._check(
-            self._lib.hipModuleLaunchKernel(
-                self._function,
-                8,
-                route_entries,
-                1,
-                32,
-                4,
-                1,
-                self.DYNAMIC_LDS_BYTES,
-                ctypes.c_void_p(stream),
-                packed_arguments.parameters,
-                None,
-            ),
-            "hipModuleLaunchKernel",
-        )
-
-
 class InstalledGroupedForwardPairIQ2XXSSerialControl(_HIPModule):
     """Launch one installed DeepSeek IQ2_XXS serial projection."""
 
@@ -322,15 +244,5 @@ class InstalledGroupedForwardPairQ3RowTaskControl(
     """Launch one installed Q3_K N512/K2048 J64 row-task projection."""
 
     SYMBOL = "grouped_fwd_row_task_q3_k_n512_k2048_j64"
-    BYTES_PER_EXPERT = 450_560
-    DYNAMIC_LDS_BYTES = 30_976
-
-
-class InstalledGroupedForwardPairQ3SerialControl(
-    InstalledGroupedForwardPairSerialControl
-):
-    """Launch one installed Q3_K N512/K2048 J64 serial projection."""
-
-    SYMBOL = "grouped_fwd_serial_q3_k_n512_k2048_j64"
     BYTES_PER_EXPERT = 450_560
     DYNAMIC_LDS_BYTES = 30_976

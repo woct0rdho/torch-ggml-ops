@@ -22,6 +22,7 @@ struct grouped_backward_pair_decoder_q3_k {
     static constexpr int blocks_per_weight_row = 8;
     static constexpr int padding = GROUPED_BACKWARD_TILED_Q3_PADDING;
     static constexpr int swizzle = 0;
+    static constexpr int swizzle_grain = 0;
 
     static __device__ __forceinline__ void decode(
             const char * packed_row,
@@ -51,6 +52,7 @@ struct grouped_backward_pair_decoder_iq2_s {
     static constexpr int blocks_per_weight_row = 8;
     static constexpr int padding = 0;
     static constexpr int swizzle = GROUPED_BACKWARD_TILED_IQ2_PAIR_SWIZZLE;
+    static constexpr int swizzle_grain = 0;
 
     static __device__ __forceinline__ void decode(
             const char * packed_row,
@@ -69,6 +71,7 @@ struct grouped_backward_pair_decoder_q2_0 {
     static constexpr int blocks_per_weight_row = 40;
     static constexpr int padding = 0;
     static constexpr int swizzle = 8;
+    static constexpr int swizzle_grain = 0;
 
     static __device__ __forceinline__ void decode(
             const char * packed_row,
@@ -92,27 +95,13 @@ struct grouped_backward_pair_decoder_q2_0 {
 struct grouped_backward_pair_decoder_q2_0_sw4
     : grouped_backward_pair_decoder_q2_0 {
     static constexpr int swizzle = 4;
+    static constexpr int swizzle_grain = 0;
 };
 
-struct grouped_backward_pair_decoder_q2_0_sw0
-    : grouped_backward_pair_decoder_q2_0 {
-    static constexpr int swizzle = 0;
-};
-
-struct grouped_backward_pair_decoder_q2_0_sw2
-    : grouped_backward_pair_decoder_q2_0 {
-    static constexpr int swizzle = 2;
-};
-
-struct grouped_backward_pair_decoder_q2_0_sw1
-    : grouped_backward_pair_decoder_q2_0 {
-    static constexpr int swizzle = 1;
-};
-
-struct grouped_backward_pair_decoder_q2_0_sw4_pad8
+struct grouped_backward_pair_decoder_q2_0_sw4_g4
     : grouped_backward_pair_decoder_q2_0 {
     static constexpr int swizzle = 4;
-    static constexpr int padding = 8;
+    static constexpr int swizzle_grain = 4;
 };
 
 struct grouped_backward_pair_decoder_iq2_xxs {
@@ -122,6 +111,7 @@ struct grouped_backward_pair_decoder_iq2_xxs {
     static constexpr int blocks_per_weight_row = 16;
     static constexpr int padding = 0;
     static constexpr int swizzle = 4;
+    static constexpr int swizzle_grain = 0;
 
     static __device__ __forceinline__ void decode(
             const char * packed_row,
@@ -163,11 +153,45 @@ struct grouped_backward_pair_decoder_iq2_xxs {
     }
 };
 
+struct grouped_backward_pair_decoder_q3_k_sw4
+    : grouped_backward_pair_decoder_q3_k {
+    static constexpr int swizzle = 4;
+};
+
+struct grouped_backward_pair_decoder_iq2_s_g4
+    : grouped_backward_pair_decoder_iq2_s {
+    static constexpr int swizzle_grain = 4;
+};
+
+struct grouped_backward_pair_decoder_iq2_xxs_g4
+    : grouped_backward_pair_decoder_iq2_xxs {
+    static constexpr int swizzle_grain = 4;
+};
+
 static constexpr int GROUPED_BACKWARD_PAIR_STAGED_N_TILES = 4;
 static constexpr int GROUPED_BACKWARD_PAIR_STAGED_N =
     GROUPED_BACKWARD_PAIR_STAGED_N_TILES * BACKWARD_N_PER_TILE;
 
-template <typename Decoder, int M_TILES, int STAGES, bool SKIP_INACTIVE_M>
+// `K_STAGE` is the contraction depth decoded and consumed per barrier and
+// `N_TILES` is the number of sixteen-column tiles the workgroup owns. The
+// deployed shape is `K_STAGE = 32, N_TILES = 4`. Together they fix the number
+// of decode slots (`N_TILES * K_STAGE`, one sixteen-value decode call each)
+// and the shared footprint per stage (`N_TILES * K_STAGE` values per
+// projection). Rotating toward a deeper stage at fewer columns keeps the
+// footprint and the decode calls per thread, and buys a halved barrier count,
+// a wider swizzle for the decoded tile and half the accumulator state.
+template <
+    typename Decoder,
+    int M_TILES,
+    int STAGES,
+    bool SKIP_INACTIVE_M,
+    int K_STAGE = GROUPED_BACKWARD_TILED_K,
+    int N_TILES = GROUPED_BACKWARD_PAIR_STAGED_N_TILES,
+    bool A_PER_K_TILE = false,
+    bool FIRST_A_BEFORE_BARRIER = false,
+    bool BOTH_A_BEFORE_BARRIER = false,
+    int THREADS = BACKWARD_THREADS,
+    bool SECOND_HEAD_BEFORE_BARRIER = false>
 static __device__ __forceinline__ void grouped_mmq_pair_grad_input_staged_tile(
         const __hip_bfloat16 * __restrict__ first_grad_output,
         const __hip_bfloat16 * __restrict__ second_grad_output,
@@ -175,46 +199,54 @@ static __device__ __forceinline__ void grouped_mmq_pair_grad_input_staged_tile(
         const char * __restrict__ second_expert_weight,
         __hip_bfloat16 * __restrict__ grad_input,
         backward_shared_b_tile<
-            GROUPED_BACKWARD_PAIR_STAGED_N,
-            GROUPED_BACKWARD_TILED_K,
+            N_TILES * BACKWARD_N_PER_TILE,
+            K_STAGE,
             Decoder::padding,
-            Decoder::swizzle> (*tiles)[2],
+            Decoder::swizzle,
+            Decoder::swizzle_grain> (*tiles)[2],
         int row_start,
         int row_end,
         int input_column_start) {
-    constexpr int K = GROUPED_BACKWARD_TILED_K;
+    constexpr int K = K_STAGE;
     constexpr int OUT_FEATURES = Decoder::out_features;
     constexpr int IN_FEATURES = Decoder::in_features;
     constexpr int ITERATIONS = OUT_FEATURES / K;
-    constexpr int N_TILES = GROUPED_BACKWARD_PAIR_STAGED_N_TILES;
+    constexpr int COLUMNS = N_TILES * BACKWARD_N_PER_TILE;
     constexpr int packed_row_bytes =
         Decoder::blocks_per_weight_row * gguf_block_bytes<Decoder::type>();
     using tile_type = backward_shared_b_tile<
-        GROUPED_BACKWARD_PAIR_STAGED_N,
+        COLUMNS,
         K,
         Decoder::padding,
-        Decoder::swizzle>;
+        Decoder::swizzle,
+        Decoder::swizzle_grain>;
     const int wave = threadIdx.x / BACKWARD_WAVE_SIZE;
     const int lane = threadIdx.x % BACKWARD_WAVE_SIZE;
     const int wave_row_start = row_start + wave * M_TILES * BACKWARD_M_PER_TILE;
     f32_accumulator accumulators[M_TILES][N_TILES];
 
-    const int column_group = threadIdx.x % N_TILES;
-    const int k_index = threadIdx.x / N_TILES;
-    const int local_input_column = BACKWARD_N_PER_TILE * column_group;
-    const int input_column = input_column_start + local_input_column;
-    // The packed block width is the decoder's own geometry: 256 values for the
-    // K-quant layouts and 64 for Q2_0.
-    constexpr int BLOCK_VALUES = IN_FEATURES / Decoder::blocks_per_weight_row;
-    const int block_index = input_column / BLOCK_VALUES;
-    const int value_index = input_column % BLOCK_VALUES;
+    // One decode call per slot, `DECODE_SLOTS` slots spread over the
+    // workgroup's threads, so a deeper stage at fewer columns keeps the same
+    // per-thread decode count as the deployed shape.
+    constexpr int DECODE_SLOTS = N_TILES * K;
+    constexpr int DECODE_PASSES = (DECODE_SLOTS + THREADS - 1) / THREADS;
     const int a_row_base = wave_row_start + c_row(lane);
     const bool wave_has_rows = wave_row_start < row_end;
 
-    auto decode_stage = [&](
-                                int iteration,
-                                tile_type & first_tile,
-                                tile_type & second_tile) {
+    auto decode_slot = [&](int slot,
+                           int iteration,
+                           tile_type & first_tile,
+                           tile_type & second_tile) {
+        const int column_group = slot % N_TILES;
+        const int k_index = slot / N_TILES;
+        const int local_input_column = BACKWARD_N_PER_TILE * column_group;
+        const int input_column = input_column_start + local_input_column;
+        // The packed block width is the decoder's own geometry: 256 values for
+        // the K-quant layouts and 64 for Q2_0.
+        constexpr int BLOCK_VALUES =
+            IN_FEATURES / Decoder::blocks_per_weight_row;
+        const int block_index = input_column / BLOCK_VALUES;
+        const int value_index = input_column % BLOCK_VALUES;
         const int64_t offset = static_cast<int64_t>(iteration * K + k_index) *
             packed_row_bytes;
         __hip_bfloat16 values[BACKWARD_N_PER_TILE];
@@ -234,10 +266,25 @@ static __device__ __forceinline__ void grouped_mmq_pair_grad_input_staged_tile(
         }
     };
 
+    auto decode_stage = [&](
+                                int iteration,
+                                tile_type & first_tile,
+                                tile_type & second_tile) {
+#pragma unroll
+        for (int pass = 0; pass < DECODE_PASSES; ++pass) {
+            const int slot = threadIdx.x + pass * THREADS;
+            if constexpr (DECODE_SLOTS % THREADS == 0) {
+                decode_slot(slot, iteration, first_tile, second_tile);
+            } else if (slot < DECODE_SLOTS) {
+                decode_slot(slot, iteration, first_tile, second_tile);
+            }
+        }
+    };
+
     auto load_a = [&](
                           const __hip_bfloat16 * grad_output,
                           int iteration,
-                          bf16_fragment (&a)[2][M_TILES]) {
+                          bf16_fragment (&a)[K / 16][M_TILES]) {
         if (SKIP_INACTIVE_M && !wave_has_rows) {
             return;
         }
@@ -258,7 +305,7 @@ static __device__ __forceinline__ void grouped_mmq_pair_grad_input_staged_tile(
         }
     };
 
-    auto multiply = [&](tile_type & tile, bf16_fragment (&a)[2][M_TILES]) {
+    auto multiply = [&](tile_type & tile, bf16_fragment (&a)[K / 16][M_TILES]) {
         if (SKIP_INACTIVE_M && !wave_has_rows) {
             return;
         }
@@ -294,9 +341,82 @@ static __device__ __forceinline__ void grouped_mmq_pair_grad_input_staged_tile(
         }
     };
 
-    bf16_fragment a[2][M_TILES];
+    auto load_a_k = [&](const __hip_bfloat16 * grad_output,
+                        int iteration,
+                        int k_tile,
+                        bf16_fragment (&a_k)[M_TILES]) {
+        if (SKIP_INACTIVE_M && !wave_has_rows) {
+            return;
+        }
+#pragma unroll
+        for (int m_tile = 0; m_tile < M_TILES; ++m_tile) {
+            const int row = min(
+                a_row_base + m_tile * BACKWARD_M_PER_TILE, row_end - 1);
+            __hip_bfloat16 * fragment = fragment_data(a_k[m_tile]);
+            const int64_t offset = static_cast<int64_t>(row) * OUT_FEATURES +
+                iteration * K + k_tile;
+#pragma unroll
+            for (int k = 0; k < 16; ++k) {
+                fragment[k] = grad_output[offset + k];
+            }
+        }
+    };
+
+    auto multiply_k = [&](tile_type & tile,
+                          int k_tile,
+                          bf16_fragment (&a_k)[M_TILES]) {
+        if (SKIP_INACTIVE_M && !wave_has_rows) {
+            return;
+        }
+#pragma unroll
+        for (int n_tile = 0; n_tile < N_TILES; n_tile += 2) {
+            bf16_fragment b_first{};
+            bf16_fragment b_second{};
+            tile.load_fragment_vector(
+                b_first, n_tile * BACKWARD_N_PER_TILE + c_row(lane), k_tile);
+            tile.load_fragment_vector(
+                b_second,
+                (n_tile + 1) * BACKWARD_N_PER_TILE + c_row(lane),
+                k_tile);
+#pragma unroll
+            for (int m_tile = 0; m_tile < M_TILES; ++m_tile) {
+                wmma_f32_16x16x16_bf16(
+                    accumulators[m_tile][n_tile], a_k[m_tile], b_first);
+            }
+#pragma unroll
+            for (int m_tile = 0; m_tile < M_TILES; ++m_tile) {
+                wmma_f32_16x16x16_bf16(
+                    accumulators[m_tile][n_tile + 1], a_k[m_tile], b_second);
+            }
+        }
+    };
+
+    bf16_fragment a[K / 16][M_TILES];
+    // Only materialised when both projections are hoisted, which needs a second
+    // fragment set. The optimizer drops it otherwise.
+    bf16_fragment a_second[BOTH_A_BEFORE_BARRIER ? K / 16 : 1][M_TILES];
+    // The second projection's head fragment, issued before the barrier so its
+    // first multiply does not wait on a load. Measured negative on all four
+    // paired families (-5 to -15 %), so no control selects it: the extra
+    // fragment set and the split multiply cost more than the exposed latency.
+    // first multiply does not wait on a load. Its accumulation order is
+    // unchanged: the head is consumed first, then the remaining tiles.
+    bf16_fragment a_head[SECOND_HEAD_BEFORE_BARRIER ? 1 : 0 + 1][M_TILES];
     decode_stage(0, tiles[0][0], tiles[0][1]);
     for (int iteration = 0; iteration < ITERATIONS; ++iteration) {
+        // The first projection's gradient fragments are private to the wave, so
+        // their loads can be issued before the stage barrier. The second
+        // projection reuses the same registers after the first multiply and
+        // keeps its load where it is.
+        if constexpr (BOTH_A_BEFORE_BARRIER) {
+            load_a(first_grad_output, iteration, a);
+            load_a(second_grad_output, iteration, a_second);
+        } else if constexpr (FIRST_A_BEFORE_BARRIER) {
+            load_a(first_grad_output, iteration, a);
+            if constexpr (SECOND_HEAD_BEFORE_BARRIER) {
+                load_a_k(second_grad_output, iteration, 0, a_head[0]);
+            }
+        }
         __builtin_amdgcn_s_barrier();
         if (iteration + 1 < ITERATIONS) {
             decode_stage(
@@ -304,10 +424,35 @@ static __device__ __forceinline__ void grouped_mmq_pair_grad_input_staged_tile(
                 tiles[(iteration + 1) % STAGES][0],
                 tiles[(iteration + 1) % STAGES][1]);
         }
-        load_a(first_grad_output, iteration, a);
-        multiply(tiles[iteration % STAGES][0], a);
-        load_a(second_grad_output, iteration, a);
-        multiply(tiles[iteration % STAGES][1], a);
+        if constexpr (A_PER_K_TILE) {
+#pragma unroll
+            for (int k_tile = 0; k_tile < K; k_tile += 16) {
+                bf16_fragment a_k[M_TILES];
+                load_a_k(first_grad_output, iteration, k_tile, a_k);
+                multiply_k(tiles[iteration % STAGES][0], k_tile, a_k);
+                load_a_k(second_grad_output, iteration, k_tile, a_k);
+                multiply_k(tiles[iteration % STAGES][1], k_tile, a_k);
+            }
+        } else if constexpr (BOTH_A_BEFORE_BARRIER) {
+            multiply(tiles[iteration % STAGES][0], a);
+            multiply(tiles[iteration % STAGES][1], a_second);
+        } else if constexpr (SECOND_HEAD_BEFORE_BARRIER) {
+            multiply(tiles[iteration % STAGES][0], a);
+            multiply_k(tiles[iteration % STAGES][1], 0, a_head[0]);
+#pragma unroll
+            for (int k_tile = 16; k_tile < K; k_tile += 16) {
+                bf16_fragment a_k[M_TILES];
+                load_a_k(second_grad_output, iteration, k_tile, a_k);
+                multiply_k(tiles[iteration % STAGES][1], k_tile, a_k);
+            }
+        } else {
+            if constexpr (!FIRST_A_BEFORE_BARRIER) {
+                load_a(first_grad_output, iteration, a);
+            }
+            multiply(tiles[iteration % STAGES][0], a);
+            load_a(second_grad_output, iteration, a);
+            multiply(tiles[iteration % STAGES][1], a);
+        }
     }
 
 #pragma unroll
@@ -332,7 +477,18 @@ static __device__ __forceinline__ void grouped_mmq_pair_grad_input_staged_tile(
     }
 }
 
-template <typename Decoder, int M_TILES, int STAGES, bool SKIP_INACTIVE_M>
+template <
+    typename Decoder,
+    int M_TILES,
+    int STAGES,
+    bool SKIP_INACTIVE_M,
+    int K_STAGE = GROUPED_BACKWARD_TILED_K,
+    int N_TILES = GROUPED_BACKWARD_PAIR_STAGED_N_TILES,
+    bool A_PER_K_TILE = false,
+    bool FIRST_A_BEFORE_BARRIER = false,
+    bool BOTH_A_BEFORE_BARRIER = false,
+    int THREADS = BACKWARD_THREADS,
+    bool SECOND_HEAD_BEFORE_BARRIER = false>
 static __device__ __forceinline__ void grouped_mmq_pair_grad_input_staged_body(
         const __hip_bfloat16 * __restrict__ first_grad_output,
         const __hip_bfloat16 * __restrict__ second_grad_output,
@@ -345,12 +501,14 @@ static __device__ __forceinline__ void grouped_mmq_pair_grad_input_staged_body(
         int rows,
         int64_t bytes_per_expert) {
     constexpr int M_PER_BLOCK =
-        M_TILES * BACKWARD_M_PER_TILE * BACKWARD_WAVES;
+        M_TILES * BACKWARD_M_PER_TILE * (THREADS / BACKWARD_WAVE_SIZE);
+    constexpr int COLUMNS = N_TILES * BACKWARD_N_PER_TILE;
     using tile_type = backward_shared_b_tile<
-        GROUPED_BACKWARD_PAIR_STAGED_N,
-        GROUPED_BACKWARD_TILED_K,
+        COLUMNS,
+        K_STAGE,
         Decoder::padding,
-        Decoder::swizzle>;
+        Decoder::swizzle,
+        Decoder::swizzle_grain>;
     const int group = blockIdx.y;
     const int row_begin = group == 0 ? 0 : expert_offsets[group - 1];
     const int row_end = expert_offsets[group];
@@ -359,7 +517,7 @@ static __device__ __forceinline__ void grouped_mmq_pair_grad_input_staged_body(
         row_end <= row_begin || row_end > rows) {
         return;
     }
-    const int input_column_start = blockIdx.x * GROUPED_BACKWARD_PAIR_STAGED_N;
+    const int input_column_start = blockIdx.x * COLUMNS;
     const char * first_expert_weight =
         first_packed_weight + expert * bytes_per_expert;
     const char * second_expert_weight =
@@ -372,7 +530,14 @@ static __device__ __forceinline__ void grouped_mmq_pair_grad_input_staged_body(
             Decoder,
             M_TILES,
             STAGES,
-            SKIP_INACTIVE_M>(
+            SKIP_INACTIVE_M,
+            K_STAGE,
+            N_TILES,
+            A_PER_K_TILE,
+            FIRST_A_BEFORE_BARRIER,
+            BOTH_A_BEFORE_BARRIER,
+            THREADS,
+            SECOND_HEAD_BEFORE_BARRIER>(
             first_grad_output,
             second_grad_output,
             first_expert_weight,
@@ -393,7 +558,18 @@ static __device__ __forceinline__ void grouped_mmq_pair_grad_input_staged_body(
 // therefore never walks a whole expert's rows, so a route bank with a large
 // max/mean row spread no longer leaves column tiles idle behind the tallest
 // expert. The task list is prepared outside the timed multiply region.
-template <typename Decoder, int M_TILES, int STAGES, bool SKIP_INACTIVE_M>
+template <
+    typename Decoder,
+    int M_TILES,
+    int STAGES,
+    bool SKIP_INACTIVE_M,
+    int K_STAGE = GROUPED_BACKWARD_TILED_K,
+    int N_TILES = GROUPED_BACKWARD_PAIR_STAGED_N_TILES,
+    bool A_PER_K_TILE = false,
+    bool FIRST_A_BEFORE_BARRIER = false,
+    bool BOTH_A_BEFORE_BARRIER = false,
+    int THREADS = BACKWARD_THREADS,
+    bool SECOND_HEAD_BEFORE_BARRIER = false>
 static __device__ __forceinline__ void grouped_mmq_pair_grad_input_task_body(
         const __hip_bfloat16 * __restrict__ first_grad_output,
         const __hip_bfloat16 * __restrict__ second_grad_output,
@@ -407,11 +583,13 @@ static __device__ __forceinline__ void grouped_mmq_pair_grad_input_task_body(
         int num_experts,
         int rows,
         int64_t bytes_per_expert) {
+    constexpr int COLUMNS = N_TILES * BACKWARD_N_PER_TILE;
     using tile_type = backward_shared_b_tile<
-        GROUPED_BACKWARD_PAIR_STAGED_N,
-        GROUPED_BACKWARD_TILED_K,
+        COLUMNS,
+        K_STAGE,
         Decoder::padding,
-        Decoder::swizzle>;
+        Decoder::swizzle,
+        Decoder::swizzle_grain>;
     const int task = blockIdx.y;
     if (task >= task_count[0]) {
         return;
@@ -423,13 +601,20 @@ static __device__ __forceinline__ void grouped_mmq_pair_grad_input_task_body(
         row_end <= row_start || row_end > rows) {
         return;
     }
-    const int input_column_start = blockIdx.x * GROUPED_BACKWARD_PAIR_STAGED_N;
+    const int input_column_start = blockIdx.x * COLUMNS;
     __shared__ tile_type tiles[STAGES][2];
     grouped_mmq_pair_grad_input_staged_tile<
         Decoder,
         M_TILES,
         STAGES,
-        SKIP_INACTIVE_M>(
+        SKIP_INACTIVE_M,
+        K_STAGE,
+        N_TILES,
+        A_PER_K_TILE,
+        FIRST_A_BEFORE_BARRIER,
+        BOTH_A_BEFORE_BARRIER,
+        THREADS,
+        SECOND_HEAD_BEFORE_BARRIER>(
         first_grad_output,
         second_grad_output,
         first_packed_weight + expert * bytes_per_expert,

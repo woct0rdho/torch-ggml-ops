@@ -22,6 +22,10 @@ The retained Q4_K bodies use an M128/N64 tile, a 32-wide contraction stage, thre
 
 ## Optimization log
 
+### Swizzle grain screen
+
+A tile-layout candidate (folding the writer's row bits above the reader's, see the Q2_0 pair record) was screened on this family. The comparison is void: the shared tile layout carried a defect that dropped the swizzle term for the default grain, so the control the candidate was measured against was itself regressed by roughly a fifth. The defect is repaired, the deployed control here is unchanged and reproduces its recorded rate, and no fold control is deployed.
+
 ### Staged row-task redesign
 
 The first-generation row-task body spent most of its time waiting: PC sampling attributed `36%` of stalls to ALU dependencies, `19%` to barriers, and `18%` to memory waits, and the body was limited to about four resident waves per SIMD by its 128 SGPR/216 VGPR footprint. The staged redesign attacks every component at once.
@@ -48,6 +52,18 @@ Inactive-M suppression was applied around cotangent loads, WMMA, and stores whil
 
 Width-16 decode, Q4-specific scale/minimum reconstruction, and the sixteen-BF16 XOR layout were retained. K64, broad swizzles, two LDS buffers, decoded-weight caching, direct-to-VGPR, split-K, GSU, Stream-K, and persistent traversal were rejected. The remaining loss is repeated packed scale/minimum decode and limited reuse, not a saturated LDS interface.
 
+### A-fragment hoist
+
+PC sampling of the deployed body attributed `52-55 %` of wave stalls to the stage barrier, with `s_barrier` the single most sampled instruction, while VALU ran at a few percent of peak issue. The gradient fragments are private to the wave, so their global loads do not have to follow the barrier: issuing the first projection's fragment load before `s_barrier` lets the barrier wait cover the L2 latency the multiply would otherwise stall behind. Nothing else moves, and the hoisted arm is bit-identical to its parent (`max|base-candidate| 0.0`).
+
+Paired in one process, both orders, rotating route banks, both arms pinned by symbol:
+
+| Route | hoisted against its parent |
+| --- | ---: |
+| B1 | -1.4 % / +1.4 % |
+| B4 | -0.7 % / +0.6 % |
+| B16 | +1.4 % / -1.0 % |
+
 ### Shared backward arithmetic controls
 
 The grouped backward campaign tested reduced-precision accumulation as a separate kernel mechanism. Direct BF16-C reached `0.86089` NRMSE at 513 rows and was rejected for accuracy. Full-N FP32 K32/K64 slabs reached 256 VGPRs with 647/2,069 spills and 1,568/5,248 private bytes and were rejected before timing. Pair-serial slabs reached `0.01343/0.00959` NRMSE and were 35.0%/82.9% slower. Row-normalized FP16-C reached `0.00723-0.00727` NRMSE. Even without its scale scan it was 33.3% slower.
@@ -55,6 +71,8 @@ The grouped backward campaign tested reduced-precision accumulation as a separat
 ## Resources
 
 The deployed Q4_K row-task body uses 150 VGPR / 24 SGPR / 4096 B LDS per stage. The retired M128/N128 row-task body used 216 / 128 / 8192.
+
+The hoisted twin measures neutral on this decoder and is not deployed. The control still allocates 152 VGPR over three 4096 B stages.
 
 ## Evidence
 

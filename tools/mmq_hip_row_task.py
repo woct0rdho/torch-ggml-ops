@@ -51,7 +51,7 @@ class RowTaskWorkspace:
         aggregate_rows = int(reference.shape[0])
         if route_entries <= 0 or route_entries > 512:
             raise HIPRuntimeError("row-task route entry count is outside the contract")
-        if aggregate_rows <= 0 or not 0 < row_tile <= 128:
+        if aggregate_rows <= 0 or not 0 < row_tile <= 256:
             raise HIPRuntimeError(
                 "row-task workspace requires positive rows and at most M128 tiles"
             )

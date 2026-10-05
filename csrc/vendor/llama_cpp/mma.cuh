@@ -1,5 +1,5 @@
 // Only the int8 WMMA paths used by the gfx1151 MMQ forward kernels are kept. The
-// fp16/bf16/fp4 variants and every non-ROCm architecture were removed; the
+// fp16/bf16/fp4 variants and every non-ROCm architecture were removed. The
 // remaining code is exercised by the HIP control bundle.
 
 #pragma once

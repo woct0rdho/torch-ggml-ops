@@ -706,10 +706,30 @@ static __device__ __forceinline__ void decode_backward_tile_sixteen_q6(
     }
 }
 
-template <int ROWS, int COLUMNS, int PADDING, int SWIZZLE_CHUNK>
+// `SWIZZLE_GRAIN = 0` keeps the original `row & mask` term. A positive grain
+// folds the low row bits onto the ones `SWIZZLE_GRAIN` bits
+// above them (`row ^ (row >> GRAIN)`). Zero is the plain `row & mask` form. A
+// staged backward tile is written along its rows - a thread decodes sixteen
+// consecutive output columns of one packed row - and the writer's rows advance
+// in steps of `BACKWARD_M_PER_TILE`, so with the plain form the low row bits
+// are the same for every lane and the writer cannot spread across banks. The
+// fold keeps the low bits that the fragment reader needs and adds the
+// writer's row step on top.
+template <
+    int ROWS,
+    int COLUMNS,
+    int PADDING,
+    int SWIZZLE_CHUNK,
+    int SWIZZLE_GRAIN = 0>
 struct backward_shared_b_tile {
     static_assert(COLUMNS % 16 == 0);
     static_assert(SWIZZLE_CHUNK == 0 || COLUMNS % SWIZZLE_CHUNK == 0);
+    // The fragment reader loads four or eight values at a time from the
+    // physical column of a chunk, so a chunk narrower than four values makes it
+    // read across chunks and scramble the tile instead of failing.
+    static_assert(
+        SWIZZLE_CHUNK == 0 || SWIZZLE_CHUNK >= 4,
+        "swizzle chunks below four values scramble the fragment reader");
 
     alignas(16) __hip_bfloat16 values[ROWS * (COLUMNS + PADDING)];
 
@@ -719,8 +739,11 @@ struct backward_shared_b_tile {
         if constexpr (SWIZZLE_CHUNK > 0) {
             constexpr int chunks_per_row = COLUMNS / SWIZZLE_CHUNK;
             static_assert((chunks_per_row & (chunks_per_row - 1)) == 0);
-            const int chunk =
-                (column / SWIZZLE_CHUNK) ^ (row & (chunks_per_row - 1));
+            const int swizzle_row = SWIZZLE_GRAIN == 0
+                ? (row & 31)
+                : ((row ^ (row >> SWIZZLE_GRAIN)) & 31);
+            const int chunk = (column / SWIZZLE_CHUNK) ^
+                (swizzle_row & (chunks_per_row - 1));
             return row * (COLUMNS + PADDING) +
                 chunk * SWIZZLE_CHUNK + column % SWIZZLE_CHUNK;
         } else {

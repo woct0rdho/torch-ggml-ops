@@ -49,6 +49,8 @@ class GroupedBackwardKind(str, Enum):
     IQ2_S_ROW_TASK_N64_S2 = "iq2_s_row_task_n64_s2"
     Q2_K_ROW_TASK_N64_S3 = "q2_k_row_task_n64_s3"
     Q2_0_ROW_TASK_N64_S3 = "q2_0_row_task_n64_s3"
+    Q2_K_ROW_TASK_G4 = "q2_k_row_task_g4"
+    Q2_0_ROW_TASK_N64_S3_SW8_G4 = "q2_0_row_task_n64_s3_sw8_g4"
     Q2_0_ROW_TASK_N64_S2 = "q2_0_row_task_n64_s2"
     Q2_0_ROW_TASK_N64_S3_NOSKIP = "q2_0_row_task_n64_s3_noskip"
     Q2_0_ROW_TASK_N64_S3_SW8 = "q2_0_row_task_n64_s3_sw8"
@@ -69,6 +71,25 @@ class GroupedBackwardKind(str, Enum):
     IQ2_S_PAIR_TASK = "iq2_s_pair_task"
     IQ2_XXS_PAIR_TASK = "iq2_xxs_pair_task"
     Q2_0_PAIR_TASK = "q2_0_pair_task"
+    Q2_0_PAIR_TASK_G4_MB3 = "q2_0_pair_task_g4_mb3"
+    Q2_0_ROW_TASK_ABAR = "q2_0_row_task_abar"
+    Q2_0_ROW_TASK_M256_K64 = "q2_0_row_task_m256_k64"
+    IQ2_S_ROW_TASK_ABAR = "iq2_s_row_task_abar"
+    Q2_0_PAIR_TASK_ABAR = "q2_0_pair_task_abar"
+    Q2_0_PAIR_TASK_M256_K64 = "q2_0_pair_task_m256_k64"
+    Q5_ROW_TASK_M256 = "q5_row_task_m256"
+    IQ2_S_ROW_TASK_M256 = "iq2_s_row_task_m256"
+    IQ2_S_PAIR_TASK_M256 = "iq2_s_pair_task_m256"
+    Q3_PAIR_TASK_M256 = "q3_pair_task_m256"
+    Q2_K_ROW_TASK_M256_K64 = "q2_k_row_task_m256_k64"
+    IQ2_S_PAIR_TASK_ABAR = "iq2_s_pair_task_abar"
+    Q5_ROW_TASK_ABAR = "q5_row_task_abar"
+    Q2_K_ROW_TASK_ABAR = "q2_k_row_task_abar"
+    IQ2_XXS_PAIR_TASK_ABAR = "iq2_xxs_pair_task_abar"
+    Q3_PAIR_TASK_ABAR = "q3_pair_task_abar"
+    IQ2_S_PAIR_TASK_G4 = "iq2_s_pair_task_g4"
+    IQ2_XXS_PAIR_TASK_G4 = "iq2_xxs_pair_task_g4"
+    Q2_0_PAIR_TASK_G4 = "q2_0_pair_task_g4"
 
     TUNED_FIXED_Q8_0 = "tuned_fixed_q8_0"
 
@@ -233,6 +254,14 @@ class GroupedBackwardConfig:
     n_tiles: int = 0
     m_tiles_per_wave: int = 0
     reduction_unroll: int = 0
+    # Second `__launch_bounds__` argument: the resident workgroups per compute
+    # unit the compiler must leave registers for. Two is the deployed value.
+    # Raising it forces the VGPR count down so more workgroups fit.
+    min_blocks: int = 2
+    # Workgroup width in threads. Zero keeps the four-wave default; a wider
+    # workgroup tiles more rows per task descriptor, which amortises the weight
+    # decode over more rows and halves the barrier count for the same work.
+    threads: int = 0
 
     def __post_init__(self) -> None:
         tuned_kinds = {
@@ -862,6 +891,12 @@ _SPECIAL_GROUPED_CALLS = {
     GroupedBackwardKind.Q2_0_ROW_TASK_N64_S3: "torch_ggml_ops::ck::"
     "grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::"
     "grouped_backward_row_task_decoder_q2_0, 3, true>",
+    GroupedBackwardKind.Q2_K_ROW_TASK_G4: "torch_ggml_ops::ck::"
+    "grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::"
+    "grouped_backward_row_task_decoder_q2_k_g4, 3, true>",
+    GroupedBackwardKind.Q2_0_ROW_TASK_N64_S3_SW8_G4: "torch_ggml_ops::ck::"
+    "grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::"
+    "grouped_backward_row_task_decoder_q2_0_sw8_g4, 3, true>",
     GroupedBackwardKind.Q2_0_ROW_TASK_N64_S2: "torch_ggml_ops::ck::"
     "grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::"
     "grouped_backward_row_task_decoder_q2_0, 2, true>",
@@ -901,6 +936,12 @@ _SPECIAL_GROUPED_CALLS = {
     GroupedBackwardKind.Q2_0_PAIR_TASK: "torch_ggml_ops::ck::"
     "grouped_mmq_pair_grad_input_task_body<torch_ggml_ops::ck::"
     "grouped_backward_pair_decoder_q2_0_sw4, 2, 2, true>",
+    GroupedBackwardKind.IQ2_S_PAIR_TASK_G4: "torch_ggml_ops::ck::"
+    "grouped_mmq_pair_grad_input_task_body<torch_ggml_ops::ck::"
+    "grouped_backward_pair_decoder_iq2_s_g4, 2, 2, true>",
+    GroupedBackwardKind.IQ2_XXS_PAIR_TASK_G4: "torch_ggml_ops::ck::"
+    "grouped_mmq_pair_grad_input_task_body<torch_ggml_ops::ck::"
+    "grouped_backward_pair_decoder_iq2_xxs_g4, 2, 2, true>",
     GroupedBackwardKind.Q2_K_SINGLE_M64_U1: "torch_ggml_ops::ck::grouped_mmq_grad_input_deepseek_body<"
     "GGML_TYPE_Q2_K, 4096, 2048, 8, 1, 1, true>",
     GroupedBackwardKind.Q2_K_SINGLE_M128_U1: "torch_ggml_ops::ck::grouped_mmq_grad_input_deepseek_body<"
@@ -909,6 +950,23 @@ _SPECIAL_GROUPED_CALLS = {
     "GGML_TYPE_IQ2_XXS, 2048, 4096, 16, 1, true>",
     GroupedBackwardKind.Q2_K_SINGLE_M128_U2: "torch_ggml_ops::ck::grouped_mmq_grad_input_deepseek_body<"
     "GGML_TYPE_Q2_K, 4096, 2048, 8, 2, 2, true>",
+    GroupedBackwardKind.Q2_0_PAIR_TASK_G4: "torch_ggml_ops::ck::grouped_mmq_pair_grad_input_task_body<torch_ggml_ops::ck::grouped_backward_pair_decoder_q2_0_sw4_g4, 2, 2, true>",
+    GroupedBackwardKind.Q2_0_PAIR_TASK_G4_MB3: "torch_ggml_ops::ck::grouped_mmq_pair_grad_input_task_body<torch_ggml_ops::ck::grouped_backward_pair_decoder_q2_0_sw4_g4, 2, 2, true>",
+    GroupedBackwardKind.Q2_0_ROW_TASK_ABAR: "torch_ggml_ops::ck::grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::grouped_backward_row_task_decoder_q2_0_sw8_g4, 3, true, 32, 4, true>",
+    GroupedBackwardKind.IQ2_S_ROW_TASK_ABAR: "torch_ggml_ops::ck::grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::grouped_backward_row_task_decoder_iq2_s, 2, true, 32, 4, true>",
+    GroupedBackwardKind.Q2_0_PAIR_TASK_ABAR: "torch_ggml_ops::ck::grouped_mmq_pair_grad_input_task_body<torch_ggml_ops::ck::grouped_backward_pair_decoder_q2_0_sw4_g4, 2, 2, true, 32, 4, false, true>",
+    GroupedBackwardKind.Q2_0_ROW_TASK_M256_K64: "torch_ggml_ops::ck::grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::grouped_backward_row_task_decoder_q2_0_sw8_g4, 3, true, 64, 4, true, 256>",
+    GroupedBackwardKind.Q2_K_ROW_TASK_M256_K64: "torch_ggml_ops::ck::grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::grouped_backward_row_task_decoder_q2_k_g4, 3, true, 64, 4, true, 256>",
+    GroupedBackwardKind.Q2_0_PAIR_TASK_M256_K64: "torch_ggml_ops::ck::grouped_mmq_pair_grad_input_task_body<torch_ggml_ops::ck::grouped_backward_pair_decoder_q2_0_sw4_g4, 2, 2, true, 64, 4, false, true, false, 256>",
+    GroupedBackwardKind.Q5_ROW_TASK_M256: "torch_ggml_ops::ck::grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::grouped_backward_row_task_decoder_q5_k, 2, false, 32, 4, true, 256>",
+    GroupedBackwardKind.IQ2_S_ROW_TASK_M256: "torch_ggml_ops::ck::grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::grouped_backward_row_task_decoder_iq2_s, 2, true, 32, 4, true, 256>",
+    GroupedBackwardKind.IQ2_S_PAIR_TASK_M256: "torch_ggml_ops::ck::grouped_mmq_pair_grad_input_task_body<torch_ggml_ops::ck::grouped_backward_pair_decoder_iq2_s_g4, 2, 2, true, 32, 4, false, true, false, 256>",
+    GroupedBackwardKind.Q3_PAIR_TASK_M256: "torch_ggml_ops::ck::grouped_mmq_pair_grad_input_task_body<torch_ggml_ops::ck::grouped_backward_pair_decoder_q3_k, 2, 2, true, 32, 4, false, true, false, 256>",
+    GroupedBackwardKind.IQ2_S_PAIR_TASK_ABAR: "torch_ggml_ops::ck::grouped_mmq_pair_grad_input_task_body<torch_ggml_ops::ck::grouped_backward_pair_decoder_iq2_s_g4, 2, 2, true, 32, 4, false, true>",
+    GroupedBackwardKind.Q5_ROW_TASK_ABAR: "torch_ggml_ops::ck::grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::grouped_backward_row_task_decoder_q5_k, 2, false, 32, 4, true>",
+    GroupedBackwardKind.Q2_K_ROW_TASK_ABAR: "torch_ggml_ops::ck::grouped_mmq_grad_input_row_task_staged_body<torch_ggml_ops::ck::grouped_backward_row_task_decoder_q2_k_g4, 3, true, 32, 4, true>",
+    GroupedBackwardKind.IQ2_XXS_PAIR_TASK_ABAR: "torch_ggml_ops::ck::grouped_mmq_pair_grad_input_task_body<torch_ggml_ops::ck::grouped_backward_pair_decoder_iq2_xxs_g4, 2, 2, true, 32, 4, false, true>",
+    GroupedBackwardKind.Q3_PAIR_TASK_ABAR: "torch_ggml_ops::ck::grouped_mmq_pair_grad_input_task_body<torch_ggml_ops::ck::grouped_backward_pair_decoder_q3_k, 2, 2, true, 32, 4, false, true>",
 }
 
 _PAIR_KINDS = {
@@ -929,9 +987,22 @@ _PAIR_ROW_TASK_KINDS = {
     GroupedBackwardKind.IQ2_S_PAIR_TASK,
     GroupedBackwardKind.IQ2_XXS_PAIR_TASK,
     GroupedBackwardKind.Q2_0_PAIR_TASK,
+    GroupedBackwardKind.Q2_0_PAIR_TASK_G4,
+    GroupedBackwardKind.IQ2_S_PAIR_TASK_G4,
+    GroupedBackwardKind.IQ2_XXS_PAIR_TASK_G4,
+    GroupedBackwardKind.Q2_0_PAIR_TASK_G4_MB3,
+    GroupedBackwardKind.Q2_0_PAIR_TASK_ABAR,
+    GroupedBackwardKind.Q2_0_PAIR_TASK_M256_K64,
+    GroupedBackwardKind.IQ2_S_PAIR_TASK_M256,
+    GroupedBackwardKind.Q3_PAIR_TASK_M256,
+    GroupedBackwardKind.IQ2_S_PAIR_TASK_ABAR,
+    GroupedBackwardKind.IQ2_XXS_PAIR_TASK_ABAR,
+    GroupedBackwardKind.Q3_PAIR_TASK_ABAR,
 }
 
 _ROW_TASK_KINDS = {
+    GroupedBackwardKind.Q2_K_ROW_TASK_G4,
+    GroupedBackwardKind.Q2_0_ROW_TASK_N64_S3_SW8_G4,
     GroupedBackwardKind.Q4_ROW_TASK,
     GroupedBackwardKind.Q5_ROW_TASK,
     GroupedBackwardKind.IQ2_S_ROW_TASK,
@@ -944,6 +1015,14 @@ _ROW_TASK_KINDS = {
     GroupedBackwardKind.Q2_0_ROW_TASK_N64_S3_NOSKIP,
     GroupedBackwardKind.Q2_0_ROW_TASK_N64_S3_SW8,
     GroupedBackwardKind.Q2_0_ROW_TASK_N64_S3_SW4,
+    GroupedBackwardKind.Q2_0_ROW_TASK_ABAR,
+    GroupedBackwardKind.Q2_K_ROW_TASK_M256_K64,
+    GroupedBackwardKind.Q2_0_ROW_TASK_M256_K64,
+    GroupedBackwardKind.Q5_ROW_TASK_M256,
+    GroupedBackwardKind.IQ2_S_ROW_TASK_M256,
+    GroupedBackwardKind.IQ2_S_ROW_TASK_ABAR,
+    GroupedBackwardKind.Q5_ROW_TASK_ABAR,
+    GroupedBackwardKind.Q2_K_ROW_TASK_ABAR,
 }
 
 
@@ -987,6 +1066,12 @@ _GROUPED_HEADERS = {
     GroupedBackwardKind.Q2_0_ROW_TASK_N64_S3: (
         "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
     ),
+    GroupedBackwardKind.Q2_K_ROW_TASK_G4: (
+        "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
+    ),
+    GroupedBackwardKind.Q2_0_ROW_TASK_N64_S3_SW8_G4: (
+        "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
+    ),
     GroupedBackwardKind.Q2_0_ROW_TASK_N64_S2: (
         "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
     ),
@@ -1012,6 +1097,41 @@ _GROUPED_HEADERS = {
     GroupedBackwardKind.IQ2_S_PAIR_TASK: "ck/grouped_mmq_backward_pair_staged.cuh",
     GroupedBackwardKind.IQ2_XXS_PAIR_TASK: ("ck/grouped_mmq_backward_pair_staged.cuh"),
     GroupedBackwardKind.Q2_0_PAIR_TASK: "ck/grouped_mmq_backward_pair_staged.cuh",
+    GroupedBackwardKind.Q2_0_ROW_TASK_ABAR: (
+        "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
+    ),
+    GroupedBackwardKind.IQ2_S_ROW_TASK_ABAR: (
+        "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
+    ),
+    GroupedBackwardKind.Q5_ROW_TASK_ABAR: (
+        "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
+    ),
+    GroupedBackwardKind.Q2_K_ROW_TASK_ABAR: (
+        "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
+    ),
+    GroupedBackwardKind.IQ2_XXS_PAIR_TASK_ABAR: "ck/grouped_mmq_backward_pair_staged.cuh",
+    GroupedBackwardKind.Q3_PAIR_TASK_ABAR: "ck/grouped_mmq_backward_pair_staged.cuh",
+    GroupedBackwardKind.Q2_0_PAIR_TASK_ABAR: "ck/grouped_mmq_backward_pair_staged.cuh",
+    GroupedBackwardKind.Q2_0_PAIR_TASK_M256_K64: "ck/grouped_mmq_backward_pair_staged.cuh",
+    GroupedBackwardKind.Q2_K_ROW_TASK_M256_K64: (
+        "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
+    ),
+    GroupedBackwardKind.Q2_0_ROW_TASK_M256_K64: (
+        "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
+    ),
+    GroupedBackwardKind.Q5_ROW_TASK_M256: (
+        "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
+    ),
+    GroupedBackwardKind.IQ2_S_ROW_TASK_M256: (
+        "ck/grouped_mmq_backward_tiled_row_task_staged.cuh"
+    ),
+    GroupedBackwardKind.IQ2_S_PAIR_TASK_M256: "ck/grouped_mmq_backward_pair_staged.cuh",
+    GroupedBackwardKind.Q3_PAIR_TASK_M256: "ck/grouped_mmq_backward_pair_staged.cuh",
+    GroupedBackwardKind.IQ2_S_PAIR_TASK_ABAR: "ck/grouped_mmq_backward_pair_staged.cuh",
+    GroupedBackwardKind.IQ2_S_PAIR_TASK_G4: "ck/grouped_mmq_backward_pair_staged.cuh",
+    GroupedBackwardKind.IQ2_XXS_PAIR_TASK_G4: "ck/grouped_mmq_backward_pair_staged.cuh",
+    GroupedBackwardKind.Q2_0_PAIR_TASK_G4: "ck/grouped_mmq_backward_pair_staged.cuh",
+    GroupedBackwardKind.Q2_0_PAIR_TASK_G4_MB3: "ck/grouped_mmq_backward_pair_staged.cuh",
 }
 
 
@@ -1022,8 +1142,16 @@ def _grouped_header(kind: GroupedBackwardKind) -> str:
     return header
 
 
-def _grouped_entry(symbol: str, arguments: str, values: str, call: str) -> str:
-    return f"""extern "C" __launch_bounds__(torch_ggml_ops::ck::BACKWARD_THREADS, 2) __global__
+def _grouped_entry(
+    symbol: str,
+    arguments: str,
+    values: str,
+    call: str,
+    min_blocks: int = 2,
+    threads: int = 0,
+) -> str:
+    width = threads or "torch_ggml_ops::ck::BACKWARD_THREADS"
+    return f"""extern "C" __launch_bounds__({width}, {min_blocks}) __global__
 void {symbol}(
 {arguments}) {{
     {call}(
@@ -1169,15 +1297,29 @@ void {symbol}(
         raise ValueError(f"unsupported grouped backward kind {kind}")
     if kind in _PAIR_ROW_TASK_KINDS:
         return prefix + _grouped_entry(
-            symbol, _PAIR_ROW_TASK_ARGUMENTS, _PAIR_ROW_TASK_VALUES, call
+            symbol,
+            _PAIR_ROW_TASK_ARGUMENTS,
+            _PAIR_ROW_TASK_VALUES,
+            call,
+            config.min_blocks,
+            config.threads,
         )
     if kind in _PAIR_KINDS:
-        return prefix + _grouped_entry(symbol, _PAIR_ARGUMENTS, _PAIR_VALUES, call)
+        return prefix + _grouped_entry(
+            symbol, _PAIR_ARGUMENTS, _PAIR_VALUES, call, config.min_blocks
+        )
     if kind in _ROW_TASK_KINDS:
         return prefix + _grouped_entry(
-            symbol, _ROW_TASK_ARGUMENTS, _ROW_TASK_VALUES, call
+            symbol,
+            _ROW_TASK_ARGUMENTS,
+            _ROW_TASK_VALUES,
+            call,
+            config.min_blocks,
+            config.threads,
         )
-    return prefix + _grouped_entry(symbol, _SINGLE_ARGUMENTS, _SINGLE_VALUES, call)
+    return prefix + _grouped_entry(
+        symbol, _SINGLE_ARGUMENTS, _SINGLE_VALUES, call, config.min_blocks
+    )
 
 
 def render_wrapper(symbol: str, config: KernelConfig) -> str:

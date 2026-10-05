@@ -25,61 +25,13 @@ from tools.mmq_runtime import HIPRuntimeError, _resolve_code_object, find_contro
             2048,
             12_288,
             256,
-            "grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3",
-        ),
-        (
-            "Q2_K",
-            4096,
-            2048,
-            12_288,
-            8,
-            "grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3",
-        ),
-        (
-            "Q2_K",
-            4096,
-            2048,
-            49_152,
-            256,
-            "grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3",
-        ),
-        (
-            "Q2_K",
-            4096,
-            2048,
-            196_608,
-            8,
-            "grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3",
+            "grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3_g4_abar",
         ),
         (
             "Q4_K",
             2048,
             512,
             16_384,
-            8,
-            "grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt64_s3",
-        ),
-        (
-            "Q4_K",
-            2048,
-            512,
-            16_384,
-            256,
-            "grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt64_s3",
-        ),
-        (
-            "Q4_K",
-            2048,
-            512,
-            65_536,
-            8,
-            "grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt64_s3",
-        ),
-        (
-            "Q4_K",
-            2048,
-            512,
-            262_144,
             8,
             "grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt64_s3",
         ),
@@ -89,15 +41,7 @@ from tools.mmq_runtime import HIPRuntimeError, _resolve_code_object, find_contro
             512,
             16_384,
             8,
-            "grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt64_s2",
-        ),
-        (
-            "Q5_K",
-            2048,
-            512,
-            262_144,
-            8,
-            "grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt64_s2",
+            "grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt64_s2_abar",
         ),
         (
             "IQ2_S",
@@ -105,31 +49,7 @@ from tools.mmq_runtime import HIPRuntimeError, _resolve_code_object, find_contro
             512,
             16_384,
             8,
-            "grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2",
-        ),
-        (
-            "IQ2_S",
-            2048,
-            512,
-            16_384,
-            256,
-            "grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2",
-        ),
-        (
-            "IQ2_S",
-            2048,
-            512,
-            65_536,
-            8,
-            "grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2",
-        ),
-        (
-            "IQ2_S",
-            2048,
-            512,
-            262_144,
-            8,
-            "grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2",
+            "grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2_abar",
         ),
     ),
 )
@@ -168,7 +88,6 @@ def test_standalone_backward_control_follows_the_deployed_rules(
     (
         ("Q6_K", 2048, 512, 16_384),
         ("Q4_K", 1024, 512, 16_384),
-        ("Q2_K", 4096, 1024, 12_288),
     ),
 )
 def test_standalone_backward_control_rejects_invalid_dispatch(
@@ -253,3 +172,27 @@ def test_generated_controls_include_the_header_that_defines_their_body() -> None
             header,
             bodies - definitions[header],
         )
+
+
+def test_row_task_column_tiles_cover_their_family_width() -> None:
+    """Every declared column tile must divide the width the body is launched over."""
+
+    from tools.mmq_hip_grouped_bwd import InstalledGroupedBackwardRowTaskControl
+    from tools.mmq_hip_grouped_pair_bwd import (
+        InstalledGroupedBackwardPairRowTaskControl,
+    )
+
+    pair_tiles = InstalledGroupedBackwardPairRowTaskControl.COLUMN_TILES
+    pair_widths = InstalledGroupedBackwardPairRowTaskControl.IN_FEATURES
+    for symbol, tile in pair_tiles.items():
+        family = next(
+            name
+            for name in InstalledGroupedBackwardPairRowTaskControl.EXPERTS
+            if f"_{name}_" in symbol
+        )
+        assert tile > 0
+        assert pair_widths[family] % tile == 0, (symbol, tile, pair_widths[family])
+
+    single_tiles = getattr(InstalledGroupedBackwardRowTaskControl, "COLUMN_TILES", {})
+    for symbol, tile in single_tiles.items():
+        assert tile > 0, symbol

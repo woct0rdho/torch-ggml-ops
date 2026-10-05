@@ -254,7 +254,9 @@ def test_every_public_routed_case_selects_a_built_control() -> None:
 def test_paired_controls_carry_their_tile() -> None:
     for control in routed_table():
         if control.operation == "GroupedBackwardPair":
-            assert control.tile in {64, 128}, control
+            # The task tile a paired backward rule was tuned with: 64- and
+            # 128-row bodies are the four-wave shapes, 256 the eight-wave one.
+            assert control.tile in {64, 128, 256}, control
         if (
             control.operation == "GroupedForwardPair"
             and control.quant_type == "IQ2_XXS"
@@ -287,7 +289,6 @@ def test_grouped_forward_lds_tracks_the_deployed_tile_shape() -> None:
     expected = {
         "grouped_fwd_serial_q2_k_n4096_k2048_j32": 14_976,
         "grouped_fwd_serial_q2_k_n4096_k2048_j32_j16": 14_976,
-        "grouped_fwd_serial_iq2_s_n2048_k512_j64_frag": 22_784,
         "grouped_fwd_serial_iq2_s_n2048_k512_j64_j32_frag": 22_784,
         "grouped_fwd_serial_q2_0_n2560_k640_j64_j32_j16_frag": 20_736,
     }
