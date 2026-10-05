@@ -8,13 +8,27 @@ This record covers the routed single-projection IQ2_S down kernel for Qwen on gf
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | ---: | ---: | ---: | --- |
-| 1 | `(16384,2048,512)` | 13.28 | 1.229x | `grouped_fwd_serial_iq2_s_n2048_k512_j64_j32` |
-| 4 | `(65536,2048,512)` | 18.15 | 0.953x | `grouped_fwd_serial_iq2_s_n2048_k512_j64_j32` |
-| 16 | `(262144,2048,512)` | 19.80 | 0.871x | `grouped_fwd_serial_iq2_s_n2048_k512_j64` |
+| 1 | `(16384,2048,512)` | 15.30 | 1.452x | `grouped_fwd_serial_iq2_s_n2048_k512_j64_j32_frag` |
+| 4 | `(65536,2048,512)` | 18.56 | 0.978x | `grouped_fwd_serial_iq2_s_n2048_k512_j64_j32_frag` |
+| 16 | `(262144,2048,512)` | 20.75 | 0.883x | `grouped_fwd_serial_iq2_s_n2048_k512_j64` |
 
 Under the learned routes the B1/B4 batches trail their uniform-route control by `24%`/`14%` while B16 is level (`4%`). The B4/B16 loss is repeated IQ2_S lookup, sign, scale and packed-weight staging against predecoded BF16 weights. Flagged prior-sensitive at B1/B4. The J sweep confirmed the deployed mixed J64/J32 body is still the fastest of the J space.
 
+The small routes now read their activation fragments from the workspace instead of staging them through LDS, which is worth about ten percent at B1. The large route keeps the staged body because the fragment form loses there.
+
 ## Optimization log
+
+### Activation fragment reads
+
+The IQ2_S decode is expensive enough that the activation load path pays for itself twice: the body used to copy every stage's Q8_1 blocks into an LDS tile and read the WMMA B fragments back out with `load_ldmatrix`, and the fragment form keeps only the sixteen-byte metadata header of each token and reads the payload straight from the workspace. Screened on the deployed body per route, both orders, rotating route banks:
+
+| Route | paired passes |
+| --- | ---: |
+| B1 (`16384`) | `+11.7 % / +12.7 %` |
+| B4 (`65536`) | `+1.8 % / +2.4 %` |
+| B16 (`262144`) | `-6.6 % / -5.3 %` |
+
+The split is the activation working set: at the small routes it stays cache resident and the deleted LDS round trip is free money, while at B16 the sixteen scattered 32-byte groups per load cost more than the coalesced tile copy they replace. The routing therefore keeps the fragment body for the two small routes and the staged body for the large one, and both bodies stay catalogued.
 
 ### Mixed-tail retune
 
@@ -61,6 +75,7 @@ Still open after this round, in measured-payoff order: a swizzled activation til
 ### Activation prefetch
 
 The ablation that removed the activation global reads (keeping the LDS stores) was worth about a fifth of the runtime, so the next retune overlapped that latency instead of shrinking the copy: the second activation plane of each k block is now loaded into registers before the first dot and only stored to LDS after it.
+
 Within one build tree the staged body is `1.9%` faster at the largest batch and `2-3.5%` faster at the smaller ones. Under the benchmark protocol the three Qwen families gain `1.6-3.2%` at B1/B4 and are neutral at B16, where the groups are large enough that the serial row-tile loop already covers the load latency. The DeepSeek Q2_K bodies keep the knob off: their decode-bound instruction stream has no slack to fill, and the staging registers cost `1-2%`.
 
 Two neighbouring ideas were measured and rejected on the same route banks: a 128-bit vectorised activation copy is neutral (so it is the load latency, not the copy instruction count, that matters), and row-task ownership of the `n2048k512` shapes loses at B16 (`+2.2%` for Q4_K, `-2.4%` for Q5_K, `-8.9%` for IQ2_S) because one workgroup per J tile pays the per-workgroup setup that the serial row loop amortises.

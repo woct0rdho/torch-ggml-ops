@@ -8,13 +8,27 @@ This record covers the routed Q2_K down kernel for DeepSeek.
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | ---: | ---: | ---: | --- |
-| 1 | `(12288,4096,2048)` | 11.12 | 1.763x | `grouped_fwd_serial_q2_k_n4096_k2048_j32_j16` |
-| 4 | `(49152,4096,2048)` | 12.41 | 0.908x | `grouped_fwd_serial_q2_k_n4096_k2048_j32_j16` |
-| 16 | `(196608,4096,2048)` | 12.54 | 0.782x | `grouped_fwd_serial_q2_k_n4096_k2048_j32` |
+| 1 | `(12288,4096,2048)` | 12.08 | 1.934x | `grouped_fwd_serial_q2_k_n4096_k2048_j32_j16` |
+| 4 | `(49152,4096,2048)` | 13.14 | 0.978x | `grouped_fwd_serial_q2_k_n4096_k2048_j32_j16` |
+| 16 | `(196608,4096,2048)` | 13.34 | 0.861x | `grouped_fwd_serial_q2_k_n4096_k2048_j32` |
 
 The B1/B4 bodies are the mixed J32/J16 and J32 variants. They trail their uniform-route control by `9%`/`4%`, and B16 is level (`0%`). The B4/B16 gap remains repeated Q2_K scale/minimum reconstruction and limited N64 reuse against predecoded BF16 weights. Flagged prior-sensitive at B1: the J32/J16 routing threshold may need a learned-route retune.
 
 ## Issue-mix and ablation measurements
+
+### Dynamic LDS request
+
+The compact weight tile halves the stride of the shared layout, and the deployment helper priced the request from the full stride: the control asked for `30,336 B` while its body addresses `14,976 B`, which left it four workgroups per WGP where its register budget allows six. Requesting the footprint instead is a pure occupancy change with the identical code object:
+
+| Route | request `30,336 B` | request `14,976 B` | delta |
+| --- | ---: | ---: | ---: |
+| B1 (`12288`) | 18.674 ms | 17.293 ms | `+7.4 %` |
+| B4 (`49152`) | 61.973 ms | 59.924 ms | `+3.3 %` |
+| B16 (`196608`) | 251.355 ms | 244.662 ms | `+2.7 %` |
+
+The deployment helper now takes the compact stride from the control's own tile shape, and the same fix is what any future compact control needs.
+
+The fragment-order activation reads that pay on Q2_0 and IQ2_S do not transfer to this type: its workspace uses the `F16_D2S6` metadata layout, whose per-token header covers twice the values per entry, and the fragment body reproduces neither the values nor the plane geometry. The staged form stays.
 
 The deployed `grouped_fwd_serial_q2_k_n4096_k2048_j32` route for `(196608, 4096, 2048)` was profiled with PC sampling and PMC counters (`~/tmp/torch-ggml-ops/mmb_probe/pcs_q2k_gfwd/`). Samples with an issued instruction are `38%` of the total (`62%` find none available), the issued mix is `33.8%` mixed-precision FMA, `18.7%` int-to-float conversion, `20.0%` register moves, `5.8%` masked moves and `2.2%` shared loads, and the stall reasons are `ARBITER_NOT_WIN` `26.2%`, `BARRIER_WAIT` `18.5%`, `WAITCNT` `18.2%`, `ALU_DEPENDENCY` `18.2%` and `ARBITER_WIN_EX_STALL` `17.5%`.
 

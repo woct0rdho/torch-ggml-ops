@@ -2022,12 +2022,17 @@
         {
           "when": "rows_eq",
           "value": 65536,
-          "symbol": "grouped_fwd_serial_iq2_s_n2048_k512_j64_j32"
+          "symbol": "grouped_fwd_serial_iq2_s_n2048_k512_j64_j32_frag"
+        },
+        {
+          "when": "rows_eq",
+          "value": 16384,
+          "symbol": "grouped_fwd_serial_iq2_s_n2048_k512_j64_j32_frag"
         },
         {
           "when": "rows_lt_per_entry",
           "value": 128,
-          "symbol": "grouped_fwd_serial_iq2_s_n2048_k512_j64_j32"
+          "symbol": "grouped_fwd_serial_iq2_s_n2048_k512_j64_j32_frag"
         },
         {
           "when": "always",

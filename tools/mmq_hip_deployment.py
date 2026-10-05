@@ -43,8 +43,8 @@ SPLIT_K_REDUCE_SYMBOL = "dense_bwd_split_k_reduce"
 # Dense-forward LDS geometry. A J-row activation half tile holds
 # `J * MMQ_TILE_Y_K` ints (32 values plus their Q8_1 metadata per row), and the
 # packed weight tile holds `MMQ_I` rows of the type's SRAM stride. Compact
-# strides are the ones the vendored loader uses when `MMQ_COMPACT_TILE` is set;
-# only Q4_K and Q5_K have a smaller compact stride.
+# strides are the ones the vendored loader uses when `MMQ_COMPACT_TILE` is set.
+# Only Q4_K and Q5_K have a smaller compact stride.
 _FORWARD_TILE_Y_K = 36
 _FORWARD_MMQ_I = 64
 _FORWARD_COMPACT_STRIDES = {"Q4_K": 36, "Q5_K": 36, "Q2_K": 40}
@@ -113,6 +113,8 @@ _GROUPED_FORWARD_BLOCK = (32, 4, 1)
 _GROUPED_FORWARD_TILE_I = 64
 _GROUPED_FORWARD_THREADS = 128
 _GROUPED_TILE_Y_K = 36
+# A compact grouped weight tile halves the stride. Only Q2_K deploys it.
+_GROUPED_COMPACT_STRIDES = {"Q2_K": 40}
 _MMQ_SRAM_STRIDE = {
     "Q2_K": 100,
     "Q3_K": 84,
@@ -338,12 +340,21 @@ def _grouped_forward_lds_bytes(spec: HIPControlSpec) -> int:
         raise ValueError(f"{spec.symbol} has no quant type")
     tile_i, threads = grouped_forward_geometry(config)
     stride = _MMQ_SRAM_STRIDE[config.quant_type.name]
+    if config.compact_tile:
+        # A compact weight tile holds one 128-value half per row, and Q2_K's
+        # half is forty ints rather than the seventy-six of its full layout.
+        stride = _GROUPED_COMPACT_STRIDES.get(config.quant_type.name, stride)
     if getattr(config, "fragment_activation", False):
         # Only the sixteen-byte metadata header of each token stays in LDS.
         tile_y = config.j * _FORWARD_META_STRIDE
     else:
         tile_y = -(-config.j * _GROUPED_TILE_Y_K // threads) * threads
-    return 4 * (config.j + tile_y + tile_i * stride)
+    # A control that decodes through the level table keeps its 256 expansions
+    # behind the weight tile.
+    table_bytes = (
+        _Q2_0_LEVEL_TABLE_BYTES if getattr(config, "table_decode", False) else 0
+    )
+    return 4 * (config.j + tile_y + tile_i * stride) + table_bytes
 
 
 @dataclass(frozen=True)

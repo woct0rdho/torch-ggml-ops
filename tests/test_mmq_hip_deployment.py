@@ -5,6 +5,7 @@ import pytest
 from tools.mmq_deployment_cases import public_deployment_cases
 from tools.mmq_hip_control_spec import hip_control_specs
 from tools.mmq_hip_deployment import (
+    GroupedForwardControl,
     RoutedControl,
     control_inventory,
     deployment_table,
@@ -271,3 +272,25 @@ def test_grouped_forward_policy_fails_closed() -> None:
     control = select_grouped_forward_control("Q4_K", 2048, 512, 16_384, 256)
     with pytest.raises(ValueError, match="at least one route entry"):
         control.launch_configuration(2048, 0)
+
+
+def test_grouped_forward_lds_tracks_the_deployed_tile_shape() -> None:
+    """The dynamic request follows the compact, fragment and tail layouts.
+
+    A request that does not track the tile's own layout silently costs
+    workgroups: the compact Q2_K tile halved its stride while the helper kept
+    pricing the full row, which left the body four workgroups where its
+    registers allow six.
+    """
+
+    inventory = control_inventory()
+    expected = {
+        "grouped_fwd_serial_q2_k_n4096_k2048_j32": 14_976,
+        "grouped_fwd_serial_q2_k_n4096_k2048_j32_j16": 14_976,
+        "grouped_fwd_serial_iq2_s_n2048_k512_j64_frag": 22_784,
+        "grouped_fwd_serial_iq2_s_n2048_k512_j64_j32_frag": 22_784,
+        "grouped_fwd_serial_q2_0_n2560_k640_j64_j32_j16_frag": 20_736,
+    }
+    for symbol, lds_bytes in expected.items():
+        control = GroupedForwardControl(symbol, inventory[symbol])
+        assert control.lds_bytes == lds_bytes, symbol

@@ -52,6 +52,10 @@ What the measurements show for this kernel family:
 
 Still open after this round, in measured-payoff order: a swizzled activation tile and matching dot addressing to remove the `14%` LDS bank-conflict share (every 16-byte-aligned row stride this layout allows still conflicts, so this needs a layout change rather than padding), a permute-based nibble expansion for the decode-bound Q2_K bodies, and the I=32 tile that trades activation reuse for a smaller LDS footprint and a higher resident-workgroup count. The activation tile copy is closed: its 128-bit vectorised form is neutral, and the register prefetch above already covers the load latency.
 
+### Activation fragment reads
+
+The fragment-order activation reads that pay on Q2_0 and IQ2_S were screened on the deployed Q5_K bodies per route, both orders, rotating route banks: the fragment twin of the J64 body loses `9.0 % / 1.3 % / 5.3 %` and the twin of the J32 body `-5.6 % / -2.5 % / -6.4 %` at B1/B4/B16. Q5_K's decode is cheap enough that the sixteen scattered 32-byte groups per load cost more than the coalesced LDS tile they replace, which is the same conclusion the dense Q8_0 screen reached.
+
 ### Activation prefetch
 
 The ablation that removed the activation global reads (keeping the LDS stores) was worth about a fifth of the runtime, so the next retune overlapped that latency instead of shrinking the copy: the second activation plane of each k block is now loaded into registers before the first dot and only stored to LDS after it.

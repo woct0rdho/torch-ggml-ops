@@ -78,6 +78,7 @@ class ForwardConfig:
     bounded_tokens: bool = False
     rolled_q2: bool = False
     mixed_j32_tails: bool = False
+    mixed_j16_tails: bool = False
     mixed_q2_k: bool = False
     mixed_j32_rows: tuple[int, int] = (0, 0)
     full_i: bool = False
@@ -96,6 +97,10 @@ class ForwardConfig:
 
     def __post_init__(self) -> None:
         rows_a, rows_b = self.mixed_j32_rows
+        if self.mixed_j16_tails and not self.mixed_j32_tails:
+            raise ValueError("a J16 tail needs the J32 tail it hangs off")
+        if self.mixed_j16_tails and self.quant_type is not QuantType.Q2_0:
+            raise ValueError("the J16 tail is qualified for the routed Q2_0 shapes")
         if self.mixed_j32_tails:
             if self.kind != ForwardKind.GROUPED_SERIAL or self.j != 64:
                 raise ValueError("mixed J32 tails require the grouped J64 shape")
@@ -127,10 +132,16 @@ class ForwardConfig:
                 "a weight pipeline of more than eight stages is not staged"
             )
         if self.table_decode and (
-            self.kind != ForwardKind.DENSE
+            self.kind not in (ForwardKind.DENSE, ForwardKind.GROUPED_SERIAL)
             or self.quant_type not in {QuantType.Q2_0, QuantType.Q5_0}
         ):
-            raise ValueError("the level table is a dense Q2_0 or Q5_0 mechanism")
+            raise ValueError("the level table is a Q2_0 or Q5_0 mechanism")
+        if (
+            self.table_decode
+            and self.kind == ForwardKind.GROUPED_SERIAL
+            and (self.quant_type != QuantType.Q2_0)
+        ):
+            raise ValueError("the grouped level table serves the routed Q2_0 shape")
         if self.tail_values:
             if self.kind not in (ForwardKind.DENSE, ForwardKind.GROUPED_SERIAL):
                 raise ValueError(
@@ -198,7 +209,7 @@ class DenseBackwardConfig:
     split_k: int = 0
     pipeline_tiles: bool = False
     # Number of shared tiles the pipelined body rotates through. Two hides one
-    # decode behind one stage of matrix work; a deeper rotation gives the
+    # decode behind one stage of matrix work. A deeper rotation gives the
     # decode more stages of slack at eight KiB per step.
     pipeline_depth: int = 2
     prefetch_a_fragments: bool = False
@@ -403,7 +414,9 @@ void {symbol}(
         {_cpp_bool(config.mixed_j32_tails)},
         {_cpp_bool(config.mixed_q2_k)},
         {_cpp_bool(config.rolled_q2)}{grouped_j32_rows},
-        {config.tail_values}>(
+        {config.tail_values},
+        {_cpp_bool(config.mixed_j16_tails)},
+        {_cpp_bool(config.table_decode)}>(
             weights,
             activations,
             dst,

@@ -1839,7 +1839,8 @@ template <
     int fixed_blocks_per_weight_row,
     bool full_j,
     bool rolled_q2_k = false,
-    int k_tail_values = 0>
+    int k_tail_values = 0,
+    bool table_decode = false>
 static __device__ __forceinline__ void grouped_mmq_row_tile(
         const char * __restrict__ expert_weights,
         const int * __restrict__ activations,
@@ -2029,14 +2030,14 @@ static __device__ __forceinline__ void grouped_mmq_row_tile(
 #pragma unroll 1
         for (int kb = 0; kb < full_stages; ++kb) {
             if constexpr (k_tail_values > 0) {
-                mmq_load_window<type, J, !fixed_shape>(
+                mmq_load_window<type, J, !fixed_shape, table_decode>(
                     expert_weights,
                     tile_x,
                     tile_i * MMQ_I * k_row_values + kb * MMQ_ITER_K,
                     k_row_values,
                     i_max);
             } else {
-                mmq_load_target<type, J, !fixed_shape>(
+                mmq_load_target<type, J, !fixed_shape, table_decode>(
                     expert_weights,
                     tile_x,
                     weight_block_offset,
@@ -2112,7 +2113,7 @@ static __device__ __forceinline__ void grouped_mmq_row_tile(
             }
 #endif
 #if defined(MMQ_COMPACT_TILE)
-            mmq_load_target<type, J, !fixed_shape>(
+            mmq_load_target<type, J, !fixed_shape, table_decode>(
                 expert_weights,
                 tile_x,
                 weight_block_offset,
@@ -2143,7 +2144,7 @@ static __device__ __forceinline__ void grouped_mmq_row_tile(
                 // The tail stage: the packed window sits at the end of the row
                 // and holds the last 128 values in its upper half, which is the
                 // half the MMQ_TILE_NE_K vector dot reads.
-                mmq_load_window<type, J, !fixed_shape>(
+                mmq_load_window<type, J, !fixed_shape, table_decode>(
                     expert_weights,
                     tile_x,
                     tile_i * MMQ_I * k_row_values + k_tail_window,
@@ -2206,7 +2207,9 @@ template <
     bool rolled_q2_k = false,
     int mixed_j32_rows_a = 0,
     int mixed_j32_rows_b = 0,
-    int k_tail_values = 0>
+    int k_tail_values = 0,
+    bool mixed_j16_tails = false,
+    bool table_decode = false>
 static __device__ __forceinline__ void grouped_mmq_tail_tile(
         const char * __restrict__ expert_weights,
         const int * __restrict__ activations,
@@ -2233,16 +2236,28 @@ static __device__ __forceinline__ void grouped_mmq_tail_tile(
             nrows_activation == mixed_j32_rows_b;
         const int tail_rows = row_end - row_start;
         if (qualified_rows && tail_rows <= MMQ_J_TINY) {
+            if constexpr (mixed_j16_tails) {
+                if (tail_rows <= MMQ_J_MIN) {
+                    grouped_mmq_row_tile<
+                        type, MMQ_J_MIN, fixed_nrows_weight,
+                        fixed_blocks_per_weight_row, false, rolled_q2_k,
+                        k_tail_values, table_decode>(
+                            expert_weights, activations, dst, tile_x, tile_y,
+                            tile_i, row_start, row_end, nrows_weight,
+                            nrows_activation, blocks_per_weight_row);
+                    return;
+                }
+            }
             grouped_mmq_row_tile<
                 type, MMQ_J_TINY, fixed_nrows_weight, fixed_blocks_per_weight_row,
-                false, rolled_q2_k, k_tail_values>(
+                false, rolled_q2_k, k_tail_values, table_decode>(
                     expert_weights, activations, dst, tile_x, tile_y, tile_i,
                     row_start, row_end, nrows_weight, nrows_activation,
                     blocks_per_weight_row);
         } else {
             grouped_mmq_row_tile<
                 type, J, fixed_nrows_weight, fixed_blocks_per_weight_row,
-                false, rolled_q2_k, k_tail_values>(
+                false, rolled_q2_k, k_tail_values, table_decode>(
                     expert_weights, activations, dst, tile_x, tile_y, tile_i,
                     row_start, row_end, nrows_weight, nrows_activation,
                     blocks_per_weight_row);
@@ -2254,14 +2269,14 @@ static __device__ __forceinline__ void grouped_mmq_tail_tile(
         if (tail_rows <= MMQ_J_MIN) {
             grouped_mmq_row_tile<
                 type, MMQ_J_MIN, fixed_nrows_weight, fixed_blocks_per_weight_row,
-                false, rolled_q2_k>(
+                false, rolled_q2_k, k_tail_values, table_decode>(
                     expert_weights, activations, dst, tile_x, tile_y, tile_i,
                     row_start, row_end, nrows_weight, nrows_activation,
                     blocks_per_weight_row);
         } else {
             grouped_mmq_row_tile<
                 type, J, fixed_nrows_weight, fixed_blocks_per_weight_row,
-                false, rolled_q2_k, k_tail_values>(
+                false, rolled_q2_k, k_tail_values, table_decode>(
                     expert_weights, activations, dst, tile_x, tile_y, tile_i,
                     row_start, row_end, nrows_weight, nrows_activation,
                     blocks_per_weight_row);
@@ -2269,7 +2284,7 @@ static __device__ __forceinline__ void grouped_mmq_tail_tile(
     } else {
         grouped_mmq_row_tile<
             type, J, fixed_nrows_weight, fixed_blocks_per_weight_row,
-            false, rolled_q2_k, k_tail_values>(
+            false, rolled_q2_k, k_tail_values, table_decode>(
                 expert_weights, activations, dst, tile_x, tile_y, tile_i,
                 row_start, row_end, nrows_weight, nrows_activation,
                 blocks_per_weight_row);
@@ -2286,7 +2301,9 @@ template <
     bool rolled_q2_k = false,
     int mixed_j32_rows_a = 0,
     int mixed_j32_rows_b = 0,
-    int k_tail_values = 0>
+    int k_tail_values = 0,
+    bool mixed_j16_tails = false,
+    bool table_decode = false>
 static __device__ __forceinline__ void grouped_mmq_bf16_body(
         const char * __restrict__ weights,
         const int * __restrict__ activations,
@@ -2325,11 +2342,26 @@ static __device__ __forceinline__ void grouped_mmq_bf16_body(
     int * tile_y = shared + J;
     int * tile_x = tile_y + activation_ints;
 
+    // The table decode keeps the 256 expansions of one payload byte in LDS
+    // directly behind the weight tile, so the loader replaces the spread and
+    // the level offset with one lookup.
+    if constexpr (table_decode) {
+        static_assert(
+            type == GGML_TYPE_Q2_0,
+            "the grouped level table serves the two-bit decode");
+        int * levels = tile_x + MMQ_I * ggml_cuda_mmq_get_sram_stride<type, J, false>();
+        for (int entry = threadIdx.y * WARP_SIZE + threadIdx.x; entry < 256;
+             entry += MMQ_NTHREADS) {
+            levels[entry] = q2_0_spread_levels(entry);
+        }
+        __syncthreads();
+    }
+
     int row_start = row_begin;
     for (; row_start + J <= row_end; row_start += J) {
         grouped_mmq_row_tile<
             type, J, fixed_nrows_weight, fixed_blocks_per_weight_row,
-            true, rolled_q2_k, k_tail_values>(
+            true, rolled_q2_k, k_tail_values, table_decode>(
                 expert_weights,
                 activations,
                 dst,
@@ -2346,7 +2378,8 @@ static __device__ __forceinline__ void grouped_mmq_bf16_body(
         grouped_mmq_tail_tile<
             type, J, fixed_nrows_weight, fixed_blocks_per_weight_row,
             mixed_j32_tails, mixed_q2_k_tails, rolled_q2_k,
-            mixed_j32_rows_a, mixed_j32_rows_b, k_tail_values>(
+            mixed_j32_rows_a, mixed_j32_rows_b, k_tail_values,
+            mixed_j16_tails, table_decode>(
                 expert_weights,
                 activations,
                 dst,

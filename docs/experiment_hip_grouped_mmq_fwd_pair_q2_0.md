@@ -10,13 +10,13 @@ The model is `Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` (`qwen4_exp_text`, 48 layers, hid
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/bf16 GMM | Kernel |
 | ---: | --- | ---: | ---: | --- |
-| 1 | `2 x (20480,640,2560)` | 17.71 | 3.62x | `grouped_fwd_serial_q2_0_n640_k2560_j64_j32_frag` |
-| 4 | `2 x (81920,640,2560)` | 22.89 | 2.70x | `grouped_fwd_serial_q2_0_n640_k2560_j64_j32_frag` |
+| 1 | `2 x (20480,640,2560)` | 18.05 | 3.68x | `grouped_fwd_serial_q2_0_n640_k2560_j64_j32_j16_frag` |
+| 4 | `2 x (81920,640,2560)` | 22.74 | 2.68x | `grouped_fwd_serial_q2_0_n640_k2560_j64_j32_j16_frag` |
 | 16 | `2 x (327680,640,2560)` | 24.60 | 2.16x | `grouped_fwd_serial_q2_0_n640_k2560_j128_frag` |
 
 Banks come from the `qwen3.8-learned` law, one profile per size at the declared seed (`352 / 458 / 497` active experts, largest group `1261 / 4735 / 17896` rows). The baseline is the same routed product computed in BF16 over predecoded expert weights, one grouped product per projection with `torch.mm`: it is what an unquantized multiply-only grouped kernel reaches on this part, in the role the AITER GMM number plays in the plan.
 
-The quantized kernel is `2.16x` to `3.62x` ahead of it. One pair launch carries the same work as one routed down launch, and the two records land at the same rate at B16. Both sit below the int8/bf16 WMMA roofline rather than against it.
+The quantized kernel is `2.16x` to `3.68x` ahead of it. One pair launch carries the same work as one routed down launch, and the two records land at the same rate at B16. Both sit below the int8/bf16 WMMA roofline rather than against it.
 
 ## Why the body looks like this
 
@@ -32,16 +32,19 @@ Ten 256-value stages amortize a row tile well, so the padding the prior's small 
 | --- | ---: | ---: | ---: |
 | J64 fragment | `+1.8 % / +1.9 %` | `+2.5 % / -0.9 %` | `-0.0 % / +0.5 %` |
 | J64 fragment + J32 tails | `+21.6 % / +21.8 %` | `+10.0 % / +10.2 %` | `+0.0 % / -0.0 %` |
+| J64 fragment + J32 + J16 tails | `+23.6 % / +24.0 %` | `+9.4 % / +9.6 %` | `+0.3 % / +2.8 %` |
 | J80 fragment | `-5.8 % / -7.7 %` | `+1.6 % / +1.8 %` | `+3.3 % / +3.3 %` |
 | J128 staged | `-81.6 % / -80.2 %` | `-38.8 % / -38.8 %` | `-14.4 % / -14.7 %` |
 | J128 fragment | `-35.0 % / -34.5 %` | `-9.1 % / -8.9 %` | `+3.8 % / +3.8 %` |
 | J32 fragment | `+12.6 % / +13.0 %` | `-6.5 % / -6.3 %` | `-19.7 % / -19.2 %` |
 
-The B1 gain is padding arithmetic and nothing else: the same body without the J32 tail is worth two percent there. The wide tile needs both of its conditions - the fragment reads and the large route - and the staged wide tile is a fourteen percent loss at B16, which is the same split the dense Q2_0 record measured. A global J32 tile wins at B1 and loses everywhere else, so the tile height follows the route rather than the batch, and the two deployed bodies split at the largest route.
+The B1 gain is padding arithmetic and nothing else: the same body without the J32 tail is worth two percent there, and the J16 stage below it another two (`+2.0 % / +2.3 %` paired against the J32 body), at a measured cost of half a percent on the B4 route where almost no group is that small. The wide tile needs both of its conditions - the fragment reads and the large route - and the staged wide tile is a fourteen percent loss at B16, which is the same split the dense Q2_0 record measured. A global J32 tile wins at B1 and loses everywhere else, so the tile height follows the route rather than the batch, and the two deployed bodies split at the largest route.
 
 ### Closed and deferred mechanisms
 
 - The fused single-launch pair body (two packed banks, two outputs) is the GGTensile family's shape. The HIP pair operation is two launches of one single-projection body, which is what the sibling HIP pair records deploy as well.
+- The wide tile (`MMQ_I 128` with a 256-thread workgroup) is closed for this shape: it halves the activation passes but also halves the independent workgroups per WGP, and it measures `-13 % / -7 % / +0.9 %` at B1/B4/B16, with the tail variants a further nine points behind at B16.
+- The shipped body is the J16 variant: it wins on the training route and gives up `0.5 %` at B4, which the family accepts for a two-and-a-half percent B1 gain.
 - J80 is dominated rather than rejected: it is `3.3 %` ahead of the J64 staged body at B16 but six to eight percent behind at B1, and the J64+J32 / J128 split beats it at both ends.
 - Deployment wiring. Both bodies are catalogued and build into the HIP control bundle, but they carry no routed rule yet: the routed table is asserted to mirror the public route set exactly, and the public pair routes stop at IQ2_S, IQ2_XXS and Q3_K, so the family cannot be registered until a Q2_0 pair route exists.
 
