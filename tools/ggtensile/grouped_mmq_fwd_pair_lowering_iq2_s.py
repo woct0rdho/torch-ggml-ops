@@ -1,4 +1,4 @@
-"""K128-interleaved paired IQ2_S lowering for research artifacts."""
+"""K128-interleaved paired IQ2_S lowering."""
 
 from dataclasses import dataclass
 from typing import ClassVar

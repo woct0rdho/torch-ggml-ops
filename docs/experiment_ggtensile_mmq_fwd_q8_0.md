@@ -1,74 +1,58 @@
 # GGTensile MMQ Forward Q8_0 Experiment
 
-## Scope And Method
+## Final Results
 
-This record covers dense Q8_0 matrix multiplication kernels for gfx1151. The kernel consumes authoritative packed Q8_0 weights and an upstream Q8_1 F32_D4 activation workspace, performs signed integer WMMA with FP32 scale correction, and stores BF16 output. The contract is exact shape and exact kernel identity: wave32, WMMA V1, code object v5, and the existing 40-byte forward ABI.
+This record covers dense Q8_0 forward kernels for gfx1151:
 
-The fixed Q8_1 producer runs before every multiply measurement and is outside the timed interval. HIP and GGTensile multiply kernels consume the same packed weights and the same prepared workspace. Throughput is `2*M*N*K/(median_ms*1e9)`. The speedup ratio is `HIP median / GGTensile median`; values above `1.0x` favor GGTensile. The final table uses the final repeatable audit for the fastest retained kernel at each exact shape. The two audit passes showed no notable inconsistency, with the largest per-key difference below one percent.
+```text
+output[M,N] = input[M,K] @ dequant_q8_0(weight[N,K]).T
+```
 
-Every retained and screened executable candidate was required to pass exact HIP output comparison, independent packed/dequantized reference checks, finiteness, input/weight/workspace mutation checks, repeatability, strict code-object inspection, zero private storage, zero register spills, and deterministic rebuilds. No fixed speed threshold is used: a candidate is retained only when the timing evidence shows it is faster than the exact parent and HIP control.
+`TFLOPS = 2*M*N*K / (median_ms * 1e9)`, and `Speedup vs HIP = HIP median time / GGTensile median time`, so a value above `1.0x` favors GGTensile. Medians are the repository benchmark's, re-measured in the current clock state. They replace the earlier recorded values, which came from a different clock state with the same artifacts.
 
-## Fastest Kernels Found
+| Family | `(M,N,K)` | GGTensile TFLOPS | Speedup vs HIP | GGTensile kernel | HIP kernel |
+| --- | --- | ---: | ---: | --- | --- |
+| Attention Q-A | `(2048,1024,4096)` | 32.327 | 1.1142x | `mmq_fwd_q8_0_m2048_n1024_k4096_ac9f6ba25864f335` | `dense_fwd_q8_0_k4096_j128_full` |
+| Attention Q-A | `(8192,1024,4096)` | 33.075 | 1.1399x | `mmq_fwd_q8_0_m8192_n1024_k4096_c3b72b29ea9cdb96` | `dense_fwd_q8_0_k4096_j128_full` |
+| Attention Q-A | `(32768,1024,4096)` | 33.025 | 1.1056x | `mmq_fwd_q8_0_m32768_n1024_k4096_7204a17cfb45ad4a` | `dense_fwd_q8_0_k4096_j128_full` |
+| Attention Q-B | `(2048,32768,1024)` | 30.859 | 1.1385x | `mmq_fwd_q8_0_m2048_n32768_k1024_f7c942492cb08af8` | `dense_fwd_q8_0_k1024_j128_full` |
+| Attention Q-B | `(8192,32768,1024)` | 30.843 | 1.1335x | `mmq_fwd_q8_0_m8192_n32768_k1024_399bb3eba1cde513` | `dense_fwd_q8_0_k1024_j128_full` |
+| Attention Q-B | `(32768,32768,1024)` | 29.443 | 1.1338x | `mmq_fwd_q8_0_m32768_n32768_k1024_54fd9c6683513603` | `dense_fwd_q8_0_k1024_j128_full` |
+| Attention K/V | `(2048,512,4096)` | 29.205 | 1.0481x | `mmq_fwd_q8_0_m2048_n512_k4096_749eaab54e3b1379` | `dense_fwd_q8_0_k4096_j128_full` |
+| Attention K/V | `(8192,512,4096)` | 32.737 | 1.1382x | `mmq_fwd_q8_0_m8192_n512_k4096_e82d066d8f538884` | `dense_fwd_q8_0_k4096_j128_full` |
+| Attention K/V | `(32768,512,4096)` | 32.788 | 1.1211x | `mmq_fwd_q8_0_m32768_n512_k4096_793eb166548cd497` | `dense_fwd_q8_0_k4096_j128_full` |
+| Attention output B | `(2048,4096,8192)` | 32.420 | 1.1763x | `mmq_fwd_q8_0_m2048_n4096_k8192_842d264ebf9533e3` | `dense_fwd_q8_0_k8192_j128_full` |
+| Attention output B | `(8192,4096,8192)` | 32.663 | 1.1502x | `mmq_fwd_q8_0_m8192_n4096_k8192_43ecfa00ae6cb264` | `dense_fwd_q8_0_k8192_j128_full` |
+| Attention output B | `(32768,4096,8192)` | 31.314 | 1.1465x | `mmq_fwd_q8_0_m32768_n4096_k8192_8ae04c3a600a30c6` | `dense_fwd_q8_0_k8192_j128_full` |
+| Shared gate/up | `(2048,2048,4096)` | 32.540 | 1.1252x | `mmq_fwd_q8_0_m2048_n2048_k4096_4a9dab3b39257cb6` | `dense_fwd_q8_0_k4096_j128_full` |
+| Shared gate/up | `(8192,2048,4096)` | 32.647 | 1.1197x | `mmq_fwd_q8_0_m8192_n2048_k4096_d964370550753fe6` | `dense_fwd_q8_0_k4096_j128_full` |
+| Shared gate/up | `(32768,2048,4096)` | 32.533 | 1.1141x | `mmq_fwd_q8_0_m32768_n2048_k4096_20568015e2e2c57a` | `dense_fwd_q8_0_k4096_j128_full` |
+| Shared down | `(2048,4096,2048)` | 32.429 | 1.1432x | `mmq_fwd_q8_0_m2048_n4096_k2048_17fcf11967cf2c59` | `dense_fwd_q8_0_k2048_j128_full` |
+| Shared down | `(8192,4096,2048)` | 32.368 | 1.1105x | `mmq_fwd_q8_0_m8192_n4096_k2048_38dc14e5687d64fc` | `dense_fwd_q8_0_k2048_j128_full` |
+| Shared down | `(32768,4096,2048)` | 32.160 | 1.1121x | `mmq_fwd_q8_0_m32768_n4096_k2048_ae2a7e90efb21145` | `dense_fwd_q8_0_k2048_j128_full` |
+| LM head | `(32,129280,4096)` | 13.329 | 1.1108x | `mmq_fwd_q8_0_m32_n129280_k4096_2ecfddcfa3d28f81` | `dense_fwd_q8_0_k4096_j64_bounded` |
+| LM head | `(64,129280,4096)` | 25.747 | 1.0979x | `mmq_fwd_q8_0_m64_n129280_k4096_18ea51a79693a48d` | `dense_fwd_q8_0_k4096_j64_full` |
+| LM head | `(128,129280,4096)` | 32.266 | 1.1600x | `mmq_fwd_q8_0_m128_n129280_k4096_b1e120938911d11d` | `dense_fwd_q8_0_k4096_j128_full` |
+| LM head | `(256,129280,4096)` | 32.412 | 1.1585x | `mmq_fwd_q8_0_m256_n129280_k4096_242054725717ca9a` | `dense_fwd_q8_0_k4096_j128_full` |
+| LM head | `(512,129280,4096)` | 32.216 | 1.1575x | `mmq_fwd_q8_0_m512_n129280_k4096_be542889b65a26ca` | `dense_fwd_q8_0_k4096_j128_full` |
 
-The final exact-key set contains 23 matrix shapes. The selected kernel identities are 20 `CompactDepth32WeightRows` kernels, one `HipTile` kernel for Q-A M2048, and two `SmallMTile` kernels for LM-head M32 and M64.
+GGTensile is ahead on all 23 entries, by `1.048x` to `1.176x` (mean `1.129x`). The selected identities are 20 `CompactDepth32WeightRows` kernels, one `HipTile` kernel for Q-A M2048, and two `SmallMTile` kernels for LM-head M32 and M64.
 
-| Family | Matrix shape `(M,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
-| --- | --- | --- | ---: | ---: |
-| Attention Q-A | `(2048,1024,4096)` | `ggsol_ac9f6ba25864f335` | `34.245` | `1.1034x` |
-| Attention Q-A | `(8192,1024,4096)` | `ggsol_c3b72b29ea9cdb96` | `36.074` | `1.1704x` |
-| Attention Q-A | `(32768,1024,4096)` | `ggsol_7204a17cfb45ad4a` | `36.974` | `1.1511x` |
-| Attention Q-B | `(2048,32768,1024)` | `ggsol_f7c942492cb08af8` | `34.092` | `1.1918x` |
-| Attention Q-B | `(8192,32768,1024)` | `ggsol_399bb3eba1cde513` | `34.641` | `1.1995x` |
-| Attention Q-B | `(32768,32768,1024)` | `ggsol_54fd9c6683513603` | `35.059` | `1.2077x` |
-| Attention K/V | `(2048,512,4096)` | `ggsol_749eaab54e3b1379` | `30.285` | `1.0584x` |
-| Attention K/V | `(8192,512,4096)` | `ggsol_e82d066d8f538884` | `34.944` | `1.1411x` |
-| Attention K/V | `(32768,512,4096)` | `ggsol_793eb166548cd497` | `36.766` | `1.1630x` |
-| Attention output B | `(2048,4096,8192)` | `ggsol_842d264ebf9533e3` | `36.512` | `1.2463x` |
-| Attention output B | `(8192,4096,8192)` | `ggsol_43ecfa00ae6cb264` | `37.513` | `1.2348x` |
-| Attention output B | `(32768,4096,8192)` | `ggsol_8ae04c3a600a30c6` | `37.938` | `1.2344x` |
-| Shared gate/up | `(2048,2048,4096)` | `ggsol_4a9dab3b39257cb6` | `35.066` | `1.1287x` |
-| Shared gate/up | `(8192,2048,4096)` | `ggsol_d964370550753fe6` | `36.748` | `1.1502x` |
-| Shared gate/up | `(32768,2048,4096)` | `ggsol_20568015e2e2c57a` | `37.628` | `1.1585x` |
-| Shared down | `(2048,4096,2048)` | `ggsol_17fcf11967cf2c59` | `34.968` | `1.1462x` |
-| Shared down | `(8192,4096,2048)` | `ggsol_38dc14e5687d64fc` | `36.326` | `1.1417x` |
-| Shared down | `(32768,4096,2048)` | `ggsol_ae2a7e90efb21145` | `37.049` | `1.1495x` |
-| LM head | `(32,129280,4096)` | `ggsol_2ecfddcfa3d28f81` | `12.922` | `1.0455x` |
-| LM head | `(64,129280,4096)` | `ggsol_18ea51a79693a48d` | `24.540` | `1.0197x` |
-| LM head | `(128,129280,4096)` | `ggsol_b1e120938911d11d` | `36.335` | `1.2370x` |
-| LM head | `(256,129280,4096)` | `ggsol_242054725717ca9a` | `36.587` | `1.2341x` |
-| LM head | `(512,129280,4096)` | `ggsol_be542889b65a26ca` | `37.203` | `1.2419x` |
-
-## Final Kernel Profiles
-
-All final kernels use code object v5, gfx1151, wave32, the 40-byte ABI, zero private storage, and zero VGPR/SGPR spills. Static instruction counts are from strict inspection of the selected artifacts.
-
-| Kernel identity | Exact-key coverage | Workgroup / macro tile / DepthU | VGPR / SGPR / LDS bytes | WMMAs / VMEM / LDS ops | Waits / clauses / barriers |
-| --- | --- | --- | --- | --- | --- |
-| `CompactDepth32WeightRows` | 20 keys | `32x4x1 / 128x64 / 32` | `240 / 16 / 27,648` | `64 / 82 / 138` | `40 / 3 / 2` |
-| `HipTile` | Q-A `(2048,1024,4096)` | `32x4x1 / 128x64 / 32` | `240 / 16 / 38,400` | `64 / 82 / 154` | `40 / 3 / 2` |
-| `SmallMTile` M32 | LM head `(32,129280,4096)` | `32x4x1 / 32x64 / 32` | `96 / 16 / 24,064` | `16 / 25 / 73` | `13 / 3 / 2` |
-| `SmallMTile` M64 | LM head `(64,129280,4096)` | `32x4x1 / 64x64 / 32` | `144 / 16 / 28,672` | `32 / 44 / 100` | `22 / 3 / 2` |
-
-`CompactDepth32WeightRows` stores 128 activation rows with a 144-byte row stride and 64 weight rows with the same stride. Its activation plane is 18,432 bytes, its weight plane is 9,216 bytes, and weight scales begin at byte 128. Weight-first staging, direct paired weight-scale reads, and an invariant second scale base make the compact layout legal and reduce LDS pressure without changing the WMMA correction order. The Q8_0 independent-reference normalized RMSE values recorded for representative compact keys are approximately `0.00602` to `0.00606`.
-
-`HipTile` retains the standard LDS row layout and the activation-read-address hoist. The hoist computes the lane-local activation row address once and uses dependency-correct waits for the paired activation-scale copies. Its final Q-A M2048 control passed two warmed confirmations at approximately `1.10x` HIP multiply speed; an earlier apparent deficit was unresolved measurement noise rather than a kernel regression.
-
-The two `SmallMTile` kernels use the same wave-N ownership with M-specific activation staging. M32 uses 16 WMMAs and M64 uses 32. Both are exact under the Q8 arithmetic contract and remain within their declared resource classes. Their independent-reference normalized RMSE values are `0.006066967333` and `0.006039657922`.
+These kernels are the clock-sensitive ones in this record set. With the benchmark's real weight and activation data the APU sustains about `2.53 GHz` sclk, against about `2.80 GHz` for low-switching data, so the same artifacts read between 5% lower and 21% higher in the earlier recordings depending on the key. The HIP multiply body is insensitive to this and reproduces its own record, which is why the recorded lead over HIP shrinks here.
 
 ## Experiment Log: Accepted
 
-- The signed-int8 Q8_0 lowering is accepted as the arithmetic base. It consumes packed Q8_0 payloads directly, consumes the fixed Q8_1 F32_D4 workspace, applies `integer_result * weight_scale * activation_scale` in the established order, and stores BF16 with the required rounding behavior. Direct and LDS-backed forms remained exact under the full mutation and reference checks.
+- The signed-int8 Q8_0 lowering is accepted as the arithmetic base.
 - The balanced `2x2` register-tiled ownership, linear store traversal, materialized store addresses, and simplified store clause were accepted as intermediate exact controls. They established the final signed-int8 register ownership and arithmetic schedule, but the compact LDS composition later replaced them on the exact keys where it was faster.
-- The activation-read-address hoist was accepted after its wait schedule was corrected. The first version failed on odd M-fragment activation scales; the corrected version remained exact and became the final `HipTile` Q-A M2048 kernel.
+- The activation-read-address hoist was accepted after its wait schedule was corrected. The first version failed on odd M-fragment activation scales. The corrected version became the final `HipTile` Q-A M2048 kernel.
 - The compact depth32 composition was accepted for 20 exact keys. It combines the 144-byte depth32 rows, weight-first staging, legal paired weight-scale reads, and invariant paired-scale addressing. Every retained exact key was rebuilt and requalified after the composition changed the parent.
-- The M32 and M64 small-M ownerships were accepted for LM-head M32 and M64 after independent warmed confirmations, exact output checks, mutation checks, and deterministic rebuilds. The M64 compact ownership was also a useful exact KV control, but it was superseded by the final exact-key composition and is not a final identity.
-- The final qualification pass covered representative Q-B M8192, attention-output B M8192, and LM-head M128 kernels. Nine width/layout candidates were finite, repeatable, exact against the independent reference, exact against the parent and HIP, sensitive to input/weight/workspace mutations, and exact through the normal kernel path. Deterministic rebuilding matched source, object, code-object, and inspection results for all 28 admissible artifacts.
+- The M32 and M64 small-M ownerships were accepted for LM-head M32 and M64 after independent warmed confirmations. The M64 compact ownership was also a useful exact KV control, but it was superseded by the final exact-key composition and is not a final identity.
 
 ## Experiment Log: Rejected
 
 ### Ownership, Geometry, And Staging
 
-- The direct-global kernel and the first LDS-free register-tiled geometries were correct but slower than HIP. The `1x4`, `2x2`, and `4x1` register geometries did not provide a stable exact-key improvement; the balanced `2x2` form was retained only as an intermediate parent.
+- The direct-global kernel and the first LDS-free register-tiled geometries were correct but slower than HIP. The `1x4`, `2x2`, and `4x1` register geometries did not provide a stable exact-key improvement. The balanced `2x2` form was retained only as an intermediate parent.
 - Cooperative raw-weight LDS staging, wider `128x64` and `64x64` ownership, clustered ownership, generic producer ownership, and double-buffered or reordered staging added LDS traffic, barriers, or resource pressure without a stable multiply gain. These forms are not part of the final domain.
 - `DepthU=64` reduced loop count but required an additional barrier for the current ownership and doubled the reduction body. Persistent-zero depth32/depth64 variants were exact, but their improvements were shape-specific and did not establish a stable parent improvement. Both were rejected as final identities.
 - Terminal-LDS-barrier elision, loop-carried staging addresses, and other address-hoist variants were either shape-specific, unstable across parent rotations, or neutral within measurement noise. The strongest address-hoist probe improved one long-K shape while regressing Q-B, so it was rejected.
@@ -89,6 +73,6 @@ The two `SmallMTile` kernels use the same wave-N ownership with M-specific activ
 
 ## Final Disposition
 
-The accepted Q8_0 forward kernels are the four profiles in the final profile table, selected per exact matrix shape. The final speed table is multiply-only and reports the fastest retained identity found during the complete kernel experiments. All width and padding candidates are rejected; no actionable in-contract ownership, staging, scale, scheduling, or transaction-width mechanism remains from the reviewed search space.
+The accepted Q8_0 forward kernels are the four identities in the speed table, selected per exact matrix shape. All width and padding candidates are rejected. No actionable in-contract ownership, staging, scale, scheduling, or transaction-width mechanism remains from the reviewed search space.
 
 The implementation and regression coverage are in the typed Q8 search, specification validation, signed-int8 lowering, and writer tests. Detailed temporary build, inspection, timing, gate, and deterministic-rebuild records are under `~/tmp/torch-ggml-ops/q8-payload-reopening/`.

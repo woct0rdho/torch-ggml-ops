@@ -83,7 +83,7 @@ class Packed3BitTiledLdsLowering:
             )
 
     def body(self) -> str:
-        """Lower the isolated wave-N 128x64 Q3_K LDS research control."""
+        """Lower the isolated wave-N 128x64 Q3_K LDS control."""
         asm = Assembly()
         physical = self.context.state.physical_plan
         assert isinstance(physical, Packed3BitTiledLdsPhysicalPlan)

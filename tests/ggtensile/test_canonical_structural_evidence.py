@@ -24,9 +24,7 @@ def test_catalogs_preserve_canonical_structural_evidence() -> None:
 
     toolchain = Toolchain.discover()
     actual: list[dict[str, object]] = []
-    catalog_paths = sorted(CATALOG_ROOT.glob("*catalog.json")) + sorted(
-        (CATALOG_ROOT / "research").glob("*catalog.json")
-    )
+    catalog_paths = sorted(CATALOG_ROOT.glob("*catalog.json"))
     for path in catalog_paths:
         catalog = load_catalog(path)
         for instance in catalog.instances:
@@ -34,7 +32,7 @@ def test_catalogs_preserve_canonical_structural_evidence() -> None:
                 _jsonable(capture_structural_evidence(instance, toolchain).to_mapping())
             )
 
-    assert len(actual) == len(expected) == 154
+    assert len(actual) == len(expected) == 148
     unmatched = []
     for record in expected:
         matches = [

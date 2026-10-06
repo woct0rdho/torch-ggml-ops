@@ -591,7 +591,7 @@ class ForwardModule(_OrdinaryHIPModule):
 
 
 class GroupedForwardModule(_HIPModule):
-    """Research-only launcher for a routed grouped forward artifact."""
+    """Direct launcher for a routed grouped forward artifact."""
 
     def __init__(
         self,
@@ -849,7 +849,7 @@ class FixedHipForwardModule(ForwardModule):
 
 
 class FixedGroupedQ8BackwardModule(_HIPModule):
-    """Research-only launcher for the fixed-group six-argument backward ABI."""
+    """Direct launcher for the fixed-group six-argument backward ABI."""
 
     def __init__(
         self,
@@ -930,7 +930,7 @@ class FixedGroupedQ8BackwardModule(_HIPModule):
 
 
 class InstalledFixedGroupedQ8BackwardModule(FixedGroupedQ8BackwardModule):
-    """Direct launcher for the deployed fixed Q8_0 research control.
+    """Direct launcher for the deployed fixed Q8_0 control.
 
     The catalog selects the tuned M192/N64 body at every deployed token count.
     The M256/N64 body is built with the same arithmetic and bitwise-identical

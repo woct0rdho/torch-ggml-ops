@@ -1,4 +1,4 @@
-"""Paired routed ABI emission for research grouped forward kernels."""
+"""Paired routed ABI emission for grouped forward kernels."""
 
 from dataclasses import dataclass
 

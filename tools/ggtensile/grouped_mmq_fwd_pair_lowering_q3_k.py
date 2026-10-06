@@ -1,4 +1,4 @@
-"""K128-interleaved paired Q3_K lowering for research artifacts."""
+"""K128-interleaved paired Q3_K lowering."""
 
 from dataclasses import dataclass
 

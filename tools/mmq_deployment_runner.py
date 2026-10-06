@@ -171,7 +171,7 @@ def run_implementation(
     """Run one implementation and return detached BF16 output(s).
 
     `public` is the registered PyTorch operator, `ggtensile` is the exact
-    selected HSACO, and `hip` is the historical standalone control. The
+    selected HSACO, and `hip` is the standalone control. The
     latter two are deliberately launched through their native ABIs rather than
     through another project implementation.
     """

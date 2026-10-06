@@ -1,4 +1,4 @@
-"""Build the historical HIP controls outside the public GGTensile bundle."""
+"""Build the HIP controls outside the public GGTensile bundle."""
 
 import argparse
 import concurrent.futures

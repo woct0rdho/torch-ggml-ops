@@ -1,4 +1,4 @@
-"""Strict identities for research-only paired grouped forward paths."""
+"""Strict identities for paired grouped forward paths."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Assembly writer facade for paired grouped forward research kernels."""
+"""Assembly writer facade for paired grouped forward kernels."""
 
 from tools.mmq_abi import (
     GROUPED_FORWARD_PAIR_ABI,
@@ -27,7 +27,7 @@ from .toolchain import Toolchain
 
 
 class GroupedForwardPairKernelWriterAssembly(AssemblyKernelWriter):
-    """Emit one strict two-projection routed research artifact."""
+    """Emit one strict two-projection routed artifact."""
 
     def __init__(
         self,

@@ -75,7 +75,7 @@ Every failure occurs before quantization, task setup, or multiply launch. Native
 
 ## Selected inventory
 
-All selected winners are loaded from the strict canonical catalogs in `tools/ggtensile/configs/mmq_*_catalog.json`. Research-only catalogs are kept outside that public directory and are never included in the bundle.
+All selected winners are loaded from the strict canonical catalogs in `tools/ggtensile/configs/mmq_*_catalog.json`.
 
 The current public bundle contains 154 independently loadable artifacts:
 
@@ -92,7 +92,7 @@ The current public bundle contains 154 independently loadable artifacts:
 | Fixed grouped forward GGTensile | 3 |
 | Fixed grouped backward GGTensile | 3 |
 
-The six setup artifacts are the only HIP-compiled entries in the public bundle. Two of the five Q8_1 producers are the grouped body that the F32_D4 and F16_D4S4 quantizers dispatch to while the activation row set is cache resident. The F16_D2S6 producer has no grouped body because its scale spans 64 values. All 148 public multiply artifacts come from typed GGTensile assembly writers. Historical HIP controls are built separately for research comparisons. They are never part of public dispatch or used as a fallback.
+The six setup artifacts are the only HIP-compiled entries in the public bundle. Two of the five Q8_1 producers are the grouped body that the F32_D4 and F16_D4S4 quantizers dispatch to while the activation row set is cache resident. The F16_D2S6 producer has no grouped body because its scale spans 64 values. All 148 public multiply artifacts come from typed GGTensile assembly writers. HIP controls are built separately for comparison. They are never part of public dispatch or used as a fallback.
 
 Each selected route stores one winner only. Artifact files use `<symbol>.hsaco`. Their names come from the canonical typed key. The deployment builder does not emit a manifest or record toolchain, source, object, code-object, or resource provenance. Benchmark medians, model names, rejected alternatives, and tuning heuristics are not deployment fields.
 
@@ -123,9 +123,9 @@ The build entry point is:
 python -m tools.mmq_deployment_bundle --jobs 16
 ```
 
-`setup.py build_ext`, wheel builds, and editable installs run the public bundle builder before compiling `_C.abi3.so`, then copy the exact public HSACO set into the wheel build tree. Historical controls remain outside the public package. Source distributions are not supported. HSACOs remain ignored by Git.
+`setup.py build_ext`, wheel builds, and editable installs run the public bundle builder before compiling `_C.abi3.so`, then copy the exact public HSACO set into the wheel build tree. HIP controls remain outside the public package. Source distributions are not supported. HSACOs remain ignored by Git.
 
-The historical control build is an explicit research-only step. The HSACOs are ignored build outputs and are expected to be rebuilt on a new checkout or after a compiler/source change.
+The HIP control build is a separate step. The HSACOs are ignored build outputs and are expected to be rebuilt on a new checkout or after a compiler/source change.
 
 From the repository root, with the gfx1151 ROCm toolchain available:
 
@@ -148,7 +148,7 @@ python -m tools.build_mmq_hip_controls --verify-reproducible --jobs 16
 
 The builder requires `hipcc` (or `--hipcc /path/to/hipcc`) and the matching `amdclang++`, `llvm-readelf`, `llvm-objdump`, and `llvm-objcopy` tools. `amdclang++` may be selected with `GGTENSILE_AMDCLANGXX`. The LLVM tools are normally found beside it or on `PATH`. The checked-in `csrc/mmq_core.cuh`, `csrc/ck/`, and `csrc/vendor/llama_cpp/` headers are the source inputs. No GPU is required to compile, although the device tests still require a compatible gfx1151 system and runtime.
 
-Every header under `csrc/` is self-contained, so include order never matters and a translation unit includes exactly what it uses. `python -m tools.check_mmq_headers` compiles each header as its own translation unit and fails on a missing include, a missing include guard, or an unresolvable quoted include. Each historical control includes only the family header that defines its body, so the generated translation units stay independent of each other. The three vendored `csrc/vendor/llama_cpp/mmq-*.cuh` templates are configuration fragments rather than headers: they expand against the `MMQ_*` settings and helpers that `mmq_core.cuh` defines before including them, and that header is their only include site.
+Every header under `csrc/` is self-contained, so include order never matters and a translation unit includes exactly what it uses. `python -m tools.check_mmq_headers` compiles each header as its own translation unit and fails on a missing include, a missing include guard, or an unresolvable quoted include. Each HIP control includes only the family header that defines its body, so the generated translation units stay independent of each other. The three vendored `csrc/vendor/llama_cpp/mmq-*.cuh` templates are configuration fragments rather than headers: they expand against the `MMQ_*` settings and helpers that `mmq_core.cuh` defines before including them, and that header is their only include site.
 
 `python -m tools.check_cpp_style` enforces the block convention that Composable Kernel and llama.cpp share on every checked-in C++/CUDA file: four spaces per block level, no tabs, no line shallower than its block level, and local includes before parent-directory includes. Line breaks, line width and vertical alignment are semantic choices and are not checked.
 
@@ -156,7 +156,7 @@ The inventory itself is data. `tools/configs/hip_deployment.json` names the body
 
 A successful build atomically installs one bare-symbol file per control in that inventory under `build/mmq_hip_controls/gfx1151/` and writes a freshness stamp there. The current launchers expect names such as `grouped_fwd_serial_q2_k_n4096_k2048_j32.hsaco`. Older prefixed files such as `torch_ggml_ops_mmq_gfx1151_v1_<symbol>.hsaco` do not satisfy lookup and are replaced by a current rebuild. `--check` exits nonzero when the inventory, stamp, compiler, or source inputs are stale.
 
-Direct-kernel benchmark runners accept `--hip-root` for the directory containing the historical-control set. Tests and runners otherwise use `GGTENSILE_HIP_CONTROL_ROOT` when set, followed by `build/mmq_hip_controls/gfx1151` when it is available. These controls are comparison artifacts only. Their presence does not change the 148-route public inventory.
+`tools/configs/hip_deployment.json` is the single source of truth for the fastest HIP kernel of every problem: it names the body each exact key selects. Direct-kernel benchmark runners accept `--hip-root` for the directory containing the built control set. Tests and runners otherwise use `GGTENSILE_HIP_CONTROL_ROOT` when set, followed by `build/mmq_hip_controls/gfx1151` when it is available. These controls are comparison artifacts only. Their presence does not change the 148-route public inventory.
 
 ## Runtime loading and launch
 
@@ -169,9 +169,9 @@ torch_ggml_ops/
     <exact-symbol>.hsaco
     ...
 
-# Optional research-only controls (outside the public package):
+# Optional HIP controls (outside the public package):
 build/mmq_hip_controls/gfx1151/
-  <historical-control-symbol>.hsaco
+  <control-symbol>.hsaco
   ...
 ```
 

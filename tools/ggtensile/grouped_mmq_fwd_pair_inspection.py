@@ -1,4 +1,4 @@
-"""Strict artifact inspection for paired grouped forward research kernels."""
+"""Strict artifact inspection for paired grouped forward kernels."""
 
 from pathlib import Path
 

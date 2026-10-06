@@ -2,49 +2,43 @@
 
 ## Final Results
 
-This report covers the three exact gfx1151 wave32 Q6_K multiply shapes. The accepted kernel is the deterministic typed wavefront lowering. It is the fastest confirmed kernel family for all three shapes across this campaign.
+This record covers the dense Q6_K forward kernel keys used by the workload:
 
-Timing uses a prequantized Q8_1 `F32_D4` workspace, 20 warmups, and two independent 25-repeat rotating confirmations. Quantization is excluded. Throughput is `2*M*N*K/(median_ms*1e9)`. The table uses the mean of the two confirmation medians for each shape; speedup is HIP median time divided by kernel median time.
+```text
+output[M,N] = input[M,K] @ dequant_q6_k(weight[N,K]).T
+```
 
-| Matrix shape `(M,N,K)` | Kernel hash | TFLOPS | Speedup versus HIP |
-| --- | --- | ---: | ---: |
-| `(64,248320,2048)` | `ggsol_ef5c904640b7f2fe` | `16.502` | `1.0189x` |
-| `(128,248320,2048)` | `ggsol_7f187e39bc287c24` | `17.702` | `1.0087x` |
-| `(256,248320,2048)` | `ggsol_91905def3e2625cc` | `17.583` | `1.0095x` |
+The accepted kernel is the deterministic typed wavefront lowering.
 
-The corresponding mean median times were `3.944808 ms` versus HIP `4.019212 ms` at M64, `7.354609 ms` versus `7.418471 ms` at M128, and `14.808370 ms` versus `14.948721 ms` at M256. All three shapes passed both confirmation gates.
+`TFLOPS = 2*M*N*K / (median_ms * 1e9)`, and `Speedup vs HIP = HIP median time / GGTensile median time`, so a value above `1.0x` favors GGTensile. Medians are the repository benchmark's, re-measured in the current clock state. They replace the earlier recorded values, which came from a different clock state with the same artifacts.
 
-### Final Resource Profile
+| Family | `(M,N,K)` | GGTensile TFLOPS | Speedup vs HIP | GGTensile kernel | HIP kernel |
+| --- | --- | ---: | ---: | --- | --- |
+| LM head | `(64,248320,2048)` | 16.492 | 0.8085x | `mmq_fwd_q6_k_m64_n248320_k2048_ef5c904640b7f2fe` | `dense_fwd_q6_k_k2048_j64_full_hoisted` |
+| LM head | `(128,248320,2048)` | 17.470 | 0.7676x | `mmq_fwd_q6_k_m128_n248320_k2048_7f187e39bc287c24` | `dense_fwd_q6_k_k2048_j128_full_hoisted` |
+| LM head | `(256,248320,2048)` | 17.464 | 0.7678x | `mmq_fwd_q6_k_m256_n248320_k2048_91905def3e2625cc` | `dense_fwd_q6_k_k2048_j128_full_hoisted` |
 
-| M | Workgroup | VGPR | SGPR | LDS | Static WMMA | Static VOPD | Private bytes | Spills |
-| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 64 | `(32,4,1)` | 158 | 27 | `28,928 B` | 8 | 110 | 0 | 0 |
-| 128 | `(32,4,1)` | 210 | 27 | `38,400 B` | 16 | 182 | 0 | 0 |
-| 256 | `(32,4,1)`, two row tiles | 210 | 27 | `38,400 B` | 16 | 182 | 0 | 0 |
-
-All selected code objects are code-object v5 for gfx1151, with wavefront size 32, four barriers, no scratch, calls, dynamic stack, or register spills. Independent source, object, and HSACO rebuilds were byte-identical.
+GGTensile's own throughput is unchanged from the earlier recording. The HIP column is the deployed `_hoisted` body, which is `1.26-1.31x` faster than the HIP multiply body this record was originally paired against, so HIP now leads on all three shapes.
 
 ## Accepted Experiment Logs
 
 ### Canonical Q6 wavefront schedule
 
-The retained schedule directly decodes the 210-byte Q6_K block, preserves integer WMMA accumulation and signed int8 scale application, then applies the Q6 block factor, Q8_1 activation scale, and exact BF16 `RNEPreserveNaN` output sequence. It uses the fixed 40-byte kernel argument layout and the fixed physical register roles.
+The retained schedule directly decodes the 210-byte Q6_K block, preserves integer WMMA accumulation and signed int8 scale application, then applies the Q6 block factor, Q8_1 activation scale, and exact BF16 `RNEPreserveNaN` output sequence.
 
-M64 owns one J64 row tile. M128 owns one J128 row tile. M256 uses two exact J128 row tiles with the same physical profile. The selected semantic policy is output-role wavefront traversal, row-batched decode order, explicit dependency distance, producer-first waits, explicit role lifetimes, and dependency-compatible dual issue. M64 has no delay hints; M128 and M256 retain the selected dependency-delay schedule.
+M64 owns one J64 row tile. M128 owns one J128 row tile. M256 uses two exact J128 row tiles with the same physical profile. The selected semantic policy is output-role wavefront traversal, row-batched decode order, explicit dependency distance, producer-first waits, explicit role lifetimes, and dependency-compatible dual issue. M64 has no delay hints. M128 and M256 retain the selected dependency-delay schedule.
 
 The M256 ownership defect was fixed by deriving the weight-column owner as `wave & 3` and applying the 128-row offset only to the upper output half. A padded-canary check and the unpadded full-shape run then completed without missing or out-of-bounds writes.
 
-Every selected shape matched HIP at zero differing BF16 elements over `15,892,480`, `31,784,960`, and `63,569,920` outputs respectively. Outputs were finite, producer replay changed zero bytes, and input, packed-weight, and workspace mutations changed the result while preserving candidate/HIP equality. Independent-reference normalized RMSE was `0.0061594`, `0.0061055`, and `0.0060818` for M64, M128, and M256.
-
 ### Exact arithmetic and output pipeline
 
-The selected arithmetic order is retained because it is bit-exact to HIP and survives packed-data mutation. The BF16 output pipeline is also retained: the resource-neutral rewrite preserved the selected VGPR, SGPR, LDS, and zero-spill profile. M64 retained its measured delay-hint removal. M128 and M256 retain the full-tile BF16 dependency scope needed by the exact output sequence.
+The selected arithmetic order is retained. The BF16 output pipeline is also retained: the resource-neutral rewrite preserved the selected VGPR, SGPR, LDS, and zero-spill profile. M64 retained its measured delay-hint removal. M128 and M256 retain the full-tile BF16 dependency scope needed by the exact output sequence.
 
 ## Rejected Experiment Logs
 
 ### Raw-payload and shared-ownership representations
 
-The compact raw-payload representation staged raw `ql`, raw `qh`, signed metadata, and the block factor in a 224-byte row. It was exact and resource-clean, but reduced LDS enough to add resident workgroups while forcing reconstruction in each consumer group. M64 changed from `4.628572 ms` to `5.447662 ms` (`0.849645x` parent throughput), and M128 changed from `7.987497 ms` to `8.688813 ms` (`0.919286x`). It was rejected; M256 did not satisfy the transfer gate.
+The compact raw-payload representation staged raw `ql`, raw `qh`, signed metadata, and the block factor in a 224-byte row. It was exact and resource-clean, but reduced LDS enough to add resident workgroups while forcing reconstruction in each consumer group. M64 changed from `4.628572 ms` to `5.447662 ms` (`0.849645x` parent throughput), and M128 changed from `7.987497 ms` to `8.688813 ms` (`0.919286x`). It was rejected. M256 did not satisfy the transfer gate.
 
 The expanded-scale M256 representation was exact and used `57,600 B` LDS with zero spills. It reduced LDS instructions but moved only from `15.589506 ms` to `15.505320 ms` (`1.005429x` parent speedup) and remained behind HIP at `0.958739x`. The resource-bearing greater-than-2% gate was not met.
 
@@ -54,7 +48,7 @@ The regenerated shared-MT256 ownership was exact, deterministic, and resource-cl
 
 Paired activation-scale reads and paired decoded stores remained exact, but the combined screen was shape-inconsistent at `1.016x`, `1.003x`, and `0.998x` of the decoded parent for M64, M128, and M256. The candidate was rejected as noise-scale.
 
-Fine-grained producer waits, decode/store interleaving, factor-read frontiers, and setup VOPD unpairing all remained exact and resource-clean. Their best screens were at most sub-percent effects; confirmations reversed the apparent gains. In particular, setup unpairing moved from screen ratios below one to confirmation ratios of `1.001720x` and `1.001719x`, while the broad form measured `1.000863x` and `0.998932x`.
+Fine-grained producer waits, decode/store interleaving, factor-read frontiers, and setup VOPD unpairing all remained exact and resource-clean. Their best screens were at most sub-percent effects. Confirmations reversed the apparent gains. In particular, setup unpairing moved from screen ratios below one to confirmation ratios of `1.001720x` and `1.001719x`, while the broad form measured `1.000863x` and `0.998932x`.
 
 Dot-frontier variants also remained exact. The 25-repeat confirmations reduced the best M64 and M128 parent ratios to `0.997820x` and `0.997778x`, below the material-gain gate and not stable enough to retain as a separate policy. Alternate factor ordering, J128 delay removal, compact geometries, dedicated decoder waves, and low-register-only controls likewise produced no repeatable gain that survived the fixed resource and exactness gates.
 
@@ -72,7 +66,7 @@ Kernel-only counters support that conclusion: typed and oracle bodies had identi
 
 ### BF16 rounding alternatives
 
-`BiasRound` was faster but not exact. Differing elements were 135, 236, and 515 for M64, M128, and M256; maximum absolute error was `0.015625`, with normalized RMSE from `1.543e-5` to `1.586e-5`.
+`BiasRound` was faster but not exact. Differing elements were 135, 236, and 515 for M64, M128, and M256. Maximum absolute error was `0.015625`, with normalized RMSE from `1.543e-5` to `1.586e-5`.
 
 `Truncate` changed approximately half of the outputs. Its normalized RMSE was approximately `0.00405`, maximum absolute error was `0.03125`, and differing elements were 7,934,498, 15,869,873, and 31,741,799. Both alternatives were rejected by the exact output contract.
 

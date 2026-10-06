@@ -1,4 +1,4 @@
-"""Strict validation for research-only paired grouped forward kernels."""
+"""Strict validation for paired grouped forward kernels."""
 
 from .grouped_mmq_fwd_pair_model import (
     GroupedForwardPairProblem,

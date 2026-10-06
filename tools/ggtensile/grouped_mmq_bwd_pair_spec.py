@@ -1,4 +1,4 @@
-"""Derived authorities for research-only paired grouped backward kernels."""
+"""Derived authorities for paired grouped backward kernels."""
 
 from dataclasses import dataclass
 

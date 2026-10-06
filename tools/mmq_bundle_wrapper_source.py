@@ -258,7 +258,7 @@ class GroupedBackwardConfig:
     # unit the compiler must leave registers for. Two is the deployed value.
     # Raising it forces the VGPR count down so more workgroups fit.
     min_blocks: int = 2
-    # Workgroup width in threads. Zero keeps the four-wave default; a wider
+    # Workgroup width in threads. Zero keeps the four-wave default. A wider
     # workgroup tiles more rows per task descriptor, which amortises the weight
     # decode over more rows and halves the barrier count for the same work.
     threads: int = 0

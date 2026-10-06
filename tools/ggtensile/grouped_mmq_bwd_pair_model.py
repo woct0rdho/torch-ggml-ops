@@ -1,4 +1,4 @@
-"""Strict identities for research-only paired grouped backward kernels."""
+"""Strict identities for paired grouped backward kernels."""
 
 from __future__ import annotations
 

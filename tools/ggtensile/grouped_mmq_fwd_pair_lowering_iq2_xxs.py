@@ -1,4 +1,4 @@
-"""K128-interleaved paired IQ2_XXS lowering for research artifacts."""
+"""K128-interleaved paired IQ2_XXS lowering."""
 
 from dataclasses import dataclass
 
