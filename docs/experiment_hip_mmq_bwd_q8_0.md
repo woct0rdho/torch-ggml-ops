@@ -4,12 +4,14 @@
 
 This record covers gfx1151 HIP packed-MMQ input-gradient kernels for DeepSeek Q8_0 weights.
 
-The record covers seven ordinary families at `M=2048,8192,32768` and the LM-head chunk matrix at `M=32,64,128,256,512`. One of the seven is the Qwen4-Exp checkpoint `Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` shared-expert down projection, whose weight is `(2560,640)`. Its M values count tokens of a sequence length 2048 batch (B1/B4/B16), and the training path calls `M=2048`. The 48 layers mix recipes - the same projection family is a different quant type in different layers - so every type that appears needs a body, or those layers fall back to a dequantizing multiply.
+The record covers seven ordinary projection families and the LM-head chunk shapes. One of the seven is the Qwen4-Exp checkpoint `Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` shared-expert down projection. Its row counts are tokens of a sequence length 2048 batch, and the training path calls the smallest of them. The 48 layers mix recipes - the same projection family is a different quant type in different layers - so every type that appears needs a body, or those layers fall back to a dequantizing multiply.
 
-## Final ordinary-kernel result
+## Final Results
+
+The `Kernel` column names the deployed body for each exact key. The language-model-head chunks run the split-contraction bodies described below. The other families run the pipelined or exact-dimension dense-backward bodies.
 
 | Family | `(M,K,N)` | HIP TFLOPS | HIP/torch.mm | Kernel |
-| --- | ---: | ---: | ---: | --- |
+| --- | --- | ---: | ---: | --- |
 | Q-A | `(2048,4096,1024)` | 35.059 | 1.557x | `dense_bwd_q8_0_pipea_nt4_ki64_mw2_pad8` |
 | Q-A | `(8192,4096,1024)` | 31.415 | 1.285x | `dense_bwd_q8_0_pipea_nt4_ki64_mw4_sw16_prefetch` |
 | Q-A | `(32768,4096,1024)` | 32.740 | 1.346x | `dense_bwd_q8_0_pipea_nt4_ki64_mw4_sw16_prefetch` |
@@ -31,18 +33,13 @@ The record covers seven ordinary families at `M=2048,8192,32768` and the LM-head
 | Shared down Qwen4-Exp | `(2048,640,2560)` | 26.948 | 1.656x | `dense_bwd_q8_0_exact_n640k2560_g2_group_m2_padding8` |
 | Shared down Qwen4-Exp | `(8192,640,2560)` | 28.778 | 1.768x | `dense_bwd_q8_0_pipea_nt4_ki64_mw2_pad8` |
 | Shared down Qwen4-Exp | `(32768,640,2560)` | 30.229 | 1.709x | `dense_bwd_q8_0_pipea_nt4_ki64_mw2_sw16` |
+| LM head | `(32,4096,129280)` | 8.670 | 1.174x | `dense_bwd_q8_0_exact_lm_head_splitk_m32_s4_full_aw2` |
+| LM head | `(64,4096,129280)` | 18.070 | 1.254x | `dense_bwd_q8_0_exact_lm_head_splitk_m64_s4` |
+| LM head | `(128,4096,129280)` | 23.780 | 1.894x | `dense_bwd_q8_0_exact_lm_head_splitk_m128_s16` |
+| LM head | `(256,4096,129280)` | 32.960 | 2.184x | `dense_bwd_q8_0_exact_lm_head_splitk_m256_s16` |
+| LM head | `(512,4096,129280)` | 26.520 | 1.598x | `dense_bwd_q8_0_exact_lm_head_splitk_m512_s32` |
 
-The `Kernel` column names the deployed body for each exact key. The four split-contraction LM-head bodies keep the deployed decode and matrix work but sum FP32 partial tiles in ascending slice order and round once at the end.
-
-| `(M,N,K)` | HIP time (ms) | HIP TFLOPS | HIP/torch.mm | Kernel |
-| ---: | ---: | ---: | ---: | --- |
-| `(32,4096,129280)` | 3.910 | 8.67 | 1.174x | `dense_bwd_q8_0_exact_lm_head_splitk_m32_s4_full_aw2` |
-| `(64,4096,129280)` | 3.750 | 18.07 | 1.254x | `dense_bwd_q8_0_exact_lm_head_splitk_m64_s4` |
-| `(128,4096,129280)` | 5.701 | 23.78 | 1.894x | `dense_bwd_q8_0_exact_lm_head_splitk_m128_s16` |
-| `(256,4096,129280)` | 8.226 | 32.96 | 2.184x | `dense_bwd_q8_0_exact_lm_head_splitk_m256_s16` |
-| `(512,4096,129280)` | 20.448 | 26.52 | 1.598x | `dense_bwd_q8_0_exact_lm_head_splitk_m512_s32` |
-
-All five chunks run the split-contraction body described below, with the slice count fitted per chunk. Every row in the table comes from one official run against the same BF16 `torch.mm` baseline.
+All five language-model-head chunks run the split-contraction body, with the slice count fitted per chunk. Every row comes from one official run against the same BF16 `torch.mm` baseline.
 
 ### Split-contraction deployment
 

@@ -1,55 +1,20 @@
 # GGTensile Fixed-Group MMQ Backward Q8_0 Experiment
 
-## Scope And Contract
+## Scope
 
-This record covers the fixed-group Q8_0 backward kernel for gfx1151. There are eight independent non-routed groups. For each group, the operation is:
+This record covers the fixed-group Q8_0 backward kernel for gfx1151: eight independent packed weight groups over one gradient-output tile, with the gradient input as the destination.
 
-```text
-dY [M, K] @ W [K, N] -> dX [M, N]
-```
+## Final Results
 
-The measured production shapes use `M` equal to 2,048, 8,192, or 32,768, `N=4096`, and `K=1024`. The tensor layouts are:
+`TFLOPS = 2*M*K*N / (median_ms * 1e9)`, and `Speedup vs HIP = HIP median time / GGTensile median time`, so a value above `1.0x` favors GGTensile. Medians are the repository benchmark's, re-measured in the current clock state. They replace the earlier recorded values, which came from a different clock state with the same artifacts.
 
-```text
-grad_output   [tokens, 8, 1024] BF16
-grad_input    [tokens, 8, 4096] BF16
-packed_weight [8, 1024, 4352] uint8
-```
+| Family | `(M,K,N)` | GGTensile TFLOPS | Speedup vs HIP | GGTensile kernel | HIP kernel |
+| --- | --- | ---: | ---: | --- | --- |
+| Fixed grouped | `(2048,4096,1024)` | 29.496 | 1.2623x | `fixed_grouped_mmq_bwd_q8_0_t2048_n4096_k1024_b6978ce5fe3e26e4` | `grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64` |
+| Fixed grouped | `(8192,4096,1024)` | 29.787 | 1.2321x | `fixed_grouped_mmq_bwd_q8_0_t8192_n4096_k1024_81a42231db569ec8` | `grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64` |
+| Fixed grouped | `(32768,4096,1024)` | 29.962 | 1.1782x | `fixed_grouped_mmq_bwd_q8_0_t32768_n4096_k1024_41e9701bff12cf4f` | `grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64` |
 
-Rows are token-major with the group axis interleaved. Each Q8_0 weight row contains 128 blocks of 34 bytes, for a packed row stride of 4,352 bytes and a per-group size of 4,456,448 bytes.
-
-The fixed six-argument ABI is:
-
-```text
-grad_output, packed_weight, grad_input,
-tokens (u32), out_features (u32), bytes_per_group (u64)
-```
-
-The selected kernels use gfx1151 code-object version 5, wave32, 128 threads, and two-dimensional M/N tiling with fixed group-Z ownership. Correctness requires exact BF16 output equality with the installed HIP fixed-group kernel and the independent dequantized reference.
-
-Timing measures the fixed grouped multiply body with the same packed weights and input tensors. Setup, allocation, dequantization, and reference work are outside kernel timing. Logical throughput counts all eight groups as `2*tokens*8*4096*1024/(median_ms*1e9)`.
-
-## Final Benchmark Results
-
-The table contains the fastest qualified kernels found across the complete experiment. The speedup is HIP time divided by GGTensile time; values above `1.0x` favor GGTensile. These are the latest direct-kernel measurements using 20 warmups, 25 samples, and launch batching.
-
-| Matrix shape `(M,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
-| --- | --- | ---: | ---: |
-| `(2048,4096,1024)` | `ggsol_b6978ce5fe3e26e4` | `29.459` | `1.3148x` |
-| `(8192,4096,1024)` | `ggsol_81a42231db569ec8` | `30.059` | `1.3462x` |
-| `(32768,4096,1024)` | `ggsol_41e9701bff12cf4f` | `30.072` | `1.2616x` |
-
-The three hashes are the same selected E6-derived identities at the three token counts. All remained bitwise exact and faster than HIP in the latest direct-kernel run.
-
-## Final Kernel Profile
-
-| Kernel hash | Geometry and pipeline | Workgroup | VGPR / SGPR | LDS bytes | WMMAs | Barriers |
-| --- | --- | --- | ---: | ---: | ---: | ---: |
-| `ggsol_b6978ce5fe3e26e4` | N-major M128/N128, DepthU64, PGR2/PLR1/SIA4 | `32x4x1` | `216 / 17` | `18,432` | 64 | 2 |
-| `ggsol_81a42231db569ec8` | N-major M128/N128, DepthU64, PGR2/PLR1/SIA4 | `32x4x1` | `216 / 17` | `18,432` | 64 | 2 |
-| `ggsol_41e9701bff12cf4f` | N-major M128/N128, DepthU64, PGR2/PLR1/SIA4 | `32x4x1` | `216 / 17` | `18,432` | 64 | 2 |
-
-The final identity uses the pad-8 single-buffer LDS layout, ordinary packed Q8 extraction, raised-priority element-serial stores, and fixed group-Z address ownership. The artifacts have a 40-byte kernarg segment, no private segment, no spills, no scratch, and no undeclared register use.
+GGTensile is ahead on all 3 token counts, with speedups from `1.178x` to `1.262x` (mean `1.224x`).
 
 ## Accepted Kernel Experiments
 
@@ -105,7 +70,7 @@ Current-and-next packed-weight prefetch was rejected by the selected DepthU64 de
 
 ### M64/N256 DepthU64 repair
 
-A dedicated M64/N256 DepthU64 attempt first exposed a register-planner collision: decoder row pointers occupied `v200:v207`, overlapping the LDS and quantization state registers. The planner repair moved state to `v208` and `v209`; the repaired artifact inspected cleanly at 230 VGPRs, 17 SGPRs, 36,864 LDS bytes, 64 WMMAs, and two barriers.
+A dedicated M64/N256 DepthU64 attempt first exposed a register-planner collision: decoder row pointers occupied `v200:v207`, overlapping the LDS and quantization state registers. The planner repair moved state to `v208` and `v209`. the repaired artifact inspected cleanly at 230 VGPRs, 17 SGPRs, 36,864 LDS bytes, 64 WMMAs, and two barriers.
 
 The repaired B1 kernel wrote every output element with finite values, but its normalized RMSE against the HIP control was approximately `1.4149`. The fragment ownership or N-tile addressing for sixteen N repeats was therefore incorrect. The repaired identity was rejected before timing.
 
@@ -117,8 +82,6 @@ Exact BF16 conversion-chain interleaving produced mixed body and complete-call m
 
 Adding the HIP processor-mode metadata produced byte-identical objects and linked code objects under the configured gfx1151 assembler and linker. It created no distinct executable kernel and was rejected as an optimization identity.
 
-## Qualification Summary
+## Closure
 
-The final M128/N128/DepthU64 artifacts were independently regenerated and inspected. They passed exact HIP comparison at M2K, M8K, and M32K, finite-output and full-row coverage checks, independent dequantized-reference checks, poisoned-output replacement, repeated-output determinism, and mutations of every gradient-output and packed-weight group.
-
-The final artifacts are deterministic gfx1151 code-object-v5 wave32 kernels with the profile above. The selected identity combines N-major ownership, M128/N128 tiling, DepthU64 PGR2/PLR1/SIA4 staging, pad-8 single-buffer LDS, packed Q8 extraction, and fixed group-Z addressing. No rejected or unqualified kernel identity is included in the final benchmark table.
+The final artifacts are deterministic gfx1151 code-object-v5 wave32 kernels. The selected identity combines N-major ownership, M128/N128 tiling, DepthU64 PGR2/PLR1/SIA4 staging, pad-8 single-buffer LDS, packed Q8 extraction, and fixed group-Z addressing. No rejected or unqualified kernel identity is included in the final benchmark table.
