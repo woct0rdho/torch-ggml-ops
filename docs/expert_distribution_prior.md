@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-This document is the authority for expert-route workload fitting and performance-benchmark input selection. It supplements `ggtensile_plan.md`: the plan defines generator architecture and exact kernel identity; this document defines the route distribution used to rank optimization candidates.
+This document is the authority for expert-route workload fitting and performance-benchmark input selection. It supplements `ggtensile_plan.md`: the plan defines generator architecture and exact kernel identity. This document defines the route distribution used to rank optimization candidates.
 
 Historical experiment records preserve the distributions and timing procedures that were actually used at the time. They are evidence, not current instructions. In particular, references to five medoids, captured-route replay, corpus mixtures, or synthetic timing controls are superseded for a new optimization campaign by the single-prior route-bank policy below. Historical result documents are not rewritten when this protocol changes.
 
@@ -18,7 +18,7 @@ The fitting phase and the benchmark phase are separate:
 
 If the fitting inputs or method change, repeat qualification for the resulting fit. Do not mix profiles from different fits or silently add another benchmark distribution.
 
-The workload family is defined by routing semantics and physical contract, not by quantization alone. A law may be shared by compatible Qwen shapes, for example, while a distinct learned-router or hash-router contract receives its own law. Learned and hash routing must not be combined into a `40/43` plus `3/43` timing mixture; either they are declared separate problem families with one law each, or one explicitly fitted law is selected for the combined problem type before timing begins.
+The workload family is defined by routing semantics and physical contract, not by quantization alone. A law may be shared by compatible Qwen shapes, for example, while a distinct learned-router or hash-router contract receives its own law. Learned and hash routing must not be combined into a `40/43` plus `3/43` timing mixture. Either they are declared separate problem families with one law each, or one explicitly fitted law is selected for the combined problem type before timing begins.
 
 Paired gate/up projections reuse each route vector for their shared routed rows. Their packed weights, outputs, arithmetic, and timing records remain separate where the exact operator contracts differ.
 
@@ -28,27 +28,29 @@ No medoid reduction is part of the current policy. If the fitted law is stochast
 
 ## Distributional route-bank benchmark protocol
 
-The route bank is the distributional measurement unit for grouped direct-kernel and public-API benchmarks. The benchmark allocates route tensors, activation workspaces, and any paired row-task workspaces before the timing loop. For paired IQ2_S direct kernels, the deployed J64 row-task descriptors are built once for every route vector before timing; activation quantization and row-task setup are outside the multiply-only timing surface. Both implementations receive that same production route representation: the direct kernels consume the ids and cumulative offsets, and the routed AITER baseline consumes the full-expert group sizes together with the dense BF16 expert weights.
+The route bank is the distributional measurement unit for grouped direct-kernel and public-API benchmarks. The benchmark allocates route tensors, activation workspaces, and any paired row-task workspaces before the timing loop. For paired IQ2_S direct kernels, the deployed J64 row-task descriptors are built once for every route vector before timing. Activation quantization and row-task setup are outside the multiply-only timing surface. Both implementations receive that same production route representation: the direct kernels consume the ids and cumulative offsets, and the routed AITER baseline consumes the full-expert group sizes together with the dense BF16 expert weights.
 
-The timing loop takes exactly one timing sample for each selected route vector, and the bank contains exactly that many vectors; the same bank and the same route tensors are reused by every block. A route is selected once, then the identical route tensors are passed to HIP and GGTensile. `launches_per_sample` may average multiple launches inside that one timed event; it does not select another route or create another sample. The sample loop runs `--repeats` samples per block over `--blocks` blocks (default `10` and `2`), and the starting implementation order flips between blocks, so both implementations occupy the first and second alternation position equally often and `--repeats` must be even. Each sample is timed inside a pre-submitted event pair: one unmeasured launch keeps the device busy while the measured window is enqueued, so host launch cost is not charged to the kernel. Warmup runs at least `--warmup` iterations per implementation and at least `--warmup-seconds` (default `0.5`) of device time before sampling. Numeric activation and weight values remain fixed across the bank; expert IDs may change packed-weight addresses, cache behavior, and work partitioning, which is intentional route variability.
+The timing loop takes exactly one timing sample for each selected route vector, and the bank contains exactly that many vectors. The same bank and the same route tensors are reused by every block. A route is selected once, then the identical route tensors are passed to HIP and GGTensile. `launches_per_sample` may average multiple launches inside that one timed event. It does not select another route or create another sample. The sample loop runs `--repeats` samples per block over `--blocks` blocks (default `10` and `2`), and the starting implementation order flips between blocks, so both implementations occupy the first and second alternation position equally often and `--repeats` must be even.
+
+Each sample is timed inside a pre-submitted event pair: one unmeasured launch keeps the device busy while the measured window is enqueued, so host launch cost is not charged to the kernel. Warmup runs at least `--warmup` iterations per implementation and at least `--warmup-seconds` (default `0.5`) of device time before sampling. Numeric activation and weight values remain fixed across the bank. Expert IDs may change packed-weight addresses, cache behavior, and work partitioning, which is intentional route variability.
 
 The timed route count is the fixed `--repeats` sample count per block. The bank is generated once at that size before timing, so no route tensor or allocation is created inside the timed loop. Dense and fixed non-routed direct-kernel and public-API measurements use the same estimator with one ordinary timing sample per iteration rather than one route vector. Adaptive route-count stopping is not part of the current harness.
 
-Each implementation records its per-route samples together with the median, mean, minimum, maximum, and population standard deviation, plus the measurement-stability fields: host launch cost per call and its device/host ratio with a host-bound flag, per-position sample counts, medians and gaps, and the per-block medians and their spread. The primary speedup is the ratio of median times, reported as `throughput_ratio.value`; the report also carries `throughput_ratio.paired`, the median of the paired per-sample ratios, which is immune to any residual alternation-position asymmetry. Per-route observations, the sample order, the complete protocol block, and the stability block remain in the report. This reports a paired distributional comparison without replacing the route bank with a single aggregate row count.
+Each implementation records its per-route samples together with the median, mean, minimum, maximum, and population standard deviation, plus the measurement-stability fields: host launch cost per call and its device/host ratio with a host-bound flag, per-position sample counts, medians and gaps, and the per-block medians and their spread. The primary speedup is the ratio of median times, reported as `throughput_ratio.value`. The report also carries `throughput_ratio.paired`, the median of the paired per-sample ratios, which is immune to any residual alternation-position asymmetry. Per-route observations, the sample order, the complete protocol block, and the stability block remain in the report. This reports a paired distributional comparison without replacing the route bank with a single aggregate row count.
 
 ## Fit contract
 
-The only route information needed after fitting is the fitted law. The law may depend on physical size `T = physical_batch * sequence_length` and on the declared routing family. Model names, layer labels, checkpoint labels, corpus names, and benchmark weights are fit provenance; they are not runtime dispatch inputs or candidate identity fields.
+The only route information needed after fitting is the fitted law. The law may depend on physical size `T = physical_batch * sequence_length` and on the declared routing family. Model names, layer labels, checkpoint labels, corpus names, and benchmark weights are fit provenance. They are not runtime dispatch inputs or candidate identity fields.
 
 The fit may pool layers, depth, and base/checkpoint states when that is part of the declared model-level law. Those dimensions must not become hidden benchmark selectors. A fit report must state the pooling decision, the captured corpus, the route semantics, the physical-size range, and the reason the resulting law is valid for the target family.
 
 The minimum fit artifact records:
-- family/problem-type identifier and fit provenance;
-- captured corpus and tokenizer/router-table identity, if applicable;
-- physical sizes and top-k contract;
-- fitted coefficients and residual laws;
-- deterministic benchmark seed and profile-generation algorithm;
-- goodness-of-fit and residual diagnostics;
+- family/problem-type identifier and fit provenance.
+- captured corpus and tokenizer/router-table identity, if applicable.
+- physical sizes and top-k contract.
+- fitted coefficients and residual laws.
+- deterministic benchmark seed and profile-generation algorithm.
+- goodness-of-fit and residual diagnostics.
 - known limitations and the exact re-fit trigger.
 
 After the artifact is accepted, a benchmark must be reproducible without access to the captured data or the source language corpus. The benchmark may load packed GGUF weights, but it must not import `~/test_no_unsloth`, read `~/tmp` route captures, inspect live model routes, or perform host-side route collection.
@@ -59,9 +61,9 @@ The previous committed `ggtensile_plan.md` established why a route law is needed
 
 | Model/state | Router population | Captured B1 observation | B16 aggregate observation |
 | --- | --- | --- | --- |
-| Qwen checkpoint `7400` | 40 learned routers, top-8 | Maximum `M_g` `516-2047`, median `1675`; active experts `73-256`, median `192`; layer-max padding inflation median `18.22x`, maximum `29.15x` | Sum of 16 independent B1 histograms: active experts `226-256`, median `253`; maximum `M_g` `10399-31956`, median `24928`; padding inflation median `24.00x` |
-| DeepSeek zero-B initial state | 40 learned top-6 routers plus 3 hash routers | Learned active experts `178-253`, median `235`; learned maximum `M_g` `477-1982`, median `1074`; learned padding inflation median `20.08x`, maximum `37.64x`; hash routers use all 256 experts with maximum `M_g` `168-291` | Sum of 16 independent B1 histograms: learned active experts `248-256`, median `255`; learned maximum `M_g` `10162-26070`, median `14969.5`; learned padding inflation median `19.34x` |
-| Qwen3.8 released checkpoint (`qwen4exp`) | 48 learned top-10 routers, 512 experts, no hash router | Active experts `134-453`, median `355`; maximum `M_g` `606-2047`, median `1396`; layer-max padding inflation `11.79x-34.88x`, median `22.59x` | Sum of 16 independent B1 histograms: active experts `446-510`, median `496`; maximum `M_g` `9835-26741`, median `18207`; padding inflation `15.28x-38.58x`, median `27.61x` |
+| Qwen checkpoint `7400` | 40 learned routers, top-8 | Maximum `M_g` `516-2047`, median `1675`. Active experts `73-256`, median `192`. Layer-max padding inflation median `18.22x`, maximum `29.15x` | Sum of 16 independent B1 histograms: active experts `226-256`, median `253`. Maximum `M_g` `10399-31956`, median `24928`. Padding inflation median `24.00x` |
+| DeepSeek zero-B initial state | 40 learned top-6 routers plus 3 hash routers | Learned active experts `178-253`, median `235`. Learned maximum `M_g` `477-1982`, median `1074`. Learned padding inflation median `20.08x`, maximum `37.64x`. Hash routers use all 256 experts with maximum `M_g` `168-291` | Sum of 16 independent B1 histograms: learned active experts `248-256`, median `255`. Learned maximum `M_g` `10162-26070`, median `14969.5`. Learned padding inflation median `19.34x` |
+| Qwen3.8 released checkpoint (`qwen4exp`) | 48 learned top-10 routers, 512 experts, no hash router | Active experts `134-453`, median `355`. Maximum `M_g` `606-2047`, median `1396`. Layer-max padding inflation `11.79x-34.88x`, median `22.59x` | Sum of 16 independent B1 histograms: active experts `446-510`, median `496`. Maximum `M_g` `9835-26741`, median `18207`. Padding inflation `15.28x-38.58x`, median `27.61x` |
 
 These observations are fit evidence, not dispatch constants. Qwen base-to-checkpoint replay changed `67.6%` of token-layer top-8 expert sets, `12.4%` of route memberships, and `53.0%` of ordered slots across four paired samples. The DeepSeek one-step audit changed route histograms in `40/43` layers. Repeated checkpoint replay without an update was histogram-identical, so the observed changes were model-state effects rather than collector nondeterminism.
 
@@ -101,7 +103,7 @@ q1_adjusted = min(1, h*q1)
 q_r_adjusted = q_r*(top_k-q1_adjusted)/(top_k-q1), r = 2..A
 ```
 
-Constrained largest-remainder rounding of `T*q_r_adjusted` produces `M_g`; one deterministic permutation assigns ranks to physical expert IDs. The learned coefficients are:
+Constrained largest-remainder rounding of `T*q_r_adjusted` produces `M_g`. One deterministic permutation assigns ranks to physical expert IDs. The learned coefficients are:
 
 | Family | `shift` | `h` | `a0` | `a_log_tokens` | `b0` | `b_log_tokens` | `b_active_residual` |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -109,15 +111,17 @@ Constrained largest-remainder rounding of `T*q_r_adjusted` produces `M_g`; one d
 | DeepSeek learned | `6.3223820835` | `1.0643729189` | `2.2468973539` | `0.8906164814` | `0.4081577973` | `-0.0211298377` | `-0.0754167931` |
 | Qwen3.8 learned | `20.7163112483` | `1.1946652586` | `0.7076361999` | `0.9702739281` | `0.7505135414` | `-0.0229817472` | `-0.2302367069` |
 
-The active-residual term is part of the single law because support and skew are coupled. The pooled captured correlations were `-0.778` for Qwen, `-0.616` for DeepSeek learned, and `-0.772` for Qwen3.8 learned routes. Removing the term reduced log-alpha regression `R^2` from `0.702` to `0.011` for Qwen, from `0.257` to `0.031` for DeepSeek, and from `0.451` to `0.017` for Qwen3.8. A compact ablation is not a second benchmark law; it is an invalid substitute unless the fit is explicitly changed and requalified.
+The active-residual term is part of the single law because support and skew are coupled. The pooled captured correlations were `-0.778` for Qwen, `-0.616` for DeepSeek learned, and `-0.772` for Qwen3.8 learned routes. Removing the term reduced log-alpha regression `R^2` from `0.702` to `0.011` for Qwen, from `0.257` to `0.031` for DeepSeek, and from `0.451` to `0.017` for Qwen3.8. A compact ablation is not a second benchmark law. It is an invalid substitute unless the fit is explicitly changed and requalified.
 
 ### Qwen3.8 dispersion calibration
 
-The Qwen3.8 `epsilon_alpha` law carries one deliberate deviation from "residual exactly as fitted": its scale and clip are multiplied by `0.6` (so the residual keeps its `nu` and location and its shape under scaling). The reason is that a per-profile `alpha` is obtained by minimizing the rank-curve TV, which trades the head against the body, so its residual spread over-states the layer-to-layer spread that the route metrics actually see. The uncalibrated law reproduces the mean route metrics but predicts `p05-p95` widths `1.2-1.75x` the observed ones for `max(M_g)/T`, effective experts and padding inflation at every captured size. With the calibration those widths match: effective-expert `p95` ratio against the captures `1.34 -> 1.17` at B4 and `1.44 -> 1.25` at B16, static-grid slots `1.14 -> 1.03` and `1.21 -> 1.09`, with the data-carrying tile count unchanged, and the median prior-predictive KS improves at B4 (`0.120 -> 0.076`) and B16 (`0.182 -> 0.135`) at a cost at B1 (`0.113 -> 0.135`). Calibrating the support residual instead, alone or together with the skew residual, makes every shape worse, so only the skew residual is calibrated. The two migrated families keep their residuals exactly as fitted.
+The Qwen3.8 `epsilon_alpha` law carries one deliberate deviation from "residual exactly as fitted": its scale and clip are multiplied by `0.6` (so the residual keeps its `nu` and location and its shape under scaling). The reason is that a per-profile `alpha` is obtained by minimizing the rank-curve TV, which trades the head against the body, so its residual spread over-states the layer-to-layer spread that the route metrics actually see. The uncalibrated law reproduces the mean route metrics but predicts `p05-p95` widths `1.2-1.75x` the observed ones for `max(M_g)/T`, effective experts and padding inflation at every captured size.
+
+With the calibration those widths match: effective-expert `p95` ratio against the captures `1.34 -> 1.17` at B4 and `1.44 -> 1.25` at B16, static-grid slots `1.14 -> 1.03` and `1.21 -> 1.09`, with the data-carrying tile count unchanged, and the median prior-predictive KS improves at B4 (`0.120 -> 0.076`) and B16 (`0.182 -> 0.135`) at a cost at B1 (`0.113 -> 0.135`). Calibrating the support residual instead, alone or together with the skew residual, makes every shape worse, so only the skew residual is calibrated. The two migrated families keep their residuals exactly as fitted.
 
 ## Qwen3.8 (Qwen4-Exp) learned-router fit
 
-The third family is the Qwen3.8-Flash-Next (`qwen4exp`) MoE: 48 learned `Qwen4ExpTextTopKRouter` layers, top-10 over 512 experts, and no hash router, so one learned law covers the whole model. The fit uses 16 shuffled B1/S2048 microbatches of the Chinese-dialogue training corpus at seed `19260817` (the same corpus, seed and protocol as the two migrated families), plus B2/S1024 and B4/S512 partitions of the same token counts. The procedure is the pooled `v2` fit with the expert count generalized to 512; the coefficients are in the tables above, and the skew residual is calibrated as described there.
+The third family is the Qwen3.8-Flash-Next (`qwen4exp`) MoE: 48 learned `Qwen4ExpTextTopKRouter` layers, top-10 over 512 experts, and no hash router, so one learned law covers the whole model. The fit uses 16 shuffled B1/S2048 microbatches of the Chinese-dialogue training corpus at seed `19260817` (the same corpus, seed and protocol as the two migrated families), plus B2/S1024 and B4/S512 partitions of the same token counts. The procedure is the pooled `v2` fit with the expert count generalized to 512. The coefficients are in the tables above, and the skew residual is calibrated as described there.
 
 Three checks the migrated families did not receive were run on this fit.
 
@@ -137,9 +141,9 @@ Held out by fitting on 8 of the 16 blocks and predicting the other 8, under the 
 
 | Family | held-out median KS, B1 / B4 | held-out errors (active, max share, effective experts, inflation) |
 | --- | --- | --- |
-| Qwen3.8 top-10 | `0.151 / 0.147` | `6.9% / 2.3% / 12.7% / 7.3%` at B1; `2.0% / 2.0% / 13.8% / 1.1%` at B4 |
-| Qwen top-8 | `0.168 / 0.165` | `4.3% / 1.8% / 4.5% / 5.3%` at B1; `1.2% / 1.7% / 2.3% / 0.2%` at B4 |
-| DeepSeek learned top-6 | `0.154 / 0.176` | `0.9% / 8.3% / 9.5% / 9.1%` at B1; `0.0% / 7.6% / 11.1% / 8.4%` at B4 |
+| Qwen3.8 top-10 | `0.151 / 0.147` | `6.9% / 2.3% / 12.7% / 7.3%` at B1, `2.0% / 2.0% / 13.8% / 1.1%` at B4 |
+| Qwen top-8 | `0.168 / 0.165` | `4.3% / 1.8% / 4.5% / 5.3%` at B1, `1.2% / 1.7% / 2.3% / 0.2%` at B4 |
+| DeepSeek learned top-6 | `0.154 / 0.176` | `0.9% / 8.3% / 9.5% / 9.1%` at B1, `0.0% / 7.6% / 11.1% / 8.4%` at B4 |
 
 The Qwen3.8 law generalizes at least as well as the two migrated learned laws (best median KS of the three, best maximum-share error), and its weakest metric is the effective-expert count, which is what the dispersion calibration above addresses. Fitting and predicting on the same half gives `0.107`/`0.117`, so the gap to `0.151`/`0.157` is the intrinsic dispersion misfit rather than parameter noise.
 
@@ -171,7 +175,9 @@ From the same captures, 16 profiles per layer:
 | middle 16-31 | `364` | `0.646` | `51.1` | `+0.164` | `-0.014` |
 | late 32-47 | `306` | `0.756` | `32.4` | `-0.368` | `+0.098` |
 
-Routing becomes steadily more concentrated with depth, and early-versus-late KS is `0.53` for the skew residual and `0.63` for the support residual, so the layers are not exchangeable. The law nevertheless pools all layers, exactly as the two migrated families do, because the benchmark family is the *layer population* at a physical size: the exact keys carry no layer or depth input, every MoE layer repeats the same expert shapes, and the marginal over layers is therefore the target. The residual laws are what make that pooled law stochastic, and the depth extremes stay inside the bank rather than outside it: late layers sit at the bank's `10th` percentile of concentration and `79th` of head share, early layers at `71st` and `49th`. The law must not be read per-layer, and depth must not become a dispatch input: for late layers the pooled prediction under-states concentration by about `50%`.
+Routing becomes steadily more concentrated with depth, and early-versus-late KS is `0.53` for the skew residual and `0.63` for the support residual, so the layers are not exchangeable. The law nevertheless pools all layers, exactly as the two migrated families do, because the benchmark family is the *layer population* at a physical size: the exact keys carry no layer or depth input, every MoE layer repeats the same expert shapes, and the marginal over layers is therefore the target.
+
+The residual laws are what make that pooled law stochastic, and the depth extremes stay inside the bank rather than outside it: late layers sit at the bank's `10th` percentile of concentration and `79th` of head share, early layers at `71st` and `49th`. The law must not be read per-layer, and depth must not become a dispatch input: for late layers the pooled prediction under-states concentration by about `50%`.
 
 ### Corpus sensitivity
 
@@ -186,13 +192,17 @@ The same fit was run on three additional captures of 16 blocks each at B1/S2048:
 
 Applying the declared Chinese-dialogue law to the other captures costs `28%` (Chinese Wikipedia) and `38%` (English) on the effective-expert median and `8%` / `15%` on the head share, while padding inflation stays within `2.6-8.4%`. The random arm costs `133%` on the effective-expert median and `36%` on the head share.
 
-The direction for the two realistic corpora matches the hash-router study below: non-dialogue text is flatter than the Chinese baseline (`max(M_g)/T` `0.111` Chinese against `0.097` English there; effective experts `48.3` against `78.1` here), with a larger effect for the learned router. The random arm is the opposite of that study's and does not transfer: random token IDs saturate a learned router onto a small expert set (effective experts `21`, head share `0.97`), because the route is a function of the hidden state rather than of the token ID, whereas the hash law's random arm was nearly uniform. The tile issue count is again far less corpus-sensitive than the shape metrics: at B16 `tiles(64)` is `5402/5396/5386/5368` across the four corpora (`0.3%` spread) while static-grid slots range over `0.52x-1.25x`. The declared corpus remains the Chinese-dialogue training corpus.
+The direction for the two realistic corpora matches the hash-router study below: non-dialogue text is flatter than the Chinese baseline (`max(M_g)/T` `0.111` Chinese against `0.097` English there. Effective experts `48.3` against `78.1` here), with a larger effect for the learned router. The random arm is the opposite of that study's and does not transfer: random token IDs saturate a learned router onto a small expert set (effective experts `21`, head share `0.97`), because the route is a function of the hidden state rather than of the token ID, whereas the hash law's random arm was nearly uniform.
+
+The tile issue count is again far less corpus-sensitive than the shape metrics: at B16 `tiles(64)` is `5402/5396/5386/5368` across the four corpora (`0.3%` spread) while static-grid slots range over `0.52x-1.25x`. The declared corpus remains the Chinese-dialogue training corpus.
 
 ### Implementation and consumption status
 
-The law is implemented in `bench/workload_prior.py` (and in `~/test_no_unsloth/expert_distribution_prior.py`, which the AITER tooling imports) with a per-law expert count: `LearnedLaw.experts` is 512 for this law, the support transform is `A = round((E + 1)*sigmoid(y_A) - 0.5)` clipped to `[10, E]`, and `rows_per_expert` / `group_sizes` are 512 entries long. The two modules agree bitwise on the sampled rows and on `expert_prior_metadata()` for every law and seed. `tools/aiter_gmm_compat.py` resolves this family from the `Q2_0`, `IQ4_NL`, and `IQ4_XS` quantization types, and from the geometry alone when no type is given; a Qwen3.5-family quantization type never resolves a Qwen3.8 geometry. `tools/aiter_gmm_heuristics.py` carries the 54 measured `qwen3.8-learned` GMM/PTGMM keys over physical B1/B4/B16. The tuning campaign, its probe-screen protocol, and the confirmed gains are documented in `~/test_no_unsloth/docs/aiter_gmm_ptgmm_coefficient_prior_tuning.md`.
+The law is implemented in `bench/workload_prior.py` (and in `~/test_no_unsloth/expert_distribution_prior.py`, which the AITER tooling imports) with a per-law expert count: `LearnedLaw.experts` is 512 for this law, the support transform is `A = round((E + 1)*sigmoid(y_A) - 0.5)` clipped to `[10, E]`, and `rows_per_expert` / `group_sizes` are 512 entries long. The two modules agree bitwise on the sampled rows and on `expert_prior_metadata()` for every law and seed. `tools/aiter_gmm_compat.py` resolves this family from the `Q2_0`, `IQ4_NL`, and `IQ4_XS` quantization types, and from the geometry alone when no type is given.
 
-The law's alpha residual carries `nu = 8.47e9`; that is the t-fit diverging to "`nu = infinity`" on a near-Gaussian residual (the fit's KS statistic for the t and for a plain normal agree to `5e-6`, and the clipped tail mass differs from the normal by `1.5e-9`). The value is kept exactly as fitted because the tuned route banks are keyed to this sampler, and sampling it is numerically benign: a standard normal numerator over a chi-square denominator that concentrates on `nu` with relative spread `1/sqrt(nu) ~ 3e-6`, followed by the clip to `+/-0.21`, leaves the rank exponent within `[1.04, 2.52]` over the fitted size range.
+A Qwen3.5-family quantization type never resolves a Qwen3.8 geometry. `tools/aiter_gmm_heuristics.py` carries the 54 measured `qwen3.8-learned` GMM/PTGMM keys over physical B1/B4/B16. The tuning campaign, its probe-screen protocol, and the confirmed gains are documented in `~/test_no_unsloth/docs/aiter_gmm_ptgmm_coefficient_prior_tuning.md`.
+
+The law's alpha residual carries `nu = 8.47e9`. That is the t-fit diverging to "`nu = infinity`" on a near-Gaussian residual (the fit's KS statistic for the t and for a plain normal agree to `5e-6`, and the clipped tail mass differs from the normal by `1.5e-9`). The value is kept exactly as fitted because the tuned route banks are keyed to this sampler, and sampling it is numerically benign: a standard normal numerator over a chi-square denominator that concentrates on `nu` with relative spread `1/sqrt(nu) ~ 3e-6`, followed by the clip to `+/-0.21`, leaves the rank exponent within `[1.04, 2.52]` over the fitted size range.
 
 ## One fitted hash-router law
 
@@ -202,7 +212,7 @@ When token IDs and the frozen `tid2eid` table are available during fitting, the 
 M_l,e = sum_v n_v * sum_(j=1..6) 1[H_l(v,j) = e]
 ```
 
-Here `n_v` is the count of token ID `v` and `H_l(v,j)` is slot `j` of layer `l`'s table. A frequent token creates a correlated six-expert head; an independent rank law cannot represent that structure. After the fit is accepted, benchmark generation uses the declared law/profile and does not read token sequences, route captures, or live router tables.
+Here `n_v` is the count of token ID `v` and `H_l(v,j)` is slot `j` of layer `l`'s table. A frequent token creates a correlated six-expert head. An independent rank law cannot represent that structure. After the fit is accepted, benchmark generation uses the declared law/profile and does not read token sequences, route captures, or live router tables.
 
 For capture-free use, the prior plan fit one exchangeable head-plus-body law. It is one law, not a bank of alternatives:
 
@@ -236,7 +246,7 @@ The sampler emits all 256 experts, `sum(M_g)=6T`, and `M_g<=T`. The prior-predic
 | `32768` | `max(M_g)/T` | `0.09845` | `0.10373` |
 | `32768` | effective experts | `200.87` | `200.44` |
 
-If the exact table projection is used, it replaces the capture-free surrogate for that hash problem type; the two must not be blended in one objective.
+If the exact table projection is used, it replaces the capture-free surrogate for that hash problem type. The two must not be blended in one objective.
 
 ## Corpus and language sensitivity analysis
 
@@ -275,23 +285,23 @@ Exact projected medians were:
 | Random | 4 | `0.02887` | `254.14` | `1.23x` |
 | Random | 16 | `0.02682` | `255.07` | `1.14x` |
 
-Applying the Chinese law unchanged to English B16 predicted `max(M_g)/T=0.10381` and `200.42` effective experts versus exact `0.08813` and `185.92`. Applied to random IDs it predicted `0.10373` and `200.52` versus exact `0.02682` and `255.07`. The comparison demonstrated why the fit corpus must be declared and recorded; it did not authorize English, random, or Chinese profiles as concurrent optimization targets.
+Applying the Chinese law unchanged to English B16 predicted `max(M_g)/T=0.10381` and `200.42` effective experts versus exact `0.08813` and `185.92`. Applied to random IDs it predicted `0.10373` and `200.52` versus exact `0.02682` and `255.07`. The comparison demonstrated why the fit corpus must be declared and recorded. It did not authorize English, random, or Chinese profiles as concurrent optimization targets.
 
 The old plan also replayed these profiles through DeepSeek grouped paths. At B16, packed-throughput/AITER ratios were `0.942x/1.031x/0.854x` for the IQ2_XXS pair and `0.698x/0.747x/0.537x` for Q2_K down on Chinese/English/random inputs. Those crossovers are historical sensitivity evidence only. They must not be used to select a kernel under the single-prior policy.
 
 ## Fit limitations and required breadth
 
-The DeepSeek one-step assignment audit changed route histograms in `40/43` layers. Its histogram-derived assignment lower bound was `1.4%` at the median and `2.1%` at the maximum, so the current corpus cannot support a claim that the pooled learned law is training-state invariant. The summed DeepSeek B16 learned captures also reached maximum-padding inflation of `33.95x`; the median alone understates the long-tail geometry that grouped kernels must handle.
+The DeepSeek one-step assignment audit changed route histograms in `40/43` layers. Its histogram-derived assignment lower bound was `1.4%` at the median and `2.1%` at the maximum, so the current corpus cannot support a claim that the pooled learned law is training-state invariant. The summed DeepSeek B16 learned captures also reached maximum-padding inflation of `33.95x`. The median alone understates the long-tail geometry that grouped kernels must handle.
 
 The capture-free hash surrogate tracks the observed shape reasonably but is not exact token/table projection: the two independent shape metrics stayed under `4%` error at B1 and B4, while the B16 maximum-group metric was `5.4%` high. This is a fit diagnostic and a reason to record the exact hash projection when token IDs and `tid2eid` are available, not a reason to add another timed law.
 
-Before claiming production-frequency weighting, extend the corpus with early, middle, and late checkpoints or training states, multiple data seeds, same-batch before/after-update captures where router trainability matters, and explicit layer and projection invocation frequencies. A pooled fit may remain the selected one-law model after that work, but the fit report must show why its pooling and weights represent the declared workload family. These breadth requirements trigger a new fit and requalification of the one-law route-bank benchmark procedure; they do not authorize concurrent laws, medoid banks, or profile mixtures.
+Before claiming production-frequency weighting, extend the corpus with early, middle, and late checkpoints or training states, multiple data seeds, same-batch before/after-update captures where router trainability matters, and explicit layer and projection invocation frequencies. A pooled fit may remain the selected one-law model after that work, but the fit report must show why its pooling and weights represent the declared workload family. These breadth requirements trigger a new fit and requalification of the one-law route-bank benchmark procedure. They do not authorize concurrent laws, medoid banks, or profile mixtures.
 
-The Qwen3.8 family adds three open items of its own. It was captured in one model state (the released checkpoint), so no checkpoint-invariance evidence exists for it. Its captures are at `S=2048`, and the routing is measurably flatter at the same token count with a shorter sequence (`B4/S512`: `+14%` active experts and `+25%` effective experts against the same-token `B1/S2048` prediction), so no other sequence length is in contract for this family; the fit corpus is the Chinese-dialogue training corpus, whose sensitivity is recorded above, and a change of training corpus triggers a refit rather than a second law. Depth is deliberately not an open item: it is pooled by design, its measured structure is recorded above, and depth must not become a dispatch input.
+The Qwen3.8 family adds three open items of its own. It was captured in one model state (the released checkpoint), so no checkpoint-invariance evidence exists for it. Its captures are at `S=2048`, and the routing is measurably flatter at the same token count with a shorter sequence (`B4/S512`: `+14%` active experts and `+25%` effective experts against the same-token `B1/S2048` prediction), so no other sequence length is in contract for this family. The fit corpus is the Chinese-dialogue training corpus, whose sensitivity is recorded above, and a change of training corpus triggers a refit rather than a second law. Depth is deliberately not an open item: it is pooled by design, its measured structure is recorded above, and depth must not become a dispatch input.
 
 ## Historical multi-medoid analysis
 
-This section migrates the former medoid analysis so that old campaign reports remain intelligible. The procedure below was useful for studying route sensitivity, but it is superseded as a performance-benchmark input method. A medoid was a representative sampled route profile; it was never a second fitted law.
+This section migrates the former medoid analysis so that old campaign reports remain intelligible. The procedure below was useful for studying route sensitivity, but it is superseded as a performance-benchmark input method. A medoid was a representative sampled route profile. It was never a second fitted law.
 
 ### Why multiple medoids were explored
 
@@ -306,7 +316,7 @@ This made the old objective sensitive to both the common route shapes and low-ma
 ### Former deterministic procedure
 
 For each family, router component, physical batch, and bank, the old generator:
-- Produced an independent 512-draw search bank and 512-draw confirmation bank from the fitted coefficient law. The search seeds were `8314159 + B * 104729 + i`; confirmation added `1,000,003`, and the DeepSeek hash component added `31,000`.
+- Produced an independent 512-draw search bank and 512-draw confirmation bank from the fitted coefficient law. The search seeds were `8314159 + B * 104729 + i`. Confirmation added `1,000,003`, and the DeepSeek hash component added `31,000`.
 - Represented every draw as the complete physical `rows_per_expert[256]` vector. All rows in one bank had the same routed-row sum, so normalized-L1 distance compared physical load geometry rather than changing the total work.
 - Reduced each bank to five physical-ID medoids with deterministic k-medoids. Initialization started at source index zero, added the farthest source at each step, selected the lowest source index for ties, and iterated medoid assignments until stable.
 - Assigned every source draw to its nearest medoid. The medoid weight was its cluster mass, `number of assigned draws / 512`, rather than an equal five-way weight.
@@ -316,15 +326,15 @@ The coefficient-only banks were generated without captured routes. Captured lear
 
 ### What the analysis showed
 
-The underlying route evidence justified looking beyond aggregate rows. Qwen B1 captures had maximum expert heights from `516` to `2047` and active support from `73` to `256`; DeepSeek learned B1 captures had maximum heights from `477` to `1982` and active support from `178` to `253`. At larger physical batches, summed histograms approached full support while retaining materially different maximum-group and padding behavior. The medoid bank retained those dimensions for timing rather than collapsing them into one average group size.
+The underlying route evidence justified looking beyond aggregate rows. Qwen B1 captures had maximum expert heights from `516` to `2047` and active support from `73` to `256`. DeepSeek learned B1 captures had maximum heights from `477` to `1982` and active support from `178` to `253`. At larger physical batches, summed histograms approached full support while retaining materially different maximum-group and padding behavior. The medoid bank retained those dimensions for timing rather than collapsing them into one average group size.
 
-The profile weights were often highly uneven. In one historical B16 ownership screen, a `94.14%`-weight medoid regressed to `0.8802x` for the candidate while four low-weight long-tail medoids improved from `1.2166x` through `1.6098x`; the weighted result still rejected the candidate at `0.9049x`. In another screen, a single medoid with weight `0.90234375` made a geometry appear favorable while the other four profiles regressed. These results showed why medoids were useful sensitivity evidence: a weighted aggregate can hide which route shapes are driving an apparent win or loss.
+The profile weights were often highly uneven. In one historical B16 ownership screen, a `94.14%`-weight medoid regressed to `0.8802x` for the candidate while four low-weight long-tail medoids improved from `1.2166x` through `1.6098x`. The weighted result still rejected the candidate at `0.9049x`. In another screen, a single medoid with weight `0.90234375` made a geometry appear favorable while the other four profiles regressed. These results showed why medoids were useful sensitivity evidence: a weighted aggregate can hide which route shapes are driving an apparent win or loss.
 
-Route shape and corpus also changed comparator ranking. The historical DeepSeek B16 replay measured packed grouped-MMQ versus the BF16 AITER reference at `0.942x`, `1.031x`, and `0.854x` for the IQ2_XXS pair on Chinese, English, and random inputs, respectively; the Q2_K down path measured `0.698x`, `0.747x`, and `0.537x`. The English case crossed ownership relative to the other two corpora. This was evidence that candidate ranking is route-sensitive, not evidence that every corpus or every medoid should become a timed optimization target.
+Route shape and corpus also changed comparator ranking. The historical DeepSeek B16 replay measured packed grouped-MMQ versus the BF16 AITER reference at `0.942x`, `1.031x`, and `0.854x` for the IQ2_XXS pair on Chinese, English, and random inputs, respectively. The Q2_K down path measured `0.698x`, `0.747x`, and `0.537x`. The English case crossed ownership relative to the other two corpora. This was evidence that candidate ranking is route-sensitive, not evidence that every corpus or every medoid should become a timed optimization target.
 
 ### Current one-law route-bank rule
 
-The fitted law remains the workload model. Each exact problem key now materializes a deterministic route bank from that law before timing and uses the same route tensors for the candidate and retained parent. The law is still distributional; the bank is a finite paired sample, not a claim that its finite median exhausts the residual support or is mathematically equivalent to integrating over the law.
+The fitted law remains the workload model. Each exact problem key now materializes a deterministic route bank from that law before timing and uses the same route tensors for the candidate and retained parent. The law is still distributional. The bank is a finite paired sample, not a claim that its finite median exhausts the residual support or is mathematically equivalent to integrating over the law.
 
 Current benchmarks therefore do not generate five medoids, average or rotate over medoids, replay captures, or include synthetic route controls in performance ranking. They do generate a seeded bank of complete prior samples and measure one sample per selected route. Historical medoid tables remain useful for fit validation, route-sensitivity discussion, and non-timed correctness, ABI, mutation, malformed-route, and tail coverage. They cannot select a candidate, supply benchmark weights, or silently broaden the declared optimization target.
 

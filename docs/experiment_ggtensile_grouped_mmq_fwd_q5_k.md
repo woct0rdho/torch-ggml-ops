@@ -1,50 +1,38 @@
 # GGTensile Grouped MMQ Forward Q5_K Experiment
 
-## Scope And Contract
+## Scope
 
-This record covers the isolated gfx1151 grouped Q5_K forward kernel for the Qwen routed down projection. For each routed expert, the operation is:
+This record covers the routed gfx1151 Q5_K down projection, one GEMM per routed expert:
 
 ```text
-X_g[M_g,512] @ W_g[512,2048] -> Y_g[M_g,2048]
+X_g[M_g,K] @ W_g[K,N] -> Y_g[M_g,N]
 ```
 
-The measured aggregate-row shapes are `R=16384`, `65536`, and `262144`. The packed Q5_K expert bank is `[256,2048,352]`; each 256-value block occupies 176 bytes, so `K=512` stores two blocks per output row. A block contains FP16 `d` and `dmin`, twelve packed scale/minimum bytes, a 32-byte high-bit plane, and a 128-byte low-nibble plane. The activation workspace is the fixed HIP Q8_1 `F16_D4S4` layout with shape `[4,R,144]`. Output is contiguous BF16 `[R,2048]`.
+## Final Results
 
-The grouped research ABI is the existing 64-byte routed multiply contract with device-resident int64 expert IDs and cumulative int32 offsets. Logical throughput is `2 * R * 2048 * 512 / (latency_ms * 1e9)`, and the speedup ratio is HIP time divided by GGTensile time. The final timing uses the fixed HIP quantizer and prequantized multiply-only throughput.
+`TFLOPS = 2*R*N*K / (median_ms * 1e9)`, and `Speedup vs HIP = HIP median time / GGTensile median time`, so a value above `1.0x` favors GGTensile. Each row is the median over the benchmark's sampled expert partitions, and both implementations are timed on the same partitions.
 
-## Final Benchmark Results
+| Batch | Logical shape `(R,N,K)` | GGTensile TFLOPS | Speedup vs HIP | GGTensile kernel | HIP kernel |
+| ---: | --- | ---: | ---: | --- | --- |
+| 1 | `(16384,2048,512)` | 17.372 | 0.9726x | `grouped_mmq_fwd_q5_k_r16384_n2048_k512_03954bfadeddff04` | `grouped_fwd_serial_q5_k_n2048_k512_j32` |
+| 4 | `(65536,2048,512)` | 23.059 | 1.0365x | `grouped_mmq_fwd_q5_k_r65536_n2048_k512_ff24d8b5206a10b6` | `grouped_fwd_serial_q5_k_n2048_k512_j64` |
+| 16 | `(262144,2048,512)` | 24.429 | 0.9956x | `grouped_mmq_fwd_q5_k_r262144_n2048_k512_05410d219cb70dc0` | `grouped_fwd_serial_q5_k_n2048_k512_j64` |
 
-The table shows the fastest qualified kernel found for each measured aggregate-row shape.
+GGTensile is ahead on 1 of the 3 rows, with speedups from `0.9726x` to `1.0365x` (mean `1.0016x`), and within 0.5% of parity on the remaining 1.
 
-| Matrix shape `(R,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
-| --- | --- | ---: | ---: |
-| `(16384,2048,512)` | `ggsol_03954bfadeddff04` | `15.283` | `0.9987x` |
-| `(65536,2048,512)` | `ggsol_ff24d8b5206a10b6` | `22.691` | `1.0770x` |
-| `(262144,2048,512)` | `ggsol_05410d219cb70dc0` | `25.776` | `1.0039x` |
+These medians replace the earlier recorded values, which were paired against HIP bodies that have since been retuned.
 
-The selected entries passed the retained route-correctness, resource, and deterministic-build checks.
-
-## Final Kernel Profiles
-
-| Kernel hash | Geometry and ownership | Decode and epilogue | VGPR / SGPR | LDS bytes | WMMAs / barriers |
-| --- | --- | --- | ---: | ---: | ---: |
-| `ggsol_03954bfadeddff04` | M128/N64 serial routes, 64-row parent plus 32-row residual | `a1d4-p2` epilogue, qh high-bit merge | `159 / 40` | `29,184` | `24 / 4` |
-| `ggsol_ff24d8b5206a10b6` | M128/N128 serial routes, three-way 128/64/32 final-tile body | `a1d4-p2` epilogue, qh high-bit merge | `239 / 40` | `38,400` | `56 / 4` |
-| `ggsol_05410d219cb70dc0` | M128/N128 serial routes, three-way 128/64/32 final-tile body | `a1d4-p2` epilogue, qh high-bit merge | `239 / 40` | `38,400` | `56 / 4` |
-
-The 56 static WMMAs represent mutually exclusive 128-, 64-, and 32-row bodies. All selected artifacts target gfx1151 code-object version 5 and wave32 with zero private storage, spills, scratch, calls, and dynamic stack.
-
-## Accepted Kernel Experiments
+## Accepted Experiments
 
 ### Shared Q5_K high-bit reconstruction
 
-Q5_K shares the Q4_K scale/minimum arithmetic, Q8_1 activation staging, signed integer WMMA, correction, and BF16 stores; its distinct cost is high-bit reconstruction. The typed decoded-LDS emitter loads `qh`, shifts lane-selected bit masks, merges bit 4 into both low-nibble halves, and releases the high-bit payload before the WMMA loop. This decoder is used by every retained identity and was qualified bitwise against the installed J64/J32 controls on the R35 route, uniform, skewed, sparse-ID, boundary, and repeated-ID routes at all three production row counts.
+Q5_K shares the Q4_K scale/minimum arithmetic, Q8_1 activation staging, signed integer WMMA, correction, and BF16 stores. Its distinct cost is high-bit reconstruction. The typed decoded-LDS emitter loads `qh`, shifts lane-selected bit masks, merges bit 4 into both low-nibble halves, and releases the high-bit payload before the WMMA loop. This decoder is used by every retained identity.
 
 ### 64-row parent with 32-row residual at B1
 
 The 128-row bodies were rejected as broad selectors: serialized, metadata-scheduled, and `a1d2-p2` forms all used 239 VGPRs and 38,400 LDS bytes and reached only `0.650x`/`0.679x`/`0.683x` at B1, `0.954x`/`0.987x`/`0.995x` at B4, and `0.945x`/`0.969x`/`0.981x` at B16 installed/candidate.
 
-The Q4-qualified 64-row layout transfers without a new register plan at 159 VGPRs, 40 SGPRs, 29,184 LDS bytes, 16 static WMMAs, and four barriers. Its scheduled `a1d4-p2` form reached `0.910x`, `1.010x`, and `0.946x` at B1/B4/B16. Adding a mutually exclusive 32-row tail body, which raises the static WMMA count to 24 while retaining the same resources, reached `1.000x` at B1 and `1.036x` at B4. The B1 confirmation brackets weighted parity at `1.0020x` and `0.9987x`; low-weight medoids regress by up to about 4-6% and the uniform synthetic route is `0.955x`, so the identity is retained as a fitted-prior control.
+The Q4-qualified 64-row layout transfers without a new register plan at 159 VGPRs, 40 SGPRs, 29,184 LDS bytes, 16 static WMMAs, and four barriers. Its scheduled `a1d4-p2` form reached `0.910x`, `1.010x`, and `0.946x` at B1/B4/B16. Adding a mutually exclusive 32-row tail body, which raises the static WMMA count to 24 while retaining the same resources, reached `1.000x` at B1 and `1.036x` at B4. The B1 confirmation brackets weighted parity at `1.0020x` and `0.9987x`. Low-weight medoids regress by up to about 4-6% and the uniform synthetic route is `0.955x`, so the identity is retained as a fitted-prior control.
 
 ### Three-way 128/64/32 final-tile ownership at B4/B16
 
@@ -52,7 +40,7 @@ A Q5-specific final-tile policy emits mutually exclusive 128-, 64-, and 32-row a
 
 This is the material B4 result. The first nine-repeat screen reached `1.0636x`, and two independent 25-repeat confirmations reached `1.0597x` and `1.0770x`, with every medoid at least `1.0274x` and `1.0360x`. The full `a1d4-p2` identity also reaches `1.0015x` and `1.0039x` at B16 with every confirmation medoid above parity. A final complete-call audit with the fixed quantizer measured `1.0539x`, `1.0813x`, and `1.0070x` installed/candidate and preserved the B4 gain.
 
-## Rejected Kernel Experiments
+## Rejected Experiments
 
 ### True 32-row ownership
 
@@ -68,12 +56,12 @@ The shared packed-kernarg, paired cumulative-offset, and guarded high-stride/add
 
 ### Contract-incompatible and deferred mechanisms
 
-Host route readback, hidden caches, dense weight shadows, producer fusion, and online tuning remain contract-incompatible. Flattened or persistent routing requires a profile showing launch imbalance after the existing output-column parallelism, SplitK requires enough K-loop underutilization to repay partial-output storage at fixed `K=512`, and a route-persistent full-K decoded image remains unmeasured; the analogous Q4 body regressed about 12% on its strongest uniform case and the Q5 form requires the same 57,856-byte LDS class.
+Host route readback, hidden caches, dense weight shadows, producer fusion, and online tuning remain contract-incompatible. Flattened or persistent routing requires a profile showing launch imbalance after the existing output-column parallelism, SplitK requires enough K-loop underutilization to repay partial-output storage at fixed `K=512`, and a route-persistent full-K decoded image remains unmeasured. The analogous Q4 body regressed about 12% on its strongest uniform case and the Q5 form requires the same 57,856-byte LDS class.
 
-## Remaining Work
+## Open Items
 
-The current direct-kernel benchmark measured B1 at `0.9529x` GGTensile/HIP (75-repeat interval `[0.9457x, 0.9602x]`) versus the documented `0.9987x`, a stable short-row regression rather than sample ambiguity. B4 and B16 remain at `1.0635x` and `0.9990x`, close to their documented rows. The Q5-specific R1-R3 route/address transfer may be re-run against the current B1 parent on the current multiply-only protocol; the route-persistent full-K image is not reopened by this table.
+The Q5-specific R1-R3 route and address transfer may be re-run against the current B1 parent. The route-persistent full-K image is not reopened.
 
-## Qualification Summary
+## Closure
 
-The final kernels pass exact packed-HIP comparison, independent BF16-reference checks, finite-output and full-row coverage, deterministic reruns, uniform, skewed, sparse-ID, repeated-ID, and boundary routes, active input and weight mutations, inactive-expert inertness, malformed-route sentinels, and non-aligned tails. Two independent generation, build, and inspection roots produce byte-identical artifacts. The retained result is the shared Q5 high-bit decoder with padded single-LDS storage, the 64-row parent plus 32-row residual at B1, and the three-way 128/64/32 final-tile body at B4/B16, all using serial route ownership.
+The retained result is the shared Q5 high-bit decoder with padded single-LDS storage: the 64-row parent plus 32-row residual at B1 and the three-way 128/64/32 final-tile body at B4/B16, all with serial route ownership.

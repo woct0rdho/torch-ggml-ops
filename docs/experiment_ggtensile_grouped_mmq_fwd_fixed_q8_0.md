@@ -8,13 +8,13 @@ This record covers the fixed-group Q8_0 forward kernel for gfx1151: eight indepe
 
 `TFLOPS = 2*M*N*K / (median_ms * 1e9)` across all eight groups, and `Speedup vs HIP = HIP median time / GGTensile median time`, so a value above `1.0x` favors GGTensile. Medians are the repository benchmark's, re-measured in the current clock state. They replace the earlier recorded values, which came from a different clock state with the same artifacts.
 
-| Family | `(M,N,K)` | GGTensile TFLOPS | Speedup vs HIP | GGTensile kernel | HIP kernel |
+| Batch | Logical shape `(R,N,K)` | GGTensile TFLOPS | Speedup vs HIP | GGTensile kernel | HIP kernel |
 | --- | --- | ---: | ---: | --- | --- |
-| Fixed grouped | `(2048,1024,4096)` | 31.298 | 2.2880x | `fixed_grouped_mmq_fwd_q8_0_t2048_n1024_k4096_80d2a010f2ca3571` | `grouped_fwd_fixed_q8_0_g8_k4096_j64_full` |
-| Fixed grouped | `(8192,1024,4096)` | 30.189 | 2.2153x | `fixed_grouped_mmq_fwd_q8_0_t8192_n1024_k4096_da8fb61dcac7e099` | `grouped_fwd_fixed_q8_0_g8_k4096_j64_full` |
-| Fixed grouped | `(32768,1024,4096)` | 31.120 | 2.2713x | `fixed_grouped_mmq_fwd_q8_0_t32768_n1024_k4096_716bf2d5468c5672` | `grouped_fwd_fixed_q8_0_g8_k4096_j64_full` |
+| 1 | `8 x (2048,1024,4096)` | 31.298 | 2.2880x | `fixed_grouped_mmq_fwd_q8_0_t2048_n1024_k4096_80d2a010f2ca3571` | `grouped_fwd_fixed_q8_0_g8_k4096_j64_full` |
+| 4 | `8 x (8192,1024,4096)` | 30.189 | 2.2153x | `fixed_grouped_mmq_fwd_q8_0_t8192_n1024_k4096_da8fb61dcac7e099` | `grouped_fwd_fixed_q8_0_g8_k4096_j64_full` |
+| 16 | `8 x (32768,1024,4096)` | 31.120 | 2.2713x | `fixed_grouped_mmq_fwd_q8_0_t32768_n1024_k4096_716bf2d5468c5672` | `grouped_fwd_fixed_q8_0_g8_k4096_j64_full` |
 
-GGTensile is ahead on all three token counts, by `2.215x` to `2.288x`. The HIP side reproduces its own record. The GGTensile side is the noisier arm and moves a few percent between runs, and it is also clock-sensitive: the same artifacts read 3.6-14% higher in the earlier recordings, which were taken in a faster clock state.
+GGTensile is ahead on all 3 rows, with speedups from `2.215x` to `2.288x`. The HIP side reproduces its own record. The GGTensile side is the noisier arm and moves a few percent between runs, and it is also clock-sensitive: the same artifacts read 3.6-14% higher in the earlier recordings, which were taken in a faster clock state.
 
 ## Accepted Kernel Experiments
 

@@ -1,51 +1,32 @@
 # GGTensile Grouped MMQ Forward Q2_K Experiment
 
-## Scope And Contract
+## Scope
 
-This record covers the isolated gfx1151 grouped Q2_K forward kernel for the non-paired DeepSeek routed down projection. For each routed expert, the operation is:
-
-```text
-X_g[M_g,2048] @ W_g[2048,4096] -> Y_g[M_g,4096]
-```
-
-The measured aggregate-row shapes are `R=12288`, `49152`, and `196608`. The packed expert bank is `[256,4096,672]`; every 256-value block occupies 84 bytes, each packed row contains eight blocks, and each expert occupies 2,752,512 bytes. Q2_K stores sixteen scale/minimum bytes, 64 two-bit payload bytes, and FP16 `d`/`dmin` per block. The activation workspace is the fixed HIP Q8_1 `F16_D2S6` layout with shape `[16,R,144]`: the first six 16-value groups consume stored sums and the last two reconstruct their integer sums during MMA. Output is contiguous BF16 `[R,4096]`.
-
-The grouped research ABI is:
+This record covers the routed gfx1151 Q2_K down projection for the DeepSeek expert bank, one GEMM per routed expert:
 
 ```text
-input, packed_weight, output,
-expert_indices, expert_offsets, num_experts, rows, bytes_per_expert
+X_g[M_g,K] @ W_g[K,N] -> Y_g[M_g,N]
 ```
 
-Logical throughput is `2 * R * 4096 * 2048 / (latency_ms * 1e9)`, and the speedup ratio is HIP time divided by GGTensile time. The final timing uses the fixed HIP quantizer and prequantized multiply-only throughput.
+## Final Results
 
-## Final Benchmark Results
+`TFLOPS = 2*R*N*K / (median_ms * 1e9)`, and `Speedup vs HIP = HIP median time / GGTensile median time`, so a value above `1.0x` favors GGTensile. Each row is the median over the benchmark's sampled expert partitions, and both implementations are timed on the same partitions.
 
-The table shows the fastest qualified kernel found for each measured aggregate-row shape.
+| Batch | Logical shape `(R,N,K)` | GGTensile TFLOPS | Speedup vs HIP | GGTensile kernel | HIP kernel |
+| ---: | --- | ---: | ---: | --- | --- |
+| 1 | `(12288,4096,2048)` | 12.996 | 1.0881x | `grouped_mmq_fwd_q2_k_r12288_n4096_k2048_f32cc7d2292b1282` | `grouped_fwd_serial_q2_k_n4096_k2048_j32_j16` |
+| 4 | `(49152,4096,2048)` | 14.407 | 1.1046x | `grouped_mmq_fwd_q2_k_r49152_n4096_k2048_686731e4c99c1ffd` | `grouped_fwd_serial_q2_k_n4096_k2048_j32_j16` |
+| 16 | `(196608,4096,2048)` | 15.607 | 1.1761x | `grouped_mmq_fwd_q2_k_r196608_n4096_k2048_37ce03e143353b9d` | `grouped_fwd_serial_q2_k_n4096_k2048_j32` |
 
-| Matrix shape `(R,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
-| --- | --- | ---: | ---: |
-| `(12288,4096,2048)` | `ggsol_f32cc7d2292b1282` | `13.027` | `1.2283x` |
-| `(49152,4096,2048)` | `ggsol_686731e4c99c1ffd` | `14.688` | `1.1972x` |
-| `(196608,4096,2048)` | `ggsol_37ce03e143353b9d` | `15.964` | `1.2834x` |
+GGTensile is ahead on all 3 rows, with speedups from `1.0881x` to `1.1761x` (mean `1.1229x`).
 
-The selected entries passed the retained correctness, resource, and deterministic-build checks.
+These medians replace the earlier recorded values, which were paired against HIP bodies that have since been retuned.
 
-## Final Kernel Profiles
-
-| Kernel hash | Geometry and ownership | Decode and epilogue | VGPR / SGPR | LDS bytes | WMMAs / barriers |
-| --- | --- | --- | ---: | ---: | ---: |
-| `ggsol_f32cc7d2292b1282` | distributed J32/J16 ownership | static group lowering, eight-wide correction, one-tile-ahead epilogue | `135 / 40` | `25,600` | `60 / 4` |
-| `ggsol_686731e4c99c1ffd` | distributed J32/J16 ownership | static group lowering, eight-wide correction, one-tile-ahead epilogue | `135 / 40` | `25,600` | `60 / 4` |
-| `ggsol_37ce03e143353b9d` | distributed J64 ownership | static group lowering, eight-wide correction, four-tile epilogue | `159 / 40` | `30,208` | `80 / 4` |
-
-All selected artifacts target gfx1151 code-object version 5 and wave32 with zero private storage, spills, scratch, calls, and dynamic stack. The decoded-weight layout uses compact 320-byte rows.
-
-## Accepted Kernel Experiments
+## Accepted Experiments
 
 ### Dedicated Q2_K decoder and exact arithmetic association
 
-Q2_K received a dedicated grouped forward identity rather than a renamed Q4_K or Q5_K path. The decoder maps each lane to one aligned 16-value group, shares the two-bit payload shift and scale/minimum pair across those values, reconstructs the nibble scale and minimum, and writes BF16 decoded weights to the existing WMMA leaf. Groups 0-5 use stored activation sums; groups 6-7 issue all-ones integer WMMAs and reconstruct the missing sums without changing the producer contract.
+Q2_K received a dedicated grouped forward identity rather than a renamed Q4_K or Q5_K path. The decoder maps each lane to one aligned 16-value group, shares the two-bit payload shift and scale/minimum pair across those values, reconstructs the nibble scale and minimum, and writes BF16 decoded weights to the existing WMMA leaf. Groups 0-5 use stored activation sums. Groups 6-7 issue all-ones integer WMMAs and reconstruct the missing sums without changing the producer contract.
 
 The first reopened probe reproduced the installed rolled HIP arithmetic association: stored groups compute `Cd*d`, apply the missing-sum term inside the temporary for groups 6-7, multiply by `dB`, and apply the `dmin*sB` correction in the installed order. The 32-row association body is bitwise exact on the complete route and mutation matrix and remains the exactness control for structural work, though it is not competitive by itself.
 
@@ -63,9 +44,9 @@ The corrected body stays at 135 VGPRs, 40 SGPRs, 25,600 LDS bytes, 60 static WMM
 
 ### Larger ownership after correction phasing
 
-A composed 64-row body uses the distributed producer, paired stores, partial LDS retirement, and four-tile phased correction at 159 VGPRs, 40 SGPRs, 30,208 LDS bytes, 80 static WMMAs, and four barriers. It is rejected for B1/B4 but beats the 32/16 body at B16: 25-repeat confirmation measured `206.6285 ms` versus `265.1847 ms` for installed (`1.2834x`), with every learned/hash medoid between `1.2821x` and `1.2855x`. Search, captured, and synthetic B16 controls measured `1.2847x`, `1.2829x`, and `1.2915x`, and complete-call timing with fixed quantization measured `1.2764x`. J64 is retained for B16. Its four-tile epilogue was confirmed against one- and two-tile alternatives, and its dependency width two and priority two were confirmed against widths one and four and priority zero; no alternate epilogue is retained.
+A composed 64-row body uses the distributed producer, paired stores, partial LDS retirement, and four-tile phased correction at 159 VGPRs, 40 SGPRs, 30,208 LDS bytes, 80 static WMMAs, and four barriers. It is rejected for B1/B4 but beats the 32/16 body at B16: 25-repeat confirmation measured `206.6285 ms` versus `265.1847 ms` for installed (`1.2834x`), with every learned/hash medoid between `1.2821x` and `1.2855x`. Search, captured, and synthetic B16 controls measured `1.2847x`, `1.2829x`, and `1.2915x`, and complete-call timing with fixed quantization measured `1.2764x`. J64 is retained for B16. Its four-tile epilogue was confirmed against one- and two-tile alternatives, and its dependency width two and priority two were confirmed against widths one and four and priority zero. No alternate epilogue is retained.
 
-## Rejected Kernel Experiments
+## Rejected Experiments
 
 ### Dynamic parents and unconditional static lowering
 
@@ -81,12 +62,12 @@ Standalone producer `s_clause 2`, activation `s_clause 7`, explicit `buffer_gl0_
 
 ### Pure J32, J128, and address reductions
 
-Pure J32 removed the mixed-tail branch but was slower than mixed J32/J16 on every shape, even at B16. J128 at 239 VGPRs, 40 SGPRs, and 39,424 LDS bytes measured `239.1084 ms` versus `263.6021 ms` for installed (`1.1024x`), about 16% slower than J64, and is removed. VOPD accumulator initialization was neutral to regressive and is rejected as an independent mechanism. The shared packed-kernarg and paired route-bound reductions did not clear the Q4_K transfer gate, and the Q2 R3 guarded-stride/output-address reduction regressed B16 complete-call time by `1.529%`; existing identities remain unchanged.
+Pure J32 removed the mixed-tail branch but was slower than mixed J32/J16 on every shape, even at B16. J128 at 239 VGPRs, 40 SGPRs, and 39,424 LDS bytes measured `239.1084 ms` versus `263.6021 ms` for installed (`1.1024x`), about 16% slower than J64, and is removed. VOPD accumulator initialization was neutral to regressive and is rejected as an independent mechanism. The shared packed-kernarg and paired route-bound reductions did not clear the Q4_K transfer gate, and the Q2 R3 guarded-stride/output-address reduction regressed B16 complete-call time by `1.529%`. Existing identities remain unchanged.
 
-## Remaining Work
+## Open Items
 
-The current direct-kernel benchmark measured `1.2120x`, `1.2025x`, and `1.2873x` at B1/B4/B16, consistent with the documented table; no selected Q2 kernel is a retuning target. One conditional item remains: the R3 guarded-stride and output-address reduction at `(196608,4096,2048)` was rejected under an older complete-call protocol, so a prequantized multiply-only re-screen is allowed. The common R1/R2 route-prologue gate, the J128 resource point, and the zero-bank probes have larger or better-explained negative evidence and are not reopened.
+The R3 guarded-stride and output-address reduction was rejected under an older complete-call protocol, so a prequantized multiply-only re-screen is allowed. The common R1/R2 route-prologue gate, the J128 resource point, and the zero-bank probes have larger or better-explained negative evidence and are not reopened.
 
-## Qualification Summary
+## Closure
 
-The selected artifacts pass exact packed-HIP comparison, independent BF16-reference checks, finite-output and full-row coverage checks, deterministic reruns, uniform, boundary, skewed, repeated-ID, sparse-ID, active/inactive weight, workspace, input, and invalid-output gates. Two independent generation, build, and inspection roots produce byte-identical artifacts. The retained result is the Q2_K width-16 decoder with compact 320-byte LDS rows, the distributed producer and partial LDS retirement, the eight-wide correction dependency schedule, J32/J16 ownership for B1/B4, and J64 ownership for B16.
+The retained result is the width-16 Q2_K decoder with compact 320-byte LDS rows, the distributed producer with partial LDS retirement, the eight-wide correction schedule, J32/J16 ownership at B1/B4 and J64 ownership at B16.

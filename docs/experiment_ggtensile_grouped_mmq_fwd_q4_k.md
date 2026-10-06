@@ -1,64 +1,44 @@
 # GGTensile Grouped MMQ Forward Q4_K Experiment
 
-## Scope And Contract
+## Scope
 
-This record covers the isolated gfx1151 grouped Q4_K forward kernel for the Qwen routed down projection. For each routed expert, the operation is:
-
-```text
-X_g[M_g,512] @ W_g[512,2048] -> Y_g[M_g,2048]
-```
-
-The measured aggregate-row shapes are `R=16384`, `65536`, and `262144`. The authoritative packed Q4_K expert bank has shape `[256,2048,288]`; each 256-value block occupies 144 bytes. Runtime route metadata supplies up to 256 physical expert IDs and cumulative row ends, so `M_g` is neither a generation constant nor necessarily a tile multiple. The activation operand is the fixed HIP Q8_1 `F16_D4S4` workspace with physical shape `[4,R,144]`. Output is contiguous BF16 `[R,2048]`.
-
-The grouped research ABI is the 64-byte multiply contract:
+This record covers the routed gfx1151 Q4_K down projection, one GEMM per routed expert:
 
 ```text
-weights, activations, dst, expert_indices, expert_offsets,
-num_experts, nrows_weight, nrows_activation,
-blocks_per_weight_row, bytes_per_expert
+X_g[M_g,K] @ W_g[K,N] -> Y_g[M_g,N]
 ```
 
-Logical throughput is `2 * R * 2048 * 512 / (latency_ms * 1e9)`, and the speedup ratio is HIP time divided by GGTensile time. The final timing uses the fixed HIP quantizer and prequantized multiply-only throughput.
+## Final Results
 
-## Final Benchmark Results
+`TFLOPS = 2*R*N*K / (median_ms * 1e9)`, and `Speedup vs HIP = HIP median time / GGTensile median time`, so a value above `1.0x` favors GGTensile. Each row is the median over the benchmark's sampled expert partitions, and both implementations are timed on the same partitions.
 
-The table shows the fastest qualified kernel found for each measured aggregate-row shape.
+| Batch | Logical shape `(R,N,K)` | GGTensile TFLOPS | Speedup vs HIP | GGTensile kernel | HIP kernel |
+| ---: | --- | ---: | ---: | --- | --- |
+| 1 | `(16384,2048,512)` | 18.072 | 0.9887x | `grouped_mmq_fwd_q4_k_r16384_n2048_k512_c95d0acee91c7c55` | `grouped_fwd_serial_q4_k_n2048_k512_j32` |
+| 4 | `(65536,2048,512)` | 23.078 | 0.9943x | `grouped_mmq_fwd_q4_k_r65536_n2048_k512_61ba675510b0ed6f` | `grouped_fwd_serial_q4_k_n2048_k512_j64` |
+| 16 | `(262144,2048,512)` | 24.385 | 1.0001x | `grouped_mmq_fwd_q4_k_r262144_n2048_k512_c6a7f10afcf493b2` | `grouped_fwd_serial_q4_k_n2048_k512_j64` |
 
-| Matrix shape `(R,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
-| --- | --- | ---: | ---: |
-| `(16384,2048,512)` | `ggsol_c95d0acee91c7c55` | `16.042` | `1.1684x` |
-| `(65536,2048,512)` | `ggsol_61ba675510b0ed6f` | `22.633` | `1.0213x` |
-| `(262144,2048,512)` | `ggsol_c6a7f10afcf493b2` | `25.270` | `1.0031x` |
+HIP is ahead on 2 of the 3 rows, with speedups from `0.9887x` to `1.0001x` (mean `0.9944x`), and within 0.5% of parity on the remaining 1.
 
-The selected entries passed the retained route-correctness, resource, and deterministic-build checks.
+These medians replace the earlier recorded values, which were paired against HIP bodies that have since been retuned.
 
-## Final Kernel Profiles
-
-| Kernel hash | Geometry and ownership | Decode and LDS policy | VGPR / SGPR | LDS bytes | WMMAs / barriers |
-| --- | --- | --- | ---: | ---: | ---: |
-| `ggsol_c95d0acee91c7c55` | M128/N64 serial, mixed 64/32 tail | `a1d4-p2` epilogue, padded single LDS | `159 / 40` | `29,184` | `24 / 4` |
-| `ggsol_61ba675510b0ed6f` | M128/N64 serial, mixed 64/32 tail | `a1d4-p2` epilogue, padded single LDS | `159 / 40` | `29,184` | `24 / 4` |
-| `ggsol_c6a7f10afcf493b2` | M128/N64 serial, 128-row body | `a1d2-p2` epilogue, padded single LDS | `239 / 40` | `38,400` | `32 / 4` |
-
-The 24 static WMMAs in the mixed-tail identities represent mutually exclusive 64-row and 32-row bodies. All selected artifacts target gfx1151 code-object version 5 and wave32 with zero private storage, spills, scratch, calls, and dynamic stack.
-
-## Accepted Kernel Experiments
+## Accepted Experiments
 
 ### Direct-global routing and arithmetic control
 
-The first grouped Q4_K artifact emits one-wave serial GEMM ownership with a 16-row macro tile, masked activation reads, and masked BF16 stores for arbitrary `M_g`. It assembles at 88 VGPRs, 32 SGPRs, zero LDS, and 16 static WMMAs, and matched the installed grouped HIP path exactly on a real Qwen bank with route lengths of 1, 15, 16, and 3 rows. Against an independently dequantized reference it stayed within the expected quantized arithmetic envelope. This body remains the routing, ABI, and arithmetic control. The production tiled schedule is not bitwise identical to the one-wave control; the measured production difference is `3.05e-5` maximum absolute error and `6.04e-9` RMS, far below the independent reference envelope.
+The first grouped Q4_K artifact emits one-wave serial GEMM ownership with a 16-row macro tile, masked activation reads, and masked BF16 stores for arbitrary `M_g`. It assembles at 88 VGPRs, 32 SGPRs, zero LDS, and 16 static WMMAs, and matched the installed grouped HIP path exactly on a real Qwen bank with route lengths of 1, 15, 16, and 3 rows. This body remains the routing and arithmetic control. The production tiled schedule is not bitwise identical to the one-wave control. The measured production difference is `3.05e-5` maximum absolute error and `6.04e-9` RMS, far below the independent reference envelope.
 
 ### Decoded-weight LDS bodies and the mixed 64/32 tail
 
 The first decoded-weight LDS body reused the typed dense Q4_K decode and scaled WMMA emitters under serial routed ownership. It staged a 128-by-64 tile at 239 VGPRs, 40 SGPRs, 38,400 LDS bytes, 32 static WMMAs, and four barriers but reached only `0.734x`, `0.917x`, and `0.960x` installed/candidate at B1/B4/B16. Parameterizing the layout and register plan by row fragments produced a 64-by-64 tile at 159 VGPRs, 40 SGPRs, 29,184 LDS bytes, 16 static WMMAs, and four barriers. Independent scale/minimum extraction and metadata reads between the low and high WMMAs reduced the 64-row low-half wait ladder to `7,5,3,1` and improved the weighted results to `1.060x`, `0.986x`, and `0.971x`.
 
-The retained mixed 64/32 tail body decodes weights once per K block, then branches only activation staging, local reads, WMMA correction, and masked stores when the final routed tile has at most 32 rows. Its `a1d4-p2` schedule uses independent groups of four BF16 roundings at priority two and restores priority before serial traversal continues. The confirmation measured `2.142 ms` versus `2.503 ms` for HIP at B1 (`1.168x` weighted) and `6.073 ms` versus `6.202 ms` at B4 (`1.021x`), with the independent search bank reproducing `1.205x` and `1.025x`. The complete-call audit with the fixed quantizer measured `1.2167x`, `1.0311x`, and `1.0006x` installed/candidate. The dominant medoids contain many 32-row-or-smaller remainders, which explains the transfer; some low-weight large-group medoids remain slower, with confirmation minima of `0.931x` at B1 and `0.953x` at B4.
+The retained mixed 64/32 tail body decodes weights once per K block, then branches only activation staging, local reads, WMMA correction, and masked stores when the final routed tile has at most 32 rows. Its `a1d4-p2` schedule uses independent groups of four BF16 roundings at priority two and restores priority before serial traversal continues. The confirmation measured `2.142 ms` versus `2.503 ms` for HIP at B1 (`1.168x` weighted) and `6.073 ms` versus `6.202 ms` at B4 (`1.021x`), with the independent search bank reproducing `1.205x` and `1.025x`. The complete-call audit with the fixed quantizer measured `1.2167x`, `1.0311x`, and `1.0006x` installed/candidate. The dominant medoids contain many 32-row-or-smaller remainders, which explains the transfer. Some low-weight large-group medoids remain slower, with confirmation minima of `0.931x` at B1 and `0.953x` at B4.
 
 ### B16 128-row control
 
 The scheduled 128-row `a1d2-p2` body is the better large-group control at B16. Its reversed-order 25-repeat confirmation measured `21.756 ms` versus `21.823 ms` for HIP (`1.003x`), with every medoid at least `0.997x`. The movement is below the normal promotion margin, so this identity is retained as a resource-clean correctness and schedule control rather than a durable large-key win.
 
-## Rejected Kernel Experiments
+## Rejected Experiments
 
 ### Four-wave direct-global geometry
 
@@ -76,10 +56,10 @@ The packed-kernarg, paired cumulative-offset, and exact address reductions rebui
 
 The later paired-source audit does not transfer a zero-bank hoisting candidate here. The decoded-LDS Q4_K body already initializes its zero bank once per row tile, so it has no repeated per-projection lifetime matching the paired finding.
 
-## Remaining Work
+## Open Items
 
-The current direct-kernel benchmark measured B1 at `1.0688x` GGTensile/HIP (75-repeat interval `[1.0618x, 1.0758x]`) versus the documented `1.1684x`; the route has 233 active experts and a maximum group of 1,297, so this is a stable short-row result rather than timing noise. B4 and B16 remain close to their documented rows at `1.0327x` and `0.9962x`. The R1-R3 route/address transformations may be retimed on the current multiply-only surface as a diagnostic requalification. The route-persistent full-K rejection is not reopened by this discrepancy, because its direct body evidence already shows a large LDS/resource regression.
+The R1-R3 route and address reductions may be retimed on the current multiply-only surface as a diagnostic requalification. The route-persistent full-K rejection is not reopened: its direct body evidence already showed a large LDS and resource regression.
 
-## Qualification Summary
+## Closure
 
-The final kernels pass exact packed-HIP comparison, independent BF16-reference checks, finite-output and full-row coverage, deterministic reruns, uniform, skewed, sparse-ID, repeated-ID, and boundary routes, gradient and active-weight mutations, inactive-expert inertness, malformed-route sentinels, and non-aligned tails. Two independent generation, build, and inspection roots produce byte-identical artifacts. The retained result is the grouped Q4_K direct decoder with padded single-LDS storage, the mixed 64/32 `a1d4-p2` body for B1/B4, and the scheduled 128-row `a1d2-p2` control for B16.
+The retained result is the grouped Q4_K direct decoder with padded single-LDS storage: the mixed 64/32 `a1d4-p2` body at B1/B4 and the scheduled 128-row `a1d2-p2` body at B16.

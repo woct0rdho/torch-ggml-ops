@@ -1,47 +1,28 @@
 # GGTensile Grouped MMQ Forward IQ2_S Experiment
 
-## Scope And Contract
+## Scope
 
-This record covers the isolated gfx1151 grouped non-paired IQ2_S forward kernel for the Qwen routed down projection. For each routed expert, the operation is:
-
-```text
-X_g[M_g,512] @ W_g[512,2048] -> Y_g[M_g,2048]
-```
-
-The measured aggregate-row shapes are `R=16384`, `65536`, and `262144`. The packed expert bank is `[256,2048,164]`: each 256-value block occupies 82 bytes, each packed row contains two blocks, and each expert occupies 335,872 bytes. One IQ2_S block carries one FP16 block scale, 64 `qs` bytes, eight `qh` bytes, and eight packed scale bytes; two adjacent eight-value groups share a four-bit scale with effective factor `d * (scale + 0.5) / 4`. The full 1,024-entry codebook is embedded in the code object. Inputs and outputs are contiguous BF16, accumulation is FP32 WMMA V1, and stores use BF16 round-to-nearest-even.
-
-The grouped research ABI is:
+This record covers the routed gfx1151 non-paired IQ2_S down projection, one GEMM per routed expert:
 
 ```text
-input, packed_weight, output,
-expert_indices, expert_offsets, num_experts, rows, bytes_per_expert
+X_g[M_g,K] @ W_g[K,N] -> Y_g[M_g,N]
 ```
 
-The retained body is a J64 distributed full-weight LDS kernel. The activation workspace is the fixed HIP Q8_1 `F32_D4` layout and activation quantization is outside multiply-only timing. Logical throughput is `2 * R * 2048 * 512 / (latency_ms * 1e9)`, and the speedup ratio is HIP time divided by GGTensile time.
+## Final Results
 
-## Final Benchmark Results
+`TFLOPS = 2*R*N*K / (median_ms * 1e9)`, and `Speedup vs HIP = HIP median time / GGTensile median time`, so a value above `1.0x` favors GGTensile. Each row is the median over the benchmark's sampled expert partitions, and both implementations are timed on the same partitions.
 
-The table shows the fastest qualified kernel found for each measured aggregate-row shape.
+| Batch | Logical shape `(R,N,K)` | GGTensile TFLOPS | Speedup vs HIP | GGTensile kernel | HIP kernel |
+| ---: | --- | ---: | ---: | --- | --- |
+| 1 | `(16384,2048,512)` | 13.398 | 0.8895x | `grouped_mmq_fwd_iq2_s_r16384_n2048_k512_bacad5f35e7d3cb5` | `grouped_fwd_serial_iq2_s_n2048_k512_j64_j32_frag` |
+| 4 | `(65536,2048,512)` | 18.385 | 0.9834x | `grouped_mmq_fwd_iq2_s_r65536_n2048_k512_ab0d8e160e3e389a` | `grouped_fwd_serial_iq2_s_n2048_k512_j64_j32_frag` |
+| 16 | `(262144,2048,512)` | 19.351 | 0.9754x | `grouped_mmq_fwd_iq2_s_r262144_n2048_k512_da1baae36eda6c5f` | `grouped_fwd_serial_iq2_s_n2048_k512_j64` |
 
-| Matrix shape `(R,N,K)` | Kernel hash | GGTensile TFLOPS | Speedup vs HIP |
-| --- | --- | ---: | ---: |
-| `(16384,2048,512)` | `ggsol_bacad5f35e7d3cb5` | `13.869` | `1.2728x` |
-| `(65536,2048,512)` | `ggsol_ab0d8e160e3e389a` | `18.347` | `1.1310x` |
-| `(262144,2048,512)` | `ggsol_da1baae36eda6c5f` | `20.306` | `0.9951x` |
+HIP is ahead on all 3 rows. GGTensile is at `0.8895x` to `0.9834x` (mean `0.9494x`).
 
-All retained entries passed the fitted-prior qualification and the independent-reference and mutation checks. The retained identity is `iq2_s_serial_full_weight_lds_64_linear_payload_prefetch()`.
+These medians replace the earlier recorded values, which were paired against HIP bodies that have since been retuned.
 
-## Final Kernel Profiles
-
-| Kernel hash | Geometry and ownership | Decode and schedule | VGPR / SGPR | LDS bytes | WMMAs / barriers |
-| --- | --- | --- | ---: | ---: | ---: |
-| `ggsol_bacad5f35e7d3cb5` | J64 serial full-weight LDS | BFE decode, combined selector, quarter-scale, payload prefetch | `116 / 40` | `30,720` | `64 / 4` |
-| `ggsol_ab0d8e160e3e389a` | J64 serial full-weight LDS | BFE decode, combined selector, quarter-scale, payload prefetch | `116 / 40` | `30,720` | `64 / 4` |
-| `ggsol_da1baae36eda6c5f` | J64 serial full-weight LDS | BFE decode, combined selector, quarter-scale, payload prefetch | `116 / 40` | `30,720` | `64 / 4` |
-
-All three artifacts are gfx1151 code-object-v5 wave32 kernels with zero private storage, spills, scratch, calls, and dynamic stack.
-
-## Accepted Kernel Experiments
+## Accepted Experiments
 
 ### Dedicated IQ2_S decoder and identity
 
@@ -61,7 +42,7 @@ The sign-selector construction was then collapsed: the spread constant is shifte
 
 Precomputing `d * 0.25` once and multiplying by `(scale + 0.5)` removed seven dependent FP operations per decoded block and stayed bitwise exact. A dependent schedule then prefetches the next group's five activation/weight payload LDS reads while correcting the current WMMA results, with weight and activation scale reads overlapping the following four WMMAs. The B16 five-medoid screen measured `27.9807 ms` complete versus `28.0333 ms` for adjacent HIP (`1.0019x`). These mechanisms complete the retained payload-prefetch identity.
 
-## Rejected Kernel Experiments
+## Rejected Experiments
 
 ### J128 output-column ownership
 
@@ -73,7 +54,7 @@ A schedule issuing all five activation payload reads before weight-scale LDS rea
 
 ### Packed index/sign vector loads
 
-Packed `b32` and `b128` loads for the 16-byte index and sign halves were screened. Four unaligned `b32` reads per plane regressed B16 complete-call time to `29.6746 ms`; one `b128` read per plane measured `29.4607 ms` versus `29.4779 ms` for the parent. The apparent 0.06% improvement is below run resolution and adds unpacking complexity, so the candidate was rejected and removed.
+Packed `b32` and `b128` loads for the 16-byte index and sign halves were screened. Four unaligned `b32` reads per plane regressed B16 complete-call time to `29.6746 ms`. One `b128` read per plane measured `29.4607 ms` versus `29.4779 ms` for the parent. The apparent 0.06% improvement is below run resolution and adds unpacking complexity, so the candidate was rejected and removed.
 
 ### Partial zero-bank hoisting
 
@@ -83,10 +64,10 @@ Moving only `v94:v99` before the row-tile decode loop while retaining the `v92:v
 
 The shared packed-kernarg, paired cumulative-offset, and guarded high-stride/address reductions were exact but moved the Q4_K B1 transfer screen by `+0.030%`, `-0.086%`, and `-0.083%`, so no IQ2_S timing transfer was run. Direct-to-LDS cannot be emitted: the configured gfx1151 assembler rejects the buffer and LLVM spellings, and `global_load_lds_dword` is reported unsupported. A route-persistent two-block image remains unmeasured and was not pursued because it requires the same 52,224-byte one-workgroup LDS class that the rejected J128 body already showed to be occupancy-limited.
 
-## Remaining Work
+## Open Items
 
-The current direct-kernel benchmark measured B1 at `1.1000x` GGTensile/HIP (75-repeat interval `[1.0865x, 1.1136x]`) and B4 at `1.0953x` (`[1.0874x, 1.1033x]`), below the documented `1.2728x` and `1.1310x`. B16 is effectively unchanged at `0.9966x`. The spread is short-row and route-law sensitivity rather than a correctness issue, so B1/B4 route-ownership and decode-reuse screening should be re-run on the current multiply-only protocol before any new persistent decoded-image or synchronization change is composed.
+B1 and B4 route ownership and decode reuse should be re-screened on the current multiply-only protocol before any new persistent decoded-image or synchronization change is composed.
 
-## Qualification Summary
+## Closure
 
-The retained kernels passed exact packed-HIP comparison, independent BF16-reference checks, finite-output checks, deterministic reruns, route and weight mutations, inactive-expert inertness, invalid-route sentinels, and sequential, repeated, sparse, skewed, and boundary route profiles. The independent 64-column reference had a maximum absolute error of at most `0.005859375`. All three production artifacts rebuild byte-identically as gfx1151 code-object-v5 wave32 kernels with the profile above and zero private storage, spills, scratch, calls, and dynamic stack.
+The retained identity is `iq2_s_serial_full_weight_lds_64_linear_payload_prefetch()`: a J64 serial full-weight LDS body with BFE decode, combined selector, quarter-scale arithmetic, and payload prefetch.
