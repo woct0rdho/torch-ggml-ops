@@ -166,6 +166,8 @@ class BackwardMechanismContract:
         return depth in self.padded_depth_values
 
     def supports_pipeline_n(self, macro_tile1: int) -> bool:
+        # `pipeline_n_values` are widths of the written dimension in elements,
+        # i.e. `in_features` elements for the backward families.
         return macro_tile1 in self.pipeline_n_values
 
     def supports_pipeline_depth(self, depth: int) -> bool:
@@ -291,6 +293,15 @@ class BackwardProblemContract:
 
 @dataclass(frozen=True)
 class BackwardGeometrySpec:
+    """Workgroup and tile geometry of one backward kernel.
+
+    `macro_tile0` spans the rows and `macro_tile1` the written dimension, which
+    is `in_features` for every backward family. `matrix_instruction[5]` and
+    `matrix_instruction[6]` are the per-wave tile counts along those two
+    dimensions, `m_tiles` and `n_tiles` in the code. `n_tiles` follows the
+    instruction shorthand, not the problem's `N` (`out_features`).
+    """
+
     isa: tuple[int, int, int]
     wavefront_size: int
     work_group: tuple[int, int, int]
@@ -499,6 +510,7 @@ class BackwardKernelSpec:
 
     @property
     def mi_wave_tile(self) -> tuple[int, int]:
+        """Per-wave tile counts along the rows and the written dimension."""
         return (
             self.geometry.matrix_instruction[5],
             self.geometry.matrix_instruction[6],

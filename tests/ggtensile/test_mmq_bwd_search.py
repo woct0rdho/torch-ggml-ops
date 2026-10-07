@@ -19,7 +19,7 @@ from tools.ggtensile.model import ProblemSize
 
 
 def test_backward_domains_are_linked_deterministic_and_typed() -> None:
-    shape = ProblemSize(128, 256, 128)
+    shape = ProblemSize(128, 128, 256)
     for quant_type in ("Q3_K", "Q4_K", "Q5_K", "Q6_K", "Q8_0"):
         domain = candidate_domains(quant_type, shape)[0]
         candidates = candidate_neighbors(
@@ -39,7 +39,7 @@ def test_backward_domains_are_linked_deterministic_and_typed() -> None:
 
 
 def test_q3_neighbors_serialize_pairing_as_complete_policy() -> None:
-    shape = ProblemSize(128, 256, 128)
+    shape = ProblemSize(128, 128, 256)
     domain = candidate_domains("Q3_K", shape)[0]
     candidates = candidate_neighbors(domain.seed, "Q3_K", shape, ("Decoder",))
     policies = {
@@ -59,7 +59,7 @@ def test_q3_neighbors_serialize_pairing_as_complete_policy() -> None:
 
 
 def test_backward_search_rejects_unknown_domains_and_groups() -> None:
-    shape = ProblemSize(128, 256, 128)
+    shape = ProblemSize(128, 128, 256)
     seed = candidate_domains("Q4_K", shape)[0].seed
     with pytest.raises(ValueError, match="unsupported backward search quant type"):
         candidate_domains("Q2_K", shape)
@@ -75,7 +75,7 @@ def test_backward_search_rejects_unknown_domains_and_groups() -> None:
 
 
 def test_backward_candidate_identity_covers_serialized_policy() -> None:
-    seed = candidate_domains("Q8_0", ProblemSize(128, 256, 128))[0].seed
+    seed = candidate_domains("Q8_0", ProblemSize(128, 128, 256))[0].seed
     changed = replace(
         seed,
         decode=replace(seed.decode, extraction=BackwardExtraction.PackedVopd),

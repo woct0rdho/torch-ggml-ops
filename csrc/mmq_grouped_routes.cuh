@@ -62,8 +62,8 @@ void grouped_mmq_launch_cuda(
         shape.num_experts,
         shape.num_groups,
         shape.rows,
-        shape.in_features,
         shape.out_features,
+        shape.in_features,
         shape.bytes_per_expert,
         stream);
 }
@@ -86,7 +86,7 @@ void grouped_mmq_grad_input_launch_cuda(
     torch_ggml_ops::mmq_bundle::require_exact_deployment(
         torch_ggml_ops::mmq_bundle::kGroupedBackward,
         static_cast<int32_t>(quant_type), shape.rows,
-        shape.in_features, shape.out_features);
+        shape.out_features, shape.in_features);
     validate_explicit_buffer(
         grad_input,
         grad_output,

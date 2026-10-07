@@ -475,8 +475,8 @@ def build_launcher(
                     )
                 )
                 modules.append(split_module)
-                partials = split_module.allocate(problem.m, problem.n, device)
-                split_k_shape = (problem.m, problem.n, split_slices)
+                partials = split_module.allocate(problem.m, problem.k, device)
+                split_k_shape = (problem.m, problem.k, split_slices)
                 reduce_modules.append(
                     stack.enter_context(InstalledSplitKReduceModule(root))
                 )

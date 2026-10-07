@@ -31,15 +31,16 @@ def validate_fixed_backward_solution(
         ProblemType.mmq_backward("Q8_0"),
         ProblemSize(
             problem.tokens,
-            problem.input_features,
-            problem.output_features,
+            problem.out_features,
+            problem.in_features,
         ),
         compute,
     )
     assert problem.tokens % compute.geometry.macro_tile0 == 0
-    assert problem.input_features % compute.geometry.macro_tile1 == 0
+    assert problem.in_features % compute.geometry.macro_tile1 == 0
     m_tiles = problem.tokens // compute.geometry.macro_tile0
-    n_tiles = problem.input_features // compute.geometry.macro_tile1
+    # The written-dimension tile count, the instruction pair's `n_tiles`.
+    n_tiles = problem.in_features // compute.geometry.macro_tile1
     mapping = compute.geometry.work_group_mapping
     mapped_m_tile_count(m_tiles, mapping)
     mapped_grid_extent(n_tiles, mapping)

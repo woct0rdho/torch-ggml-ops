@@ -12,9 +12,9 @@ Aggregate rows are `R=16384,65536,262144`.
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | --- | --- | --- | --- |
-| 1 | `(16384,512,2048)` | 10.31 | 0.955x | `grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt64_s2_abar` |
-| 4 | `(65536,512,2048)` | 16.96 | 1.015x | `grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt64_s2_abar` |
-| 16 | `(262144,512,2048)` | 21.86 | 1.056x | `grouped_bwd_row_task_q5_k_n2048_k512_mt256_nt64_s2` |
+| 1 | `(16384,2048,512)` | 10.31 | 0.955x | `grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt64_s2_abar` |
+| 4 | `(65536,2048,512)` | 16.96 | 1.015x | `grouped_bwd_row_task_q5_k_n2048_k512_mt128_nt64_s2_abar` |
+| 16 | `(262144,2048,512)` | 21.86 | 1.056x | `grouped_bwd_row_task_q5_k_n2048_k512_mt256_nt64_s2` |
 
 The remaining loss is Q5 high-bit reconstruction and packed metadata cost relative to predecoded BF16 weights, and it is now visible only at B1.
 

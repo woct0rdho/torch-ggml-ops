@@ -216,7 +216,23 @@ _PIPELINED_QUANT_TYPES = (
 
 @dataclass(frozen=True)
 class DenseBackwardConfig:
+    """Deployed dense-backward tile.
+
+    `n_tiles` and `k_iteration` follow the matrix instruction's letters: a
+    backward body writes the input gradient, so its `N` is `in_features` and
+    its `K` steps the contraction over `out_features`. `exact_out_features` and
+    `exact_in_features` keep the problem's letters: the first bounds the
+    contraction and the second the width the body writes.
+    """
+
     quant_type: QuantType
+    # `n_tiles` counts the sixteen-column tiles of the dimension the kernel
+    # writes and `k_iteration` is the contraction stage it walks. Those are the
+    # matrix-instruction letters (`D[M,N] = A[M,K] * B[K,N]`), so for a backward
+    # input gradient the written dimension is `in_features` and the contraction
+    # `out_features` - the transpose of the problem's `N` and `K`, which are the
+    # weight's `out_features` and `in_features`. The control symbol spells them
+    # `nt<16 * n_tiles>` and `ki<k_iteration>` for that reason.
     n_tiles: int
     k_iteration: int
     group_m: int
@@ -249,8 +265,18 @@ class DenseBackwardConfig:
 
 @dataclass(frozen=True)
 class GroupedBackwardConfig:
+    """Deployed grouped-backward tile.
+
+    As in `DenseBackwardConfig`, `n_tiles` follows the matrix instruction's `N`,
+    which a backward body uses for the width it writes (`in_features`), while
+    `m_tiles_per_wave` spans the rows.
+    """
+
     kind: GroupedBackwardKind
     quant_type: QuantType | None = None
+    # `n_tiles` counts the sixteen-column tiles of the written dimension, the
+    # instruction's `N`, which a backward family writes as `in_features`, see
+    # `DenseBackwardConfig`.
     n_tiles: int = 0
     m_tiles_per_wave: int = 0
     reduction_unroll: int = 0

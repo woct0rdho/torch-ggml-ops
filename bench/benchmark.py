@@ -30,6 +30,10 @@ def _inferred_expert_prior(case) -> str:
     """Infer the default routed law from the case's matrix key and quant type."""
 
     forward = "Forward" in case.operation
+    # AITER keys its tuned GMM table by the computed GEMM's letters, `(m, k, n)`
+    # with `k` the contracted width and `n` the width the kernel writes. A
+    # forward kernel writes `out_features` and contracts `in_features`. A
+    # backward kernel writes the input gradient and so swaps the two.
     return infer_expert_prior(
         case.rows,
         case.in_features if forward else case.out_features,

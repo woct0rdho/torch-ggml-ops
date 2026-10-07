@@ -10,9 +10,9 @@ Aggregate routed rows are `R=12288,49152,196608`.
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | --- | --- | --- | --- |
-| 1 | `(12288,2048,4096)` | 12.87 | 1.388x | `grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3_g4_abar` |
-| 4 | `(49152,2048,4096)` | 21.48 | 1.347x | `grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3_g4_abar` |
-| 16 | `(196608,2048,4096)` | 26.01 | 1.440x | `grouped_bwd_row_task_q2_k_n4096_k2048_mt256_nt64_s3_g4_k64` |
+| 1 | `(12288,4096,2048)` | 12.87 | 1.388x | `grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3_g4_abar` |
+| 4 | `(49152,4096,2048)` | 21.48 | 1.347x | `grouped_bwd_row_task_q2_k_n4096_k2048_mt128_nt64_s3_g4_abar` |
+| 16 | `(196608,4096,2048)` | 26.01 | 1.440x | `grouped_bwd_row_task_q2_k_n4096_k2048_mt256_nt64_s3_g4_ki64` |
 
 All three shapes are now ahead of predecoded BF16 AITER, including the smallest groups once inactive waves skip their consumer work.
 

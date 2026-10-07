@@ -1,20 +1,16 @@
 # GGTensile MMQ Backward Q6_K Results and Experiment Log
 
-This record covers the ordinary dense Q6_K LM-head backward kernels on gfx1151:
-
-```text
-grad_input[M,N] = grad_output[M,K] @ dequant_q6_k(weight[K,N])
-```
+This record covers the ordinary dense Q6_K LM-head backward kernels on gfx1151.
 
 ## Final Results
 
-`TFLOPS = 2*M*K*N / (median_ms * 1e9)`, and `Speedup vs HIP = HIP median time / GGTensile median time`, so a value above `1.0x` favors GGTensile. Medians are the repository benchmark's, re-measured in the current clock state. They replace the earlier recorded values, which came from a different clock state with the same artifacts.
+`TFLOPS = 2*M*N*K / (median_ms * 1e9)`, and `Speedup vs HIP = HIP median time / GGTensile median time`, so a value above `1.0x` favors GGTensile. Medians are the repository benchmark's, re-measured in the current clock state. They replace the earlier recorded values, which came from a different clock state with the same artifacts.
 
-| Family | `(M,K,N)` | GGTensile TFLOPS | Speedup vs HIP | GGTensile kernel | HIP kernel |
+| Family | `(M,N,K)` | GGTensile TFLOPS | Speedup vs HIP | GGTensile kernel | HIP kernel |
 | --- | --- | ---: | ---: | --- | --- |
-| Language model head | `(64,2048,248320)` | 12.787 | 0.9834x | `mmq_bwd_q6_k_m64_n2048_k248320_76fa1a4855676e9c` | `dense_bwd_q6_k_pipesplit_m64_s2` |
-| Language model head | `(128,2048,248320)` | 19.626 | 0.8839x | `mmq_bwd_q6_k_m128_n2048_k248320_6538f0b3cb2e22e1` | `dense_bwd_q6_k_pipesplit_m128_s40` |
-| Language model head | `(256,2048,248320)` | 26.239 | 1.1946x | `mmq_bwd_q6_k_m256_n2048_k248320_ed1076244ec57d3d` | `dense_bwd_q6_k_pipesplit_m256_s40` |
+| Language model head | `(64,248320,2048)` | 12.787 | 0.9834x | `mmq_bwd_q6_k_m64_n248320_k2048_afa65b05cf14eb2f` | `dense_bwd_q6_k_pipesplit_m64_s2` |
+| Language model head | `(128,248320,2048)` | 19.626 | 0.8839x | `mmq_bwd_q6_k_m128_n248320_k2048_788ae3f1307542df` | `dense_bwd_q6_k_pipesplit_m128_s40` |
+| Language model head | `(256,248320,2048)` | 26.239 | 1.1946x | `mmq_bwd_q6_k_m256_n248320_k2048_0b9c1ef20d16bee6` | `dense_bwd_q6_k_pipesplit_m256_s40` |
 
 GGTensile is ahead on 1 of the 3 entries, with speedups from `0.884x` to `1.195x` (mean `1.021x`).
 

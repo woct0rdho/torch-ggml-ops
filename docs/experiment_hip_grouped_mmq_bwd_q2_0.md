@@ -10,9 +10,9 @@ The model is `Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` (`qwen4_exp_text`, 48 layers, hid
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/bf16 GMM | Kernel |
 | ---: | --- | ---: | ---: | --- |
-| 1 | `(20480,640,2560)` | 14.00 | 2.50x | `grouped_bwd_row_task_q2_0_n2560_k640_mt128_nt64_s3_sw8_g4_abar` |
-| 4 | `(81920,640,2560)` | 25.63 | 2.74x | `grouped_bwd_row_task_q2_0_n2560_k640_mt256_nt64_s3_k64_sw8_g4_abar` |
-| 16 | `(327680,640,2560)` | 35.21 | 2.75x | `grouped_bwd_row_task_q2_0_n2560_k640_mt256_nt64_s3_k64_sw8_g4_abar` |
+| 1 | `(20480,2560,640)` | 14.00 | 2.50x | `grouped_bwd_row_task_q2_0_n2560_k640_mt128_nt64_s3_sw8_g4_abar` |
+| 4 | `(81920,2560,640)` | 25.63 | 2.74x | `grouped_bwd_row_task_q2_0_n2560_k640_mt256_nt64_s3_ki64_sw8_g4_abar` |
+| 16 | `(327680,2560,640)` | 35.21 | 2.75x | `grouped_bwd_row_task_q2_0_n2560_k640_mt256_nt64_s3_ki64_sw8_g4_abar` |
 
 Banks come from the `qwen3.8-learned` law, one profile per size at the declared seed (`352 / 458 / 497` active experts, largest group `1261 / 4735 / 17896` rows). The baseline is the same routed product computed in BF16 over predecoded expert weights, expert by expert, with `torch.mm`: it is what an unquantized multiply-only grouped kernel reaches on this part, in the role the AITER GMM number plays in the plan. The quantized kernel is `2.50x` to `2.75x` ahead of it, and it is above every routed sibling at every shape (`Q4_K` `9.63 / 16.60 / 20.94`, `Q5_K` `10.31 / 16.96 / 21.86`, `IQ2_S` `12.34 / 18.19 / 22.24`, `Q2_K` `12.87 / 21.48 / 26.01` TFLOPS), which is what the smallest decode in the bundle should buy.
 
@@ -75,7 +75,7 @@ The barrier *count* is therefore not the lever: the wait per barrier scales with
 
 A task descriptor decodes its own copy of the weight rows it covers, so the decode per output row is one weight matrix per descriptor and a 256-row descriptor halves it. The wide body keeps the per-wave tile, four column tiles and the accumulator budget of the deployed shape - eight waves of `M_TILES = 2` give the 256 rows - and pairs that with a 64-value contraction stage so the stage count over the 2560-wide reduction halves as well. Against the four-wave body, paired in one process with both arms pinned by symbol:
 
-| Route | `mt256_nt64_s3_k64` against `mt128_nt64_s3_sw8_g4` |
+| Route | `mt256_nt64_s3_ki64` against `mt128_nt64_s3_sw8_g4` |
 | --- | ---: |
 | B1 | `-0.4 % / -0.4 %` |
 | B4 | `+7.1 % / +7.2 %` |

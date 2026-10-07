@@ -9,8 +9,8 @@ namespace {
 
 struct GroupedMMQShape {
     int rows;
-    int in_features;
     int out_features;
+    int in_features;
     int num_experts;
     int num_groups;
     int64_t bytes_per_expert;
@@ -102,8 +102,8 @@ GroupedMMQShape validate_grouped_mmq(
 
     return {
         static_cast<int>(rows),
-        static_cast<int>(in_features),
         static_cast<int>(out_features),
+        static_cast<int>(in_features),
         static_cast<int>(num_experts),
         static_cast<int>(num_groups),
         bytes_per_expert,
@@ -225,8 +225,8 @@ GroupedMMQShape validate_grouped_mmq_grad_input(
 
     return {
         static_cast<int>(rows),
-        static_cast<int>(in_features),
         static_cast<int>(out_features),
+        static_cast<int>(in_features),
         static_cast<int>(num_experts),
         static_cast<int>(num_groups),
         bytes_per_expert,

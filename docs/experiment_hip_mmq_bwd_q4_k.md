@@ -4,60 +4,60 @@
 
 This record covers gfx1151 HIP packed-MMQ input-gradient kernels for Q4_K weights.
 
-Backward shapes are written `(M, in_features, out_features)`, matching the weight's `(N,K) = (out_features, in_features)`. Beyond the Qwen query, narrow, attention-output and shared-down families measured first, the type carries the QSA attention key/value and output, shared-expert gate/up and GatedDeltaNet `in_proj_qkv` and `in_proj_z` projections of the Qwen4-Exp checkpoint `Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` (hidden size 2560) and the GatedDeltaNet `in_proj_z` of the Qwen3.6-35B-A3B (APEX-I-Mini) checkpoint, at the training token counts of a sequence length 2048 batch (B1/B4/B16). The APEX-I-Mini `in_proj_qkv` `(8192,2048)` shares the already tabulated query shape.
+Backward shapes are written `(M,N,K)`, matching the weight's `(N,K) = (out_features, in_features)`. Beyond the Qwen query, narrow, attention-output and shared-down families measured first, the type carries the QSA attention key/value and output, shared-expert gate/up and GatedDeltaNet `in_proj_qkv` and `in_proj_z` projections of the Qwen4-Exp checkpoint `Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` (hidden size 2560) and the GatedDeltaNet `in_proj_z` of the Qwen3.6-35B-A3B (APEX-I-Mini) checkpoint, at the training token counts of a sequence length 2048 batch (B1/B4/B16). The APEX-I-Mini `in_proj_qkv` `(8192,2048)` shares the already tabulated query shape.
 
 GatedDeltaNet `out_proj` is deferred because wiring it needs the activation permutation.
 
 ## Final kernel result
 
-| Family | `(M,K,N)` | HIP TFLOPS | HIP/torch.mm | Kernel |
+| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm | Kernel |
 | --- | ---: | ---: | ---: | --- |
-| Query/query gate | `(2048,2048,8192)` | 26.705 | 1.570x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Query/query gate | `(8192,2048,8192)` | 27.017 | 1.543x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| Query/query gate | `(32768,2048,8192)` | 24.071 | 1.368x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| Narrow K/V/gate/up | `(2048,2048,512)` | 27.536 | 1.192x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8` |
-| Narrow K/V/gate/up | `(8192,2048,512)` | 29.654 | 1.256x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Narrow K/V/gate/up | `(32768,2048,512)` | 30.301 | 1.255x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Attention output | (2048,4096,2048) | 34.240 | 1.493x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Attention output | (8192,4096,2048) | 29.368 | 1.225x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Attention output | (32768,4096,2048) | 29.537 | 1.224x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Shared down | `(2048,512,2048)` | 20.553 | 1.600x | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096_sw16` |
-| Shared down | `(8192,512,2048)` | 16.355 | 1.073x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8` |
-| Shared down | `(32768,512,2048)` | 19.019 | 1.141x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| QSA key/value | `(2048,2560,512)` | 28.576 | 1.414x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8` |
-| QSA key/value | `(8192,2560,512)` | 30.310 | 1.184x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8` |
-| QSA key/value | `(32768,2560,512)` | 31.021 | 1.211x | `dense_bwd_q4_k_pipea_nt4_ki64_mw4_pad8_prefetch` |
-| QSA output | `(2048,6144,2560)` | 35.022 | 1.479x | `dense_bwd_q4_k_pipea_nt4_ki64_mw4_sw16_prefetch` |
-| QSA output | `(8192,6144,2560)` | 33.108 | 1.351x | `dense_bwd_q4_k_pipea_nt4_ki64_mw4_sw16_prefetch` |
-| QSA output | `(32768,6144,2560)` | 30.527 | 1.214x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16` |
-| Shared-expert gate/up | `(2048,2560,640)` | 33.915 | 1.601x | `dense_bwd_q4_k_pipea_nt4_ki64_mw4_pad8_prefetch` |
-| Shared-expert gate/up | `(8192,2560,640)` | 34.740 | 1.302x | `dense_bwd_q4_k_pipea_nt4_ki64_mw4_pad8_prefetch` |
-| Shared-expert gate/up | `(32768,2560,640)` | 35.223 | 1.305x | `dense_bwd_q4_k_pipea_nt4_ki64_mw4_pad8_prefetch` |
-| GatedDeltaNet Z | `(2048,2560,6144)` | 28.106 | 1.268x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| GatedDeltaNet Z | `(8192,2560,6144)` | 28.096 | 1.171x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| GatedDeltaNet Z | `(32768,2560,6144)` | 25.648 | 1.041x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| GatedDeltaNet QKV | `(2048,2560,10240)` | 27.916 | 1.253x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| GatedDeltaNet QKV | `(8192,2560,10240)` | 26.831 | 1.101x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| GatedDeltaNet QKV | `(32768,2560,10240)` | 24.392 | 0.986x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| GatedDeltaNet Z APEX-I-Mini | `(2048,2048,4096)` | 31.362 | 1.871x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8` |
-| GatedDeltaNet Z APEX-I-Mini | `(8192,2048,4096)` | 27.583 | 1.587x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| GatedDeltaNet Z APEX-I-Mini | `(32768,2048,4096)` | 27.004 | 1.505x | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
+| Query/query gate | `(2048,8192,2048)` | 26.705 | 1.570x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Query/query gate | `(8192,8192,2048)` | 27.017 | 1.543x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| Query/query gate | `(32768,8192,2048)` | 24.071 | 1.368x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| Narrow K/V/gate/up | `(2048,512,2048)` | 27.536 | 1.192x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8` |
+| Narrow K/V/gate/up | `(8192,512,2048)` | 29.654 | 1.256x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Narrow K/V/gate/up | `(32768,512,2048)` | 30.301 | 1.255x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Attention output | (2048,2048,4096) | 34.240 | 1.493x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Attention output | (8192,2048,4096) | 29.368 | 1.225x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Attention output | (32768,2048,4096) | 29.537 | 1.224x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Shared down | `(2048,2048,512)` | 20.553 | 1.600x | `dense_bwd_q4_k_mt128_nt128_ki32_full_sw16` |
+| Shared down | `(8192,2048,512)` | 16.355 | 1.073x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8` |
+| Shared down | `(32768,2048,512)` | 19.019 | 1.141x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| QSA key/value | `(2048,512,2560)` | 28.576 | 1.414x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8` |
+| QSA key/value | `(8192,512,2560)` | 30.310 | 1.184x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8` |
+| QSA key/value | `(32768,512,2560)` | 31.021 | 1.211x | `dense_bwd_q4_k_pipea_nt64_ki64_mw4_pad8_prefetch` |
+| QSA output | `(2048,2560,6144)` | 35.022 | 1.479x | `dense_bwd_q4_k_pipea_nt64_ki64_mw4_sw16_prefetch` |
+| QSA output | `(8192,2560,6144)` | 33.108 | 1.351x | `dense_bwd_q4_k_pipea_nt64_ki64_mw4_sw16_prefetch` |
+| QSA output | `(32768,2560,6144)` | 30.527 | 1.214x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_sw16` |
+| Shared-expert gate/up | `(2048,640,2560)` | 33.915 | 1.601x | `dense_bwd_q4_k_pipea_nt64_ki64_mw4_pad8_prefetch` |
+| Shared-expert gate/up | `(8192,640,2560)` | 34.740 | 1.302x | `dense_bwd_q4_k_pipea_nt64_ki64_mw4_pad8_prefetch` |
+| Shared-expert gate/up | `(32768,640,2560)` | 35.223 | 1.305x | `dense_bwd_q4_k_pipea_nt64_ki64_mw4_pad8_prefetch` |
+| GatedDeltaNet Z | `(2048,6144,2560)` | 28.106 | 1.268x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet Z | `(8192,6144,2560)` | 28.096 | 1.171x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet Z | `(32768,6144,2560)` | 25.648 | 1.041x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet QKV | `(2048,10240,2560)` | 27.916 | 1.253x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet QKV | `(8192,10240,2560)` | 26.831 | 1.101x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet QKV | `(32768,10240,2560)` | 24.392 | 0.986x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| GatedDeltaNet Z APEX-I-Mini | `(2048,4096,2048)` | 31.362 | 1.871x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8` |
+| GatedDeltaNet Z APEX-I-Mini | `(8192,4096,2048)` | 27.583 | 1.587x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet Z APEX-I-Mini | `(32768,4096,2048)` | 27.004 | 1.505x | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
 
 ### Qwen4-Exp and GatedDeltaNet shapes
 
 The new shapes span contraction lengths from `2048` to `10240` and result widths from `512` to `2560`, all whole multiples of the `ki32` step and the 128-wide tiles, so the three tuned variants serve them without a new body. All three were timed on every point.
 
-The `_k512` variant loses everywhere on the new points (`1.13-1.32x` behind the winner), which leaves the choice between `_k4096` and `_k2048`: the QSA key/value, QSA output, shared-expert gate/up and APEX-I-Mini `in_proj_z` rows take `_k4096` at every M (`1.02-1.06x` ahead), while the two long-contraction Qwen4 GatedDeltaNet rows, `(M,2560,6144)` and `(M,2560,10240)`, take `_k4096` at `M=2048` and `_k2048` above it, where it is `1.9-3.0%` faster. The deployed body therefore follows the measurement per key rather than the suffix.
+The `_k512` variant loses everywhere on the new points (`1.13-1.32x` behind the winner), which leaves the choice between `_k4096` and `_k2048`: the QSA key/value, QSA output, shared-expert gate/up and APEX-I-Mini `in_proj_z` rows take `_k4096` at every M (`1.02-1.06x` ahead), while the two long-contraction Qwen4 GatedDeltaNet rows, `(M,6144,2560)` and `(M,10240,2560)`, take `_k4096` at `M=2048` and `_k2048` above it, where it is `1.9-3.0%` faster. The deployed body therefore follows the measurement per key rather than the suffix.
 
 Six of the new rows are below the BF16 `torch.mm` baseline (the long contractions, at `0.92-0.96x`) and twelve are above it (`0.95-1.44x`), the same spread the rows measured first show, so the new shapes change the mixture rather than the conclusion: the remaining cost is the packed decode the BF16 baseline does not pay.
 
 ### Exact-dimension twins
 
-The deployed bodies on this record resolve both the contraction and the result width at runtime. Twins that copy the deployed geometry exactly and only substitute the two compile-time bounds were built and measured against the deployed bodies in one interleaved A/B run: `0.858x` at `(8192,2048,8192)` and `0.886x` at `(32768,512,2048)`. Exact dimensions are therefore not deployed on these keys. Where the mechanism looked positive on the Q6_K M64 chunk, the measurement also carried the split-contraction body.
+The deployed bodies on this record resolve both the contraction and the result width at runtime. Twins that copy the deployed geometry exactly and only substitute the two compile-time bounds were built and measured against the deployed bodies in one interleaved A/B run: `0.858x` at `(8192,8192,2048)` and `0.886x` at `(32768,2048,512)`. Exact dimensions are therefore not deployed on these keys. Where the mechanism looked positive on the Q6_K M64 chunk, the measurement also carried the split-contraction body.
 
 ## Kernel implementation
 
-Q4_K's payload is a 144-byte block: two 32-byte high planes, a 64-byte low plane and 16 bytes of scale metadata for `QK_K = 256` weights. The deployed bodies are the reusable pipelined tile (`csrc/ck/mmq_backward_pipelined.cuh`) on twenty-four of the thirty keys and the first redesign's padded `mt128_nt128_ki32_full_k4096_sw16` tile on the six whose shapes the pipelined screen did not cover.
+Q4_K's payload is a 144-byte block: two 32-byte high planes, a 64-byte low plane and 16 bytes of scale metadata for `QK_K = 256` weights. The deployed bodies are the reusable pipelined tile (`csrc/ck/mmq_backward_pipelined.cuh`) on twenty-four of the thirty keys and the first redesign's padded `mt128_nt128_ki32_full_sw16` tile on the six whose shapes the pipelined screen did not cover.
 
 The pipelined tile runs a 128-thread workgroup, a 64-value contraction stage, `n_tiles = 4` result columns of 16 per wave, 128-row result blocks (`mw2`) or 256-row ones (`mw4`), two shared tiles with one barrier per stage, register double-buffered activation fragments, and either the width-16 cooperative decode or the prefetched `uint4` form.
 
@@ -67,7 +67,7 @@ The catalog carries the six bodies these keys deploy and nothing else: the bound
 
 ### Swizzle-only twins of the padded tile
 
-The `_k4096` body carried `lds_padding = 8` instead of the LDS swizzle its `_k2048` and `_k512` siblings use, and the Q2_0 campaign showed the padding is the LDS cost while the swizzle is what actually breaks the decoded tile's bank pattern. Swizzle-only twins (`_k4096_sw8`, `_k4096_sw16`, both at 8 KiB rather than 10 KiB) were screened against it. Padding survives on the narrow contraction shapes (`(2560,512)` and `(2560,640)`, `0.97-1.01x` either way) and loses everywhere else: `1.064/1.058/1.075x` on `(2560,6144)`, `1.066/1.067/1.070x` on `(2560,10240)` and `1.040/1.066/1.074x` on `(4096,2048)` across `M=2048/8192/32768`.
+The `_k4096` body carried `lds_padding = 8` instead of the LDS swizzle its `_k2048` and `_k512` siblings use, and the Q2_0 campaign showed the padding is the LDS cost while the swizzle is what actually breaks the decoded tile's bank pattern. Swizzle-only twins (`_k4096_sw8`, `_k4096_sw16`, both at 8 KiB rather than 10 KiB) were screened against it. Padding survives on the narrow contraction shapes (`(512,2560)` and `(640,2560)`, `0.97-1.01x` either way) and loses everywhere else: `1.064/1.058/1.075x` on `(6144,2560)`, `1.066/1.067/1.070x` on `(10240,2560)` and `1.040/1.066/1.074x` on `(2048,4096)` across `M=2048/8192/32768`.
 
 The swizzle twin also beats the `_k2048` body that those two wide shapes deploy above `M=2048` (`1.044-1.053x` at `M=8192` and `32768`), so all nine wide-contraction keys now deploy `_k4096_sw16` and the Qwen4 and APEX GatedDeltaNet keys gain `4-7%` over the previous bodies. The A/B harness for this screen is `~/tmp/torch-ggml-ops/qwen4_fwd/bwd_final_decisions.txt` and the deployed-body confirmation is `bwd_deploy_confirm.txt`.
 
@@ -98,7 +98,7 @@ Exact-shape simplifications removed dead dimension loads, shortened address stat
 
 ### Pipelined tile on the narrow-result rows
 
-The Q5_K and Q6_K records show the pipelined stage order paying where the result is narrow. The same body was built here at that geometry (`_pipea_nt4_ki64_mw4_sw16`) and screened against the deployed swizzle tile on three families at `M=2048` and `32768`: it wins on the QSA key/value rows (`1.12x` and `1.15x`), ties on the GatedDeltaNet `(2560,6144)` rows (`1.07x` at `M=2048`, `0.99x` at `32768`) and loses on the APEX-I-Mini `(2048,8192)` rows (`0.96x` and `0.92x`), so only the two measured QSA key/value rows took it at the time.
+The Q5_K and Q6_K records show the pipelined stage order paying where the result is narrow. The same body was built here at that geometry (`_pipea_nt64_ki64_mw4_sw16`) and screened against the deployed swizzle tile on three families at `M=2048` and `32768`: it wins on the QSA key/value rows (`1.12x` and `1.15x`), ties on the GatedDeltaNet `(2560,6144)` rows (`1.07x` at `M=2048`, `0.99x` at `32768`) and loses on the APEX-I-Mini `(8192,2048)` rows (`0.96x` and `0.92x`), so only the two measured QSA key/value rows took it at the time.
 
 The screen covered one row-tile count on five shapes, and the losses it recorded belong to the 256-row block: the `M=2048` APEX loss is a grid that cannot fill from 256-row blocks, and the 128-row twin of the same body is what every record tuned after this one deploys. With both decode forms that twin takes twenty-three of these keys, `4-29%` ahead of the swizzle and padded tiles: `26-29%` on the shared-expert gate/up rows, where the 256-row prefetch twin is the fastest of the three, `13-26%` on the QSA output rows, `8-21%` on the QSA key/value rows, and `10-21%` on the query and GatedDeltaNet rows.
 
@@ -112,7 +112,7 @@ The pipelined QSA key/value rows used the width-16 group decode, which is what c
 
 ## Resources
 
-The deployed pipelined bodies use `208 VGPR / 22 SGPR` at 16 KiB (`mw2`) and `216 VGPR / 22 SGPR` at 16 KiB (`mw4`), spill-free. The first-generation bodies kept for the shapes outside the pipelined screen use `222 VGPR / 20 SGPR / 10 KiB LDS` (`_k4096_sw16`) and `220 VGPR / 16 SGPR / 8 KiB LDS` (`_k512`).
+The deployed pipelined bodies use `208 VGPR / 22 SGPR` at 16 KiB (`mw2`) and `216 VGPR / 22 SGPR` at 16 KiB (`mw4`), spill-free. The first-generation bodies kept for the shapes outside the pipelined screen use `222 VGPR / 20 SGPR / 10 KiB LDS` (`mt128_nt128_ki32_full_sw16`) and `220 VGPR / 16 SGPR / 8 KiB LDS` (`_k512`).
 
 ### Padding on the pipelined tile
 
@@ -128,7 +128,7 @@ A second layout round then screened three further combinations on every official
 
 The tables' slowest rows were then revisited as a group. For every key whose ratio to BF16 sat at or below parity, each catalog body of the same type whose exact dimensions and tile geometry can express the shape was timed against the deployed body, four repeats per block, and every winner was re-timed at eight repeats over two blocks in both measurement orders. The pattern the screen found is systematic rather than specific: these families still ran first-generation tiles that the pipelined rollout never revisited for those particular shapes, so the fix is reassignment rather than a new mechanism.
 
-On this type the shared-down `(M,512,2048)` rows were the worst in the matrix (`0.745x` and `0.789x` against BF16 at `M=8192` and `32768`), because their 2048-wide contraction ran the first-generation `_k4096` and `_k512` tiles. The pipelined four-column tile takes `M=8192` and `M=32768` (`32.8%` and `34.3%` ahead in both measurement orders, `16.4` and `19.0` TFLOPS against BF16 baselines of `15.2` and `16.6`), and `M=2048` keeps a single-tile body but takes the swizzled `_k4096_sw16` twin (`9.4%` ahead, `20.6` TFLOPS). The GatedDeltaNet `(2560,10240)` row at `M=32768` also moves from the group-decoding pipelined tile to the prefetched one (`1.8%`).
+On this type the shared-down `(M,512,2048)` rows were the worst in the matrix (`0.745x` and `0.789x` against BF16 at `M=8192` and `32768`), because their 2048-wide contraction ran the first-generation `_k4096` and `_k512` tiles. The pipelined four-column tile takes `M=8192` and `M=32768` (`32.8%` and `34.3%` ahead in both measurement orders, `16.4` and `19.0` TFLOPS against BF16 baselines of `15.2` and `16.6`), and `M=2048` keeps a single-tile body but takes the swizzled `_k4096_sw16` twin (`9.4%` ahead, `20.6` TFLOPS). The GatedDeltaNet `(10240,2560)` row at `M=32768` also moves from the group-decoding pipelined tile to the prefetched one (`1.8%`).
 
 ### The narrow-result shape is a shape cost, not a body cost
 
@@ -140,7 +140,7 @@ Padding, swizzle, prefetching and the group decode were already screened on the 
 
 The deployed body is the optimum of that space, and the residual gap to the mirror is the price of a long contraction over a narrow result - the barrier wait at the pipeline sync is `29%` of issue slots on the narrow orientation against `13.6%` on the mirror, with the same instruction and byte mix per stage. Removing it would need a barrier-free decode that gives up the cooperative decode's fourfold sharing, i.e. a different data flow rather than another tile.
 
-The same screen also closed the two knobs that had never been swept on this type's keys. The attention-output `(M,4096,2048)` family was the last one still on a first-generation tile - its record's layout screen had compared padding and swizzle *within* that family, never against the pipelined tile - and the pipelined four-column padding body takes all three row counts: `26.6%`, `15.0%` and `14.3%` ahead in both measurement orders, i.e. `34.2`, `29.4` and `29.5` TFLOPS at ratios `1.224-1.493x` against `18.3`, `23.6` and `24.5` before.
+The same screen also closed the two knobs that had never been swept on this type's keys. The attention-output `(M,2048,4096)` family was the last one still on a first-generation tile - its record's layout screen had compared padding and swizzle *within* that family, never against the pipelined tile - and the pipelined four-column padding body takes all three row counts: `26.6%`, `15.0%` and `14.3%` ahead in both measurement orders, i.e. `34.2`, `29.4` and `29.5` TFLOPS at ratios `1.224-1.493x` against `18.3`, `23.6` and `24.5` before.
 
 The traversal knob (`group_m = 0`) was built as twins of both the deployed and the pipelined bodies for the starved narrow-result `M=2048` keys. It loses there by `1.14x` and by `1.8-4.4x` at the larger row counts, so the M-grouped order stays everywhere except the 640-wide family where the earlier traversal screen deployed it.
 

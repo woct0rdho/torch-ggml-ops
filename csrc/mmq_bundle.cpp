@@ -118,8 +118,8 @@ void launch_dense_forward(
         void * output,
         int rows,
         int rows_padded,
-        int in_features,
         int out_features,
+        int in_features,
         hipStream_t stream) {
     const MMQDeploymentRecord & record = exact_record(
         kOrdinaryForward, quant_type, rows, out_features, in_features);
@@ -165,8 +165,8 @@ void launch_fixed_grouped_forward(
         const int * activations,
         void * output,
         int tokens,
-        int in_features,
         int out_features,
+        int in_features,
         std::int64_t bytes_per_group,
         hipStream_t stream) {
     const MMQDeploymentRecord & record = exact_record(
@@ -191,8 +191,8 @@ void launch_grouped_forward(
         int num_experts,
         int num_groups,
         int rows,
-        int in_features,
         int out_features,
+        int in_features,
         std::int64_t bytes_per_expert,
         hipStream_t stream) {
     const MMQDeploymentRecord & record = exact_record(
@@ -226,8 +226,8 @@ void launch_grouped_pair_forward_row_tasks(
         int max_tasks,
         int num_experts,
         int rows,
-        int in_features,
         int out_features,
+        int in_features,
         std::int64_t bytes_per_expert,
         hipStream_t stream) {
     const MMQDeploymentRecord & record = exact_record(
@@ -263,8 +263,8 @@ void launch_grouped_pair_forward(
         int num_experts,
         int num_groups,
         int rows,
-        int in_features,
         int out_features,
+        int in_features,
         std::int64_t bytes_per_expert,
         hipStream_t stream) {
     const MMQDeploymentRecord & record = exact_record(
@@ -298,7 +298,7 @@ void launch_dense_backward(
         int in_features,
         hipStream_t stream) {
     const MMQDeploymentRecord & record = exact_record(
-        kOrdinaryBackward, quant_type, rows, in_features, out_features);
+        kOrdinaryBackward, quant_type, rows, out_features, in_features);
     unsigned int rows_value = static_cast<unsigned int>(rows);
     unsigned int out_features_value = static_cast<unsigned int>(out_features);
     unsigned int in_features_value = static_cast<unsigned int>(in_features);
@@ -316,12 +316,12 @@ void launch_fixed_grouped_backward(
         const char * packed_weight,
         void * grad_input,
         int tokens,
-        int in_features,
         int out_features,
+        int in_features,
         std::int64_t bytes_per_group,
         hipStream_t stream) {
     const MMQDeploymentRecord & record = exact_record(
-        kFixedGroupedBackward, kQuantQ8_0, tokens, in_features, out_features);
+        kFixedGroupedBackward, kQuantQ8_0, tokens, out_features, in_features);
     unsigned int tokens_value = static_cast<unsigned int>(tokens);
     unsigned int out_features_value = static_cast<unsigned int>(out_features);
     std::uint64_t bytes_value = static_cast<std::uint64_t>(bytes_per_group);
@@ -347,7 +347,7 @@ void launch_grouped_backward(
         std::int64_t bytes_per_expert,
         hipStream_t stream) {
     const MMQDeploymentRecord & record = exact_record(
-        kGroupedBackward, quant_type, rows, in_features, out_features);
+        kGroupedBackward, quant_type, rows, out_features, in_features);
     std::int64_t bytes_value = bytes_per_expert;
     void * arguments[]{
         &grad_output, &packed_weight, &grad_input,
@@ -374,7 +374,7 @@ void launch_grouped_pair_backward(
         std::int64_t bytes_per_expert,
         hipStream_t stream) {
     const MMQDeploymentRecord & record = exact_record(
-        kGroupedBackwardPair, quant_type, rows, in_features, out_features);
+        kGroupedBackwardPair, quant_type, rows, out_features, in_features);
     std::int64_t bytes_value = bytes_per_expert;
     void * arguments[]{
         &first_grad_output, &second_grad_output,

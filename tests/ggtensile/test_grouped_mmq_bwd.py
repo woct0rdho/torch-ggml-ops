@@ -71,9 +71,9 @@ _PILOT_SPEC = replace(
 
 def _key(rows: int | None = None, quant_type: str = "Q4_K") -> KernelInstance:
     if quant_type == "Q2_K":
-        size = ProblemSize(12_288 if rows is None else rows, 2048, 4096)
+        size = ProblemSize(12_288 if rows is None else rows, 4096, 2048)
     else:
-        size = ProblemSize(16_384 if rows is None else rows, 512, 2048)
+        size = ProblemSize(16_384 if rows is None else rows, 2048, 512)
     spec = _PILOT_SPEC
     if quant_type == "Q5_K":
         spec = replace(
@@ -254,9 +254,9 @@ def test_grouped_backward_accepts_formula_compatible_noncatalog_shape() -> None:
 
 def test_grouped_backward_rejects_incomplete_formula_dimensions() -> None:
     with pytest.raises(SchemaError, match="quant blocks"):
-        _state(replace(_key(), problem=ProblemSize(16_384, 513, 2048)))
+        _state(replace(_key(), problem=ProblemSize(16_384, 2048, 513)))
     with pytest.raises(SchemaError, match="DepthU32"):
-        _state(replace(_key(), problem=ProblemSize(16_384, 512, 2049)))
+        _state(replace(_key(), problem=ProblemSize(16_384, 2049, 512)))
 
 
 def test_grouped_backward_iq2_s_identity_source_and_inspection(tmp_path) -> None:

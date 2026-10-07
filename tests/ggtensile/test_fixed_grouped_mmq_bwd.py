@@ -50,10 +50,10 @@ def test_fixed_backward_catalog_keys_round_trip_and_derive() -> None:
         assert state.expected_grad_output_shape == (
             problem.tokens,
             problem.groups,
-            problem.output_features,
+            problem.out_features,
         )
         assert state.expected_packed_weight_shape[0] == 8
-        assert state.expected_grad_input_shape[2] == problem.input_features
+        assert state.expected_grad_input_shape[2] == problem.in_features
         assert state.physical.resources.private_bytes == 0
 
 
@@ -102,8 +102,8 @@ def test_fixed_backward_problem_axes_are_not_repaired() -> None:
     invalid = type(problem)(
         problem.quant_data_type,
         problem.tokens,
-        problem.output_features,
-        problem.input_features,
+        problem.out_features,
+        problem.in_features,
         4,
     )
     with pytest.raises(AssertionError):

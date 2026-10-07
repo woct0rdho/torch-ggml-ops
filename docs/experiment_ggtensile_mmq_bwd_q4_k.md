@@ -2,30 +2,26 @@
 
 ## Scope
 
-This record covers the ordinary dense Q4_K backward kernels on gfx1151:
-
-```text
-grad_input[M,N] = grad_output[M,K] @ dequant_q4_k(weight[K,N])
-```
+This record covers the ordinary dense Q4_K backward kernels on gfx1151.
 
 ## Final Results
 
-`TFLOPS = 2*M*K*N / (median_ms * 1e9)`, and `Speedup vs HIP = HIP median time / GGTensile median time`, so a value above `1.0x` favors GGTensile. Medians are the repository benchmark's, re-measured in the current clock state. They replace the earlier recorded values, which came from a different clock state with the same artifacts.
+`TFLOPS = 2*M*N*K / (median_ms * 1e9)`, and `Speedup vs HIP = HIP median time / GGTensile median time`, so a value above `1.0x` favors GGTensile. Medians are the repository benchmark's, re-measured in the current clock state. They replace the earlier recorded values, which came from a different clock state with the same artifacts.
 
-| Family | `(M,K,N)` | GGTensile TFLOPS | Speedup vs HIP | GGTensile kernel | HIP kernel |
+| Family | `(M,N,K)` | GGTensile TFLOPS | Speedup vs HIP | GGTensile kernel | HIP kernel |
 | --- | --- | ---: | ---: | --- | --- |
-| Narrow K/V/gate/up | `(2048,2048,512)` | 29.384 | 1.0743x | `mmq_bwd_q4_k_m2048_n2048_k512_f8ae4100f87d6dac` | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8` |
-| Narrow K/V/gate/up | `(8192,2048,512)` | 29.838 | 1.0208x | `mmq_bwd_q4_k_m8192_n2048_k512_ea25b77ecc82d61d` | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Narrow K/V/gate/up | `(32768,2048,512)` | 35.065 | 1.1715x | `mmq_bwd_q4_k_m32768_n2048_k512_a1288e5bd8984359` | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Shared down | `(2048,512,2048)` | 21.771 | 1.0660x | `mmq_bwd_q4_k_m2048_n512_k2048_f2ae729b0b3d54ba` | `dense_bwd_q4_k_mt128_nt128_ki32_full_k4096_sw16` |
-| Shared down | `(8192,512,2048)` | 15.066 | 0.8850x | `mmq_bwd_q4_k_m8192_n512_k2048_283a88d55d119a89` | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8` |
-| Shared down | `(32768,512,2048)` | 19.966 | 1.0628x | `mmq_bwd_q4_k_m32768_n512_k2048_4fd4e2ab584ba308` | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Attention output | `(2048,4096,2048)` | 34.550 | 1.0543x | `mmq_bwd_q4_k_m2048_n4096_k2048_ce0506ff376281f4` | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Attention output | `(8192,4096,2048)` | 30.321 | 1.0381x | `mmq_bwd_q4_k_m8192_n4096_k2048_196b5482b29aaf64` | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Attention output | `(32768,4096,2048)` | 30.255 | 1.0292x | `mmq_bwd_q4_k_m32768_n4096_k2048_554a1ee0cbb2a3fe` | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Query/query gate | `(2048,2048,8192)` | 28.432 | 1.0806x | `mmq_bwd_q4_k_m2048_n2048_k8192_aa1f0fec231c7a19` | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Query/query gate | `(8192,2048,8192)` | 29.055 | 1.0756x | `mmq_bwd_q4_k_m8192_n2048_k8192_e1bb6e35c73c2a15` | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| Query/query gate | `(32768,2048,8192)` | 28.896 | 1.1886x | `mmq_bwd_q4_k_m32768_n2048_k8192_7cb50a7c50a4b278` | `dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
+| Narrow K/V/gate/up | `(2048,512,2048)` | 29.384 | 1.0743x | `mmq_bwd_q4_k_m2048_n512_k2048_9b8050121823552a` | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8` |
+| Narrow K/V/gate/up | `(8192,512,2048)` | 29.838 | 1.0208x | `mmq_bwd_q4_k_m8192_n512_k2048_f29467b9b4b8bc5e` | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Narrow K/V/gate/up | `(32768,512,2048)` | 35.065 | 1.1715x | `mmq_bwd_q4_k_m32768_n512_k2048_b842153243b24e0f` | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Shared down | `(2048,2048,512)` | 21.771 | 1.0660x | `mmq_bwd_q4_k_m2048_n2048_k512_8f8b36157142f279` | `dense_bwd_q4_k_mt128_nt128_ki32_full_sw16` |
+| Shared down | `(8192,2048,512)` | 15.066 | 0.8850x | `mmq_bwd_q4_k_m8192_n2048_k512_d83bda438c48605e` | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8` |
+| Shared down | `(32768,2048,512)` | 19.966 | 1.0628x | `mmq_bwd_q4_k_m32768_n2048_k512_9fb006983bc7d316` | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Attention output | `(2048,2048,4096)` | 34.550 | 1.0543x | `mmq_bwd_q4_k_m2048_n2048_k4096_bec1dde33c2e7032` | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Attention output | `(8192,2048,4096)` | 30.321 | 1.0381x | `mmq_bwd_q4_k_m8192_n2048_k4096_d793b22bfb03d60d` | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Attention output | `(32768,2048,4096)` | 30.255 | 1.0292x | `mmq_bwd_q4_k_m32768_n2048_k4096_4a559abde73dac63` | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Query/query gate | `(2048,8192,2048)` | 28.432 | 1.0806x | `mmq_bwd_q4_k_m2048_n8192_k2048_78d1fb7b7e7e6cef` | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Query/query gate | `(8192,8192,2048)` | 29.055 | 1.0756x | `mmq_bwd_q4_k_m8192_n8192_k2048_571b30a5cda5ec9e` | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| Query/query gate | `(32768,8192,2048)` | 28.896 | 1.1886x | `mmq_bwd_q4_k_m32768_n8192_k2048_c0f9da5743c36fcb` | `dense_bwd_q4_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
 
 GGTensile is ahead on 11 of the 12 entries, with speedups from `0.885x` to `1.189x` (mean `1.062x`).
 
@@ -37,9 +33,9 @@ The representative lower-bound profiles separate complete execution into a WMMA/
 
 | Cohort and shape | Complete | WMMA/A/LDS floor | Decode/LDS floor | Floor sum |
 | --- | ---: | ---: | ---: | ---: |
-| Narrow `(32768,2048,512)` | 2.3131 ms | 1.6197 ms | 1.0915 ms | 117.21% |
-| Query `(32768,2048,8192)` | 37.868 ms | 24.149 ms | 16.842 ms | 108.25% |
-| Attention-output `(32768,4096,2048)` | 18.686 ms | 12.008 ms | 8.532 ms | 109.9% |
+| Narrow `(32768,512,2048)` | 2.3131 ms | 1.6197 ms | 1.0915 ms | 117.21% |
+| Query `(32768,8192,2048)` | 37.868 ms | 24.149 ms | 16.842 ms | 108.25% |
+| Attention-output `(32768,2048,4096)` | 18.686 ms | 12.008 ms | 8.532 ms | 109.9% |
 
 The two-buffer profile reduced median aggregate wave cycles from the one-buffer control by approximately 4.9%. Wait-count stalls fell from 23.74% to 21.38%, and barrier stalls fell from 8.58% to 6.11%, with unchanged LDS instruction count. The floor sums being close to complete latency show that decode and WMMA/LDS work are already substantially overlapped.
 

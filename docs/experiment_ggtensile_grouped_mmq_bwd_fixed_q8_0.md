@@ -6,13 +6,13 @@ This record covers the fixed-group Q8_0 backward kernel for gfx1151: eight indep
 
 ## Final Results
 
-`TFLOPS = 2*M*K*N / (median_ms * 1e9)`, and `Speedup vs HIP = HIP median time / GGTensile median time`, so a value above `1.0x` favors GGTensile. Medians are the repository benchmark's, re-measured in the current clock state. They replace the earlier recorded values, which came from a different clock state with the same artifacts.
+`TFLOPS = 2*T*N*K / (median_ms * 1e9)`, and `Speedup vs HIP = HIP median time / GGTensile median time`, so a value above `1.0x` favors GGTensile. Medians are the repository benchmark's, re-measured in the current clock state. They replace the earlier recorded values, which came from a different clock state with the same artifacts.
 
-| Family | `(M,K,N)` | GGTensile TFLOPS | Speedup vs HIP | GGTensile kernel | HIP kernel |
+| Batch | Logical shape `(T,N,K)` | GGTensile TFLOPS | Speedup vs HIP | GGTensile kernel | HIP kernel |
 | --- | --- | ---: | ---: | --- | --- |
-| Fixed grouped | `(2048,4096,1024)` | 29.496 | 1.2623x | `fixed_grouped_mmq_bwd_q8_0_t2048_n4096_k1024_b6978ce5fe3e26e4` | `grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64` |
-| Fixed grouped | `(8192,4096,1024)` | 29.787 | 1.2321x | `fixed_grouped_mmq_bwd_q8_0_t8192_n4096_k1024_81a42231db569ec8` | `grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64` |
-| Fixed grouped | `(32768,4096,1024)` | 29.962 | 1.1782x | `fixed_grouped_mmq_bwd_q8_0_t32768_n4096_k1024_41e9701bff12cf4f` | `grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64` |
+| 1 | `8 x (2048,1024,4096)` | 29.496 | 1.2623x | `fixed_grouped_mmq_bwd_q8_0_t2048_n1024_k4096_91b378711ef9f564` | `grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64` |
+| 4 | `8 x (8192,1024,4096)` | 29.787 | 1.2321x | `fixed_grouped_mmq_bwd_q8_0_t8192_n1024_k4096_76fda90dcdc0eb99` | `grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64` |
+| 16 | `8 x (32768,1024,4096)` | 29.962 | 1.1782x | `fixed_grouped_mmq_bwd_q8_0_t32768_n1024_k4096_0f604e7e68ba164f` | `grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64` |
 
 GGTensile is ahead on all 3 token counts, with speedups from `1.178x` to `1.262x` (mean `1.224x`).
 
@@ -28,13 +28,13 @@ The independent M256/N64/K32 artifacts were exact at all three shapes and passed
 
 N-major traversal places N tiles on the fastest grid coordinate, completing all N tiles for one activation tile before moving to the next M tile. It preserves the arithmetic and group-Z ownership while increasing reuse of the same gradient-output rows.
 
-The N-major artifacts retained the anchor resource profile and passed the full fixed-group correctness and mutation checks. Relative to HIP, they improved latency by `16.6%`, `16.1%`, and `14.5%` at M2K, M8K, and M32K. N-major ownership is part of the final identity.
+The N-major artifacts retained the anchor resource profile and passed the full fixed-group correctness and mutation checks. Relative to HIP, they improved latency by `16.6%`, `16.1%`, and `14.5%` at T2K, T8K, and T32K. N-major ownership is part of the final identity.
 
 ### M128/N128 square geometry
 
 The M128/N128 geometry halves the number of N workgroups per M tile while retaining 128 accumulator elements per wave. It was exact at all required shapes and passed the complete fixed-group mutation and reference checks. The artifact profile was 202 VGPRs, 17 SGPRs, 10,240 LDS bytes, 32 WMMAs, and two barriers.
 
-M128/N128 reduced latency relative to N-major M256/N64 by `3.1%`, `3.9%`, and `4.3%` at M2K, M8K, and M32K. It was retained as the parent for reduction-loop experiments and then superseded by DepthU64.
+M128/N128 reduced latency relative to N-major M256/N64 by `3.1%`, `3.9%`, and `4.3%` at T2K, T8K, and T32K. It was retained as the parent for reduction-loop experiments and then superseded by DepthU64.
 
 ### DepthU64 reduction pipeline
 

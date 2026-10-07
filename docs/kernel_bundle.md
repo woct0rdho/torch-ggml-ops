@@ -183,24 +183,30 @@ Artifact read, module load, symbol lookup, or launch failure is fatal and names 
 
 ## Exact public compatibility
 
-`M`, `N`, and `K` below use the multiply-kernel convention. Forward computes `[M,K] @ [N,K]^T -> [M,N]`. Backward computes an input gradient with problem coordinates `[M,N] @ [K,N] -> [M,K]`. The table lists the backward kernel's `(M,N,K)` directly.
+`M`, `N`, and `K` below are exact problem coordinates: `M` is the row count, `N` is the weight's `out_features` (its packed rows) and `K` is its `in_features` (the values per packed row), in both directions. Forward computes `[M,K] @ [N,K]^T -> [M,N]`. Backward computes the input gradient `[M,N] @ [N,K] -> [M,K]`. Both directions therefore list the same `(N,K)` for a quant type.
 
-A forward key and its transposed backward key are selected independently. If a supported forward is used with an input requiring gradients, its corresponding backward key must also appear below.
+The table lists the in-tree generated bundle. The deployed HIP controls cover additional keys, which their own experiment records list.
+
+A forward key and its backward key are selected independently. If a supported forward is used with an input requiring gradients, its corresponding backward key must also appear below.
+
+HIP control symbols spell the same letters, plus a tile geometry that follows the matrix instruction. A control that serves one shape spells a family key: a routed control `n<out_features>_k<in_features>`, the weight's own letters, identical for the forward and backward symbol of a family, and a fixed-group control `g<group count>_k<in_features>`. A dense control serves several shapes and carries only the trailing tags: `mt<row block>`, `nt<result columns, or the count of 16-column tiles>`, `ki<contraction stage, or its count>`, `j<token tile>`, `g<group count>`, `pad<LDS padding words>`, `sw<LDS swizzle chunk>`, `mw<m_tiles_per_wave>`, `s<split or stage count>` and `mb<min resident blocks>`.
+
+The instruction computes `D[M,N] = A[M,K] * B[K,N]`, so its `N` is the dimension a tile writes and its `K` the contraction it walks: a backward control writes `in_features` and contracts over `out_features`, which makes its `nt`/`ki` the transpose of the family key's `n`/`k`, while a forward control's letters agree. The contraction stage is never written as a bare `k`, so `k<value>` in a symbol means `in_features`.
 
 ### Ordinary MMQ
 
 | Direction | Quant type | Exact `(M,N,K)` support |
 | --- | --- | --- |
-| Forward | Q3_K | `M in {2048,8192,32768}`, `(N,K)` in `{(512,2048),(8192,2048),(4096,2048),(2048,4096)}` |
+| Forward | Q3_K | `M in {2048,8192,32768}`, `(N,K)` in `{(512,2048),(8192,2048)}` |
 | Forward | Q4_K | `M in {2048,8192,32768}`, `(N,K)` in `{(512,2048),(2048,512),(2048,4096),(8192,2048)}` |
 | Forward | Q5_K | `M in {2048,8192,32768}`, `(N,K)` in `{(512,2048),(2048,512)}` |
 | Forward | Q6_K | `(64,248320,2048)`, `(128,248320,2048)`, `(256,248320,2048)` |
 | Forward | Q8_0 | `M in {2048,8192,32768}` with `(N,K)` in `{(1024,4096),(32768,1024),(512,4096),(4096,8192),(2048,4096),(4096,2048)}`. Also `M in {32,64,128,256,512}`, `(N,K)=(129280,4096)` |
-| Backward | Q3_K | `M in {2048,8192,32768}`, `(N,K)` in `{(2048,512),(2048,8192)}` |
-| Backward | Q4_K | `M in {2048,8192,32768}`, `(N,K)` in `{(2048,512),(512,2048),(4096,2048),(2048,8192)}` |
-| Backward | Q5_K | `M in {2048,8192,32768}`, `(N,K)` in `{(2048,512),(512,2048)}` |
-| Backward | Q6_K | `(64,2048,248320)`, `(128,2048,248320)`, `(256,2048,248320)` |
-| Backward | Q8_0 | `M in {2048,8192,32768}` with `(N,K)` in `{(4096,1024),(1024,32768),(4096,512),(8192,4096),(4096,2048),(2048,4096)}`. Also `M in {32,64,128,256,512}`, `(N,K)=(4096,129280)` |
+| Backward | Q3_K | `M in {2048,8192,32768}`, `(N,K)` in `{(512,2048),(8192,2048)}` |
+| Backward | Q4_K | `M in {2048,8192,32768}`, `(N,K)` in `{(512,2048),(2048,512),(2048,4096),(8192,2048)}` |
+| Backward | Q5_K | `M in {2048,8192,32768}`, `(N,K)` in `{(512,2048),(2048,512)}` |
+| Backward | Q6_K | `(64,248320,2048)`, `(128,248320,2048)`, `(256,248320,2048)` |
+| Backward | Q8_0 | `M in {2048,8192,32768}` with `(N,K)` in `{(512,4096),(1024,4096),(2048,4096),(4096,2048),(4096,8192),(32768,1024)}`. Also `M in {32,64,128,256,512}`, `(N,K)=(129280,4096)` |
 
 Ordinary `Q2_K`, `IQ2_XXS`, and `IQ2_S` have no deployed key. Every ordinary shape not listed is unsupported.
 
@@ -215,10 +221,10 @@ Routed inputs have shape `[R,K]`. Packed weights have physical shape `[256,N,pac
 | Paired forward | IQ2_S | `R in {16384,65536,262144}`, `(N,K)=(512,2048)` | Device tasks, 64 rows/task |
 | Paired forward | Q3_K | `R in {16384,65536,262144}`, `(N,K)=(512,2048)` | Device tasks, 64 rows/task |
 | Paired forward | IQ2_XXS | `R in {12288,49152,196608}`, `(N,K)=(2048,4096)` | Serial routes |
-| Backward | Q4_K, Q5_K, IQ2_S | `R in {16384,65536,262144}`, `(N,K)=(512,2048)` | Exact serial/static-split policy per key |
-| Backward | Q2_K | `R in {12288,49152,196608}`, `(N,K)=(2048,4096)` | Exact serial/static-split policy per key |
-| Paired backward | Q3_K, IQ2_S | `R in {16384,65536,262144}`, `(N,K)=(2048,512)` | Exact pair policy per key |
-| Paired backward | IQ2_XXS | `R in {12288,49152,196608}`, `(N,K)=(4096,2048)` | Exact pair policy per key |
+| Backward | Q4_K, Q5_K, IQ2_S | `R in {16384,65536,262144}`, `(N,K)=(2048,512)` | Exact serial/static-split policy per key |
+| Backward | Q2_K | `R in {12288,49152,196608}`, `(N,K)=(4096,2048)` | Exact serial/static-split policy per key |
+| Paired backward | Q3_K, IQ2_S | `R in {16384,65536,262144}`, `(N,K)=(512,2048)` | Exact pair policy per key |
+| Paired backward | IQ2_XXS | `R in {12288,49152,196608}`, `(N,K)=(2048,4096)` | Exact pair policy per key |
 
 There is no standalone grouped forward for Q3_K or IQ2_XXS, no standalone grouped backward for Q3_K or IQ2_XXS, and no grouped Q6_K or routed Q8_0 deployment. Formats absent from a paired row have no pair-via-two-singles behavior.
 
@@ -229,7 +235,7 @@ Fixed grouped input has logical shape `[...,8,4096]`. Packed weight has physical
 | Direction | Exact support |
 | --- | --- |
 | Forward | Tokens in `{2048,8192,32768}`, 8 groups, `(N,K)=(1024,4096)` |
-| Backward | Tokens in `{2048,8192,32768}`, 8 groups, `(N,K)=(4096,1024)` |
+| Backward | Tokens in `{2048,8192,32768}`, 8 groups, `(N,K)=(1024,4096)` |
 
 Every other token count, group count, dimension, or quant type is unsupported.
 

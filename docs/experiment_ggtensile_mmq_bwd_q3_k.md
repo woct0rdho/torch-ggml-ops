@@ -2,24 +2,20 @@
 
 ## Scope
 
-This record covers the ordinary dense Q3_K backward kernels on gfx1151:
-
-```text
-grad_input[M,N] = grad_output[M,K] @ dequant_q3_k(weight[K,N])
-```
+This record covers the ordinary dense Q3_K backward kernels on gfx1151.
 
 ## Final Results
 
-`TFLOPS = 2*M*K*N / (median_ms * 1e9)`, and `Speedup vs HIP = HIP median time / GGTensile median time`, so a value above `1.0x` favors GGTensile. Medians are the repository benchmark's, re-measured in the current clock state. They replace the earlier recorded values, which came from a different clock state with the same artifacts.
+`TFLOPS = 2*M*N*K / (median_ms * 1e9)`, and `Speedup vs HIP = HIP median time / GGTensile median time`, so a value above `1.0x` favors GGTensile. Medians are the repository benchmark's, re-measured in the current clock state. They replace the earlier recorded values, which came from a different clock state with the same artifacts.
 
-| Family | `(M,K,N)` | GGTensile TFLOPS | Speedup vs HIP | GGTensile kernel | HIP kernel |
+| Family | `(M,N,K)` | GGTensile TFLOPS | Speedup vs HIP | GGTensile kernel | HIP kernel |
 | --- | --- | ---: | ---: | --- | --- |
-| Narrow key | `(2048,2048,512)` | 27.455 | 0.9843x | `mmq_bwd_q3_k_m2048_n2048_k512_3cc3143bce6a2987` | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Narrow key | `(8192,2048,512)` | 29.084 | 1.0055x | `mmq_bwd_q3_k_m8192_n2048_k512_8ce1befe635f7860` | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Narrow key | `(32768,2048,512)` | 31.727 | 1.0602x | `mmq_bwd_q3_k_m32768_n2048_k512_91146b440f4ab12d` | `dense_bwd_q3_k_pipea_nt4_ki64_mw4_sw16_prefetch` |
-| Query/query gate | `(2048,2048,8192)` | 25.581 | 0.9556x | `mmq_bwd_q3_k_m2048_n2048_k8192_af7a6bf38c07ca9b` | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Query/query gate | `(8192,2048,8192)` | 27.504 | 0.9985x | `mmq_bwd_q3_k_m8192_n2048_k8192_dc9a2b99d0581346` | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| Query/query gate | `(32768,2048,8192)` | 26.384 | 1.0856x | `mmq_bwd_q3_k_m32768_n2048_k8192_c8e82906bf4e0680` | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
+| Narrow key | `(2048,512,2048)` | 27.455 | 0.9843x | `mmq_bwd_q3_k_m2048_n512_k2048_416bdbcce317b9e4` | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Narrow key | `(8192,512,2048)` | 29.084 | 1.0055x | `mmq_bwd_q3_k_m8192_n512_k2048_23acc09a8f37cfc2` | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Narrow key | `(32768,512,2048)` | 31.727 | 1.0602x | `mmq_bwd_q3_k_m32768_n512_k2048_ac3c04eb79feab9d` | `dense_bwd_q3_k_pipea_nt64_ki64_mw4_sw16_prefetch` |
+| Query/query gate | `(2048,8192,2048)` | 25.581 | 0.9556x | `mmq_bwd_q3_k_m2048_n8192_k2048_cc0b11d9efb64bba` | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Query/query gate | `(8192,8192,2048)` | 27.504 | 0.9985x | `mmq_bwd_q3_k_m8192_n8192_k2048_6dde5ee7b45b02d1` | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| Query/query gate | `(32768,8192,2048)` | 26.384 | 1.0856x | `mmq_bwd_q3_k_m32768_n8192_k2048_01e43b4b6eed6030` | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
 
 GGTensile is ahead on 3 of the 6 entries, with speedups from `0.956x` to `1.086x` (mean `1.015x`).
 
@@ -31,8 +27,8 @@ The representative final diagnostics separate complete execution into a WMMA/A/L
 
 | Cohort and shape | Complete | WMMA/A/LDS floor | Decode/LDS floor | Floor sum |
 | --- | ---: | ---: | ---: | ---: |
-| Narrow `(32768,2048,512)` | 2.618 ms | 1.621 ms | 1.166 ms | 106.4% |
-| Query `(32768,2048,8192)` | 46.780 ms | 26.666 ms | 21.019 ms | 101.9% |
+| Narrow `(32768,512,2048)` | 2.618 ms | 1.621 ms | 1.166 ms | 106.4% |
+| Query `(32768,8192,2048)` | 46.780 ms | 26.666 ms | 21.019 ms | 101.9% |
 
 The short-K path is sensitive primarily to decoded-B layout, decoder rows, and launch/overlap behavior. The long query path is an already overlapped WMMA/decode/LDS pipeline. The profile results do not show a first-order uncovered component that would justify reopening a schedule-only or resource-growing variant.
 

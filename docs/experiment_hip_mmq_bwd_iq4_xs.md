@@ -8,23 +8,23 @@ The type is the only one of the dense backward family with a 256-wide block *and
 
 ## Final kernel result
 
-| Family | `(M,K,N)` | HIP TFLOPS | HIP/torch.mm | Kernel |
+| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm | Kernel |
 | --- | ---: | ---: | ---: | --- |
-| QSA query | `(2048,2560,12288)` | 28.708 | 1.232x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| QSA query | `(8192,2560,12288)` | 27.220 | 1.077x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| QSA query | `(32768,2560,12288)` | 24.757 | 0.958x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| QSA key/value | `(2048,2560,512)` | 29.516 | 1.461x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| QSA key/value | `(8192,2560,512)` | 30.798 | 1.220x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| QSA key/value | `(32768,2560,512)` | 32.212 | 1.220x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw4_sw16_prefetch` |
-| Shared-expert gate/up | `(2048,2560,640)` | 32.043 | 1.511x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw8_prefetch` |
-| Shared-expert gate/up | `(8192,2560,640)` | 33.662 | 1.270x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw4_pad8_prefetch` |
-| Shared-expert gate/up | `(32768,2560,640)` | 36.135 | 1.295x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw4_sw16_prefetch` |
-| GatedDeltaNet `in_proj_qkv` | `(2048,2560,10240)` | 29.094 | 1.258x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| GatedDeltaNet `in_proj_qkv` | `(8192,2560,10240)` | 27.652 | 1.094x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| GatedDeltaNet `in_proj_qkv` | `(32768,2560,10240)` | 24.574 | 0.991x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| GatedDeltaNet `in_proj_z` | `(2048,2560,6144)` | 29.241 | 1.290x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| GatedDeltaNet `in_proj_z` | `(8192,2560,6144)` | 28.756 | 1.138x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| GatedDeltaNet `in_proj_z` | `(32768,2560,6144)` | 27.406 | 1.066x | `dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw16_prefetch` |
+| QSA query | `(2048,12288,2560)` | 28.708 | 1.232x | `dense_bwd_iq4_xs_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| QSA query | `(8192,12288,2560)` | 27.220 | 1.077x | `dense_bwd_iq4_xs_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| QSA query | `(32768,12288,2560)` | 24.757 | 0.958x | `dense_bwd_iq4_xs_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| QSA key/value | `(2048,512,2560)` | 29.516 | 1.461x | `dense_bwd_iq4_xs_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| QSA key/value | `(8192,512,2560)` | 30.798 | 1.220x | `dense_bwd_iq4_xs_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| QSA key/value | `(32768,512,2560)` | 32.212 | 1.220x | `dense_bwd_iq4_xs_pipea_nt64_ki64_mw4_sw16_prefetch` |
+| Shared-expert gate/up | `(2048,640,2560)` | 32.043 | 1.511x | `dense_bwd_iq4_xs_pipea_nt64_ki64_mw2_sw8_prefetch` |
+| Shared-expert gate/up | `(8192,640,2560)` | 33.662 | 1.270x | `dense_bwd_iq4_xs_pipea_nt64_ki64_mw4_pad8_prefetch` |
+| Shared-expert gate/up | `(32768,640,2560)` | 36.135 | 1.295x | `dense_bwd_iq4_xs_pipea_nt64_ki64_mw4_sw16_prefetch` |
+| GatedDeltaNet `in_proj_qkv` | `(2048,10240,2560)` | 29.094 | 1.258x | `dense_bwd_iq4_xs_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet `in_proj_qkv` | `(8192,10240,2560)` | 27.652 | 1.094x | `dense_bwd_iq4_xs_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet `in_proj_qkv` | `(32768,10240,2560)` | 24.574 | 0.991x | `dense_bwd_iq4_xs_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet `in_proj_z` | `(2048,6144,2560)` | 29.241 | 1.290x | `dense_bwd_iq4_xs_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet `in_proj_z` | `(8192,6144,2560)` | 28.756 | 1.138x | `dense_bwd_iq4_xs_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet `in_proj_z` | `(32768,6144,2560)` | 27.406 | 1.066x | `dense_bwd_iq4_xs_pipea_nt64_ki64_mw2_sw16_prefetch` |
 
 ## Kernel implementation
 

@@ -9,10 +9,10 @@ same `configs/` directory play the same role for the public bundle.
 
 Keys use the module problem axes:
 - `OrdinaryForward` / `OrdinaryBackward`: the `ProblemSize(m, n, k)` of the
-  operation. For a backward input gradient that is `(rows, in_features,
-  out_features)` because the op contracts over the forward output axis.
+  operation, `(rows, out_features, in_features)` in both directions, because
+  `n` is the weight's row count and `k` the values per packed row.
 - `FixedGroupedForward` / `FixedGroupedBackward`: `(tokens,
-  output_features, input_features)` of the fixed problem.
+  out_features, in_features)` of the fixed problem.
 
 The `families` table keys the non-routed families by their exact
 `(operation, quant, m, n, k)`. The routed families cannot be keyed that way
@@ -20,6 +20,26 @@ because the deployed body also depends on the aggregate routed rows and, for
 the grouped-forward tile choice, on the route entries in the bank. Their
 ordered rules live in the `routed` table of the same catalog, and every caller
 resolves them through `select_routed_control`.
+
+A control symbol is `<kind>_<quant>_<body tags>`. A control that serves one
+shape spells a family key: a routed control spells
+`n<out_features>_k<in_features>`, the weight's own letters, so the forward and
+backward symbols of one family agree, and a fixed-group control spells
+`g<group count>_k<in_features>`. A dense control serves several shapes and
+keeps only its tags, sometimes with a partial shape annotation of its own. The
+body tags describe geometry:
+`mt<row block>`, `nt<result columns>` (`16 * n_tiles`), `ki<contraction
+stage>` (the `k_iteration` value), `j<token tile>`, `g<group count>`,
+`pad<LDS padding words>`, `sw<LDS swizzle chunk>`, `mw<m_tiles_per_wave>`,
+`s<split or stage count>` and `mb<min resident blocks>`.
+
+`nt` and `ki` are the matrix-instruction letters rather than the problem's:
+the instruction computes `D[M,N] = A[M,K] * B[K,N]` and the tile's `N` is the
+dimension it writes while its `K` is the contraction. A backward control
+writes `in_features` and contracts over `out_features`, so its `nt`/`ki` are
+the transpose of the family key's `n`/`k`. A forward control's agree. The
+letters are kept from colliding by never spelling the contraction stage as a
+bare `k`, so `k<value>` in a symbol is `in_features`.
 """
 
 import json
@@ -166,9 +186,15 @@ class HipControl:
     spec: HIPControlSpec
 
     def launch_configuration(
-        self, m: int, n: int, k: int
+        self, m: int, out_features: int, in_features: int
     ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
-        """Return `(grid, block, shared_bytes)` for this control."""
+        """Return `(grid, block, shared_bytes)` for this control.
+
+        `out_features` is the weight's row count and `in_features` the values
+        per packed row. A forward control writes `out_features` rows and reduces
+        over `in_features`. A backward control writes `in_features` and reduces
+        over `out_features`.
+        """
 
         config = self.spec.config
         if isinstance(config, ForwardConfig) and config.kind is ForwardKind.DENSE:
@@ -177,10 +203,10 @@ class HipControl:
             if config.wide_tile:
                 if quant_name not in _WIDE_LDS_BYTES:
                     raise ValueError(f"no wide dense tile is built for {quant_name}")
-                if n % 128:
+                if out_features % 128:
                     raise ValueError("a wide dense tile needs whole 128-row tiles")
                 return (
-                    (n // 128, math.ceil(m / j), 1),
+                    (out_features // 128, math.ceil(m / j), 1),
                     _WIDE_FORWARD_BLOCK,
                     _WIDE_LDS_BYTES[quant_name],
                 )
@@ -198,26 +224,37 @@ class HipControl:
                 False,
                 bool(getattr(config, "fragment_activation", False)),
             )
-            return ((n // 64, math.ceil(m / j), 1), _DENSE_FORWARD_BLOCK, shared_bytes)
+            return (
+                (out_features // 64, math.ceil(m / j), 1),
+                _DENSE_FORWARD_BLOCK,
+                shared_bytes,
+            )
         if isinstance(config, DenseBackwardConfig):
             if config.m_tiles_per_wave < 1:
                 raise ValueError("a dense backward tile needs a positive row tile")
             m_per_block = 16 * config.m_tiles_per_wave * config.active_waves
+            # `config.n_tiles` counts the written sixteen-column tiles, which a
+            # backward body lays over `in_features`, and `config.k_iteration`
+            # steps the contraction over `out_features`.
             n_per_block = 16 * config.n_tiles
             m_blocks = math.ceil(m / m_per_block)
-            n_blocks = math.ceil(n / n_per_block)
+            n_blocks = math.ceil(in_features / n_per_block)
             if config.full_tiles and (
-                m % m_per_block or n % n_per_block or k % config.k_iteration
+                m % m_per_block
+                or in_features % n_per_block
+                or out_features % config.k_iteration
             ):
                 # The unguarded tile writes whole result tiles, so a key that
                 # does not divide evenly faults rather than clipping. That is
                 # how an `m_tiles_per_wave = 3` body failed: its 192-row block
                 # does not divide 2048.
                 raise ValueError(
-                    f"{self.symbol} stages whole tiles only, but M={m} is not a "
-                    f"multiple of {m_per_block}, or N={n} is not a multiple of "
-                    f"{n_per_block}, or K={k} is not a multiple of "
-                    f"{config.k_iteration}"
+                    f"{self.symbol} stages whole tiles only: the rows {m} must be "
+                    f"a multiple of {m_per_block}, the written width "
+                    f"(in_features) {in_features} a multiple of the "
+                    f"{n_per_block}-wide result tile, and the contraction "
+                    f"(out_features) {out_features} a multiple of the "
+                    f"{config.k_iteration}-deep contraction stage"
                 )
             if config.split_k:
                 if config.group_m:

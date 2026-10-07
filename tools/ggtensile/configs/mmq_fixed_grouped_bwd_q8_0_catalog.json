@@ -73,8 +73,8 @@
     {
       "Problem": {
         "M": 2048,
-        "N": 4096,
-        "K": 1024,
+        "N": 1024,
+        "K": 4096,
         "GroupCount": 8
       },
       "KernelSpecIndex": 0
@@ -82,8 +82,8 @@
     {
       "Problem": {
         "M": 8192,
-        "N": 4096,
-        "K": 1024,
+        "N": 1024,
+        "K": 4096,
         "GroupCount": 8
       },
       "KernelSpecIndex": 0
@@ -91,8 +91,8 @@
     {
       "Problem": {
         "M": 32768,
-        "N": 4096,
-        "K": 1024,
+        "N": 1024,
+        "K": 4096,
         "GroupCount": 8
       },
       "KernelSpecIndex": 0

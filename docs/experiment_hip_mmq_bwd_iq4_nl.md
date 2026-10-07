@@ -2,17 +2,17 @@
 
 ## Scope
 
-This record covers the gfx1151 HIP input-gradient backward kernels for IQ4_NL weights. The type appears only in the shared-expert down projection of 7 of the 48 layers of the Qwen4-Exp checkpoint `Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` (`qwen4_exp_text`, hidden size 2560), 6.2 MiB of packed weights, the smallest dense footprint of the group, so the record has one dense family: a `(2560,640)` weight, backward `(M,640,2560)` over the B1/B4/B16 token counts of a sequence length 2048 batch. The 48 layers mix recipes, and a projection family whose type has no body falls back to a dequantizing multiply. The checkpoint's `per_layer_token_embd.weight` is also this type, but it is an embedding gather rather than a multiply and stays on the GGUF embedding module.
+This record covers the gfx1151 HIP input-gradient backward kernels for IQ4_NL weights. The type appears only in the shared-expert down projection of 7 of the 48 layers of the Qwen4-Exp checkpoint `Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` (`qwen4_exp_text`, hidden size 2560), 6.2 MiB of packed weights, the smallest dense footprint of the group, so the record has one dense family: a `(2560,640)` weight, backward `(M,2560,640)` over the B1/B4/B16 token counts of a sequence length 2048 batch. The 48 layers mix recipes, and a projection family whose type has no body falls back to a dequantizing multiply. The checkpoint's `per_layer_token_embd.weight` is also this type, but it is an embedding gather rather than a multiply and stays on the GGUF embedding module.
 
 `QK4_NL = 32` weights share an 18-byte block: an fp16 scale and Q4_0's nibble planes, where byte `j` holds weight `j` in the low nibble and weight `j + 16` in the high nibble. The nibbles index a shared 16-entry signed level table (`kvalues_iq4nl`: -127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113) instead of being offset arithmetic, so the payload is the same size as Q4_0's and the decode adds one small-table lookup per value.
 
 ## Final kernel result
 
-| Family | `(M,K,N)` | HIP TFLOPS | HIP/torch.mm | Kernel |
+| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm | Kernel |
 | --- | ---: | ---: | ---: | --- |
-| Shared-expert down | `(2048,640,2560)` | 23.846 | 1.459x | `dense_bwd_iq4_nl_pipea_nt4_ki64_mw2_sw16_prefetch_g0` |
-| Shared-expert down | `(8192,640,2560)` | 29.444 | 1.786x | `dense_bwd_iq4_nl_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Shared-expert down | `(32768,640,2560)` | 30.546 | 1.778x | `dense_bwd_iq4_nl_pipea_nt4_ki64_mw2_pad8_prefetch` |
+| Shared-expert down | `(2048,2560,640)` | 23.846 | 1.459x | `dense_bwd_iq4_nl_pipea_nt64_ki64_mw2_sw16_prefetch_g0` |
+| Shared-expert down | `(8192,2560,640)` | 29.444 | 1.786x | `dense_bwd_iq4_nl_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Shared-expert down | `(32768,2560,640)` | 30.546 | 1.778x | `dense_bwd_iq4_nl_pipea_nt64_ki64_mw2_pad8_prefetch` |
 
 ## Kernel implementation
 
@@ -42,7 +42,7 @@ No level-table mechanism is needed. The forward records' table trick targets Q2_
 
 The pipelined tile's layout was chosen when the tile was first built - sixteen-value swizzle chunks, no padding - and the chunk was later swept on this body without revisiting padding. The layout is now screened over every deployed dense-backward key: the padding twin of each deployed body (eight values of row padding, no swizzle) is timed against it at the key's own row counts, four repeats per block, and every screen winner is then re-timed at eight repeats over two blocks in both measurement orders, so a key moves only when the padding body wins in both directions.
 
-Padding is not a general replacement for the swizzle. It wins where the resident grid is thin and the result is narrow - the `M=2048` rows and the 512- and 640-wide results - and loses on the wide results at the largest row counts, where the decoded tile's shared-memory traffic is high enough that the swizzle's bank pattern still pays. The split is per key rather than per type: on this type only the `(M,640,2560)` shared-expert down row moves, `8.0%` at `M=8192` and `1.9%` at `M=32768`.
+Padding is not a general replacement for the swizzle. It wins where the resident grid is thin and the result is narrow - the `M=2048` rows and the 512- and 640-wide results - and loses on the wide results at the largest row counts, where the decoded tile's shared-memory traffic is high enough that the swizzle's bank pattern still pays. The split is per key rather than per type: on this type only the `(M,2560,640)` shared-expert down row moves, `8.0%` at `M=8192` and `1.9%` at `M=32768`.
 
 A second layout round then screened three further combinations on every officially measured body - sixteen-value padding, four-value padding, and eight-value padding with an eight-value swizzle chunk - at the deployed row counts. Nothing survives the confirmation: each candidate measures within `1-3%` of the deployed tile in one measurement order and loses in the other, so all three are rejected and none is built. The layout neighborhood is closed at the combinations the deployment uses.
 

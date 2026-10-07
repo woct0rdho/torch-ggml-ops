@@ -9,8 +9,8 @@ namespace {
 
 struct DenseMMQShape {
     int rows;
-    int in_features;
     int out_features;
+    int in_features;
     int64_t workspace_bytes;
 };
 
@@ -66,8 +66,8 @@ DenseMMQShape validate_dense_mmq(
         static_cast<int>(in_features));
     return {
         static_cast<int>(rows),
-        static_cast<int>(in_features),
         static_cast<int>(out_features),
+        static_cast<int>(in_features),
         rows * (in_features / kQuantWorkspaceBlockValues) *
             kQuantWorkspaceBlockBytes,
     };
@@ -121,12 +121,12 @@ DenseMMQShape validate_dense_mmq_backward(
         torch_ggml_ops::mmq_bundle::kOrdinaryBackward,
         static_cast<int32_t>(quant_type),
         static_cast<int>(rows),
-        static_cast<int>(in_features),
-        static_cast<int>(out_features));
+        static_cast<int>(out_features),
+        static_cast<int>(in_features));
     return {
         static_cast<int>(rows),
-        static_cast<int>(in_features),
         static_cast<int>(out_features),
+        static_cast<int>(in_features),
         0,
     };
 }

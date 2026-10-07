@@ -111,7 +111,7 @@ _SYMBOL_SPECS: dict[str, _ControlSpec] = {
             tiled_n=64,
         ),
         _ControlSpec(
-            "grouped_bwd_row_task_q2_0_n2560_k640_mt256_nt64_s3_k64_sw8_g4_abar",
+            "grouped_bwd_row_task_q2_0_n2560_k640_mt256_nt64_s3_ki64_sw8_g4_abar",
             2560,
             640,
             180,
@@ -141,7 +141,7 @@ _SYMBOL_SPECS: dict[str, _ControlSpec] = {
             tiled_n=64,
         ),
         _ControlSpec(
-            "grouped_bwd_row_task_q2_k_n4096_k2048_mt256_nt64_s3_g4_k64",
+            "grouped_bwd_row_task_q2_k_n4096_k2048_mt256_nt64_s3_g4_ki64",
             4096,
             2048,
             672,
@@ -299,14 +299,14 @@ class InstalledGroupedBackwardRowTaskControl(_HIPModule):
     ROW_TILES: ClassVar[dict[str, int]] = {
         "grouped_bwd_row_task_iq2_s_n2048_k512_mt256_nt64_s2": 256,
         "grouped_bwd_row_task_q5_k_n2048_k512_mt256_nt64_s2": 256,
-        "grouped_bwd_row_task_q2_k_n4096_k2048_mt256_nt64_s3_g4_k64": 256,
-        "grouped_bwd_row_task_q2_0_n2560_k640_mt256_nt64_s3_k64_sw8_g4_abar": 256,
+        "grouped_bwd_row_task_q2_k_n4096_k2048_mt256_nt64_s3_g4_ki64": 256,
+        "grouped_bwd_row_task_q2_0_n2560_k640_mt256_nt64_s3_ki64_sw8_g4_abar": 256,
     }
     THREADS: ClassVar[dict[str, int]] = {
         "grouped_bwd_row_task_iq2_s_n2048_k512_mt256_nt64_s2": 256,
         "grouped_bwd_row_task_q5_k_n2048_k512_mt256_nt64_s2": 256,
-        "grouped_bwd_row_task_q2_k_n4096_k2048_mt256_nt64_s3_g4_k64": 256,
-        "grouped_bwd_row_task_q2_0_n2560_k640_mt256_nt64_s3_k64_sw8_g4_abar": 256,
+        "grouped_bwd_row_task_q2_k_n4096_k2048_mt256_nt64_s3_g4_ki64": 256,
+        "grouped_bwd_row_task_q2_0_n2560_k640_mt256_nt64_s3_ki64_sw8_g4_abar": 256,
     }
 
     @property

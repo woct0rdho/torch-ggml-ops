@@ -2,11 +2,7 @@
 
 ## Scope
 
-This record covers the routed gfx1151 Q2_K down projection for the DeepSeek expert bank, one GEMM per routed expert:
-
-```text
-X_g[M_g,K] @ W_g[K,N] -> Y_g[M_g,N]
-```
+This record covers the routed gfx1151 Q2_K down projection for the DeepSeek expert bank, one GEMM per routed expert.
 
 ## Final Results
 

@@ -8,25 +8,25 @@ Two properties of the type drive the kernels. Four 2-bit codes share one payload
 
 ## Final kernel result
 
-| Family | `(M,K,N)` | HIP TFLOPS | HIP/torch.mm | Kernel |
+| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm | Kernel |
 | --- | ---: | ---: | ---: | --- |
-| QSA query | `(2048,2560,12288)` | 30.580 | 1.312x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64` |
-| QSA query | `(8192,2560,12288)` | 29.729 | 1.159x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64` |
-| QSA query | `(32768,2560,12288)` | 27.212 | 1.040x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64` |
-| Shared-expert gate/up | `(2048,2560,640)` | 34.679 | 1.616x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_mw4_pad8` |
-| Shared-expert gate/up | `(8192,2560,640)` | 37.710 | 1.390x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_mw4_pad8` |
-| Shared-expert gate/up | `(32768,2560,640)` | 37.954 | 1.351x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_mw4_pad8` |
-| Shared-expert down | `(2048,640,2560)` | 22.928 | 1.410x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_sw0_pad8` |
-| Shared-expert down | `(8192,640,2560)` | 30.437 | 1.829x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_pad8` |
-| Shared-expert down | `(32768,640,2560)` | 31.923 | 1.774x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_pad8` |
-| PLE key / GDN `in_proj_qkv` | `(2048,2560,10240)` | 30.265 | 1.292x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64` |
-| PLE key / GDN `in_proj_qkv` | `(8192,2560,10240)` | 30.131 | 1.169x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64` |
-| PLE key / GDN `in_proj_qkv` | `(32768,2560,10240)` | 27.028 | 1.080x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64` |
-| GDN `in_proj_z` | `(2048,2560,6144)` | 31.522 | 1.375x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_pad8` |
-| GDN `in_proj_z` | `(8192,2560,6144)` | 31.008 | 1.208x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64` |
-| GDN `in_proj_z` | `(32768,2560,6144)` | 29.756 | 1.196x | `dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64` |
+| QSA query | `(2048,12288,2560)` | 30.580 | 1.312x | `dense_bwd_q2_0_mt128_full_pipea_nt64_ki64` |
+| QSA query | `(8192,12288,2560)` | 29.729 | 1.159x | `dense_bwd_q2_0_mt128_full_pipea_nt64_ki64` |
+| QSA query | `(32768,12288,2560)` | 27.212 | 1.040x | `dense_bwd_q2_0_mt128_full_pipea_nt64_ki64` |
+| Shared-expert gate/up | `(2048,640,2560)` | 34.679 | 1.616x | `dense_bwd_q2_0_mt256_full_pipea_nt64_ki64_mw4_pad8` |
+| Shared-expert gate/up | `(8192,640,2560)` | 37.710 | 1.390x | `dense_bwd_q2_0_mt256_full_pipea_nt64_ki64_mw4_pad8` |
+| Shared-expert gate/up | `(32768,640,2560)` | 37.954 | 1.351x | `dense_bwd_q2_0_mt256_full_pipea_nt64_ki64_mw4_pad8` |
+| Shared-expert down | `(2048,2560,640)` | 22.928 | 1.410x | `dense_bwd_q2_0_mt128_full_pipea_nt64_ki64_sw0_pad8` |
+| Shared-expert down | `(8192,2560,640)` | 30.437 | 1.829x | `dense_bwd_q2_0_mt128_full_pipea_nt64_ki64_pad8` |
+| Shared-expert down | `(32768,2560,640)` | 31.923 | 1.774x | `dense_bwd_q2_0_mt128_full_pipea_nt64_ki64_pad8` |
+| PLE key / GDN `in_proj_qkv` | `(2048,10240,2560)` | 30.265 | 1.292x | `dense_bwd_q2_0_mt128_full_pipea_nt64_ki64` |
+| PLE key / GDN `in_proj_qkv` | `(8192,10240,2560)` | 30.131 | 1.169x | `dense_bwd_q2_0_mt128_full_pipea_nt64_ki64` |
+| PLE key / GDN `in_proj_qkv` | `(32768,10240,2560)` | 27.028 | 1.080x | `dense_bwd_q2_0_mt128_full_pipea_nt64_ki64` |
+| GDN `in_proj_z` | `(2048,6144,2560)` | 31.522 | 1.375x | `dense_bwd_q2_0_mt128_full_pipea_nt64_ki64_pad8` |
+| GDN `in_proj_z` | `(8192,6144,2560)` | 31.008 | 1.208x | `dense_bwd_q2_0_mt128_full_pipea_nt64_ki64` |
+| GDN `in_proj_z` | `(32768,6144,2560)` | 29.756 | 1.196x | `dense_bwd_q2_0_mt128_full_pipea_nt64_ki64` |
 
-Backward shapes are written `(M, in_features, out_features)`, matching the weight's `(N,K) = (out_features, in_features)` in the table's `(M,K,N)` column. `_pad8` names the eight-word LDS padding. The unpadded variants hold 16 KiB rather than 18 KiB and admit a fourth resident workgroup per WGP.
+Backward shapes are written `(M,N,K)`, matching the weight's `(N,K) = (out_features, in_features)` in the table's `(M,N,K)` column. `_pad8` names the eight-word LDS padding. The unpadded variants hold 16 KiB rather than 18 KiB and admit a fourth resident workgroup per WGP.
 
 ## Kernel implementation
 
@@ -48,7 +48,7 @@ for stage in 0 .. stages - 1:
     s_barrier;                                    // retires the decode, frees the other tile
 ```
 
-That is one barrier per stage instead of two, and the decode's LDS stores and global loads are in flight under the current stage's matrix work instead of in front of it. The tile is also where the LDS budget goes, so the body is built in a padded and an unpadded flavour: `_pad8` keeps the decoded tile in sixteen-value-aligned banks, while the unpadded `_nt4_ki64` variant spends 16 KiB instead of 18 KiB and admits a fourth resident workgroup per WGP, which is what the four wide families deploy. Turning the LDS swizzle off is not an option: the decoded tile is written one column per thread at a stride of `k_iteration` values, and without the swizzle the same body measures `14.8 TFLOPS`.
+That is one barrier per stage instead of two, and the decode's LDS stores and global loads are in flight under the current stage's matrix work instead of in front of it. The tile is also where the LDS budget goes, so the body is built in a padded and an unpadded flavour: `_pad8` keeps the decoded tile in sixteen-value-aligned banks, while the unpadded `_nt64_ki64` variant spends 16 KiB instead of 18 KiB and admits a fourth resident workgroup per WGP, which is what the four wide families deploy. Turning the LDS swizzle off is not an option: the decoded tile is written one column per thread at a stride of `k_iteration` values, and without the swizzle the same body measures `14.8 TFLOPS`.
 
 The body additionally double-buffers the activation fragments in registers: the sixteen bf16 cotangent values of k tile `k + 1` are issued before k tile `k`'s fragment loads and matrix work, so their global latency retires under that work rather than in front of it. The rotation costs `M_TILES_PER_WAVE` fragments of registers.
 
@@ -56,9 +56,9 @@ The body additionally double-buffers the activation fragments in registers: the 
 
 | Body | LDS | VGPR | SGPR |
 | --- | ---: | ---: | ---: |
-| `_pipea_nt4_ki64` | 16 KiB | 130 | 18 |
-| `_pipea_nt4_ki64_sw0_pad8` | 18 KiB | 147 | 18 |
-| `_pipea_nt4_ki64_mw4_pad8` | 18 KiB | 216 | 18 |
+| `_pipea_nt64_ki64` | 16 KiB | 130 | 18 |
+| `_pipea_nt64_ki64_sw0_pad8` | 18 KiB | 147 | 18 |
+| `_pipea_nt64_ki64_mw4_pad8` | 18 KiB | 216 | 18 |
 
 All are spill-free. The single-tile bodies use `120-232 VGPR` at `9-10 KiB` LDS.
 

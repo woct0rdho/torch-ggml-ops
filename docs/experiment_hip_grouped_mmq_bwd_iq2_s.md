@@ -8,9 +8,9 @@ This record covers the routed single-projection IQ2_S down input-gradient kernel
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | --- | --- | --- | --- |
-| 1 | `(16384,512,2048)` | 12.34 | 1.145x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2_abar` |
-| 4 | `(65536,512,2048)` | 18.19 | 1.116x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2_abar` |
-| 16 | `(262144,512,2048)` | 22.24 | 1.080x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt256_nt64_s2` |
+| 1 | `(16384,2048,512)` | 12.34 | 1.145x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2_abar` |
+| 4 | `(65536,2048,512)` | 18.19 | 1.116x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt128_nt64_s2_abar` |
+| 16 | `(262144,2048,512)` | 22.24 | 1.080x | `grouped_bwd_row_task_iq2_s_n2048_k512_mt256_nt64_s2` |
 
 The single-down IQ2_S body is ahead of predecoded BF16 AITER at all three shapes. The residual is grid lookup and sign reconstruction in the packed decode.
 

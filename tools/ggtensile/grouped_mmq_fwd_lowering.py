@@ -359,7 +359,7 @@ class GroupedPackedScaleMinimumDirectLowering:
         asm.comment("Store valid J-major fragments into aggregate-row BF16 output.")
         asm.inst(
             f"v_mul_lo_u32 v{vector.output_address.first_register}, "
-            f"{2 * problem.output_features}, v{vector.activation_row.first_register}"
+            f"{2 * problem.out_features}, v{vector.activation_row.first_register}"
         )
         asm.inst(
             f"v_lshrrev_b32 v{vector.temporary.first_register}, 4, "

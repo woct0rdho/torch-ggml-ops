@@ -84,7 +84,7 @@ class GroupedForwardProblem:
 
     quant_data_type: str
     aggregate_rows: int
-    output_features: int
-    input_features: int
+    out_features: int
+    in_features: int
     physical_experts: int
     max_route_entries: int

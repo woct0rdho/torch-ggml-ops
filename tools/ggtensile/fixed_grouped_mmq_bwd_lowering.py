@@ -82,10 +82,10 @@ class FixedGroupedQ8BackwardLowering:
         asm.comment("Offset all bases to the fixed group selected by workgroup Z.")
         asm.inst(f"s_mul_i32 s{offset}, s4, s{offset}")
         self._emit_pointer_offset(asm, registers.kernarg + 2, offset)
-        grad_output_shift = (2 * self.state.problem.output_features).bit_length() - 1
+        grad_output_shift = (2 * self.state.problem.out_features).bit_length() - 1
         asm.inst(f"s_lshl_b32 s{offset}, s4, {grad_output_shift}")
         self._emit_pointer_offset(asm, registers.kernarg, offset)
-        grad_input_shift = (2 * self.state.problem.input_features).bit_length() - 1
+        grad_input_shift = (2 * self.state.problem.in_features).bit_length() - 1
         asm.inst(f"s_lshl_b32 s{offset}, s4, {grad_input_shift}")
         self._emit_pointer_offset(asm, registers.kernarg + 4, offset)
 

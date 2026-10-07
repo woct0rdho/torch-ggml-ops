@@ -241,8 +241,8 @@ def _grouped_backward_pair(value: object) -> KernelInstance:
     problem = GroupedBackwardPairProblem(
         quant_type,
         integer(raw, "M"),
-        integer(raw, "K"),
         integer(raw, "N"),
+        integer(raw, "K"),
         integer(raw, "PhysicalExpertCount"),
         integer(raw, "MaxRouteEntries"),
         integer(raw, "ProjectionCount"),
@@ -290,8 +290,8 @@ def _fixed_backward(value: object) -> KernelInstance:
     problem = FixedBackwardProblem(
         quant_type,
         integer(raw, "M"),
-        integer(raw, "K"),
         integer(raw, "N"),
+        integer(raw, "K"),
         integer(raw, "GroupCount"),
     )
     return KernelInstance(
@@ -345,8 +345,8 @@ def _problem_mapping(instance: KernelInstance) -> dict[str, object]:
         assert isinstance(problem, GroupedForwardProblem)
         return {
             "M": problem.aggregate_rows,
-            "N": problem.output_features,
-            "K": problem.input_features,
+            "N": problem.out_features,
+            "K": problem.in_features,
             "PhysicalExpertCount": problem.physical_experts,
             "MaxRouteEntries": problem.max_route_entries,
         }
@@ -354,8 +354,8 @@ def _problem_mapping(instance: KernelInstance) -> dict[str, object]:
         assert isinstance(problem, GroupedForwardPairProblem)
         return {
             "M": problem.aggregate_rows,
-            "N": problem.output_features,
-            "K": problem.input_features,
+            "N": problem.out_features,
+            "K": problem.in_features,
             "PhysicalExpertCount": problem.physical_experts,
             "MaxRouteEntries": problem.max_route_entries,
             "ProjectionCount": problem.projection_count,
@@ -364,8 +364,8 @@ def _problem_mapping(instance: KernelInstance) -> dict[str, object]:
         assert isinstance(problem, GroupedBackwardPairProblem)
         return {
             "M": problem.aggregate_rows,
-            "N": problem.in_features,
-            "K": problem.out_features,
+            "N": problem.out_features,
+            "K": problem.in_features,
             "PhysicalExpertCount": problem.physical_experts,
             "MaxRouteEntries": problem.max_route_entries,
             "ProjectionCount": problem.projection_count,
@@ -374,16 +374,16 @@ def _problem_mapping(instance: KernelInstance) -> dict[str, object]:
         assert isinstance(problem, FixedForwardProblem)
         return {
             "M": problem.tokens,
-            "N": problem.output_features,
-            "K": problem.input_features,
+            "N": problem.out_features,
+            "K": problem.in_features,
             "GroupCount": problem.groups,
         }
     if family is KernelFamily.FixedGroupedBackward:
         assert isinstance(problem, FixedBackwardProblem)
         return {
             "M": problem.tokens,
-            "N": problem.input_features,
-            "K": problem.output_features,
+            "N": problem.out_features,
+            "K": problem.in_features,
             "GroupCount": problem.groups,
         }
     raise TypeError(f"unsupported kernel family {family!r}")
@@ -461,28 +461,24 @@ def problem_size_for_instance(instance: KernelInstance) -> ProblemSize:
     if family is KernelFamily.GroupedForward:
         assert isinstance(problem, GroupedForwardProblem)
         return ProblemSize(
-            problem.aggregate_rows, problem.output_features, problem.input_features
+            problem.aggregate_rows, problem.out_features, problem.in_features
         )
     if family is KernelFamily.GroupedForwardPair:
         assert isinstance(problem, GroupedForwardPairProblem)
         return ProblemSize(
-            problem.aggregate_rows, problem.output_features, problem.input_features
+            problem.aggregate_rows, problem.out_features, problem.in_features
         )
     if family is KernelFamily.GroupedBackwardPair:
         assert isinstance(problem, GroupedBackwardPairProblem)
         return ProblemSize(
-            problem.aggregate_rows, problem.in_features, problem.out_features
+            problem.aggregate_rows, problem.out_features, problem.in_features
         )
     if family is KernelFamily.FixedGroupedForward:
         assert isinstance(problem, FixedForwardProblem)
-        return ProblemSize(
-            problem.tokens, problem.output_features, problem.input_features
-        )
+        return ProblemSize(problem.tokens, problem.out_features, problem.in_features)
     if family is KernelFamily.FixedGroupedBackward:
         assert isinstance(problem, FixedBackwardProblem)
-        return ProblemSize(
-            problem.tokens, problem.input_features, problem.output_features
-        )
+        return ProblemSize(problem.tokens, problem.out_features, problem.in_features)
     raise TypeError(f"unsupported kernel family {family!r}")
 
 
@@ -499,36 +495,36 @@ def instance_name(instance: KernelInstance) -> str:
         prefix, suffix = "mmq_bwd", digest[6:]
         return f"{prefix}_{quant}_m{size.m}_n{size.n}_k{size.k}_{suffix}"
     if family is KernelFamily.GroupedBackward:
-        return f"grouped_mmq_bwd_{quant}_m{size.m}_n{size.n}_k{size.k}_{digest[6:]}"
+        return f"grouped_mmq_bwd_{quant}_r{size.m}_n{size.n}_k{size.k}_{digest[6:]}"
     if family is KernelFamily.GroupedForward:
         assert isinstance(problem, GroupedForwardProblem)
         return (
             f"grouped_mmq_fwd_{quant}_r{problem.aggregate_rows}_"
-            f"n{problem.output_features}_k{problem.input_features}_{digest[6:]}"
+            f"n{problem.out_features}_k{problem.in_features}_{digest[6:]}"
         )
     if family is KernelFamily.GroupedForwardPair:
         assert isinstance(problem, GroupedForwardPairProblem)
         return (
             f"grouped_mmq_fwd_pair_{quant}_r{problem.aggregate_rows}_"
-            f"n{problem.output_features}_k{problem.input_features}_{digest[7:]}"
+            f"n{problem.out_features}_k{problem.in_features}_{digest[7:]}"
         )
     if family is KernelFamily.GroupedBackwardPair:
         assert isinstance(problem, GroupedBackwardPairProblem)
         return (
             f"grouped_mmq_bwd_pair_{quant}_r{problem.aggregate_rows}_"
-            f"n{problem.in_features}_k{problem.out_features}_{digest[8:]}"
+            f"n{problem.out_features}_k{problem.in_features}_{digest[8:]}"
         )
     if family is KernelFamily.FixedGroupedForward:
         assert isinstance(problem, FixedForwardProblem)
         return (
             f"fixed_grouped_mmq_fwd_q8_0_t{problem.tokens}_"
-            f"n{problem.output_features}_k{problem.input_features}_{digest[6:]}"
+            f"n{problem.out_features}_k{problem.in_features}_{digest[6:]}"
         )
     if family is KernelFamily.FixedGroupedBackward:
         assert isinstance(problem, FixedBackwardProblem)
         return (
             f"fixed_grouped_mmq_bwd_q8_0_t{problem.tokens}_"
-            f"n{problem.input_features}_k{problem.output_features}_{digest[6:]}"
+            f"n{problem.out_features}_k{problem.in_features}_{digest[6:]}"
         )
     raise TypeError(f"unsupported kernel family {family!r}")
 

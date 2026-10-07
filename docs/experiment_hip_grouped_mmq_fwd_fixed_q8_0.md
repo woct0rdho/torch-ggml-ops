@@ -6,7 +6,7 @@ This record covers the fixed eight-group DeepSeek Q8_0 forward kernel.
 
 ## Final kernel result
 
-| Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/torch.bmm | HIP time (ms) | Kernel |
+| Batch | Logical shape `(T,N,K)` | HIP TFLOPS | HIP/torch.bmm | HIP time (ms) | Kernel |
 | ---: | --- | --- | --- | --- | --- |
 | 1 | `8 x (2048,1024,4096)` | 13.63 | 0.768x | 10.084 | `grouped_fwd_fixed_q8_0_g8_k4096_j64_full` |
 | 4 | `8 x (8192,1024,4096)` | 13.61 | 0.753x | 40.386 | `grouped_fwd_fixed_q8_0_g8_k4096_j64_full` |

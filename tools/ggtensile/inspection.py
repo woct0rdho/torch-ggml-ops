@@ -120,7 +120,7 @@ def _backward_static_wmma_count(state: DerivedBackwardState) -> int:
         // 16
     )
     if state.spec.pipeline.decoded_b_pipeline:
-        count *= 1 + int(state.contract.problem_size.k > geometry.depth_u)
+        count *= 1 + int(state.contract.problem_size.n > geometry.depth_u)
     return count
 
 
@@ -149,7 +149,7 @@ def _forward_static_wmma_count(state: DerivedForwardState) -> int:
 def _backward_static_barrier_count(state: DerivedBackwardState) -> int:
     pipeline = state.spec.pipeline
     if pipeline.decoded_b_pipeline:
-        return 1 + int(state.contract.problem_size.k > state.spec.geometry.depth_u)
+        return 1 + int(state.contract.problem_size.n > state.spec.geometry.depth_u)
     return 3 if pipeline.prefetches_next_packed_tile else 2
 
 

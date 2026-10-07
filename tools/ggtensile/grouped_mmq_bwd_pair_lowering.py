@@ -79,7 +79,7 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
         self._emit_projection(asm, "Second")
         self._swap_projection_pointers(asm)
         asm.inst(f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, {geometry.depth_u}")
-        asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
+        asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.n}")
         asm.inst(f"s_cbranch_scc1 {self._label('PairDepthULoop')}")
         self._emit_store(asm)
 
@@ -157,7 +157,7 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
         asm.inst(f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, {geometry.depth_u}")
-        asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
+        asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.n}")
         asm.inst(f"s_cbranch_scc1 {self._label('PairDepthULoop')}")
         self._emit_store(asm)
 
@@ -191,7 +191,7 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
         )
 
         asm.inst(f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, {depth_u}")
-        asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
+        asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.n}")
         asm.inst(f"s_cbranch_scc1 {self._label('PairKPipelineNextPacked')}")
         asm.inst("s_waitcnt vmcnt(0)")
         asm.inst(f"s_branch {self._label('PairKPipelinePackedDone')}")
@@ -202,7 +202,7 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
 
         def prefetch_next_a(k_tile: int) -> None:
             k_half = k_tile // 16
-            asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
+            asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.n}")
             asm.inst(f"s_cbranch_scc0 {self._label(f'PairKPipelineNoNextA{k_half}')}")
             if self.physical.lds.codebook_in_lds:
                 self._emit_a_half_with_safe_pointers(asm, k_half)
@@ -220,7 +220,7 @@ class GroupedBackwardPairTileComputeEmitter(GroupedBackwardTileComputeEmitter):
         )
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
-        asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
+        asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.n}")
         asm.inst(f"s_cbranch_scc0 {self._label('PairKPipelineDone')}")
 
         asm.comment("Decode prefetched banks after their LDS consumers retire.")

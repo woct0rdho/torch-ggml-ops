@@ -4,7 +4,7 @@
 
 This record covers gfx1151 HIP packed-MMQ input-gradient kernels for Q6_K weights.
 
-Backward shapes are written `(M, in_features, out_features)`, matching the weight's `(N,K) = (out_features, in_features)`. The type carries the Qwen4-Exp checkpoint `Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` (`qwen4_exp_text`, 48 layers, hidden size 2560, 512 experts with top-10 routing): the QSA attention key/value and output projections and the shared-expert gate/up projection, at the training token counts of a sequence length 2048 batch (B1/B4/B16), and the chunked language model head of the Qwen3.6-35B-A3B (APEX-I-Mini) checkpoint at 64/128/256 rows. The 48 layers mix recipes - the same projection family is a different quant type in different layers - so every type that appears needs a body, or those layers fall back to a dequantizing multiply.
+Backward shapes are written `(M,N,K)`, matching the weight's `(N,K) = (out_features, in_features)`. The type carries the Qwen4-Exp checkpoint `Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` (`qwen4_exp_text`, 48 layers, hidden size 2560, 512 experts with top-10 routing): the QSA attention key/value and output projections and the shared-expert gate/up projection, at the training token counts of a sequence length 2048 batch (B1/B4/B16), and the chunked language model head of the Qwen3.6-35B-A3B (APEX-I-Mini) checkpoint at 64/128/256 rows. The 48 layers mix recipes - the same projection family is a different quant type in different layers - so every type that appears needs a body, or those layers fall back to a dequantizing multiply.
 
 ## GatedDeltaNet target shapes
 
@@ -14,20 +14,20 @@ Neither checkpoint carries this type in `in_proj_qkv` or `in_proj_z`, so this se
 
 ## Final kernel result
 
-| Family | `(M,K,N)` | HIP TFLOPS | HIP/torch.mm | Kernel |
+| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm | Kernel |
 | --- | ---: | ---: | ---: | ---: |
-| Language model head | (64,2048,248320) | 14.340 | 2.174x | `dense_bwd_q6_k_pipesplit_m64_s2` |
-| Language model head | (128,2048,248320) | 23.876 | 2.653x | `dense_bwd_q6_k_pipesplit_m128_s40` |
-| Language model head | (256,2048,248320) | 22.443 | 1.634x | `dense_bwd_q6_k_pipesplit_m256_s40` |
-| QSA key/value | `(2048,2560,512)` | 27.190 | 1.357x | `dense_bwd_q6_k_pipea_nt4_ki64_mw2_sw16` |
-| QSA key/value | `(8192,2560,512)` | 29.972 | 1.197x | `dense_bwd_q6_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| QSA key/value | `(32768,2560,512)` | 32.544 | 1.242x | `dense_bwd_q6_k_pipea_nt4_ki64_mw4_pad8_sw8_prefetch` |
-| QSA output | `(2048,6144,2560)` | 33.482 | 1.444x | `dense_bwd_q6_k_pipea_nt4_ki64_mw4_sw16_prefetch` |
-| QSA output | `(8192,6144,2560)` | 35.188 | 1.484x | `dense_bwd_q6_k_pipea_nt4_ki64_mw4_sw16_prefetch` |
-| QSA output | `(32768,6144,2560)` | 29.827 | 1.205x | `dense_bwd_q6_k_pipe_nt4_ki64_mw4_sw16` |
-| Shared-expert gate/up | `(2048,2560,640)` | 32.540 | 1.565x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4` |
-| Shared-expert gate/up | `(8192,2560,640)` | 34.825 | 1.326x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4` |
-| Shared-expert gate/up | `(32768,2560,640)` | 36.081 | 1.361x | `dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4_pad8` |
+| Language model head | (64,248320,2048) | 14.340 | 2.174x | `dense_bwd_q6_k_pipesplit_m64_s2` |
+| Language model head | (128,248320,2048) | 23.876 | 2.653x | `dense_bwd_q6_k_pipesplit_m128_s40` |
+| Language model head | (256,248320,2048) | 22.443 | 1.634x | `dense_bwd_q6_k_pipesplit_m256_s40` |
+| QSA key/value | `(2048,512,2560)` | 27.190 | 1.357x | `dense_bwd_q6_k_pipea_nt64_ki64_mw2_sw16` |
+| QSA key/value | `(8192,512,2560)` | 29.972 | 1.197x | `dense_bwd_q6_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| QSA key/value | `(32768,512,2560)` | 32.544 | 1.242x | `dense_bwd_q6_k_pipea_nt64_ki64_mw4_pad8_sw8_prefetch` |
+| QSA output | `(2048,2560,6144)` | 33.482 | 1.444x | `dense_bwd_q6_k_pipea_nt64_ki64_mw4_sw16_prefetch` |
+| QSA output | `(8192,2560,6144)` | 35.188 | 1.484x | `dense_bwd_q6_k_pipea_nt64_ki64_mw4_sw16_prefetch` |
+| QSA output | `(32768,2560,6144)` | 29.827 | 1.205x | `dense_bwd_q6_k_pipe_nt64_ki64_mw4_sw16` |
+| Shared-expert gate/up | `(2048,640,2560)` | 32.540 | 1.565x | `dense_bwd_q6_k_mt256_full_nt64_ki64_mw4` |
+| Shared-expert gate/up | `(8192,640,2560)` | 34.825 | 1.326x | `dense_bwd_q6_k_mt256_full_nt64_ki64_mw4` |
+| Shared-expert gate/up | `(32768,640,2560)` | 36.081 | 1.361x | `dense_bwd_q6_k_mt256_full_nt64_ki64_mw4_pad8` |
 
 The values use the current Q6_K packed/BF16 kernel matrix and come from one official run. M256 is the primary large chunk, with M64 and M128 as smaller exact geometries. The `Kernel` column names the deployed body for each chunk. All three chunks deploy a split-contraction body. M64 and M128 use the slice bodies measured below, and M256 moved to the pipelined slice body when it measured `1.07x` ahead of the single-pass body that chunk used to keep. The `_full_*` bodies are the unbounded exact variants (`_bounded` builds exist for shapes outside the exact-tile contract).
 
@@ -43,11 +43,11 @@ Measured against the deployed single-pass bodies, the slice bodies gain `1.25x` 
 
 ### Exact-dimension twins
 
-The deployed bodies on this record resolve both the contraction and the result width at runtime. Twins that copy the deployed geometry exactly and only substitute the two compile-time bounds were built and measured against the deployed bodies in one interleaved A/B run: `0.990x` at `(256,2048,248320)`. Exact dimensions are therefore not deployed on these keys. Where the mechanism looked positive on the Q6_K M64 chunk, the measurement also carried the split-contraction body.
+The deployed bodies on this record resolve both the contraction and the result width at runtime. Twins that copy the deployed geometry exactly and only substitute the two compile-time bounds were built and measured against the deployed bodies in one interleaved A/B run: `0.990x` at `(256,248320,2048)`. Exact dimensions are therefore not deployed on these keys. Where the mechanism looked positive on the Q6_K M64 chunk, the measurement also carried the split-contraction body.
 
 ## Kernel implementation
 
-The three head chunks use `dense_bwd_q6_k_m64_nt32_ki64_full`, `dense_bwd_q6_k_m128_nt64_ki32_full`, and `dense_bwd_q6_k_m256_nt64_ki32_full`: M64/N32/K64 for M64, M128/N64/K32 for M128, and two M128-style workgroups for M256. The Qwen4-Exp projection keys use the reusable pipelined tile (`csrc/ck/mmq_backward_pipelined.cuh`) at `n_tiles = 4` and a 64-value contraction stage over two shared tiles, with the activation prefetch, at 128 row tiles per wave on the QSA key/value rows and 256 on the QSA output rows, and with the prefetched payload read on four of the five changed keys. The shared-expert gate/up keys keep the first redesign's `_k2048_nt4_ki64_mw4` single-tile body. The decoded-weight LDS layout, packed extraction, and register lifetime are Q6-specific. The `_bounded` twins, the `nt128_ki16_g2`/`nt256_ki16_g2` generics and the other screened candidates are not in the catalog. Their measurements are in this log.
+The three head chunks use `dense_bwd_q6_k_pipesplit_m64_s2`, `dense_bwd_q6_k_pipesplit_m128_s40`, and `dense_bwd_q6_k_pipesplit_m256_s40`: M64/N32/K64 for M64, M128/N64/K32 for M128, and two M128-style workgroups for M256. The Qwen4-Exp projection keys use the reusable pipelined tile (`csrc/ck/mmq_backward_pipelined.cuh`) at `n_tiles = 4` and a 64-value contraction stage over two shared tiles, with the activation prefetch, at 128 row tiles per wave on the QSA key/value rows and 256 on the QSA output rows, and with the prefetched payload read on four of the five changed keys. The shared-expert gate/up keys keep the first redesign's `mt256_full_nt64_ki64_mw4` single-tile body. The decoded-weight LDS layout, packed extraction, and register lifetime are Q6-specific. The `_bounded` twins, the `nt128_ki16_g2`/`nt256_ki16_g2` generics and the other screened candidates are not in the catalog. Their measurements are in this log.
 
 ## Exact-shape closure detail
 
@@ -89,7 +89,7 @@ Its first screen, on all three shapes, compared the deployed knob set (`_k2048`:
 
 ### Pipelined tile
 
-The Q2_0 record showed that a two-tile pipeline, one barrier per contraction stage, pays on the backward skeleton. The pilot here reuses that body (`csrc/ck/mmq_backward_pipelined.cuh`, generalized to the six staged weight types) at the deployed geometry, and includes the same body with the pipeline switched off so the two effects and the width-16 group decode can be read apart. Against the deployed `_k2048_nt4_ki64_mw4` body: the pipelined body is `1.02x` on the QSA output rows, `1.06-1.52x` on the QSA key/value rows (the narrowest result and the starved grid), and `0.96-1.04x` on the shared-expert gate/up rows, where the contraction is only ten stages deep and the pipeline's fill and drain dominate. Isolating the pipeline at fixed geometry and decode gives `1.003-1.18x` on all six measured points. The width-16 group decode on its own is not better than the deployed per-value path (`0.93-1.08x`), so the deployed bodies keep the pipelined tile with the group decode paired with the 64-value stage and four row tiles per wave. The key/value and output projection keys now deploy `_pipe_nt4_ki64_mw4_sw16`. The shared-expert keys keep their single-tile body.
+The Q2_0 record showed that a two-tile pipeline, one barrier per contraction stage, pays on the backward skeleton. The pilot here reuses that body (`csrc/ck/mmq_backward_pipelined.cuh`, generalized to the six staged weight types) at the deployed geometry, and includes the same body with the pipeline switched off so the two effects and the width-16 group decode can be read apart. Against the deployed `mt256_full_nt64_ki64_mw4` body: the pipelined body is `1.02x` on the QSA output rows, `1.06-1.52x` on the QSA key/value rows (the narrowest result and the starved grid), and `0.96-1.04x` on the shared-expert gate/up rows, where the contraction is only ten stages deep and the pipeline's fill and drain dominate. Isolating the pipeline at fixed geometry and decode gives `1.003-1.18x` on all six measured points. The width-16 group decode on its own is not better than the deployed per-value path (`0.93-1.08x`), so the deployed bodies keep the pipelined tile with the group decode paired with the 64-value stage and four row tiles per wave. The key/value and output projection keys now deploy `pipe_nt64_ki64_mw4_sw16`. The shared-expert keys keep their single-tile body.
 
 ### Split-contraction measurement
 

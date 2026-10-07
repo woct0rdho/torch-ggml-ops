@@ -74,27 +74,15 @@ def _public_keys() -> set[tuple[str, str, int, int, int]]:
     for case in public_deployment_cases():
         if case.operation not in _CATALOGUED_OPERATIONS:
             continue
-        if case.operation == "OrdinaryBackward":
-            # Problem axes: the backward gradient contracts the forward output.
-            keys.add(
-                (
-                    case.operation,
-                    case.quant_type,
-                    case.rows,
-                    case.in_features,
-                    case.out_features,
-                )
+        keys.add(
+            (
+                case.operation,
+                case.quant_type,
+                case.rows,
+                case.out_features,
+                case.in_features,
             )
-        else:
-            keys.add(
-                (
-                    case.operation,
-                    case.quant_type,
-                    case.rows,
-                    case.out_features,
-                    case.in_features,
-                )
-            )
+        )
     return keys
 
 

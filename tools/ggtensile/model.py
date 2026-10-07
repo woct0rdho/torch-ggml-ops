@@ -76,7 +76,14 @@ class ProblemType:
 
 @dataclass(frozen=True)
 class ProblemSize:
-    """Exact GEMM coordinates interpreted by the selected ProblemType."""
+    """Exact problem coordinates interpreted by the selected ProblemType.
+
+    `m` is the row count (routed rows for the grouped families, tokens for the
+    fixed family), `n` is the weight's `out_features` (its packed rows) and `k`
+    is its `in_features` (the values per packed row), for backward families as
+    well. A forward kernel writes `n` and reduces over `k`. A backward kernel
+    writes `k` and reduces over `n`.
+    """
 
     m: int
     n: int

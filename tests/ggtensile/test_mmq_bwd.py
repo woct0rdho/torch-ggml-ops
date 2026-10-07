@@ -88,11 +88,11 @@ def test_backward_catalog_keys_round_trip_exactly() -> None:
 
 
 def test_backward_decode_policy_is_explicit() -> None:
-    q3 = _selected("Q3_K", ProblemSize(2048, 2048, 512)).kernel_spec
+    q3 = _selected("Q3_K", ProblemSize(2048, 512, 2048)).kernel_spec
     assert isinstance(q3, BackwardKernelSpec)
     assert q3.decode.extraction is BackwardExtraction.Packed
     assert q3.decode.pairing is not None
-    q4 = _selected("Q4_K", ProblemSize(2048, 2048, 512)).kernel_spec
+    q4 = _selected("Q4_K", ProblemSize(2048, 512, 2048)).kernel_spec
     assert isinstance(q4, BackwardKernelSpec)
     assert isinstance(q4.decode, BackwardDecodeSpec)
     assert q4.decode.extraction is None
@@ -101,11 +101,11 @@ def test_backward_decode_policy_is_explicit() -> None:
             q4,
             decode=BackwardDecodeSpec(16, extraction=BackwardExtraction.Packed),
         )
-        validate_backward_solution(ProblemSize(2048, 2048, 512), "Q4_K", replace_decode)
+        validate_backward_solution(ProblemSize(2048, 512, 2048), "Q4_K", replace_decode)
 
 
 def test_backward_pipeline_rejects_unimplemented_packed_weight_mode() -> None:
-    instance = _selected("Q4_K", ProblemSize(2048, 2048, 512))
+    instance = _selected("Q4_K", ProblemSize(2048, 512, 2048))
     assert isinstance(instance.problem, ProblemSize)
     assert isinstance(instance.kernel_spec, BackwardKernelSpec)
     invalid = replace(
@@ -117,7 +117,7 @@ def test_backward_pipeline_rejects_unimplemented_packed_weight_mode() -> None:
 
 
 def test_backward_search_returns_only_typed_valid_candidates() -> None:
-    shape = ProblemSize(128, 2048, 512)
+    shape = ProblemSize(128, 512, 2048)
     for quant_type in ("Q3_K", "Q4_K", "Q5_K", "Q6_K", "Q8_0"):
         domains = candidate_domains(quant_type, shape)
         assert len(domains) == 1
@@ -146,7 +146,7 @@ def test_backward_writer_source_is_available_for_every_catalog_entry() -> None:
 
 
 def test_backward_validation_rejects_malformed_mapping() -> None:
-    instance = _selected("Q4_K", ProblemSize(2048, 2048, 512))
+    instance = _selected("Q4_K", ProblemSize(2048, 512, 2048))
     mapping = mapping_for_instance(instance)
     kernel_spec = mapping["KernelSpec"]
     assert isinstance(kernel_spec, dict)
@@ -158,7 +158,7 @@ def test_backward_validation_rejects_malformed_mapping() -> None:
 
 
 def test_backward_seed_resources_are_admitted() -> None:
-    shape = ProblemSize(128, 256, 128)
+    shape = ProblemSize(128, 128, 256)
     for quant_type in ("Q3_K", "Q4_K", "Q5_K", "Q6_K", "Q8_0"):
         domain = candidate_domains(quant_type, shape)[0]
         instance = _instance(quant_type, shape, domain.seed)

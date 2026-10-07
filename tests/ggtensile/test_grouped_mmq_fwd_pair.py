@@ -68,7 +68,7 @@ def test_grouped_pair_catalog_keys_are_typed_and_round_trip() -> None:
         state = DerivedGroupedForwardPairState.from_problem_spec(problem, spec)
         assert state.expected_output_shape == (
             problem.aggregate_rows,
-            problem.output_features,
+            problem.out_features,
         )
         assert state.kernel_spec.geometry.depth_u == 128
         assert state.physical_plan.resources.private_bytes == 0

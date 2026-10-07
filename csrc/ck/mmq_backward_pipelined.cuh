@@ -15,6 +15,15 @@
 // `K_ITERATION` values, so every store of a thread lands in the same LDS bank
 // unless the tile is padded or swizzled. Both are template parameters the
 // caller sets, as in the shared body.
+//
+// `N_TILES` and `K_ITERATION` follow the matrix instruction, not the problem:
+// the instruction computes `D[M,N] = A[M,K] * B[K,N]`, and this body's tile
+// holds the packed weight columns it writes, so its `N` is the written
+// dimension (`in_features`, the problem's `K`) and its `K` is the contraction
+// (`out_features`, the problem's `N`). The two letter pairs are transposes of
+// each other for every backward family. The HIP control symbols keep them
+// apart by writing the weight letters only in the family key (`n<out>_k<in>`)
+// and the tile geometry only as `nt<columns>` / `ki<stage>`.
 
 #include "bf16_wmma.cuh"
 #include "mmq_backward.cuh"

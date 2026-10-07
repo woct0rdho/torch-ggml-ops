@@ -130,13 +130,13 @@ class InstalledDenseBackwardSplitKModule(_HIPModule):
         if not self._module or not self._function:
             raise HIPRuntimeError("HIP module is closed")
         size = self.problem_size
-        if grad_output.shape != (size.m, size.k):
+        if grad_output.shape != (size.m, size.n):
             raise HIPRuntimeError("grad_output shape does not match ProblemSize")
         if packed_weight.dtype != torch.uint8 or partials.dtype != torch.float32:
             raise HIPRuntimeError(
                 "split-contraction launch needs packed weights and FP32 partials"
             )
-        if tuple(partials.shape) != (self.slices, size.m, size.n):
+        if tuple(partials.shape) != (self.slices, size.m, size.k):
             raise HIPRuntimeError(
                 "partial workspace does not match the control geometry"
             )
@@ -146,9 +146,9 @@ class InstalledDenseBackwardSplitKModule(_HIPModule):
                 "packed_weight": packed_weight.data_ptr(),
                 "partials": partials.data_ptr(),
                 "rows": size.m,
-                "out_features": size.k,
-                "in_features": size.n,
-                "blocks_per_weight_row": size.n
+                "out_features": size.n,
+                "in_features": size.k,
+                "blocks_per_weight_row": size.k
                 // BACKWARD_QUANT_FORMATS[self.quant_type].block_values,
                 "split_chunk": self.split_chunk,
             }

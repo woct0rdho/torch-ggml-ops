@@ -2,11 +2,7 @@
 
 ## Scope
 
-This record covers direct packed GGUF Q4_K dense forward kernels for gfx1151:
-
-```text
-output[M,N] = input[M,K] @ dequant_q4_k(weight[N,K]).T
-```
+This record covers direct packed GGUF Q4_K dense forward kernels for gfx1151.
 
 ## Final Results
 

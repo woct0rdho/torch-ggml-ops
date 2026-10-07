@@ -181,8 +181,8 @@
     {
       "Problem": {
         "M": 16384,
-        "N": 2048,
-        "K": 512,
+        "N": 512,
+        "K": 2048,
         "ProjectionCount": 2,
         "PhysicalExpertCount": 256,
         "MaxRouteEntries": 256
@@ -192,8 +192,8 @@
     {
       "Problem": {
         "M": 65536,
-        "N": 2048,
-        "K": 512,
+        "N": 512,
+        "K": 2048,
         "ProjectionCount": 2,
         "PhysicalExpertCount": 256,
         "MaxRouteEntries": 256
@@ -203,8 +203,8 @@
     {
       "Problem": {
         "M": 262144,
-        "N": 2048,
-        "K": 512,
+        "N": 512,
+        "K": 2048,
         "ProjectionCount": 2,
         "PhysicalExpertCount": 256,
         "MaxRouteEntries": 256

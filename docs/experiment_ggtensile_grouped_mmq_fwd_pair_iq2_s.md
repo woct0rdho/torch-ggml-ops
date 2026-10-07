@@ -2,12 +2,7 @@
 
 ## Scope
 
-This record covers the routed gfx1151 paired IQ2_S gate and up projections for the Qwen expert bank, computed in one workgroup dataflow:
-
-```text
-X_g[M_g,K] @ W_gate_g[K,N] -> Y_gate_g[M_g,N]
-X_g[M_g,K] @ W_up_g[K,N]   -> Y_up_g[M_g,N]
-```
+This record covers the routed gfx1151 paired IQ2_S gate and up projections for the Qwen expert bank, computed in one workgroup dataflow.
 
 ## Final Results
 

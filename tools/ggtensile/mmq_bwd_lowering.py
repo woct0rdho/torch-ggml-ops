@@ -223,7 +223,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
                 f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, "
                 f"{self.state.spec.geometry.depth_u}"
             )
-            asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
+            asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.n}")
             asm.inst(f"s_cbranch_scc1 {self._label('DepthULoop')}")
         if store_output:
             self._emit_store(asm)
@@ -252,7 +252,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         asm.inst("s_waitcnt vmcnt(0)")
         self._emit_wmma(asm, pipeline=self.state.spec.pipeline.decoded_b_pipeline)
         asm.inst(f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, {geometry.depth_u}")
-        asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
+        asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.n}")
         asm.inst(f"s_cbranch_scc0 {self._label('WmmaFloorDone')}")
         self._emit_first_a_global_reads(asm)
         asm.inst(f"s_branch {self._label('WmmaFloorLoop')}")
@@ -273,7 +273,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
         asm.inst(f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, {geometry.depth_u}")
-        asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
+        asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.n}")
         asm.inst(f"s_cbranch_scc1 {self._label('DecodeFloorLoop')}")
 
     def _emit_packed_weight_pipeline(self, asm: _Assembly) -> None:
@@ -299,7 +299,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         asm.inst("s_waitcnt vmcnt(0)", "current A before next packed reads")
         asm.inst(f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, {geometry.depth_u}")
         if geometry.depth_u != 64:
-            asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
+            asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.n}")
             asm.inst(f"s_cbranch_scc0 {self._label('PackedNoPrefetch')}")
             self._emit_quant_global_reads(asm, wait_for_reads=False)
             asm.label(self._label("PackedNoPrefetch"))
@@ -307,13 +307,13 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         self._emit_wmma(asm)
         if geometry.depth_u == 64:
             asm.comment("Preserve current A addresses through the second DepthU half.")
-            asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
+            asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.n}")
             asm.inst(f"s_cbranch_scc0 {self._label('PackedNoLatePrefetch')}")
             self._emit_quant_global_reads(asm, wait_for_reads=False)
             asm.label(self._label("PackedNoLatePrefetch"))
         asm.inst("s_waitcnt lgkmcnt(0)")
         asm.inst("s_barrier")
-        asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k}")
+        asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.n}")
         asm.inst(f"s_cbranch_scc0 {self._label('PackedDepthUDone')}")
 
         self._emit_first_a_global_reads(asm)
@@ -352,7 +352,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         asm.inst("s_barrier")
         self._emit_toggle_lds_write_buffer(asm)
 
-        if size.k > geometry.depth_u:
+        if size.n > geometry.depth_u:
             asm.label(self._label("DecodedBPipelineLoop"))
             asm.inst(
                 f"s_add_u32 s{r.loop_counter}, s{r.loop_counter}, {geometry.depth_u}"
@@ -400,7 +400,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
             asm.inst("s_waitcnt lgkmcnt(0)")
             asm.inst("s_barrier")
             self._emit_swap_lds_buffers(asm)
-            asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.k - geometry.depth_u}")
+            asm.inst(f"s_cmp_lt_u32 s{r.loop_counter}, {size.n - geometry.depth_u}")
             asm.inst(f"s_cbranch_scc1 {self._label('DecodedBPipelineLoop')}")
 
         asm.label(self._label("DecodedBPipelineFinal"))
@@ -644,7 +644,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
                 a + 4,
             )
         row_stride_a = self.access.activation_row_stride_bytes(
-            2 * self.state.contract.problem_size.k
+            2 * self.state.contract.problem_size.n
         )
         for m_tile in range(m_tiles):
             pointer = a + 4 + m_tile
@@ -734,7 +734,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
                     emit_scale_u32(
                         asm,
                         t,
-                        self.access.activation_row_stride_bytes(2 * size.k),
+                        self.access.activation_row_stride_bytes(2 * size.n),
                         row,
                     )
                     asm.inst(f"v_add_nc_u32 v{t}, s{r.scalar_temporary + 1}, v{t}")
@@ -765,7 +765,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
                     emit_scale_u32(
                         asm,
                         t,
-                        self.access.activation_row_stride_bytes(2 * size.k),
+                        self.access.activation_row_stride_bytes(2 * size.n),
                         row,
                     )
                     asm.inst(f"v_add_nc_u32 v{t}, s{r.scalar_temporary + 1}, v{t}")
@@ -1166,7 +1166,7 @@ class BackwardTileComputeEmitter(BackwardQuantLowering):
         size = self.state.contract.problem_size
         a = r.address
         t = r.temporary
-        row_stride_c = self.access.output_row_stride_bytes(2 * size.n)
+        row_stride_c = self.access.output_row_stride_bytes(2 * size.k)
         asm.comment("Map gfx11 physical C fragments to row-major grad_input.")
         asm.inst(f"v_lshrrev_b32 v{t}, 5, v{r.serial}")
         emit_scale_u32(asm, t, m_per_wave, t)

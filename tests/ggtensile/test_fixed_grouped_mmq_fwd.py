@@ -47,7 +47,7 @@ def test_fixed_forward_catalog_keys_round_trip_and_derive() -> None:
         assert state.expected_output_shape == (
             instance.problem.tokens,
             instance.problem.groups,
-            instance.problem.output_features,
+            instance.problem.out_features,
         )
         assert state.physical.resources.private_bytes == 0
 
@@ -104,8 +104,8 @@ def test_fixed_forward_problem_axes_are_not_repaired() -> None:
     invalid = type(problem)(
         problem.quant_data_type,
         32,
-        problem.output_features,
-        problem.input_features,
+        problem.out_features,
+        problem.in_features,
         problem.groups,
     )
     with pytest.raises(AssertionError):

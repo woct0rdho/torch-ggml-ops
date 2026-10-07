@@ -294,13 +294,13 @@ class BackwardModule(_OrdinaryHIPModule):
             raise HIPRuntimeError("packed_weight must be uint8")
         if grad_input.dtype != torch.bfloat16:
             raise HIPRuntimeError("grad_input must be BF16")
-        if tuple(grad_output.shape) != (size.m, size.k):
+        if tuple(grad_output.shape) != (size.m, size.n):
             raise HIPRuntimeError("grad_output shape does not match ProblemSize")
-        if tuple(grad_input.shape) != (size.m, size.n):
+        if tuple(grad_input.shape) != (size.m, size.k):
             raise HIPRuntimeError("grad_input shape does not match ProblemSize")
         quant_format = QUANT_FORMATS[self.quant_type]
         expected_weight_bytes = (
-            size.k * (size.n // quant_format.block_values) * quant_format.block_bytes
+            size.n * (size.k // quant_format.block_values) * quant_format.block_bytes
         )
         if packed_weight.numel() != expected_weight_bytes:
             raise HIPRuntimeError(
@@ -316,9 +316,9 @@ class BackwardModule(_OrdinaryHIPModule):
                 "packed_weight": packed_weight.data_ptr(),
                 "grad_input": grad_input.data_ptr(),
                 "rows": size.m,
-                "out_features": size.k,
-                "in_features": size.n,
-                "blocks_per_weight_row": size.n
+                "out_features": size.n,
+                "in_features": size.k,
+                "blocks_per_weight_row": size.k
                 // BACKWARD_QUANT_FORMATS[self.quant_type].block_values,
             }
         )
@@ -347,7 +347,7 @@ class BackwardModule(_OrdinaryHIPModule):
         return (
             (
                 mapped_grid_extent(1, group_m),
-                self.problem_size.n // geometry.macro_tile1,
+                self.problem_size.k // geometry.macro_tile1,
                 m_blocks // group_m,
             ),
             geometry.work_group,
@@ -415,18 +415,18 @@ class GroupedBackwardModule(_HIPModule):
             raise HIPRuntimeError("expert_indices must be int64")
         if expert_offsets.dtype != torch.int32:
             raise HIPRuntimeError("expert_offsets must be int32")
-        if tuple(grad_output.shape) != (size.m, size.k):
+        if tuple(grad_output.shape) != (size.m, size.n):
             raise HIPRuntimeError("grad_output shape does not match grouped key")
-        if tuple(grad_input.shape) != (size.m, size.n):
+        if tuple(grad_input.shape) != (size.m, size.k):
             raise HIPRuntimeError("grad_input shape does not match grouped key")
         row_bytes = (
-            size.n
+            size.k
             // state.contract.quant_format.block_values
             * state.contract.quant_format.block_bytes
         )
         expected_weight_shape = (
             state.contract.physical_experts,
-            size.k,
+            size.n,
             row_bytes,
         )
         if tuple(packed_weight.shape) != expected_weight_shape:
@@ -441,7 +441,7 @@ class GroupedBackwardModule(_HIPModule):
         if len({tensor.device for tensor in tensors}) != 1:
             raise HIPRuntimeError("all launch tensors must be on the same device")
 
-        bytes_per_expert = size.k * row_bytes
+        bytes_per_expert = size.n * row_bytes
         packed_arguments = GROUPED_BACKWARD_ABI.pack(
             {
                 "grad_output": grad_output.data_ptr(),
@@ -479,7 +479,7 @@ class GroupedBackwardModule(_HIPModule):
         return (
             (
                 mapped_grid_extent(
-                    state.contract.problem_size.n // geometry.macro_tile1,
+                    state.contract.problem_size.k // geometry.macro_tile1,
                     geometry.work_group_mapping,
                 ),
                 route_entries,
@@ -669,7 +669,7 @@ class GroupedForwardModule(_HIPModule):
                 "expert_indices": expert_indices.data_ptr(),
                 "expert_offsets": expert_offsets.data_ptr(),
                 "num_experts": self.problem.physical_experts,
-                "nrows_weight": self.problem.output_features,
+                "nrows_weight": self.problem.out_features,
                 "nrows_activation": self.problem.aggregate_rows,
                 "blocks_per_weight_row": state.blocks_per_weight_row,
                 "bytes_per_expert": state.bytes_per_expert,
@@ -731,7 +731,7 @@ class InstalledGroupedForwardModule(GroupedForwardModule):
         self, route_entries: int
     ) -> tuple[tuple[int, int, int], tuple[int, int, int], int]:
         return self.control.launch_configuration(
-            self.problem.output_features, route_entries
+            self.problem.out_features, route_entries
         )
 
 
@@ -909,7 +909,7 @@ class FixedGroupedQ8BackwardModule(_HIPModule):
                 "packed_weight": packed_weight.data_ptr(),
                 "grad_input": grad_input.data_ptr(),
                 "tokens": problem.tokens,
-                "out_features": problem.output_features,
+                "out_features": problem.out_features,
                 "bytes_per_group": problem.bytes_per_group,
             }
         )
@@ -949,8 +949,8 @@ class InstalledFixedGroupedQ8BackwardModule(FixedGroupedQ8BackwardModule):
             "FixedGroupedBackward",
             "Q8_0",
             problem.tokens,
-            problem.output_features,
-            problem.input_features,
+            problem.out_features,
+            problem.in_features,
         )
         self.m_tile = self.hip_control.fixed_m_tile()
         super().__init__(
@@ -964,7 +964,7 @@ class InstalledFixedGroupedQ8BackwardModule(FixedGroupedQ8BackwardModule):
     def _launch_configuration(self) -> tuple[int, int, int, int, int, int, int]:
         problem = self.state.problem
         return (
-            problem.input_features // 64,
+            problem.in_features // 64,
             (problem.tokens + self.m_tile - 1) // self.m_tile,
             problem.groups,
             128,
@@ -1032,7 +1032,7 @@ class FixedGroupedQ8ForwardModule(_HIPModule):
                 "activations": activations.data_ptr(),
                 "output": output.data_ptr(),
                 "tokens": state.problem.tokens,
-                "out_features": state.problem.output_features,
+                "out_features": state.problem.out_features,
                 "bytes_per_group": state.problem.bytes_per_group,
             }
         )
@@ -1068,8 +1068,8 @@ class InstalledFixedGroupedQ8ForwardModule(FixedGroupedQ8ForwardModule):
             "FixedGroupedForward",
             "Q8_0",
             problem.tokens,
-            problem.output_features,
-            problem.input_features,
+            problem.out_features,
+            problem.in_features,
         )
         super().__init__(
             problem,

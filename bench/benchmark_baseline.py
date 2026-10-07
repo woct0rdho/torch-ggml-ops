@@ -16,6 +16,10 @@ from tools.mmq_correctness import PreparedCase
 def _gmm_config(prepared: PreparedCase, prior: str) -> dict[str, int]:
     case = prepared.case
     forward = "Forward" in case.operation
+    # AITER keys its tuned GMM table by the computed GEMM's letters, `(m, k, n)`
+    # with `k` the contracted width and `n` the width the kernel writes, so a
+    # backward case feeds the two problem letters swapped (see
+    # `bench.benchmark._inferred_expert_prior`).
     return gmm_config(
         case.rows,
         case.in_features if forward else case.out_features,
@@ -70,6 +74,8 @@ def prepare_baseline(
         rhs = weight.transpose(1, 2) if forward else weight
         output = torch.empty(
             case.rows,
+            # A backward baseline writes the input gradient, whose width is the
+            # weight's `in_features`.
             case.out_features if forward else case.in_features,
             device="cuda",
             dtype=torch.bfloat16,

@@ -23,7 +23,12 @@ BLOCK = re.compile(r"blk\.(\d+)\.")
 
 
 def _gmm_key(case) -> tuple[int, int, int, bool]:
-    """Mirror the baseline's GMM orientation: forward transposes the weight."""
+    """Mirror the baseline's GMM orientation: forward transposes the weight.
+
+    AITER's key is `(m, k, n)` of the computed GEMM: `k` contracts and `n` is
+    written. A backward case writes `in_features` and contracts `out_features`,
+    so the two problem letters swap.
+    """
 
     forward = "Forward" in case.operation
     return (

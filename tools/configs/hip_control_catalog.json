@@ -1,6 +1,6 @@
 [
   {
-    "symbol": "dense_bwd_iq4_nl_pipea_nt4_ki64_mw2_pad8_prefetch",
+    "symbol": "dense_bwd_iq4_nl_pipea_nt64_ki64_mw2_pad8_prefetch",
     "config": "dense_backward",
     "quant_type": "IQ4_NL",
     "n_tiles": 4,
@@ -26,7 +26,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_iq4_nl_pipea_nt4_ki64_mw2_sw16_prefetch_g0",
+    "symbol": "dense_bwd_iq4_nl_pipea_nt64_ki64_mw2_sw16_prefetch_g0",
     "config": "dense_backward",
     "quant_type": "IQ4_NL",
     "n_tiles": 4,
@@ -52,7 +52,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_pad8_prefetch",
+    "symbol": "dense_bwd_iq4_xs_pipea_nt64_ki64_mw2_pad8_prefetch",
     "config": "dense_backward",
     "quant_type": "IQ4_XS",
     "n_tiles": 4,
@@ -78,7 +78,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw16_prefetch",
+    "symbol": "dense_bwd_iq4_xs_pipea_nt64_ki64_mw2_sw16_prefetch",
     "config": "dense_backward",
     "quant_type": "IQ4_XS",
     "n_tiles": 4,
@@ -104,7 +104,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_iq4_xs_pipea_nt4_ki64_mw2_sw8_prefetch",
+    "symbol": "dense_bwd_iq4_xs_pipea_nt64_ki64_mw2_sw8_prefetch",
     "config": "dense_backward",
     "quant_type": "IQ4_XS",
     "n_tiles": 4,
@@ -130,7 +130,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_iq4_xs_pipea_nt4_ki64_mw4_pad8_prefetch",
+    "symbol": "dense_bwd_iq4_xs_pipea_nt64_ki64_mw4_pad8_prefetch",
     "config": "dense_backward",
     "quant_type": "IQ4_XS",
     "n_tiles": 4,
@@ -156,7 +156,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_iq4_xs_pipea_nt4_ki64_mw4_sw16_prefetch",
+    "symbol": "dense_bwd_iq4_xs_pipea_nt64_ki64_mw4_sw16_prefetch",
     "config": "dense_backward",
     "quant_type": "IQ4_XS",
     "n_tiles": 4,
@@ -182,7 +182,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64",
+    "symbol": "dense_bwd_q2_0_mt128_full_pipea_nt64_ki64",
     "config": "dense_backward",
     "quant_type": "Q2_0",
     "n_tiles": 4,
@@ -208,7 +208,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_mw4_pad8",
+    "symbol": "dense_bwd_q2_0_mt256_full_pipea_nt64_ki64_mw4_pad8",
     "config": "dense_backward",
     "quant_type": "Q2_0",
     "n_tiles": 4,
@@ -234,7 +234,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_pad8",
+    "symbol": "dense_bwd_q2_0_mt128_full_pipea_nt64_ki64_pad8",
     "config": "dense_backward",
     "quant_type": "Q2_0",
     "n_tiles": 4,
@@ -260,7 +260,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q2_0_mt128_nt128_ki32_full_pipea_nt4_ki64_sw0_pad8",
+    "symbol": "dense_bwd_q2_0_mt128_full_pipea_nt64_ki64_sw0_pad8",
     "config": "dense_backward",
     "quant_type": "Q2_0",
     "n_tiles": 4,
@@ -286,7 +286,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q3_k_pipea_nt4_ki64_mw2_pad8_prefetch",
+    "symbol": "dense_bwd_q3_k_pipea_nt64_ki64_mw2_pad8_prefetch",
     "config": "dense_backward",
     "quant_type": "Q3_K",
     "n_tiles": 4,
@@ -312,7 +312,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q3_k_pipea_nt4_ki64_mw2_sw16_prefetch",
+    "symbol": "dense_bwd_q3_k_pipea_nt64_ki64_mw2_sw16_prefetch",
     "config": "dense_backward",
     "quant_type": "Q3_K",
     "n_tiles": 4,
@@ -338,7 +338,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q3_k_pipea_nt4_ki64_mw4_pad8_prefetch",
+    "symbol": "dense_bwd_q3_k_pipea_nt64_ki64_mw4_pad8_prefetch",
     "config": "dense_backward",
     "quant_type": "Q3_K",
     "n_tiles": 4,
@@ -364,7 +364,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q3_k_pipea_nt4_ki64_mw4_sw16_prefetch",
+    "symbol": "dense_bwd_q3_k_pipea_nt64_ki64_mw4_sw16_prefetch",
     "config": "dense_backward",
     "quant_type": "Q3_K",
     "n_tiles": 4,
@@ -390,7 +390,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q4_0_pipea_nt4_ki64_mw2_pad8",
+    "symbol": "dense_bwd_q4_0_pipea_nt64_ki64_mw2_pad8",
     "config": "dense_backward",
     "quant_type": "Q4_0",
     "n_tiles": 4,
@@ -416,7 +416,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q4_0_pipea_nt4_ki64_mw2_sw16",
+    "symbol": "dense_bwd_q4_0_pipea_nt64_ki64_mw2_sw16",
     "config": "dense_backward",
     "quant_type": "Q4_0",
     "n_tiles": 4,
@@ -442,7 +442,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q4_0_pipea_nt4_ki64_mw2_sw16_g0",
+    "symbol": "dense_bwd_q4_0_pipea_nt64_ki64_mw2_sw16_g0",
     "config": "dense_backward",
     "quant_type": "Q4_0",
     "n_tiles": 4,
@@ -468,7 +468,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_k4096_sw16",
+    "symbol": "dense_bwd_q4_k_mt128_nt128_ki32_full_sw16",
     "config": "dense_backward",
     "quant_type": "Q4_K",
     "n_tiles": 8,
@@ -494,7 +494,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8",
+    "symbol": "dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8",
     "config": "dense_backward",
     "quant_type": "Q4_K",
     "n_tiles": 4,
@@ -520,7 +520,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q4_k_pipea_nt4_ki64_mw2_pad8_prefetch",
+    "symbol": "dense_bwd_q4_k_pipea_nt64_ki64_mw2_pad8_prefetch",
     "config": "dense_backward",
     "quant_type": "Q4_K",
     "n_tiles": 4,
@@ -546,7 +546,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16",
+    "symbol": "dense_bwd_q4_k_pipea_nt64_ki64_mw2_sw16",
     "config": "dense_backward",
     "quant_type": "Q4_K",
     "n_tiles": 4,
@@ -572,7 +572,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q4_k_pipea_nt4_ki64_mw2_sw16_prefetch",
+    "symbol": "dense_bwd_q4_k_pipea_nt64_ki64_mw2_sw16_prefetch",
     "config": "dense_backward",
     "quant_type": "Q4_K",
     "n_tiles": 4,
@@ -598,7 +598,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q4_k_pipea_nt4_ki64_mw4_pad8_prefetch",
+    "symbol": "dense_bwd_q4_k_pipea_nt64_ki64_mw4_pad8_prefetch",
     "config": "dense_backward",
     "quant_type": "Q4_K",
     "n_tiles": 4,
@@ -624,7 +624,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q4_k_pipea_nt4_ki64_mw4_sw16_prefetch",
+    "symbol": "dense_bwd_q4_k_pipea_nt64_ki64_mw4_sw16_prefetch",
     "config": "dense_backward",
     "quant_type": "Q4_K",
     "n_tiles": 4,
@@ -650,7 +650,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q5_0_pipea_nt4_ki64_mw2_pad8",
+    "symbol": "dense_bwd_q5_0_pipea_nt64_ki64_mw2_pad8",
     "config": "dense_backward",
     "quant_type": "Q5_0",
     "n_tiles": 4,
@@ -676,7 +676,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q5_0_pipea_nt4_ki64_mw2_sw16",
+    "symbol": "dense_bwd_q5_0_pipea_nt64_ki64_mw2_sw16",
     "config": "dense_backward",
     "quant_type": "Q5_0",
     "n_tiles": 4,
@@ -702,7 +702,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q5_0_pipea_nt4_ki64_mw2_sw16_g0",
+    "symbol": "dense_bwd_q5_0_pipea_nt64_ki64_mw2_sw16_g0",
     "config": "dense_backward",
     "quant_type": "Q5_0",
     "n_tiles": 4,
@@ -754,7 +754,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw2_pad8",
+    "symbol": "dense_bwd_q5_k_mt128_full_pipea_nt64_ki64_mw2_pad8",
     "config": "dense_backward",
     "quant_type": "Q5_K",
     "n_tiles": 4,
@@ -780,7 +780,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw2_sw16",
+    "symbol": "dense_bwd_q5_k_mt128_full_pipea_nt64_ki64_mw2_sw16",
     "config": "dense_backward",
     "quant_type": "Q5_K",
     "n_tiles": 4,
@@ -806,7 +806,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw4_sw16",
+    "symbol": "dense_bwd_q5_k_mt256_full_pipea_nt64_ki64_mw4_sw16",
     "config": "dense_backward",
     "quant_type": "Q5_K",
     "n_tiles": 4,
@@ -832,7 +832,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q5_k_pipea_nt4_ki64_mw2_pad8_prefetch",
+    "symbol": "dense_bwd_q5_k_pipea_nt64_ki64_mw2_pad8_prefetch",
     "config": "dense_backward",
     "quant_type": "Q5_K",
     "n_tiles": 4,
@@ -936,7 +936,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4",
+    "symbol": "dense_bwd_q6_k_mt256_full_nt64_ki64_mw4",
     "config": "dense_backward",
     "quant_type": "Q6_K",
     "n_tiles": 4,
@@ -962,7 +962,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q6_k_mt128_nt128_ki32_full_k2048_nt4_ki64_mw4_pad8",
+    "symbol": "dense_bwd_q6_k_mt256_full_nt64_ki64_mw4_pad8",
     "config": "dense_backward",
     "quant_type": "Q6_K",
     "n_tiles": 4,
@@ -988,7 +988,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q6_k_pipe_nt4_ki64_mw4_sw16",
+    "symbol": "dense_bwd_q6_k_pipe_nt64_ki64_mw4_sw16",
     "config": "dense_backward",
     "quant_type": "Q6_K",
     "n_tiles": 4,
@@ -1014,7 +1014,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q6_k_pipea_nt4_ki64_mw2_pad8_prefetch",
+    "symbol": "dense_bwd_q6_k_pipea_nt64_ki64_mw2_pad8_prefetch",
     "config": "dense_backward",
     "quant_type": "Q6_K",
     "n_tiles": 4,
@@ -1040,7 +1040,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q6_k_pipea_nt4_ki64_mw2_sw16",
+    "symbol": "dense_bwd_q6_k_pipea_nt64_ki64_mw2_sw16",
     "config": "dense_backward",
     "quant_type": "Q6_K",
     "n_tiles": 4,
@@ -1066,7 +1066,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q6_k_pipea_nt4_ki64_mw4_pad8_sw8_prefetch",
+    "symbol": "dense_bwd_q6_k_pipea_nt64_ki64_mw4_pad8_sw8_prefetch",
     "config": "dense_backward",
     "quant_type": "Q6_K",
     "n_tiles": 4,
@@ -1092,7 +1092,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q6_k_pipea_nt4_ki64_mw4_sw16_prefetch",
+    "symbol": "dense_bwd_q6_k_pipea_nt64_ki64_mw4_sw16_prefetch",
     "config": "dense_backward",
     "quant_type": "Q6_K",
     "n_tiles": 4,
@@ -1352,7 +1352,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q8_0_exact_n640k2560_g2_group_m2_padding8",
+    "symbol": "dense_bwd_q8_0_exact_n2560k640_g2_group_m2_padding8",
     "config": "dense_backward",
     "quant_type": "Q8_0",
     "n_tiles": 8,
@@ -1378,7 +1378,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q8_0_pipea_nt4_ki64_mw2_pad8",
+    "symbol": "dense_bwd_q8_0_pipea_nt64_ki64_mw2_pad8",
     "config": "dense_backward",
     "quant_type": "Q8_0",
     "n_tiles": 4,
@@ -1404,7 +1404,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q8_0_pipea_nt4_ki64_mw2_sw16",
+    "symbol": "dense_bwd_q8_0_pipea_nt64_ki64_mw2_sw16",
     "config": "dense_backward",
     "quant_type": "Q8_0",
     "n_tiles": 4,
@@ -1430,7 +1430,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q8_0_pipea_nt4_ki64_mw2_sw16_prefetch",
+    "symbol": "dense_bwd_q8_0_pipea_nt64_ki64_mw2_sw16_prefetch",
     "config": "dense_backward",
     "quant_type": "Q8_0",
     "n_tiles": 4,
@@ -1456,7 +1456,7 @@
     "min_waves": 2
   },
   {
-    "symbol": "dense_bwd_q8_0_pipea_nt4_ki64_mw4_sw16_prefetch",
+    "symbol": "dense_bwd_q8_0_pipea_nt64_ki64_mw4_sw16_prefetch",
     "config": "dense_backward",
     "quant_type": "Q8_0",
     "n_tiles": 4,
@@ -2490,7 +2490,7 @@
     "min_blocks": 3
   },
   {
-    "symbol": "grouped_bwd_pair_task_q2_0_n640_k2560_mt256_nt64_s2_skip_k64_g4_mb3_abar",
+    "symbol": "grouped_bwd_pair_task_q2_0_n640_k2560_mt256_nt64_s2_skip_ki64_g4_mb3_abar",
     "kind": "Q2_0_PAIR_TASK_M256_K64",
     "config": "grouped_backward",
     "quant_type": null,
@@ -2604,7 +2604,7 @@
     "reduction_unroll": 0
   },
   {
-    "symbol": "grouped_bwd_row_task_q2_0_n2560_k640_mt256_nt64_s3_k64_sw8_g4_abar",
+    "symbol": "grouped_bwd_row_task_q2_0_n2560_k640_mt256_nt64_s3_ki64_sw8_g4_abar",
     "kind": "Q2_0_ROW_TASK_M256_K64",
     "config": "grouped_backward",
     "quant_type": null,
@@ -2642,7 +2642,7 @@
     "reduction_unroll": 0
   },
   {
-    "symbol": "grouped_bwd_row_task_q2_k_n4096_k2048_mt256_nt64_s3_g4_k64",
+    "symbol": "grouped_bwd_row_task_q2_k_n4096_k2048_mt256_nt64_s3_g4_ki64",
     "kind": "Q2_K_ROW_TASK_M256_K64",
     "config": "grouped_backward",
     "quant_type": null,

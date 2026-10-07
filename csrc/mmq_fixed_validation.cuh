@@ -10,8 +10,8 @@ namespace {
 struct FixedMMQShape {
     int tokens;
     int total_rows;
-    int in_features;
     int out_features;
+    int in_features;
     int64_t bytes_per_group;
 };
 
@@ -65,13 +65,13 @@ FixedMMQShape validate_fixed_mmq(
                  : torch_ggml_ops::mmq_bundle::kFixedGroupedForward,
         GGML_TYPE_Q8_0,
         static_cast<int>(tokens),
-        backward ? in_features : static_cast<int>(out_features),
-        backward ? static_cast<int>(out_features) : in_features);
+        static_cast<int>(out_features),
+        static_cast<int>(in_features));
     return {
         static_cast<int>(tokens),
         static_cast<int>(total_rows),
-        in_features,
         static_cast<int>(out_features),
+        in_features,
         bytes_per_group,
     };
 }

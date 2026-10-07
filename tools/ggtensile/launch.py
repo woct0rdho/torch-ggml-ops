@@ -162,7 +162,7 @@ def _derive_launch_metadata(instance: KernelInstance) -> LaunchMetadata:
             geometry.work_group,
             (
                 mapped_grid_extent(1, geometry.work_group_mapping),
-                problem.n // geometry.macro_tile1,
+                problem.k // geometry.macro_tile1,
                 problem.m // geometry.macro_tile0 // geometry.work_group_mapping,
             ),
             physical.resources.lds_bytes,
@@ -181,7 +181,7 @@ def _derive_launch_metadata(instance: KernelInstance) -> LaunchMetadata:
             geometry.work_group,
             (
                 mapped_grid_extent(
-                    state.contract.problem_size.n // geometry.macro_tile1,
+                    state.contract.problem_size.k // geometry.macro_tile1,
                     geometry.work_group_mapping,
                 ),
                 state.contract.max_route_entries,

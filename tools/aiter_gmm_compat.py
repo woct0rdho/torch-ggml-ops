@@ -4,6 +4,12 @@ The copied AITER inventory remains explicit-prior keyed. This module is the
 small boundary for consumers whose current inputs identify the tuned family by
 quantization type and matrix geometry but do not expose an expert prior.
 
+Every key here is AITER's, in the computed GEMM's letters: `(m, k, n)` with `k`
+the contracted width and `n` the width the kernel writes. A forward problem
+feeds `(rows, in_features, out_features)` and a backward problem feeds
+`(rows, out_features, in_features)`. `ptgmm` uses its own letters again, see
+`ptgmm_config`.
+
 The inferred law is always a learned one. The public routed deployment cannot
 tell learned routing from hash routing in its inputs, so DeepSeek shapes assume
 the learned router. Hash-tuned kernels stay benchmark-opt-in and are never
@@ -52,6 +58,8 @@ def infer_expert_prior(
 ) -> str:
     """Infer the benchmark default prior for one matrix key.
 
+    `(m, k, n)` are AITER's letters of the computed GEMM: `k` contracts and `n`
+    is written, so a backward problem passes its two problem letters swapped.
     The quant type selects the routed family. Without one the learned inventory
     has to be unambiguous. The result is validated against the tuned inventory,
     so an unmeasured key fails instead of borrowing another family's law. A
@@ -103,7 +111,10 @@ def gmm_config(
     *,
     quant_type: object | None = None,
 ) -> dict[str, int]:
-    """Return a GMM config without exposing `expert_prior`."""
+    """Return a GMM config without exposing `expert_prior`.
+
+    `(m, k, n)` are AITER's letters: `k` contracts and `n` is written.
+    """
 
     prior = infer_expert_prior(
         m,
@@ -122,7 +133,12 @@ def ptgmm_config(
     *,
     quant_type: object | None = None,
 ) -> dict[str, int]:
-    """Return a PTGMM config without exposing `expert_prior`."""
+    """Return a PTGMM config without exposing `expert_prior`.
+
+    PTGMM's letters are its own and are not the problem's or `gmm_config`'s: `m`
+    is the contracted length (the `lhs` columns and `rhs` rows), and `k` and `n`
+    are the rows and columns of one group's output.
+    """
 
     prior = infer_expert_prior(
         m,

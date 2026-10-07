@@ -447,7 +447,7 @@ class InstalledGroupedBackwardPairRowTaskControl(_HIPModule):
         "grouped_bwd_pair_task_q2_0_n640_k2560_mt128_nt64_s2_skip_g4",
         "grouped_bwd_pair_task_q3_k_n512_k2048_mt256_nt64_s2_skip",
         "grouped_bwd_pair_task_iq2_s_n512_k2048_mt256_nt64_s2_skip_g4",
-        "grouped_bwd_pair_task_q2_0_n640_k2560_mt256_nt64_s2_skip_k64_g4_mb3_abar",
+        "grouped_bwd_pair_task_q2_0_n640_k2560_mt256_nt64_s2_skip_ki64_g4_mb3_abar",
         "grouped_bwd_pair_task_q3_k_n512_k2048_mt128_nt64_s2_skip_abar",
         "grouped_bwd_pair_task_iq2_xxs_n2048_k4096_mt128_nt64_s2_skip_g4_abar",
         "grouped_bwd_pair_task_iq2_s_n512_k2048_mt128_nt64_s2_skip_g4_abar",
@@ -470,17 +470,17 @@ class InstalledGroupedBackwardPairRowTaskControl(_HIPModule):
     ROW_TILES: ClassVar[dict[str, int]] = {
         "grouped_bwd_pair_task_q3_k_n512_k2048_mt256_nt64_s2_skip": 256,
         "grouped_bwd_pair_task_iq2_s_n512_k2048_mt256_nt64_s2_skip_g4": 256,
-        "grouped_bwd_pair_task_q2_0_n640_k2560_mt256_nt64_s2_skip_k64_g4_mb3_abar": 256,
+        "grouped_bwd_pair_task_q2_0_n640_k2560_mt256_nt64_s2_skip_ki64_g4_mb3_abar": 256,
     }
     THREADS: ClassVar[dict[str, int]] = {
         "grouped_bwd_pair_task_q3_k_n512_k2048_mt256_nt64_s2_skip": 256,
         "grouped_bwd_pair_task_iq2_s_n512_k2048_mt256_nt64_s2_skip_g4": 256,
-        "grouped_bwd_pair_task_q2_0_n640_k2560_mt256_nt64_s2_skip_k64_g4_mb3_abar": 256,
+        "grouped_bwd_pair_task_q2_0_n640_k2560_mt256_nt64_s2_skip_ki64_g4_mb3_abar": 256,
     }
     COLUMN_TILES: ClassVar[dict[str, int]] = {
         "grouped_bwd_pair_task_q3_k_n512_k2048_mt256_nt64_s2_skip": 64,
         "grouped_bwd_pair_task_iq2_s_n512_k2048_mt256_nt64_s2_skip_g4": 64,
-        "grouped_bwd_pair_task_q2_0_n640_k2560_mt256_nt64_s2_skip_k64_g4_mb3_abar": 64,
+        "grouped_bwd_pair_task_q2_0_n640_k2560_mt256_nt64_s2_skip_ki64_g4_mb3_abar": 64,
     }
     OUT_FEATURES: ClassVar[dict[str, int]] = {
         "q3_k": 512,

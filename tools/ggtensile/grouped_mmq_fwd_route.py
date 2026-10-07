@@ -116,7 +116,7 @@ class GroupedRouteEmitter:
         asm.comment("Reject launch arguments outside this exact grouped key.")
         checks = (
             (scalar.num_experts.first_register, self.state.physical_experts),
-            (scalar.nrows_weight.first_register, self.state.output_features),
+            (scalar.nrows_weight.first_register, self.state.out_features),
             (scalar.nrows_activation.first_register, self.state.aggregate_rows),
             (
                 scalar.blocks_per_weight_row.first_register,

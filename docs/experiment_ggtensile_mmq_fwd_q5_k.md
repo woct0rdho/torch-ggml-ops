@@ -2,11 +2,7 @@
 
 ## Scope
 
-This record covers the dense Q5_K forward kernel keys used by the workload:
-
-```text
-output[M,N] = input[M,K] @ dequant_q5_k(weight[N,K]).T
-```
+This record covers the dense Q5_K forward kernel keys used by the workload.
 
 The retained kernels decode the packed representation directly into the common four-wave `128x64` LDS/WMMA body.
 

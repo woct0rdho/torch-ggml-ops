@@ -10,9 +10,9 @@ Aggregate rows are `R=16384,65536,262144`.
 
 | Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/AITER GMM | Kernel |
 | ---: | --- | --- | --- | --- |
-| 1 | `(16384,512,2048)` | 9.63 | 0.916x | `grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt64_s3` |
-| 4 | `(65536,512,2048)` | 16.60 | 0.999x | `grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt64_s3` |
-| 16 | `(262144,512,2048)` | 20.94 | 1.005x | `grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt64_s3` |
+| 1 | `(16384,2048,512)` | 9.63 | 0.916x | `grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt64_s3` |
+| 4 | `(65536,2048,512)` | 16.60 | 0.999x | `grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt64_s3` |
+| 16 | `(262144,2048,512)` | 20.94 | 1.005x | `grouped_bwd_row_task_q4_k_n2048_k512_mt128_nt64_s3` |
 
 The deficit at the larger shapes is closed: the routed body is level with predecoded BF16 AITER at B4 and ahead at B16. AITER starts from predecoded BF16 weights.
 

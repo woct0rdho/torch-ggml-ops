@@ -2,11 +2,7 @@
 
 ## Scope
 
-This record covers the GGTensile MMQ forward kernels for packed Q3_K weights:
-
-```text
-output[M,N] = input[M,K] @ dequant_q3_k(weight[N,K]).T
-```
+This record covers the GGTensile MMQ forward kernels for packed Q3_K weights.
 
 ## Final Results
 

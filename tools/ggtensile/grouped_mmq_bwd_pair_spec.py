@@ -91,7 +91,7 @@ class GroupedBackwardPairContract:
         )
 
     def ordinary(self, aggregate_rows: int) -> BackwardProblemContract:
-        problem_size = ProblemSize(aggregate_rows, self.in_features, self.out_features)
+        problem_size = ProblemSize(aggregate_rows, self.out_features, self.in_features)
         quant_format = BACKWARD_QUANT_FORMATS[self.quant_type]
         return BackwardProblemContract(
             problem_size,

@@ -41,24 +41,24 @@ def validate_grouped_forward_problem(problem: GroupedForwardProblem) -> None:
     assert quant_format is not None
     for value in (
         problem.aggregate_rows,
-        problem.output_features,
-        problem.input_features,
+        problem.out_features,
+        problem.in_features,
     ):
         assert 0 < value <= _U32_MAX
     assert problem.physical_experts == 256
     assert problem.max_route_entries == 256
-    assert problem.output_features % 16 == 0
-    assert problem.input_features % quant_format.block_values == 0
-    assert problem.input_features % Q8_1_D4_BLOCK_VALUES == 0
+    assert problem.out_features % 16 == 0
+    assert problem.in_features % quant_format.block_values == 0
+    assert problem.in_features % Q8_1_D4_BLOCK_VALUES == 0
 
-    blocks_per_weight_row = problem.input_features // quant_format.block_values
+    blocks_per_weight_row = problem.in_features // quant_format.block_values
     packed_weight_row_bytes = blocks_per_weight_row * quant_format.block_bytes
-    bytes_per_expert = problem.output_features * packed_weight_row_bytes
-    activation_blocks = problem.input_features // Q8_1_D4_BLOCK_VALUES
+    bytes_per_expert = problem.out_features * packed_weight_row_bytes
+    activation_blocks = problem.in_features // Q8_1_D4_BLOCK_VALUES
     activation_bytes = (
         activation_blocks * problem.aggregate_rows * quant_format.activation_block_bytes
     )
-    output_bytes = problem.aggregate_rows * problem.output_features * 2
+    output_bytes = problem.aggregate_rows * problem.out_features * 2
     assert bytes_per_expert <= _U32_MAX
     assert activation_bytes <= _U32_MAX
     assert output_bytes <= _U32_MAX
@@ -69,8 +69,8 @@ class GroupedForwardProblemContract:
     """Non-tunable grouped data, arithmetic, ISA, and destination contract."""
 
     quant_type: str
-    output_features: int
-    input_features: int
+    out_features: int
+    in_features: int
     physical_experts: int
     max_route_entries: int
     block_values: int
@@ -99,8 +99,8 @@ class GroupedForwardProblemContract:
         validate_grouped_forward_problem(problem)
         return cls(
             quant_type=problem.quant_data_type,
-            output_features=problem.output_features,
-            input_features=problem.input_features,
+            out_features=problem.out_features,
+            in_features=problem.in_features,
             physical_experts=problem.physical_experts,
             max_route_entries=problem.max_route_entries,
             block_values=quant_format.block_values,
@@ -122,8 +122,8 @@ class GroupedForwardProblemContract:
         return GroupedForwardProblem(
             self.quant_type,
             aggregate_rows,
-            self.output_features,
-            self.input_features,
+            self.out_features,
+            self.in_features,
             self.physical_experts,
             self.max_route_entries,
         )
@@ -404,7 +404,7 @@ def validate_grouped_forward_capability(
     epilogue = kernel_spec.epilogue
     assert geometry.depth_u == 32
     assert geometry.macro_tile[1] > 0
-    assert problem.output_features % geometry.macro_tile[1] == 0
+    assert problem.out_features % geometry.macro_tile[1] == 0
 
     source = kernel_spec.weight_staging
     decode = kernel_spec.decode
@@ -522,7 +522,7 @@ def validate_grouped_forward_capability(
 @dataclass(frozen=True)
 class GroupedRouteState:
     physical_experts: int
-    output_features: int
+    out_features: int
     aggregate_rows: int
     blocks_per_weight_row: int
     bytes_per_expert: int
@@ -557,8 +557,8 @@ class DerivedGroupedForwardState:
     ) -> "DerivedGroupedForwardState":
         semantics = QuantForwardSemantics.for_quant_type(problem.quant_data_type)
         contract = GroupedForwardProblemContract.for_problem(problem)
-        blocks_per_weight_row = problem.input_features // contract.block_values
-        activation_blocks_per_row = problem.input_features // Q8_1_D4_BLOCK_VALUES
+        blocks_per_weight_row = problem.in_features // contract.block_values
+        activation_blocks_per_row = problem.in_features // Q8_1_D4_BLOCK_VALUES
         packed_weight_row_bytes = (
             blocks_per_weight_row * contract.packed_weight_block_bytes
         )
@@ -601,23 +601,23 @@ class DerivedGroupedForwardState:
             kernel_spec=kernel_spec,
             route=GroupedRouteState(
                 physical_experts=problem.physical_experts,
-                output_features=problem.output_features,
+                out_features=problem.out_features,
                 aggregate_rows=problem.aggregate_rows,
                 blocks_per_weight_row=blocks_per_weight_row,
-                bytes_per_expert=problem.output_features * packed_weight_row_bytes,
+                bytes_per_expert=problem.out_features * packed_weight_row_bytes,
             ),
             problem_size=ProblemSize(
                 problem.aggregate_rows,
-                problem.output_features,
-                problem.input_features,
+                problem.out_features,
+                problem.in_features,
             ),
             blocks_per_weight_row=blocks_per_weight_row,
             activation_blocks_per_row=activation_blocks_per_row,
             packed_weight_row_bytes=packed_weight_row_bytes,
-            bytes_per_expert=problem.output_features * packed_weight_row_bytes,
+            bytes_per_expert=problem.out_features * packed_weight_row_bytes,
             activation_plane_stride_bytes=activation_plane_stride_bytes,
             activation_weight_block_stride_bytes=2 * activation_plane_stride_bytes,
-            output_column_tiles=problem.output_features
+            output_column_tiles=problem.out_features
             // kernel_spec.geometry.macro_tile[1],
         )
 
@@ -626,7 +626,7 @@ class DerivedGroupedForwardState:
         problem = self.problem
         return (
             problem.physical_experts,
-            problem.output_features,
+            problem.out_features,
             self.packed_weight_row_bytes,
         )
 
@@ -641,7 +641,7 @@ class DerivedGroupedForwardState:
     @property
     def expected_output_shape(self) -> tuple[int, int]:
         problem = self.problem
-        return (problem.aggregate_rows, problem.output_features)
+        return (problem.aggregate_rows, problem.out_features)
 
     def grid(self, route_entries: int) -> tuple[int, int, int]:
         assert not (

@@ -12,7 +12,7 @@ The model is `Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` (`qwen4_exp_text`, 48 layers, hid
 | ---: | --- | ---: | ---: | --- |
 | 1 | `2 x (20480,640,2560)` | 13.49 | 2.11x | `grouped_bwd_pair_task_q2_0_n640_k2560_mt128_nt64_s2_skip_g4_mb3_abar` |
 | 4 | `2 x (81920,640,2560)` | 23.25 | 1.96x | `grouped_bwd_pair_task_q2_0_n640_k2560_mt128_nt64_s2_skip_g4_mb3_abar` |
-| 16 | `2 x (327680,640,2560)` | 32.25 | 1.98x | `grouped_bwd_pair_task_q2_0_n640_k2560_mt256_nt64_s2_skip_k64_g4_mb3_abar` |
+| 16 | `2 x (327680,640,2560)` | 32.25 | 1.98x | `grouped_bwd_pair_task_q2_0_n640_k2560_mt256_nt64_s2_skip_ki64_g4_mb3_abar` |
 
 The B16 row uses the wide task tile. B1 and B4 keep the four-wave body, whose measured rates are `13.49` and `23.25` TFLOPS. Banks come from the `qwen3.8-learned` law, one profile per size at the declared seed (`352 / 458 / 497` active experts, largest group `1261 / 4735 / 17896` rows). The baseline is the same routed product computed in BF16 over predecoded expert weights, two grouped products per expert plus the add, with `torch.mm`: it is what an unquantized multiply-only grouped kernel reaches on this part, in the role the AITER GMM number plays in the plan. The quantized kernel is `1.85x` to `2.11x` ahead of it, and it leads the Q3_K pair at B16 (`30.21` against `29.47` TFLOPS) while carrying the cheaper decode.
 

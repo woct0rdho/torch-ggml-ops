@@ -31,18 +31,18 @@ def validate_fixed_backward_problem(problem: FixedBackwardProblem) -> None:
     assert problem.quant_data_type == "Q8_0"
     for value in (
         problem.tokens,
-        problem.output_features,
-        problem.input_features,
+        problem.out_features,
+        problem.in_features,
     ):
         assert 0 < value <= _U32_MAX
     assert problem.groups == 8
     quant = BACKWARD_QUANT_FORMATS["Q8_0"]
-    assert problem.input_features % quant.block_values == 0
-    assert problem.output_features % 16 == 0
+    assert problem.in_features % quant.block_values == 0
+    assert problem.out_features % 16 == 0
     byte_counts = (
         problem.bytes_per_group,
-        problem.tokens * problem.groups * problem.output_features * 2,
-        problem.tokens * problem.groups * problem.input_features * 2,
+        problem.tokens * problem.groups * problem.out_features * 2,
+        problem.tokens * problem.groups * problem.in_features * 2,
     )
     assert all(value <= _U32_MAX for value in byte_counts)
 
@@ -50,8 +50,8 @@ def validate_fixed_backward_problem(problem: FixedBackwardProblem) -> None:
 @dataclass(frozen=True)
 class FixedBackwardProblemContract:
     quant_type: str = "Q8_0"
-    output_features: int = 1024
-    input_features: int = 4096
+    out_features: int = 1024
+    in_features: int = 4096
     groups: int = 8
 
     @classmethod
@@ -61,8 +61,8 @@ class FixedBackwardProblemContract:
         validate_fixed_backward_problem(problem)
         return cls(
             problem.quant_data_type,
-            problem.output_features,
-            problem.input_features,
+            problem.out_features,
+            problem.in_features,
             problem.groups,
         )
 
@@ -70,15 +70,15 @@ class FixedBackwardProblemContract:
         return FixedBackwardProblem(
             self.quant_type,
             tokens,
-            self.output_features,
-            self.input_features,
+            self.out_features,
+            self.in_features,
             self.groups,
         )
 
     def ordinary(self, tokens: int) -> BackwardProblemContract:
         quant = BACKWARD_QUANT_FORMATS[self.quant_type]
         return BackwardProblemContract(
-            ProblemSize(tokens, self.input_features, self.output_features),
+            ProblemSize(tokens, self.out_features, self.in_features),
             self.quant_type,
             quant,
             backward_mechanism_contract(self.quant_type),
@@ -167,7 +167,10 @@ class DerivedFixedBackwardState:
     def grid(self) -> tuple[int, int, int]:
         geometry = self.spec.compute.geometry
         m_tiles = self.problem.tokens // geometry.macro_tile0
-        n_tiles = self.problem.input_features // geometry.macro_tile1
+        # `n_tiles` counts the written-dimension columns, which are
+        # `in_features` for a backward family, in `macro_tile1`-element tiles.
+        # It is the instruction pair's `n_tiles` and the `nt` body tag.
+        n_tiles = self.problem.in_features // geometry.macro_tile1
         mapping = geometry.work_group_mapping
         m_groups = mapped_m_tile_count(m_tiles, mapping)
         if self.spec.work_group_order == "NMajor":
@@ -192,16 +195,16 @@ class DerivedFixedBackwardState:
 
     @property
     def expected_grad_output_shape(self) -> tuple[int, int, int]:
-        return (self.problem.tokens, self.problem.groups, self.problem.output_features)
+        return (self.problem.tokens, self.problem.groups, self.problem.out_features)
 
     @property
     def expected_packed_weight_shape(self) -> tuple[int, int, int]:
         return (
             self.problem.groups,
-            self.problem.output_features,
+            self.problem.out_features,
             self.problem.packed_row_bytes,
         )
 
     @property
     def expected_grad_input_shape(self) -> tuple[int, int, int]:
-        return (self.problem.tokens, self.problem.groups, self.problem.input_features)
+        return (self.problem.tokens, self.problem.groups, self.problem.in_features)

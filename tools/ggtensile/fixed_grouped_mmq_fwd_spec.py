@@ -47,21 +47,21 @@ def validate_fixed_forward_problem(problem: FixedForwardProblem) -> None:
     assert problem.quant_data_type == "Q8_0"
     for value in (
         problem.tokens,
-        problem.output_features,
-        problem.input_features,
+        problem.out_features,
+        problem.in_features,
     ):
         assert 0 < value <= _U32_MAX
     assert problem.groups == 8
     assert problem.tokens % 64 == 0
-    assert problem.output_features % 64 == 0
-    assert problem.input_features % quant.block_values == 0
-    assert problem.input_features % Q8_1_D4_BLOCK_VALUES == 0
+    assert problem.out_features % 64 == 0
+    assert problem.in_features % quant.block_values == 0
+    assert problem.in_features % Q8_1_D4_BLOCK_VALUES == 0
 
-    activation_blocks = problem.input_features // Q8_1_D4_BLOCK_VALUES
+    activation_blocks = problem.in_features // Q8_1_D4_BLOCK_VALUES
     activation_bytes = (
         activation_blocks * problem.total_activation_rows * quant.activation_block_bytes
     )
-    output_bytes = problem.tokens * problem.groups * problem.output_features * 2
+    output_bytes = problem.tokens * problem.groups * problem.out_features * 2
     assert problem.bytes_per_group <= _U32_MAX
     assert activation_bytes <= _U32_MAX
     assert output_bytes <= _U32_MAX
@@ -72,8 +72,8 @@ class FixedForwardProblemContract:
     """Non-tunable fixed-group data, arithmetic, and ABI contract."""
 
     quant_type: str
-    output_features: int
-    input_features: int
+    out_features: int
+    in_features: int
     groups: int
     block_values: int
     packed_weight_block_bytes: int
@@ -100,8 +100,8 @@ class FixedForwardProblemContract:
         validate_fixed_forward_problem(problem)
         return cls(
             quant_type=problem.quant_data_type,
-            output_features=problem.output_features,
-            input_features=problem.input_features,
+            out_features=problem.out_features,
+            in_features=problem.in_features,
             groups=problem.groups,
             block_values=quant.block_values,
             packed_weight_block_bytes=quant.block_bytes,
@@ -123,8 +123,8 @@ class FixedForwardProblemContract:
         return FixedForwardProblem(
             self.quant_type,
             tokens,
-            self.output_features,
-            self.input_features,
+            self.out_features,
+            self.in_features,
             self.groups,
         )
 
@@ -289,8 +289,8 @@ class DerivedFixedForwardState:
         ordinary_state = DerivedForwardState.from_contract_spec(
             ProblemSize(
                 problem.tokens,
-                problem.output_features,
-                problem.input_features,
+                problem.out_features,
+                problem.in_features,
             ),
             contract.ordinary(),
             kernel_spec,
@@ -303,10 +303,10 @@ class DerivedFixedForwardState:
             ("tokens", problem.tokens, fixed_spec.macro_tile_tokens),
             (
                 "output features",
-                problem.output_features,
+                problem.out_features,
                 fixed_spec.macro_tile_features,
             ),
-            ("input features", problem.input_features, 4 * 32),
+            ("input features", problem.in_features, 4 * 32),
         ):
             assert not (value <= 0 or divisor <= 0 or value % divisor)
         return cls(
@@ -316,7 +316,7 @@ class DerivedFixedForwardState:
             ordinary=ordinary_state,
             physical=fixed_plan,
             grid=(
-                problem.output_features // fixed_spec.macro_tile_features,
+                problem.out_features // fixed_spec.macro_tile_features,
                 problem.tokens // fixed_spec.macro_tile_tokens,
                 problem.groups,
             ),
@@ -326,7 +326,7 @@ class DerivedFixedForwardState:
     def expected_packed_weight_shape(self) -> tuple[int, int, int]:
         return (
             self.problem.groups,
-            self.problem.output_features,
+            self.problem.out_features,
             self.problem.packed_row_bytes,
         )
 
@@ -340,4 +340,4 @@ class DerivedFixedForwardState:
 
     @property
     def expected_output_shape(self) -> tuple[int, int, int]:
-        return (self.problem.tokens, self.problem.groups, self.problem.output_features)
+        return (self.problem.tokens, self.problem.groups, self.problem.out_features)

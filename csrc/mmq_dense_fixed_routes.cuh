@@ -43,8 +43,8 @@ void mmq_launch_cuda(
         static_cast<__hip_bfloat16 *>(output.mutable_data_ptr()),
         shape.rows,
         shape.rows,
-        shape.in_features,
         shape.out_features,
+        shape.in_features,
         stream);
 }
 
@@ -108,8 +108,8 @@ void fixed_grouped_mmq_launch_cuda(
         static_cast<const int *>(workspace.const_data_ptr()),
         static_cast<__hip_bfloat16 *>(output.mutable_data_ptr()),
         shape.tokens,
-        shape.in_features,
         shape.out_features,
+        shape.in_features,
         shape.bytes_per_group,
         stream);
 }
@@ -134,8 +134,8 @@ void fixed_grouped_mmq_grad_input_launch_cuda(
         static_cast<const char *>(packed_weight.const_data_ptr()),
         grad_input.mutable_data_ptr(),
         shape.tokens,
-        shape.in_features,
         shape.out_features,
+        shape.in_features,
         shape.bytes_per_group,
         current_stream(grad_output));
 }

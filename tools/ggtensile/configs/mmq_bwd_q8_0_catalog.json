@@ -395,79 +395,55 @@
     {
       "Problem": {
         "M": 2048,
-        "N": 4096,
-        "K": 1024
+        "N": 1024,
+        "K": 4096
       },
       "KernelSpecIndex": 0
     },
     {
       "Problem": {
         "M": 8192,
-        "N": 4096,
-        "K": 1024
+        "N": 1024,
+        "K": 4096
       },
       "KernelSpecIndex": 0
     },
     {
       "Problem": {
         "M": 32768,
-        "N": 4096,
-        "K": 1024
+        "N": 1024,
+        "K": 4096
       },
       "KernelSpecIndex": 0
     },
     {
       "Problem": {
         "M": 2048,
-        "N": 1024,
-        "K": 32768
+        "N": 32768,
+        "K": 1024
       },
       "KernelSpecIndex": 1
     },
     {
       "Problem": {
         "M": 8192,
-        "N": 1024,
-        "K": 32768
+        "N": 32768,
+        "K": 1024
       },
       "KernelSpecIndex": 2
     },
     {
       "Problem": {
         "M": 32768,
-        "N": 1024,
-        "K": 32768
+        "N": 32768,
+        "K": 1024
       },
       "KernelSpecIndex": 3
     },
     {
       "Problem": {
         "M": 2048,
-        "N": 4096,
-        "K": 512
-      },
-      "KernelSpecIndex": 0
-    },
-    {
-      "Problem": {
-        "M": 8192,
-        "N": 4096,
-        "K": 512
-      },
-      "KernelSpecIndex": 0
-    },
-    {
-      "Problem": {
-        "M": 32768,
-        "N": 4096,
-        "K": 512
-      },
-      "KernelSpecIndex": 0
-    },
-    {
-      "Problem": {
-        "M": 2048,
-        "N": 8192,
+        "N": 512,
         "K": 4096
       },
       "KernelSpecIndex": 0
@@ -475,7 +451,7 @@
     {
       "Problem": {
         "M": 8192,
-        "N": 8192,
+        "N": 512,
         "K": 4096
       },
       "KernelSpecIndex": 0
@@ -483,7 +459,7 @@
     {
       "Problem": {
         "M": 32768,
-        "N": 8192,
+        "N": 512,
         "K": 4096
       },
       "KernelSpecIndex": 0
@@ -492,7 +468,7 @@
       "Problem": {
         "M": 2048,
         "N": 4096,
-        "K": 2048
+        "K": 8192
       },
       "KernelSpecIndex": 0
     },
@@ -500,17 +476,17 @@
       "Problem": {
         "M": 8192,
         "N": 4096,
-        "K": 2048
+        "K": 8192
       },
-      "KernelSpecIndex": 4
+      "KernelSpecIndex": 0
     },
     {
       "Problem": {
         "M": 32768,
         "N": 4096,
-        "K": 2048
+        "K": 8192
       },
-      "KernelSpecIndex": 4
+      "KernelSpecIndex": 0
     },
     {
       "Problem": {
@@ -533,46 +509,70 @@
         "M": 32768,
         "N": 2048,
         "K": 4096
+      },
+      "KernelSpecIndex": 4
+    },
+    {
+      "Problem": {
+        "M": 2048,
+        "N": 4096,
+        "K": 2048
+      },
+      "KernelSpecIndex": 0
+    },
+    {
+      "Problem": {
+        "M": 8192,
+        "N": 4096,
+        "K": 2048
+      },
+      "KernelSpecIndex": 4
+    },
+    {
+      "Problem": {
+        "M": 32768,
+        "N": 4096,
+        "K": 2048
       },
       "KernelSpecIndex": 4
     },
     {
       "Problem": {
         "M": 32,
-        "N": 4096,
-        "K": 129280
+        "N": 129280,
+        "K": 4096
       },
       "KernelSpecIndex": 5
     },
     {
       "Problem": {
         "M": 64,
-        "N": 4096,
-        "K": 129280
+        "N": 129280,
+        "K": 4096
       },
       "KernelSpecIndex": 6
     },
     {
       "Problem": {
         "M": 128,
-        "N": 4096,
-        "K": 129280
+        "N": 129280,
+        "K": 4096
       },
       "KernelSpecIndex": 7
     },
     {
       "Problem": {
         "M": 256,
-        "N": 4096,
-        "K": 129280
+        "N": 129280,
+        "K": 4096
       },
       "KernelSpecIndex": 8
     },
     {
       "Problem": {
         "M": 512,
-        "N": 4096,
-        "K": 129280
+        "N": 129280,
+        "K": 4096
       },
       "KernelSpecIndex": 9
     }

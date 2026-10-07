@@ -266,7 +266,7 @@ class GroupedBackwardKernelLowering:
         else:
             asm.inst("s_mov_b32 s2, s4" if split_factor > 1 else "s_mov_b32 s2, 0")
         n_tiles = (
-            self.state.contract.problem_size.n
+            self.state.contract.problem_size.k
             // self.state.spec.compute.geometry.macro_tile1
         )
         asm.inst(f"s_cmp_ge_u32 s3, {n_tiles}")
@@ -349,8 +349,8 @@ class GroupedBackwardKernelLowering:
         route = self.physical.route
         contract = self.state.contract
         bytes_per_expert = (
-            contract.problem_size.k
-            * (contract.problem_size.n // contract.quant_format.block_values)
+            contract.problem_size.n
+            * (contract.problem_size.k // contract.quant_format.block_values)
             * contract.quant_format.block_bytes
         )
         asm.comment("Reject launch arguments outside this exact grouped key.")
@@ -404,7 +404,7 @@ class GroupedBackwardKernelLowering:
             asm.inst(instruction)
             asm.inst(f"s_cbranch_scc1 {self.EXIT_LABEL}")
         asm.inst(f"s_sub_u32 s{route.route_rows}, s{route.row_end}, s{route.row_begin}")
-        row_stride_bytes = self.state.contract.problem_size.k * 2
+        row_stride_bytes = self.state.contract.problem_size.n * 2
         if row_stride_bytes & (row_stride_bytes - 1):
             asm.inst(
                 f"s_mul_i32 s{route.route_output_bytes}, "
@@ -435,8 +435,8 @@ class GroupedBackwardKernelLowering:
         asm.inst(f"s_addc_u32 s{r.kernarg + 3}, s{r.kernarg + 3}, s{temporary + 1}")
 
         for pointer, stride in (
-            (r.kernarg, self.state.contract.problem_size.k * 2),
-            (r.kernarg + 4, self.state.contract.problem_size.n * 2),
+            (r.kernarg, self.state.contract.problem_size.n * 2),
+            (r.kernarg + 4, self.state.contract.problem_size.k * 2),
         ):
             asm.inst(f"s_mul_i32 s{temporary}, s{route.row_begin}, {stride}")
             asm.inst(f"s_mul_hi_u32 s{temporary + 1}, s{route.row_begin}, {stride}")

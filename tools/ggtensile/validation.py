@@ -93,15 +93,15 @@ def _validate_backward_spec_record(
     spec.validate(contract)
     for value in (problem_size.m, problem_size.n, problem_size.k):
         assert value > 0
-    assert problem_size.n % contract.quant_format.block_values == 0
+    assert problem_size.k % contract.quant_format.block_values == 0
     if quant_type == "Q8_0":
         assert spec.geometry.macro_tile1 % contract.quant_format.block_values == 0
     else:
         assert contract.quant_format.block_values % spec.geometry.macro_tile1 == 0
     if require_row_tiles:
         assert problem_size.m % spec.geometry.macro_tile0 == 0
-    assert problem_size.n % spec.geometry.macro_tile1 == 0
-    assert problem_size.k % spec.geometry.depth_u == 0
+    assert problem_size.k % spec.geometry.macro_tile1 == 0
+    assert problem_size.n % spec.geometry.depth_u == 0
     decoder_threads = min(spec.geometry.num_threads, 128)
     assert (
         spec.geometry.depth_u
@@ -177,7 +177,7 @@ def validate_grouped_backward_solution(
     _validate_backward_physical_state(state.primary)
     split_factor = state.spec.ownership.split_factor
     mapping = compute.geometry.work_group_mapping
-    mapped_grid_extent(problem_size.n // compute.geometry.macro_tile1, mapping)
+    mapped_grid_extent(problem_size.k // compute.geometry.macro_tile1, mapping)
     effective_split = mapped_route_stride(split_factor, mapping)
     assert effective_split * compute.geometry.macro_tile0 <= 0xFFFFFFFF
     row_tail = state.spec.row_tail

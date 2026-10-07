@@ -189,7 +189,7 @@ class BackwardQuantLowering:
         k_shift = n_tiles.bit_length() - 1
         k_span = self.state.spec.geometry.depth_u // decoder_rows
         packed_row_bytes = (
-            self.state.contract.problem_size.n
+            self.state.contract.problem_size.k
             // quant_format.block_values
             * quant_format.block_bytes
         )
@@ -260,7 +260,7 @@ class BackwardQuantLowering:
         k_shift = n_tiles.bit_length() - 1
         k_span = self.state.spec.geometry.depth_u // decoder_rows
         packed_row_bytes = (
-            self.state.contract.problem_size.n
+            self.state.contract.problem_size.k
             // quant_format.block_values
             * quant_format.block_bytes
         )
@@ -359,7 +359,7 @@ class BackwardQuantLowering:
         k_shift = n_tiles.bit_length() - 1
         k_span = self.state.spec.geometry.depth_u // decoder_rows
         packed_row_bytes = (
-            self.state.contract.problem_size.n
+            self.state.contract.problem_size.k
             // quant_format.block_values
             * quant_format.block_bytes
         )
@@ -472,7 +472,7 @@ class BackwardQuantLowering:
         k_shift = n_tiles.bit_length() - 1
         k_span = self.state.spec.geometry.depth_u // decoder_rows
         packed_row_bytes = (
-            self.state.contract.problem_size.n
+            self.state.contract.problem_size.k
             // quant_format.block_values
             * quant_format.block_bytes
         )
@@ -542,7 +542,7 @@ class BackwardQuantLowering:
         k_shift = n_tiles.bit_length() - 1
         k_span = self.state.spec.geometry.depth_u // decoder_rows
         packed_row_bytes = (
-            self.state.contract.problem_size.n
+            self.state.contract.problem_size.k
             // quant_format.block_values
             * quant_format.block_bytes
         )
@@ -608,7 +608,7 @@ class BackwardQuantLowering:
         k_shift = self.state.spec.geometry.matrix_instruction[6].bit_length() - 1
         k_span = self.state.spec.geometry.depth_u // decoder_rows
         packed_row_bytes = (
-            self.state.contract.problem_size.n
+            self.state.contract.problem_size.k
             // quant_format.block_values
             * quant_format.block_bytes
         )
@@ -695,7 +695,7 @@ class BackwardQuantLowering:
         k_shift = n_tiles.bit_length() - 1
         k_span = self.state.spec.geometry.depth_u // decoder_rows
         packed_row_bytes = (
-            self.state.contract.problem_size.n
+            self.state.contract.problem_size.k
             // quant_format.block_values
             * quant_format.block_bytes
         )
@@ -820,7 +820,7 @@ class BackwardQuantLowering:
         k_shift = n_tiles.bit_length() - 1
         k_span = self.state.spec.geometry.depth_u // decoder_rows
         packed_row_bytes = (
-            self.state.contract.problem_size.n
+            self.state.contract.problem_size.k
             // quant_format.block_values
             * quant_format.block_bytes
         )

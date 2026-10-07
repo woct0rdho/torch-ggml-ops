@@ -73,7 +73,7 @@ class GroupedPairRouteEmitter:
         scalar = self.registers
         checks = (
             (scalar.num_experts.first_register, self.state.physical_experts),
-            (scalar.nrows_weight.first_register, self.state.output_features),
+            (scalar.nrows_weight.first_register, self.state.out_features),
             (scalar.nrows_activation.first_register, self.state.aggregate_rows),
             (
                 scalar.blocks_per_weight_row.first_register,
@@ -212,7 +212,7 @@ class GroupedPairRowTaskEmitter:
         scalar = self.registers
         checks = (
             (scalar.num_experts.first_register, self.state.physical_experts),
-            (scalar.nrows_weight.first_register, self.state.output_features),
+            (scalar.nrows_weight.first_register, self.state.out_features),
             (scalar.nrows_activation.first_register, self.state.aggregate_rows),
             (
                 scalar.blocks_per_weight_row.first_register,

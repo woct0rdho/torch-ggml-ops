@@ -147,25 +147,25 @@ class GroupedBackwardProblemContract:
                 raise SchemaError(f"grouped backward {name} must fit in a positive u32")
 
         quant_format = BACKWARD_QUANT_FORMATS[quant_type]
-        if problem_size.n % quant_format.block_values:
+        if problem_size.k % quant_format.block_values:
             raise SchemaError(
-                "grouped backward N must contain complete packed-weight quant blocks"
+                "grouped backward K must contain complete packed-weight quant blocks"
             )
-        if problem_size.k % 32:
-            raise SchemaError("grouped backward K must contain complete DepthU32 tiles")
+        if problem_size.n % 32:
+            raise SchemaError("grouped backward N must contain complete DepthU32 tiles")
 
         packed_row_bytes = (
-            problem_size.n // quant_format.block_values * quant_format.block_bytes
+            problem_size.k // quant_format.block_values * quant_format.block_bytes
         )
-        if problem_size.k * packed_row_bytes > _U32_MAX:
+        if problem_size.n * packed_row_bytes > _U32_MAX:
             raise SchemaError(
                 "grouped backward packed bytes per expert must fit in a u32 offset"
             )
-        if problem_size.m * problem_size.k * 2 > _U32_MAX:
+        if problem_size.m * problem_size.n * 2 > _U32_MAX:
             raise SchemaError(
                 "grouped backward grad-output workspace must fit in a u32 offset"
             )
-        if problem_size.m * problem_size.n * 2 > _U32_MAX:
+        if problem_size.m * problem_size.k * 2 > _U32_MAX:
             raise SchemaError(
                 "grouped backward grad-input workspace must fit in a u32 offset"
             )

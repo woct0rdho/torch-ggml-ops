@@ -109,8 +109,6 @@ def _geometry(item) -> tuple[str, int, int, int]:
         raise TypeError("deployment geometry requires a GGTensile instance")
     problem = problem_size_for_instance(item.instance)
     quant = item.instance.problem_type.quant_data_type
-    if item.operation.endswith("Backward") or item.operation.endswith("BackwardPair"):
-        return quant, problem.m, problem.k, problem.n
     return quant, problem.m, problem.n, problem.k
 
 

@@ -2,24 +2,20 @@
 
 ## Scope
 
-This record covers the ordinary dense Q5_K backward kernels on gfx1151:
-
-```text
-grad_input[M,N] = grad_output[M,K] @ dequant_q5_k(weight[K,N])
-```
+This record covers the ordinary dense Q5_K backward kernels on gfx1151.
 
 ## Final Results
 
-`TFLOPS = 2*M*K*N / (median_ms * 1e9)`, and `Speedup vs HIP = HIP median time / GGTensile median time`, so a value above `1.0x` favors GGTensile. Medians are the repository benchmark's, re-measured in the current clock state. They replace the earlier recorded values, which came from a different clock state with the same artifacts.
+`TFLOPS = 2*M*N*K / (median_ms * 1e9)`, and `Speedup vs HIP = HIP median time / GGTensile median time`, so a value above `1.0x` favors GGTensile. Medians are the repository benchmark's, re-measured in the current clock state. They replace the earlier recorded values, which came from a different clock state with the same artifacts.
 
-| Family | `(M,K,N)` | GGTensile TFLOPS | Speedup vs HIP | GGTensile kernel | HIP kernel |
+| Family | `(M,N,K)` | GGTensile TFLOPS | Speedup vs HIP | GGTensile kernel | HIP kernel |
 | --- | --- | ---: | ---: | --- | --- |
-| Narrow K/V/gate/up | `(2048,2048,512)` | 28.557 | 1.0475x | `mmq_bwd_q5_k_m2048_n2048_k512_4b4c3b8c85dc07e8` | `dense_bwd_q5_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Narrow K/V/gate/up | `(8192,2048,512)` | 29.232 | 1.0041x | `mmq_bwd_q5_k_m8192_n2048_k512_60125cd8f8d220c6` | `dense_bwd_q5_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Narrow K/V/gate/up | `(32768,2048,512)` | 32.447 | 1.0912x | `mmq_bwd_q5_k_m32768_n2048_k512_455ad6f1b34fb108` | `dense_bwd_q5_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Shared down | `(2048,512,2048)` | 21.178 | 1.2146x | `mmq_bwd_q5_k_m2048_n512_k2048_44b19e571fc6fb31` | `dense_bwd_q5_k_mt128_nt128_ki32_full_k512` |
-| Shared down | `(8192,512,2048)` | 15.862 | 0.9517x | `mmq_bwd_q5_k_m8192_n512_k2048_d631cd9051ca2d0e` | `dense_bwd_q5_k_mt128_nt128_ki32_full_pipea_nt4_ki64_mw2_pad8` |
-| Shared down | `(32768,512,2048)` | 19.741 | 1.0687x | `mmq_bwd_q5_k_m32768_n512_k2048_cf28142433ab61f5` | `dense_bwd_q5_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
+| Narrow K/V/gate/up | `(2048,512,2048)` | 28.557 | 1.0475x | `mmq_bwd_q5_k_m2048_n512_k2048_9253a344dc99da48` | `dense_bwd_q5_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Narrow K/V/gate/up | `(8192,512,2048)` | 29.232 | 1.0041x | `mmq_bwd_q5_k_m8192_n512_k2048_95060e80318ed2f5` | `dense_bwd_q5_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Narrow K/V/gate/up | `(32768,512,2048)` | 32.447 | 1.0912x | `mmq_bwd_q5_k_m32768_n512_k2048_c59fa439dbb04351` | `dense_bwd_q5_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Shared down | `(2048,2048,512)` | 21.178 | 1.2146x | `mmq_bwd_q5_k_m2048_n2048_k512_01975ac73f316bca` | `dense_bwd_q5_k_mt128_nt128_ki32_full_k512` |
+| Shared down | `(8192,2048,512)` | 15.862 | 0.9517x | `mmq_bwd_q5_k_m8192_n2048_k512_7b50e11c8a77358b` | `dense_bwd_q5_k_mt128_full_pipea_nt64_ki64_mw2_pad8` |
+| Shared down | `(32768,2048,512)` | 19.741 | 1.0687x | `mmq_bwd_q5_k_m32768_n2048_k512_7b77434148f44aca` | `dense_bwd_q5_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
 
 GGTensile is ahead on 5 of the 6 entries, with speedups from `0.952x` to `1.215x` (mean `1.063x`).
 
@@ -31,8 +27,8 @@ The representative lower-bound measurements separate complete execution into a W
 
 | Cohort and shape | Complete | WMMA/A/LDS floor | Decode/LDS floor | Floor sum |
 | --- | ---: | ---: | ---: | ---: |
-| Narrow `(32768,2048,512)` | 2.4545 ms | 1.5872 ms | 1.1003 ms | 109.5% |
-| Shared-down `(32768,512,2048)` | 3.5218 ms | 2.4191 ms | 1.0844 ms | 99.5% |
+| Narrow `(32768,512,2048)` | 2.4545 ms | 1.5872 ms | 1.1003 ms | 109.5% |
+| Shared-down `(32768,2048,512)` | 3.5218 ms | 2.4191 ms | 1.0844 ms | 99.5% |
 
 The narrow body is an overlapped WMMA/decode/LDS pipeline. Shared-down is dominated by WMMA, activation traffic, and LDS work. The lower bounds and final resource measurements do not expose a first-order uncovered component for another exact schedule or resource-growing ownership variant.
 
@@ -44,7 +40,7 @@ The Q5 backend was kept separate from Q4 while reusing the compatible WMMA and a
 
 Packed extraction is retained for all six matrices. The Q5-specific emitter choices that survived qualification are:
 - low-payload nibble-shift hoisting for five matrices.
-- the original per-chunk nibble shift for shared-down `(8192,512,2048)`, where the isolated recheck was `1.06616x` candidate/control latency.
+- the original per-chunk nibble shift for shared-down `(8192,2048,512)`, where the isolated recheck was `1.06616x` candidate/control latency.
 - `v_lshl_or_b32` high-bit fusion for all six matrices.
 - per-lane packed payload loading with the Q5-specific high-bit path.
 
@@ -81,6 +77,6 @@ The repaired paths remained exact after mutation testing, but their large losses
 
 ## Deferred Kernel Experiments
 
-Relaxed BF16 conversion is not part of the exact kernels above. A future kernel-only experiment may test site-separated `RNEPreserveNaN`, `BiasRound`, and `Truncate` policies, starting with narrow `(32768,2048,512)` parent `ggsol_3ac1ebb6845e1cbd` and considering shared-down `(32768,512,2048)` parent `ggsol_d953a19ba8487f78` only after a resource-neutral first result removes at least 1% of body latency. The packed high-bit reconstruction, geometry, LDS, prefetch, store policy, and arithmetic order must remain fixed. `BiasRound` and `Truncate` require finite-input error distributions and model-training validation. They cannot enter the exact kernel set from isolated timing.
+Relaxed BF16 conversion is not part of the exact kernels above. A future kernel-only experiment may test site-separated `RNEPreserveNaN`, `BiasRound`, and `Truncate` policies, starting with narrow `(32768,512,2048)` parent `ggsol_3ac1ebb6845e1cbd` and considering shared-down `(32768,2048,512)` parent `ggsol_d953a19ba8487f78` only after a resource-neutral first result removes at least 1% of body latency. The packed high-bit reconstruction, geometry, LDS, prefetch, store policy, and arithmetic order must remain fixed. `BiasRound` and `Truncate` require finite-input error distributions and model-training validation. They cannot enter the exact kernel set from isolated timing.
 
 A Q5 metadata-prefetch or payload-width experiment is also deferred. The current backward schema and lowerer have no distinct Q5 producer/consumer or physical transaction plan for those controls, so a new field would be inert until a complete emitter, physical plan, resource accounting, and validation contract exists.

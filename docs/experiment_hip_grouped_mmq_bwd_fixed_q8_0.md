@@ -6,7 +6,7 @@ This record covers the fixed eight-group DeepSeek Q8_0 input-gradient kernel.
 
 ## Final kernel result
 
-| Batch | Logical shape `(R,N,K)` | HIP TFLOPS | HIP/torch.bmm | Kernel |
+| Batch | Logical shape `(T,N,K)` | HIP TFLOPS | HIP/torch.bmm | Kernel |
 | ---: | --- | --- | --- | --- |
 | 1 | `8 x (2048,1024,4096)` | 22.989 | 1.036x | `grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64` |
 | 4 | `8 x (8192,1024,4096)` | 23.837 | 1.011x | `grouped_bwd_tuned_fixed_q8_0_g8_k4096_mt192_nt64` |

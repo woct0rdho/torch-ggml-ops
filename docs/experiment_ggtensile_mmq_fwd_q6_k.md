@@ -2,11 +2,7 @@
 
 ## Final Results
 
-This record covers the dense Q6_K forward kernel keys used by the workload:
-
-```text
-output[M,N] = input[M,K] @ dequant_q6_k(weight[N,K]).T
-```
+This record covers the dense Q6_K forward kernel keys used by the workload.
 
 The accepted kernel is the deterministic typed wavefront lowering.
 

@@ -2,11 +2,7 @@
 
 ## Final Results
 
-This record covers dense Q8_0 forward kernels for gfx1151:
-
-```text
-output[M,N] = input[M,K] @ dequant_q8_0(weight[N,K]).T
-```
+This record covers dense Q8_0 forward kernels for gfx1151.
 
 `TFLOPS = 2*M*N*K / (median_ms * 1e9)`, and `Speedup vs HIP = HIP median time / GGTensile median time`, so a value above `1.0x` favors GGTensile. Medians are the repository benchmark's, re-measured in the current clock state. They replace the earlier recorded values, which came from a different clock state with the same artifacts.
 

@@ -61,20 +61,14 @@ class CatalogEntry:
     @property
     def expected_logical_weight_shape(self) -> tuple[int, int]:
         size = self.problem_size
-        return (
-            (size.n, size.k)
-            if family_for_instance(self.instance).is_forward
-            else (size.k, size.n)
-        )
+        return (size.n, size.k)
 
     @property
     def expected_physical_weight_shape(self) -> tuple[int, int]:
         size = self.problem_size
         formats = {**QUANT_FORMATS, **GROUPED_QUANT_FORMATS, **BACKWARD_QUANT_FORMATS}
         quant = formats[self.quant_data_type]
-        if family_for_instance(self.instance).is_forward:
-            return size.n, size.k // quant.block_values * quant.block_bytes
-        return size.k, size.n // quant.block_values * quant.block_bytes
+        return size.n, size.k // quant.block_values * quant.block_bytes
 
 
 @dataclass(frozen=True)

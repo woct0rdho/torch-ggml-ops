@@ -4,38 +4,38 @@
 
 This record covers gfx1151 HIP packed-MMQ input-gradient kernels for Q3_K weights.
 
-Backward shapes are written `(M, in_features, out_features)`, matching the weight's `(N,K) = (out_features, in_features)`. Beyond the Qwen query and narrow projections measured first, the type carries the QSA attention query, key/value and shared-expert gate/up projections of the Qwen4-Exp checkpoint `Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` (hidden size 2560) and the GatedDeltaNet `in_proj_qkv` and `in_proj_z` projections of both checkpoints in use, at the training token counts of a sequence length 2048 batch (B1/B4/B16).
+Backward shapes are written `(M,N,K)`, matching the weight's `(N,K) = (out_features, in_features)`. Beyond the Qwen query and narrow projections measured first, the type carries the QSA attention query, key/value and shared-expert gate/up projections of the Qwen4-Exp checkpoint `Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` (hidden size 2560) and the GatedDeltaNet `in_proj_qkv` and `in_proj_z` projections of both checkpoints in use, at the training token counts of a sequence length 2048 batch (B1/B4/B16).
 
 GatedDeltaNet `out_proj` is deferred because wiring it needs the activation permutation. `token_embd.weight` `(248320,2560)` is an embedding gather rather than a multiply and stays on the GGUF embedding module.
 
 ## Final kernel result
 
-| Family | `(M,K,N)` | HIP TFLOPS | HIP/torch.mm | Kernel |
+| Family | `(M,N,K)` | HIP TFLOPS | HIP/torch.mm | Kernel |
 | --- | ---: | ---: | ---: | --- |
-| Query/query gate | `(2048,2048,8192)` | 26.938 | 1.583x | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Query/query gate | `(8192,2048,8192)` | 27.307 | 1.530x | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| Query/query gate | `(32768,2048,8192)` | 24.114 | 1.356x | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| Narrow key | `(2048,2048,512)` | 27.333 | 1.193x | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Narrow key | `(8192,2048,512)` | 29.327 | 1.223x | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| Narrow key | `(32768,2048,512)` | 29.704 | 1.224x | `dense_bwd_q3_k_pipea_nt4_ki64_mw4_sw16_prefetch` |
-| QSA query | `(2048,2560,12288)` | 27.795 | 1.205x | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| QSA query | `(8192,2560,12288)` | 26.728 | 1.048x | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| QSA query | `(32768,2560,12288)` | 24.123 | 0.934x | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| QSA key/value | `(2048,2560,512)` | 29.261 | 1.399x | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| QSA key/value | `(8192,2560,512)` | 30.108 | 1.181x | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| QSA key/value | `(32768,2560,512)` | 32.202 | 1.221x | `dense_bwd_q3_k_pipea_nt4_ki64_mw4_sw16_prefetch` |
-| Shared-expert gate/up | `(2048,2560,640)` | 32.766 | 1.537x | `dense_bwd_q3_k_pipea_nt4_ki64_mw4_pad8_prefetch` |
-| Shared-expert gate/up | `(8192,2560,640)` | 34.165 | 1.254x | `dense_bwd_q3_k_pipea_nt4_ki64_mw4_sw16_prefetch` |
-| Shared-expert gate/up | `(32768,2560,640)` | 35.876 | 1.282x | `dense_bwd_q3_k_pipea_nt4_ki64_mw4_sw16_prefetch` |
-| GatedDeltaNet QKV | `(2048,2560,10240)` | 28.327 | 1.222x | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| GatedDeltaNet QKV | `(8192,2560,10240)` | 26.894 | 1.057x | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| GatedDeltaNet QKV | `(32768,2560,10240)` | 23.832 | 0.959x | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| GatedDeltaNet Z | `(2048,2560,6144)` | 28.563 | 1.254x | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| GatedDeltaNet Z | `(8192,2560,6144)` | 28.234 | 1.116x | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| GatedDeltaNet Z | `(32768,2560,6144)` | 25.635 | 1.035x | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| GatedDeltaNet Z APEX-I-Mini | `(2048,2048,4096)` | 30.971 | 1.847x | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_pad8_prefetch` |
-| GatedDeltaNet Z APEX-I-Mini | `(8192,2048,4096)` | 27.546 | 1.522x | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
-| GatedDeltaNet Z APEX-I-Mini | `(32768,2048,4096)` | 27.504 | 1.501x | `dense_bwd_q3_k_pipea_nt4_ki64_mw2_sw16_prefetch` |
+| Query/query gate | `(2048,8192,2048)` | 26.938 | 1.583x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Query/query gate | `(8192,8192,2048)` | 27.307 | 1.530x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| Query/query gate | `(32768,8192,2048)` | 24.114 | 1.356x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| Narrow key | `(2048,512,2048)` | 27.333 | 1.193x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Narrow key | `(8192,512,2048)` | 29.327 | 1.223x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| Narrow key | `(32768,512,2048)` | 29.704 | 1.224x | `dense_bwd_q3_k_pipea_nt64_ki64_mw4_sw16_prefetch` |
+| QSA query | `(2048,12288,2560)` | 27.795 | 1.205x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| QSA query | `(8192,12288,2560)` | 26.728 | 1.048x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| QSA query | `(32768,12288,2560)` | 24.123 | 0.934x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| QSA key/value | `(2048,512,2560)` | 29.261 | 1.399x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| QSA key/value | `(8192,512,2560)` | 30.108 | 1.181x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| QSA key/value | `(32768,512,2560)` | 32.202 | 1.221x | `dense_bwd_q3_k_pipea_nt64_ki64_mw4_sw16_prefetch` |
+| Shared-expert gate/up | `(2048,640,2560)` | 32.766 | 1.537x | `dense_bwd_q3_k_pipea_nt64_ki64_mw4_pad8_prefetch` |
+| Shared-expert gate/up | `(8192,640,2560)` | 34.165 | 1.254x | `dense_bwd_q3_k_pipea_nt64_ki64_mw4_sw16_prefetch` |
+| Shared-expert gate/up | `(32768,640,2560)` | 35.876 | 1.282x | `dense_bwd_q3_k_pipea_nt64_ki64_mw4_sw16_prefetch` |
+| GatedDeltaNet QKV | `(2048,10240,2560)` | 28.327 | 1.222x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet QKV | `(8192,10240,2560)` | 26.894 | 1.057x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet QKV | `(32768,10240,2560)` | 23.832 | 0.959x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet Z | `(2048,6144,2560)` | 28.563 | 1.254x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet Z | `(8192,6144,2560)` | 28.234 | 1.116x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet Z | `(32768,6144,2560)` | 25.635 | 1.035x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet Z APEX-I-Mini | `(2048,4096,2048)` | 30.971 | 1.847x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| GatedDeltaNet Z APEX-I-Mini | `(8192,4096,2048)` | 27.546 | 1.522x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet Z APEX-I-Mini | `(32768,4096,2048)` | 27.504 | 1.501x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
 
 ## Kernel implementation
 
