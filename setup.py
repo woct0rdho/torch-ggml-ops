@@ -73,6 +73,11 @@ stable_defines = [
 ]
 
 setup(
+    # `package_dir` maps the root package to the repository root, which makes the layout
+    # "simple" in setuptools' terms: an editable install then extends `sys.path` with a plain
+    # path instead of installing an import hook that static analysis tools cannot follow. The
+    # mapping must be `.`, because an empty string is taken as the egg base by `egg_info`.
+    package_dir={"": "."},
     packages=find_packages(exclude=("tests", "tests.*")),
     ext_modules=[
         CUDAExtension(
