@@ -29,7 +29,7 @@ void mmq_launch_cuda(
     torch::stable::accelerator::DeviceGuard guard(input.get_device_index());
     hipStream_t stream = current_stream(input);
     torch_ggml_ops::mmq_bundle::launch_quantize(
-        static_cast<int32_t>(quant_type),
+        shape.producer,
         static_cast<const __hip_bfloat16 *>(input.const_data_ptr()),
         workspace.mutable_data_ptr(),
         shape.rows,
@@ -73,6 +73,7 @@ void mmq_grad_input_launch_cuda(
         shape.rows,
         shape.out_features,
         shape.in_features,
+        shape.weight_block_values,
         current_stream(grad_output));
 }
 
@@ -96,7 +97,7 @@ void fixed_grouped_mmq_launch_cuda(
     torch::stable::accelerator::DeviceGuard guard(input.get_device_index());
     hipStream_t stream = current_stream(input);
     torch_ggml_ops::mmq_bundle::launch_quantize(
-        GGML_TYPE_Q8_0,
+        shape.producer,
         static_cast<const __hip_bfloat16 *>(input.const_data_ptr()),
         workspace.mutable_data_ptr(),
         shape.total_rows,

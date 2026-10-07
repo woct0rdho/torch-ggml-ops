@@ -12,6 +12,8 @@ struct DenseMMQShape {
     int out_features;
     int in_features;
     int64_t workspace_bytes;
+    int weight_block_values;
+    torch_ggml_ops::mmq_bundle::MMQKernelIndex producer;
 };
 
 DenseMMQShape validate_dense_mmq(
@@ -34,8 +36,8 @@ DenseMMQShape validate_dense_mmq(
         "packed_weight must have shape [out_features, row_bytes]");
     const int64_t in_features = input.size(input.dim() - 1);
     STD_TORCH_CHECK(
-        in_features > 0 && in_features % QK_K == 0,
-        "input width must be a positive multiple of 256");
+        in_features > 0 && in_features % kQuantWorkspaceBlockValues == 0,
+        "input width must be a positive multiple of the 128-value activation block");
     STD_TORCH_CHECK(out_features > 0, "out_features must be positive");
     const int64_t rows = input.numel() / in_features;
     STD_TORCH_CHECK(rows > 0, "zero-row inputs are not supported");
@@ -58,18 +60,21 @@ DenseMMQShape validate_dense_mmq(
     STD_TORCH_CHECK(
         reinterpret_cast<uintptr_t>(packed_weight.const_data_ptr()) % 16 == 0,
         "packed_weight data pointer must be 16-byte aligned");
-    torch_ggml_ops::mmq_bundle::require_exact_deployment(
-        torch_ggml_ops::mmq_bundle::kOrdinaryForward,
-        static_cast<int32_t>(quant_type),
-        static_cast<int>(rows),
-        static_cast<int>(out_features),
-        static_cast<int>(in_features));
+    const torch_ggml_ops::mmq_bundle::MMQKernelIndex producer =
+        torch_ggml_ops::mmq_bundle::exact_deployment_producer(
+            torch_ggml_ops::mmq_bundle::kOrdinaryForward,
+            static_cast<int32_t>(quant_type),
+            static_cast<int>(rows),
+            static_cast<int>(out_features),
+            static_cast<int>(in_features));
     return {
         static_cast<int>(rows),
         static_cast<int>(out_features),
         static_cast<int>(in_features),
         rows * (in_features / kQuantWorkspaceBlockValues) *
             kQuantWorkspaceBlockBytes,
+        static_cast<int>(packed_block_values(quant_type)),
+        producer,
     };
 }
 
@@ -92,8 +97,8 @@ DenseMMQShape validate_dense_mmq_backward(
         packed_weight.dim() == 2,
         "packed_weight must have shape [out_features, row_bytes]");
     STD_TORCH_CHECK(
-        in_features > 0 && in_features % QK_K == 0,
-        "in_features must be a positive multiple of 256");
+        in_features > 0 && in_features % kQuantWorkspaceBlockValues == 0,
+        "in_features must be a positive multiple of the 128-value activation block");
     const int64_t out_features = grad_output.size(grad_output.dim() - 1);
     STD_TORCH_CHECK(out_features > 0, "gradient width must be positive");
     const int64_t rows = grad_output.numel() / out_features;
@@ -117,17 +122,20 @@ DenseMMQShape validate_dense_mmq_backward(
     STD_TORCH_CHECK(
         reinterpret_cast<uintptr_t>(packed_weight.const_data_ptr()) % 16 == 0,
         "packed_weight data pointer must be 16-byte aligned");
-    torch_ggml_ops::mmq_bundle::require_exact_deployment(
-        torch_ggml_ops::mmq_bundle::kOrdinaryBackward,
-        static_cast<int32_t>(quant_type),
-        static_cast<int>(rows),
-        static_cast<int>(out_features),
-        static_cast<int>(in_features));
+    const torch_ggml_ops::mmq_bundle::MMQKernelIndex producer =
+        torch_ggml_ops::mmq_bundle::exact_deployment_producer(
+            torch_ggml_ops::mmq_bundle::kOrdinaryBackward,
+            static_cast<int32_t>(quant_type),
+            static_cast<int>(rows),
+            static_cast<int>(out_features),
+            static_cast<int>(in_features));
     return {
         static_cast<int>(rows),
         static_cast<int>(out_features),
         static_cast<int>(in_features),
         0,
+        static_cast<int>(packed_block_values(quant_type)),
+        producer,
     };
 }
 

@@ -24,6 +24,9 @@ REFERENCE_NRMSE_LIMIT = 0.04
 CONTROL_MAX_ABSOLUTE_ERROR = 0.015625
 
 _QUANT_TYPES = {
+    "Q2_0": gguf.GGMLQuantizationType.Q2_0,
+    "Q4_0": gguf.GGMLQuantizationType.Q4_0,
+    "Q5_0": gguf.GGMLQuantizationType.Q5_0,
     "Q2_K": gguf.GGMLQuantizationType.Q2_K,
     "Q3_K": gguf.GGMLQuantizationType.Q3_K,
     "Q4_K": gguf.GGMLQuantizationType.Q4_K,
@@ -32,6 +35,8 @@ _QUANT_TYPES = {
     "Q8_0": gguf.GGMLQuantizationType.Q8_0,
     "IQ2_XXS": gguf.GGMLQuantizationType.IQ2_XXS,
     "IQ2_S": gguf.GGMLQuantizationType.IQ2_S,
+    "IQ4_NL": gguf.GGMLQuantizationType.IQ4_NL,
+    "IQ4_XS": gguf.GGMLQuantizationType.IQ4_XS,
 }
 
 
@@ -265,6 +270,23 @@ def _synthetic_block(quant_type: str, variant: int) -> np.ndarray:
         block[:2] = _half_bytes(1.0)
         block[2:34] = bytes([code]) * 32
         block[66:74] = bytes([0x00 if code == 1 else 0x11]) * 8
+    elif quant_type in {"Q2_0", "Q4_0", "IQ4_NL"}:
+        size = 18
+        block = bytearray(size)
+        block[:2] = _half_bytes(1.0)
+        block[2:] = bytes([0x11 if code == 1 else 0x22]) * (size - 2)
+    elif quant_type == "Q5_0":
+        block = bytearray(22)
+        block[:2] = _half_bytes(1.0)
+        block[2:6] = bytes([code]) * 4
+        block[6:] = bytes([0x11 if code == 1 else 0x22]) * 16
+    elif quant_type == "IQ4_XS":
+        block = bytearray(136)
+        block[:2] = _half_bytes(1.0)
+        block[2:4] = bytes([code]) * 2
+        block[4:8] = bytes([code & 0x0F]) * 4
+        block[8:40] = bytes([code & 0x3F]) * 32
+        block[40:] = bytes([0x11 if code == 1 else 0x22]) * 96
     else:
         raise ValueError(f"unsupported synthetic quantization type: {quant_type}")
     return np.frombuffer(bytes(block), dtype=np.uint8)

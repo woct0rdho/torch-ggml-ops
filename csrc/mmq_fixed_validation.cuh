@@ -13,6 +13,7 @@ struct FixedMMQShape {
     int out_features;
     int in_features;
     int64_t bytes_per_group;
+    torch_ggml_ops::mmq_bundle::MMQKernelIndex producer;
 };
 
 FixedMMQShape validate_fixed_mmq(
@@ -60,7 +61,8 @@ FixedMMQShape validate_fixed_mmq(
         reinterpret_cast<uintptr_t>(tensor.const_data_ptr()) % 16 == 0 &&
             reinterpret_cast<uintptr_t>(packed_weight.const_data_ptr()) % 16 == 0,
         "fixed grouped tensor pointers must be 16-byte aligned");
-    torch_ggml_ops::mmq_bundle::require_exact_deployment(
+    const torch_ggml_ops::mmq_bundle::MMQKernelIndex producer =
+        torch_ggml_ops::mmq_bundle::exact_deployment_producer(
         backward ? torch_ggml_ops::mmq_bundle::kFixedGroupedBackward
                  : torch_ggml_ops::mmq_bundle::kFixedGroupedForward,
         GGML_TYPE_Q8_0,
@@ -73,6 +75,7 @@ FixedMMQShape validate_fixed_mmq(
         static_cast<int>(out_features),
         in_features,
         bytes_per_group,
+        producer,
     };
 }
 

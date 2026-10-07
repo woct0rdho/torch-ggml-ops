@@ -39,10 +39,11 @@ void grouped_mmq_pair_launch_cuda(
     STD_TORCH_CHECK(
         shape.bytes_per_expert == second_shape.bytes_per_expert,
         "paired packed weights have different physical contracts");
-    torch_ggml_ops::mmq_bundle::require_exact_deployment(
-        torch_ggml_ops::mmq_bundle::kGroupedForwardPair,
-        static_cast<int32_t>(quant_type), shape.rows,
-        shape.out_features, shape.in_features);
+    const torch_ggml_ops::mmq_bundle::MMQKernelIndex producer =
+        torch_ggml_ops::mmq_bundle::exact_deployment_producer(
+            torch_ggml_ops::mmq_bundle::kGroupedForwardPair,
+            static_cast<int32_t>(quant_type), shape.rows,
+            shape.out_features, shape.in_features);
     const int row_task_rows =
         torch_ggml_ops::mmq_bundle::exact_deployment_row_task_rows(
             torch_ggml_ops::mmq_bundle::kGroupedForwardPair,
@@ -88,7 +89,7 @@ void grouped_mmq_pair_launch_cuda(
     torch::stable::accelerator::DeviceGuard guard(input.get_device_index());
     hipStream_t stream = current_stream(input);
     torch_ggml_ops::mmq_bundle::launch_quantize(
-        static_cast<int32_t>(quant_type),
+        producer,
         static_cast<const __hip_bfloat16 *>(input.const_data_ptr()),
         workspace.mutable_data_ptr(),
         shape.rows,

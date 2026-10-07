@@ -47,18 +47,11 @@ void launch_record(
         record.block_x,
         record.block_y,
         record.block_z,
+        // A GGTensile artifact owns its LDS in the code object's group segment
+        // and records zero here. A HIP control records its request.
+        record.dynamic_shared_bytes,
         stream,
         arguments);
-}
-
-MMQKernelIndex quantize_kernel(std::int32_t quant_type) {
-    if (quant_type == kQuantQ2_K) {
-        return kQuantizeQ81F16D2S6;
-    }
-    if (quant_type == kQuantQ4_K || quant_type == kQuantQ5_K) {
-        return kQuantizeQ81F16D4S4;
-    }
-    return kQuantizeQ81F32D4;
 }
 
 } // namespace
@@ -70,6 +63,15 @@ void require_exact_deployment(
         int n,
         int k) {
     (void)exact_record(operation, quant_type, m, n, k);
+}
+
+MMQKernelIndex exact_deployment_producer(
+        int operation,
+        std::int32_t quant_type,
+        int m,
+        int n,
+        int k) {
+    return exact_record(operation, quant_type, m, n, k).producer;
 }
 
 int exact_deployment_row_task_rows(
@@ -91,7 +93,7 @@ int exact_deployment_row_task_capacity(
 }
 
 void launch_quantize(
-        std::int32_t quant_type,
+        MMQKernelIndex producer,
         const void * input,
         void * output,
         std::int64_t rows,
@@ -100,13 +102,14 @@ void launch_quantize(
         hipStream_t stream) {
     void * arguments[]{&input, &output, &rows, &rows_padded, &in_features};
     detail::launch_kernel(
-        quantize_kernel(quant_type),
+        producer,
         static_cast<unsigned int>(rows),
         1,
         1,
         512,
         1,
         1,
+        0,
         stream,
         arguments);
 }
@@ -156,6 +159,7 @@ void launch_grouped_row_task_setup(
         kGroupedRowTaskSetup,
         1, 1, 1,
         256, 1, 1,
+        0,
         stream,
         arguments);
 }
@@ -296,14 +300,19 @@ void launch_dense_backward(
         int rows,
         int out_features,
         int in_features,
+        int weight_block_values,
         hipStream_t stream) {
     const MMQDeploymentRecord & record = exact_record(
         kOrdinaryBackward, quant_type, rows, out_features, in_features);
     unsigned int rows_value = static_cast<unsigned int>(rows);
     unsigned int out_features_value = static_cast<unsigned int>(out_features);
     unsigned int in_features_value = static_cast<unsigned int>(in_features);
+    // A GGTensile backward artifact walks the contraction in 256-value stages.
+    // A HIP control strides the packed row in its own quantization blocks.
     unsigned int blocks_per_weight_row =
-        static_cast<unsigned int>(in_features / 256);
+        record.implementation == kImplementationHip
+        ? static_cast<unsigned int>(in_features / weight_block_values)
+        : static_cast<unsigned int>(in_features / 256);
     void * arguments[]{
         &grad_output, &packed_weight, &grad_input, &rows_value,
         &out_features_value, &in_features_value, &blocks_per_weight_row,

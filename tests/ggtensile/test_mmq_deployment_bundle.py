@@ -2,22 +2,26 @@ from tools.ggtensile.family_registry import instance_name
 from tools.ggtensile.grouped_mmq_bwd_pair_model import (
     GroupedBackwardPairProblem,
 )
-from tools.ggtensile.grouped_mmq_bwd_pair_spec import (
-    GroupedBackwardPairKernelSpec,
-)
 from tools.ggtensile.grouped_mmq_fwd_pair_model import (
     GroupedForwardPairProblem,
 )
 from tools.ggtensile.kernel_instance import KernelInstance
 from tools.mmq_deployment_bundle import kernels
-from tools.mmq_deployment_spec import _record, header_text
+from tools.mmq_deployment_spec import deployments, header_text, hip_only_keys
 from tools.mmq_deployment_spec import kernels as public_kernels
+
+
+def _hip_selected_symbols() -> set[str]:
+    """Return the HIP control symbols the resolution selects."""
+
+    from tools.mmq_hip_deployment import select_hip_control
+
+    return {select_hip_control(*key).symbol for key in hip_only_keys()}
 
 
 def test_bundle_retains_hip_only_for_quantization_and_task_setup() -> None:
     bundle = kernels()
-    hip_kernels = [kernel for kernel in bundle if kernel.hip_config is not None]
-    assert [kernel.cpp_id for kernel in hip_kernels] == [
+    assert [kernel.cpp_id for kernel in bundle[:6]] == [
         "QuantizeQ81F32D4",
         "QuantizeQ81F16D4S4",
         "QuantizeQ81F16D2S6",
@@ -25,23 +29,30 @@ def test_bundle_retains_hip_only_for_quantization_and_task_setup() -> None:
         "QuantizeQ81GroupedF32D4",
         "QuantizeQ81GroupedF16D4S4",
     ]
-    assert all(isinstance(kernel.instance, KernelInstance) for kernel in bundle[6:])
+    ggtensile = [kernel for kernel in bundle[6:] if kernel.instance is not None]
+    assert len(ggtensile) == 148
+    assert all(isinstance(kernel.instance, KernelInstance) for kernel in ggtensile)
+    # The remaining artifacts are exactly the HIP controls the resolution
+    # selects, one artifact per control symbol.
+    support = {kernel.cpp_id for kernel in bundle[:6]}
+    symbols = {
+        kernel.symbol
+        for kernel in bundle
+        if kernel.instance is None and kernel.cpp_id not in support
+    }
+    assert symbols == _hip_selected_symbols()
+    assert len(hip_only_keys()) == 204
 
 
 def test_paired_backward_split_factor_is_preserved_in_host_records() -> None:
     bundle = kernels()
-    records = [
-        _record(item, index)
-        for index, item in enumerate(bundle)
-        if item.operation == "GroupedBackwardPair"
-        and item.instance is not None
-        and isinstance(item.instance.kernel_spec, GroupedBackwardPairKernelSpec)
-        and item.instance.kernel_spec.route_ownership.split_factor == 8
+    entries = [
+        entry
+        for entry in deployments(bundle)
+        if entry.operation == "GroupedBackwardPair" and entry.route_split_factor == 8
     ]
-    assert len(records) == 3
-    assert all(record is not None for record in records)
-    assert all(record[6:9] == (32, 2048, 1) for record in records if record)
-    assert all(record[-1] == 8 for record in records if record)
+    assert len(entries) == 3
+    assert all(entry.grid == (32, 2048, 1) for entry in entries)
     header = header_text(bundle)
     assert "int route_split_factor;" in header
     assert "kMMQKernelFilenames" not in header

@@ -15,6 +15,14 @@ void require_exact_deployment(
     int n,
     int k);
 
+// The producer is the activation Q8_1 kernel the resolved record bakes in.
+MMQKernelIndex exact_deployment_producer(
+    int operation,
+    std::int32_t quant_type,
+    int m,
+    int n,
+    int k);
+
 int exact_deployment_row_task_rows(
     int operation,
     std::int32_t quant_type,
@@ -30,7 +38,7 @@ int exact_deployment_row_task_capacity(
     int k);
 
 void launch_quantize(
-    std::int32_t quant_type,
+    MMQKernelIndex producer,
     const void * input,
     void * output,
     std::int64_t rows,
@@ -123,6 +131,8 @@ void launch_grouped_pair_forward_row_tasks(
     std::int64_t bytes_per_expert,
     hipStream_t stream);
 
+// `weight_block_values` is the quantization block width of `quant_type`. A HIP
+// backward record strides its packed row in those blocks.
 void launch_dense_backward(
     std::int32_t quant_type,
     const void * grad_output,
@@ -131,6 +141,7 @@ void launch_dense_backward(
     int rows,
     int out_features,
     int in_features,
+    int weight_block_values,
     hipStream_t stream);
 
 void launch_fixed_grouped_backward(

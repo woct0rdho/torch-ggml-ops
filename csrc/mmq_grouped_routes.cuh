@@ -23,10 +23,11 @@ void grouped_mmq_launch_cuda(
         expert_offsets,
         quant_type,
         out_features);
-    torch_ggml_ops::mmq_bundle::require_exact_deployment(
-        torch_ggml_ops::mmq_bundle::kGroupedForward,
-        static_cast<int32_t>(quant_type), shape.rows,
-        shape.out_features, shape.in_features);
+    const torch_ggml_ops::mmq_bundle::MMQKernelIndex producer =
+        torch_ggml_ops::mmq_bundle::exact_deployment_producer(
+            torch_ggml_ops::mmq_bundle::kGroupedForward,
+            static_cast<int32_t>(quant_type), shape.rows,
+            shape.out_features, shape.in_features);
     const int64_t workspace_bytes = static_cast<int64_t>(shape.rows) *
         (shape.in_features / kQuantWorkspaceBlockValues) *
         kQuantWorkspaceBlockBytes;
@@ -45,7 +46,7 @@ void grouped_mmq_launch_cuda(
     torch::stable::accelerator::DeviceGuard guard(input.get_device_index());
     hipStream_t stream = current_stream(input);
     torch_ggml_ops::mmq_bundle::launch_quantize(
-        static_cast<int32_t>(quant_type),
+        producer,
         static_cast<const __hip_bfloat16 *>(input.const_data_ptr()),
         workspace.mutable_data_ptr(),
         shape.rows,

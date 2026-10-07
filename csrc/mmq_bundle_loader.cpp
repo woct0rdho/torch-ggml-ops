@@ -106,6 +106,7 @@ void launch_kernel(
         unsigned int block_x,
         unsigned int block_y,
         unsigned int block_z,
+        unsigned int shared_memory,
         hipStream_t stream,
         void ** arguments) {
     LoadedKernel & loaded = resolve_kernel(index);
@@ -117,7 +118,7 @@ void launch_kernel(
         block_x,
         block_y,
         block_z,
-        0,
+        shared_memory,
         stream,
         arguments,
         nullptr);

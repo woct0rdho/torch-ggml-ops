@@ -18,6 +18,7 @@ void launch_kernel(
     unsigned int block_x,
     unsigned int block_y,
     unsigned int block_z,
+    unsigned int shared_memory,
     hipStream_t stream,
     void ** arguments);
 

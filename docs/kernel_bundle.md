@@ -2,9 +2,9 @@
 
 ## Purpose
 
-This document defines how selected GGTensile MMQ kernels are turned into a deterministic gfx1151 bundle and launched by the public Python API. Kernel construction, physical planning, search, and performance promotion are documented in `ggtensile_plan.md` and the format-specific experiment records.
+This document defines how the selected GGTensile MMQ kernels and the selected HIP controls are turned into a deterministic gfx1151 bundle and launched by the public Python API. Kernel construction, physical planning, search, and performance promotion are documented in `ggtensile_plan.md` and the format-specific experiment records.
 
-The public compute path is exact-key only. There is no HIP multiply fallback, nearby-shape selection, heuristic dispatch, online tuning, prepared-weight path, dense shadow, or implicit native allocation.
+The public compute path is exact-key only. A problem whose key a GGTensile catalog carries is served by that kernel and every other deployed problem by its HIP control, and the resolution is baked into the generated table at build time, so a launch never picks a kernel from the shape at runtime. There is no nearby-shape selection, heuristic dispatch, online tuning, prepared-weight path, dense shadow, or implicit native allocation.
 
 ## Public API architecture
 
@@ -71,13 +71,13 @@ C++ is authoritative for:
 - exact operation, quant type, `M`, `N`, and `K` deployment membership.
 - exact row-task ownership, task size, and capacity.
 
-Every failure occurs before quantization, task setup, or multiply launch. Native code never inserts a copy, creates a workspace, repairs a shape, or chooses a substitute kernel.
+Every failure occurs before quantization, task setup, or multiply launch. Native code never inserts a copy, creates a workspace, repairs a shape, or substitutes a kernel for the selected one.
 
 ## Selected inventory
 
 All selected winners are loaded from the strict canonical catalogs in `tools/ggtensile/configs/mmq_*_catalog.json`.
 
-The current public bundle contains 154 independently loadable artifacts:
+The current public bundle contains 213 independently loadable artifacts:
 
 | Artifact class | Count |
 | --- | ---: |
@@ -91,26 +91,29 @@ The current public bundle contains 154 independently loadable artifacts:
 | Grouped paired backward GGTensile | 9 |
 | Fixed grouped forward GGTensile | 3 |
 | Fixed grouped backward GGTensile | 3 |
+| Ordinary dense HIP controls | 59 |
 
-The six setup artifacts are the only HIP-compiled entries in the public bundle. Two of the five Q8_1 producers are the grouped body that the F32_D4 and F16_D4S4 quantizers dispatch to while the activation row set is cache resident. The F16_D2S6 producer has no grouped body because its scale spans 64 values. All 148 public multiply artifacts come from typed GGTensile assembly writers. HIP controls are built separately for comparison. They are never part of public dispatch or used as a fallback.
+Resolution happens once, at generation time: a problem whose key is in a GGTensile catalog is served by that kernel, and a deployed problem without one is served by its HIP control. Both catalogs stay the single source of truth for their own winner, and the rule prefers GGTensile even where the HIP control is currently faster. A launch is therefore one host-table lookup with no runtime arbitration. Every routed and fixed-group problem has a GGTensile kernel, so the fallback covers ordinary dense problems only, and a split-contraction control is not selected because the public signatures carry no slice buffer.
+
+Two of the five Q8_1 producers are the grouped body that the F32_D4 and F16_D4S4 quantizers dispatch to while the activation row set is cache resident. The F16_D2S6 producer has no grouped body because its scale spans 64 values. The producer is part of the resolved record: a Q2_K problem takes F16_D2S6, a forward Q4_K or Q5_K problem takes F16_D4S4, and every other forward problem takes F32_D4. A backward problem consumes the BF16 gradient and quantizes nothing.
 
 Each selected route stores one winner only. Artifact files use `<symbol>.hsaco`. Their names come from the canonical typed key. The deployment builder does not emit a manifest or record toolchain, source, object, code-object, or resource provenance. Benchmark medians, model names, rejected alternatives, and tuning heuristics are not deployment fields.
 
 `csrc/generated/mmq_bundle_table.cuh` is generated directly from the typed inventory and contains:
 - one ordered symbol array indexed by a numeric `MMQKernelIndex`.
 - named indices only for the six setup artifacts.
-- one exact deployment record per multiply artifact.
-- exact grid, workgroup, ownership, and row-task metadata.
+- one exact deployment record per resolved problem, with the winning implementation and its activation producer.
+- exact grid, workgroup, dynamic shared-memory request, ownership, row-task, and split-factor metadata.
 
 There is no generic `KernelNNN` runtime identity or tuning database.
 
 ## Build and package pipeline
 
 `tools/mmq_deployment_bundle.py` is the build entry point. It is run as a module from the repository root, because `bench/` and `tools/` are repository scripts and are never packaged into the wheel. The builder:
-- Loads every public canonical catalog from `tools/ggtensile/configs/`.
+- Loads every public canonical catalog from `tools/ggtensile/configs/` and the deployed HIP table from `tools/configs/hip_deployment.json`.
 - Initializes every GGTensile writer serially and emits deterministic assembly.
 - Assembles and links GGTensile sources for gfx1151, wave32, code-object v5.
-- Compiles only the five quantizers and row-task setup with HIP using deterministic compiler-unit settings.
+- Compiles the five quantizers, row-task setup, and the selected HIP controls with HIP using deterministic compiler-unit settings.
 - Verifies ELF target data and the single expected exported symbol.
 - Generates operation/quant constants and the exact host table from the typed inventory.
 - Installs the complete set transactionally and removes stale artifacts.
@@ -177,7 +180,7 @@ build/mmq_hip_controls/gfx1151/
 
 `csrc/mmq_bundle_loader.cpp` locates `_C.abi3.so` with `dladdr` and resolves the kernel directory relative to the extension, independent of the process working directory. On first use of `(device, kernel index)`, it reads and retains the artifact bytes, loads the module, resolves the exact symbol, and caches the module/function. A mutex serializes first resolution.
 
-`csrc/mmq_bundle.cpp` owns exact-record lookup and ABI argument packing. Launch uses PyTorch's current stream and the grid/workgroup recorded for the exact route. Grouped serial routes replace the route-count grid dimension with the validated active route count. Static split ownership scales that same grid-Y route dimension by the exact split factor stored in the generated record. Paired packed-split kernels decode both route and split ownership from workgroup Y. Device row-task routes first launch the explicit setup artifact, then launch the exact paired multiply over bounded task slots.
+`csrc/mmq_bundle.cpp` owns exact-record lookup and ABI argument packing, including the producer index and the dynamic shared-memory request (zero for a GGTensile record, whose artifact owns its LDS in the code object's group segment). Launch uses PyTorch's current stream and the grid/workgroup recorded for the exact route. Grouped serial routes replace the route-count grid dimension with the validated active route count. Static split ownership scales that same grid-Y route dimension by the exact split factor stored in the generated record. Paired packed-split kernels decode both route and split ownership from workgroup Y. Device row-task routes first launch the explicit setup artifact, then launch the exact paired multiply over bounded task slots.
 
 Artifact read, module load, symbol lookup, or launch failure is fatal and names the failing path or symbol. The loader never probes another artifact or invokes embedded arithmetic.
 
@@ -185,7 +188,7 @@ Artifact read, module load, symbol lookup, or launch failure is fatal and names 
 
 `M`, `N`, and `K` below are exact problem coordinates: `M` is the row count, `N` is the weight's `out_features` (its packed rows) and `K` is its `in_features` (the values per packed row), in both directions. Forward computes `[M,K] @ [N,K]^T -> [M,N]`. Backward computes the input gradient `[M,N] @ [N,K] -> [M,K]`. Both directions therefore list the same `(N,K)` for a quant type.
 
-The table lists the in-tree generated bundle. The deployed HIP controls cover additional keys, which their own experiment records list.
+The table lists every GGTensile key. A deployed ordinary dense problem outside it, such as the Q2_0, Q4_0, Q5_0, IQ4_NL, and IQ4_XS matrices and the extra shapes of the shared quant types, is served by the HIP control its key selects.
 
 A forward key and its backward key are selected independently. If a supported forward is used with an input requiring gradients, its corresponding backward key must also appear below.
 
@@ -266,4 +269,4 @@ Changes to selected keys, bundle generation, launch packing, or public wrappers 
 - autograd and `torch.compile(fullgraph=True)` checks for ordinary, grouped paired, and fixed paths.
 - the complete project test suite, pre-commit, and `git diff --check`.
 
-A new selected kernel must first pass the generation and tuning process in `ggtensile_plan.md`. Integration then adds exactly one typed winner, rebuilds the generated table and artifacts, implements no fallback path, and extends the exact compatibility matrix in this document.
+A new selected kernel must first pass the generation and tuning process in `ggtensile_plan.md`. Integration then adds exactly one typed winner, rebuilds the generated table and artifacts, and extends the exact compatibility matrix in this document.
