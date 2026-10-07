@@ -9,11 +9,12 @@ to launch. This module only wires those prepared launches into benchmark
 
 import contextlib
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from bench.benchmark_common import Implementation
 from bench.benchmark_data import RouteSelection
 from tools.ggtensile.family_registry import instance_name
+from tools.ggtensile.kernel_instance import KernelInstance
 from tools.mmq_correctness import PreparedCase
 from tools.mmq_deployment_cases import DeploymentCase, public_artifact_path
 from tools.mmq_launch import (
@@ -87,7 +88,7 @@ def _prepare_case(
                 stack=stack,
                 root=hip_root,
                 artifact=artifact,
-                instance=instance_name(case.instance),
+                instance=instance_name(cast(KernelInstance, case.instance)),
                 route_entries=count,
                 workspace=workspace,
             )

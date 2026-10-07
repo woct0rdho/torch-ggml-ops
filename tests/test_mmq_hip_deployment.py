@@ -198,12 +198,26 @@ def test_every_routed_symbol_is_a_built_control() -> None:
 
 
 def test_routed_families_cover_the_public_routed_keys() -> None:
+    """Every public routed key is catalogued, and every extra family declares rows.
+
+    The routed table started as a mirror of the GGTensile-only public route set.
+    A HIP-only routed family (the Qwen3.8 Q2_0 experts) is catalogued as well.
+    It is admissible exactly when it declares the aggregate row counts it is
+    deployed for, because those rows are the records the resolution materializes.
+    """
+
     catalogued = {control.key for control in routed_table()}
     public = {
         (case.operation, case.quant_type, case.out_features, case.in_features)
         for case in _routed_cases()
     }
-    assert catalogued == public
+    assert public <= catalogued
+    for control in routed_table():
+        if control.key in public:
+            continue
+        assert control.rows, (
+            f"HIP-only routed family {control.key} must declare its rows"
+        )
 
 
 def test_routed_rules_shape_and_defaults_are_consistent() -> None:

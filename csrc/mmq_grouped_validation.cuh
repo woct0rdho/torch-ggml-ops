@@ -7,6 +7,13 @@
 
 namespace {
 
+// Runtime bounds of the deployed grouped bodies. The route count is the grid's
+// Y dimension and the expert count strides the packed banks, so both are
+// validated here rather than fixed at the 256 experts of the original routed
+// families.
+constexpr int64_t kMaxGroupedExperts = 4096;
+constexpr int64_t kMaxGroupedRoutes = 65535;
+
 struct GroupedMMQShape {
     int rows;
     int out_features;
@@ -37,10 +44,10 @@ GroupedMMQShape validate_grouped_mmq(
     STD_TORCH_CHECK(packed_weight.scalar_type() == ScalarType::Byte, "packed_weight must have dtype torch.uint8");
     STD_TORCH_CHECK(expert_indices.scalar_type() == ScalarType::Long, "expert_indices must have dtype torch.int64");
     STD_TORCH_CHECK(expert_offsets.scalar_type() == ScalarType::Int, "expert_offsets must have dtype torch.int32");
-    STD_TORCH_CHECK(input.is_contiguous(), "input must be contiguous; torch_ggml_ops will not insert a hidden copy");
-    STD_TORCH_CHECK(packed_weight.is_contiguous(), "packed_weight must be contiguous; torch_ggml_ops will not insert a hidden copy");
-    STD_TORCH_CHECK(expert_indices.is_contiguous(), "expert_indices must be contiguous; torch_ggml_ops will not insert a hidden copy");
-    STD_TORCH_CHECK(expert_offsets.is_contiguous(), "expert_offsets must be contiguous; torch_ggml_ops will not insert a hidden copy");
+    STD_TORCH_CHECK(input.is_contiguous(), "input must be contiguous. torch_ggml_ops will not insert a hidden copy");
+    STD_TORCH_CHECK(packed_weight.is_contiguous(), "packed_weight must be contiguous. torch_ggml_ops will not insert a hidden copy");
+    STD_TORCH_CHECK(expert_indices.is_contiguous(), "expert_indices must be contiguous. torch_ggml_ops will not insert a hidden copy");
+    STD_TORCH_CHECK(expert_offsets.is_contiguous(), "expert_offsets must be contiguous. torch_ggml_ops will not insert a hidden copy");
     STD_TORCH_CHECK(input.dim() == 2, "grouped MMQ input must have shape [rows, in_features]");
     STD_TORCH_CHECK(packed_weight.dim() == 3, "grouped packed_weight must have physical shape [experts, out_features, row_bytes]");
     STD_TORCH_CHECK(expert_indices.dim() == 1, "expert_indices must be one-dimensional");
@@ -53,15 +60,31 @@ GroupedMMQShape validate_grouped_mmq(
     const int64_t num_experts = packed_weight.size(0);
     const int64_t num_groups = expert_indices.numel();
     STD_TORCH_CHECK(rows > 0, "zero-row inputs are not supported");
-    STD_TORCH_CHECK(in_features > 0 && in_features % QK_K == 0, "input width must be a positive multiple of 256; got ", in_features);
-    STD_TORCH_CHECK(out_features > 0, "out_features must be positive; got ", out_features);
+    // The activation workspace holds one Q8_1 block per 128 input values, and
+    // the deployed bodies stage whole tiles of that workspace, so the input
+    // width only has to be a multiple of the block. A body whose contraction
+    // does not divide into 256-value stages carries the remainder as a tail.
     STD_TORCH_CHECK(
-        num_experts == 256,
-        "exact grouped deployment requires 256 physical experts");
+        in_features > 0 && in_features % kQuantWorkspaceBlockValues == 0,
+        "input width must be a positive multiple of the 128-value activation block. Got ",
+        in_features);
+    STD_TORCH_CHECK(out_features > 0, "out_features must be positive. Got ", out_features);
+    // The expert count and the route count are runtime bounds of the deployed
+    // bodies: the route count is the grid's Y dimension and the expert count
+    // strides the packed banks, so neither is fixed at 256 the way the
+    // original routed families were.
     STD_TORCH_CHECK(
-        num_groups > 0 && num_groups <= 256,
-        "exact grouped deployment requires between 1 and 256 route entries");
-    STD_TORCH_CHECK(num_groups <= num_experts, "active expert count exceeds packed expert count");
+        num_experts > 0 && num_experts <= kMaxGroupedExperts,
+        "grouped packed_weight carries ",
+        num_experts,
+        " experts, more than the supported ",
+        kMaxGroupedExperts);
+    STD_TORCH_CHECK(
+        num_groups > 0 && num_groups <= num_experts,
+        "grouped MMQ requires between one and num_experts route entries");
+    STD_TORCH_CHECK(
+        num_groups <= kMaxGroupedRoutes,
+        "grouped MMQ route entries exceed the launch limit");
     STD_TORCH_CHECK(rows <= std::numeric_limits<int>::max(), "input row count exceeds the kernel limit");
     STD_TORCH_CHECK(in_features <= std::numeric_limits<int>::max(), "in_features exceeds the kernel limit");
     STD_TORCH_CHECK(out_features <= std::numeric_limits<int>::max(), "out_features exceeds the kernel limit");
@@ -141,16 +164,16 @@ GroupedMMQShape validate_grouped_mmq_grad_input(
         "expert_offsets must have dtype torch.int32");
     STD_TORCH_CHECK(
         grad_output.is_contiguous(),
-        "grad_output must be contiguous; torch_ggml_ops will not insert a hidden copy");
+        "grad_output must be contiguous. torch_ggml_ops will not insert a hidden copy");
     STD_TORCH_CHECK(
         packed_weight.is_contiguous(),
-        "packed_weight must be contiguous; torch_ggml_ops will not insert a hidden copy");
+        "packed_weight must be contiguous. torch_ggml_ops will not insert a hidden copy");
     STD_TORCH_CHECK(
         expert_indices.is_contiguous(),
-        "expert_indices must be contiguous; torch_ggml_ops will not insert a hidden copy");
+        "expert_indices must be contiguous. torch_ggml_ops will not insert a hidden copy");
     STD_TORCH_CHECK(
         expert_offsets.is_contiguous(),
-        "expert_offsets must be contiguous; torch_ggml_ops will not insert a hidden copy");
+        "expert_offsets must be contiguous. torch_ggml_ops will not insert a hidden copy");
     STD_TORCH_CHECK(
         grad_output.dim() == 2,
         "grouped MMQ grad_output must have shape [rows, out_features]");
@@ -172,17 +195,26 @@ GroupedMMQShape validate_grouped_mmq_grad_input(
     const int64_t num_groups = expert_indices.numel();
     STD_TORCH_CHECK(rows > 0, "zero-row grad_output tensors are not supported");
     STD_TORCH_CHECK(out_features > 0, "grad_output final dimension must be positive");
+    // The written width is the packed row width, whose blocks are 64 to 256
+    // values depending on the quant type, so one 128-value activation block is
+    // the contract. The deployed bodies carry the remainder of a 256-value
+    // stage as a tail.
     STD_TORCH_CHECK(
-        in_features > 0 && in_features % QK_K == 0,
-        "in_features must be a positive multiple of 256; got ",
+        in_features > 0 && in_features % kQuantWorkspaceBlockValues == 0,
+        "in_features must be a positive multiple of the 128-value block. Got ",
         in_features);
     STD_TORCH_CHECK(
-        num_experts == 256,
-        "exact grouped deployment requires 256 physical experts");
+        num_experts > 0 && num_experts <= kMaxGroupedExperts,
+        "grouped packed_weight carries ",
+        num_experts,
+        " experts, more than the supported ",
+        kMaxGroupedExperts);
     STD_TORCH_CHECK(
-        num_groups > 0 && num_groups <= 256,
-        "exact grouped deployment requires between 1 and 256 route entries");
-    STD_TORCH_CHECK(num_groups <= num_experts, "active expert count exceeds packed expert count");
+        num_groups > 0 && num_groups <= num_experts,
+        "grouped MMQ backward requires between one and num_experts route entries");
+    STD_TORCH_CHECK(
+        num_groups <= kMaxGroupedRoutes,
+        "grouped MMQ route entries exceed the launch limit");
     STD_TORCH_CHECK(rows <= std::numeric_limits<int>::max(), "grad_output row count exceeds the kernel limit");
     STD_TORCH_CHECK(in_features <= std::numeric_limits<int>::max(), "in_features exceeds the kernel limit");
     STD_TORCH_CHECK(out_features <= std::numeric_limits<int>::max(), "out_features exceeds the kernel limit");

@@ -74,15 +74,34 @@ def test_exact_paired_route_compiles(
     torch.testing.assert_close(actual[1], expected[1], rtol=0, atol=0)
 
 
-def test_grouped_launch_rejects_non_deployed_physical_expert_count(
+def test_grouped_launch_serves_a_sub_256_expert_bank(
+    q4_down: tuple[torch.Tensor, gguf.GGMLQuantizationType, int],
+) -> None:
+    """The deployed bodies take the expert count from the packed bank.
+
+    A routed family is keyed by its aggregate rows and matrix shape, so a bank
+    with fewer experts than the model that key was measured on serves the same
+    record as long as the route entries fit it.
+    """
+
+    packed, quant_type, in_features = q4_down
+    experts, offsets = _route()
+    input = random_bf16(_ROWS, in_features, seed=20007)
+    output = torch_ggml_ops.grouped_mmq(
+        input, packed, experts, offsets, int(quant_type), 2048
+    )
+    assert output.shape == (_ROWS, 2048)
+
+
+def test_grouped_launch_rejects_more_routes_than_experts(
     q4_down: tuple[torch.Tensor, gguf.GGMLQuantizationType, int],
 ) -> None:
     packed, quant_type, in_features = q4_down
     experts, offsets = _route()
-    input = random_bf16(_ROWS, in_features, seed=20007)
-    with pytest.raises(RuntimeError, match="256 physical experts"):
+    input = random_bf16(_ROWS, in_features, seed=20011)
+    with pytest.raises(RuntimeError, match="between one and num_experts route entries"):
         torch_ggml_ops.grouped_mmq(
-            input, packed[:8].clone(), experts, offsets, int(quant_type), 2048
+            input, packed[:2].clone(), experts, offsets, int(quant_type), 2048
         )
 
 

@@ -18,6 +18,7 @@ from tools.mmq_deployment_spec import (
     BundleKernel,
     header_text,
     kernels,
+    python_contract_text,
     writer_for,
 )
 
@@ -25,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CSRC = ROOT / "csrc"
 PACKAGE_DIR = ROOT / "torch_ggml_ops/kernels/gfx1151"
 HEADER = CSRC / "generated/mmq_bundle_table.cuh"
+PYTHON_CONTRACT = ROOT / "torch_ggml_ops/_deployment_records.py"
 SOURCE_DIR = ROOT / "build/mmq_bundle_sources/gfx1151"
 ARCH = "gfx1151"
 
@@ -126,6 +128,7 @@ def _build(
 def _install(staging: Path, items: tuple[BundleKernel, ...]) -> None:
     HEADER.parent.mkdir(parents=True, exist_ok=True)
     HEADER.write_text(header_text(items), encoding="utf-8")
+    PYTHON_CONTRACT.write_text(python_contract_text(items), encoding="utf-8")
     old = PACKAGE_DIR.with_name(PACKAGE_DIR.name + ".old")
     shutil.rmtree(old, ignore_errors=True)
     if PACKAGE_DIR.exists():

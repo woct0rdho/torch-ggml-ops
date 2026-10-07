@@ -2268,6 +2268,124 @@
           "tile": 128
         }
       ]
+    },
+    {
+      "operation": "GroupedForward",
+      "quant_type": "Q2_0",
+      "n": 2560,
+      "k": 640,
+      "experts": 512,
+      "rows": [
+        20480,
+        81920,
+        327680
+      ],
+      "rules": [
+        {
+          "when": "always",
+          "value": null,
+          "symbol": "grouped_fwd_serial_q2_0_n2560_k640_j64_j32_j16_frag"
+        }
+      ]
+    },
+    {
+      "operation": "GroupedForward",
+      "quant_type": "Q2_0",
+      "n": 640,
+      "k": 2560,
+      "experts": 512,
+      "rows": [
+        20480,
+        81920,
+        327680
+      ],
+      "rules": [
+        {
+          "when": "rows_eq",
+          "value": 327680,
+          "symbol": "grouped_fwd_serial_q2_0_n640_k2560_j128_frag"
+        },
+        {
+          "when": "always",
+          "value": null,
+          "symbol": "grouped_fwd_serial_q2_0_n640_k2560_j64_j32_j16_frag"
+        }
+      ]
+    },
+    {
+      "operation": "GroupedForwardPair",
+      "quant_type": "Q2_0",
+      "n": 640,
+      "k": 2560,
+      "experts": 512,
+      "rows": [
+        20480,
+        81920,
+        327680
+      ],
+      "pair_single": true,
+      "rules": [
+        {
+          "when": "rows_eq",
+          "value": 327680,
+          "symbol": "grouped_fwd_serial_q2_0_n640_k2560_j128_frag"
+        },
+        {
+          "when": "always",
+          "value": null,
+          "symbol": "grouped_fwd_serial_q2_0_n640_k2560_j64_j32_j16_frag"
+        }
+      ]
+    },
+    {
+      "operation": "GroupedBackward",
+      "quant_type": "Q2_0",
+      "n": 2560,
+      "k": 640,
+      "experts": 512,
+      "rows": [
+        20480,
+        81920,
+        327680
+      ],
+      "rules": [
+        {
+          "when": "rows_at_least",
+          "value": 81920,
+          "symbol": "grouped_bwd_row_task_q2_0_n2560_k640_mt256_nt64_s3_ki64_sw8_g4_abar"
+        },
+        {
+          "when": "always",
+          "value": null,
+          "symbol": "grouped_bwd_row_task_q2_0_n2560_k640_mt128_nt64_s3_sw8_g4_abar"
+        }
+      ]
+    },
+    {
+      "operation": "GroupedBackwardPair",
+      "quant_type": "Q2_0",
+      "n": 640,
+      "k": 2560,
+      "experts": 512,
+      "rows": [
+        20480,
+        81920,
+        327680
+      ],
+      "rules": [
+        {
+          "when": "rows_at_least",
+          "value": 327680,
+          "symbol": "grouped_bwd_pair_task_q2_0_n640_k2560_mt256_nt64_s2_skip_ki64_g4_mb3_abar",
+          "tile": 256
+        },
+        {
+          "when": "always",
+          "value": null,
+          "symbol": "grouped_bwd_pair_task_q2_0_n640_k2560_mt128_nt64_s2_skip_g4_mb3_abar",
+          "tile": 128
+        }
+      ]
     }
   ],
   "helpers": [

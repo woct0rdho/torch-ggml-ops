@@ -77,12 +77,13 @@ Every failure occurs before quantization, task setup, or multiply launch. Native
 
 All selected winners are loaded from the strict canonical catalogs in `tools/ggtensile/configs/mmq_*_catalog.json`.
 
-The current public bundle contains 213 independently loadable artifacts:
+The current public bundle contains 224 independently loadable artifacts:
 
 | Artifact class | Count |
 | --- | ---: |
 | Q8_1 activation producers | 5 |
 | Grouped row-task setup | 1 |
+| Dense split-contraction reduction | 1 |
 | Ordinary forward GGTensile | 50 |
 | Ordinary backward GGTensile | 50 |
 | Grouped forward GGTensile | 12 |
@@ -91,9 +92,13 @@ The current public bundle contains 213 independently loadable artifacts:
 | Grouped paired backward GGTensile | 9 |
 | Fixed grouped forward GGTensile | 3 |
 | Fixed grouped backward GGTensile | 3 |
-| Ordinary dense HIP controls | 59 |
+| HIP controls | 69 |
 
-Resolution happens once, at generation time: a problem whose key is in a GGTensile catalog is served by that kernel, and a deployed problem without one is served by its HIP control. Both catalogs stay the single source of truth for their own winner, and the rule prefers GGTensile even where the HIP control is currently faster. A launch is therefore one host-table lookup with no runtime arbitration. Every routed and fixed-group problem has a GGTensile kernel, so the fallback covers ordinary dense problems only, and a split-contraction control is not selected because the public signatures carry no slice buffer.
+The 69 HIP controls serve 222 exact records: 207 ordinary dense keys, the 15 routed Qwen3.8 Q2_0 keys, and the three split-contraction Q5_K LM-head backward keys.
+
+Resolution happens once, at generation time: a problem whose key is in a GGTensile catalog is served by that kernel, and a deployed problem without one is served by its HIP control. Both catalogs stay the single source of truth for their own winner, and the rule prefers GGTensile even where the HIP control is currently faster. A launch is therefore one host-table lookup with no runtime arbitration. Every routed and fixed-group problem of the two migrated families has a GGTensile kernel, so for them the fallback covers ordinary dense problems only. The Qwen3.8 Q2_0 routed family is HIP-only and is deployed through the routed rules of the same catalog.
+
+A deployed split-contraction control is selected like any other HIP control. Its partial tiles and its reduction are two launches over buffers the Python layer allocates, which is what lets an enclosing compiled graph plan them. The public signatures are unchanged, and the C++ record carries the slice count, the reduction kernel index, and the slice width.
 
 Two of the five Q8_1 producers are the grouped body that the F32_D4 and F16_D4S4 quantizers dispatch to while the activation row set is cache resident. The F16_D2S6 producer has no grouped body because its scale spans 64 values. The producer is part of the resolved record: a Q2_K problem takes F16_D2S6, a forward Q4_K or Q5_K problem takes F16_D4S4, and every other forward problem takes F32_D4. A backward problem consumes the BF16 gradient and quantizes nothing.
 
@@ -101,9 +106,11 @@ Each selected route stores one winner only. Artifact files use `<symbol>.hsaco`.
 
 `csrc/generated/mmq_bundle_table.cuh` is generated directly from the typed inventory and contains:
 - one ordered symbol array indexed by a numeric `MMQKernelIndex`.
-- named indices only for the six setup artifacts.
+- named indices for the seven setup artifacts.
 - one exact deployment record per resolved problem, with the winning implementation and its activation producer.
-- exact grid, workgroup, dynamic shared-memory request, ownership, row-task, and split-factor metadata.
+- exact grid, workgroup, dynamic shared-memory request, ownership, row-task, and split-factor metadata, plus the split-contraction slice count, slice width, and reduction kernel.
+
+`torch_ggml_ops/_deployment_records.py` is generated at the same time from the same resolution. It carries the device row-task tile and the split-contraction slice count of every record that has one, keyed by `(operation, quant_type, rows, out_features, in_features)`. The Python layer sizes its task banks and partial buffers from that table, so the allocation and the launch describe the same deployment. A missing key means the record is one launch over the route bank.
 
 There is no generic `KernelNNN` runtime identity or tuning database.
 
@@ -113,9 +120,9 @@ There is no generic `KernelNNN` runtime identity or tuning database.
 - Loads every public canonical catalog from `tools/ggtensile/configs/` and the deployed HIP table from `tools/configs/hip_deployment.json`.
 - Initializes every GGTensile writer serially and emits deterministic assembly.
 - Assembles and links GGTensile sources for gfx1151, wave32, code-object v5.
-- Compiles the five quantizers, row-task setup, and the selected HIP controls with HIP using deterministic compiler-unit settings.
+- Compiles the five quantizers, row-task setup, the dense split-contraction reduction, and the selected HIP controls with HIP using deterministic compiler-unit settings.
 - Verifies ELF target data and the single expected exported symbol.
-- Generates operation/quant constants and the exact host table from the typed inventory.
+- Generates operation/quant constants, the exact host table, and the Python record contract from the typed inventory.
 - Installs the complete set transactionally and removes stale artifacts.
 
 Temporary object files are deleted and never packaged. A failed build removes its staging directory. Every invocation regenerates every public kernel. There is no incremental bundle stamp or freshness check.
@@ -180,7 +187,7 @@ build/mmq_hip_controls/gfx1151/
 
 `csrc/mmq_bundle_loader.cpp` locates `_C.abi3.so` with `dladdr` and resolves the kernel directory relative to the extension, independent of the process working directory. On first use of `(device, kernel index)`, it reads and retains the artifact bytes, loads the module, resolves the exact symbol, and caches the module/function. A mutex serializes first resolution.
 
-`csrc/mmq_bundle.cpp` owns exact-record lookup and ABI argument packing, including the producer index and the dynamic shared-memory request (zero for a GGTensile record, whose artifact owns its LDS in the code object's group segment). Launch uses PyTorch's current stream and the grid/workgroup recorded for the exact route. Grouped serial routes replace the route-count grid dimension with the validated active route count. Static split ownership scales that same grid-Y route dimension by the exact split factor stored in the generated record. Paired packed-split kernels decode both route and split ownership from workgroup Y. Device row-task routes first launch the explicit setup artifact, then launch the exact paired multiply over bounded task slots.
+`csrc/mmq_bundle.cpp` owns exact-record lookup and ABI argument packing, including the producer index and the dynamic shared-memory request (zero for a GGTensile record, whose artifact owns its LDS in the code object's group segment). Launch uses PyTorch's current stream and the grid/workgroup recorded for the exact route. Grouped serial routes replace the route-count grid dimension with the validated active route count. Static split ownership scales that same grid-Y route dimension by the exact split factor stored in the generated record. Paired packed-split kernels decode both route and split ownership from workgroup Y. Device row-task routes first launch the explicit setup artifact, then launch the exact multiply over bounded task slots. The task bank is a Python-owned buffer the caller passes in. A split-contraction dense backward writes FP32 partial tiles over the record's slice grid and a second launch reduces them into the BF16 gradient.
 
 Artifact read, module load, symbol lookup, or launch failure is fatal and names the failing path or symbol. The loader never probes another artifact or invokes embedded arithmetic.
 
@@ -188,7 +195,7 @@ Artifact read, module load, symbol lookup, or launch failure is fatal and names 
 
 `M`, `N`, and `K` below are exact problem coordinates: `M` is the row count, `N` is the weight's `out_features` (its packed rows) and `K` is its `in_features` (the values per packed row), in both directions. Forward computes `[M,K] @ [N,K]^T -> [M,N]`. Backward computes the input gradient `[M,N] @ [N,K] -> [M,K]`. Both directions therefore list the same `(N,K)` for a quant type.
 
-The table lists every GGTensile key. A deployed ordinary dense problem outside it, such as the Q2_0, Q4_0, Q5_0, IQ4_NL, and IQ4_XS matrices and the extra shapes of the shared quant types, is served by the HIP control its key selects.
+The table lists every GGTensile key. A deployed ordinary dense problem outside it, such as the Q2_0, Q4_0, Q5_0, IQ4_NL, and IQ4_XS matrices, the extra shapes of the shared quant types, and the chunked Q5_K LM-head keys, is served by the HIP control its key selects. The Qwen3.8 matrices widen the deployed set with `(N,K)` in `{(12288,2560),(6144,2560),(10240,2560),(640,2560),(2560,640),(512,2560)}` for Q2_0, Q3_K, Q4_K, Q5_K, Q6_K, Q4_0, Q5_0, Q8_0, IQ4_NL and IQ4_XS, and with `M in {64,128,256}`, `(N,K)=(248320,2560)` for the split-contraction Q5_K LM head in both directions.
 
 A forward key and its backward key are selected independently. If a supported forward is used with an input requiring gradients, its corresponding backward key must also appear below.
 
@@ -215,21 +222,29 @@ Ordinary `Q2_K`, `IQ2_XXS`, and `IQ2_S` have no deployed key. Every ordinary sha
 
 ### Routed grouped MMQ
 
-Routed inputs have shape `[R,K]`. Packed weights have physical shape `[256,N,packed_row_bytes]`. Expert indices and cumulative offsets contain the same number of entries, from 1 through 256.
+Routed inputs have shape `[R,K]`. Packed weights have physical shape `[E,N,packed_row_bytes]` where `E` is the expert axis of the packed bank (at most 4096), and expert indices and cumulative offsets contain the same number of entries, from 1 through `E`. A routed family is keyed by `(operation, quant_type, R, N, K)`. The expert count is read from the bank, so a bank with fewer experts than the family's model serves the same record as long as the route entries fit it. The contraction width `K` must be a multiple of the 128-value activation block. The deployed Q2_0 bodies carry the remainder of a 256-value stage as a tail, which is what serves `K=640`.
 
 | Direction | Quant type | Exact support | Ownership |
 | --- | --- | --- | --- |
 | Forward | Q4_K, Q5_K, IQ2_S | `R in {16384,65536,262144}`, `(N,K)=(2048,512)` | Serial routes |
 | Forward | Q2_K | `R in {12288,49152,196608}`, `(N,K)=(4096,2048)` | Serial routes |
+| Forward | Q2_0 | `R in {20480,81920,327680}`, `(N,K)=(2560,640)` | Serial routes |
+| Forward | Q2_0 | `R in {20480,81920}`, `(N,K)=(640,2560)` | Serial routes |
+| Forward | Q2_0 | `R=327680`, `(N,K)=(640,2560)` | Serial routes, wide J128 tile |
 | Paired forward | IQ2_S | `R in {16384,65536,262144}`, `(N,K)=(512,2048)` | Device tasks, 64 rows/task |
 | Paired forward | Q3_K | `R in {16384,65536,262144}`, `(N,K)=(512,2048)` | Device tasks, 64 rows/task |
 | Paired forward | IQ2_XXS | `R in {12288,49152,196608}`, `(N,K)=(2048,4096)` | Serial routes |
+| Paired forward | Q2_0 | `R in {20480,81920,327680}`, `(N,K)=(640,2560)` | Two single launches, one per packed bank |
 | Backward | Q4_K, Q5_K, IQ2_S | `R in {16384,65536,262144}`, `(N,K)=(2048,512)` | Exact serial/static-split policy per key |
 | Backward | Q2_K | `R in {12288,49152,196608}`, `(N,K)=(4096,2048)` | Exact serial/static-split policy per key |
+| Backward | Q2_0 | `R=20480`, `(N,K)=(2560,640)` | Device tasks, 128 rows/task |
+| Backward | Q2_0 | `R in {81920,327680}`, `(N,K)=(2560,640)` | Device tasks, 256 rows/task |
 | Paired backward | Q3_K, IQ2_S | `R in {16384,65536,262144}`, `(N,K)=(512,2048)` | Exact pair policy per key |
 | Paired backward | IQ2_XXS | `R in {12288,49152,196608}`, `(N,K)=(2048,4096)` | Exact pair policy per key |
+| Paired backward | Q2_0 | `R in {20480,81920}`, `(N,K)=(640,2560)` | Device tasks, 128 rows/task |
+| Paired backward | Q2_0 | `R=327680`, `(N,K)=(640,2560)` | Device tasks, 256 rows/task |
 
-There is no standalone grouped forward for Q3_K or IQ2_XXS, no standalone grouped backward for Q3_K or IQ2_XXS, and no grouped Q6_K or routed Q8_0 deployment. Formats absent from a paired row have no pair-via-two-singles behavior.
+There is no standalone grouped forward for Q3_K or IQ2_XXS, no standalone grouped backward for Q3_K or IQ2_XXS, and no grouped Q6_K or routed Q8_0 deployment. A paired row without a fused body — the Q2_0 gate/up forward — launches the single-projection body once per packed bank over the same route bank and activation workspace.
 
 ### Fixed grouped Q8_0
 

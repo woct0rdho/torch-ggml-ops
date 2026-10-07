@@ -1,10 +1,15 @@
 import torch
 
-from .runtime_contract import (
-    paired_row_task_capacity,
-    paired_row_task_rows,
-    quant_workspace_elements,
-)
+from ._deployment_records import ROW_TASK_TILES, SPLIT_SLICES
+from .runtime_contract import paired_row_task_capacity, quant_workspace_elements
+
+# Both tables are generated with the host records, so a launch and the buffers
+# it needs always describe the same deployment. A missing key means the record
+# runs as one launch over the route bank.
+_BACKWARD = "OrdinaryBackward"
+_ROUTED_BACKWARD = "GroupedBackward"
+_ROUTED_BACKWARD_PAIR = "GroupedBackwardPair"
+_ROUTED_FORWARD_PAIR = "GroupedForwardPair"
 
 
 def mmq_inplace(
@@ -45,6 +50,26 @@ def mmq_grad_input_inplace(
     in_features: int,
     grad_input: torch.Tensor,
 ) -> None:
+    out_features = packed_weight.shape[0]
+    rows = grad_output.numel() // out_features
+    slices = SPLIT_SLICES.get(
+        (_BACKWARD, quant_type, rows, out_features, in_features), 0
+    )
+    if slices:
+        # The partial tiles and their reduction are two launches over buffers
+        # this layer allocates, so an enclosing compiled graph can plan them.
+        partials = torch.empty(
+            (slices, rows, in_features),
+            dtype=torch.float32,
+            device=grad_output.device,
+        )
+        torch.ops.torch_ggml_ops._mmq_grad_input_split_launch.default(
+            grad_output, packed_weight, quant_type, in_features, partials
+        )
+        torch.ops.torch_ggml_ops._mmq_grad_input_split_reduce_launch.default(
+            partials, grad_input, rows, in_features, slices
+        )
+        return
     torch.ops.torch_ggml_ops._mmq_grad_input_launch.default(
         grad_output, packed_weight, quant_type, in_features, grad_input
     )
@@ -142,6 +167,44 @@ def grouped_mmq_grad_input(
         dtype=grad_output.dtype,
         device=grad_output.device,
     )
+    tile = ROW_TASK_TILES.get(
+        (
+            _ROUTED_BACKWARD,
+            quant_type,
+            grad_output.shape[0],
+            packed_weight.shape[1],
+            in_features,
+        ),
+        0,
+    )
+    if tile:
+        capacity = paired_row_task_capacity(
+            grad_output.shape[0], expert_indices.numel(), tile
+        )
+        task_count = torch.empty(1, dtype=torch.int32, device=grad_output.device)
+        task_experts = torch.empty(
+            capacity, dtype=torch.int32, device=grad_output.device
+        )
+        task_row_starts = torch.empty(
+            capacity, dtype=torch.int32, device=grad_output.device
+        )
+        task_row_ends = torch.empty(
+            capacity, dtype=torch.int32, device=grad_output.device
+        )
+        torch.ops.torch_ggml_ops._grouped_mmq_grad_input_row_task_launch.default(
+            grad_output,
+            packed_weight,
+            expert_indices,
+            expert_offsets,
+            quant_type,
+            in_features,
+            grad_input,
+            task_count,
+            task_experts,
+            task_row_starts,
+            task_row_ends,
+        )
+        return grad_input
     torch.ops.torch_ggml_ops._grouped_mmq_grad_input_launch.default(
         grad_output,
         packed_weight,
@@ -172,14 +235,23 @@ def grouped_mmq_pair_cuda(
         dtype=torch.uint8,
         device=input.device,
     )
-    row_task_rows = paired_row_task_rows(quant_type)
+    row_task_tile = ROW_TASK_TILES.get(
+        (
+            _ROUTED_FORWARD_PAIR,
+            quant_type,
+            input.shape[0],
+            first_packed_weight.shape[1],
+            input.shape[1],
+        ),
+        0,
+    )
     task_capacity = (
-        paired_row_task_capacity(input.shape[0], expert_indices.numel(), row_task_rows)
-        if row_task_rows
+        paired_row_task_capacity(input.shape[0], expert_indices.numel(), row_task_tile)
+        if row_task_tile
         else 0
     )
     task_count = torch.empty(
-        1 if row_task_rows else 0, dtype=torch.int32, device=input.device
+        1 if row_task_tile else 0, dtype=torch.int32, device=input.device
     )
     task_experts = torch.empty(task_capacity, dtype=torch.int32, device=input.device)
     task_row_starts = torch.empty(task_capacity, dtype=torch.int32, device=input.device)
@@ -218,6 +290,46 @@ def grouped_mmq_pair_grad_input(
         dtype=first_grad_output.dtype,
         device=first_grad_output.device,
     )
+    tile = ROW_TASK_TILES.get(
+        (
+            _ROUTED_BACKWARD_PAIR,
+            quant_type,
+            first_grad_output.shape[0],
+            first_packed_weight.shape[1],
+            in_features,
+        ),
+        0,
+    )
+    if tile:
+        capacity = paired_row_task_capacity(
+            first_grad_output.shape[0], expert_indices.numel(), tile
+        )
+        task_count = torch.empty(1, dtype=torch.int32, device=first_grad_output.device)
+        task_experts = torch.empty(
+            capacity, dtype=torch.int32, device=first_grad_output.device
+        )
+        task_row_starts = torch.empty(
+            capacity, dtype=torch.int32, device=first_grad_output.device
+        )
+        task_row_ends = torch.empty(
+            capacity, dtype=torch.int32, device=first_grad_output.device
+        )
+        torch.ops.torch_ggml_ops._grouped_mmq_pair_grad_input_row_task_launch.default(
+            first_grad_output,
+            second_grad_output,
+            first_packed_weight,
+            second_packed_weight,
+            expert_indices,
+            expert_offsets,
+            quant_type,
+            in_features,
+            grad_input,
+            task_count,
+            task_experts,
+            task_row_starts,
+            task_row_ends,
+        )
+        return grad_input
     torch.ops.torch_ggml_ops._grouped_mmq_pair_grad_input_launch.default(
         first_grad_output,
         second_grad_output,

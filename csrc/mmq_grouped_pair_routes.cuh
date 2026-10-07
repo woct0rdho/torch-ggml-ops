@@ -210,4 +210,97 @@ void grouped_mmq_pair_grad_input_launch_cuda(
         current_stream(first_grad_output));
 }
 
+void grouped_mmq_pair_grad_input_row_task_launch_cuda(
+        const Tensor & first_grad_output,
+        const Tensor & second_grad_output,
+        const Tensor & first_packed_weight,
+        const Tensor & second_packed_weight,
+        const Tensor & expert_indices,
+        const Tensor & expert_offsets,
+        int64_t quant_type,
+        int64_t in_features,
+        Tensor grad_input,
+        Tensor task_count,
+        Tensor task_experts,
+        Tensor task_row_starts,
+        Tensor task_row_ends) {
+    const GroupedMMQShape shape = validate_grouped_mmq_grad_input(
+        first_grad_output,
+        first_packed_weight,
+        expert_indices,
+        expert_offsets,
+        quant_type,
+        in_features);
+    const GroupedMMQShape second_shape = validate_grouped_mmq_grad_input(
+        second_grad_output,
+        second_packed_weight,
+        expert_indices,
+        expert_offsets,
+        quant_type,
+        in_features);
+    STD_TORCH_CHECK(
+        shape.rows == second_shape.rows &&
+            shape.out_features == second_shape.out_features &&
+            shape.bytes_per_expert == second_shape.bytes_per_expert,
+        "paired grouped gradients have different exact problems");
+    const int row_task_rows =
+        torch_ggml_ops::mmq_bundle::exact_deployment_row_task_rows(
+            torch_ggml_ops::mmq_bundle::kGroupedBackwardPair,
+            static_cast<std::int32_t>(quant_type), shape.rows,
+            shape.out_features, shape.in_features);
+    STD_TORCH_CHECK(
+        row_task_rows > 0,
+        "the deployed paired grouped backward for this key does not use device row tasks");
+    const int max_tasks =
+        (shape.rows + row_task_rows - 1) / row_task_rows + shape.num_groups;
+    STD_TORCH_CHECK(
+        max_tasks <=
+            torch_ggml_ops::mmq_bundle::exact_deployment_row_task_capacity(
+                torch_ggml_ops::mmq_bundle::kGroupedBackwardPair,
+                static_cast<std::int32_t>(quant_type), shape.rows,
+                shape.out_features, shape.in_features),
+        "paired grouped row-task capacity exceeds the deployment bound");
+    validate_explicit_buffer(
+        grad_input,
+        first_grad_output,
+        ScalarType::BFloat16,
+        static_cast<int64_t>(shape.rows) * shape.in_features,
+        "grad_input");
+    STD_TORCH_CHECK(
+        grad_input.dim() == 2 && grad_input.size(0) == shape.rows &&
+            grad_input.size(1) == shape.in_features,
+        "grad_input has an invalid paired grouped shape");
+    validate_explicit_vector(
+        task_count, first_grad_output, ScalarType::Int, 1, "task_count");
+    validate_explicit_vector(
+        task_experts, first_grad_output, ScalarType::Int, max_tasks, "task_experts");
+    validate_explicit_vector(
+        task_row_starts, first_grad_output, ScalarType::Int, max_tasks, "task_row_starts");
+    validate_explicit_vector(
+        task_row_ends, first_grad_output, ScalarType::Int, max_tasks, "task_row_ends");
+    torch::stable::accelerator::DeviceGuard guard(
+        first_grad_output.get_device_index());
+    torch_ggml_ops::mmq_bundle::launch_grouped_pair_backward_row_tasks(
+        static_cast<std::int32_t>(quant_type),
+        static_cast<const __hip_bfloat16 *>(first_grad_output.const_data_ptr()),
+        static_cast<const __hip_bfloat16 *>(second_grad_output.const_data_ptr()),
+        static_cast<const char *>(first_packed_weight.const_data_ptr()),
+        static_cast<const char *>(second_packed_weight.const_data_ptr()),
+        static_cast<__hip_bfloat16 *>(grad_input.mutable_data_ptr()),
+        static_cast<const int64_t *>(expert_indices.const_data_ptr()),
+        static_cast<const int32_t *>(expert_offsets.const_data_ptr()),
+        shape.num_experts,
+        shape.num_groups,
+        shape.rows,
+        shape.out_features,
+        shape.in_features,
+        shape.bytes_per_expert,
+        task_count.mutable_data_ptr(),
+        task_experts.mutable_data_ptr(),
+        task_row_starts.mutable_data_ptr(),
+        task_row_ends.mutable_data_ptr(),
+        max_tasks,
+        current_stream(first_grad_output));
+}
+
 } // namespace

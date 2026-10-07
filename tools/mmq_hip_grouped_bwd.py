@@ -317,6 +317,30 @@ class InstalledGroupedBackwardRowTaskControl(_HIPModule):
     def threads(self) -> int:
         return self.THREADS.get(self.spec.symbol, 128)
 
+    @classmethod
+    def record_geometry(
+        cls, symbol: str, out_features: int, in_features: int
+    ) -> tuple[tuple[int, int, int], tuple[int, int, int], int, int]:
+        """Return `(grid, block, shared_bytes, row_task_rows)` for one record.
+
+        The device grid is derived from the same constants the launch uses, so
+        the generated deployment record and the runtime agree without loading
+        the artifact. The grid's Y dimension is the task capacity, which every
+        launch replaces with the capacity of its own route bank.
+        """
+
+        spec = _SYMBOL_SPECS.get(symbol)
+        if spec is None or not symbol.startswith("grouped_bwd_row_task_"):
+            raise HIPRuntimeError(
+                f"no grouped-backward row-task control for symbol {symbol!r}"
+            )
+        return (
+            ((in_features + spec.tiled_n - 1) // spec.tiled_n, 0, 1),
+            (cls.THREADS.get(symbol, 128), 1, 1),
+            0,
+            cls.ROW_TILES.get(symbol, cls.ROW_TASK_ROWS),
+        )
+
     def __init__(
         self,
         symbol: str,

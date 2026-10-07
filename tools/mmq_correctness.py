@@ -365,7 +365,9 @@ def _route(case: DeploymentCase, device: torch.device) -> RouteData | None:
     # The installed paired-backward Q3 control dispatches M64 only when the
     # aggregate rows are below 128 rows per active route. Keep the neutral
     # route large enough to exercise that exact selected control.
-    if case.operation == "GroupedBackwardPair":
+    if case.operation == "GroupedBackwardPair" and case.instance is not None:
+        # HIP-only paired controls carry no GGTensile instance. Their route
+        # shape follows the same neutral construction as the other families.
         spec = case.instance.kernel_spec
         assert isinstance(spec, GroupedBackwardPairKernelSpec)
         macro_tile = spec.compute.geometry.macro_tile0

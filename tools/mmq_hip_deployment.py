@@ -453,6 +453,13 @@ class RoutedControl:
     value: int | None
     symbol: str
     tile: int | None = None
+    # Family-level deployed geometry. `rows` is the set of aggregate routed row
+    # counts the generation materializes, `experts` the route capacity used to
+    # size the device task bank, and `pair_single` marks a paired operation that
+    # the deployed family serves as one single-projection body per projection.
+    experts: int = 0
+    rows: tuple[int, ...] = ()
+    pair_single: bool = False
 
     @property
     def key(self) -> tuple[str, str, int, int]:
@@ -494,6 +501,9 @@ def routed_table() -> tuple[RoutedControl, ...]:
         quant_type = family["quant_type"]
         out_features = int(family["n"])
         in_features = int(family["k"])
+        family_experts = int(family.get("experts", 0))
+        family_rows = tuple(int(row) for row in family.get("rows", ()))
+        pair_single = bool(family.get("pair_single", False))
         for rule in family["rules"]:
             when = rule["when"]
             if when not in _ROUTED_PREDICATES:
@@ -509,6 +519,9 @@ def routed_table() -> tuple[RoutedControl, ...]:
                     value=None if value is None else int(value),
                     symbol=rule["symbol"],
                     tile=None if rule.get("tile") is None else int(rule["tile"]),
+                    experts=family_experts,
+                    rows=family_rows,
+                    pair_single=pair_single,
                 )
             )
     return tuple(controls)

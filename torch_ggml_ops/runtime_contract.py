@@ -2,19 +2,12 @@
 
 QUANT_WORKSPACE_BLOCK_VALUES = 128
 QUANT_WORKSPACE_BLOCK_BYTES = 144
-PAIRED_ROW_TASK_ROWS = 64
-PAIRED_ROW_TASK_QUANT_TYPES = frozenset({11, 22})
 
 
 def quant_workspace_elements(numel: int) -> int:
     """Return the uint8 workspace elements required by quantization."""
     assert numel >= 0
     return (numel // QUANT_WORKSPACE_BLOCK_VALUES) * QUANT_WORKSPACE_BLOCK_BYTES
-
-
-def paired_row_task_rows(quant_type: int) -> int:
-    """Return the row-task tile for the paired deployment, or zero."""
-    return PAIRED_ROW_TASK_ROWS if quant_type in PAIRED_ROW_TASK_QUANT_TYPES else 0
 
 
 def paired_row_task_capacity(

@@ -420,6 +420,7 @@ def build_launcher(
     reduce_modules: list[Any] = []
     split_slices = 0
     split_k_shape: tuple[int, int, int] | None = None
+    assert case.instance is not None
     problem = case.instance.problem
     spec = case.instance.kernel_spec
     # The routed tensor carries the aggregate row count on axis 0: forward

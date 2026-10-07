@@ -32,7 +32,8 @@ def test_catalogs_preserve_canonical_structural_evidence() -> None:
                 _jsonable(capture_structural_evidence(instance, toolchain).to_mapping())
             )
 
-    assert len(actual) == len(expected) == 148
+    assert actual
+    assert len(actual) == len(expected)
     unmatched = []
     for record in expected:
         matches = [

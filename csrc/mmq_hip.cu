@@ -9,6 +9,7 @@
 
 #include "mmq_bundle.h"
 #include "mmq_dense_fixed_routes.cuh"
+#include "mmq_dense_split.cuh"
 #include "mmq_dense_validation.cuh"
 #include "mmq_fixed_validation.cuh"
 #include "mmq_grouped_pair_routes.cuh"
@@ -53,6 +54,19 @@ STABLE_TORCH_LIBRARY(torch_ggml_ops, m) {
     m.def("_grouped_mmq_pair_grad_input_launch(Tensor first_grad_output, Tensor second_grad_output, "
           "Tensor first_packed_weight, Tensor second_packed_weight, Tensor expert_indices, "
           "Tensor expert_offsets, int quant_type, int in_features, Tensor(a!) grad_input) -> ()");
+    m.def("_mmq_grad_input_split_launch(Tensor grad_output, Tensor packed_weight, int quant_type, "
+          "int in_features, Tensor(a!) partials) -> ()");
+    m.def("_mmq_grad_input_split_reduce_launch(Tensor partials, Tensor(a!) grad_input, int rows, "
+          "int in_features, int slices) -> ()");
+    m.def("_grouped_mmq_grad_input_row_task_launch(Tensor grad_output, Tensor packed_weight, "
+          "Tensor expert_indices, Tensor expert_offsets, int quant_type, int in_features, "
+          "Tensor(a!) grad_input, Tensor(b!) task_count, Tensor(c!) task_experts, "
+          "Tensor(d!) task_row_starts, Tensor(e!) task_row_ends) -> ()");
+    m.def("_grouped_mmq_pair_grad_input_row_task_launch(Tensor first_grad_output, "
+          "Tensor second_grad_output, Tensor first_packed_weight, Tensor second_packed_weight, "
+          "Tensor expert_indices, Tensor expert_offsets, int quant_type, int in_features, "
+          "Tensor(a!) grad_input, Tensor(b!) task_count, Tensor(c!) task_experts, "
+          "Tensor(d!) task_row_starts, Tensor(e!) task_row_ends) -> ()");
 }
 
 STABLE_TORCH_LIBRARY_IMPL(torch_ggml_ops, CUDA, m) {
@@ -64,6 +78,10 @@ STABLE_TORCH_LIBRARY_IMPL(torch_ggml_ops, CUDA, m) {
     m.impl("_grouped_mmq_grad_input_launch", TORCH_BOX(&grouped_mmq_grad_input_launch_cuda));
     m.impl("_grouped_mmq_pair_launch", TORCH_BOX(&grouped_mmq_pair_launch_cuda));
     m.impl("_grouped_mmq_pair_grad_input_launch", TORCH_BOX(&grouped_mmq_pair_grad_input_launch_cuda));
+    m.impl("_mmq_grad_input_split_launch", TORCH_BOX(&mmq_grad_input_split_launch_cuda));
+    m.impl("_mmq_grad_input_split_reduce_launch", TORCH_BOX(&mmq_grad_input_split_reduce_launch_cuda));
+    m.impl("_grouped_mmq_grad_input_row_task_launch", TORCH_BOX(&grouped_mmq_grad_input_row_task_launch_cuda));
+    m.impl("_grouped_mmq_pair_grad_input_row_task_launch", TORCH_BOX(&grouped_mmq_pair_grad_input_row_task_launch_cuda));
 }
 
 extern "C" PyObject * PyInit__C(void) {

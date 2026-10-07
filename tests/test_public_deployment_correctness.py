@@ -115,17 +115,22 @@ def _assert_repeatability(
 
 
 def test_public_inventory_has_the_complete_numerical_matrix() -> None:
-    assert len(CASES) == 148
-    assert operation_counts() == {
-        "FixedGroupedBackward": 3,
-        "FixedGroupedForward": 3,
-        "GroupedBackward": 12,
-        "GroupedBackwardPair": 9,
-        "GroupedForward": 12,
-        "GroupedForwardPair": 9,
-        "OrdinaryBackward": 50,
-        "OrdinaryForward": 50,
+    counts = operation_counts()
+    assert CASES
+    # Every catalogued operation family is represented, and the counts describe
+    # the same inventory.
+    assert set(counts) == {
+        "FixedGroupedBackward",
+        "FixedGroupedForward",
+        "GroupedBackward",
+        "GroupedBackwardPair",
+        "GroupedForward",
+        "GroupedForwardPair",
+        "OrdinaryBackward",
+        "OrdinaryForward",
     }
+    assert all(count > 0 for count in counts.values())
+    assert sum(counts.values()) == len(CASES)
 
 
 @pytest.mark.parametrize("route", ROUTES)

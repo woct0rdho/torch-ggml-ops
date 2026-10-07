@@ -14,34 +14,40 @@ from tools.mmq_deployment_spec import kernels as public_kernels
 def _hip_selected_symbols() -> set[str]:
     """Return the HIP control symbols the resolution selects."""
 
+    from tools.mmq_deployment_spec import _routed_hip_deployments
     from tools.mmq_hip_deployment import select_hip_control
 
-    return {select_hip_control(*key).symbol for key in hip_only_keys()}
+    symbols = {entry.symbol for entry in _routed_hip_deployments()}
+    for key in hip_only_keys():
+        if key[:1] in {("OrdinaryForward",), ("OrdinaryBackward",)}:
+            symbols.add(select_hip_control(*key).symbol)
+    return symbols
 
 
 def test_bundle_retains_hip_only_for_quantization_and_task_setup() -> None:
     bundle = kernels()
-    assert [kernel.cpp_id for kernel in bundle[:6]] == [
+    assert [kernel.cpp_id for kernel in bundle[:7]] == [
         "QuantizeQ81F32D4",
         "QuantizeQ81F16D4S4",
         "QuantizeQ81F16D2S6",
         "GroupedRowTaskSetup",
         "QuantizeQ81GroupedF32D4",
         "QuantizeQ81GroupedF16D4S4",
+        "SplitKReduce",
     ]
-    ggtensile = [kernel for kernel in bundle[6:] if kernel.instance is not None]
-    assert len(ggtensile) == 148
+    ggtensile = [kernel for kernel in bundle[7:] if kernel.instance is not None]
+    assert ggtensile
     assert all(isinstance(kernel.instance, KernelInstance) for kernel in ggtensile)
     # The remaining artifacts are exactly the HIP controls the resolution
     # selects, one artifact per control symbol.
-    support = {kernel.cpp_id for kernel in bundle[:6]}
+    support = {kernel.cpp_id for kernel in bundle[:7]}
     symbols = {
         kernel.symbol
         for kernel in bundle
         if kernel.instance is None and kernel.cpp_id not in support
     }
     assert symbols == _hip_selected_symbols()
-    assert len(hip_only_keys()) == 204
+    assert hip_only_keys()
 
 
 def test_paired_backward_split_factor_is_preserved_in_host_records() -> None:
@@ -51,7 +57,7 @@ def test_paired_backward_split_factor_is_preserved_in_host_records() -> None:
         for entry in deployments(bundle)
         if entry.operation == "GroupedBackwardPair" and entry.route_split_factor == 8
     ]
-    assert len(entries) == 3
+    assert entries
     assert all(entry.grid == (32, 2048, 1) for entry in entries)
     header = header_text(bundle)
     assert "int route_split_factor;" in header

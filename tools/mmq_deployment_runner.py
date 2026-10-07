@@ -2,11 +2,12 @@
 
 import contextlib
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import torch
 
 from tools.ggtensile.family_registry import instance_name
+from tools.ggtensile.kernel_instance import KernelInstance
 from tools.mmq_correctness import CorrectnessPrerequisite, PreparedCase
 from tools.mmq_deployment_cases import DeploymentCase, public_artifact_path
 from tools.mmq_launch import (
@@ -146,7 +147,7 @@ def _deployed(
             stack=stack,
             root=root,
             artifact=artifact,
-            instance=instance_name(case.instance),
+            instance=instance_name(cast(KernelInstance, case.instance)),
             route_entries=(
                 int(route.expert_indices.numel()) if route is not None else None
             ),

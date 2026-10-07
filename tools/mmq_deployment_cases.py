@@ -37,7 +37,7 @@ class DeploymentCase:
     out_features: int
     in_features: int
     tensor_source: TensorSource
-    instance: KernelInstance
+    instance: KernelInstance | None
 
     def to_mapping(self) -> dict[str, object]:
         """Return report-safe route metadata without importing `bench`."""

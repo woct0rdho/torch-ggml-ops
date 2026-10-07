@@ -508,6 +508,34 @@ class InstalledGroupedBackwardPairRowTaskControl(_HIPModule):
     def row_tile(self) -> int:
         return self.ROW_TILES.get(self.symbol, self.ROW_TASK_ROWS)
 
+    @classmethod
+    def record_geometry(
+        cls, symbol: str, out_features: int, in_features: int
+    ) -> tuple[tuple[int, int, int], tuple[int, int, int], int, int]:
+        """Return `(grid, block, shared_bytes, row_task_rows)` for one record.
+
+        The device grid is derived from the same constants the launch uses, so
+        the generated deployment record and the runtime agree without loading
+        the artifact. The grid's Y dimension is the task capacity, which every
+        launch replaces with the capacity of its own route bank.
+        """
+
+        if symbol not in cls._SYMBOLS:
+            raise HIPRuntimeError(
+                f"no installed paired row-task control for symbol {symbol!r}"
+            )
+        column_tile = cls.COLUMN_TILES.get(symbol, 64)
+        if in_features % column_tile:
+            raise HIPRuntimeError(
+                "paired row-task output width is not a multiple of the column tile"
+            )
+        return (
+            (in_features // column_tile, 0, 1),
+            (cls.THREADS.get(symbol, 128), 1, 1),
+            0,
+            cls.ROW_TILES.get(symbol, cls.ROW_TASK_ROWS),
+        )
+
     def __init__(
         self,
         symbol: str,
