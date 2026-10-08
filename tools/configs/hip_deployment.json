@@ -196,6 +196,42 @@
           "n": 12288,
           "k": 2560,
           "symbol": "dense_bwd_q3_k_pipea_nt64_ki64_mw2_pad8_prefetch"
+        },
+        {
+          "m": 2048,
+          "n": 2560,
+          "k": 6144,
+          "symbol": "dense_bwd_q3_k_pipea_nt64_ki64_mw4_sw16_prefetch"
+        },
+        {
+          "m": 8192,
+          "n": 2560,
+          "k": 6144,
+          "symbol": "dense_bwd_q3_k_pipea_nt64_ki64_mw4_pad8_prefetch"
+        },
+        {
+          "m": 32768,
+          "n": 2560,
+          "k": 6144,
+          "symbol": "dense_bwd_q3_k_pipea_nt64_ki64_mw4_pad8_prefetch"
+        },
+        {
+          "m": 2048,
+          "n": 2048,
+          "k": 4096,
+          "symbol": "dense_bwd_q3_k_pipea_nt64_ki64_mw2_pad8_prefetch"
+        },
+        {
+          "m": 8192,
+          "n": 2048,
+          "k": 4096,
+          "symbol": "dense_bwd_q3_k_pipea_nt64_ki64_mw2_sw16_prefetch"
+        },
+        {
+          "m": 32768,
+          "n": 2048,
+          "k": 4096,
+          "symbol": "dense_bwd_q3_k_pipea_nt64_ki64_mw2_sw16_prefetch"
         }
       ]
     },
@@ -904,6 +940,42 @@
           "n": 12288,
           "k": 2560,
           "symbol": "dense_fwd_q3_k_k2560_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 2560,
+          "k": 6144,
+          "symbol": "dense_fwd_q3_k_k6144_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 2560,
+          "k": 6144,
+          "symbol": "dense_fwd_q3_k_k6144_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 2560,
+          "k": 6144,
+          "symbol": "dense_fwd_q3_k_k6144_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 2048,
+          "k": 4096,
+          "symbol": "dense_fwd_q3_k_k4096_j128_full"
+        },
+        {
+          "m": 8192,
+          "n": 2048,
+          "k": 4096,
+          "symbol": "dense_fwd_q3_k_k4096_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 2048,
+          "k": 4096,
+          "symbol": "dense_fwd_q3_k_k4096_j128_full"
         }
       ]
     },
@@ -1744,6 +1816,24 @@
           "n": 12288,
           "k": 2560,
           "symbol": "dense_fwd_iq4_xs_k2560_j128_full"
+        },
+        {
+          "m": 2048,
+          "n": 2560,
+          "k": 6144,
+          "symbol": "dense_fwd_iq4_xs_k6144_j128_full_frag"
+        },
+        {
+          "m": 8192,
+          "n": 2560,
+          "k": 6144,
+          "symbol": "dense_fwd_iq4_xs_k6144_j128_full"
+        },
+        {
+          "m": 32768,
+          "n": 2560,
+          "k": 6144,
+          "symbol": "dense_fwd_iq4_xs_k6144_j128_full"
         }
       ]
     },
@@ -2008,6 +2098,24 @@
           "n": 6144,
           "k": 2560,
           "symbol": "dense_bwd_iq4_xs_pipea_nt64_ki64_mw2_sw16_prefetch"
+        },
+        {
+          "m": 2048,
+          "n": 2560,
+          "k": 6144,
+          "symbol": "dense_bwd_iq4_xs_pipea_nt64_ki64_mw4_sw16_prefetch"
+        },
+        {
+          "m": 8192,
+          "n": 2560,
+          "k": 6144,
+          "symbol": "dense_bwd_iq4_xs_pipea_nt64_ki64_mw4_pad8_prefetch"
+        },
+        {
+          "m": 32768,
+          "n": 2560,
+          "k": 6144,
+          "symbol": "dense_bwd_iq4_xs_pipea_nt64_ki64_mw2_sw8_prefetch"
         }
       ]
     }

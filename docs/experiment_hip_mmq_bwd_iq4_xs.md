@@ -2,7 +2,7 @@
 
 ## Scope
 
-This record covers the gfx1151 HIP input-gradient backward kernels for IQ4_XS weights on the Qwen4-Exp checkpoint `Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` (`qwen4_exp_text`, 48 layers, hidden size 2560, 512 experts with top-10 routing). The type carries the QSA query projection of 4 of the 12 attention layers, a few key, value and shared-expert tensors, and both GatedDeltaNet projections that are in scope, 77.5 MiB of packed weights. The 48 layers mix recipes, and a projection family whose type has no body falls back to a dequantizing multiply.
+This record covers the gfx1151 HIP input-gradient backward kernels for IQ4_XS weights on the Qwen4-Exp checkpoint `Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` (`qwen4_exp_text`, 48 layers, hidden size 2560, 512 experts with top-10 routing). The type carries the QSA query projection of 4 of the 12 attention layers, a few key, value and shared-expert tensors, and every GatedDeltaNet projection, 77.5 MiB of packed weights. The 48 layers mix recipes, and a projection family whose type has no body falls back to a dequantizing multiply. GatedDeltaNet `out_proj` is the widest user of this type after the query projection: its `(2560,6144)` key is carried by 17 of the 36 recurrent layers, and with the file's value-head order kept end to end it needs no input permutation (`gdn_tiled_value_heads.py` in the training project).
 
 The type is the only one of the dense backward family with a 256-wide block *and* sub-block scales. `QK_K = 256` weights share a 136-byte block: an fp16 base scale, a 16-bit high plane and a 4-byte low plane carrying eight 6-bit signed sub-block scales, then a 128-byte payload. Each 32-value sub-block has its own scale, and within it the sixteen payload bytes carry both nibble planes: byte `j` holds value `j` in its low nibble and value `j + 16` in its high nibble. Every nibble indexes the same 16-entry level table IQ4_NL uses, and a value is `d * (scale6 - 32) * level`.
 
@@ -25,6 +25,9 @@ The type is the only one of the dense backward family with a 256-wide block *and
 | GatedDeltaNet `in_proj_z` | `(2048,6144,2560)` | 29.241 | 1.290x | `dense_bwd_iq4_xs_pipea_nt64_ki64_mw2_sw16_prefetch` |
 | GatedDeltaNet `in_proj_z` | `(8192,6144,2560)` | 28.756 | 1.138x | `dense_bwd_iq4_xs_pipea_nt64_ki64_mw2_sw16_prefetch` |
 | GatedDeltaNet `in_proj_z` | `(32768,6144,2560)` | 27.406 | 1.066x | `dense_bwd_iq4_xs_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet `out_proj` | `(2048,2560,6144)` | 34.774 | 1.445x | `dense_bwd_iq4_xs_pipea_nt64_ki64_mw4_sw16_prefetch` |
+| GatedDeltaNet `out_proj` | `(8192,2560,6144)` | 35.534 | 1.397x | `dense_bwd_iq4_xs_pipea_nt64_ki64_mw4_pad8_prefetch` |
+| GatedDeltaNet `out_proj` | `(32768,2560,6144)` | 30.393 | 1.238x | `dense_bwd_iq4_xs_pipea_nt64_ki64_mw2_sw8_prefetch` |
 
 ## Kernel implementation
 
@@ -39,6 +42,18 @@ Two details of the layout are worth recording because the first implementation g
 The deployed bodies use `147 VGPR` at `22 SGPR` (two-row-tile) and `212 VGPR` at `22 SGPR` (four-row-tile), both at `16 KiB` LDS (two 64x64 bf16 tiles), spill-free.
 
 ## Optimization log
+
+### The GatedDeltaNet output projection key
+
+`out_proj` adds the `(2560,6144)` key, the longest contraction this type carries. The catalog holds five pipelined bodies for it - two row tiles crossed with the padded layout, the 16-way swizzle and the 8-way swizzle - and the choice follows the token count, because the body reads its geometry at runtime and needs no new artifact:
+
+| Token count | `mw4_sw16` | `mw4_pad8` | `mw2_sw8` | `mw2_sw16` (incumbent) | Deployed |
+| ---: | ---: | ---: | ---: | ---: | --- |
+| `2048` | `0.941-0.952x` | `0.949-0.957x` | `0.968-0.970x` | `1.000x` | `mw4_sw16` |
+| `8192` | `0.916-0.922x` | `0.911-0.914x` | `0.988-0.989x` | `1.000x` | `mw4_pad8` |
+| `32768` | `1.032-1.040x` | `1.016-1.019x` | `0.975-0.978x` | `1.000x` | `mw2_sw8` |
+
+Each range is three packed weights of the same shape, measured with paired sampling. The wider row tile is worth `5-9%` up to `M=8192` and loses at `M=32768`, where the narrower tile with the 8-way swizzle is `2.2-2.5%` ahead of the incumbent instead. The deployed body is within `9.8-9.9e-05` normalized RMSE of the BF16 product of the dequantized weight.
 
 ### Candidate screen
 

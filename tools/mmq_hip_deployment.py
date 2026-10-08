@@ -119,7 +119,7 @@ _DENSE_BACKWARD_BLOCK = (128, 1, 1)
 _Q3_K_LDS_BYTES = 40_448
 # A wide dense tile holds twice the weight rows, so its LDS is the J-row
 # activation tile plus 128 rows of that type's packed SRAM layout.
-_WIDE_LDS_BYTES = {"Q3_K": 61_952, "Q4_K": 57_856, "Q5_K": 57_856}
+_WIDE_LDS_BYTES = {"Q3_K": 61_952, "Q4_K": 57_856, "Q5_K": 57_856, "IQ4_XS": 57_856}
 _J64_LDS_BYTES = 28_928
 # The Q2_0 level table holds 256 expanded payload bytes behind the weight tile.
 _Q2_0_LEVEL_TABLE_BYTES = 1_024

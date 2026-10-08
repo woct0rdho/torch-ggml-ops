@@ -6,7 +6,7 @@ This record covers gfx1151 HIP packed-MMQ input-gradient kernels for Q3_K weight
 
 Backward shapes are written `(M,N,K)`, matching the weight's `(N,K) = (out_features, in_features)`. Beyond the Qwen query and narrow projections measured first, the type carries the QSA attention query, key/value and shared-expert gate/up projections of the Qwen4-Exp checkpoint `Qwen3.8-Flash-Next-GSQ-RCO-Q2_0` (hidden size 2560) and the GatedDeltaNet `in_proj_qkv` and `in_proj_z` projections of both checkpoints in use, at the training token counts of a sequence length 2048 batch (B1/B4/B16).
 
-GatedDeltaNet `out_proj` is deferred because wiring it needs the activation permutation. `token_embd.weight` `(248320,2560)` is an embedding gather rather than a multiply and stays on the GGUF embedding module.
+GatedDeltaNet `out_proj` is in scope as well: with the file's value-head order kept end to end it needs no input permutation, and its backward key is `(N,K) = (2560,6144)` in Qwen4 and `(2048,4096)` in Qwen3.6-35B-A3B APEX-I-Mini. `token_embd.weight` `(248320,2560)` is an embedding gather rather than a multiply and stays on the GGUF embedding module.
 
 ## Final kernel result
 
@@ -36,6 +36,12 @@ GatedDeltaNet `out_proj` is deferred because wiring it needs the activation perm
 | GatedDeltaNet Z APEX-I-Mini | `(2048,4096,2048)` | 30.971 | 1.847x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
 | GatedDeltaNet Z APEX-I-Mini | `(8192,4096,2048)` | 27.546 | 1.522x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
 | GatedDeltaNet Z APEX-I-Mini | `(32768,4096,2048)` | 27.504 | 1.501x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet `out_proj` | `(2048,2560,6144)` | 35.446 | 1.463x | `dense_bwd_q3_k_pipea_nt64_ki64_mw4_sw16_prefetch` |
+| GatedDeltaNet `out_proj` | `(8192,2560,6144)` | 36.388 | 1.410x | `dense_bwd_q3_k_pipea_nt64_ki64_mw4_pad8_prefetch` |
+| GatedDeltaNet `out_proj` | `(32768,2560,6144)` | 31.098 | 1.253x | `dense_bwd_q3_k_pipea_nt64_ki64_mw4_pad8_prefetch` |
+| GatedDeltaNet `out_proj` APEX-I-Mini | `(2048,2048,4096)` | 33.254 | 1.448x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_pad8_prefetch` |
+| GatedDeltaNet `out_proj` APEX-I-Mini | `(8192,2048,4096)` | 28.364 | 1.189x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
+| GatedDeltaNet `out_proj` APEX-I-Mini | `(32768,2048,4096)` | 28.988 | 1.217x | `dense_bwd_q3_k_pipea_nt64_ki64_mw2_sw16_prefetch` |
 
 ## Kernel implementation
 
@@ -62,6 +68,14 @@ K-loop unrolling, activation-half double buffering, generic padding, decoded-wei
 The new shapes span contraction lengths from `512` to `12288` and output widths from `2048` to `2560`. The padded body covered them first at `22.3-27.5 TFLOPS`, inside the band of the six rows measured first (`22.6-25.3`). The pipelined tile below then took twenty of the twenty-four keys.
 
 The rate is not uniform in the contraction length: the short-contraction key, value and shared-expert shapes run at `24.3-27.5 TFLOPS` while the long-contraction query and QKV shapes run at `22.3-24.2`. The BF16 `torch.mm` baseline does not pay the packed decode, so the ratio against it crosses one inside this set: the narrow Qwen4 shapes are above it (`1.14-1.15x` at `M=2048`) and the longest contractions are below it (`0.93x`). That is the representation cost this record already names, and bringing it down needs a cheaper decode or a denser weight layout rather than another tiling sweep.
+
+### The GatedDeltaNet output projection keys
+
+`out_proj` adds two keys that no other projection of this type shares: `(2560,6144)` and `(2048,4096)`, both with the longest contraction of any Q3_K backward key. No new body was needed, because the dense backward bodies read their geometry at runtime. The work is the per-key choice of tile, and the long contraction changes it. The catalog holds four pipelined bodies for this type, two row tiles (`mw2`, `mw4`) crossed with the padded LDS layout and the 16-way swizzle, and every key was measured against all of them with paired sampling on two different packed weights of the same shape.
+
+On `(2560,6144)` the wider row tile wins every token count: `mw4_sw16` is `0.928-0.932x` of the deployed `mw2_sw16` at `M=2048`, `mw4_pad8` is `0.872-0.875x` at `M=8192` and `0.960-0.962x` at `M=32768`, i.e. `7-13%`. On `(2048,4096)` the same comparison splits by token count: `mw2_pad8` is `0.949x` at `M=2048`, while `mw4_sw16` is `1.011x` at `M=8192` and `1.052-1.083x` at `M=32768`, so those two keys keep `mw2`.
+
+The reading is consistent with the length effect the Qwen4 section above reports: at a 6144-long contraction a `mw4` block's whole-tile staging pays for itself, and at 4096 it does not. Every deployed body is within `5.7-7.0e-05` normalized RMSE of the BF16 product of the dequantized weight, i.e. at the BF16 floor.
 
 ### Packaged-kernel controls
 

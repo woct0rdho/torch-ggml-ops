@@ -77,7 +77,7 @@ Every failure occurs before quantization, task setup, or multiply launch. Native
 
 All selected winners are loaded from the strict canonical catalogs in `tools/ggtensile/configs/mmq_*_catalog.json`.
 
-The current public bundle contains 224 independently loadable artifacts:
+The current public bundle contains 228 independently loadable artifacts:
 
 | Artifact class | Count |
 | --- | ---: |
@@ -92,9 +92,9 @@ The current public bundle contains 224 independently loadable artifacts:
 | Grouped paired backward GGTensile | 9 |
 | Fixed grouped forward GGTensile | 3 |
 | Fixed grouped backward GGTensile | 3 |
-| HIP controls | 69 |
+| HIP controls | 73 |
 
-The 69 HIP controls serve 222 exact records: 207 ordinary dense keys, the 15 routed Qwen3.8 Q2_0 keys, and the three split-contraction Q5_K LM-head backward keys.
+The 73 HIP controls serve 240 exact records: 225 ordinary dense keys, the 15 routed Qwen3.8 Q2_0 keys, and the three split-contraction Q5_K LM-head backward keys.
 
 Resolution happens once, at generation time: a problem whose key is in a GGTensile catalog is served by that kernel, and a deployed problem without one is served by its HIP control. Both catalogs stay the single source of truth for their own winner, and the rule prefers GGTensile even where the HIP control is currently faster. A launch is therefore one host-table lookup with no runtime arbitration. Every routed and fixed-group problem of the two migrated families has a GGTensile kernel, so for them the fallback covers ordinary dense problems only. The Qwen3.8 Q2_0 routed family is HIP-only and is deployed through the routed rules of the same catalog.
 
@@ -195,7 +195,7 @@ Artifact read, module load, symbol lookup, or launch failure is fatal and names 
 
 `M`, `N`, and `K` below are exact problem coordinates: `M` is the row count, `N` is the weight's `out_features` (its packed rows) and `K` is its `in_features` (the values per packed row), in both directions. Forward computes `[M,K] @ [N,K]^T -> [M,N]`. Backward computes the input gradient `[M,N] @ [N,K] -> [M,K]`. Both directions therefore list the same `(N,K)` for a quant type.
 
-The table lists every GGTensile key. A deployed ordinary dense problem outside it, such as the Q2_0, Q4_0, Q5_0, IQ4_NL, and IQ4_XS matrices, the extra shapes of the shared quant types, and the chunked Q5_K LM-head keys, is served by the HIP control its key selects. The Qwen3.8 matrices widen the deployed set with `(N,K)` in `{(12288,2560),(6144,2560),(10240,2560),(640,2560),(2560,640),(512,2560)}` for Q2_0, Q3_K, Q4_K, Q5_K, Q6_K, Q4_0, Q5_0, Q8_0, IQ4_NL and IQ4_XS, and with `M in {64,128,256}`, `(N,K)=(248320,2560)` for the split-contraction Q5_K LM head in both directions.
+The table lists every GGTensile key. A deployed ordinary dense problem outside it, such as the Q2_0, Q4_0, Q5_0, IQ4_NL, and IQ4_XS matrices, the extra shapes of the shared quant types, and the chunked Q5_K LM-head keys, is served by the HIP control its key selects. The Qwen3.8 matrices widen the deployed set with `(N,K)` in `{(12288,2560),(6144,2560),(10240,2560),(640,2560),(2560,640),(512,2560),(2560,6144)}` for Q2_0, Q3_K, Q4_K, Q5_K, Q6_K, Q4_0, Q5_0, Q8_0, IQ4_NL and IQ4_XS, and with `M in {64,128,256}`, `(N,K)=(248320,2560)` for the split-contraction Q5_K LM head in both directions. The two GatedDeltaNet output projections add `(2560,6144)` for Q3_K and IQ4_XS in both directions, which is what closes the last projection family that had no exact key, and `(2048,4096)` for Q3_K in the APEX-I-Mini checkpoint.
 
 A forward key and its backward key are selected independently. If a supported forward is used with an input requiring gradients, its corresponding backward key must also appear below.
 

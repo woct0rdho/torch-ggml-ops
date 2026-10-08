@@ -6,7 +6,7 @@ This record covers the gfx1151 HIP packed-MMQ forward kernels for Q3_K weights.
 
 Q3_K carries the ordinary projections of the Qwen3.6-35B-A3B (APEX-I-Mini) and Qwen3.8-Flash-Next (GSQ-RCO-Q2_0) checkpoints, so the record also covers the QSA attention, shared-expert and GatedDeltaNet shapes those checkpoints add at hidden size 2560, at the training token counts of a sequence length 2048 batch (B1/B4/B16).
 
-The GatedDeltaNet `in_proj_qkv` and `in_proj_z` projections are in scope: the loader applies their tiled -> grouped value-head reorder to packed rows as whole blocks, so their packed weights are in the model's ordinary layout and need no permutation, copy or transpose (`gated_delta_net_layout.md`). GatedDeltaNet `out_proj` is deferred because wiring it needs the activation permutation, and `token_embd.weight` is an embedding gather rather than a multiply.
+Every GatedDeltaNet projection is in scope. `in_proj_qkv` and `in_proj_z` need no permutation because the loader applies their tiled -> grouped value-head reorder to packed rows as whole blocks (`gated_delta_net_layout.md`), and `out_proj` needs one only if the model converts that reorder back: with the file's value-head order kept end to end (`gdn_tiled_value_heads.py` in the training project) the projection consumes the packed columns in their own order. Its key is `(N,K) = (2560,6144)` in Qwen4, carried by 3 layers, and `(2048,4096)` in Qwen3.6-35B-A3B APEX-I-Mini, carried by 25 layers, so those are the two contraction lengths this record adds. `token_embd.weight` is an embedding gather rather than a multiply.
 
 ## Final kernel result
 
@@ -36,12 +36,18 @@ The GatedDeltaNet `in_proj_qkv` and `in_proj_z` projections are in scope: the lo
 | GatedDeltaNet Z APEX-I-Mini | `(2048,4096,2048)` | 24.093 | 1.18x | `dense_fwd_q3_k_k2048_j128_full` |
 | GatedDeltaNet Z APEX-I-Mini | `(8192,4096,2048)` | 23.765 | 1.16x | `dense_fwd_q3_k_k2048_j128_full` |
 | GatedDeltaNet Z APEX-I-Mini | `(32768,4096,2048)` | 23.893 | 1.16x | `dense_fwd_q3_k_k2048_j128_full` |
+| GatedDeltaNet `out_proj` | `(2048,2560,6144)` | 24.221 | 1.056x | `dense_fwd_q3_k_k6144_j128_full` |
+| GatedDeltaNet `out_proj` | `(8192,2560,6144)` | 24.063 | 1.199x | `dense_fwd_q3_k_k6144_j128_full` |
+| GatedDeltaNet `out_proj` | `(32768,2560,6144)` | 23.937 | 1.201x | `dense_fwd_q3_k_k6144_j128_full` |
+| GatedDeltaNet `out_proj` APEX-I-Mini | `(2048,2048,4096)` | 24.339 | 1.280x | `dense_fwd_q3_k_k4096_j128_full` |
+| GatedDeltaNet `out_proj` APEX-I-Mini | `(8192,2048,4096)` | 23.723 | 1.193x | `dense_fwd_q3_k_k4096_j128_full` |
+| GatedDeltaNet `out_proj` APEX-I-Mini | `(32768,2048,4096)` | 23.243 | 1.156x | `dense_fwd_q3_k_k4096_j128_full` |
 
 Every listed point is at or above the BF16 baseline on the multiply-only surface. The narrow families are well above it and the wide ones sit at the baseline.
 
 ## Kernel implementation
 
-Exact Q3_K K2048 and K2560 bodies fold the contraction length, matrix dimensions and packed offsets into the generated kernel while retaining bounds-safe fallback code for other shapes. Packed payload and scale state are held only for the active decode phase so it does not extend through the WMMA loop.
+Exact Q3_K K2048, K2560, K4096 and K6144 bodies fold the contraction length, matrix dimensions and packed offsets into the generated kernel while retaining bounds-safe fallback code for other shapes. The two longer lengths are the ones `out_proj` needs, and they are the same body with a different folded stage count (16 and 24 `K=256` blocks per packed row), so they inherit the K2048/K2560 geometry without a new premise: `I=64`, `J=128`, four waves, `40,448 B` of LDS and the same register count. Packed payload and scale state are held only for the active decode phase so it does not extend through the WMMA loop.
 
 ## Optimization log
 
@@ -69,6 +75,21 @@ The Q3_K K2048 exact wrapper was retained with a full J128 body. Across its meas
 
 The epilogue metadata of this quant was hoisted out of the column loop in the same way the Q6_K body deploys it. Over the full ordinary-shape A/B with the official protocol the change is neutral here (per-shape ratios inside `0.99x` to `1.01x`, no consistent direction), so the shipped body keeps the vendored target. The result is independent of tolerance because the body only moves loads: the arithmetic and the accumulation order are unchanged. Evidence: `~/tmp/torch-ggml-ops/retune_fwd/official/`.
 
+### Out-projection contraction lengths (K4096 and K6144)
+
+The two `out_proj` keys needed contraction lengths the type did not have yet, and both are exact in the sense of the other K wrappers: the stage count is folded and the row is a whole number of 256-value blocks. Over the six new points the exact body is `1.010-1.028x` of the generic control, the same small margin the K2560 work found at these result widths, and its output is bitwise identical to it. The three points at `(2560,6144)` run `23.9-24.2 TFLOPS` and the three at `(2048,4096)` run `23.2-24.3`.
+
+The other four levers this record already closed were re-measured on these shapes rather than inherited, because the result width is narrower here (`N=2560` or `2048`) while the contraction is the longest of any deployed Q3_K key, which is the one combination the earlier campaigns did not cover:
+
+| Arm | `(2048,2560,6144)` | `(8192,2560,6144)` | `(32768,2560,6144)` | `(2048,2048,4096)` | `(8192,2048,4096)` | `(32768,2048,4096)` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| wide `I=128` tile | `1.017x` | `1.021x` | `1.014x` | `1.090x` | `1.013x` | `1.015x` |
+| `J=64` tile | `1.083x` | `1.086x` | `1.089x` | `1.066x` | `1.068x` | `1.081x` |
+| fragment-order activation | `1.590x` | `1.594x` | `1.620x` | `1.633x` | `1.551x` | `1.575x` |
+| hoisted epilogue | `1.003x` | `0.999x` | `0.996x` | `1.002x` | `1.000x` | `1.001x` |
+
+All four lose or are neutral, so the deployed body is the plain exact one. The wide tile is the one worth a sentence: at this result width it makes the activation re-read per workgroup smaller in absolute terms than at `N=12288`, yet it still loses by the same `1.4-2.1%` it did at K2560, which is the occupancy cost of its `61,952 B` request (one resident workgroup against three). The fragment-order body loses much more heavily here than it does on Q2_0 or IQ4_XS: the Q3_K decode is the heaviest of the family, but the fragment body replaces a coalesced activation copy with sixteen scattered 32-byte group reads per instruction, and at these contractions the body has no decode slack left to absorb them. Evidence: `~/tmp/torch-ggml-ops/outproj/`.
+
 ### K2560 exact specialization and the wide tile
 
 The Qwen4-Exp and GatedDeltaNet shapes needed a second contraction length, `K=2560` (ten `K=256` blocks per packed row). Exact specialization of that length over the generic control is worth `1.8-5.8%` on every new shape, the same direction and size as the K2048 result, and its output is bitwise identical to the generic body. The epilogue hoist is again neutral at this length (`0.996-1.002x` over the same eighteen points), so the shipped body keeps the vendored target.
@@ -81,7 +102,7 @@ An isolated `v_wmma_i32_16x16x16_iu8` probe with this body's wave count, accumul
 
 ## Resources
 
-Both exact J128 bodies (K2048 and K2560) use `188 VGPR / 27 SGPR / 40,448 B LDS`. The rejected wide tile uses 256 threads and `61,952 B LDS` at the same register count.
+All exact J128 bodies of this type (K2048, K2560, K4096 and K6144) use `188 VGPR / 27 SGPR / 40,448 B LDS`, so the longer contractions cost nothing in resources and keep three resident workgroups per WGP. The rejected wide tile uses 256 threads and `61,952 B LDS` at the same register count.
 
 ## Evidence
 
@@ -102,6 +123,8 @@ The Qwen4-Exp and GatedDeltaNet points come from outside the public case list, b
 ~/tmp/torch-ggml-ops/qwen4_fwd/verify.py
 ~/tmp/torch-ggml-ops/qwen4_fwd/probe_v1.txt
 ```
+
+The `out_proj` round is staged from `~/tmp/torch-ggml-ops/outproj/`: the screen (`fwd_v1.txt`, `fwd_v1.json`), the higher-sample confirmations (`confirm_fwd.txt`, `confirm_frag.txt`, `confirm_frag_m2048.txt`, `confirm_frag_large.txt`), the bitwise check against the generic body (`verify_v1.txt`), and the deployed-key audit through the public route (`deployed_v1.txt`).
 
 The standalone artifact controls also include the retained generic sequential baseline and the detached Qwen control used to check that DeepSeek exact-body work did not alter Q3_K bytes:
 
